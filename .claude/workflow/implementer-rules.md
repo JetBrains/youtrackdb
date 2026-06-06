@@ -70,7 +70,19 @@ agent file isolation, context-window monitor, etc.) and the project
 rules in the repo's `CLAUDE.md` (which owns the MCP Steroid / PSI /
 Maven / refactoring rules). Beyond those and this file, the
 implementer reads the track file, the slim plan snapshot, and
-`design.md` (only if the step requires it).
+`design.md` for context only when the step requires it.
+
+**Frozen-design guard.** `design.md` is frozen after Phase 1
+(`design-document-rules.md` Rule 15). The implementer reads it for
+background (mechanism overviews, worked examples, diagrams that
+explain why a step is shaped the way it is) but **never resolves a
+decision from it**. The plan's Decision Records and the track file are
+the authoritative source of truth during execution; the frozen
+`design.md` may have diverged from a Decision Record the plan revised
+after planning. If the step needs a choice the plan and Decision
+Records do not settle, that is a design decision: return
+`DESIGN_DECISION_NEEDED` per §"Design decision detected" rather than
+reading the answer out of `design.md`.
 
 ---
 
@@ -86,7 +98,9 @@ inputs**.
 - `repo_root` — absolute path to the working tree.
 - `plan_slim_path` — `/tmp/claude-code-plan-slim-$PPID.md`.
 - `step_file_path` — `docs/adr/<dir-name>/_workflow/plan/track-<N>.md`.
-- `design_path` — `docs/adr/<dir-name>/_workflow/design.md` (read on demand only).
+- `design_path` — `docs/adr/<dir-name>/_workflow/design.md` (read on
+  demand, for context only — never to resolve a decision; see the
+  frozen-design guard in §Loading discipline).
 
 **Variable inputs** (per spawn):
 

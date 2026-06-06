@@ -22,26 +22,27 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Two operational modes | orchestrator,planner,final-designer | 1,3A,3C,4 | Working mode edits the polished design; sync mode re-distills it from the mechanics companion. |
-| §Skill inputs | orchestrator,planner,final-designer | 1,3A,3C,4 | The mutation kind, target file(s), and edit payload the skill consumes on each invocation. |
-| §Cold-read scope and check-set by mutation kind | orchestrator,planner,final-designer | 1,3A,3C,4 | The per-mutation-kind table mapping each kind to its target files, cold-read scope, and mechanical check set. |
-| §Workflow | orchestrator,planner,final-designer | 1,3A,3C,4 | The nine-step mutation loop: apply, distill, scope, check, cold-read, merge, iterate, log, present. |
-| §Step 1: Apply the edit | orchestrator,planner,final-designer | 1,3A,3C,4 | Apply the requested mutation to the target design file(s), stamping only on the creation kinds. |
-| §Step 1.5: Distillation (only for `design-sync`) | orchestrator,planner,final-designer | 1,3A,3C,4 | For design-sync only, re-distill the polished design from the current mechanics companion before the cold read. |
-| §Step 2: Determine cold-read scope | orchestrator,planner,final-designer | 1,3A,3C,4 | Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table. |
-| §Step 3: Run mechanical checks | orchestrator,planner,final-designer | 1,3A,3C,4 | Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read. |
-| §Step 4: Run the cold-read sub-agent | orchestrator,planner,final-designer | 1,3A,3C,4 | Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects. |
-| §Step 5: Merge findings | orchestrator,planner,final-designer | 1,3A,3C,4 | Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step. |
-| §Step 6: Iterate | orchestrator,planner,final-designer | 1,3A,3C,4 | Apply fixes and re-run the cold read until findings clear or the iteration cap is reached. |
-| §Step 7: Append to the review log | orchestrator,planner,final-designer | 1,3A,3C,4 | Append the mutation's record to the design-mutations log, which is itself exempt from stamping. |
-| §Step 8: Auto-suggest sync at N=5 (working mode only) | orchestrator,planner,final-designer | 1,3A,3C | In working mode, suggest a design-sync once five mechanics edits have accumulated since the last sync. |
-| §Step 9: Present to the user | orchestrator,planner,final-designer | 1,3A,3C,4 | Present the merged result and surviving findings to the user as the mutation's final output. |
-| §Staleness reconciliation | orchestrator,planner,final-designer | 1,3A,3C,4 | The prompt shown when a request references a polished design that mechanics edits have since outpaced. |
-| §Tools used | orchestrator,planner,final-designer | 1,3A,3C,4 | The tools the skill invokes: the mechanical-check script, Edit/Write, and the cold-read sub-agent spawn. |
-| §When NOT to use this skill | orchestrator,planner,final-designer | 1,3A,3C,4 | The cases that bypass the mutation discipline: non-design files and pure workflow-artifact edits. |
-| §Failure modes and recovery | orchestrator,planner,final-designer | 1,3A,3C,4 | How the skill recovers when a check fails, the cold read stalls, or the iteration budget is exhausted. |
-| §Examples | orchestrator,planner,final-designer | 1,3A,3C,4 | Worked examples of a content edit and a section rename run through the full mutation discipline. |
-| §Reference | orchestrator,planner,final-designer | 1,3A,3C,4 | On-demand pointers to the design-document rules, the file layout, and the mutation-kind definitions. |
+| §Two operational modes | orchestrator,planner,final-designer | 1,4 | Working mode edits the polished design; sync mode re-distills it from the mechanics companion. |
+| §Skill inputs | orchestrator,planner,final-designer | 1,4 | The mutation kind, target file(s), and edit payload the skill consumes on each invocation. |
+| §Cold-read scope and check-set by mutation kind | orchestrator,planner,final-designer | 1,4 | The per-mutation-kind table mapping each kind to its target files, cold-read scope, and mechanical check set. |
+| §Workflow | orchestrator,planner,final-designer | 1,4 | The nine-step mutation loop: apply, distill, scope, check, cold-read, merge, iterate, log, present. |
+| §Step 1: Apply the edit | orchestrator,planner,final-designer | 1,4 | Apply the requested mutation to the target design file(s), stamping only on the creation kinds. |
+| §Step 1.5: Distillation (only for `design-sync`) | orchestrator,planner,final-designer | 1,4 | For design-sync only, re-distill the polished design from the current mechanics companion before the cold read. |
+| §Step 2: Determine cold-read scope | orchestrator,planner,final-designer | 1,4 | Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table. |
+| §Step 3: Run mechanical checks | orchestrator,planner,final-designer | 1,4 | Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read. |
+| §Step 3.5: Run the adversarial sub-agent (`phase1-creation` only) | orchestrator,planner | 1 | For phase1-creation, challenge the design's decisions and assumptions before the cold-read assesses comprehension. |
+| §Step 4: Run the cold-read sub-agent | orchestrator,planner,final-designer | 1,4 | Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects. |
+| §Step 5: Merge findings | orchestrator,planner,final-designer | 1,4 | Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step. |
+| §Step 6: Iterate | orchestrator,planner,final-designer | 1,4 | Apply fixes and re-run the cold read until findings clear or the iteration cap is reached. |
+| §Step 7: Append to the review log | orchestrator,planner,final-designer | 1,4 | Append the mutation's record to the design-mutations log, which is itself exempt from stamping. |
+| §Step 8: Auto-suggest sync at N=5 (working mode only) | orchestrator,planner,final-designer | 1 | In working mode, suggest a design-sync once five mechanics edits have accumulated since the last sync. |
+| §Step 9: Present to the user | orchestrator,planner,final-designer | 1,4 | Present the merged result and surviving findings to the user as the mutation's final output. |
+| §Staleness reconciliation | orchestrator,planner,final-designer | 1,4 | The prompt shown when a request references a polished design that mechanics edits have since outpaced. |
+| §Tools used | orchestrator,planner,final-designer | 1,4 | The tools the skill invokes: the mechanical-check script, Edit/Write, and the cold-read sub-agent spawn. |
+| §When NOT to use this skill | orchestrator,planner,final-designer | 1,4 | The cases that bypass the mutation discipline: non-design files and pure workflow-artifact edits. |
+| §Failure modes and recovery | orchestrator,planner,final-designer | 1,4 | How the skill recovers when a check fails, the cold read stalls, or the iteration budget is exhausted. |
+| §Examples | orchestrator,planner,final-designer | 1,4 | Worked examples of a content edit and a section rename run through the full mutation discipline. |
+| §Reference | orchestrator,planner,final-designer | 1,4 | On-demand pointers to the design-document rules, the file layout, and the mutation-kind definitions. |
 
 <!--Document index end-->
 
@@ -56,11 +57,14 @@ atomic action so the structural rules are self-enforcing.
 `design.md` / `design-mechanics.md` and for every Phase 4 creation of
 `design-final.md` / `design-mechanics-final.md`.** That includes initial
 creation in Phase 1 (`phase1-creation`), interactive iteration ("add a
-section about X"), inline replanning during Phase 3 ESCALATE, and Phase 4
-production of the final committed artifacts (`phase4-creation`).
+section about X"), and Phase 4 production of the final committed artifacts
+(`phase4-creation`). The design is frozen after Phase 1 (`design-document-rules.md`
+Rule 15), so Phase 3 inline replanning never invokes this skill — replan design
+intent is recorded in the plan's Decision Records and the track narrative
+instead (see inline-replanning.md:orchestrator:3A,3C § Process).
 
 ## Two operational modes
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Working mode edits the polished design; sync mode re-distills it from the mechanics companion." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Working mode edits the polished design; sync mode re-distills it from the mechanics companion." -->
 
 The skill supports two complementary workflows. Pick by where you are in
 the plan lifecycle:
@@ -88,7 +92,7 @@ Full rationale, sub-phase diagram, and sync-trigger rules live in
 `design-document-rules.md § Two-mode editing — working vs sync`.
 
 ## Skill inputs
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="The mutation kind, target file(s), and edit payload the skill consumes on each invocation." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The mutation kind, target file(s), and edit payload the skill consumes on each invocation." -->
 
 The invoking agent supplies these when calling the skill:
 
@@ -109,7 +113,7 @@ mutation discipline depends on the agent stating the mutation kind explicitly
 so the cold-read scope and check-set are correct; do not guess.
 
 ## Cold-read scope and check-set by mutation kind
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="The per-mutation-kind table mapping each kind to its target files, cold-read scope, and mechanical check set." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The per-mutation-kind table mapping each kind to its target files, cold-read scope, and mechanical check set." -->
 
 The `--target` column reads as a function of whether
 `design-mechanics.md` exists at the time of the mutation. When a value
@@ -145,16 +149,20 @@ things and trigger different actions; do not collapse them mentally:
 | Periodic whole-doc counter | All mutation log entries except `mechanics-edit` | Never resets — running modulo over the log | Cold-read scope is escalated to `whole-doc` for the current mutation, regardless of its declared scope |
 | Working-mode counter | `mechanics-edit` entries since the most recent `design-sync` (or since `phase1-creation` if no sync has happened yet) | Resets to 0 on every `design-sync` | The skill surfaces *"5 mechanics edits have accumulated since the last sync — want me to run `design-sync`?"* at the next conversational turn (Step 8) |
 
-See design-document-rules.md:planner,final-designer:1,3A,3C,4 `§ Mutation discipline § Cold-read scope by mutation kind` for the canonical statement of both counters.
+See design-document-rules.md:planner,final-designer:1,4 `§ Mutation discipline § Cold-read scope by mutation kind` for the canonical statement of both counters.
 
 ## Workflow
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="The nine-step mutation loop: apply, distill, scope, check, cold-read, merge, iterate, log, present." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The mutation loop: apply, distill, scope, check, adversarial (phase1-creation), cold-read, merge, iterate, log, present." -->
 
 The high-level steps are the same across all mutation kinds; the differences
-are in which checks fire and whether cold-read runs.
+are in which checks fire and whether the adversarial and cold-read passes run.
+One step is kind-conditional: Step 3.5 (adversarial) runs **only** for
+`phase1-creation`, where it precedes the cold read so a fresh reader is not
+asked to assess a design the adversarial pass may still change. Every other
+kind goes straight from Step 3 (mechanical checks) to Step 4 (cold-read).
 
 ### Step 1: Apply the edit
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Apply the requested mutation to the target design file(s), stamping only on the creation kinds." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Apply the requested mutation to the target design file(s), stamping only on the creation kinds." -->
 
 Use the `Edit` tool (for focused edits) or `Write` (for full-file rewrites or
 new section creation). Read the target file first to satisfy the `Edit`
@@ -254,7 +262,7 @@ visual context. Every section name in `design-mechanics.md` matches the
 corresponding section name in `design.md` byte-for-byte so that each
 section's `Mechanics: design-mechanics.md §"<exact same section name>"`
 link resolves and the plan / track-file `**Full design**` references
-land in either file by name. See design-document-rules.md:planner,final-designer:1,3A,3C,4 `§ Length-triggered split into design-mechanics.md` for the
+land in either file by name. See design-document-rules.md:planner,final-designer:1,4 `§ Length-triggered split into design-mechanics.md` for the
 canonical split rule.
 
 Stamp the freshly-created `design-mechanics.md` before continuing.
@@ -302,7 +310,7 @@ or doesn't match, surface that to the user and stop. The mutation action
 does not paper over a malformed edit.
 
 ### Step 1.5: Distillation (only for `design-sync`)
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="For design-sync only, re-distill the polished design from the current mechanics companion before the cold read." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="For design-sync only, re-distill the polished design from the current mechanics companion before the cold read." -->
 
 Sync re-distills `design.md` from the current state of
 `design-mechanics.md`. The agent does the distillation:
@@ -331,7 +339,7 @@ Sync re-distills `design.md` from the current state of
 Apply the distilled `design.md` to disk via `Edit`/`Write`.
 
 ### Step 2: Determine cold-read scope
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table." -->
 
 Per the table above. For `mechanics-edit`, scope is `none` (cold-read is
 skipped) — proceed straight to Step 3 mechanical checks.
@@ -342,7 +350,7 @@ log was created. If `count % 5 == 0` (i.e., this is the 5th, 10th, 15th
 mutation), escalate the cold-read scope to `whole-doc`.
 
 ### Step 3: Run mechanical checks
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read." -->
 
 ```bash
 python3 .claude/scripts/design-mechanical-checks.py \
@@ -387,8 +395,56 @@ The script prints JSON to stdout. Exit code `0` ⇒ no blockers; `1` ⇒ NEEDS
 REVISION. Capture and parse the JSON; do not act on the exit code alone —
 the findings list is what drives iteration.
 
+### Step 3.5: Run the adversarial sub-agent (`phase1-creation` only)
+<!-- roles=orchestrator,planner phases=1 summary="For phase1-creation, challenge the design's decisions and assumptions before the cold-read assesses comprehension." -->
+
+**Run this step only for `phase1-creation`.** Every other mutation kind
+skips it and goes straight to Step 4 (cold-read). For `phase1-creation` the
+adversarial pass runs **before** cold-read: it challenges the design's
+decisions and hidden assumptions against the real code while the design can
+still move cheaply, so the cold-read in Step 4 is not asked to assess the
+comprehension of a design the adversarial pass may still force to change
+(the design-first ordering, D7 / `design-document-rules.md` § Working / sync).
+
+**Skip when mechanical checks have any `blocker` finding** — same rule as
+cold-read below. Fix the structure first, then challenge the design once it
+is structurally sound.
+
+When mechanical has zero blockers, spawn the adversarial sub-agent via the
+`Agent` tool:
+
+- `subagent_type`: `general-purpose`
+- `description`: `"Adversarial design review (phase1-creation)"`
+- `prompt`: the full content of
+  `.claude/workflow/prompts/adversarial-review.md`. The prompt's
+  TOC-protocol header resolves the reviewer's phase to 1, which routes it
+  to the § Design-scoped review (Phase 1) section, so the reviewer
+  challenges `design.md` (and `design-mechanics.md` when present) rather
+  than a plan track. Substitute the design paths into that section's
+  `### Inputs` block:
+
+```
+- design_path: <abs path>
+- design_mechanics_path: <abs path or "(none)">
+- mutation_kind: phase1-creation
+```
+
+The sub-agent returns the two-part adversarial output (Part 1 challenge
+certificates, Part 2 `Finding A<N>` entries). Map its findings into the same
+severity schema as the mechanical and cold-read findings: an adversarial
+`blocker` forces a design revision in the Step 6 iterate loop before
+cold-read runs; `should-fix` and `suggestion` carry into the merged list in
+Step 5. There is no `skip` severity in design scope — a design is not a
+track that can be dropped. The adversarial template is shared with the
+Phase-3A track review, which carries a track-shaped `skip` severity; if the
+shared template emits a would-be `skip` against a design, **treat it as a
+`blocker`** — a design that should be abandoned is a blocking design revision
+(rethink it before the plan derives from it), not a track drop. This keeps
+the severity mapping fully deterministic for every value the template can
+produce.
+
 ### Step 4: Run the cold-read sub-agent
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects." -->
 
 **Skip cold-read entirely for `mechanics-edit`.** Mechanics is agent-
 targeted long-form content, not the human-facing summary; comprehension is
@@ -399,6 +455,12 @@ cold-read against the re-distilled `design.md`.
 point asking a sub-agent to assess comprehension if the structure is broken
 — iterate on mechanical first, then cold-read once the doc is structurally
 sound.
+
+For `phase1-creation`, the adversarial pass (Step 3.5) has already run and
+its blockers were cleared in the Step 6 iterate loop before control reaches
+here — cold-read assesses the comprehension of a design whose decisions have
+already survived challenge. For all other kinds, cold-read is the first
+review pass.
 
 For all other kinds, when mechanical has zero blockers, spawn the cold-read
 sub-agent via the `Agent` tool:
@@ -429,17 +491,21 @@ format. Parse the **Verdict** line (`PASS` or `NEEDS REVISION`) and the
 schema as mechanical findings.
 
 ### Step 5: Merge findings
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step." -->
 
-Combine mechanical + cold-read findings into a single list. Sort by
-severity: `blocker` → `should-fix` → `suggestion`. Mechanical findings
-carry a structured `rule` field; cold-read findings are free-form
-bullets and won't usually duplicate the mechanical set, but if a
-cold-read bullet plainly restates a mechanical finding (same severity,
-same location, same shape rule), drop the cold-read copy.
+Combine mechanical + cold-read findings into a single list (plus the Step 3.5
+adversarial findings for `phase1-creation`). Sort by severity: `blocker` →
+`should-fix` → `suggestion`. Mechanical findings carry a structured `rule`
+field; cold-read and adversarial findings are free-form bullets and won't
+usually duplicate the mechanical set, but if a cold-read or adversarial bullet
+plainly restates a mechanical finding (same severity, same location, same
+shape rule), drop the duplicate. For `phase1-creation`, the adversarial pass
+ran first (Step 3.5) and its blockers were already iterated to resolution
+before cold-read; any adversarial `should-fix` / `suggestion` that carried
+forward is merged here alongside the cold-read findings.
 
 ### Step 6: Iterate
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Apply fixes and re-run the cold read until findings clear or the iteration cap is reached." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Apply fixes and re-run the cold read until findings clear or the iteration cap is reached." -->
 
 Each iteration runs in this order until either the budget is exhausted
 or no findings remain:
@@ -457,9 +523,16 @@ or no findings remain:
 2. **Then address `should-fix` findings** in the same iteration, using
    the same auto-vs-manual flow. `suggestion` findings are not retried —
    they are recorded in the review log only.
-3. **Re-run mechanical checks** and, if mechanical now passes and
-   cold-read was applicable for this kind, re-run cold-read. Replace the
-   prior findings list with the new one.
+3. **Re-run mechanical checks; then, for `phase1-creation`, if an
+   adversarial finding was addressed this iteration, re-run Step 3.5
+   (the adversarial sub-agent); then, if mechanical (and, when
+   applicable, adversarial) now pass and cold-read was applicable for
+   this kind, re-run cold-read. Replace the prior findings list with the
+   new one.** The adversarial re-run is `phase1-creation`-scoped (no
+   other mutation kind has a Step 3.5), so for every other kind this
+   reduces to "re-run mechanical, then re-run cold-read if applicable",
+   the prior behavior. The loop's exit conditions below (all blocker +
+   should-fix cleared, or budget exhausted) are unchanged.
 4. **Decrement the iteration budget.** Stop when the budget reaches
    zero or all blocker + should-fix findings are gone.
 
@@ -478,7 +551,7 @@ Outcomes when the loop exits:
   carry forward to the next mutation as known debt.
 
 ### Step 7: Append to the review log
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Append the mutation's record to the design-mutations log, which is itself exempt from stamping." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Append the mutation's record to the design-mutations log, which is itself exempt from stamping." -->
 
 Resolve the log path from `mutation_kind` and `design_path` using
 the rule below. The log always lives under `_workflow/` so the
@@ -543,7 +616,7 @@ Use `Read` to find the highest existing mutation number and increment by
 one. The first mutation is `## Mutation 1 — ...`.
 
 ### Step 8: Auto-suggest sync at N=5 (working mode only)
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C summary="In working mode, suggest a design-sync once five mechanics edits have accumulated since the last sync." -->
+<!-- roles=orchestrator,planner,final-designer phases=1 summary="In working mode, suggest a design-sync once five mechanics edits have accumulated since the last sync." -->
 
 After a `mechanics-edit` mutation completes, count `mechanics-edit` entries
 in the review log since the most recent `design-sync` (or since
@@ -566,7 +639,7 @@ phrasing that conveys intent. Treat the request as authorization to run a
 `design-sync` mutation.
 
 ### Step 9: Present to the user
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Present the merged result and surviving findings to the user as the mutation's final output." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Present the merged result and surviving findings to the user as the mutation's final output." -->
 
 Show:
 
@@ -585,10 +658,10 @@ The action is then complete. The agent returns control to the user / parent
 flow.
 
 ## Staleness reconciliation
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="The prompt shown when a request references a polished design that mechanics edits have since outpaced." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The prompt shown when a request references a polished design that mechanics edits have since outpaced." -->
 
 The full Phase 1 lifecycle (sub-phases, sync triggers, working-mode
-counter) lives in design-document-rules.md:planner,final-designer:1,3A,3C,4 `§ Two-mode editing — working vs sync`. The one operational protocol anchored here — because that doc
+counter) lives in design-document-rules.md:planner,final-designer:1,4 `§ Two-mode editing — working vs sync`. The one operational protocol anchored here — because that doc
 cross-refs to it — is the staleness-reconciliation prompt.
 
 During Phase 1.2 (`mechanics-edit` rounds), `design.md` is **frozen**
@@ -608,7 +681,7 @@ delta between X and Y is incidental; default to (c) when the delta changes
 the meaning of the request.
 
 ## Tools used
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="The tools the skill invokes: the mechanical-check script, Edit/Write, and the cold-read sub-agent spawn." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The tools the skill invokes: the mechanical-check script, Edit/Write, and the cold-read sub-agent spawn." -->
 
 - `Read` — verify file state, read review log for mutation count and last
   sync point.
@@ -619,7 +692,7 @@ the meaning of the request.
 - `Edit` (append-mode via full-content read) — write the review-log entry.
 
 ## When NOT to use this skill
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="The cases that bypass the mutation discipline: non-design files and pure workflow-artifact edits." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The cases that bypass the mutation discipline: non-design files and pure workflow-artifact edits." -->
 
 - Edits to `implementation-plan.md`, the per-track track files under
   `plan/`, or any other workflow file. Those have their own gates
@@ -632,7 +705,7 @@ the meaning of the request.
   yet — only the canonical paths above trigger the discipline.
 
 ## Failure modes and recovery
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="How the skill recovers when a check fails, the cold read stalls, or the iteration budget is exhausted." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="How the skill recovers when a check fails, the cold read stalls, or the iteration budget is exhausted." -->
 
 - **Script not found** at `.claude/scripts/design-mechanical-checks.py`:
   the project may not have the discipline wired up. Stop and ask the
@@ -648,7 +721,7 @@ the meaning of the request.
   zero-delta sync, and skip mechanical / cold-read for this round.
 
 ## Examples
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="Worked examples of a content edit and a section rename run through the full mutation discipline." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Worked examples of a content edit and a section rename run through the full mutation discipline." -->
 
 Two intricate cases worth showing concretely. The simpler kinds
 (`phase1-creation`, `mechanics-edit`, `content-edit`) follow the
@@ -700,7 +773,7 @@ plan / track-file ref propagation is independent of whether mechanics
 exists.
 
 ## Reference
-<!-- roles=orchestrator,planner,final-designer phases=1,3A,3C,4 summary="On-demand pointers to the design-document rules, the file layout, and the mutation-kind definitions." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="On-demand pointers to the design-document rules, the file layout, and the mutation-kind definitions." -->
 
 - Rules: `.claude/workflow/design-document-rules.md` § Mutation discipline
   and § Two-mode editing — working vs sync

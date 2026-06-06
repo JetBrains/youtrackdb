@@ -289,6 +289,45 @@ of the changes.
    `Review fix:` commit grows the cumulative diff). On plans without the
    marker no staged copies exist, so the loop produces an empty file and
    the delta note in the context block stays inert.
+9. **Measure the review burden of the cumulative diff** (advisory,
+   flag-only). The two-sided track-sizing rule (`planning.md` §Track
+   descriptions) bounds a track's *planned* file footprint at plan time;
+   this check measures the *actual* changed-line volume the cumulative
+   diff lands on a reviewer, the dimension that determines how much one
+   Phase C pass can absorb. From the same `{base_commit}..HEAD` range,
+   read the total `+`/`-` line count with generated code excluded and test
+   code kept:
+
+   ```bash
+   git diff {base_commit}..HEAD --shortstat \
+       -- ':(exclude)**/generated-sources/**' \
+          ':(exclude)**/generated-test-sources/**' \
+          ':(exclude)**/internal/core/sql/parser/**'
+   ```
+
+   When the total crosses **~2,000** changed lines, **page the cumulative
+   diff in ≤2,000-line windows when staging it for the review fan-out, and
+   pass that paging instruction to the dimensional sub-agents** — the `Read`
+   tool truncates at 2,000 lines and each agent's `## Input` contract
+   already says "for diffs over 2000 lines, page through with the `offset`
+   and `limit` parameters", so a diff past this threshold that is not paged
+   lets a sub-agent silently truncate its read at line 2,000. Flag the
+   review burden alongside the paging. When the total crosses **~4,000**,
+   additionally **record the overblown figure** in the track episode and
+   surface it to the user, since a track this large is a candidate for
+   retroactive splitting in a future planning pass (the diff has already
+   landed, so it cannot be split now — the record calibrates the soft
+   thresholds and warns future planning).
+   Generated code is excluded because it carries no review burden; test
+   code is kept because reviewing test behavior is real review work. This
+   is **flag-only** — it never blocks the review fan-out or the gate, and
+   the thresholds are soft review-capacity estimates recalibrated from
+   these execution-time measurements rather than pinned hard. On a
+   workflow-only track whose diff is dominated by freshly-staged
+   `.claude/**` whole-file copies, read the count as an order-of-magnitude
+   signal: a whole-file staged copy inflates the line count without adding
+   proportional review surface (the `diff <live> <staged>` delta from
+   step 8 is the truer measure of what a reviewer reads).
 
 ---
 

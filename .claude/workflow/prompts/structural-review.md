@@ -53,10 +53,31 @@ track into steps just-in-time, and relies on the plan's structure for
 correct ordering and scope. Structural defects — dependency cycles, missing
 descriptions, oversized tracks, contradictions — directly impair execution.
 
+<!-- SYNC: the two-sided file-footprint track-sizing rule appears in
+     several positions that must move together. The authoritative full
+     rule is the Track descriptions section of the planning workflow doc.
+     Cross-referencing copies live in: the glossary and the planning-rule
+     section of the conventions doc (the first two numbered subsections);
+     the Step 4 sizing rule of the create-plan skill; the Track
+     terminology bullet in this file; and the Track terminology bullet in
+     each of the technical-review, adversarial-review, risk-review, and
+     consistency-review prompt files (four separate files). Editing any one
+     of these positions means editing every other, or the enforcement
+     copies drift apart. Plain-prose names only here, no ref-shaped tokens,
+     so the workflow reindexer does not parse this comment as live
+     cross-references. -->
+
 **Key terminology:**
-- **Track**: A coherent stream of related work within the plan. Tracks are
-  implemented sequentially during Phase 3. Max ~5-7 steps per track — if
-  larger, the track should be split into dependent tracks.
+- **Track**: One PR in a stacked-diff series — it builds on the tracks
+  before it and stands alone as an independently reviewable and mergeable
+  unit, implemented sequentially during Phase 3. Sized by its planned
+  in-scope file footprint, not its step count: the planner maximizes (packs
+  work up to a soft footprint ceiling, related or not) and clamps with a
+  two-sided bound. A track ≤~12 in-scope files that folds into a neighbor is
+  a merge candidate; a track over ~20-25 in-scope files is a split
+  candidate. Both bounds are soft, so an out-of-bounds track passes planning
+  when its track file carries a written justification. Full rule in
+  `planning.md` §Track descriptions.
 - **Step**: A single atomic change = one commit. Fully tested. Step
   decomposition is **deferred to Phase 3 execution** — the plan should NOT
   contain `- [ ] Step:` items or *(provisional)* markers. Only scope
@@ -126,18 +147,19 @@ SCOPE INDICATORS
 - Does every track have a **Scope** line with an approximate planned file
   footprint and a brief list of what those files cover? *(plan-file only —
   scope indicators live in the plan checklist regardless of plan shape)*
-- Is the footprint plausible against the track-level ceiling? Compare the
-  `~N files` count and the coverage-list cardinality (both on the `**Scope:**`
-  line) against the `~20-25`-file track ceiling: a footprint at or above
-  `~20-25` files is suspect, as is a coverage list naming far more distinct
-  changes than the file count plausibly absorbs (for example, a `~3 files`
-  footprint whose coverage list enumerates ten distinct subsystems). Either
-  signals a track that likely splits into dependent tracks. The `~20-25`
-  ceiling is track-level, distinct from the per-step
-  `~12` split cap and `~5` MEDIUM trigger (a multi-step track aggregates many
-  steps and routinely exceeds those per-step numbers). *(plan-file only — the
-  `~N files` figure and its coverage list both live on the plan-checklist
-  `**Scope:**` line, so this check reads no track file.)*
+- Is the footprint plausible against the two-sided track-sizing bound (see
+  TRACK SIZING below for the authoritative check)? Compare the `~N files`
+  count and the coverage-list cardinality (both on the `**Scope:**` line)
+  against the soft footprint range: a footprint over the `~20-25`-file
+  ceiling is a split candidate, as is a coverage list naming far more
+  distinct changes than the file count plausibly absorbs (for example, a
+  `~3 files` footprint whose coverage list enumerates ten distinct
+  subsystems). The footprint range is track-level, distinct from the
+  per-step `~12` fill target and `~5` MEDIUM trigger (a maximized track
+  aggregates many steps and routinely exceeds those per-step numbers).
+  *(plan-file only — the `~N files` figure and its coverage list both live
+  on the plan-checklist `**Scope:**` line, so this check reads no track
+  file.)*
 - Are there any full `- [ ] Step:` items or *(provisional)* markers?
   These should NOT be present — step decomposition is deferred to
   execution. *(plan-file only)*
@@ -169,12 +191,25 @@ TRACK DESCRIPTIONS *(track file's `## Purpose / Big Picture` + `## Context and O
   lives in the plan checklist for every track regardless of status.)*
 
 TRACK SIZING
-- Does any track's scope indicator (file footprint) imply a track too large
-  to stay one track (a footprint at or above `~20-25` in-scope files)? If so,
-  split into separate dependent tracks. The `~5-7` steps track-sizing rule
-  still guides planning; step count is not knowable from the file-footprint
-  indicator at plan time. *(plan-file only — the Scope line lives in the plan
-  checklist)*
+- Apply the two-sided file-footprint bound (the authoritative rule lives in
+  `planning.md` §Track descriptions, summarized in the **Track** terminology
+  bullet above). Size each track by its in-scope file footprint, not its
+  step count — step count is not knowable from the file-footprint indicator
+  at plan time. Two-sided check against the soft range:
+  - **Over the ceiling** — a footprint over `~20-25` in-scope files is a
+    split candidate; the track likely partitions into dependent tracks.
+  - **Under the floor** — a footprint ≤~12 in-scope files (the track-level
+    floor, not the per-step `~12` fill target named in the SCOPE INDICATORS
+    check above) that folds into an adjacent track under the ceiling is a
+    merge candidate (flag-only; never auto-merged, since re-partitioning the
+    dependency DAG is a planner judgment).
+  Both bounds are soft. A track that is out of bounds on either side, or one
+  that stops below the ceiling with a mergeable autonomous unit left
+  unpacked, owes a written justification in its track file naming why it is
+  not split, not folded, or not maximized further. A documented
+  out-of-bounds track passes; an undocumented one is a `design-decision`
+  finding (see the `design-decision` triage below). *(plan-file only — the
+  Scope line lives in the plan checklist)*
 - Does any track's description cover work that would naturally split into
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
@@ -367,8 +402,13 @@ ANY of these triggers `design-decision`:
   E.g., Track B's scope mentions wiring X, but X is introduced in
   Track C — does B move after C, or does X move into B? The user
   picks.
-- **Track sizing** — a track that exceeds ~5-7 steps and needs to be
-  split. Where the split goes is a design call.
+- **Track sizing** — a track out of bounds on the two-sided file-footprint
+  rule (over the `~20-25` ceiling, under the `~12` floor and folding into a
+  neighbor, or stopped below the ceiling with a mergeable autonomous unit
+  left unpacked) that carries **no written justification** in its track
+  file. Where the split goes, whether the fold is safe, and whether the
+  track is genuinely complete are planner judgments, so the user picks. A
+  documented out-of-bounds track is not a finding.
 - **Track contradictions** — Track 1 assumes X, Track 3 assumes
   not-X. Which is right is a design call.
 - **Missing Decision Record** for a non-obvious choice. The user has

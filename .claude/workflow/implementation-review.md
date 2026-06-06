@@ -26,7 +26,7 @@
 | §Audit trail | orchestrator | 2 | Where the review decisions are recorded for later reference. |
 | §1. The `## Plan Review` section in the plan file | orchestrator | 2 | Recording the review outcome in the plan file's review section. |
 | §2. The workflow-update commit | orchestrator | 2 | Committing the review result as a workflow-update commit. |
-| §Mutation discipline for `design.md` fixes | orchestrator,reviewer-design | 2 | Routing design-doc fixes through the mutation discipline. |
+| §`design.md` is frozen — Phase 2 does not mutate it | orchestrator,reviewer-design | 2 | Design frozen after Phase 1; Phase 2 records design-touching findings, defers them to Phase 4, fixes only plan/track. |
 | §Replanning | orchestrator | 2 | When a Phase 2 finding forces a return to planning. |
 | §Completion | orchestrator | 2 | Closing Phase 2 and handing off to track execution. |
 
@@ -70,22 +70,24 @@ no track has completed yet).
 does **not** separately review the narrative quality of `design.md`
 (per-section shape, top-level caps, consolidation form, D/S code
 discipline, length-trigger compliance, etc.). Those checks are
-gated at **write time** by the design-mutation action defined in
-design-document-rules.md:final-designer,planner,reviewer-design:1,3A,3C,4 § Mutation
+gated at **write time** by the Phase-1 authoring action (Step 4a
+`edit-design` `phase1-creation`) defined in
+design-document-rules.md:final-designer,planner,reviewer-design:1,4 § Mutation
 discipline — every modification to `design.md` runs the
-mechanical checks + cold-read sub-agent before the change stands.
-Phase 2's Consistency Review still verifies design ↔ code ↔ plan
-alignment (i.e., are the diagrams accurate and the cross-links
-resolvable), and the Structural Review still owns plan-internal
-quality. Narrative readability of the design document is the
-mutation action's responsibility.
+mechanical checks + cold-read sub-agent before the change stands,
+and the design is frozen once Phase 1 closes. Phase 2's Consistency
+Review still verifies design ↔ code ↔ plan alignment read-only (are
+the diagrams accurate and the cross-links resolvable) and records
+divergences; it does not modify `design.md`. The Structural Review
+still owns plan-internal quality. Narrative readability of the design
+document is the Phase-1 authoring action's responsibility.
 
 ```mermaid
 flowchart TD
     START["/execute-tracks State 0\n(or /review-plan manual)"]
     CR["Step 1: Consistency Review\n(reads code + design + plan)"]
     CR_CLASSIFY["Classify findings:\nmechanical | design-decision"]
-    CR_AUTO["Auto-apply mechanical fixes\n(Edit / edit-design)"]
+    CR_AUTO["Auto-apply mechanical fixes\n(Edit — plan/track only;\ndesign.md frozen)"]
     CR_ESC{"Any design-decision\nfindings?"}
     CR_USER["Batch-escalate to user\n(present alternatives,\napply user resolutions)"]
     CR_GATE["Gate verification\n(verify fixes,\ncatch regressions)"]
@@ -240,8 +242,10 @@ Iteration 1 (full review):
   2. Receive findings, each tagged Classification: mechanical | design-decision.
   3. Apply ALL mechanical fixes immediately:
      - Plan / track-file edits: native Edit.
-     - design.md edits: route through the edit-design skill (mutation
-       discipline — see §Mutation discipline for design.md fixes below).
+     - A finding whose correction would touch design.md is recorded
+       only — design.md is frozen after Phase 1, so the design.md
+       correction defers to the Phase-4 design-final.md reconciliation
+       (see §`design.md` is frozen — Phase 2 does not mutate it below).
   4. If any design-decision findings remain: batch-present to the user
      once (single message listing all open design questions with proposed
      alternatives). Wait for user resolutions. Apply user-approved fixes
@@ -282,11 +286,13 @@ mechanical fixes that landed so the next session does not re-run them.
 <!-- roles=reviewer-plan phases=2 summary="Shape of the consistency review report." -->
 
 Findings ride in the orchestrator's conversation context for the
-iteration loop; plan and design fixes are applied via Edit / edit-design
-to `implementation-plan.md`, the affected `plan/track-N.md` files, and
-the design document. The review itself is not persisted to a separate
-file — once the gate passes, the conversation is the only in-flight
-record, and the durable trace is:
+iteration loop; plan-side fixes are applied via Edit to
+`implementation-plan.md` and the affected `plan/track-N.md` files. A
+finding whose correction would touch `design.md` is recorded only —
+`design.md` is frozen after Phase 1 and its correction defers to
+Phase 4. The review itself is not persisted to a separate file — once
+the gate passes, the conversation is the only in-flight record, and
+the durable trace is:
 
 - The resulting plan/design state.
 - The gate-PASS commit.
@@ -339,8 +345,9 @@ Iteration 1 (full review):
      Per-prompt rule: ALL bloat findings classify as mechanical; track-ordering
      and contradiction findings classify as design-decision (see §Mechanical
      vs. design-decision classifier below).
-  3. Apply mechanical fixes immediately (Edit for plan / track files,
-     edit-design for design.md).
+  3. Apply mechanical fixes immediately (Edit for plan / track files).
+     A finding whose correction would touch design.md is recorded only —
+     design.md is frozen after Phase 1; the correction defers to Phase 4.
   4. Batch-escalate any design-decision findings to the user once. Apply
      user-approved fixes.
   5. Spawn the gate verification sub-agent with the updated artifacts and
@@ -395,9 +402,18 @@ construction (DR length, intro length, component-intent length,
 integration-point length, plan/design duplication, superseded DR
 retained, plan-file budget, missing track-reference annotation,
 scope-indicator format). The fix follows the rule mechanically —
-trim back to the four-bullet form, move long-form material to
-`design.md`, replace duplicated body with a one-line link, delete the
-superseded DR, etc.
+trim back to the four-bullet form, replace duplicated body with a
+one-line link, delete the superseded DR, etc. The fix lands on the
+plan file via `Edit`; it never moves material into `design.md`,
+which is frozen after Phase 1.
+
+A `mechanical` finding whose only correct rendering would touch
+`design.md` (a class-diagram or sequenceDiagram correction in the
+design document, for example) is still recorded, but the `design.md`
+edit is **not** applied at Phase 2 — it defers to the Phase-4
+`design-final.md` reconciliation (see §`design.md` is frozen — Phase 2
+does not mutate it below). The plan-side or track-side half of such a
+finding, if any, is applied via `Edit` as usual.
 
 ### `design-decision` — orchestrator escalates to the user
 <!-- roles=orchestrator phases=2 summary="Findings that change design and require user choice." -->
@@ -491,8 +507,9 @@ end. Pre-existing plans don't break.
 ### 2. The workflow-update commit
 <!-- roles=orchestrator phases=2 summary="Committing the review result as a workflow-update commit." -->
 
-After Phase 2 passes, the orchestrator stages the plan, track files, and
-design files, and commits with the message:
+After Phase 2 passes, the orchestrator stages the plan and the track
+files (no design files — `design.md` is frozen and Phase 2 does not
+touch it), and commits with the message:
 
 ```
 Plan review autonomous fixes for <plan-name>
@@ -506,22 +523,24 @@ This is a single Workflow update commit per the table in
 
 ---
 
-## Mutation discipline for `design.md` fixes
-<!-- roles=orchestrator,reviewer-design phases=2 summary="Routing design-doc fixes through the mutation discipline." -->
+## `design.md` is frozen — Phase 2 does not mutate it
+<!-- roles=orchestrator,reviewer-design phases=2 summary="Design frozen after Phase 1; Phase 2 records design-touching findings, defers them to Phase 4, fixes only plan/track." -->
 
-Every fix that touches `design.md` (or `design-mechanics.md`) routes
-through the `edit-design` skill — see design-document-rules.md:final-designer,planner,reviewer-design:1,3A,3C,4
-§ Mutation discipline. The skill applies the mechanical checks +
-cold-read sub-agent gate before the change stands.
+`design.md` is frozen after Phase 1. The design-first authoring froze
+it at Step 4a (the `edit-design` `phase1-creation` review pass), which
+runs before plan derivation in Step 4b and before Phase 2. So by the
+time Phase 2 runs, the design is already frozen, and Phase 2 does
+**not** mutate `design.md`.
 
-The autonomous flow handles this by invoking `edit-design` for each
-`design.md` mechanical fix; the cold-read sub-agent is the safety net
-for narrative breakage. If the cold-read rejects the mutation, the
-orchestrator escalates that specific fix to the user (effectively
-re-classifying it from `mechanical` to `design-decision`).
+A consistency finding whose correction would touch `design.md` is
+recorded as a finding only. The plan-side or track-side correction is
+applied via `Edit`; the `design.md` correction itself is deferred to
+the Phase-4 `design-final.md` reconciliation against the real code,
+where the final-designer reconciles the design's narrative with what
+was actually built.
 
-Plan-file and track-file edits use `Edit` directly — no mutation
-discipline applies to those files.
+Plan-file and track-file edits use `Edit` directly (unchanged) — no
+mutation discipline applies to those files.
 
 ---
 
@@ -563,20 +582,18 @@ broken that incremental revision cannot fix it.
 When both reviews pass:
 
 1. Update `## Plan Review` with the audit summary (see §Audit trail).
-2. Stage and commit the plan / track-file / design changes. Stage every
+2. Stage and commit the plan and track-file changes. Stage every
    track file the review actually touched (use `git status --porcelain
    docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
    modified path explicitly rather than the whole `plan/` directory
-   so unrelated files don't sneak in). The `design*.md` glob picks up
-   `design.md` plus `design-mechanics.md` and `design-mutations.md`
-   when `edit-design` touched them during the review (`design.md`
-   always exists post-Phase-1, so the glob always matches at least one
-   path):
+   so unrelated files don't sneak in). No design files are staged —
+   `design.md` is frozen after Phase 1 and Phase 2 does not touch it,
+   so any `design.md` correction surfaced by the review is recorded as a
+   finding and deferred to the Phase-4 `design-final.md` reconciliation:
    ```bash
    git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
            docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
-           ... (one path per modified track file) \
-           docs/adr/<dir-name>/_workflow/design*.md
+           ... (one path per modified track file)
    git commit -m "Plan review autonomous fixes for <plan-name>
 
    Auto-fixed: <IDs>

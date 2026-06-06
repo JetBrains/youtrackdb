@@ -7,7 +7,12 @@ When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow th
 3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
 
 Your role: reviewer-adversarial.
-Your phase: 3A.
+Your phase: 1 (design authoring) or 3A (track review). The phase is set by
+how you were invoked: the `edit-design` `phase1-creation` loop spawns you to
+challenge a `design.md` in Phase 1; the Track Pre-Flight gate spawns you to
+challenge one track of the plan in Phase 3A. See §Design-scoped review (Phase 1)
+for the Phase-1 contract; everything else in this file describes the Phase 3A
+track review.
 
 Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
 
@@ -15,6 +20,8 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
+| §Design-scoped review (Phase 1) | reviewer-adversarial | 1 | When spawned by the edit-design phase1-creation loop, challenge the design doc before cold-read, not a plan track. |
+| §Inputs | reviewer-adversarial | 1 | Design-scoped input block the phase1-creation loop substitutes, distinct from the Phase-3A track-review Inputs block. |
 | §Workflow Context | reviewer-adversarial | 3A | Phase A terminology (track, step, episode, immutable Decision Records) and where the track's detail lives. |
 | §Semi-Formal Reasoning Protocol | reviewer-adversarial | 3A | Every challenge needs a concrete, code-grounded counterexample or violation scenario, not handwaving. |
 | §Certificate requirements | reviewer-adversarial | 3A | Challenge, violation-scenario, and assumption-test certificate templates each counter-argument is built from. |
@@ -31,6 +38,63 @@ You MUST read the codebase to ground your challenges in reality.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
+## Design-scoped review (Phase 1)
+<!-- roles=reviewer-adversarial phases=1 summary="When spawned by the edit-design phase1-creation loop, challenge the design doc before cold-read, not a plan track." -->
+
+When the `edit-design` `phase1-creation` loop spawns you (Phase 1, design
+authoring), the target is the **`design.md` being authored**, not a track of
+an implementation plan. You run **before** the cold-read pass: cold-read
+assesses whether a fresh reader can build a working mental model, and that
+question should not be answered against a design the adversarial pass may
+still force to change. Your job is to challenge the design while it can still
+move cheaply — before the plan derives from it and before the freeze
+(`design-document-rules.md` Rule 15).
+
+### Inputs
+<!-- roles=reviewer-adversarial phases=1 summary="Design-scoped input block the phase1-creation loop substitutes, distinct from the Phase-3A track-review Inputs block." -->
+
+The `edit-design` `phase1-creation` loop substitutes these literally into the
+block below when it spawns you in design scope:
+
+- design_path: <abs path>
+- design_mechanics_path: <abs path or "(none)">
+- mutation_kind: phase1-creation
+
+This is the design-scoped input block. It is distinct from the Phase-3A
+track-review `Inputs:` block further down the file (the one carrying
+`plan_path` / `step_file_path` / `track_name`); the two never merge.
+
+What changes from the Phase 3A track review below:
+
+- **Target.** Read `design.md` (and `design-mechanics.md` when present), the
+  document(s) passed in the `### Inputs` block just above. There is no track
+  file, no `## Concrete
+  Steps`, and no immutable plan Decision Records yet — the design's own
+  decision sections (its `## Overview`, its D-code records, its complex-topic
+  sections) are what you challenge.
+- **Criteria.** Apply DECISION CHALLENGES, SCOPE CHALLENGES, ASSUMPTION
+  CHALLENGES, and SIMPLIFICATION CHALLENGES to the design's decisions and
+  hidden assumptions, grounded in the real code per the Tooling rule below.
+  INVARIANT CHALLENGES apply to any invariant the design states. The
+  certificate templates, the Semi-Formal Reasoning Protocol, and the Part 1 /
+  Part 2 output format are unchanged — `Finding A<N>` certificates still cite
+  a Challenge / Violation / Assumption entry, and `Target` names the design
+  decision or assumption rather than a plan Decision Record.
+- **Outcome.** Findings feed the `edit-design` iterate loop: a `blocker`
+  forces a design revision before cold-read runs; `should-fix` strengthens
+  the design's rationale; `suggestion` is recorded. There is no `skip`
+  severity in design scope — a design is not a track that can be dropped.
+  The severity guide below carries a track-shaped `skip` for the Phase 3A
+  review; in design scope, if you would otherwise emit `skip`, **raise it
+  to `blocker`** instead — a design that should be abandoned is a blocking
+  design revision (rethink it before the plan derives from it), not a
+  track drop.
+
+Everything below this section (`## Workflow Context` onward) describes the
+Phase 3A track review. Read it for the certificate mechanics and output
+format, which are shared; ignore its track / plan / episode framing when you
+are in design scope.
+
 ## Workflow Context
 <!-- roles=reviewer-adversarial phases=3A summary="Phase A terminology (track, step, episode, immutable Decision Records) and where the track's detail lives." -->
 
@@ -42,9 +106,16 @@ passed), Phase 3 (execution — tracks implemented one at a time, each going
 through Phase A → Phase B → Phase C), and Phase 4 (final artifacts).
 
 **Key terminology:**
-- **Track**: A coherent stream of related work within the plan. Contains
-  steps (decomposed later in this Phase A, after your review). Max ~5-7
-  steps per track.
+- **Track**: One PR in a stacked-diff series; it builds on the tracks
+  before it and stands alone as an independently reviewable and mergeable
+  unit. Contains steps (decomposed later in this Phase A, after your
+  review). Sized by its planned in-scope file footprint, not its step
+  count: the planner maximizes (packs work up to a soft footprint ceiling,
+  related or not) and clamps with a two-sided bound. A track ≤~12 in-scope
+  files that folds into a neighbor is a merge candidate; a track over
+  ~20-25 in-scope files is a split candidate. Both bounds are soft, so an
+  out-of-bounds track passes planning when its track file carries a written
+  justification. Full rule in `planning.md` §Track descriptions.
 - **Step**: A single atomic change = one commit. Fully tested. Step
   decomposition has not happened yet — only scope indicators exist.
 - **Episode**: A structured record of what happened during a step or track

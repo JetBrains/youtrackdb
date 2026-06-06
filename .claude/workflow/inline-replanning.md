@@ -5,7 +5,7 @@
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §When ESCALATE triggers | orchestrator | 3A,3C | The triggers that route to inline replanning: deep amendments, broken assumptions, unfixable step failures. |
-| §Process | orchestrator | 3A,3C | Stop, assess, propose a revised plan (PSI-backed, via edit-design), preview-review, then resume or exit. |
+| §Process | orchestrator | 3A,3C | Stop, assess, propose a revised plan (PSI-backed), preview-review, then resume or exit. |
 | §Updating plan and track files | orchestrator | 3A,3C | Per-case rule for which on-disk file carries a revised track description by the track's current status. |
 
 <!--Document index end-->
@@ -38,7 +38,7 @@ notes.
   cannot fix
 
 ## Process
-<!-- roles=orchestrator phases=3A,3C summary="Stop, assess, propose a revised plan (PSI-backed, via edit-design), preview-review, then resume or exit." -->
+<!-- roles=orchestrator phases=3A,3C summary="Stop, assess, propose a revised plan (PSI-backed), preview-review, then resume or exit." -->
 
 **1. Stop** — do not start new steps.
 
@@ -109,47 +109,22 @@ specific file on disk depending on the track's current status. See
 [§Updating plan and track files](#updating-plan-and-track-files) below
 for the authoritative rule per case.
 
-**Design coherence.** When the revision invalidates a Decision
-Record's `**Full design**` link, adds a new design section, or
-renames an existing one, the design changes go through the
-mutation discipline defined in
-design-document-rules.md:planner,final-designer:1,3A,3C,4 § Mutation
-discipline — one atomic action that bundles `(apply edit →
-auto-review → bounded iterate → present)`. Do not directly Edit
-`design.md` mid-replan; invoke the mutation action so the
-auto-review gate (mechanical checks + cold-read sub-agent) fires.
-The structural review in step 4 below validates the plan; the
-design's own narrative quality is owned by the mutation action.
-
-**Working/sync vs direct mutation.** Pick the mutation kind based
-on the size of the inline-replanning revision (see
-`design-document-rules.md` § Two-mode editing — working vs sync):
-
-- For a single targeted change (one bullet, one section rename,
-  one section add), use the direct mutation kinds — `content-edit`,
-  `section-add`, `section-rename`, etc. Full discipline runs in
-  one shot; the inline-replan completes in one mutation.
-- For a multi-section revision **on a design that already has a
-  `design-mechanics.md` companion**, follow the working/sync loop:
-  `mechanics-edit` rounds for the substantive changes, ending in a
-  `design-sync` to re-publish `design.md`. This keeps `design.md`
-  stable as a review reference while the agent works through the
-  multi-section revision. The working/sync loop is **only** valid
-  when `design-mechanics.md` exists at the time of the
-  inline-replan — `mechanics-edit` mutates that file, and there's
-  no equivalent on a `design.md`-only design.
-- For a multi-section revision **on a `design.md`-only design**
-  (no mechanics companion), either run a sequence of direct
-  mutations (`content-edit` / `section-add` / `section-rename` —
-  each one is its own atomic action with full discipline), or, if
-  the revision is large enough that the design genuinely now needs
-  long-form mechanism content, first run a `length-trigger-crossing`
-  to create the mechanics companion and then drop into the
-  working/sync loop.
-
-**Invocation:** use the `edit-design` skill
-(`edit-design/SKILL.md`),
-not direct `Edit` / `Write` calls.
+**Design intent stays in the plan, not in `design.md`.** The design
+document is frozen after Phase 1 (`design-document-rules.md` Rule 15),
+so a replan never mutates it — not even when the revision invalidates a
+Decision Record's `**Full design**` link, would have added a design
+section, or would have renamed one. Record the design intent where
+execution already reads it: revise the affected Decision Record using
+the revision format above (the `**What changed**` / `**Revised
+decision**` fields carry the new design intent) and capture any
+mechanism-level detail in the affected track file's narrative
+(`## Context and Orientation`, `## Plan of Work`). The frozen
+`design.md` may now diverge from a revised DR's mechanism; that
+divergence is expected, and the Phase 4 `design-final.md` reconciles
+the as-built design. Do not invoke the `edit-design` skill during a
+replan; it runs only in Phase 1 and Phase 4
+(edit-design/SKILL.md:orchestrator,planner,final-designer:1,4). The
+structural review in step 4 below validates the revised plan.
 
 **4. Review (advisory preview)** — spawn a sub-agent to run the
 structural review protocol from Phase 2 (see `structural-review.md`)
@@ -197,11 +172,10 @@ preview — they will appear in the next-session State 0 re-run.
   Stage only the paths that the revision actually touched (the
   enumeration in
   [§Updating plan and track files](#updating-plan-and-track-files)
-  tells you which files apply per case). Any `design.md` /
-  `design-mechanics.md` changes from step 3 land via the
-  `edit-design` skill, which writes a separate
-  `<plan-dir>/_workflow/design-mutations.md` log entry — include those
-  files in the commit too if they were touched.
+  tells you which files apply per case). A replan never touches
+  `design.md` (it is frozen after Phase 1 — see step 3's "Design
+  intent stays in the plan" rule), so the staged set is the plan
+  file and the affected track files only.
 
   This is a Workflow update commit (single-commit-per-replan; per
   the table in `commit-conventions.md` § Commit type prefixes).

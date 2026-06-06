@@ -6,13 +6,13 @@
 |---|---|---|---|
 | §Purpose | planner,final-designer,reviewer-design | 1,4 | Why the design doc exists and what it must convey. |
 | §Boundary with the implementation plan | planner,final-designer | 1,4 | What belongs in the design doc versus the plan. |
-| §Mutation discipline: every change is one atomic action | planner,final-designer,reviewer-design | 1,3A,3C,4 | Each design-doc change is one apply-review-iterate action. |
-| §The atomic action | planner,final-designer,reviewer-design | 1,3A,3C,4 | The four-step shape of a single design mutation. |
-| §Cold-read scope by mutation kind | reviewer-design | 1,3A,3C,4 | How much of the doc the cold-read reviewer reads per mutation kind. |
-| §Mechanical checks (always run) | planner,final-designer,reviewer-design | 1,3A,3C,4 | Automated structural checks every mutation triggers. |
-| §Findings and severities | reviewer-design | 1,3A,3C,4 | How cold-read findings are graded and reported. |
-| §Review log | planner,final-designer | 1,3A,3C,4 | Append-only log recording each mutation and its review. |
-| §Cold-read sub-agent prompt | planner,reviewer-design | 1,3A,3C,4 | Prompt template for the design cold-read reviewer. |
+| §Mutation discipline: every change is one atomic action | planner,final-designer,reviewer-design | 1,4 | Each design-doc change is one apply-review-iterate action. |
+| §The atomic action | planner,final-designer,reviewer-design | 1,4 | The four-step shape of a single design mutation. |
+| §Cold-read scope by mutation kind | reviewer-design | 1,4 | How much of the doc the cold-read reviewer reads per mutation kind. |
+| §Mechanical checks (always run) | planner,final-designer,reviewer-design | 1,4 | Automated structural checks every mutation triggers. |
+| §Findings and severities | reviewer-design | 1,4 | How cold-read findings are graded and reported. |
+| §Review log | planner,final-designer | 1,4 | Append-only log recording each mutation and its review. |
+| §Cold-read sub-agent prompt | planner,reviewer-design | 1,4 | Prompt template for the design cold-read reviewer. |
 | §Two-mode editing — working vs sync | planner,final-designer | 1,4 | The working-draft mode versus the sync-to-final mode. |
 | §Direct mutation (existing kinds) | planner,final-designer | 1,4 | Applying a mutation of an already-defined kind directly. |
 | §Working / sync (the iterative model) | planner,final-designer | 1,4 | The iterative working-then-sync editing model. |
@@ -110,7 +110,7 @@ a section the DR links to.
   `design.md` complex-topic section that derives it.
 
 ## Mutation discipline: every change is one atomic action
-<!-- roles=planner,final-designer,reviewer-design phases=1,3A,3C,4 summary="Each design-doc change is one apply-review-iterate action." -->
+<!-- roles=planner,final-designer,reviewer-design phases=1,4 summary="Each design-doc change is one apply-review-iterate action." -->
 
 **Every modification to `design.md`** (and `design-mechanics.md`
 when it exists) **is implemented as one atomic action that
@@ -125,10 +125,15 @@ design:
 - Initial creation in Phase 1 (`phase1-creation`)
 - Interactive iteration during Phase 1 (`mechanics-edit`,
   `design-sync`)
-- Inline replanning during Phase 3 ESCALATE (direct mutation
-  kinds — `content-edit`, `section-add`, etc.)
 - Phase 4 production of `design-final.md` /
   `design-mechanics-final.md` (`phase4-creation`)
+
+The design document is frozen after Phase 1 (Rule 15): Phase 3
+inline replanning never mutates it. A replan that would have
+revised the design records its intent in the plan's Decision
+Records and the track narrative instead — see
+inline-replanning.md:orchestrator:3A,3C § Process and
+implementer-rules.md:implementer:3B,3C § Loading discipline.
 
 The same gate fires every time. Without this discipline, the
 shape rules in the rest of this document are aspirational —
@@ -137,7 +142,7 @@ check. Bundling the review with the write makes the rules
 self-enforcing.
 
 ### The atomic action
-<!-- roles=planner,final-designer,reviewer-design phases=1,3A,3C,4 summary="The four-step shape of a single design mutation." -->
+<!-- roles=planner,final-designer,reviewer-design phases=1,4 summary="The four-step shape of a single design mutation." -->
 
 Each mutation invocation receives:
 
@@ -160,9 +165,14 @@ Each mutation invocation receives:
 The action runs:
 
 1. **Apply edit.** Write the change to disk.
-2. **Auto-review.** Two halves:
+2. **Auto-review.** Mechanical checks, then (for `phase1-creation`)
+   an adversarial pass, then cold-read:
    - **Mechanical checks** — cheap, always run. See checks
      table below.
+   - **Adversarial** (`phase1-creation` only) — sub-agent
+     challenges the design's decisions and assumptions against
+     the real code, before cold-read. See § Working / sync for
+     the adversarial-then-cold-read ordering.
    - **Cold-read** — sub-agent reads the doc fresh, no prior
      context. Scope depends on mutation kind (see scope table
      below).
@@ -180,7 +190,7 @@ final state.
 
 **Concrete invocation.** The design-doc mutation action is
 implemented as the `edit-design` skill at
-edit-design/SKILL.md:final-designer,orchestrator,planner:1,3A,3C,4.
+edit-design/SKILL.md:final-designer,orchestrator,planner:1,4.
 The mechanical checks half is the script at
 [`.claude/scripts/design-mechanical-checks.py`](../../.claude/scripts/design-mechanical-checks.py).
 The cold-read half is the sub-agent prompt at
@@ -198,7 +208,7 @@ not "every existing file passes today." Backfilling old designs is a
 separate exercise and is not required.
 
 ### Cold-read scope by mutation kind
-<!-- roles=reviewer-design phases=1,3A,3C,4 summary="How much of the doc the cold-read reviewer reads per mutation kind." -->
+<!-- roles=reviewer-design phases=1,4 summary="How much of the doc the cold-read reviewer reads per mutation kind." -->
 
 In the table below, the `--target` column reads as a function of whether a
 `design-mechanics.md` companion exists. "`design.md` only" designs use
@@ -242,7 +252,7 @@ practice, change one of the two thresholds rather than relying on
 context to disambiguate.
 
 ### Mechanical checks (always run)
-<!-- roles=planner,final-designer,reviewer-design phases=1,3A,3C,4 summary="Automated structural checks every mutation triggers." -->
+<!-- roles=planner,final-designer,reviewer-design phases=1,4 summary="Automated structural checks every mutation triggers." -->
 
 | Check | Detection |
 |---|---|
@@ -259,7 +269,7 @@ context to disambiguate.
 | `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and in every track file under `plan/` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
 
 ### Findings and severities
-<!-- roles=reviewer-design phases=1,3A,3C,4 summary="How cold-read findings are graded and reported." -->
+<!-- roles=reviewer-design phases=1,4 summary="How cold-read findings are graded and reported." -->
 
 - **blocker** — the mutation cannot stand. The iteration budget
   is consumed attempting to fix; if the budget exhausts with the
@@ -273,7 +283,7 @@ context to disambiguate.
   automatically.
 
 ### Review log
-<!-- roles=planner,final-designer phases=1,3A,3C,4 summary="Append-only log recording each mutation and its review." -->
+<!-- roles=planner,final-designer phases=1,4 summary="Append-only log recording each mutation and its review." -->
 
 Each mutation appends to
 `docs/adr/<dir-name>/_workflow/design-mutations.md`. The minimum
@@ -293,7 +303,7 @@ shape per entry is:
 **Iterations**: 1 of 3 (PASS) | 3 of 3 (BLOCKER REMAINS)
 ```
 
-The skill (edit-design/SKILL.md:final-designer,orchestrator,planner:1,3A,3C,4
+The skill (edit-design/SKILL.md:final-designer,orchestrator,planner:1,4
 `§ Step 7`) is the **canonical** writer and adds qualifiers the minimum
 above does not show — file-basename suffix in the header (`design.md`
 vs `design-final.md`), the `target=` flag on the mechanical-checks
@@ -310,7 +320,7 @@ because `edit-design`'s `design-sync` step re-reads it to find the
 last sync point and walk every `mechanics-edit` since then.
 
 ### Cold-read sub-agent prompt
-<!-- roles=planner,reviewer-design phases=1,3A,3C,4 summary="Prompt template for the design cold-read reviewer." -->
+<!-- roles=planner,reviewer-design phases=1,4 summary="Prompt template for the design cold-read reviewer." -->
 
 The cold-read half of the auto-review is implemented by the
 prompt at
@@ -336,8 +346,8 @@ cold-read) on the file(s) the mutation actually touches — usually
 `design.md` alone, but `length-trigger-crossing` and any
 `section-rename` / `structural-rewrite` that propagates into a
 mechanics companion will run mechanical and cold-read against both
-files. Best for small, targeted changes after the design is
-published — for example, a Phase 3 inline-replanning bullet add.
+files. Best for small, targeted changes during Phase 1 iteration —
+for example, adding a bullet to a section the user is still refining.
 (Phase 4 produces a *new* committed artifact via `phase4-creation`
 and is not subsequently mutated through this discipline; once
 `design-final.md` is committed, follow-up changes go through normal
@@ -376,6 +386,22 @@ and produces churn in the human-facing summary. Working mode lets
 mechanics evolve freely under cheap mechanical checks; sync
 batches the distillation into one expensive review pass at a
 deliberate publish point.
+
+**`phase1-creation` review order — adversarial, then cold-read.**
+The Phase 1.1 `phase1-creation` review runs **adversarial first,
+then cold-read**, not cold-read alone. The adversarial pass
+(`prompts/adversarial-review.md` § Design-scoped review (Phase 1),
+invoked by `edit-design` Step 3.5) challenges the design's decisions
+and hidden assumptions against the real code; the cold-read pass
+(`prompts/design-review.md`, Step 4) then assesses whether a fresh
+reader can build a working mental model. The order is load-bearing:
+cold-read must not assess the readability of a design the adversarial
+pass may still force to change, so the adversarial blockers are
+iterated to resolution before cold-read runs. This pairs with the
+design-first authoring flow: `design.md` is authored and reviewed in
+its own `create-plan` session (Step 4a) before the plan derives from
+it. Only `phase1-creation` runs the adversarial pass; the direct
+mutation kinds and `design-sync` run cold-read alone.
 
 **Stable reference for review.** Between syncs, `design.md` stays
 **frozen** relative to mechanics. The user reads `design.md` to

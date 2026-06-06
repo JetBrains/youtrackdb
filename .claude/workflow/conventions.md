@@ -66,7 +66,7 @@ during Phase 3 execution.
 
 | Term | Definition |
 |---|---|
-| **Track** | A coherent stream of related work within a plan. Contains steps. Max ~5-7 steps. If larger, split into dependent tracks during planning. |
+| **Track** | One PR in a stacked-diff series: it builds on the tracks before it, stands alone as an independently reviewable and mergeable unit, and carries as much of the feature as one reviewable diff holds. Contains steps. Sized by file footprint, not step count: the planner *maximizes* — packs work in up to a soft footprint ceiling, related or not — and clamps with a floor below (≤~12 in-scope files that folds into a neighbor) and a ceiling above (split candidate at >~20-25). The bounds are soft: a track outside them passes planning when its track file carries a written justification. Full rule in `planning.md` §Track descriptions. |
 | **Step** | One change = one commit, fully tested. Coherence (one logically continuous change committed together, not a minimal file count) is mandatory for `high` steps and preferred for `low`/`medium` steps, which may merge several changes toward the fill target. For the coherence boundary by tier, the fill target, and the under-fill rule, see `track-review.md` §Step Decomposition. |
 | **Episode** | Structured record of what happened during a step or track. |
 | **Scope indicator** | Rough sketch of expected work in a track: the planned file footprint and what it covers (`~N files covering X, Y, Z`). Format and rules in §Scope indicators (required). |
@@ -81,7 +81,7 @@ during Phase 3 execution.
 | **Workflow-SHA stamp** | The HTML comment `<!-- workflow-sha: <40-char SHA> -->` written on line 1 of each `_workflow/**` artifact, recording the workflow-format commit reachable from HEAD at the moment of artifact creation. Drift detection and migration replay both read it; the H1 title starts on line 2. Full rule, canonical parser idioms, range definition, and unstamped-artifact protocol live in §1.6:orchestrator,planner,migrator,final-designer:1,2,3A,3B,3C,4. |
 | **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the workflow format encoded in commits reachable from HEAD (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks` by the gate at workflow-drift-check.md:orchestrator,planner:2,3A; the migration itself is owned by the `/migrate-workflow` skill. |
 | **Role enum** | The closed 15-value set of agent-role tokens (`any`, `orchestrator`, `planner`, `implementer`, `decomposer`, `final-designer`, `migrator`, `pr-reviewer`, `reviewer-technical`, `reviewer-risk`, `reviewer-adversarial`, `reviewer-plan`, `reviewer-design`, `reviewer-dim-step`, `reviewer-dim-track`) used in per-section annotations and cross-reference suffixes. Closed at rollout; new roles require a workflow-format commit. Full list with per-value descriptions in §1.8:any:any. |
-| **Phase enum** | The closed 8-value set of workflow-phase tokens (`0`, `1`, `2`, `3A`, `3B`, `3C`, `4`, `any`) used in per-section annotations and cross-reference suffixes. Inline-replanning, review-mode passes, and `edit-design` mutations reuse existing phase tokens (often as a union) rather than carving out separate tokens; `/migrate-workflow` and `/review-workflow-pr` sit outside the phase taxonomy and use `phases=any`. Full list in §1.8:any:any. |
+| **Phase enum** | The closed 8-value set of workflow-phase tokens (`0`, `1`, `2`, `3A`, `3B`, `3C`, `4`, `any`) used in per-section annotations and cross-reference suffixes. Inline-replanning and review-mode passes reuse existing phase tokens (`3A,3C`) rather than carving out separate tokens; `edit-design` mutations run in Phase 1 and 4 only (the design is frozen after Phase 1, so no Phase 3 design mutation runs) and tag `1,4`; `/migrate-workflow` and `/review-workflow-pr` sit outside the phase taxonomy and use `phases=any`. Full list in §1.8:any:any. |
 | **Section annotation** | The one-line HTML comment `<!-- roles=<comma-list> phases=<comma-list> summary="<one-line>" -->` placed immediately after every annotated `##` or `###` heading. Carries the section's role and phase audience plus a ≤120-char summary; the TOC region's summary cell reads from `summary="..."` verbatim. Comma-separated lists carry no spaces. Required at the same density on `### ` as on `## ` (one literal-heading exception: the bootstrap-block heading `## Reading workflow files (TOC protocol)`). Format definition in §1.8:any:any. |
 | **TOC region** | The Markdown table between the literal `<!--Document index start-->` and `<!--Document index end-->` comment delimiters, sitting directly under a workflow doc's H1. Columns are fixed at `Section | Roles | Phases | Summary`; rows map 1:1 to every `^## ` and `^### ` heading (bootstrap-block heading exempted). `workflow-reindex.py --write` rebuilds the table from per-section annotations; authors do not maintain it by hand. Format definition in §1.8:any:any. |
 | **Cross-reference convention** | The `roles:phases` suffix on workflow-doc references that lets a reader filter before opening (cross-file refs) or before jumping to a section (in-file refs). Cross-file refs in every in-scope file — workflow docs, prompts, `SKILL.md` startup read-lists, and `.claude/agents/*.md` files — use the full `name.md:roles:phases` form and are hand-written; references to non-annotatable targets are backtick-wrapped instead. In-file `§X.Y(z):roles:phases` refs inside a workflow doc are auto-stamped by `workflow-reindex.py --write` from the target heading's annotation. The reindex script subset-validates cross-file suffixes against the target. Format, examples, and drift-detection rules in §1.8:any:any. |
@@ -225,11 +225,17 @@ trail for the format) and the entry becomes `[x]`. A user may
 manually re-set the entry to `[ ]` (or invoke `/review-plan`) after
 inline replanning to force a re-validation.
 
-**Planning rule:** If a track would need more than ~5-7 steps or internal
-phasing, split it into separate dependent tracks. Track sequencing and
+**Planning rule:** Size each track by its planned in-scope file footprint,
+not its step count. *Maximize* — extend a track up to the soft footprint
+ceiling, packing in autonomous units whether or not they are thematically
+related, and open a new track only when the next unit breaches the ceiling or
+breaks the track's independent mergeability. A track ≤~12 in-scope files that
+folds into a neighbor under the ceiling is a merge candidate (flag-only); a
+track over ~20-25 in-scope files is a split candidate. The bounds are soft: an
+out-of-bounds track passes planning when its track file carries a written
+justification, and only escalates when it does not. Track sequencing and
 episode propagation between dependent tracks is handled by the session
-workflow — this gives the same "informed decomposition" benefit without
-extra complexity.
+workflow. The full rule lives in `planning.md` §Track descriptions.
 
 ### Section budgets
 <!-- roles=planner,final-designer phases=1,4 summary="Soft length caps per plan and design section." -->
@@ -279,8 +285,8 @@ for pending tracks) and by Phase A/B/C of the active track.
 Every track must include a **Scope** line in its description block: a rough
 sketch of the expected work — the planned file footprint and a brief list of
 what those files cover. The footprint is a per-track soft heuristic, not the
-per-step `~12` split cap: it estimates how many files the whole track touches,
-not how large any one step is. A file count is knowable at plan time (the
+per-step `~12` fill target: it estimates how many files the whole track
+touches, not how large any one step is. A file count is knowable at plan time (the
 in-scope file set already lives in each track file's §Interfaces and
 Dependencies), whereas a step count pre-judges Phase A decomposition, which
 happens only at execution time. Scope indicators are strategic signals, not
@@ -290,16 +296,19 @@ time regardless.
 Format: `> **Scope:** ~N files covering X, Y, Z`
 
 Scope indicators serve three purposes:
-1. **Structural review** can catch sizing issues by comparing the footprint
-   against the track-level ceiling (a footprint at or above `~20-25` in-scope
-   files signals a track that should split into dependent tracks) and ordering
-   problems (scope of Track B implies a dependency on Track A's output). The
-   `~20-25` ceiling is track-level and distinct from the per-step `~12` split
-   cap and `~5` MEDIUM trigger: a 5-7-step track aggregates many steps, so its
-   footprint sits well above those per-step numbers, and reusing them as the
-   track ceiling would mis-flag normal-sized tracks. The check is plan-file-only:
-   both the footprint count and the coverage-list cardinality sit on the
-   `**Scope:**` line itself.
+1. **Structural review** can catch sizing issues by applying the two-sided
+   footprint bound (the full rule lives in `planning.md` §Track descriptions
+   and is summarized in §1.2:planner,orchestrator,decomposer:1,2,3A): a footprint over the `~20-25` in-scope-files
+   ceiling is a split candidate, a footprint ≤~12 files that folds into a
+   neighbor is a merge candidate, and an out-of-bounds track without a written
+   justification escalates. It also catches ordering problems (scope of Track B
+   implies a dependency on Track A's output). The track-level ceiling is
+   distinct from the per-step `~12` fill target and `~5` MEDIUM trigger that
+   `track-review.md` §Step Decomposition applies during Phase A: a maximized
+   track aggregates many steps, so its footprint sits well above those per-step
+   numbers, and reusing the per-step numbers as the track ceiling would mis-flag
+   normal-sized tracks. The check is plan-file-only: both the footprint count
+   and the coverage-list cardinality sit on the `**Scope:**` line itself.
 2. **Human reviewers** can quickly gauge relative effort across tracks.
 3. **Execution planning** — Phase A uses scope indicators as a starting
    point for just-in-time step decomposition, not as a binding contract.
@@ -1115,7 +1124,7 @@ migrator            — /migrate-workflow agent
 pr-reviewer         — /review-workflow-pr agent
 reviewer-technical  — Phase 3A technical review (prompts/technical-review.md)
 reviewer-risk       — Phase 3A risk review
-reviewer-adversarial — Phase 3A adversarial review
+reviewer-adversarial — Phase 1 design adversarial + Phase 3A track adversarial review
 reviewer-plan       — Phase 2 consistency + structural reviewers (paired role)
 reviewer-design     — design-mutation cold-read (prompts/design-review.md)
 reviewer-dim-step   — Phase 3B step-level dimensional reviewers (10 baseline + conditional)
@@ -1156,7 +1165,8 @@ any  Wildcard
 The phase taxonomy does NOT carve out separate tokens for ESCALATE /
 inline-replanning (runs within Phase 3A or 3C; tag `phases=3A,3C`),
 review mode (Track Pre-Flight in 3A or Track Completion in 3C; same
-tag), or `edit-design` mutations (Phase 1, 3A, 3C, 4; tag the union).
+tag), or `edit-design` mutations (Phase 1 and 4 only — the design is
+frozen after Phase 1 so no Phase 3 design mutation runs; tag the union).
 `/migrate-workflow` and `/review-workflow-pr` sit outside the phase
 taxonomy and use `phases=any`.
 

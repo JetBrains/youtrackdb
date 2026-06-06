@@ -5,7 +5,7 @@
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §Overview | planner | 1 | Phase 1 develops the implementation plan and design document in a single session, informed by Phase 0 research. |
-| §Goal | planner | 1 | Produce a plan with description, architecture notes, and track decomposition; step detail is deferred to execution. |
+| §Goal | planner | 1 | Author the design doc first in its own reviewed session, then derive the plan; step detail is deferred to execution. |
 | §How to run | planner | 0,1 | Start /create-plan, run Phase 0 research, then transition to Phase 1 planning on the user's explicit go-ahead. |
 | §Plan file structure | planner | 1 | The four _workflow files (plan, design, track files, mutation log); track files do not exist until Phase 3. |
 | §Architecture Notes format | planner | 1 | Architecture Notes carry the strategic shape of the design; the section's per-component budgets keep the plan file lean. |
@@ -17,7 +17,7 @@
 | §Track descriptions | planner | 1 | Each track is described across the thin plan-file checklist entry and the four Phase 1 track-level sections. |
 | §Track-level component interaction diagrams | planner | 1 | Optional per-track Mermaid diagrams live in the track file's Interfaces and Dependencies section, not the plan. |
 | §Scope indicators | planner | 1 | Every track carries a `> **Scope:** ~N files covering X, Y, Z` line; format and purpose live in conventions. |
-| §Design Document | planner | 1 | The plan ships a separate design doc (class/workflow diagrams, complex-part sections), frozen after Phase 1. |
+| §Design Document | planner | 1 | The design doc is authored first in its own reviewed session, then frozen; the plan derives from it. |
 | §Checklist decomposition rules | planner | 1 | Step decomposition is deferred to Phase 3; the canonical rules live in the track-review §Step Decomposition. |
 | §Tooling — PSI-backed Component Map and integration points | planner | 1 | Verify symbols, callers, and SPI consumers named in Architecture Notes through PSI via mcp-steroid before they land. |
 
@@ -81,14 +81,22 @@ captured in the project's track episodes (plan file) and step episodes
 ---
 
 ## Goal
-<!-- roles=planner phases=1 summary="Produce a plan with description, architecture notes, and track decomposition; step detail is deferred to execution." -->
+<!-- roles=planner phases=1 summary="Author the design doc first in its own reviewed session, then derive the plan; step detail is deferred to execution." -->
 
 Produce a plan markdown file with a high-level description, architecture notes,
-and track-level decomposition. Step-level decomposition is **deferred to
-execution** — tracks include scope indicators (a rough sketch of expected
-work) but not detailed steps. Final step decomposition happens just-in-time
-during Phase 3 when the execution agent has maximum codebase context from
-prior tracks.
+and track-level decomposition — **derived from a frozen, reviewed `design.md`**.
+Phase 1 is design-first: `create-plan` authors and reviews `design.md` in its
+own session (Step 4a), the design freezes when its review passes, and the
+implementation plan is derived from that frozen seed in a separate session
+(Step 4b). The plan back-fills nothing the design has not already settled, so
+the Decision Records mirror the design's decisions rather than crystallizing
+ahead of it. `/create-plan` auto-resumes plan derivation when `design.md`
+exists and `implementation-plan.md` does not (see
+`create-plan/SKILL.md` Step 1c / Step 4). Step-level decomposition is
+**deferred to execution** — tracks include scope indicators (a rough sketch of
+expected work) but not detailed steps. Final step decomposition happens
+just-in-time during Phase 3 when the execution agent has maximum codebase
+context from prior tracks.
 
 ## How to run
 <!-- roles=planner phases=0,1 summary="Start /create-plan, run Phase 0 research, then transition to Phase 1 planning on the user's explicit go-ahead." -->
@@ -421,10 +429,45 @@ The file format and template for both files are defined in
 (Phase 1 → Phase A → Phase B/C writer/reader split) is given by the
 *Section lifecycle* table in `conventions-execution.md` `§2.1`.
 
-**Track sizing rule:** If a track would need more than ~5-7 steps, split it
-into separate dependent tracks during planning. The execution agent
-handles sequencing and episode propagation between dependent tracks — this gives
-the same "informed decomposition" benefit without added complexity. Track
+**Track sizing rule.** A track is one PR in a stacked-diff series: it builds
+on the tracks before it, stands alone as an independently reviewable and
+mergeable unit, and carries as much of the feature as one reviewable diff
+holds. Size it by its planned in-scope file footprint (the count of distinct
+files it changes, knowable at plan time from the track file's §Interfaces and
+Dependencies), not by its step count.
+
+*Maximize first.* Extend the track up to the footprint ceiling, packing in
+autonomous units of work whether or not they are thematically related, and
+open a new track only when the next unit would breach the ceiling or break the
+track's independent mergeability. Prefer a dependency boundary as the cut. The
+governing principle is to minimize the number of track cycles — each cycle
+pays a fixed tax (a Phase A review and decomposition, a Phase B implementation
+pass, a Phase C code review, and the session boundaries between them), subject
+to the reviewability ceiling and inter-track mergeability. Two unrelated
+autonomous changes bundled into one track stay autonomous and carry no
+interaction, so reviewing them together costs no more than reviewing them
+apart; internal thematic coherence is not a sizing criterion.
+
+*Then clamp with a two-sided bound.* Below: a track of ≤~12 in-scope files
+that folds into an adjacent track under the ceiling is a **merge candidate** —
+flag-only, never auto-merged, since re-partitioning PRs and preserving the
+dependency DAG is a planner judgment, not a mechanical edit. Above: a track
+over ~20-25 in-scope files is a **split candidate**. Both bounds are soft.
+
+*Argumentation gate.* A track must carry a written justification in its track
+file when it is out of bounds on either side: under the floor (≤~12 in-scope
+files that folds into a neighbor), over the ceiling (>~20-25 in-scope files),
+or stopped below the ceiling with a mergeable autonomous unit left unpacked.
+The justification names why the track is not folded, not maximized further, or
+not split, respectively. A documented out-of-bounds track passes planning
+autonomously; an undocumented one is a `design-decision` finding at Phase 2
+review and escalates. A track that stops below the ceiling with no further unit
+to add is genuinely complete and satisfies the gate trivially ("this is the
+whole change"), so a mid-range track is not under-target merely for sitting
+between the floor and the ceiling.
+
+The footprint thresholds (~12 / ~20-25) are soft review-capacity estimates,
+recalibrated from execution-time measurements rather than pinned hard. Track
 sequencing and episode propagation between dependent tracks is handled by the
 execution agent.
 
@@ -462,12 +505,29 @@ description block. Focus planner energy on track descriptions and
 architecture, not premature step decomposition.
 
 ## Design Document
-<!-- roles=planner phases=1 summary="The plan ships a separate design doc (class/workflow diagrams, complex-part sections), frozen after Phase 1." -->
+<!-- roles=planner phases=1 summary="The design doc is authored first in its own reviewed session, then frozen; the plan derives from it." -->
 
-The plan must be accompanied by a separate **design document** at
+The plan derives from a separate **design document** at
 `docs/adr/<dir-name>/_workflow/design.md`. It explains the structural and behavioral
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).
+
+**Design-first authoring.** `design.md` is authored **first**, in its own
+`create-plan` session (Step 4a), and freezes when its review passes; the plan
+derives from that frozen seed in a separate session (Step 4b). This is the
+inverse of back-filling the design after the plan has crystallized — the
+design is the seed, not a trailing artifact. The design is authored via the
+`edit-design` skill (`phase1-creation` kind), whose review runs **adversarial
+first, then cold-read**: the adversarial pass challenges the design's
+decisions and hidden assumptions against the real code, and only once it
+settles does the cold-read pass assess whether a fresh reader can build a
+working mental model — cold-read does not assess a design the adversarial pass
+may still force to change. The session ends when the review passes (or the
+user accepts open risks); `/create-plan` auto-resumes plan derivation when
+`design.md` exists and `implementation-plan.md` does not. Full flow in
+`create-plan/SKILL.md` Step 1c / Step 4; the review ordering lives in
+`edit-design/SKILL.md` § Workflow and `design-document-rules.md`
+§ Working / sync.
 
 Required content: a concept-first Overview as first content (≤40
 lines, plain language); Core Concepts vocabulary primer between
@@ -510,7 +570,7 @@ explicitly at any time, or accept the auto-suggestion that fires after
 not direct `Edit` / `Write` calls.
 
 **Full rules, examples, and structure:**
-design-document-rules.md:planner,final-designer,reviewer-design:1,3A,3C,4
+design-document-rules.md:planner,final-designer,reviewer-design:1,4
 
 ## Checklist decomposition rules
 <!-- roles=planner phases=1 summary="Step decomposition is deferred to Phase 3; the canonical rules live in the track-review §Step Decomposition." -->
