@@ -257,7 +257,7 @@ flowchart TD
   third prefix.
 
 ## Checklist
-- [ ] Track 1: Generalize §1.7 staging to a third prefix (`.claude/agents/`)
+- [x] Track 1: Generalize §1.7 staging to a third prefix (`.claude/agents/`)
   > Precursor. Extends the staging convention so agent-definition edits route to
   > the staged mirror, stay at develop-state on the live tree until Phase 4, and
   > promote with the rest. Highest-care edit: the workflow-modifying marker
@@ -265,10 +265,25 @@ flowchart TD
   > matches both the live gate during this track and the staged gate after it
   > (D7). Lands first because every later track that edits `.claude/agents/`
   > depends on this rule self-applying via §1.7(d) reads-precedence.
-  > **Scope:** ~16 files covering conventions.md §1.6(h)/§1.7(a)(b)(d)(e),
-  > implementer-rules.md gate + matcher, workflow-startup-precheck.sh pathspec,
-  > workflow-reindex.py dead-glob activation + citing-scope reconciliation,
-  > create-final-design.md promotion, drift/handoff pathspec consumers, and script tests
+  >
+  > **Track episode:**
+  > Generalized §1.7 staging and the §1.6 stamp/drift scheme to a third prefix
+  > (`.claude/agents/`), with the §1.7(b) marker matcher made prefix-agnostic
+  > (match the stable prefix `This plan is workflow-modifying:`) so the plan
+  > keeps its develop-state two-prefix marker while the staged definition names
+  > three prefixes (D7 bootstrap). The reindex staged-agent scope split routes a
+  > staged agent into the rules-6/7-only validation gate so the now-live
+  > staged-agents glob validates it like a live agent instead of over-firing
+  > rules {2,4,8}. Downstream guarantee for Track 3: the three-prefix rule and
+  > the reindex routing are in the staged mirror, so Track 3's agent edits stage
+  > via §1.7(d) reads-precedence and validate correctly. Discovered that
+  > `.claude/scripts/` is not stageable (§1.7(a)), so the precheck and reindex
+  > scripts and their tests are edited live, which is safe because
+  > `WORKFLOW_PATHSPECS` excludes `.claude/scripts/` (no drift). Phase C fixed a
+  > deferred two-prefix residue in the migrate-workflow §4.1 delegation heuristic
+  > and stale drift-narration in the precheck tests; no Decision Records changed.
+  >
+  > **Track file:** `plan/track-1.md` (5 steps, 0 failed)
 
 - [ ] Track 2: Manifest-plus-sections schema, persistence/lifecycle, and the coverage invariant
   > Defines the contract every bulk producer writes: the manifest header over

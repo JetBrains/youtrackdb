@@ -20,7 +20,7 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-07T12:20Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-07T12:40Z [ctx=safe] Step 1 complete (commit 607e1395)
 - [x] 2026-06-07T12:57Z [ctx=safe] Step 2 complete (commit dcff63be); review WP1 (suggestion, no fix), §1.7(f) gap folded into step 5 (DL2)
@@ -29,6 +29,7 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [x] 2026-06-07T13:48Z [ctx=info] Step 5 complete (commit 291d5473); risk:medium, no step-level review; migrate-workflow line-482 heuristic flagged for Phase C (Surprises)
 - [x] 2026-06-07T13:48Z [ctx=info] Step implementation complete (Phase B) — all 5 steps [x]
 - [x] 2026-06-07T14:30Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-07T14:36Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
