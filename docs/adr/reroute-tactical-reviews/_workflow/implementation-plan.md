@@ -123,7 +123,7 @@ flowchart TD
 #### D3: Anchored partial-fetch addressing + count validation
 - **Alternatives considered**: line-offset addressing.
 - **Rationale**: stable heading anchors (`^### BC1 `) survive format drift where
-  line offsets break; an ID-anchored grep (`^### [A-Z]{2,}[0-9]+ `) validates the
+  line offsets break; an ID-anchored grep (`^### [A-Z]+[0-9]+ `) validates the
   manifest count before any body read, so validation reads heading lines only.
 - **Risks/Caveats**: none material; line offsets stay an optional fast-path hint.
   A bare `^### ` count would over-count non-finding headings, so under
@@ -237,7 +237,7 @@ flowchart TD
   `loc`-collapse and reach the implementer unmerged with `revert-or-repair`
   guidance.
 - **S4 (count validation):** the manifest `findings` count must equal the
-  ID-anchored grep count (`grep -cE '^### [A-Z]{2,}[0-9]+ '`), else
+  ID-anchored grep count (`grep -cE '^### [A-Z]+[0-9]+ '`), else
   `CONTRACT_VIOLATION` and a whole-section fallback owned by the routing class.
   Mechanical-testable.
 - **S5 (coverage):** every bulk-producing sub-agent class follows the
@@ -302,12 +302,16 @@ flowchart TD
   > orchestrator partial-fetches). Packs the strategic side with the contract to
   > clear the merge floor — a schema-only track (~9 files) would fold into a
   > neighbor.
-  > **Scope:** ~17 files covering conventions-execution.md schema + §2.1
-  > lifecycle, the coverage invariant, workflow.md/create-final-design.md cleanup
-  > sweep, the strategic panel + plan-review prompts, gate-verification prompts,
-  > research.md Explore delegation, the Phase 4 design-review.md cold-read, a
+  > **Scope:** ~19 files covering conventions-execution.md schema + §2.1
+  > lifecycle, the coverage invariant, the workflow.md/create-final-design.md
+  > cleanup-prose confirmation (the blanket `git rm -r _workflow/` already sweeps
+  > review files — no new glob), the strategic panel + plan-review prompts,
+  > gate-verification prompts, research.md Explore delegation, the Phase 4
+  > design-review.md cold-read wired via edit-design/SKILL.md §Step 4, a
+  > track-review.md §Phase A Resume reconciliation, a
   > step-implementation-recovery.md consistency touch, and the review-mode
-  > FIX_FINDING exemption
+  > FIX_FINDING exemption (Phase A: +edit-design/SKILL.md, +track-review.md; see
+  > track-2 DL1-DL6)
   > **Depends on:** Track 1
 
 - [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
