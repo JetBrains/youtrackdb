@@ -24,11 +24,19 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [x] 2026-06-07T12:20Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-07T12:40Z [ctx=safe] Step 1 complete (commit 607e1395)
 - [x] 2026-06-07T12:57Z [ctx=safe] Step 2 complete (commit dcff63be); review WP1 (suggestion, no fix), §1.7(f) gap folded into step 5 (DL2)
+- [x] 2026-06-07T13:15Z [ctx=info] Step 3 complete (commit f87ae2e6); hook-safety + prompt-design reviews 0 findings; .claude/scripts/ not stageable (Surprises)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- **`.claude/scripts/` is not stageable (§1.7(a)).** The staged mirror covers only
+  `.claude/workflow/`, `.claude/skills/`, `.claude/agents/`. Scripts and their
+  tests are edited live, not staged. Safe on this branch because
+  `WORKFLOW_PATHSPECS` excludes `.claude/scripts/`, so live script commits raise no
+  drift. Affects **step 4** — `workflow-reindex.py` edit also lands live. See
+  Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -318,7 +326,7 @@ commits; no parallel steps in this track). -->
 
 1. Make the workflow-modifying marker matcher prefix-agnostic — change the `conventions.md §1.7(b)` marker definition to name the third prefix and change the `implementer-rules.md` gate matcher to match the stable prefix `This plan is workflow-modifying:` regardless of the trailing prefix list (the D7 bootstrap; keep the plan's two-prefix `### Constraints` marker verbatim). No executable test: prose-only marker match, validated by prose review + `workflow-reindex.py --check`. — risk: high (workflow machinery: §1.7 staging-convention gate matcher — the load-bearing bootstrap every later track self-applies)  [x] commit: 607e13953587d6c4a1c20a67606e81dd7a759c26
 2. Extend §1.7 write-routing and reads-precedence to `.claude/agents/` — `conventions.md §1.7(a)(d)(e)`; the two distinct `implementer-rules.md` sites (path-mapping write-routing rule and pre-commit gate refused-path set); and the seven review/gate prompts' §1.7(d) staged-read precedence caveats (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `consistency-review.md`, `structural-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md`). Validated by `workflow-reindex.py --check` + prose review. — risk: high (workflow machinery: §1.7 staging convention)  [x] commit: dcff63be1e702676af92f11e6f99cd55a2a02a82
-3. Extend the §1.6 stamp scheme and drift walk to `.claude/agents/` — §1.6(b) `WORKFLOW_SHA` stamp base in `conventions.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` (lockstep with the drift pathspec per DL1); the §1.6(h) stamp-walk omission note; `workflow-startup-precheck.sh` `WORKFLOW_PATHSPECS` and the `workflow-drift-check.md` pathspec comment; add third-prefix coverage to `test_workflow_startup_precheck.py`. — risk: high (workflow machinery: §1.6 stamp scheme + auto-running precheck script)  [ ]
+3. Extend the §1.6 stamp scheme and drift walk to `.claude/agents/` — §1.6(b) `WORKFLOW_SHA` stamp base in `conventions.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` (lockstep with the drift pathspec per DL1); the §1.6(h) stamp-walk omission note; `workflow-startup-precheck.sh` `WORKFLOW_PATHSPECS` and the `workflow-drift-check.md` pathspec comment; add third-prefix coverage to `test_workflow_startup_precheck.py`. — risk: high (workflow machinery: §1.6 stamp scheme + auto-running precheck script)  [x] commit: f87ae2e6aed8b0b214d15c96f6b63f9204d445e1
 4. Route a staged agent into the rules-6/7-only validation gate in `workflow-reindex.py` (not the eight-rule `parsed_files` loop) so a staged agent validates like a live agent; re-document the now-false inert-rationale comment and the `discover_agent_citing_files` docstring; add a staged-agent validation-routing test to `test_workflow_reindex.py` asserting only rule-6/7 findings (no rule-1/2/3/4/5/8 over-fire). Co-requisite of step 2 per the Ordering constraint. — risk: high (workflow machinery: auto-running reindex script — the track's second high-care edit)  [ ]
 5. Extend the remaining §1.7 consumers to the third prefix — the Phase 4 promotion `git add` path list and the pre-promotion divergence check in `create-final-design.md` (the `cp -r` is already prefix-agnostic); the `workflow.md §Final Artifacts` staging reference; `step-implementation.md`'s two staging enumerations; and `migrate-workflow/SKILL.md`'s migration pathspecs plus its `format`/`skill`/`rename` commit-classification rules. Validated by `workflow-reindex.py --check` + prose review. — risk: medium (workflow machinery, bounded behavioral: migration commit-classification dispatch + Phase 4 promotion git-add; remaining edits are prose references) — size: ~4 files; no mergeable low/medium work fits (rest of track is high)  [ ]
 
@@ -399,6 +407,49 @@ implementer-rules.md copies (authoritative per §1.7(d)), never re-copy from liv
 The two-prefix residue is scoped, not missed: §1.6(b) (staged conventions.md:579,
 :584) and §1.6(h) (:752) are step 3; the reindex staged-agent scope split is
 step 4; the §1.7(b) backward-compat example (:835) stays two-prefix by design.
+
+### Step 3 — commit f87ae2e6aed8b0b214d15c96f6b63f9204d445e1, 2026-06-07T13:15Z [ctx=info]
+**What was done:** Extended the §1.6 stamp scheme and drift walk to
+`.claude/agents/`. In the staged conventions.md: the §1.6(b) `WORKFLOW_SHA`
+stamp-base `git log` command and its empty-string prose, and the §1.6(h)
+stamp-walk omission note (all now name three prefixes). The three verbatim
+§1.6(b) copier sites were extended in the staged create-plan/SKILL.md (one site,
+line 370) and edit-design/SKILL.md (two sites, lines 220/286). The staged
+workflow-drift-check.md pathspec text now names three prefixes. The live precheck
+script gained `.claude/agents/` in `WORKFLOW_PATHSPECS` plus its brace-form
+exclusion comment, with a new live drift test (`test_drift_phase2_agents_commit_detected`
++ `agents_commit` fixture) proving an agent-only commit in range is caught
+(75/75 pass).
+
+**What was discovered:** `.claude/scripts/` is not a stageable prefix — §1.7(a)
+restricts staging to `.claude/workflow/`, `.claude/skills/`, `.claude/agents/`, so
+the precheck script and its test are edited live, not staged; I6 governs only the
+three stageable prefixes. The live edit is safe on this branch: `WORKFLOW_PATHSPECS`
+excludes `.claude/scripts/`, so the live script/test commits raise no drift
+(confirmed by re-running the precheck — drift still false, state unchanged). The
+implementer proved the new test non-vacuous by reverting to two prefixes (test
+fails) then restoring. Step-level review (`review-workflow-hook-safety` +
+`review-workflow-prompt-design`) returned zero findings; hook-safety noted, out of
+scope, that no test yet exercises a staged `.claude/agents/` subtree
+drift-exclusion (only the `workflow` staged subtree is covered) — the path-prefix
+mechanism is uniform across the three directories, so this is a coverage
+observation, not a defect.
+
+**What changed from the plan:** No plan change. The §Interfaces "In scope (live
+paths; routed to the staged mirror during execution)" header reads as if every
+in-scope file stages, but the `.claude/scripts/` entries (precheck, reindex,
+tests) are edited live per §1.7(a). Affects **step 4**: `workflow-reindex.py` is
+also under `.claude/scripts/`, so step 4's edit lands live, not staged.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/conventions.md` (modified staged copy)
+- `…/staged-workflow/.claude/workflow/workflow-drift-check.md` (new staged copy)
+- `…/staged-workflow/.claude/skills/create-plan/SKILL.md`, `…/edit-design/SKILL.md` (new staged copies)
+- `.claude/scripts/workflow-startup-precheck.sh`, `.claude/scripts/tests/test_workflow_startup_precheck.py` (modified, live)
+
+**Critical context:** Step 4 edits the live `workflow-reindex.py` (not staged) per
+§1.7(a); steps 4–5 edit the existing staged conventions.md copy directly
+(authoritative per §1.7(d)), never re-copy from live.
 
 ## Validation and Acceptance
 
