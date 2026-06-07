@@ -638,6 +638,7 @@ instead of restating them.
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
 | `previous_findings` | Findings from earlier iterations of the same review type (empty on iteration 1; populated on iterations 2–3). Used to avoid re-surfacing already-accepted/deferred findings and to verify that review-fix commits resolved prior findings. |
+| `review_file_path` | Absolute path the sub-agent writes its structured output to, in the review-file schema (`conventions-execution.md` `§2.5`). The orchestrator points it at `docs/adr/<dir-name>/_workflow/plan/track-N/reviews/<type>-iter<N>.md` — the `§2.1` lifecycle home — where `<type>` is the review type (`technical` / `risk` / `adversarial`, or `review-gate-verification`) and `<N>` is the iteration, so each fan-out unit writes a distinct file. The sub-agent `mkdir -p`s the `reviews/` directory and writes the file in file-when-handed-a-path mode (see each prompt's output-mode block); the develop-state run that supplies no path falls back to today's inline output. |
 
 Phase A orchestration always passes both `plan_path` and
 `step_file_path` to each sub-agent. Prompts that read the track
@@ -649,6 +650,21 @@ read it from the track file's four Phase 1 track-level sections
 below do not need to change when an individual prompt switches sources
 — only the prompt file itself is edited.
 
+**Output routing — the orchestrator partial-fetches `## Findings`.**
+Because each panel reviewer now writes its findings to the committed
+`review_file_path` file rather than returning them inline, the
+orchestrator reads them back with a partial fetch of the file's
+`## Findings` section (the `§2.5` schema's body) rather than receiving
+the bodies in its conversation context. The reviewer's thin return is
+the manifest only. This is the strategic side of the routing split:
+the orchestrator still ingests `## Findings` (its consumer is the
+planner revising the track file, not an implementer), so it keeps the
+partial-fetch — the on-disk win is the evidence base (`## Evidence
+base`) staying off-context, not the findings themselves. The output
+path is what wires the producer prompts' file-when-handed-a-path
+branch to a caller; without it the reviewers would emit inline and the
+orchestrator would have nothing on disk to fetch.
+
 **Gate-verification-specific inputs.** The review gate verification
 sub-agent additionally receives `findings` (the current iteration's
 findings under re-check — semantically distinct from `previous_findings`,
@@ -656,7 +672,14 @@ which carries finalised findings from earlier iterations) and a
 `review_type` value identifying which review produced the findings
 (`technical` / `risk` / `adversarial`). These two are not part of the
 shared set because the track-scoped reviews do not consume them; the
-gate-verification mini-section below notes their role.
+gate-verification mini-section below notes their role. The
+gate-verification spawn also receives its own `review_file_path` from
+the shared set above — pointed at the `<type>-iter<N>.md` slot for its
+re-check pass — and writes the verdict-producer manifest variant
+(`§2.5`), which the orchestrator partial-fetches the same way; only its
+*new* findings live under `## Findings`, while the per-prior-finding
+`VERIFIED` / `STILL OPEN` / `REJECTED` verdicts ride the manifest's
+`verdicts` block.
 
 ### Track-scoped technical review
 <!-- roles=reviewer-technical phases=3A summary="The track-scoped technical review and its prompt file." -->
