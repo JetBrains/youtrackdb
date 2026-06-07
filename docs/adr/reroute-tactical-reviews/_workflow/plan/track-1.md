@@ -18,7 +18,7 @@ agent edits cannot stage until this rule is in the staged mirror.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-07T12:20Z [ctx=info] Review + decomposition complete
@@ -26,6 +26,8 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [x] 2026-06-07T12:57Z [ctx=safe] Step 2 complete (commit dcff63be); review WP1 (suggestion, no fix), §1.7(f) gap folded into step 5 (DL2)
 - [x] 2026-06-07T13:15Z [ctx=info] Step 3 complete (commit f87ae2e6); hook-safety + prompt-design reviews 0 findings; .claude/scripts/ not stageable (Surprises)
 - [x] 2026-06-07T13:39Z [ctx=info] Step 4 complete (commit 107e338466); hook-safety WH1 (should-fix) + WH2 (suggestion) fixed, gate-check PASS iter-2 (Review fix: 107e338466)
+- [x] 2026-06-07T13:48Z [ctx=info] Step 5 complete (commit 291d5473); risk:medium, no step-level review; migrate-workflow line-482 heuristic flagged for Phase C (Surprises)
+- [x] 2026-06-07T13:48Z [ctx=info] Step implementation complete (Phase B) — all 5 steps [x]
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -38,6 +40,14 @@ at Phase 1. -->
   `WORKFLOW_PATHSPECS` excludes `.claude/scripts/`, so live script commits raise no
   drift. Affects **step 4** — `workflow-reindex.py` edit also lands live. See
   Episodes §Step 3.
+- **migrate-workflow delegation heuristic left two-prefix (for Phase C).** The
+  migrate-workflow §4 context-budget delegation trigger ("more than 5 files touched
+  under `.claude/workflow/` or `.claude/skills/`", staged SKILL.md ~line 482) was
+  left at two prefixes by step 5 — it sits outside the plan's migrate-workflow scope
+  (pathspecs + classification rules) and is a tuning heuristic, not a §1.7
+  routing/classification correctness gap. A large agent-only migration would not
+  count toward the delegation threshold. Flagged for Phase C consistency-review to
+  weigh against the track's uniform-generalization goal. See Episodes §Step 5.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -329,7 +339,7 @@ commits; no parallel steps in this track). -->
 2. Extend §1.7 write-routing and reads-precedence to `.claude/agents/` — `conventions.md §1.7(a)(d)(e)`; the two distinct `implementer-rules.md` sites (path-mapping write-routing rule and pre-commit gate refused-path set); and the seven review/gate prompts' §1.7(d) staged-read precedence caveats (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `consistency-review.md`, `structural-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md`). Validated by `workflow-reindex.py --check` + prose review. — risk: high (workflow machinery: §1.7 staging convention)  [x] commit: dcff63be1e702676af92f11e6f99cd55a2a02a82
 3. Extend the §1.6 stamp scheme and drift walk to `.claude/agents/` — §1.6(b) `WORKFLOW_SHA` stamp base in `conventions.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` (lockstep with the drift pathspec per DL1); the §1.6(h) stamp-walk omission note; `workflow-startup-precheck.sh` `WORKFLOW_PATHSPECS` and the `workflow-drift-check.md` pathspec comment; add third-prefix coverage to `test_workflow_startup_precheck.py`. — risk: high (workflow machinery: §1.6 stamp scheme + auto-running precheck script)  [x] commit: f87ae2e6aed8b0b214d15c96f6b63f9204d445e1
 4. Route a staged agent into the rules-6/7-only validation gate in `workflow-reindex.py` (not the eight-rule `parsed_files` loop) so a staged agent validates like a live agent; re-document the now-false inert-rationale comment and the `discover_agent_citing_files` docstring; add a staged-agent validation-routing test to `test_workflow_reindex.py` asserting only rule-6/7 findings (no rule-1/2/3/4/5/8 over-fire). Co-requisite of step 2 per the Ordering constraint. — risk: high (workflow machinery: auto-running reindex script — the track's second high-care edit)  [x] commit: 107e338466
-5. Extend the remaining §1.7 consumers to the third prefix — the Phase 4 promotion `git add` path list and the pre-promotion divergence check in `create-final-design.md` (the `cp -r` is already prefix-agnostic); the `workflow.md §Final Artifacts` staging reference; `step-implementation.md`'s two staging enumerations; and `migrate-workflow/SKILL.md`'s migration pathspecs plus its `format`/`skill`/`rename` commit-classification rules. Validated by `workflow-reindex.py --check` + prose review. — risk: medium (workflow machinery, bounded behavioral: migration commit-classification dispatch + Phase 4 promotion git-add; remaining edits are prose references) — size: ~4 files; no mergeable low/medium work fits (rest of track is high)  [ ]
+5. Extend the remaining §1.7 consumers to the third prefix — the Phase 4 promotion `git add` path list and the pre-promotion divergence check in `create-final-design.md` (the `cp -r` is already prefix-agnostic); the `workflow.md §Final Artifacts` staging reference; `step-implementation.md`'s two staging enumerations; and `migrate-workflow/SKILL.md`'s migration pathspecs plus its `format`/`skill`/`rename` commit-classification rules. Validated by `workflow-reindex.py --check` + prose review. — risk: medium (workflow machinery, bounded behavioral: migration commit-classification dispatch + Phase 4 promotion git-add; remaining edits are prose references) — size: ~4 files; no mergeable low/medium work fits (rest of track is high)  [x] commit: 291d54735cead917fee0c176ea73680045faf350
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -499,6 +509,50 @@ edits the staged conventions.md copy plus a new staged `migrate-workflow/SKILL.m
 and other staged-workflow references. The corrected over-fire set {2,4,8} framing is
 now authoritative in the live `workflow-reindex.py` comments for any downstream
 citation.
+
+### Step 5 — commit 291d54735cead917fee0c176ea73680045faf350, 2026-06-07T13:48Z [ctx=info]
+**What was done:** Extended the remaining §1.7 consumers to `.claude/agents/`, all
+routed to the staged mirror. create-final-design.md: the Phase 4 promotion `git add`
+list, the §1.7(f) pre-promotion divergence-check `git log` pathspec, and its ERROR
+halt-message echo (the `cp -r` was left untouched, already prefix-agnostic).
+conventions.md §1.7(f) prose moved to three prefixes in lockstep with that check
+(DL2). workflow.md §Final Artifacts promotion-target paths,
+step-implementation.md's staging enumerations, and migrate-workflow/SKILL.md (the
+§4.2 replay walk, §4.3 rename-detect, and the `format`/`skill`/`rename`
+classification predicates) all generalized. Validated by `workflow-reindex.py
+--check` (exit 0) + prose review.
+
+**What was discovered:** step-implementation.md carries three pair-naming staging
+enumerations, not the two the plan named — the implementer-prompt-template
+write-routing scope (~line 315) and reads-precedence scope (~line 322) are the
+planned pair, but the dimensional-review prompt's §1.7(d) caveat (~line 585) is a
+third describing the same read behavior. Extended all three so one file does not
+name three prefixes in one place and two in another (the same internal-consistency
+rationale A2/DL2 applied). migrate-workflow/SKILL.md line 482 carries a separate
+two-prefix site — a context-budget delegation heuristic ("more than 5 files touched
+under `.claude/workflow/` or `.claude/skills/`"). It is outside the plan's
+migrate-workflow scope (pathspecs + classification rules) and is a tuning heuristic,
+not a §1.7 routing/classification correctness gap, so it was left at two prefixes and
+flagged for Phase C. See Surprises.
+
+**What changed from the plan:** No plan change. Two within-scope clarifications:
+extended all three step-implementation.md enumerations (the plan said "two") for
+file-internal consistency, and applied the DL2 §1.7(f) prose fold-in at staged
+conventions.md line 996 in lockstep with the divergence check. The
+create-final-design.md ERROR echo was extended alongside the pathspec it explains so
+the halt message stays truthful.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/conventions.md` (modified staged copy)
+- `…/staged-workflow/.claude/workflow/prompts/create-final-design.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/workflow.md`, `…/step-implementation.md` (new staged copies)
+- `…/staged-workflow/.claude/skills/migrate-workflow/SKILL.md` (new staged copy)
+
+**Critical context:** Last step touching `.claude/**` in Track 1; the staged mirror
+holds all step 1–5 edits. Adjacent two-prefix sites deliberately left out of scope:
+migrate-workflow/SKILL.md line 482 (context-budget heuristic, flagged for Phase C)
+and the §1.8 TOC-protocol bootstrap lines (read-protocol, out of track scope per
+§Interfaces).
 
 ## Validation and Acceptance
 
