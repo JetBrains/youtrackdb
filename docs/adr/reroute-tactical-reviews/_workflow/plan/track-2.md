@@ -25,6 +25,7 @@ a schema-only track (~9 files) would fold into a neighbor.
 - [ ] Track completion
 - [x] 2026-06-07T15:31Z [ctx=info] Review + decomposition complete (3 steps: 1 high, 1 medium, 1 low; 0 failed)
 - [x] 2026-06-07T16:05Z [ctx=safe] Step 1 complete (commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67)
+- [x] 2026-06-07T16:17Z [ctx=safe] Step 2 complete (commit 396935bb0ce16c8dc5d808ef32a86f53aa500277)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -34,6 +35,12 @@ a schema-only track (~9 files) would fold into a neighbor.
   downstream `loc`/`cert`/`basis` field split are fixed there and embedded in the
   live test, so Track 3 (dimensional agents) and Track 4 (`basis`/`anchor` reads)
   must key off `§2.5`. See Episodes §Step 1.
+- 2026-06-07T16:17Z Step 2: the strategic finding-heading shape is now bare
+  `### <PREFIX><N>` (the literal `Finding ` word dropped) across the five strategic
+  finding-producers, so Track 3's 16 dimensional `review-*` agents must make the
+  identical change to keep the S4 grep honest. The file-when-path /
+  inline-otherwise output-mode block installed on the strategic side is a reusable
+  template for the dimensional set. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -320,7 +327,7 @@ mechanical and get tests.
    cold-read writes a file and the Phase 1 `phase1-creation` invocation stays
    byte-for-byte exempt. — risk: medium (bounded behavioral workflow edits across
    producer prompts and one skill; no auto-running script or load-bearing gate
-   changed)  [ ]
+   changed)  [x] commit: 396935bb0ce16c8dc5d808ef32a86f53aa500277
 
 3. **Prose-only exemptions + consistency reconciliations.** Annotate
    `review-mode.md`'s `FIX_FINDING` with `exempt because…` (user-sourced triples,
@@ -388,6 +395,64 @@ author.
 - `.claude/scripts/tests/fixtures/review-file-valid-strategic.md` (new — live)
 - `.claude/scripts/tests/fixtures/review-file-count-mismatch.md` (new — live)
 - `.claude/scripts/tests/fixtures/review-file-stray-heading.md` (new — live)
+
+### Step 2 — commit 396935bb0ce16c8dc5d808ef32a86f53aa500277, 2026-06-07T16:17Z [ctx=safe]
+**What was done:** Taught eleven staged producer prompts to write a schema file
+plus a thin manifest keyed off `conventions-execution.md §2.5`, keeping each
+prompt's no-path branch byte-for-byte today's inline output. Dropped the literal
+`Finding ` word from the finding-heading template in the five finding-producers
+(`technical`/`risk`/`adversarial`/`consistency`/`structural`:
+`### Finding <PREFIX><N>` → `### <PREFIX><N>`) so the S4 count grep matches the
+single-letter `T`/`R`/`A`/`S` and two-letter `CR` prefixes (DL1);
+`structural-review.md` carries an empty/minimal `## Evidence base` (no certificate
+Part). The three gate-verification prompts adopt the §2.5 verdict-producer manifest
+variant (DL5). `research.md` states the write-or-`exempt because…` rationale for its
+Explore delegation (DL6). `design-review.md` is now path-conditional, gated on an
+output path that `edit-design/SKILL.md §Step 4` injects only when
+`mutation_kind == phase4-creation`, so the Phase 1 `phase1-creation` cold-read
+passes no path and stays byte-for-byte exempt (DL3). Every write routed to the
+staged mirror; no live `.claude` path was touched, and both pre-commit gates passed
+empty. This step is risk:medium, so no step-level dimensional review ran; the change
+rests on the re-run step-1 S4/S6 test (still green) plus the Phase C track pass.
+
+**What was discovered:** Four of the eleven files (`consistency-gate-verification`,
+`structural-gate-verification`, `research`, `design-review`) had no staged copy yet,
+so they were first-touch-copied verbatim from live and then edited; git records them
+as new files, which inflates the step diff to ~819 insertions even though each
+behavioral delta is one inserted block. The other seven already had Track-1 staged
+copies and were edited in place per `§1.7(d)`. The `adversarial-review.md` Phase 1
+(design-scoped) section carried an internal reference to `Finding A<N> certificates`
+that the heading rename made stale; it was reconciled to `each ### A<N> finding`
+with a note that the `phase1-creation` loop passes no output path, so the inline
+two-part format applies there. Cross-track: Track 3's 16 dimensional agents must
+apply the same `### <PREFIX><N>` heading shape (drop `Finding `) to keep the S4 grep
+honest, and the file-when-path/inline-otherwise output-mode block installed here is
+a reusable template for them. The cumulative track diff now reads ~2,000 changed
+lines, but that is dominated by the freshly-staged whole-file copies; the real
+review surface is far smaller, so this is an order-of-magnitude signal, not a
+track-oversize flag.
+
+**Critical context:** The producer prompts edited here define only the consumer
+behavior (write when handed an output path). The orchestrator-side path injection at
+the strategic dispatch sites (the Phase A panel spawn in `track-review.md`, the Phase
+2 plan-review spawn) is a separate wiring; whether Track 2 covers it is resolved at
+step-3 planning, where the dispatch sites are confirmed to hand a path or the gap is
+recorded for the Phase C instruction-completeness pass. Step 3 also owns
+`review-mode.md`, `step-implementation-recovery.md`, and the `track-review.md §Phase
+A Resume` reconciliation.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/prompts/technical-review.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/risk-review.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/consistency-review.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/structural-review.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/consistency-gate-verification.md` (new — staged, first-touch copy)
+- `…/staged-workflow/.claude/workflow/prompts/structural-gate-verification.md` (new — staged, first-touch copy)
+- `…/staged-workflow/.claude/workflow/prompts/review-gate-verification.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/research.md` (new — staged, first-touch copy)
+- `…/staged-workflow/.claude/workflow/prompts/design-review.md` (new — staged, first-touch copy)
+- `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (modified — staged)
 
 ## Validation and Acceptance
 
