@@ -425,10 +425,13 @@ git push
 ```
 
 This deletes the plan, `design.md`, `design-mechanics.md`, every track
-file under `plan/`, and the design-mutations log in one commit.
-The squash-merge folds this deletion together with the rest of the
-branch's history; on `develop`, the final state is the two (or three)
-durable artifacts plus the implemented code.
+file under `plan/`, the per-track review files under
+`plan/track-N/reviews/`, and the design-mutations log in one commit. The
+recursive `git rm -r` sweeps the `reviews/` directories automatically —
+no `plan/*`-globbing removal is needed (and would risk catching the
+`plan/track-N.md` files). The squash-merge folds this deletion together
+with the rest of the branch's history; on `develop`, the final state is
+the two (or three) durable artifacts plus the implemented code.
 
 **Step 7 — Run self-improvement reflection.**
 
