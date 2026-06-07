@@ -25,6 +25,7 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [x] 2026-06-07T12:40Z [ctx=safe] Step 1 complete (commit 607e1395)
 - [x] 2026-06-07T12:57Z [ctx=safe] Step 2 complete (commit dcff63be); review WP1 (suggestion, no fix), §1.7(f) gap folded into step 5 (DL2)
 - [x] 2026-06-07T13:15Z [ctx=info] Step 3 complete (commit f87ae2e6); hook-safety + prompt-design reviews 0 findings; .claude/scripts/ not stageable (Surprises)
+- [x] 2026-06-07T13:39Z [ctx=info] Step 4 complete (commit 107e338466); hook-safety WH1 (should-fix) + WH2 (suggestion) fixed, gate-check PASS iter-2 (Review fix: 107e338466)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -327,7 +328,7 @@ commits; no parallel steps in this track). -->
 1. Make the workflow-modifying marker matcher prefix-agnostic — change the `conventions.md §1.7(b)` marker definition to name the third prefix and change the `implementer-rules.md` gate matcher to match the stable prefix `This plan is workflow-modifying:` regardless of the trailing prefix list (the D7 bootstrap; keep the plan's two-prefix `### Constraints` marker verbatim). No executable test: prose-only marker match, validated by prose review + `workflow-reindex.py --check`. — risk: high (workflow machinery: §1.7 staging-convention gate matcher — the load-bearing bootstrap every later track self-applies)  [x] commit: 607e13953587d6c4a1c20a67606e81dd7a759c26
 2. Extend §1.7 write-routing and reads-precedence to `.claude/agents/` — `conventions.md §1.7(a)(d)(e)`; the two distinct `implementer-rules.md` sites (path-mapping write-routing rule and pre-commit gate refused-path set); and the seven review/gate prompts' §1.7(d) staged-read precedence caveats (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `consistency-review.md`, `structural-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md`). Validated by `workflow-reindex.py --check` + prose review. — risk: high (workflow machinery: §1.7 staging convention)  [x] commit: dcff63be1e702676af92f11e6f99cd55a2a02a82
 3. Extend the §1.6 stamp scheme and drift walk to `.claude/agents/` — §1.6(b) `WORKFLOW_SHA` stamp base in `conventions.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` (lockstep with the drift pathspec per DL1); the §1.6(h) stamp-walk omission note; `workflow-startup-precheck.sh` `WORKFLOW_PATHSPECS` and the `workflow-drift-check.md` pathspec comment; add third-prefix coverage to `test_workflow_startup_precheck.py`. — risk: high (workflow machinery: §1.6 stamp scheme + auto-running precheck script)  [x] commit: f87ae2e6aed8b0b214d15c96f6b63f9204d445e1
-4. Route a staged agent into the rules-6/7-only validation gate in `workflow-reindex.py` (not the eight-rule `parsed_files` loop) so a staged agent validates like a live agent; re-document the now-false inert-rationale comment and the `discover_agent_citing_files` docstring; add a staged-agent validation-routing test to `test_workflow_reindex.py` asserting only rule-6/7 findings (no rule-1/2/3/4/5/8 over-fire). Co-requisite of step 2 per the Ordering constraint. — risk: high (workflow machinery: auto-running reindex script — the track's second high-care edit)  [ ]
+4. Route a staged agent into the rules-6/7-only validation gate in `workflow-reindex.py` (not the eight-rule `parsed_files` loop) so a staged agent validates like a live agent; re-document the now-false inert-rationale comment and the `discover_agent_citing_files` docstring; add a staged-agent validation-routing test to `test_workflow_reindex.py` asserting only rule-6/7 findings (no rule-1/2/3/4/5/8 over-fire). Co-requisite of step 2 per the Ordering constraint. — risk: high (workflow machinery: auto-running reindex script — the track's second high-care edit)  [x] commit: 107e338466
 5. Extend the remaining §1.7 consumers to the third prefix — the Phase 4 promotion `git add` path list and the pre-promotion divergence check in `create-final-design.md` (the `cp -r` is already prefix-agnostic); the `workflow.md §Final Artifacts` staging reference; `step-implementation.md`'s two staging enumerations; and `migrate-workflow/SKILL.md`'s migration pathspecs plus its `format`/`skill`/`rename` commit-classification rules. Validated by `workflow-reindex.py --check` + prose review. — risk: medium (workflow machinery, bounded behavioral: migration commit-classification dispatch + Phase 4 promotion git-add; remaining edits are prose references) — size: ~4 files; no mergeable low/medium work fits (rest of track is high)  [ ]
 
 ## Episodes
@@ -450,6 +451,54 @@ also under `.claude/scripts/`, so step 4's edit lands live, not staged.
 **Critical context:** Step 4 edits the live `workflow-reindex.py` (not staged) per
 §1.7(a); steps 4–5 edit the existing staged conventions.md copy directly
 (authoritative per §1.7(d)), never re-copy from live.
+
+### Step 4 — commit 107e338466, 2026-06-07T13:39Z [ctx=info]
+**What was done:** Routed a staged agent into the rules-6/7-only validation gate
+in the live `workflow-reindex.py`. Added an `_is_staged_agent` predicate; `validate`
+now partitions the in-scope set so a staged agent (matched by the once-dead
+staged-agents glob, made live-activating by step 2's §1.7(e)) is pulled out of the
+eight-rule `parsed_files` loop into the rules-6/7-only scope live agents use, with
+the staged path unioned into the bootstrap-presence set so rule 7 fires.
+`compute_write_plan` got the same partition so a staged agent stays TOC-inert under
+`--write`. Re-documented the now-false inert-glob rationale and the
+`discover_agent_citing_files` docstring. Added three validation-routing tests to the
+live `test_workflow_reindex.py` (over-fire guard, clean staged agent, `--write`
+TOC-inertness), distinct from the existing discovery-only test. Suite 128/128 (was
+125); live `--check` exits 0 on the current tree (no staged agents present).
+
+**What was discovered:** The fix had to cover `compute_write_plan` as well as
+`validate` — both iterate `parse_in_scope_files`, so without the same partition the
+`--write` path would rebuild a TOC region into a staged agent, a real defect beyond
+the validate-loop over-fire the step named. Rule 7's bootstrap-presence check walks
+only the live `.claude/agents/` directory, so a staged agent's path had to be
+unioned in for rule 7 to fire on it. Step-level review
+(`review-workflow-hook-safety`) raised two findings, both fixed and gate-verified
+PASS at iteration 2. WH1 (should-fix): the third routing test was vacuous — it
+passed identically under the pre-fix eight-rule routing because its fixture had
+nothing rules 1-5/8 would flag. Strengthened by adding an un-annotated `## Role`
+heading (which rules 2/4 trip under the bug) and asserting the staged agent stays
+clean, so the test now fails when the `_is_staged_agent` partition is removed
+(mutation-verified). WH2 (suggestion): the over-fire rationale comments overstated
+the set as rules 1/2/3/4/5/8; the real pre-fix over-fire on a staged agent is rules
+2/4/8 (rule 1 is suppressed by the staged-mirror exemption, rules 3/5 are
+structurally unreachable). Reworded the three staged-agent rationale sites; kept the
+test's conservative full-set-empty assertion.
+
+**What changed from the plan:** No plan change. The plan named the `validate`
+eight-rule loop only; partitioning `compute_write_plan` too is a coherence
+completion of the same routing decision. Step 4 satisfies its co-requisite role for
+step 2 — the staged-agents glob is now live-activating and correctly routed, so the
+first track to stage an agent (Track 3) gets correct reindex validation.
+
+**Key files:**
+- `.claude/scripts/workflow-reindex.py` (modified, live)
+- `.claude/scripts/tests/test_workflow_reindex.py` (modified, live)
+
+**Critical context:** No `.claude/scripts/` edits remain after this step; step 5
+edits the staged conventions.md copy plus a new staged `migrate-workflow/SKILL.md`
+and other staged-workflow references. The corrected over-fire set {2,4,8} framing is
+now authoritative in the live `workflow-reindex.py` comments for any downstream
+citation.
 
 ## Validation and Acceptance
 
