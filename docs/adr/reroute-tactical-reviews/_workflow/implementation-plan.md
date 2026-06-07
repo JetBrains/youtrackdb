@@ -344,16 +344,44 @@ flowchart TD
   > **Depends on:** Track 2, Track 3
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed at iteration 1
 
-(Re-validation triggered by the Phase B inline replan that added Track 2 step 4 —
-see track-2 DL7. The prior PASS was at iteration 1 before the replan; the
-Auto-fixed / Escalated history below is from that round and is retained as the
-audit trail.)
+Re-validation after the Phase B inline replan that appended Track 2 step 4
+(strategic dispatch path-injection) and added `implementation-review.md` to
+Track 2 scope, footprint ~19 → ~20 (see track-2 DL7). Both passes found the
+revised plan already consistent.
 
-**Auto-fixed (mechanical)**: CR1 (suggestion) — Track 1 step 4 reworded: the staged-agents glob already sits in `IN_SCOPE_GLOBS` and activates automatically once §1.7(e) stages agents, so the edit is the inert comment (lines 144-154) and the `discover_agent_citing_files` docstring, not the glob string. CR2 (should-fix) — Track 4 step 2 reworded: `review-iteration.md`'s prefix table is already per-dimension, so the work is reconciling its `### Gate-check synthesis routing` reference, not converting an `M<n>` format.
+**Auto-fixed (mechanical)**: none.
 
-**Escalated (design decisions)**: S1 (should-fix) — `design.md` names `design-review.md` (the Phase 1/4 cold-read reviewer) and `step-implementation-recovery.md` as load-bearing sites absent from every track scope. User resolved: the Phase 4 cold-read is covered in Track 2 (file-write at the `create-final-design.md` spawn site), the Phase 1 cold-read is exempt (consumed in-session by the design author), and the `step-implementation-recovery.md` light consistency pass lands in Track 2 — all applied. S2 (suggestion) — Track 4's `~14 files` overstated its 8-file footprint. User resolved: reconciled to `~8 files`; added the under-floor non-fold justification to the track file (terminal track; back-fold into Track 3 would mix staging prefixes) — applied.
+**Escalated (design decisions)**: none.
+
+Consistency review verified the two step-4 dispatch sites exist in their claimed
+current form: `implementation-review.md` is the Phase 2 consistency/structural
+dispatch, and `track-review.md §Inputs` feeds the Phase A panel and the
+review-gate-verification a shared input set carrying no output path. It confirmed
+the replan's gap diagnosis (step 2's producer write-branch had no
+orchestrator-side caller, and the whole-track acceptance asserted a partial-fetch
+with no implementing step) and that no numbered Decision Record is invalidated.
+Structural review confirmed Track 2's ~20-file footprint sits under the ~20-25
+split ceiling with its merge-floor justification intact, the scope list is
+proportionate to the file count, and the plan-file entry tells the same story as
+track-2.md's Plan of Work, Concrete Steps (step 4), Decision Log (DL7), and
+Interfaces. Both gate verifications were no-ops this round: zero findings and
+zero applied fixes leave nothing to re-check or re-scan. The known frozen-design
+lag (the S4 regex `[A-Z]{2,}` and the narrower "under `## Findings`" reservation
+in design.md) is intended Phase-4 reconciliation in design-final.md and was not
+re-flagged.
+
+**Prior round (pre-replan, iteration 1)**: auto-fixed CR1 (Track 1 step 4
+reword: the staged-agents glob already sits in `IN_SCOPE_GLOBS`, so the edit is
+the inert comment plus the `discover_agent_citing_files` docstring) and CR2
+(Track 4 step 2 reword: `review-iteration.md`'s prefix table is already
+per-dimension, so the work reconciles its `### Gate-check synthesis routing`
+reference rather than converting an `M<n>` format); escalated S1 (the Phase 4
+cold-read and `step-implementation-recovery.md` coverage, absorbed into Track 2
+scope) and S2 (Track 4 footprint `~14`→`~8` with the under-floor non-fold
+justification added to the track file). No regression on any of the four this
+round.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
