@@ -993,8 +993,8 @@ A workflow-modifying branch that has not rebased onto the current
 `develop` HEAD must do so before Phase 4 promotion runs. The Phase 4
 prompt's pre-promotion divergence sanity check computes
 `$(git merge-base origin/develop HEAD)..origin/develop` on the live
-`.claude/workflow` and `.claude/skills` paths after a `git fetch origin
-develop`; a non-empty diff halts with a manual-reconciliation
+`.claude/workflow`, `.claude/skills`, and `.claude/agents` paths after a
+`git fetch origin develop`; a non-empty diff halts with a manual-reconciliation
 instruction. The rebase is the manual-reconciliation path: rebasing
 onto current `origin/develop` brings the branch's working tree up to a
 state where `origin/develop` no longer carries workflow commits the
