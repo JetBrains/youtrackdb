@@ -4945,13 +4945,24 @@ def test_staged_agent_routes_to_rules_6_7_only_no_over_fire() -> None:
 
 
 def test_staged_agent_present_bootstrap_and_valid_ref_is_clean() -> None:
-    """A well-formed staged agent (bootstrap present, valid ref) emits nothing.
+    """A staged agent with an un-annotated heading but valid bootstrap/ref is clean.
 
     Scenario: the staged agent carries the bootstrap heading and a correctly
-    suffixed `target.md:orchestrator:3B` ref. Expected: rule 7 stays silent
-    (presence satisfied), rule 6 stays silent (valid subset), and no other
-    rule fires — proving the rules-6/7-only routing is the ONLY thing that
-    runs on a staged agent (a live agent in the same shape is likewise clean).
+    suffixed `target.md:orchestrator:3B` ref, so rules 6 and 7 are satisfied.
+    Crucially the fixture also carries an un-annotated, non-bootstrap `## Role`
+    heading — the exact shape the eight-rule loop over-fires on: rule 2 ("H2
+    heading but no TOC region") and rule 4 ("heading has no annotation comment")
+    would both fire if a staged agent were routed through `parsed_files`.
+    Expected: the rules-6/7-only partition suppresses rules 2 and 4 (and the
+    structurally-unreachable rules 1/3/5/8), so the staged agent emits NOTHING.
+
+    Non-vacuity (this test discriminates the fix): if the `_is_staged_agent`
+    partition were removed from `validate`, the staged agent would flow through
+    the eight-rule loop, `## Role` would trip rules 2 and 4, and this assertion
+    would fail — unlike the pre-fix version whose fixture had no non-bootstrap
+    heading and passed under either routing. A live agent in the same shape is
+    likewise clean (its `## Role` heading is exempt under the rules-6/7-only
+    agent scope), which is exactly the parity this test pins.
     """
     with _make_fixture_root() as tmp:
         root = Path(tmp)
@@ -4965,6 +4976,8 @@ def test_staged_agent_present_bootstrap_and_valid_ref_is_clean() -> None:
 
             Bootstrap body teaching the TOC-aware reading protocol.
 
+            ## Role
+
             This agent cites target.md:orchestrator:3B in its body.
             """
         )
@@ -4972,8 +4985,9 @@ def test_staged_agent_present_bootstrap_and_valid_ref_is_clean() -> None:
         findings = MODULE.validate(root)
         staged_findings = _findings_for_path(findings, _STAGED_AGENT_REL)
         assert not staged_findings, (
-            "a well-formed staged agent (bootstrap present, valid ref) must "
-            f"emit no findings; got {staged_findings}"
+            "a staged agent with valid bootstrap/ref but an un-annotated "
+            "non-bootstrap heading must emit no findings — the rules-6/7-only "
+            f"partition suppresses the rule-2/4 over-fire; got {staged_findings}"
         )
 
 
@@ -5454,7 +5468,7 @@ def main() -> int:
             test_staged_agent_routes_to_rules_6_7_only_no_over_fire,
         ),
         (
-            "staged-agent: well-formed staged agent is clean",
+            "staged-agent: un-annotated heading suppressed, agent stays clean",
             test_staged_agent_present_bootstrap_and_valid_ref_is_clean,
         ),
         (

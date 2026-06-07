@@ -148,9 +148,13 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     # `discover_in_scope_files` / `parse_in_scope_files`, but `validate` then
     # partitions it OUT of the eight-rule loop (via `_is_staged_agent`) and
     # into the rules-6/7-only agent citing scope alongside the live agents, so
-    # it validates exactly like its live namesake and never over-fires rules
-    # 1/2/3/4/5/8 (no stamp, no TOC, no per-section annotations, no in-file
-    # refs). Live agent files are NOT in `IN_SCOPE_GLOBS` — they enter rules 6
+    # it validates exactly like its live namesake. Without the partition the
+    # eight-rule loop would over-fire rules 2/4/8 on a staged agent
+    # (un-annotated `##`/`###` headings, no TOC region, bare `§X.Y` in-file
+    # refs); rules 1/3/5 are already structurally unreachable on a staged agent
+    # (rule 1's staged-mirror exemption, no TOC region for rule 3, no
+    # well-formed annotation for rule 5 to validate), so the partition
+    # suppresses 2/4/8 and future-proofs the rest. Live agent files are NOT in `IN_SCOPE_GLOBS` — they enter rules 6
     # and 7 through the separate `discover_agent_citing_files` scope (see that
     # function's docstring); only the *staged* copy passes through this glob.
     "docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md",
@@ -1243,8 +1247,12 @@ def _is_staged_agent(pf: ParsedFile) -> bool:
     `discover_in_scope_files` returns the staged agent into `parsed_files`. A
     staged agent must validate like a live agent — rules 6 and 7 only — not
     through the eight-rule `parsed_files` loop, which would over-fire rules
-    1/2/3/4/5/8 (no stamp, no TOC, no per-section annotations, no in-file
-    refs). The validator and the `--write` planner use this predicate to pull
+    2/4/8 on it (un-annotated `##`/`###` headings, no TOC region, bare `§X.Y`
+    in-file refs); rules 1/3/5 are already structurally unreachable on a staged
+    agent (rule 1's staged-mirror exemption, no TOC region for rule 3, no
+    well-formed annotation for rule 5 to validate), so the partition suppresses
+    2/4/8 and future-proofs the rest. The validator and the `--write` planner
+    use this predicate to pull
     a staged agent out of the eight-rule / TOC-rewrite treatment and into the
     rules-6/7-only citing scope. The logical path (staged prefix stripped)
     collapses the staged copy onto its live `.claude/agents/<name>.md`
@@ -2272,8 +2280,12 @@ def validate(
     # Partition the in-scope set: a staged agent (matched by the
     # `IN_SCOPE_GLOBS` staged-agents glob once §1.7(e) stages agents) must
     # validate like a live agent — rules 6/7 only — not through the eight-rule
-    # loop below, which would over-fire rules 1/2/3/4/5/8 on it (no stamp, no
-    # TOC, no per-section annotations, no in-file refs). Pull staged agents out
+    # loop below, which would over-fire rules 2/4/8 on it (un-annotated
+    # `##`/`###` headings, no TOC region, bare `§X.Y` in-file refs); rules
+    # 1/3/5 are already structurally unreachable on a staged agent (rule 1's
+    # staged-mirror exemption, no TOC region for rule 3, no well-formed
+    # annotation for rule 5 to validate), so the partition suppresses 2/4/8 and
+    # future-proofs the rest. Pull staged agents out
     # of `parsed_files` and into the agent citing scope alongside the live
     # agents. On a non-workflow-modifying tree (no staged subtree) this
     # partition is a no-op and `parsed_files` is the full in-scope set.
