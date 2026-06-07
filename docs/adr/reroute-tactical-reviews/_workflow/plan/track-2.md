@@ -26,6 +26,7 @@ a schema-only track (~9 files) would fold into a neighbor.
 - [x] 2026-06-07T15:31Z [ctx=info] Review + decomposition complete (3 steps: 1 high, 1 medium, 1 low; 0 failed)
 - [x] 2026-06-07T16:05Z [ctx=safe] Step 1 complete (commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67)
 - [x] 2026-06-07T16:17Z [ctx=safe] Step 2 complete (commit 396935bb0ce16c8dc5d808ef32a86f53aa500277)
+- [x] 2026-06-07T17:56Z [ctx=safe] Step 3 complete (commit a89973811a7d95ff921793f9a377095a9973f60a)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -41,6 +42,18 @@ a schema-only track (~9 files) would fold into a neighbor.
   identical change to keep the S4 grep honest. The file-when-path /
   inline-otherwise output-mode block installed on the strategic side is a reusable
   template for the dimensional set. See Episodes §Step 2.
+- 2026-06-07T17:56Z Step 3: phantom role token `reviewer-panel` — used in five
+  annotation/cross-ref sites (`§2.5` TOC row + section annotation and the `§2.1`
+  review-file-lifecycle annotation from step 1; the two step-3 cross-refs in
+  `review-mode.md` and `track-review.md` that mirror `§2.5`) but absent from the
+  closed 15-value `§1.8(a)` role enum in both the live and the staged
+  `conventions.md`. The three Phase A panel reviewers spawn as
+  `reviewer-technical`/`reviewer-risk`/`reviewer-adversarial`, none in `§2.5`'s
+  role list, so `§1.8(f)` TOC read-filtering cannot route them to the schema
+  section step 2 taught them to write. Spans steps 1-3 and reaches Track 3 (its 16
+  dimensional agents cite `§2.5`). Fix at the Phase C `review-workflow-consistency`
+  pass; reconcile toward the three concrete panel roles to keep the closed enum
+  intact. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -365,7 +378,7 @@ mechanical and get tests.
    separate because it touches a disjoint `track-review.md` section and carries a
    different risk tag; folding this low prose-only step into the medium dispatch
    step would erase the risk-tag granularity that keeps step 3 on the no-step-review
-   fast path.  [ ]
+   fast path.  [x] commit: a89973811a7d95ff921793f9a377095a9973f60a
 
 4. **Strategic dispatch path-injection (orchestrator side).** Inject the
    review-file output path at the strategic spawn sites so step 2's producer
@@ -500,6 +513,58 @@ A Resume` reconciliation.
 - `…/staged-workflow/.claude/workflow/research.md` (new — staged, first-touch copy)
 - `…/staged-workflow/.claude/workflow/prompts/design-review.md` (new — staged, first-touch copy)
 - `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (modified — staged)
+
+### Step 3 — commit a89973811a7d95ff921793f9a377095a9973f60a, 2026-06-07T17:56Z [ctx=safe]
+**What was done:** Added the S5 `exempt because…` annotation to
+`review-mode.md`'s `FIX_FINDING` path: its finding triples are user-sourced,
+buffered in the orchestrator's conversation context, and consumed by the spawned
+implementer in the same round, so the file-plus-manifest persistence the `§2.5`
+coverage rule enables does not apply (the same in-session-consumption rationale as
+the four pure-standalone agents and the Phase 1 cold-read). Reconciled
+`track-review.md`'s track-scoped-review fan-out prose: the bullet that claimed
+Phase A findings are "not persisted to a separate file" now states each panel
+reviewer writes a committed `§2.5`-schema file under `plan/track-N/reviews/` (the
+durable record), with the off-context win being the finding evidence base; Phase A
+resume still gates on the `## Outcomes & Retrospective` checkboxes, not on
+review-file presence (unchanged). The light pass on
+`step-implementation-recovery.md` found no schema or lifecycle references and made
+no edit. Both edits routed to the staged mirror via first-touch copy-then-edit.
+risk:low, so no step-level dimensional review ran.
+
+**What was discovered:** `step-implementation-recovery.md` carries no review-file
+schema or lifecycle vocabulary — a grep over its `review`/`finding`/`schema`/`§2.5`/
+`§2.1`/`reviews` terms returned only Track-4-owned tactical routing (`Review fix:`
+commits, rollback, retry/split, `FIX_REVIEW_FINDINGS` inputs), which this step
+scopes out, so the no-edit outcome was correct.
+
+Orchestrator delta-verification surfaced a phantom role token spanning steps 1-3:
+`reviewer-panel` appears in five annotation and cross-reference sites — `§2.5`'s
+TOC row and section annotation and the `§2.1` review-file-lifecycle annotation (all
+written in step 1), plus the two step-3 cross-refs in `review-mode.md` and
+`track-review.md` that mirror `§2.5` — but is absent from the closed 15-value
+`§1.8(a)` role enum in both the live and the staged `conventions.md`. Step 3's
+cross-refs are internally consistent (they mirror `§2.5` exactly), so the defect
+originates in step 1's `§2.5`/`§2.1` annotations, not in this step. Functional
+impact: the three Phase A panel reviewers spawn with roles
+`reviewer-technical`/`reviewer-risk`/`reviewer-adversarial`, none of which is in
+`§2.5`'s role list, so `§1.8(f)` TOC read-filtering cannot route them to the schema
+section step 2 taught them to write (the Phase 2 pair `reviewer-plan` is present,
+so the plan-review side is unaffected). The reconciliation that keeps the closed
+enum intact is to replace `reviewer-panel` with the three concrete panel roles
+wherever it appears. Recorded for the Phase C `review-workflow-consistency` pass,
+which reads the cumulative diff and is the designed catch point; flagged here
+because Track 3's 16 dimensional agents will also cite `§2.5`.
+
+**Critical context:** The `track-review.md` reconciliation describes the panel
+reviewers as writing committed review files; the orchestrator-side dispatch that
+injects the per-spawn output path so those reviewers run in file-writing mode is
+step 4 (the DL7 strategic dispatch path-injection), still `[ ]`. The two are
+complementary and touch disjoint `track-review.md` sections — track-scoped-review
+fan-out here, `§Inputs` in step 4 — so there is no conflict.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/review-mode.md` (new — staged, first-touch copy)
+- `…/staged-workflow/.claude/workflow/track-review.md` (new — staged, first-touch copy)
 
 ## Validation and Acceptance
 
