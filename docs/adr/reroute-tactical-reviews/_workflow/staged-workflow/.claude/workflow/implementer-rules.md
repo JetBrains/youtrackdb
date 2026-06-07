@@ -240,9 +240,10 @@ rules:
   spawn confirms the open project matches the working tree before
   any IDE-routed action; do not re-probe.
 - **Path mapping for workflow-modifying plans.** Workflow-modifying
-  plans accumulate their `.claude/workflow/**` and `.claude/skills/**`
-  edits under a plan-scoped staged subtree so the branch's live
-  workflow stays at develop's state through Phase B and Phase C. The
+  plans accumulate their `.claude/workflow/**`, `.claude/skills/**`,
+  and `.claude/agents/**` edits under a plan-scoped staged subtree so
+  the branch's live workflow stays at develop's state through Phase B
+  and Phase C. The
   implementer detects the mode per-spawn by reading the plan file's
   `### Constraints` section and matching on the stable marker prefix
   defined in conventions.md:any:any `§1.7(b)`:
@@ -260,8 +261,8 @@ rules:
   even as the canonical definition in `§1.7(b)` grows new prefixes.
 
   When the marker is present, route every write whose target path
-  begins with `.claude/workflow/` or `.claude/skills/` to the
-  corresponding staged path under
+  begins with `.claude/workflow/`, `.claude/skills/`, or
+  `.claude/agents/` to the corresponding staged path under
   `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/...`. Staged
   paths mirror the live relative path under the `.claude/` prefix
   byte-for-byte. A write to `.claude/workflow/X.md` rewrites to
@@ -370,8 +371,9 @@ gate applies on every spawn including `mode=FIX_REVIEW_FINDINGS`
 respawns.
 
 **Pre-commit gate, live-workflow-path check.** Workflow-modifying
-plans route every `.claude/workflow/**` and `.claude/skills/**`
-write to the staged subtree per Sub-step 1's Path-mapping rule
+plans route every `.claude/workflow/**`, `.claude/skills/**`, and
+`.claude/agents/**` write to the staged subtree per Sub-step 1's
+Path-mapping rule
 above. The gate catches bypass shapes — an absolute live path
 passed to a tool, a `Bash` redirection that the implementer
 forgot to rewrite — at commit time, before the bypass lands in
@@ -384,7 +386,7 @@ no-op.
 After staging and before `git commit`, run:
 
 ```bash
-git diff --cached --name-only -- .claude/workflow/ .claude/skills/
+git diff --cached --name-only -- .claude/workflow/ .claude/skills/ .claude/agents/
 ```
 
 Non-empty output means the staged diff contains live workflow
