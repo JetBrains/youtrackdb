@@ -428,3 +428,7 @@ existing two-prefix rule, so the dependency is ordering, not a hard path
 requirement). Downstream — **Track 3** cites this schema for the dimensional
 agents; **Track 4** cites it for tactical routing and the `basis`/`cert`
 manifest fields.
+
+## Base commit
+
+fd6a7322e79671ac6bef45b93cef200571817eb7
