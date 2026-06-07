@@ -24,9 +24,16 @@ a schema-only track (~9 files) would fold into a neighbor.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-07T15:31Z [ctx=info] Review + decomposition complete (3 steps: 1 high, 1 medium, 1 low; 0 failed)
+- [x] 2026-06-07T16:05Z [ctx=safe] Step 1 complete (commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-06-07T16:05Z Step 1: the review-file schema's canonical home is
+  `conventions-execution.md §2.5`; the count-validation regex `^### [A-Z]+[0-9]+ `
+  (one-or-more uppercase, DL1) and the mandatory `id`/`sev`/`anchor` versus
+  downstream `loc`/`cert`/`basis` field split are fixed there and embedded in the
+  live test, so Track 3 (dimensional agents) and Track 4 (`basis`/`anchor` reads)
+  must key off `§2.5`. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -295,7 +302,7 @@ mechanical and get tests.
    the `.claude/scripts/tests/` mechanical test for S4/S6 (count==grep,
    heading-only, a stray-`### CASE1 ` CONTRACT_VIOLATION fixture; fixtures embed
    and cite the canonical regex). — risk: high (workflow machinery — defines the
-   shared review-file schema/lifecycle every bulk producer keys off)  [ ]
+   shared review-file schema/lifecycle every bulk producer keys off)  [x] commit: 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67
 
 2. **Teach the bulk producers to write files in the schema.** Phase A panel
    (`technical-`/`risk-`/`adversarial-review.md`) + Phase 2 plan-review
@@ -333,6 +340,54 @@ prior).
 
 ## Episodes
 <!-- Continuous-log. -->
+
+### Step 1 — commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67, 2026-06-07T16:05Z [ctx=safe]
+**What was done:** Added the manifest-plus-sections review-file schema as a new
+`conventions-execution.md §2.5` (staged mirror): the MANIFEST comment block, the
+`## Findings` / `## Evidence base` anchored bodies, the file-wide `### <PREFIX><N> `
+finding-anchor reservation, the count-validation grep `grep -cE '^### [A-Z]+[0-9]+ '`
+(S4/S6) with the `CONTRACT_VIOLATION` whole-section fallback, the mandatory
+`id`/`sev`/`anchor` versus downstream `loc`/`cert`/`basis` field split, the
+verdict-producer manifest variant (DL5), and the S5 coverage rule stated once with
+its enforcement status (a documented contract this track, with mechanical coverage
+deferred — DL4). Added the review-file lifecycle as new prose under `§2.1`
+(committed-at-return, `plan/track-N/reviews/`, thin episode block, Phase 4 sweep,
+`plan/*` glob caution) and a cleanup-prose confirmation in the staged
+`workflow.md §Final Artifacts` and `create-final-design.md` that the blanket
+`git rm -r _workflow/` already sweeps the review files, with no `plan/*`-globbing
+removal added (DL2). Added the live S4/S6 mechanical test under
+`.claude/scripts/tests/` with four fixtures. This step is risk:high, so the
+step-level dimensional review (hook-safety + prompt-design) ran and passed clean at
+iteration 1 with zero findings.
+
+**What was discovered:** The schema landed at `§2.5`, the next free `§2.x` slot
+after `§2.4`; that anchor is what Track 3 (dimensional agents) and Track 4 (tactical
+routing) cite. The mandatory `id`/`sev`/`anchor` versus downstream
+`loc`/`cert`/`basis` field split is now fixed, so Track 4's severity backstop reads
+`basis` and the implementer anchor-read reads `anchor`. The canonical
+count-validation regex `^### [A-Z]+[0-9]+ ` is embedded verbatim in both the live
+test and `§2.5`; any later track that emits or validates review files must use
+`[A-Z]+` (one-or-more uppercase), since `[A-Z]{2,}` silently drops the single-letter
+strategic prefixes `T`/`R`/`A`/`S` (DL1). The validator's anchor count was
+cross-checked against the real `grep -cE '^### [A-Z]+[0-9]+ '` and matched on every
+fixture (2/3/2/3). The staged `workflow.md` and `create-final-design.md` already
+existed from Track 1 and differ from live, so they were edited in place per
+`§1.7(d)` reads-precedence rather than re-copied. Two non-defect nuances in the test
+were noted by review and not filed: `manifest_findings_count` matches the first
+whole-file `findings:` rather than scoping to the MANIFEST block (correct on every
+current fixture, since the manifest is first), and `assert_regex_source_contract`
+reads the schema doc twice. Both are harmless and recorded for a future fixture
+author.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/conventions-execution.md` (new — staged)
+- `…/staged-workflow/.claude/workflow/workflow.md` (modified — staged)
+- `…/staged-workflow/.claude/workflow/prompts/create-final-design.md` (modified — staged)
+- `.claude/scripts/tests/test_review_file_schema.py` (new — live)
+- `.claude/scripts/tests/fixtures/review-file-valid-dimensional.md` (new — live)
+- `.claude/scripts/tests/fixtures/review-file-valid-strategic.md` (new — live)
+- `.claude/scripts/tests/fixtures/review-file-count-mismatch.md` (new — live)
+- `.claude/scripts/tests/fixtures/review-file-stray-heading.md` (new — live)
 
 ## Validation and Acceptance
 
