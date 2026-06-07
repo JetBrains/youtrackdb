@@ -1,0 +1,321 @@
+<!-- workflow-sha: eb984cba63bd557fb3c2b32156d85bf1a72e82b4 -->
+# Persist bulk sub-agent outputs; route tactical findings to the implementer
+
+## Design Document
+[design.md](design.md)
+
+## High-level plan
+
+### Goals
+
+Cut the orchestrator's resident context from review fan-outs so a body-heavy
+review session stops crossing the 40% `warning` gate and triggering the
+teardown that reloads the whole resident context as cache-create tokens
+(estimated ~120-180K for a body-heavy session). The steady-state carry is
+cheap; the restart it provokes is the cost this plan removes.
+
+The mechanism: every bulk-producing review sub-agent writes its structured
+output to a file at a spawn-supplied path and returns only a thin manifest.
+Routing then splits by who consumes the finding bodies. **Tactical** code-fix
+fan-outs (Phase B `risk:high` step review, Phase C track review, gate-checks)
+keep every body off the orchestrator — it routes on manifest metadata and
+hands in-scope anchors to the per-iteration implementer, which reads bodies,
+fixes at the code level, and escalates only design calls. **Strategic**
+reviews (Phase A panel, Phase 2 plan review, gate-verifications) keep the
+orchestrator's partial-fetch, because the consumer is the planner, not an
+implementer. **Research/audit** sub-agents write a file and return a summary
+the orchestrator pulls on demand.
+
+### Constraints
+
+This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
+
+- The marker sentence above is the **current develop-state two-prefix literal**,
+  copied verbatim so the live implementer enforcement gate recognizes the plan
+  from the first step. The marker is a boolean trigger (§1.7(c)/(e)); the staged
+  path-prefix set lives in §1.7(a)/(d)/(e), which Track 1 extends to a third
+  prefix. The plan also edits `.claude/agents/**` (Track 3); those edits stage
+  only after Track 1 lands the three-prefix rule and the implementer reads it
+  via §1.7(d) reads-precedence. See D7 for the marker-bootstrap mechanic.
+- **No runtime dogfooding.** The branch runs develop-state machinery end to
+  end; every workflow-machinery edit accumulates in the staged mirror and flips
+  on together at the single Phase 4 promotion commit (D7). There is nothing
+  half-flipped to corrupt a Phase C on the authoring branch, so the plan needs
+  no mid-branch self-adoption of the new routing or schema.
+- **Shared agents must not break standalone callers.** The `review-*` agents
+  serve the workflow fan-out plus the standalone `/code-review` and
+  `/fix-ci-failure` skills, which read findings inline. Output is conditional on
+  a supplied path (D6); the no-path branch stays byte-for-byte today's inline
+  format.
+- House style applies to every Markdown surface and the PR/commit prose
+  (`conventions.md §1.5`).
+
+### Architecture Notes
+
+#### Component Map
+
+The plan touches three actors and one new artifact, over a branch-mechanics
+layer that lets agent edits stage like every other workflow file.
+
+```mermaid
+flowchart TD
+    subgraph Producers
+      DR["Dimensional reviewers<br/>(16 review-* agents)<br/>Track 3"]
+      SR["Strategic reviewers<br/>(panel + plan prompts)<br/>Track 2"]
+      RA["Research / audit<br/>(Explore, Phase 4)<br/>Track 2"]
+    end
+    RF["ReviewFile<br/>manifest + Findings + Evidence base sections<br/>schema: Track 2"]
+    O["Orchestrator<br/>routes on manifest only<br/>tactical Track 4, strategic Track 2"]
+    IMP["Implementer<br/>reads tactical bodies by anchor<br/>Track 4"]
+
+    DR -->|writes file, returns manifest| RF
+    SR -->|writes file, returns manifest| RF
+    RA -->|writes file, returns summary| RF
+    RF -->|manifest index| O
+    O -->|tactical: paths plus in-scope anchors| IMP
+    IMP -->|reads Findings by anchor| RF
+    O -->|strategic: partial-fetch Findings| RF
+
+    ST["staging generalized to 3 prefixes<br/>workflow / skills / agents<br/>Track 1 (precursor)"]
+    ST -.->|lets agent edits stage| DR
+```
+
+- **Dimensional reviewers** (Track 3): the 16 `review-*` agents gain
+  path-conditional file+manifest output, self-assign `<PREFIX><n>` IDs, and
+  write a Phase-4 refutation trail to `## Evidence base`. The 4 pure-standalone
+  agents carry an `exempt because…` annotation.
+- **ReviewFile + strategic/research producers** (Track 2): the
+  manifest-plus-sections schema, its canonical home in `conventions-execution.md`,
+  the lifecycle (committed at reviewer-return, swept by Phase 4 cleanup), and the
+  strategic + research producers that write files the orchestrator partial-fetches.
+- **Orchestrator** (Track 4 tactical / Track 2 strategic): for tactical reviews
+  it buckets on the manifest index and never ingests a body; for strategic it
+  keeps its own partial-fetch read.
+- **Implementer** (Track 4): the one actor that reads tactical bodies, addressed
+  by anchor; reconciles cross-dimension framings at the code level.
+- **§1.7 staging** (Track 1): generalized to a third prefix so agent-definition
+  edits route to the staged mirror and promote with the rest.
+
+#### D1: Router model for tactical reviews
+- **Alternatives considered**: orchestrator partial-fetches tactical bodies from
+  disk itself (the interim optimization); keep inline synthesis (status quo).
+- **Rationale**: a disk partial-fetch still lands bodies in the long-lived
+  orchestrator context and still crosses the warning gate, removing none of the
+  restart-reload cost. Only routing the body-read to the short-lived implementer
+  drops the footprint.
+- **Risks/Caveats**: more cross-dimension reconciliation reasoning per `loc` in
+  the implementer; accepted because that context is discarded after the fix.
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Routing by consumer: tactical, strategic, research"
+
+#### D2: Manifest-plus-sections file schema + thin return
+- **Alternatives considered**: keep the inline return (status quo); a structured
+  return without a file (no resume benefit).
+- **Rationale**: the manifest header over anchored body sections is the enabling
+  primitive; persisting it to disk is what makes a mid-review `/clear` resume
+  from files instead of re-spawning the panel. The thin return echoes the
+  manifest verbatim.
+- **Risks/Caveats**: manifest parse-stability — mitigated by reusing the
+  workflow-sha HTML-comment idiom.
+- **Implemented in**: Track 2
+- **Full design**: design.md §"The file schema: manifest, anchors, and validation"
+
+#### D3: Anchored partial-fetch addressing + count validation
+- **Alternatives considered**: line-offset addressing.
+- **Rationale**: stable heading anchors (`^### BC1 `) survive format drift where
+  line offsets break; an ID-anchored grep (`^### [A-Z]{2,}[0-9]+ `) validates the
+  manifest count before any body read, so validation reads heading lines only.
+- **Risks/Caveats**: none material; line offsets stay an optional fast-path hint.
+  A bare `^### ` count would over-count non-finding headings, so under
+  `## Findings` the `### <ID> ` shape is reserved for finding anchors.
+- **Implemented in**: Track 2
+- **Full design**: design.md §"The file schema: manifest, anchors, and validation"
+
+#### D4: Severity trust + upgrade-only `basis` backstop
+- **Alternatives considered**: full trust dropping the OVERRIDE both ways (no
+  under-severance backstop); tighten reviewer prompts only; pull the body on
+  doubt (reintroduces body reads); a sev-only manifest (no drill signal).
+- **Rationale**: a dropped downgrade is the cheaper direction (a nit routes
+  in-scope, the implementer fixes it, nothing ships broken) while a missed
+  upgrade ships a real bug, so a one-line `basis` per index entry is the minimum
+  manifest signal that makes a one-directional upgrade check possible.
+- **Risks/Caveats**: a finding whose `basis` and label both under-describe the
+  impact is missed (same blind spot the body would also mislead on).
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Severity: trust with an upgrade-only backstop"
+
+#### D5: Per-dimension IDs are the sole addressing; `M<n>` removed
+- **Alternatives considered**: keep the synthesis `M<n>` merge layer.
+- **Rationale**: removing the merge step deletes the `M<n>`-to-dimension un-map
+  and its audit-trail tracking; ID assignment moves to the reviewer, which
+  self-assigns `<PREFIX><n>` and continues from the per-dimension high-water-mark
+  the orchestrator already hands back at gate-check.
+- **Risks/Caveats**: none material; `commit-conventions.md` already speaks
+  per-dimension. The `id` prefix is load-bearing twice (dimension proxy for
+  bucketing + Review-mode override match) and must never be renumbered.
+- **Implemented in**: Track 3 (reviewer self-assign) + Track 4 (orchestrator removal)
+- **Full design**: design.md §"Finding addressing without synthesis"
+
+#### D6: Path-conditional agent output
+- **Alternatives considered**: unconditional file output (breaks the standalone
+  `/code-review` and `/fix-ci-failure`, which read inline); teach those skills to
+  supply paths and read files (a scope balloon into two skills).
+- **Rationale**: write file-plus-manifest only when handed an output path, so
+  only the workflow caller switches behavior and a live agent-definition edit
+  stays safe against the develop-state run. The workflow injects the path at the
+  Phase C / Phase B dispatch sites, not `review-agent-selection.md`.
+- **Risks/Caveats**: none material.
+- **Implemented in**: Track 3
+- **Full design**: design.md §"Path-conditional output and shared consumers"
+
+#### D7: Staging generalized to three prefixes (`.claude/agents/` added)
+- **Alternatives considered**: leave agents unstaged (agent edits land live
+  mid-branch, I6 holds only partially); path-conditional output alone with no
+  staging (keeps the run safe but loses I6 and the property that an agent-only
+  develop commit registers as a workflow-format change for drift).
+- **Rationale**: uniform treatment of all workflow machinery, activating at the
+  Phase 4 promotion. **Marker bootstrap**: the plan carries the develop-state
+  two-prefix marker verbatim so the live gate matches during Track 1; the marker
+  is a boolean trigger, so Track 1's matcher change is made **prefix-agnostic**
+  (match `This plan is workflow-modifying:` regardless of the trailing prefix
+  list). That keeps both the live gate (Track 1) and the post-Track-1 staged gate
+  (Track 3) matching the plan's marker, while §1.7(e) path-mapping (extended to
+  `.claude/agents/`) is what routes agent edits to staging via reads-precedence.
+- **Risks/Caveats**: the marker-sentence literal is matched by multiple consumers
+  and is the highest-care edit; cross-branch drift churn (an agent-only develop
+  commit now triggers a migration prompt for in-flight branches) is accepted as
+  correct.
+- **Implemented in**: Track 1 (precursor — lands first)
+- **Full design**: design.md §"Staging generalized to three prefixes"
+
+#### D8: Dimensional evidence trail in `## Evidence base`
+- **Alternatives considered**: internal-only refutation (unverifiable); drop the
+  guard.
+- **Rationale**: writing the Phase-4 refutation reasoning to disk makes the
+  false-positive guard verifiable after the fact, reuses YTDB-1069's roster
+  rendering (survived claims one line, refuted claims in full), and is read only
+  on a contested-finding drill-down, so it never enters a long-lived context.
+- **Risks/Caveats**: ~1.4K net-new tokens per reviewer (~3% of review cost), with
+  an `exempt because…` hatch where it does not pay.
+- **Implemented in**: Track 3
+- **Full design**: design.md §"The dimensional evidence trail"
+
+#### D9: Pure-standalone review agents exempt
+- **Alternatives considered**: subject the standalone agents to the rule.
+- **Rationale**: `code-reviewer`, `pr-reviewer`, `test-quality-reviewer`, and
+  `dr-audit` are invoked standalone with output consumed by the user in the same
+  turn, never accumulated in an orchestrator session, so the restart-reload
+  motivation does not apply; each carries an explicit `exempt because…` annotation.
+- **Risks/Caveats**: none material.
+- **Implemented in**: Track 3
+- **Full design**: design.md §"Coverage and exemptions"
+
+#### D10: Review files committed at reviewer-return
+- **Alternatives considered**: write files without committing them at return.
+- **Rationale**: committing (not merely writing) at return is the resume
+  precondition — a crash before the commit would lose the files and force the
+  re-spawn the design avoids. Files are plan-directory artifacts (never staged),
+  live in `_workflow/plan/track-N/reviews/`, and are swept by the Phase 4 cleanup.
+- **Risks/Caveats**: the `plan/track-N.md` file and the `plan/track-N/` directory
+  coexist, so the `conventions-execution.md §2.1` lifecycle must not glob `plan/*`
+  expecting files only (the `plan/track-N/reviews/` vs `plan/track-N-reviews/`
+  shape — A10 — is revisited at Track 2 Phase A).
+- **Implemented in**: Track 2
+- **Full design**: design.md §"Lifecycle, persistence, and resume"
+
+### Invariants
+
+- **S1 (no-bodies):** the orchestrator never retains a tactical finding body in
+  steady-state context; the one bounded exception is a single contested-finding
+  block pulled transiently on drill-down and dropped before the next teardown.
+  Verifiable post-hoc against the committed review files (the orchestrator's
+  routing reads the manifest index, never `## Findings`).
+- **S2 (id stability):** the per-reviewer `id` prefix is preserved end to end and
+  never renumbered (it is the bucketing dimension proxy and the Review-mode
+  override match key).
+- **S3 (regression unmerged):** REGRESSION-flagged rows are excluded from
+  `loc`-collapse and reach the implementer unmerged with `revert-or-repair`
+  guidance.
+- **S4 (count validation):** the manifest `findings` count must equal the
+  ID-anchored grep count (`grep -cE '^### [A-Z]{2,}[0-9]+ '`), else
+  `CONTRACT_VIOLATION` and a whole-section fallback owned by the routing class.
+  Mechanical-testable.
+- **S5 (coverage):** every bulk-producing sub-agent class follows the
+  file-plus-manifest rule or carries an explicit `exempt because…` annotation.
+- **S6 (heading-only validation):** validation reads heading lines only, never a
+  finding body. Mechanical-testable alongside S4.
+
+### Non-Goals
+
+- Teaching `/code-review` or `/fix-ci-failure` to supply paths and read files
+  (out of this issue's scope — the no-path inline branch covers them).
+- Changing `commit-conventions.md` (review files commit as an existing
+  Workflow-update commit; the recipe already speaks per-dimension).
+- Mid-branch runtime adoption of the new routing/schema (the feature flips at
+  Phase 4 promotion; the branch runs develop-state machinery).
+- Folding cross-plan drift or re-partitioning the staged-mirror layout beyond the
+  third prefix.
+
+## Checklist
+- [ ] Track 1: Generalize §1.7 staging to a third prefix (`.claude/agents/`)
+  > Precursor. Extends the staging convention so agent-definition edits route to
+  > the staged mirror, stay at develop-state on the live tree until Phase 4, and
+  > promote with the rest. Highest-care edit: the workflow-modifying marker
+  > matcher, made prefix-agnostic so the plan's two-prefix Constraints marker
+  > matches both the live gate during this track and the staged gate after it
+  > (D7). Lands first because every later track that edits `.claude/agents/`
+  > depends on this rule self-applying via §1.7(d) reads-precedence.
+  > **Scope:** ~16 files covering conventions.md §1.6(h)/§1.7(a)(b)(d)(e),
+  > implementer-rules.md gate + matcher, workflow-startup-precheck.sh pathspec,
+  > workflow-reindex.py dead-glob activation + citing-scope reconciliation,
+  > create-final-design.md promotion, drift/handoff pathspec consumers, and script tests
+
+- [ ] Track 2: Manifest-plus-sections schema, persistence/lifecycle, and the coverage invariant
+  > Defines the contract every bulk producer writes: the manifest header over
+  > anchored body sections, anchored partial-fetch addressing, the ID-anchored
+  > count-validation grep, and its canonical home in a new
+  > `conventions-execution.md` subsection. Adds the lifecycle (review files
+  > written+committed at reviewer-return under `_workflow/plan/track-N/reviews/`,
+  > swept by Phase 4 cleanup; the §2.1 glob caution, A10), states the coverage
+  > invariant once, and lands the schema's strategic + research applications
+  > (panel/plan-review prompts and Explore/Phase-4 audits write files the
+  > orchestrator partial-fetches). Packs the strategic side with the contract to
+  > clear the merge floor — a schema-only track (~9 files) would fold into a
+  > neighbor.
+  > **Scope:** ~17 files covering conventions-execution.md schema + §2.1
+  > lifecycle, the coverage invariant, workflow.md/create-final-design.md cleanup
+  > sweep, the strategic panel + plan-review prompts, gate-verification prompts,
+  > research.md Explore delegation, and the review-mode FIX_FINDING exemption
+  > **Depends on:** Track 1
+
+- [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
+  > The 16 `review-*` dimensional agents gain path-conditional file+manifest
+  > output (inline when no path, byte-for-byte today's format), self-assign
+  > `<PREFIX><n>` IDs writing one `### <PREFIX><n>` anchored body per finding, and
+  > write their Phase-4 refutation reasoning to `## Evidence base`. The 4
+  > pure-standalone agents (`code-reviewer`, `pr-reviewer`,
+  > `test-quality-reviewer`, `dr-audit`) carry the `exempt because…` annotation.
+  > A uniform edit pattern applied across the dimensional set.
+  > **Scope:** ~20 files covering the 16 `.claude/agents/review-*.md` dimensional
+  > agents and the 4 standalone-exemption annotations
+  > **Depends on:** Track 1, Track 2
+
+- [ ] Track 4: Orchestrator tactical routing, severity backstop, and per-dimension addressing
+  > Implements route-by-consumer for the tactical class: the orchestrator buckets
+  > on the manifest index alone (`loc`-collapse, REGRESSION-excluded, in-scope
+  > filter), spawns the implementer with file paths + in-scope anchors, and never
+  > reads a tactical body (S1). Drops the synthesis `M<n>` minting and the
+  > `M<n>`-to-dimension un-map (D5), hands each dimension's high-water-mark to the
+  > reviewer at spawn, and adds the upgrade-only `basis` severity backstop (D4).
+  > The implementer reconciles cross-dimension framings at the code level.
+  > **Scope:** ~14 files covering step-implementation.md + track-code-review.md
+  > dispatch/routing, finding-synthesis-recipe.md M<n> removal, review-iteration.md
+  > ID format, implementer-rules.md findings/FIX_NOTES anchor-read, review-mode.md
+  > override match, the tactical gate-check prompts, and code-review-protocol.md
+  > **Depends on:** Track 2, Track 3
+
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
