@@ -14,7 +14,12 @@ It implements the router model (D1), drops the synthesis `M<n>` minting and the
 `M<n>`-to-dimension un-map in favor of per-dimension IDs as the sole addressing
 (D5, orchestrator side), and adds the upgrade-only `basis` severity backstop
 (D4). It is the last track because it consumes what Tracks 2 and 3 produce: the
-manifest schema and the reviewer-assigned IDs.
+manifest schema and the reviewer-assigned IDs. At ~8 in-scope files it sits below
+the ~12 merge floor, but it is not folded into a neighbor: it is terminal (no
+forward track to merge into), and back-folding into Track 3 would mix this track's
+orchestrator- and implementer-side tactical routing with Track 3's reviewer-side
+agent-definition edits across two different staging prefixes
+(`.claude/workflow/**` here vs `.claude/agents/**` there).
 
 ## Progress
 - [ ] Review + decomposition
@@ -85,7 +90,9 @@ drops it after the decision — transient, never retained across the next teardo
 2. **Per-dimension addressing (D5, orchestrator side).** Remove the `M<n>`
    minting, the `M<n>`-to-dimension un-map, and the contributing-dimensions audit
    trail from `finding-synthesis-recipe.md`; collapse synthesis to manifest-only
-   routing. Update `review-iteration.md`'s finding-ID format to per-dimension IDs.
+   routing. Reconcile `review-iteration.md`'s `### Gate-check synthesis routing`
+   reference with the removed `M<n>` merge layer (its `§Finding ID prefixes` table
+   is already per-dimension, so there is no finding-ID format to convert there).
    Pass the per-dimension high-water-mark to the reviewer at spawn.
 3. **Severity backstop (D4).** Replace the body-dependent OVERRIDE with the
    manifest-only upgrade scan over the `basis` field. State the accepted blind

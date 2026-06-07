@@ -102,10 +102,21 @@ during decomposition; the directory form works and is the design's choice.
    existing output. Apply the same to the strategic gate-verification prompts.
 5. **Research/audit.** Teach the `research.md` Explore delegation and the Phase 4
    cold-read/design-audit to write a file and return a summary; the orchestrator
-   partial-fetches on demand.
+   partial-fetches on demand. The Phase 4 cold-read is `prompts/design-review.md`
+   spawned from `create-final-design.md` Step 4; teach that spawn site to pass an
+   output path and the reviewer to write the file. The same `design-review.md`
+   cold-read also runs at Phase 1 inside `edit-design` — that invocation is exempt
+   (step 6).
 6. **Exemptions on the strategic/orchestrator side.** Add the `review-mode.md`
    `FIX_FINDING` exemption (user-sourced triples, tiny, already in the
-   orchestrator's conversation context).
+   orchestrator's conversation context). Annotate the Phase 1 `design-review.md`
+   cold-read `exempt because…` its output is consumed in-session by the design
+   author within the same `edit-design` run, never accumulated in an orchestrator
+   session — the same rationale as the four pure-standalone agents.
+7. **Consistency touch.** Give `step-implementation-recovery.md` a light
+   consistency pass so its references to findings, synthesis, and the recovery
+   flow stay coherent with the new schema and lifecycle. `design.md` flags it as a
+   light-pass site, not a bulk producer.
 
 Invariants to preserve: the no-bodies invariant (S1) is established here for the
 strategic side only in the sense that the schema keeps the evidence base on disk
@@ -151,7 +162,7 @@ mechanical and get tests.
 - `.claude/workflow/conventions-execution.md` — new schema + coverage §2.x; §2.1
   review-file lifecycle + `plan/*` glob caution
 - `.claude/workflow/workflow.md` — §Final Artifacts cleanup sweep of `plan/track-N/reviews/`
-- `.claude/workflow/prompts/create-final-design.md` — Phase 4 cleanup sweep
+- `.claude/workflow/prompts/create-final-design.md` — Phase 4 cleanup sweep + Phase 4 cold-read spawn site (pass output path)
 - `.claude/workflow/prompts/technical-review.md`, `risk-review.md`,
   `adversarial-review.md` — Phase A panel: write file + thin manifest
 - `.claude/workflow/prompts/consistency-review.md`, `structural-review.md` —
@@ -160,6 +171,10 @@ mechanical and get tests.
   `structural-gate-verification.md`, `review-gate-verification.md` — strategic
   gate-verifications
 - `.claude/workflow/research.md` — Explore delegation writes a file + returns a summary
+- `.claude/workflow/prompts/design-review.md` — Phase 4 cold-read writes file +
+  returns summary; Phase 1 cold-read carries the `exempt because…` annotation
+- `.claude/workflow/step-implementation-recovery.md` — light consistency pass
+  (findings/synthesis/recovery references stay coherent with the new schema)
 - `.claude/workflow/review-mode.md` — `FIX_FINDING` exemption annotation
 - `.claude/scripts/tests/` — count-validation (S4/S6) mechanical test
 

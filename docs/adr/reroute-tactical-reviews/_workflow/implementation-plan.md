@@ -285,7 +285,9 @@ flowchart TD
   > **Scope:** ~17 files covering conventions-execution.md schema + §2.1
   > lifecycle, the coverage invariant, workflow.md/create-final-design.md cleanup
   > sweep, the strategic panel + plan-review prompts, gate-verification prompts,
-  > research.md Explore delegation, and the review-mode FIX_FINDING exemption
+  > research.md Explore delegation, the Phase 4 design-review.md cold-read, a
+  > step-implementation-recovery.md consistency touch, and the review-mode
+  > FIX_FINDING exemption
   > **Depends on:** Track 1
 
 - [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
@@ -308,14 +310,19 @@ flowchart TD
   > `M<n>`-to-dimension un-map (D5), hands each dimension's high-water-mark to the
   > reviewer at spawn, and adds the upgrade-only `basis` severity backstop (D4).
   > The implementer reconciles cross-dimension framings at the code level.
-  > **Scope:** ~14 files covering step-implementation.md + track-code-review.md
-  > dispatch/routing, finding-synthesis-recipe.md M<n> removal, review-iteration.md
-  > ID format, implementer-rules.md findings/FIX_NOTES anchor-read, review-mode.md
-  > override match, the tactical gate-check prompts, and code-review-protocol.md
+  > **Scope:** ~8 files covering step-implementation.md + track-code-review.md
+  > dispatch/routing, finding-synthesis-recipe.md M<n> removal,
+  > review-iteration.md synthesis-routing reconciliation, implementer-rules.md
+  > findings/FIX_NOTES anchor-read, review-mode.md override match, the tactical
+  > gate-check prompt, and code-review-protocol.md
   > **Depends on:** Track 2, Track 3
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1 (each review: one full round plus a gate-verified PASS)
+
+**Auto-fixed (mechanical)**: CR1 (suggestion) — Track 1 step 4 reworded: the staged-agents glob already sits in `IN_SCOPE_GLOBS` and activates automatically once §1.7(e) stages agents, so the edit is the inert comment (lines 144-154) and the `discover_agent_citing_files` docstring, not the glob string. CR2 (should-fix) — Track 4 step 2 reworded: `review-iteration.md`'s prefix table is already per-dimension, so the work is reconciling its `### Gate-check synthesis routing` reference, not converting an `M<n>` format.
+
+**Escalated (design decisions)**: S1 (should-fix) — `design.md` names `design-review.md` (the Phase 1/4 cold-read reviewer) and `step-implementation-recovery.md` as load-bearing sites absent from every track scope. User resolved: the Phase 4 cold-read is covered in Track 2 (file-write at the `create-final-design.md` spawn site), the Phase 1 cold-read is exempt (consumed in-session by the design author), and the `step-implementation-recovery.md` light consistency pass lands in Track 2 — all applied. S2 (suggestion) — Track 4's `~14 files` overstated its 8-file footprint. User resolved: reconciled to `~8 files`; added the under-floor non-fold justification to the track file (terminal track; back-fold into Track 3 would mix staging prefixes) — applied.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

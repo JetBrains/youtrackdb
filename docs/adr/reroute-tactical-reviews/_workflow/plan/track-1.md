@@ -118,11 +118,15 @@ marker matcher — that the rest of the track and every later track depend on.
 3. **Stamp walk and drift.** Extend §1.6(h)'s staged-prefix omission note and
    `workflow-startup-precheck.sh`'s `WORKFLOW_PATHSPECS` to the third prefix;
    update the `workflow-drift-check.md` pathspec comment.
-4. **Reindex.** Flip the dead staged-agents glob (line 155) to live in
-   `workflow-reindex.py`: update the rationale comment (lines 144-155) and
-   reconcile `discover_agent_citing_files` vs `IN_SCOPE_GLOBS` so a *staged* agent
-   validates like a staged workflow file while *live* agents keep their
-   rules-6/7-only citing scope.
+4. **Reindex.** Re-document the staged-agents glob (line 155) as live in
+   `workflow-reindex.py`. The glob string already sits in `IN_SCOPE_GLOBS` and
+   starts matching automatically once §1.7(e) routing stages agent files, so no
+   glob-string edit is needed: the edits are the inert-rationale comment (lines
+   144-154) and the `discover_agent_citing_files` docstring (lines 1095-1104,
+   which assert agents are modified live with no staged copy). Then reconcile
+   `discover_agent_citing_files` vs `IN_SCOPE_GLOBS` so a *staged* agent validates
+   like a staged workflow file while *live* agents keep their rules-6/7-only
+   citing scope.
 5. **Promotion.** Extend the Phase 4 `cp -r` and the pre-promotion divergence
    check in `create-final-design.md` to the third prefix; extend the
    `workflow.md §Final Artifacts` and `step-implementation.md` staging references
