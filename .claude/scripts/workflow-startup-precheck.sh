@@ -265,12 +265,12 @@ ACTIONS_TAKEN_JSON="[]"
 
 # The workflow pathspecs the drift `git log` ranges against. Trailing slashes
 # make the directory intent explicit and exclude the staged subtree at
-# `docs/adr/*/_workflow/staged-workflow/.claude/{workflow,skills}/` by prefix
-# difference (workflow-drift-check.md § Detection is the canonical source for
-# this exclusion). A leading-/internal-space-delimited word list so the `git
-# log` invocation can splice it after `--` unquoted (the two paths contain no
+# `docs/adr/*/_workflow/staged-workflow/.claude/{workflow,skills,agents}/` by
+# prefix difference (workflow-drift-check.md § Detection is the canonical source
+# for this exclusion). A leading-/internal-space-delimited word list so the `git
+# log` invocation can splice it after `--` unquoted (the three paths contain no
 # shell metacharacters).
-WORKFLOW_PATHSPECS=".claude/workflow/ .claude/skills/"
+WORKFLOW_PATHSPECS=".claude/workflow/ .claude/skills/ .claude/agents/"
 
 # ---------------------------------------------------------------------------
 # Shared pairwise merge-base fold (conventions.md § 1.6(c)).

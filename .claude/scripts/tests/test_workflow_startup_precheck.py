@@ -316,6 +316,22 @@ class GitFixture:
         self._git("add", rel)
         self._git("commit", "-q", "-m", message)
 
+    def agents_commit(self, message: str, *, relpath: Optional[str] = None) -> None:
+        """Author a commit that touches a path under `.claude/agents/` — the third
+        workflow pathspec the drift `git log $BASE_SHA..HEAD -- .claude/workflow/
+        .claude/skills/ .claude/agents/` range watches once §1.6(b)/precheck are
+        extended to three prefixes. An agent-only commit between the stamp base
+        and HEAD must register as drift exactly like a `.claude/workflow/` commit,
+        so the property that an agent-only develop commit registers as a
+        workflow-format change holds. A distinct relpath per call keeps successive
+        commits real."""
+        rel = relpath or f".claude/agents/agent-{message.replace(' ', '-')}.md"
+        path = self.path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(message + "\n", encoding="utf-8")
+        self._git("add", rel)
+        self._git("commit", "-q", "-m", message)
+
     # -- drift-walk plan-artifact surface ------------------------------------
 
     @property
@@ -1344,6 +1360,40 @@ def test_drift_phase2_real_workflow_commit_vs_staged_distinguished() -> None:
         subjects = [c["subject"] for c in drift["first_commits"]]
         assert subjects == ["real workflow edit"], (
             f"only the real workflow commit appears in first_commits, got {subjects!r}"
+        )
+
+
+def test_drift_phase2_agents_commit_detected() -> None:
+    """An all-stamped plan whose stamp points at a real commit, with a
+    `.claude/agents/` commit sitting between that stamp base and HEAD, is drift:
+    the third workflow pathspec (`.claude/agents/`, added alongside the §1.6(b)
+    stamp base) puts an agent-only commit in the `git log BASE_SHA..HEAD --
+    .claude/workflow/ .claude/skills/ .claude/agents/` range exactly like a
+    `.claude/workflow/` commit. detected=true, commit_count=1, and the agent
+    commit's subject appears in first_commits. Pins the third prefix in
+    WORKFLOW_PATHSPECS so a future edit that drops `.claude/agents/` (breaking
+    the property that an agent-only develop commit registers as a workflow-format
+    change) fails here."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()  # the commit the stamp points at
+        # An agent-path commit lands after the stamp base, so it falls in the
+        # BASE_SHA..HEAD range the drift `git log` now watches via the third prefix.
+        fx.agents_commit("agent definition change")
+        # The plan artifact is stamped with the real base SHA; its own commit
+        # touches docs/adr/... (not a watched path) so it stays out of the range.
+        fx.plan_artifact("implementation-plan.md", stamp=base)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is True, (
+            f"an agent-path commit in range must detect drift: {drift!r}"
+        )
+        assert drift["commit_count"] == 1, (
+            f"commit_count should count the one agent commit, got {drift['commit_count']!r}"
+        )
+        subjects = [c["subject"] for c in drift["first_commits"]]
+        assert subjects == ["agent definition change"], (
+            f"first_commits should list the agent commit, got {subjects!r}"
         )
 
 
@@ -3226,6 +3276,7 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_phase2_merge_base_failed_kind_scalars_null", test_drift_phase2_merge_base_failed_kind_scalars_null),
     ("drift_phase2_staged_subtree_excluded_from_range", test_drift_phase2_staged_subtree_excluded_from_range),
     ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
+    ("drift_phase2_agents_commit_detected", test_drift_phase2_agents_commit_detected),
     ("norm_success_one_commit_line1_only_diff_exit0", test_norm_success_one_commit_line1_only_diff_exit0),
     ("norm_uniform_stamps_skip_no_commit", test_norm_uniform_stamps_skip_no_commit),
     ("norm_success_reports_commit_in_actions_taken", test_norm_success_reports_commit_in_actions_taken),

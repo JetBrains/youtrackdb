@@ -576,13 +576,14 @@ Writers compute the stamp value from a path-scoped log over the
 workflow tooling itself:
 
 ```bash
-WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills .claude/agents)"
 [ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 
 When the path-scoped log returns the empty string (no commit in HEAD's
-ancestry has touched `.claude/workflow/` or `.claude/skills/`), the
-writer falls back to `git rev-parse HEAD`. Every downstream writer
+ancestry has touched `.claude/workflow/`, `.claude/skills/`, or
+`.claude/agents/`), the writer falls back to `git rev-parse HEAD`. Every
+downstream writer
 (create-plan, edit-design phase1-creation, edit-design length-trigger,
 migration final-batch) copies the paired idiom above verbatim so the
 fallback behaves identically across writer sites. In every repo where
@@ -749,8 +750,9 @@ non-empty, which routes to the bootstrap prompt in (d) regardless of
 
 The walk's glob set deliberately omits `$PLAN_DIR/_workflow/staged-workflow/`
 on workflow-modifying plans (see §1.7:orchestrator,implementer,planner,final-designer:1,3A,3B,3C,4 below). The staged subtree mirrors
-live `.claude/workflow/**` and `.claude/skills/**` paths under a
-plan-scoped prefix; those files are not `_workflow/**` artifacts in the
+live `.claude/workflow/**`, `.claude/skills/**`, and `.claude/agents/**`
+paths under a plan-scoped prefix; those files are not `_workflow/**`
+artifacts in the
 stamping sense and do not carry workflow-SHA stamps. Adding the staged
 prefix to the walk would produce spurious `UNSTAMPED_FILES` entries on
 every workflow-modifying plan and route them through the bootstrap
