@@ -103,6 +103,25 @@ For REJECTED findings:
 
 ---
 
+**Output mode — file when handed a path, inline otherwise.** When the
+spawn supplies an output path, persist this output to a file in the
+review-file schema's **verdict-producer variant** (`conventions-execution.md`
+`§2.5` → Verdict-producer manifest variant, the single source of truth) and
+return only the thin manifest; the orchestrator partial-fetches on disk.
+When no path is supplied (the develop-state run), return the output inline
+exactly as below — byte-for-byte today's format. This prompt is a
+verdict producer: it emits per-prior-finding verdicts plus an overall
+`PASS`/`FAIL`, not a fresh severity-graded finding set, so the manifest's
+`findings` count and `## Findings` anchors cover only the **new** findings a
+verification pass surfaces (each a `### <PREFIX><N> ` body with the
+review's prefix — `T`/`R`/`A` per the `Review type`, cumulative numbering);
+a pure-verdict pass with no new finding writes `findings: 0` and an empty
+`## Findings`. The per-prior-finding verdicts go in the manifest's distinct
+`verdicts` block, the overall result in `overall`. The `#### Verify <PREFIX><N> `
+certificates are four-hash and excluded from the count grep
+`grep -cE '^### [A-Z]+[0-9]+ '`, which validates only the new-finding anchors
+against the manifest `findings` count (S4/S6).
+
 Output:
 - For each finding: the verification certificate above
 - New findings (if any) with cumulative numbering

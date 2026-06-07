@@ -77,9 +77,11 @@ What changes from the Phase 3A track review below:
   hidden assumptions, grounded in the real code per the Tooling rule below.
   INVARIANT CHALLENGES apply to any invariant the design states. The
   certificate templates, the Semi-Formal Reasoning Protocol, and the Part 1 /
-  Part 2 output format are unchanged — `Finding A<N>` certificates still cite
+  Part 2 output format are unchanged — each `### A<N>` finding still cites
   a Challenge / Violation / Assumption entry, and `Target` names the design
-  decision or assumption rather than a plan Decision Record.
+  decision or assumption rather than a plan Decision Record. The
+  `phase1-creation` loop passes no output path, so the inline two-part
+  format applies (see the Output-mode note under §Output Format).
 - **Outcome.** Findings feed the `edit-design` iterate loop: a `blocker`
   forces a design revision before cold-read runs; `should-fix` strengthens
   the design's rationale; `suggestion` is recorded. There is no `skip`
@@ -319,6 +321,24 @@ that survive scrutiny.
 ## Output Format
 <!-- roles=reviewer-adversarial phases=3A summary="Two-part output: the challenge certificates first, then findings derived from them." -->
 
+**Output mode — file when handed a path, inline otherwise.** When the
+spawn supplies an output path, persist the structured output to a file in
+the review-file schema (`conventions-execution.md` `§2.5`, the single
+source of truth) and return only the thin manifest; the orchestrator
+partial-fetches `## Findings` from disk. When no path is supplied (the
+develop-state run, and the Phase 1 design-scoped invocation, which the
+`phase1-creation` loop passes no path), return the two parts inline
+exactly as below — byte-for-byte today's format. The schema's body
+sections map onto this prompt's two parts: Part 2 becomes `## Findings`
+(one `### A<N> ` anchored body per finding, the bare-ID heading defined
+below) and Part 1 becomes `## Evidence base` (the challenge /
+violation-scenario / assumption-test certificates, emitted as `#### <cert> `
+four-hash entries). Fill the manifest `index` from the findings —
+`id`/`sev`/`anchor` mandatory, `loc`/`cert`/`basis` filled per `§2.5` — and
+the `evidence_base` summary from the certificates. The single-letter prefix
+is `A`; the count grep `grep -cE '^### [A-Z]+[0-9]+ '` must equal the
+manifest `findings` count (S4/S6).
+
 ### Part 1: Challenge Certificates
 <!-- roles=reviewer-adversarial phases=3A summary="The evidence base: all challenge, violation-scenario, and assumption-test certificates grouped by review criterion." -->
 
@@ -331,10 +351,14 @@ Assumption test) grouped by review criterion. This is the evidence base.
 Derived from certificates. Each finding must reference the certificate
 entry that produced it.
 
-For each challenge, produce a finding:
+For each challenge, produce a finding. The finding heading is the bare
+ID `### A<N> [sev]` — **no `Finding ` word** — so it is the count-validation
+anchor the review-file schema's grep keys on (`conventions-execution.md`
+`§2.5`; `### Finding A<N>` would not match `^### [A-Z]+[0-9]+ ` and would
+raise a spurious `CONTRACT_VIOLATION`):
 
 ```markdown
-### Finding A<N> [blocker|should-fix|suggestion]
+### A<N> [blocker|should-fix|suggestion]
 **Certificate**: <Challenge/Violation/Assumption entry that produced this>
 **Target**: <Decision D<N> | Non-Goal | Invariant | Assumption>
 **Challenge**: <the strongest counter-argument>

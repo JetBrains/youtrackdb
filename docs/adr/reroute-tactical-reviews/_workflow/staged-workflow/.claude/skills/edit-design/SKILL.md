@@ -480,6 +480,21 @@ sub-agent via the `Agent` tool:
 - plan_dir: <abs path or "(none)">
 ```
 
+**Inject `output_path` only for `phase4-creation`.** When
+`mutation_kind == phase4-creation`, append one more substitution line so
+the Phase 4 cold-read persists its output to a file and returns a summary
+(`prompts/design-review.md` § Output format, the path-conditional branch;
+the review-file coverage rule in `conventions-execution.md` `§2.5`):
+
+```
+- output_path: <abs path under _workflow/plan/ for the cold-read output>
+```
+
+For every other kind — including `phase1-creation` — omit the
+`output_path` line entirely. The cold-read's no-path branch then returns
+inline byte-for-byte today's verdict, so the `phase1-creation` invocation
+stays exempt.
+
 For `design-sync`, also include in the prompt body: *"This sync re-distills
 `design.md` from the current state of `design-mechanics.md`. Verify that every
 TL;DR and mechanism overview in `design.md` accurately summarizes the current
