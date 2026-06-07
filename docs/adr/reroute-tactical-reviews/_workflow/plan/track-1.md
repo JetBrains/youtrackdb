@@ -22,6 +22,7 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-07T12:20Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-07T12:40Z [ctx=safe] Step 1 complete (commit 607e1395)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -299,7 +300,7 @@ step 5 collects the bounded-behavioral consumers. conventions.md and
 implementer-rules.md are edited across sequential steps (allowed for sequential
 commits; no parallel steps in this track). -->
 
-1. Make the workflow-modifying marker matcher prefix-agnostic — change the `conventions.md §1.7(b)` marker definition to name the third prefix and change the `implementer-rules.md` gate matcher to match the stable prefix `This plan is workflow-modifying:` regardless of the trailing prefix list (the D7 bootstrap; keep the plan's two-prefix `### Constraints` marker verbatim). No executable test: prose-only marker match, validated by prose review + `workflow-reindex.py --check`. — risk: high (workflow machinery: §1.7 staging-convention gate matcher — the load-bearing bootstrap every later track self-applies)  [ ]
+1. Make the workflow-modifying marker matcher prefix-agnostic — change the `conventions.md §1.7(b)` marker definition to name the third prefix and change the `implementer-rules.md` gate matcher to match the stable prefix `This plan is workflow-modifying:` regardless of the trailing prefix list (the D7 bootstrap; keep the plan's two-prefix `### Constraints` marker verbatim). No executable test: prose-only marker match, validated by prose review + `workflow-reindex.py --check`. — risk: high (workflow machinery: §1.7 staging-convention gate matcher — the load-bearing bootstrap every later track self-applies)  [x] commit: 607e13953587d6c4a1c20a67606e81dd7a759c26
 2. Extend §1.7 write-routing and reads-precedence to `.claude/agents/` — `conventions.md §1.7(a)(d)(e)`; the two distinct `implementer-rules.md` sites (path-mapping write-routing rule and pre-commit gate refused-path set); and the seven review/gate prompts' §1.7(d) staged-read precedence caveats (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `consistency-review.md`, `structural-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md`). Validated by `workflow-reindex.py --check` + prose review. — risk: high (workflow machinery: §1.7 staging convention)  [ ]
 3. Extend the §1.6 stamp scheme and drift walk to `.claude/agents/` — §1.6(b) `WORKFLOW_SHA` stamp base in `conventions.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` (lockstep with the drift pathspec per DL1); the §1.6(h) stamp-walk omission note; `workflow-startup-precheck.sh` `WORKFLOW_PATHSPECS` and the `workflow-drift-check.md` pathspec comment; add third-prefix coverage to `test_workflow_startup_precheck.py`. — risk: high (workflow machinery: §1.6 stamp scheme + auto-running precheck script)  [ ]
 4. Route a staged agent into the rules-6/7-only validation gate in `workflow-reindex.py` (not the eight-rule `parsed_files` loop) so a staged agent validates like a live agent; re-document the now-false inert-rationale comment and the `discover_agent_citing_files` docstring; add a staged-agent validation-routing test to `test_workflow_reindex.py` asserting only rule-6/7 findings (no rule-1/2/3/4/5/8 over-fire). Co-requisite of step 2 per the Ordering constraint. — risk: high (workflow machinery: auto-running reindex script — the track's second high-care edit)  [ ]
@@ -307,6 +308,37 @@ commits; no parallel steps in this track). -->
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
+
+### Step 1 — commit 607e13953587d6c4a1c20a67606e81dd7a759c26, 2026-06-07T12:40Z [ctx=safe]
+**What was done:** Made the workflow-modifying marker matcher prefix-agnostic
+(the D7 bootstrap). `conventions.md §1.7(b)` now names the three-prefix canonical
+spelling (`.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**`) and
+documents that consumers match the stable prefix `This plan is
+workflow-modifying:`, treating everything after the colon as descriptive.
+`implementer-rules.md`'s gate matcher changed from quoting the full two-prefix
+sentence to quoting only that stable prefix. The two §(b) summary annotations
+(index-table row and section comment) dropped the now-misleading "verbatim" in
+the same edit so the reindex index/section consistency check stays clean. The
+plan's own `### Constraints` marker stays at the verbatim two-prefix spelling per
+the bootstrap contract.
+
+**What was discovered:** §1.7(b) carried a strict-literal-match contract ("the
+literal match is case-sensitive and includes the terminal period") that
+contradicts a prefix-agnostic matcher. Replacing it with the stable-prefix
+contract was required for the section to stay self-consistent, not an optional
+improvement. The same "verbatim marker sentence" wording appeared in both §(b)
+summary annotations and went stale with the change; reindex rule 6/7 forces the
+index-row cell and the section `summary=` attribute to agree, so both moved
+together.
+
+**Key files:**
+- `docs/adr/reroute-tactical-reviews/_workflow/staged-workflow/.claude/workflow/conventions.md` (new staged copy)
+- `docs/adr/reroute-tactical-reviews/_workflow/staged-workflow/.claude/workflow/implementer-rules.md` (new staged copy)
+
+**Critical context:** First step to touch `.claude/workflow/**`, so the
+`staged-workflow/` subtree was created here (copy-then-edit from the verbatim
+live baseline). Steps 2–5 edit the same two files and must edit the existing
+staged copies via §1.7(d) reads-precedence, never re-copy from live.
 
 ## Validation and Acceptance
 
