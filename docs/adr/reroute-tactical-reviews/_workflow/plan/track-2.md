@@ -27,6 +27,7 @@ a schema-only track (~9 files) would fold into a neighbor.
 - [x] 2026-06-07T16:05Z [ctx=safe] Step 1 complete (commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67)
 - [x] 2026-06-07T16:17Z [ctx=safe] Step 2 complete (commit 396935bb0ce16c8dc5d808ef32a86f53aa500277)
 - [x] 2026-06-07T17:56Z [ctx=safe] Step 3 complete (commit a89973811a7d95ff921793f9a377095a9973f60a)
+- [x] 2026-06-07T18:05Z [ctx=safe] Step 4 complete (commit 48c99d6120fe7a68ca596cd388e077da4e11d784)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -54,6 +55,12 @@ a schema-only track (~9 files) would fold into a neighbor.
   dimensional agents cite `§2.5`). Fix at the Phase C `review-workflow-consistency`
   pass; reconcile toward the three concrete panel roles to keep the closed enum
   intact. See Episodes §Step 3.
+- 2026-06-07T18:05Z Step 4: strategic review files use the per-fan-out-unique
+  filename `plan/track-N/reviews/<type>-iter<N>.md` (e.g. `technical-iter1.md`,
+  `consistency-gate-verification-iter2.md`), defined in `track-review.md §Inputs`
+  and `implementation-review.md §Strategic review output path`. Track 4's tactical
+  dispatch should reuse this convention when it injects its own output paths. See
+  Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -565,6 +572,51 @@ fan-out here, `§Inputs` in step 4 — so there is no conflict.
 **Key files:**
 - `…/staged-workflow/.claude/workflow/review-mode.md` (new — staged, first-touch copy)
 - `…/staged-workflow/.claude/workflow/track-review.md` (new — staged, first-touch copy)
+
+### Step 4 — commit 48c99d6120fe7a68ca596cd388e077da4e11d784, 2026-06-07T18:05Z [ctx=safe]
+**What was done:** Wired the orchestrator-side caller for step 2's
+write-when-handed-a-path producer prompts by injecting a per-spawn
+`review_file_path` at the two strategic dispatch sites. In `track-review.md
+§Inputs` (staged copy edited in place per §1.7(d)/(e)) added a `review_file_path`
+row to the shared Phase A input set targeting `plan/track-N/reviews/<type>-iter<N>.md`
+(the `§2.1` lifecycle home, `§2.5` schema), an output-routing paragraph stating the
+orchestrator partial-fetches `## Findings` from the committed file, and a
+gate-verification extension covering the verdict-producer manifest variant; the
+technical/risk/adversarial mini-sections inherit the row by reference. In
+`implementation-review.md` (first-touch copy-then-edit) injected the same
+`review_file_path` at both Phase 2 dispatch loops (consistency, structural) and
+their gate-verifications, added a shared `### Strategic review output path`
+subsection, and reconciled both review-output blocks that still claimed findings
+are not persisted to a file. S1 is unchanged and stated explicitly in both files:
+strategic reviews keep the orchestrator's partial-fetch by design, and the on-disk
+win is the evidence base staying off-context. risk:medium, so no step-level
+dimensional review ran.
+
+**What was discovered:** Per the orchestrator instruction, step 4 neither fixed
+nor propagated the known `reviewer-panel` phantom-role defect (recorded under
+§Surprises at step 3): the additions carry zero `reviewer-panel` tokens and use
+suffixless backtick `§2.5`/`§2.1` references, and the existing defect (present at
+the staged `track-review.md` HEAD plus the `§2.5`/`§2.1` annotations) stays for the
+Phase C `review-workflow-consistency` pass. The `<type>-iter<N>.md` filename
+convention — `<type>` is the producer (`technical`/`risk`/`adversarial`,
+`consistency`/`structural`, or the matching `*-gate-verification`) and `<N>` the
+iteration, so each fan-out unit writes a distinct file — is the per-fan-out-unique
+shape the `§2.1` lifecycle requires; Track 4's tactical dispatch sites should reuse
+it when they inject their own output paths. An incidental copy-paste defect was
+fixed in passing: the structural-review report section's TOC-annotation summary
+read "Shape of the consistency review report" and now reads "structural".
+`implementation-review.md`'s ~669-insertion staged diff is the usual first-touch
+whole-file-copy inflation; the real behavioral delta is ~80 lines.
+
+**Critical context:** Track 2's last Concrete Step (step 4) is now complete; all
+four steps are committed. Step 4's `§Inputs` output-routing wording complements
+step 3's track-scoped-review fan-out reconciliation in the same `track-review.md`
+file — disjoint sections, no conflict. Tracks 3 and 4 still own the dimensional
+agents and tactical routing; step 4 touched only the strategic dispatch.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/track-review.md` (modified — staged, §Inputs)
+- `…/staged-workflow/.claude/workflow/implementation-review.md` (new — staged, first-touch copy)
 
 ## Validation and Acceptance
 
