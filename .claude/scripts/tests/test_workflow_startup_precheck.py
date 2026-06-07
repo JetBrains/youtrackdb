@@ -288,9 +288,10 @@ class GitFixture:
 
     def workflow_commit(self, message: str, *, relpath: Optional[str] = None) -> None:
         """Author a commit that touches a path under `.claude/workflow/` — a path
-        the drift `git log $BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/`
-        range watches. A run of these between the stamp base and HEAD is what
-        makes the Phase 2 range non-empty (the drift-detected case). A distinct
+        the drift `git log $BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/
+        .claude/agents/` range watches. A run of these between the stamp base and
+        HEAD is what makes the Phase 2 range non-empty (the drift-detected case).
+        A distinct
         relpath per call keeps successive commits real."""
         rel = relpath or f".claude/workflow/wf-{message.replace(' ', '-')}.md"
         path = self.path / rel
@@ -302,10 +303,11 @@ class GitFixture:
     def staged_workflow_commit(self, message: str = "staged wf edit") -> None:
         """Author a commit that touches ONLY the staged subtree under
         `<plan_dir>/_workflow/staged-workflow/.claude/workflow/`. The drift
-        range's trailing-slash pathspecs (`.claude/workflow/`, `.claude/skills/`)
-        must NOT match this path — it sits under `docs/adr/.../staged-workflow/`,
-        a different prefix — so a commit touching only the staged subtree stays
-        out of the `git log` range (the staged-subtree-exclusion invariant)."""
+        range's trailing-slash pathspecs (`.claude/workflow/`, `.claude/skills/`,
+        `.claude/agents/`) must NOT match this path — it sits under
+        `docs/adr/.../staged-workflow/`, a different prefix, so a commit touching
+        only the staged subtree stays out of the `git log` range (the
+        staged-subtree-exclusion invariant)."""
         rel = (
             f"docs/adr/{self.default_branch}/_workflow/staged-workflow/"
             f".claude/workflow/staged-{message.replace(' ', '-')}.md"
@@ -1175,7 +1177,8 @@ def test_drift_empty_input_silent_no_drift_kind_null() -> None:
 # When every artifact is stamped, the precheck folds the stamp set pairwise
 # through `git merge-base` to derive BASE_SHA (the oldest stamp reachable from
 # HEAD), then ranges `git log $BASE_SHA..HEAD` against the workflow pathspecs
-# (`.claude/workflow/`, `.claude/skills/`). The fixtures here stamp artifacts
+# (`.claude/workflow/`, `.claude/skills/`, `.claude/agents/`). The fixtures here
+# stamp artifacts
 # with *real* commit SHAs (head_sha / orphan_branch) so the fold resolves them,
 # unlike the Phase 1 fixtures' synthetic SHAs. Four cases:
 #
@@ -1199,10 +1202,11 @@ def test_drift_phase2_detected_reports_range() -> None:
     """An all-stamped plan whose single stamp points at a real commit, with two
     `.claude/workflow/` commits sitting between that stamp base and HEAD, is
     drift: the Phase 2 fold derives BASE_SHA from the stamp, and
-    `git log BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/` returns the two
-    workflow commits. detected=true, base_sha is the stamp's commit, commit_count
-    is 2, and first_commits lists them oldest-first (the `--reverse` order) with
-    full subjects. The plan-artifact commit itself touches `docs/adr/...`, not a
+    `git log BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/ .claude/agents/`
+    returns the two workflow commits. detected=true, base_sha is the stamp's
+    commit, commit_count is 2, and first_commits lists them oldest-first (the
+    `--reverse` order) with full subjects. The plan-artifact commit itself
+    touches `docs/adr/...`, not a
     watched path, so it does not inflate the count."""
     with GitFixture() as fx:
         fx.commit("init")
@@ -1310,10 +1314,11 @@ def test_drift_phase2_staged_subtree_excluded_from_range() -> None:
     """A commit touching ONLY the staged subtree under
     `docs/adr/<branch>/_workflow/staged-workflow/.claude/workflow/` must not
     appear in the drift `git log` range. The range's pathspecs (`.claude/workflow/`,
-    `.claude/skills/`) carry trailing slashes and match those top-level
-    directories, not the staged copy under `docs/adr/.../staged-workflow/` (a
-    different path prefix). With the stamp at the base and only a staged-subtree
-    commit after it, the range is empty: detected=false, commit_count=0. This
+    `.claude/skills/`, `.claude/agents/`) carry trailing slashes and match those
+    top-level directories, not the staged copy under
+    `docs/adr/.../staged-workflow/` (a different path prefix). With the stamp at
+    the base and only a staged-subtree commit after it, the range is empty:
+    detected=false, commit_count=0. This
     pins the staged-subtree-exclusion invariant the byte-source relies on so a
     workflow-modifying branch's staged edits do not self-report as drift."""
     with GitFixture() as fx:

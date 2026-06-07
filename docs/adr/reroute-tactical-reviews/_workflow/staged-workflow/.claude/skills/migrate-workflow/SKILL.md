@@ -479,7 +479,7 @@ If the level is `warning` or `critical`:
 
 Reflection at Step 6 is deliberately skipped on this early-exit path to protect the already-tight context budget; the next session's reflection at Step 6 (once the migration completes successfully) reports this halt as friction.
 
-If `info`: continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/` or `.claude/skills/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
+If `info`: continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/`, `.claude/skills/`, or `.claude/agents/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
 
 **Sub-agent contracts.** The orchestrator must interpolate `$ARGUMENTS` and per-commit values into the sub-agent prompt before launch; sub-agents inherit no conversation context and operate against the current worktree.
 

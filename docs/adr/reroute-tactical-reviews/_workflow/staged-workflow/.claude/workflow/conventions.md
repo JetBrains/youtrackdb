@@ -830,10 +830,9 @@ This plan is workflow-modifying: it edits .claude/workflow/**, .claude/skills/**
 ```
 
 Consumers match on the **stable prefix** `This plan is
-workflow-modifying:`, not on the full sentence. The prefix match is
-case-sensitive; everything after the colon — the path-prefix
-enumeration and the terminal period — is descriptive, not part of the
-match. A plan that carries an older spelling (for example the
+workflow-modifying:` alone; everything after the colon (the
+path-prefix enumeration and the terminal period) is descriptive and is
+not part of the match. The prefix match is case-sensitive. A plan that carries an older spelling (for example the
 two-prefix `.claude/workflow/** or .claude/skills/**` list) is
 recognized identically to one carrying the current three-prefix list,
 so growing the canonical enumeration never deactivates the gate for a
