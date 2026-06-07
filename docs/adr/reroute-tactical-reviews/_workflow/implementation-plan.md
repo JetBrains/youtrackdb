@@ -284,6 +284,11 @@ flowchart TD
   > and stale drift-narration in the precheck tests; no Decision Records changed.
   >
   > **Track file:** `plan/track-1.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1's only Track-2-relevant discovery
+  > (`.claude/scripts/` is not stageable, §1.7(a)) is already reflected in Track 2's
+  > in-scope list, so its `.claude/scripts/tests/` count-validation test edits the
+  > live tree. No downstream plan impact.
 
 - [ ] Track 2: Manifest-plus-sections schema, persistence/lifecycle, and the coverage invariant
   > Defines the contract every bulk producer writes: the manifest header over
