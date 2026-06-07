@@ -23,6 +23,7 @@ agent edits cannot stage until this rule is in the staged mirror.
 - [ ] Track completion
 - [x] 2026-06-07T12:20Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-07T12:40Z [ctx=safe] Step 1 complete (commit 607e1395)
+- [x] 2026-06-07T12:57Z [ctx=safe] Step 2 complete (commit dcff63be); review WP1 (suggestion, no fix), §1.7(f) gap folded into step 5 (DL2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -81,6 +82,21 @@ gap this track introduces, so it stays out of scope. Footprint ~20 sits at the
 lower edge of the ~20-25 split band; kept one track because the work is a uniform
 mechanical generalization plus two high-care cores, and ~10 of the files are
 one-line edits.
+
+**DL2 (Phase B, Step 2 review, 2026-06-07) — conventions.md §1.7(f) prose folded
+into step 5, no new step.** Step 2's `review-workflow-prompt-design` pass surfaced
+that conventions.md §1.7(f) prose (the pre-promotion divergence-check pathspec,
+staged conventions.md ~line 992: "the live `.claude/workflow` and `.claude/skills`
+paths") still names two prefixes. The track's §Interfaces scopes conventions.md to
+§1.7(a)(b)(d)(e), omitting §1.7(f), and step 5's roster names the divergence check
+in `create-final-design.md` — so no step was assigned the conventions.md §1.7(f)
+prose. Left unaddressed, create-final-design.md's check would be three-prefix while
+the conventions.md prose describing it stayed two-prefix (a doc/impl gap the
+Phase C consistency reviewer would flag). Folded into step 5 rather than expanding
+step 2 (whose plan scope is §1.7(a)(d)(e)) or opening a new step: the §1.7(f) prose
+and the create-final-design.md divergence check are the same mechanism, so one
+implementer edits both in lockstep. Footprint grows by one prose line; the ~20-25
+band assessment is unchanged.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -301,7 +317,7 @@ implementer-rules.md are edited across sequential steps (allowed for sequential
 commits; no parallel steps in this track). -->
 
 1. Make the workflow-modifying marker matcher prefix-agnostic — change the `conventions.md §1.7(b)` marker definition to name the third prefix and change the `implementer-rules.md` gate matcher to match the stable prefix `This plan is workflow-modifying:` regardless of the trailing prefix list (the D7 bootstrap; keep the plan's two-prefix `### Constraints` marker verbatim). No executable test: prose-only marker match, validated by prose review + `workflow-reindex.py --check`. — risk: high (workflow machinery: §1.7 staging-convention gate matcher — the load-bearing bootstrap every later track self-applies)  [x] commit: 607e13953587d6c4a1c20a67606e81dd7a759c26
-2. Extend §1.7 write-routing and reads-precedence to `.claude/agents/` — `conventions.md §1.7(a)(d)(e)`; the two distinct `implementer-rules.md` sites (path-mapping write-routing rule and pre-commit gate refused-path set); and the seven review/gate prompts' §1.7(d) staged-read precedence caveats (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `consistency-review.md`, `structural-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md`). Validated by `workflow-reindex.py --check` + prose review. — risk: high (workflow machinery: §1.7 staging convention)  [ ]
+2. Extend §1.7 write-routing and reads-precedence to `.claude/agents/` — `conventions.md §1.7(a)(d)(e)`; the two distinct `implementer-rules.md` sites (path-mapping write-routing rule and pre-commit gate refused-path set); and the seven review/gate prompts' §1.7(d) staged-read precedence caveats (`technical-review.md`, `risk-review.md`, `adversarial-review.md`, `consistency-review.md`, `structural-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md`). Validated by `workflow-reindex.py --check` + prose review. — risk: high (workflow machinery: §1.7 staging convention)  [x] commit: dcff63be1e702676af92f11e6f99cd55a2a02a82
 3. Extend the §1.6 stamp scheme and drift walk to `.claude/agents/` — §1.6(b) `WORKFLOW_SHA` stamp base in `conventions.md`, `create-plan/SKILL.md`, and `edit-design/SKILL.md` (lockstep with the drift pathspec per DL1); the §1.6(h) stamp-walk omission note; `workflow-startup-precheck.sh` `WORKFLOW_PATHSPECS` and the `workflow-drift-check.md` pathspec comment; add third-prefix coverage to `test_workflow_startup_precheck.py`. — risk: high (workflow machinery: §1.6 stamp scheme + auto-running precheck script)  [ ]
 4. Route a staged agent into the rules-6/7-only validation gate in `workflow-reindex.py` (not the eight-rule `parsed_files` loop) so a staged agent validates like a live agent; re-document the now-false inert-rationale comment and the `discover_agent_citing_files` docstring; add a staged-agent validation-routing test to `test_workflow_reindex.py` asserting only rule-6/7 findings (no rule-1/2/3/4/5/8 over-fire). Co-requisite of step 2 per the Ordering constraint. — risk: high (workflow machinery: auto-running reindex script — the track's second high-care edit)  [ ]
 5. Extend the remaining §1.7 consumers to the third prefix — the Phase 4 promotion `git add` path list and the pre-promotion divergence check in `create-final-design.md` (the `cp -r` is already prefix-agnostic); the `workflow.md §Final Artifacts` staging reference; `step-implementation.md`'s two staging enumerations; and `migrate-workflow/SKILL.md`'s migration pathspecs plus its `format`/`skill`/`rename` commit-classification rules. Validated by `workflow-reindex.py --check` + prose review. — risk: medium (workflow machinery, bounded behavioral: migration commit-classification dispatch + Phase 4 promotion git-add; remaining edits are prose references) — size: ~4 files; no mergeable low/medium work fits (rest of track is high)  [ ]
@@ -339,6 +355,50 @@ together.
 `staged-workflow/` subtree was created here (copy-then-edit from the verbatim
 live baseline). Steps 2–5 edit the same two files and must edit the existing
 staged copies via §1.7(d) reads-precedence, never re-copy from live.
+
+### Step 2 — commit dcff63be1e702676af92f11e6f99cd55a2a02a82, 2026-06-07T12:57Z [ctx=safe]
+**What was done:** Extended the §1.7 staging convention from two prefixes to
+three (added `.claude/agents/**`) across the step-2 sites in the staged mirror.
+In conventions.md: §1.7(a) path layout, §1.7(d) reads-precedence (the implementer
+read-side scope and the reviewer-restage caveat), and §1.7(e) write-routing
+(target, copy-then-edit first-touch, promotion-additive deletion clause,
+gate-enforcement reference). In implementer-rules.md: the two enforcement sites —
+the Path-mapping write-routing rule and the pre-commit gate's refused-path set,
+whose `git diff --cached --name-only -- .claude/workflow/ .claude/skills/` gained
+`.claude/agents/`. The seven review/gate prompts each had their one-line §1.7(d)
+caveat extended; all seven were first-touched and staged via copy-then-edit.
+`workflow-reindex.py --check` passes (exit 0), full and scoped.
+
+**What was discovered:** Three two-prefix enumerations outside the literal
+(a)(d)(e) mandate were carried to three prefixes to keep §1.7 internally
+consistent (the §1.7 preamble, the §1.7(g) I6-invariant scope, and the §1.7(b)
+marker-presence policy prose); §1.6(b)/§1.6(h) and the reindex routing stayed at
+two prefixes for steps 3/4. Step-level review (`review-workflow-prompt-design`)
+returned one suggestion, WP1: the prompts' TOC-protocol bootstrap line still reads
+two prefixes while their §1.7(d) caveat now reads three. The two mechanisms are
+orthogonal (which staged copy to read vs how to read it) and the bootstrap line
+is deliberately out of this track's scope (see §Interfaces out-of-scope), so WP1
+takes no fix.
+
+**What changed from the plan:** The review surfaced a consistency gap the plan
+left unassigned. conventions.md §1.7(f) prose (the divergence-check pathspec,
+staged conventions.md ~line 992) still names two prefixes, but step 5 extends the
+matching executable check in `create-final-design.md` to three. The track scopes
+conventions.md to §1.7(a)(b)(d)(e), omitting §1.7(f), so no step currently updates
+that prose. Folded into **step 5**: its implementer also extends the conventions.md
+§1.7(f) prose in lockstep with the `create-final-design.md` divergence-check edit.
+See Decision Log DL2.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/conventions.md` (modified staged copy)
+- `…/staged-workflow/.claude/workflow/implementer-rules.md` (modified staged copy)
+- `…/staged-workflow/.claude/workflow/prompts/{technical,risk,adversarial,consistency,structural}-review.md`, `review-gate-verification.md`, `dimensional-review-gate-check.md` (new staged copies)
+
+**Critical context:** Steps 3–5 edit the existing staged conventions.md /
+implementer-rules.md copies (authoritative per §1.7(d)), never re-copy from live.
+The two-prefix residue is scoped, not missed: §1.6(b) (staged conventions.md:579,
+:584) and §1.6(h) (:752) are step 3; the reindex staged-agent scope split is
+step 4; the §1.7(b) backward-compat example (:835) stays two-prefix by design.
 
 ## Validation and Acceptance
 
