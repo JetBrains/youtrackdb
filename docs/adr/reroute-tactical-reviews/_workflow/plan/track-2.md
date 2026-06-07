@@ -129,6 +129,28 @@ write a file when the output would otherwise accumulate in a long-lived session;
 else carry the `exempt because…` annotation under the Phase-1-cold-read
 rationale (R5).
 
+**DL7 (Phase B, inline replan after step 2, 2026-06-07) — strategic dispatch
+path-injection added as step 4 so the producer-prompt conditional gains its
+orchestrator-side caller.** Step 2 taught the strategic producer prompts to write a
+review file when handed an output path. The audit before step 3 found that no track
+scoped the orchestrator-side dispatch that injects that path: `track-review.md §Inputs`
+passes the Phase A panel (technical/risk/adversarial) and the review-gate-verification
+a shared input set with no output path, and `implementation-review.md` (the Phase 2
+consistency/structural dispatch) was referenced nowhere in the plan. Left unfixed, the
+write-when-handed-a-path branch would have no caller post-promotion and the strategic
+on-disk win (panel evidence bases off-context) would never activate, even though
+`## Validation and Acceptance` already asserts the orchestrator partial-fetches
+`## Findings` from disk (an acceptance with no implementing step). The user chose
+Escalate now over deferring to the Phase C instruction-completeness reviewer. Added
+Concrete Steps step 4 (risk: medium, appended without renumber, so step 3's
+order-independent reconciliation prose stays untouched) injecting the per-spawn output
+path at both strategic dispatch sites and documenting the orchestrator's partial-fetch
+read; `implementation-review.md` joins the in-scope list (footprint ~19 → ~20). No
+numbered Decision Record is invalidated: D1/D6 and the design's strategic-routing
+intent stand, and the plan's step decomposition simply missed the dispatch-injection
+site. The replan resets `## Plan Review` to route the next session through State 0
+before Phase B resumes at step 3.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
 
@@ -337,13 +359,38 @@ mechanical and get tests.
    committed strategic review files are durable records and the live-iteration win
    is the evidence base off-context, while Phase A resume still gates on the
    `## Outcomes & Retrospective` checkboxes. — risk: low (prose-only — no
-   hook/script/settings, no gate/dispatch/schema change) — size: ~3 files; the
-   only mergeable low/medium work is the ~11-file step 2, and merging would trip
-   the ~14 overblown line (reason a)  [ ]
+   hook/script/settings, no gate/dispatch/schema change) — size: ~3 files. Of the
+   other low/medium work, step 2 (~11 files) would trip the ~14 overblown line if
+   merged in (reason a), and the inline-replan step 4 (~2 files, medium) stays
+   separate because it touches a disjoint `track-review.md` section and carries a
+   different risk tag; folding this low prose-only step into the medium dispatch
+   step would erase the risk-tag granularity that keeps step 3 on the no-step-review
+   fast path.  [ ]
+
+4. **Strategic dispatch path-injection (orchestrator side).** Inject the
+   review-file output path at the strategic spawn sites so step 2's producer
+   prompts (write-when-handed-a-path) gain a caller and the orchestrator
+   partial-fetches `## Findings` from the committed file — the orchestrator-side
+   complement of step 2, without which that write branch has no caller
+   post-promotion. `track-review.md §Inputs`: add the per-spawn output path to the
+   shared set passed to the Phase A panel (`technical`/`risk`/`adversarial`) and the
+   review-gate-verification spawn, naming the
+   `_workflow/plan/track-N/reviews/<type>-iter<N>.md` target (the §2.1 lifecycle
+   home, §2.5 schema) and the orchestrator's partial-fetch read of `## Findings`.
+   `implementation-review.md`: inject the same for the Phase 2
+   `consistency`/`structural` reviewers and their gate-verifications. Both files
+   stage under §1.7. Does not change S1 (strategic reviews keep the orchestrator's
+   partial-fetch by design). — risk: medium (bounded behavioral dispatch/`## Inputs`
+   edits at the strategic spawn sites; no auto-running script or load-bearing gate
+   changed) — size: ~2 files (`track-review.md` already in scope for §Phase A
+   Resume; `implementation-review.md` new); added by inline replan after step 2
+   (DL7)  [ ]
 
 Sequential: 2 depends on step 1's schema; 3 depends on the step-1 coverage rule
-and the step-2 strategic-file behavior. No parallel steps (each builds on the
-prior).
+and the step-2 strategic-file behavior; 4 (added by inline replan, DL7) depends on
+step 1's §2.1 lifecycle and step 2's producer-prompt behavior, and is independent
+of step 3 (both follow step 2; execute 3 then 4 — they touch disjoint sections of
+`track-review.md`). No parallel steps (each builds on the prior).
 
 ## Episodes
 <!-- Continuous-log. -->
@@ -487,6 +534,14 @@ Per-step acceptance:
 - **Step 3:** `review-mode.md` carries the `FIX_FINDING` `exempt because…`
   annotation; `track-review.md §Phase A Resume` no longer claims findings are
   "not persisted" in a way that contradicts the committed strategic files.
+- **Step 4:** `track-review.md §Inputs` and `implementation-review.md` name a
+  per-spawn output path in the strategic reviewers' input set (Phase A panel +
+  review-gate-verification; Phase 2 consistency/structural + their
+  gate-verifications), targeting `_workflow/plan/track-N/reviews/<type>-iter<N>.md`,
+  and document the orchestrator's partial-fetch read of `## Findings`. The
+  whole-track acceptance bullet "a strategic review … writes its file in the schema
+  … the orchestrator partial-fetches `## Findings` from disk" is now satisfied by an
+  implementing edit, not just the producer-prompt half from step 2.
 
 <!-- Reserved for Move 3. -->
 
@@ -531,9 +586,16 @@ rather than shipping a silent `CONTRACT_VIOLATION` post-promotion.
   cold-read stays byte-for-byte exempt
 - `.claude/workflow/step-implementation-recovery.md` — light consistency pass
   (schema/lifecycle phrasing only; routing wording stays Track 4 — T6)
-- `.claude/workflow/track-review.md` — §Phase A Resume light consistency pass:
+- `.claude/workflow/track-review.md` — (1) §Phase A Resume light consistency pass:
   reconcile the "findings not persisted to a separate file" prose with the
-  committed strategic review files (R2/A3)
+  committed strategic review files (R2/A3); (2) §Inputs strategic dispatch
+  path-injection: add the per-spawn output path to the shared set for the Phase A
+  panel + review-gate-verification spawn, plus the orchestrator's partial-fetch read
+  (step 4, DL7)
+- `.claude/workflow/implementation-review.md` — Phase 2 plan-review strategic
+  dispatch: inject the per-spawn output path for the consistency/structural
+  reviewers and their gate-verifications, plus the orchestrator's partial-fetch read
+  (step 4, DL7)
 - `.claude/workflow/review-mode.md` — `FIX_FINDING` exemption annotation
 - `.claude/scripts/tests/` — count-validation (S4/S6) mechanical test (edited
   live, not staged — `.claude/scripts/` is outside `WORKFLOW_PATHSPECS`)

@@ -302,16 +302,18 @@ flowchart TD
   > orchestrator partial-fetches). Packs the strategic side with the contract to
   > clear the merge floor — a schema-only track (~9 files) would fold into a
   > neighbor.
-  > **Scope:** ~19 files covering conventions-execution.md schema + §2.1
+  > **Scope:** ~20 files covering conventions-execution.md schema + §2.1
   > lifecycle, the coverage invariant, the workflow.md/create-final-design.md
   > cleanup-prose confirmation (the blanket `git rm -r _workflow/` already sweeps
   > review files — no new glob), the strategic panel + plan-review prompts,
   > gate-verification prompts, research.md Explore delegation, the Phase 4
-  > design-review.md cold-read wired via edit-design/SKILL.md §Step 4, a
-  > track-review.md §Phase A Resume reconciliation, a
+  > design-review.md cold-read wired via edit-design/SKILL.md §Step 4, the
+  > strategic dispatch path-injection at track-review.md §Inputs +
+  > implementation-review.md (the orchestrator-side complement of the producer
+  > prompts), a track-review.md §Phase A Resume reconciliation, a
   > step-implementation-recovery.md consistency touch, and the review-mode
-  > FIX_FINDING exemption (Phase A: +edit-design/SKILL.md, +track-review.md; see
-  > track-2 DL1-DL6)
+  > FIX_FINDING exemption (Phase A: +edit-design/SKILL.md, +track-review.md; Phase B
+  > inline replan: +implementation-review.md, step 4; see track-2 DL1-DL7)
   > **Depends on:** Track 1
 
 - [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
@@ -342,7 +344,12 @@ flowchart TD
   > **Depends on:** Track 2, Track 3
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1 (each review: one full round plus a gate-verified PASS)
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+
+(Re-validation triggered by the Phase B inline replan that added Track 2 step 4 —
+see track-2 DL7. The prior PASS was at iteration 1 before the replan; the
+Auto-fixed / Escalated history below is from that round and is retained as the
+audit trail.)
 
 **Auto-fixed (mechanical)**: CR1 (suggestion) — Track 1 step 4 reworded: the staged-agents glob already sits in `IN_SCOPE_GLOBS` and activates automatically once §1.7(e) stages agents, so the edit is the inert comment (lines 144-154) and the `discover_agent_citing_files` docstring, not the glob string. CR2 (should-fix) — Track 4 step 2 reworded: `review-iteration.md`'s prefix table is already per-dimension, so the work is reconciling its `### Gate-check synthesis routing` reference, not converting an `M<n>` format.
 
