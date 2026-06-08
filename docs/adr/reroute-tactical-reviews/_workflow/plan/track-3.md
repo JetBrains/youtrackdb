@@ -24,12 +24,13 @@ already cite the prefix table. The 4 standalone agents get a one-line exemption
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-08T05:23Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 - [x] 2026-06-08T05:54Z [ctx=safe] Step 1 complete (commit b0b9c93398e087a9955df62458b810910a40fbde)
 - [x] 2026-06-08T06:09Z [ctx=info] Step 2 complete (commit 9c8e8e01641fd280a2b8e878a376753ddf613b41)
+- [x] 2026-06-08T06:22Z [ctx=info] Step 3 complete (commit 87c0261f0a8e0c2492ba118cd7d39f8a377443b4)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -40,6 +41,13 @@ already cite the prefix table. The 4 standalone agents get a one-line exemption
   dimensions (CQ, TS). Step 3's four evidence-trail-exempt workflow dimensions (`consistency`,
   `context-budget`, `hook-safety`, `prompt-design`) must use the same "`cert` is `n/a`"
   phrasing, not the cross-link. See Episodes §Step 2.
+- 2026-06-08T06:22Z Step 3 completed the agent-emit half of the feature: all 16 dimensional
+  reviewers now write the §2.5 file+manifest with `### <PREFIX><n>` anchors on the path branch
+  (inline format unchanged off-path). Track 4 routes on this fixed evidence-base map — cert-writing
+  (10): bugs-concurrency, crash-safety, performance, security, test-behavior, test-completeness,
+  test-concurrency, test-crash-safety, instruction-completeness, writing-style; evidence-trail-exempt
+  with `certs: 0` (6): code-quality, test-structure, consistency, context-budget, hook-safety,
+  prompt-design. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -232,7 +240,7 @@ stay byte-for-byte today's inline format for that agent so the standalone
    `hook-safety`, `prompt-design`). — risk: high (override: focal-risk migration
    distinct from template A — the bold-bullet → `### <PREFIX><n>` transform with
    byte-for-byte + S4-round-trip fragility flagged by A1/A4/R4; its own step-level
-   dimensional review validates template B across all 6 at once)  [ ]
+   dimensional review validates template B across all 6 at once)  [x] commit: 87c0261f0a8e0c2492ba118cd7d39f8a377443b4
 
 Sequential: step 1 (canary) validates the shared wrap/manifest/evidence primitive
 before step 2 replicates template A and step 3 applies template B. Steps 2 and 3
@@ -317,6 +325,45 @@ Output format below" pointer was matched to each agent's actual heading casing.
 - `…/staged-workflow/.claude/agents/review-test-behavior.md`, `review-test-completeness.md`, `review-test-concurrency.md`, `review-test-crash-safety.md` (new — staged)
 - `…/staged-workflow/.claude/agents/review-test-structure.md` (new — staged, evidence-trail-exempt)
 - `…/staged-workflow/.claude/agents/code-reviewer.md`, `pr-reviewer.md`, `test-quality-reviewer.md`, `dr-audit.md` (new — staged, D9 `exempt because…` annotation only)
+
+### Step 3 — commit 87c0261f0a, 2026-06-08T06:22Z [ctx=info]
+**What was done:** Migrated the six workflow dimensional agents (WC=consistency,
+WB=context-budget, WH=hook-safety, WI=instruction-completeness, WP=prompt-design,
+WS=writing-style) to template B in one commit through the staged mirror
+(copy-then-edit first touch; live tree untouched). Each gained the leading
+`## Output routing` guard before its `## Output format` heading. The guard's file
+branch migrates the inline `**<PREFIX><N>**` bold bullets to `### <PREFIX><n>
+[severity]` anchors under a single `## Findings` (no `### Summary` / `### Findings`),
+preserving each agent's documented consecutive numbering, mapping the inline
+Axis/Cost/Issue/Suggestion fields into the finding body, and carrying the native
+Critical/Recommended/Minor severity into both the anchor line and the manifest `sev`
+(§2.5 permits the producer's native scale). The no-path inline branch — bold bullets,
+`#### Critical`/`#### Recommended`/`#### Minor` buckets, and the `Numbering:`
+paragraph — stays byte-for-byte. WI and WS write `## Evidence base` from their
+`## Process` verification (WI's complement/consumer/termination checks; WS's
+section-length three-step decision and banned-vocab sweep); WC/WB/WH/WP are
+evidence-trail-exempt (`cert` is `n/a`, empty `## Evidence base`, `certs: 0`) using
+the step-2 ORCH-1 reconciled phrasing. The risk:high step-level review
+(`review-workflow-prompt-design`) passed at iteration 1 — no blocker or should-fix.
+
+**What was discovered:** With steps 1-3 complete, all 16 dimensional reviewers now
+emit the §2.5 file+manifest+`### <PREFIX><n>` anchor shape on the path branch and
+their current inline format on the no-path branch. The evidence-base-writing vs
+evidence-trail-exempt map is now fixed for Track 4's routing: cert-writing =
+bugs-concurrency, crash-safety, performance, security, test-behavior,
+test-completeness, test-concurrency, test-crash-safety, instruction-completeness,
+writing-style (10); exempt with `certs: 0` = code-quality, test-structure,
+consistency, context-budget, hook-safety, prompt-design (6). The step-level review
+confirmed the focal-risk byte-for-byte inline preservation held across all 6 — the
+migration is a file-branch rendering instruction, not an inline rewrite. Two
+suggestion-level findings were declined: WP1 (numbering-bullet redundancy — trimming
+it would diverge from the canary's verbatim replication contract) and WP2
+(anchor-line-tail title ambiguity — resolves via the cited §2.5 `### BC1 [blocker] …`
+example, and a fix would force re-touching all 16 agents for consistency).
+
+**Key files:**
+- `…/staged-workflow/.claude/agents/review-workflow-instruction-completeness.md`, `review-workflow-writing-style.md` (new — staged, write `## Evidence base`)
+- `…/staged-workflow/.claude/agents/review-workflow-consistency.md`, `review-workflow-context-budget.md`, `review-workflow-hook-safety.md`, `review-workflow-prompt-design.md` (new — staged, evidence-trail-exempt)
 
 ## Validation and Acceptance
 
