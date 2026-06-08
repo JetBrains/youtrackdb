@@ -386,6 +386,16 @@ flowchart TD
   > stated inline per agent) is a Phase 4 design-final reconciliation candidate.
   >
   > **Track file:** `plan/track-3.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Tracks 1-3 delivered Track 4's hard
+  > dependencies (the §2.5 manifest schema with `basis`/`cert` fields from Track 2,
+  > the 16 reviewers self-assigning IDs and writing manifests from Track 3) as
+  > planned; no episode contradicts Track 4 and D1/D4/D5 stay intact. Carry into
+  > decomposition: cite the three concrete panel roles
+  > (`reviewer-technical`/`reviewer-risk`/`reviewer-adversarial`), never
+  > `reviewer-panel`; tolerate `cert: n/a` / `certs: 0` from the 6 evidence-trail-
+  > exempt dimensions (index-bucketing keys off `cert`); reuse the `<type>-iter<N>.md`
+  > review-file naming at the tactical dispatch sites.
 
 - [ ] Track 4: Orchestrator tactical routing, severity backstop, and per-dimension addressing
   > Implements route-by-consumer for the tactical class: the orchestrator buckets

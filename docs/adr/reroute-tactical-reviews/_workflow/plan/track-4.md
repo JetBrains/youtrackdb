@@ -102,7 +102,17 @@ drops it after the decision — transient, never retained across the next teardo
    per-iteration implementer reads bodies by anchor (never the evidence base),
    reconciles cross-dimension framings at the code level, and carries the
    `DESIGN_DECISION_NEEDED` context forward (the orchestrator needs no body read
-   for escalation). Update the `findings:` field / `FIX_NOTES` references.
+   for escalation). Reconcile the `findings:` input field and the `FIX_NOTES`
+   return contract to the new model. Two specifics the decomposer must not miss:
+   (a) `what_was_fixed` cites the per-dimension IDs the implementer is now handed
+   (`BC3`, `CQ7`); the `M<n>` citation and the "per-dimension IDs are
+   orchestrator-internal, not visible to the implementer" note both invert under
+   D5. (b) Keep `what_was_skipped` (it carries summary text, not a finding body,
+   so S1 holds) and align its wording: the implementer reports an in-`loc` finding
+   whose fix would over-expand track scope, which the Phase C orchestrator folds
+   into a plan correction. This is the implementer-discovered analog of the
+   orchestrator's `loc`-based out-of-track drop; the implementer never silently
+   retires a finding.
 5. **Review-mode + gate-check.** Update `review-mode.md` so a `BC3`-style
    override matches the manifest `id` directly. Update the tactical gate-check
    prompt (`dimensional-review-gate-check.md`) to per-dimension addressing and
