@@ -21,7 +21,7 @@ a schema-only track (~9 files) would fold into a neighbor.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-07T15:31Z [ctx=info] Review + decomposition complete (3 steps: 1 high, 1 medium, 1 low; 0 failed)
 - [x] 2026-06-07T16:05Z [ctx=safe] Step 1 complete (commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67)
