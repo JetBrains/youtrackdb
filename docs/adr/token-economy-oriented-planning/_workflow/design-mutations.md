@@ -19,3 +19,17 @@
 - suggestion (cold-read): roadmap navigability note — no change needed.
 
 **Iterations**: 2 of 3 (PASS)
+
+## Mutation 2 — 2026-06-08 — content-edit (design.md)
+
+**Diff summary**: Reframed the token model after user feedback that the original undervalued merging. The first draft framed merging's benefit as "removes a cold read" (the small, overlap-specific effect) and called adjacency "saves almost nothing"; the user pointed out that merging unrelated changes saves agent startups (steps) and review-agent calls (tracks), independent of file overlap. Validated against Claude transcripts (75 sub-agents across 32 recent sessions, deduped by `message.id`): median sub-agent ~$2.47, review sub-agents $2.60-$3.40, step implementer ~$6.80, resident context 70K-160K, ~49% of workflow spend is sub-agents, master cost ≈ resident_context × turns (~85% cache re-reads). Reframed so the dominant lever is reducing the number of fresh agent contexts (an implementer per step, a review fan-out per track) — overlap-independent and already the existing maximize/fill rules' rationale — while source-file overlap is the second, smaller lever that fits more change per capped agent at the file-count cap, with the direct cold-read re-pay as a bonus. Adjacency stays the marginal fallback (removes no agent). Touched the Overview, the token-model TL;DR + three body paragraphs + edge cases + D1 + D2, the track-level packing paragraph, and the step-level TL;DR + adjacency caveat + D4. Decision records and invariants (D1-D5, S1-S2) are unchanged; only the framing and rationale moved. The measured magnitudes were added as evidence.
+
+**Mechanical checks** (target=design): PASS (after 1 fix — a `dsc-ai-tell` fragmented-header flag because the reworded TL;DR opened with "token", echoing the heading "The token model"; dropped the word).
+
+**Cold-read** (scope: whole-doc): PASS, 0 findings. Confirmed the dominant/second/marginal lever ordering is consistent across all four sections, no leftover old-framing sentence survives, and the magnitudes read as evidence rather than assertion.
+
+**Findings**:
+- (user feedback) original token model undervalued merging — reframed to lead with the overlap-independent per-agent saving, backed by measured transcript magnitudes.
+- should-fix (mechanical): fragmented-header on the TL;DR opening — fixed.
+
+**Iterations**: 2 of 3 (PASS)
