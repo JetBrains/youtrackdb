@@ -24,6 +24,7 @@ neighboring track exists to fold into.
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-08T15:10Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -39,6 +40,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 1 (1 finding: 1 suggestion T1, accepted — SYNC line-range hint tightened from 56-90 to 56-68; no blockers, no should-fix)
 
 ## Context and Orientation
 
@@ -79,7 +81,7 @@ Current state of the three edit sites:
   not, with the closed two-reason under-fill `— size:` set. This is where the
   step-level overlap-aware merge ordering and the adjacency caveat land.
 - **`prompts/structural-review.md`, TRACK SIZING** (around lines 193-220, with
-  the SYNC comment around lines 56-90). Applies the two-sided footprint bound
+  the SYNC comment around lines 56-68). Applies the two-sided footprint bound
   and routes an undocumented out-of-bounds track to a `design-decision`
   finding. This is where the one new overlap-split criterion bullet lands.
 
@@ -125,7 +127,7 @@ requirement it was not given.
      out-of-bounds track. No automated cross-track file intersection is
      computed; the reviewer applies judgment to the track files it already
      reads.
-   - Check whether the SYNC comment (around lines 56-90) needs a touch: the
+   - Check whether the SYNC comment (around lines 56-68) needs a touch: the
      criterion is an addition, not an edit to the paraphrased sizing rule, so
      the byte-identical paraphrase invariant (S2) should hold without changing
      it. Confirm during decomposition.
@@ -145,14 +147,8 @@ Invariants to preserve (S1, S2):
   dependency order, and the bounds.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, an
-optional `size:` clause, and a `[ ]` status checkbox. The `size:`
-clause (`— size: ~N files; <reason>`) appears only on an under-filled
-`low`/`medium` step (rule in `track-review.md` §Step Decomposition).
-Per-step episodes do NOT live here; they live in `## Episodes` below.
-The roster is immutable after Phase A except for the status checkbox
-flip and the optional `commit:` annotation Phase B appends. -->
+
+1. Refine the three overlap-aware packing rules together — `planning.md` §Track descriptions (packing-order preference, least-shared cut-seam, adjacent ordering, and the producer-side overlap-split justification: D1/D2/D3 + S3 producer half), `track-review.md` §Step Decomposition Fill bullet (overlap-aware merge ordering + adjacency-is-not-a-merge caveat: D2/D4), and `prompts/structural-review.md` TRACK SIZING (one new `design-decision` overlap-split criterion: D5 + S3 consumer half), holding S1 (subordination) and S2 (metric/bounds + byte-identical SYNC set) intact — risk: medium (workflow machinery: behavioral-but-bounded multi-file advisory prose — changes the planner's packing order, the decomposer's fill ordering, and one structural-review criterion, but touches no auto-executing hook/script/settings and no load-bearing control-flow gate or shared schema) — size: ~3 files; entire single-track scope, no other low/medium work exists to merge (closed-set reason a: the step already holds the whole track)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
