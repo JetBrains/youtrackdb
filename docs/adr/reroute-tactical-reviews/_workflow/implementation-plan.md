@@ -290,7 +290,7 @@ flowchart TD
   > in-scope list, so its `.claude/scripts/tests/` count-validation test edits the
   > live tree. No downstream plan impact.
 
-- [ ] Track 2: Manifest-plus-sections schema, persistence/lifecycle, and the coverage invariant
+- [x] Track 2: Manifest-plus-sections schema, persistence/lifecycle, and the coverage invariant
   > Defines the contract every bulk producer writes: the manifest header over
   > anchored body sections, anchored partial-fetch addressing, the ID-anchored
   > count-validation grep, and its canonical home in a new
@@ -302,19 +302,35 @@ flowchart TD
   > orchestrator partial-fetches). Packs the strategic side with the contract to
   > clear the merge floor — a schema-only track (~9 files) would fold into a
   > neighbor.
-  > **Scope:** ~20 files covering conventions-execution.md schema + §2.1
-  > lifecycle, the coverage invariant, the workflow.md/create-final-design.md
-  > cleanup-prose confirmation (the blanket `git rm -r _workflow/` already sweeps
-  > review files — no new glob), the strategic panel + plan-review prompts,
-  > gate-verification prompts, research.md Explore delegation, the Phase 4
-  > design-review.md cold-read wired via edit-design/SKILL.md §Step 4, the
-  > strategic dispatch path-injection at track-review.md §Inputs +
-  > implementation-review.md (the orchestrator-side complement of the producer
-  > prompts), a track-review.md §Phase A Resume reconciliation, a
-  > step-implementation-recovery.md consistency touch, and the review-mode
-  > FIX_FINDING exemption (Phase A: +edit-design/SKILL.md, +track-review.md; Phase B
-  > inline replan: +implementation-review.md, step 4; see track-2 DL1-DL7)
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Built the shared review-file schema in `conventions-execution.md §2.5` — the
+  > manifest header over `## Findings` / `## Evidence base` anchored bodies, the
+  > `### <PREFIX><N>` namespace, the S4/S6 count-validation grep
+  > `grep -cE '^### [A-Z]+[0-9]+ '`, the `CONTRACT_VIOLATION` whole-section fallback,
+  > the mandatory `id`/`sev`/`anchor` vs downstream `loc`/`cert`/`basis` field split,
+  > and the verdict-producer variant. Added the review-file lifecycle as `§2.1` prose
+  > (committed-at-return under `plan/track-N/reviews/`, swept by the existing recursive
+  > `git rm -r _workflow/` with no new glob) and stated the S5 coverage invariant as a
+  > documented contract, not a mechanical gate this track. Taught the bulk producers
+  > (Phase A panel, Phase 2 plan-review, the three gate-verifications, `research.md`,
+  > `design-review.md`, and `edit-design §Step 4` gated on `phase4-creation`) to write
+  > file+manifest when handed a path, then injected that path at the strategic dispatch
+  > sites (`track-review.md §Inputs`, `implementation-review.md`) — the orchestrator-side
+  > caller the producers' write branch had lacked. Step 4 (the dispatch injection) was
+  > added by inline replan at DL7 once step 2 surfaced the missing caller; S1 (strategic
+  > reviews keep the orchestrator's partial-fetch) is unchanged.
+  >
+  > Cross-track: Tracks 3 and 4 build on `§2.5`, now staged and reindex-clean. Phase C
+  > reconciled the `reviewer-panel` phantom role toward the three concrete panel roles
+  > (`reviewer-technical`/`reviewer-risk`/`reviewer-adversarial`) — Track 4 must reference
+  > those, not reintroduce `reviewer-panel`. The per-fan-out-unique review-file naming
+  > (`<type>-iter<N>.md`, and `<review_type>-gate-verification-iter<N>.md` after the Phase C
+  > fix) is the convention Track 4's tactical dispatch sites should reuse. `.claude/scripts/`
+  > is not stageable (`§1.7(a)`), so the S4/S6 test edits the live tree. Phase C passed at
+  > iteration 1 (6 workflow dimensions, 9 findings → one `Review fix:`, gate PASS, 0 new).
+  >
+  > **Track file:** `plan/track-2.md` (4 steps, 0 failed)
 
 - [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
   > The 16 `review-*` dimensional agents gain path-conditional file+manifest

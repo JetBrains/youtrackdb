@@ -22,13 +22,14 @@ a schema-only track (~9 files) would fold into a neighbor.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-07T15:31Z [ctx=info] Review + decomposition complete (3 steps: 1 high, 1 medium, 1 low; 0 failed)
 - [x] 2026-06-07T16:05Z [ctx=safe] Step 1 complete (commit 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67)
 - [x] 2026-06-07T16:17Z [ctx=safe] Step 2 complete (commit 396935bb0ce16c8dc5d808ef32a86f53aa500277)
 - [x] 2026-06-07T17:56Z [ctx=safe] Step 3 complete (commit a89973811a7d95ff921793f9a377095a9973f60a)
 - [x] 2026-06-07T18:05Z [ctx=safe] Step 4 complete (commit 48c99d6120fe7a68ca596cd388e077da4e11d784)
 - [x] 2026-06-08T03:30Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-08T04:01Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -192,6 +193,26 @@ before Phase B resumes at step 3.
   orchestrator re-verified before acting. A8 closed A10 in favour of the directory
   form (DL2). A7 rejected: `design.md` is frozen at Phase 1, reconciliation booked
   for Phase 4.
+- [x] Phase C (track-level code review): PASS at iteration 1. Workflow-only diff
+  (baseline skipped, case 1); all 6 workflow-review agents fired. 9 findings (3
+  blocker, 4 should-fix, 2 suggestion) reconciled in one fix iteration
+  (`Review fix: f287a46549`); gate-check PASS iteration 1, all 6 dimensions VERIFIED,
+  0 new findings. The blockers were `workflow-reindex.py --check` failures that would
+  have failed the Phase 4 promotion gate: the `reviewer-panel` phantom role (replaced
+  with `reviewer-technical,reviewer-risk,reviewer-adversarial` at 5 sites — the §2.5/§2.1
+  annotations, the regenerated §2.5 TOC row, and the `track-review.md`/`review-mode.md`
+  cross-refs), and five `### ` subsections (four in §2.5, one in `implementation-review.md`)
+  missing annotations and TOC rows. Should-fix: trimmed the §2.5 summary under the
+  120-char cap, parameterized the gate-verification filename by review type
+  (`<review_type>-gate-verification-iter<N>.md`), added the strategic-consumer
+  count-validation + `CONTRACT_VIOLATION` whole-section fallback to both `track-review.md`
+  and `implementation-review.md`, and split the `edit-design §Step 4` cold-read reader by
+  `output_path` case so the `phase4-creation` file-write path reaches Step 5's merge. WS5
+  (track-2.md DL1 em-dashes) deferred — plan-internal log, swept at Phase 4. No deferred
+  findings routed to other tracks. Resume opened on a malformed roster (a dropped step-4
+  checkbox flip plus all four steps hard-wrapped, which defeated the single-line roster
+  parser and masked the all-done state as steps-partial); reconciled in `1725770eda`
+  before review.
 
 ## Context and Orientation
 
