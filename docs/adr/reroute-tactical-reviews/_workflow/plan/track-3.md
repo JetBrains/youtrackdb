@@ -3,23 +3,31 @@
 
 ## Purpose / Big Picture
 After this track, each of the 16 dimensional `review-*` agents writes a
-file-plus-manifest when handed an output path (and returns inline otherwise),
-self-assigns its `<PREFIX><n>` finding IDs, and writes its Phase-4 refutation
-reasoning to `## Evidence base`; the 4 pure-standalone review agents carry an
-explicit `exempt because…` annotation.
+file-plus-manifest (the `§2.5` schema) when handed an output path and returns
+its current inline format unchanged otherwise. Each numbers its findings with
+the dimension's canonical `<PREFIX>` from `review-iteration.md § Finding ID
+prefixes` (only the integer `<n>` is per-fan-out). Where it runs a Phase-4
+refutation phase it writes that reasoning to `## Evidence base`, and otherwise
+carries an evidence-trail-exempt annotation with a closed-set reason. The 4
+pure-standalone review agents carry the `exempt because…` annotation (D9).
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-This track applies the contract to the tactical producers. The edit pattern is
-uniform across the 16 dimensional agents (D6 path-conditional output, D5
-reviewer-side ID assignment, D8 evidence trail); the 4 standalone agents get a
-one-line exemption (D9).
+This track applies the `§2.5` contract to the tactical producers. The intent is
+uniform (D6 path-conditional output, D5 reviewer-side ID continuation, D8
+evidence trail), but the work splits into two edit templates because the two
+agent families start from different inline formats. The 5 code and 5 test
+dimensions emit un-numbered findings under `#### Critical`-style buckets; the 6
+workflow dimensions already self-assign `<PREFIX><N>` IDs as bold bullets and
+already cite the prefix table. The 4 standalone agents get a one-line exemption
+(D9).
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-08T05:23Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -29,8 +37,44 @@ one-line exemption (D9).
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
+**DL1 — Phase A review disposition (Complex track: Technical + Risk +
+Adversarial, iteration 1, 0 blockers).** The three reviews converged on the same
+plan corrections; all were accepted and applied to the track file before
+decomposition:
+- *Two edit templates, not one uniform edit* (T2/R4/A1): the 6 workflow
+  dimensions already self-assign IDs inline, so the "uniform across 16" framing
+  and the "un-numbered `#### Critical` buckets" current-state claim were wrong.
+  Corrected `## Purpose` and `## Context and Orientation`; decomposition carves
+  the two families into separate steps.
+- *`{findings_under_recheck}` is gate-check-only* (T4/R2/A2): "applied at the
+  initial review too" described a mechanism that does not exist. Step 2 now
+  starts the initial review at `<PREFIX>1`; any initial-review seed is Track 4
+  dispatch scope.
+- *Evidence-trail exemption bounded and relabeled* (T1/R3/A4): distinct from the
+  `§2.5` S5 coverage exemption, with a closed-set reason and a non-exempt
+  default; the 6 zero-refutation dimensions are exempt on structural grounds.
+- *D5 prefix is table-bound* (A3): canonical `<PREFIX>` from `review-iteration.md`;
+  the 10 code and test agents gain the citation.
+- *Byte-for-byte means wrap, not rewrite* (R1) and *additive-only promotion*
+  (R6): captured in Plan of Work step 1 and `## Idempotence and Recovery`.
+- *Acceptance holes plugged* (A4): S4 round-trip on one agent per family
+  including a workflow dimension, plus an evidence-trail coverage assertion.
+
+**DL2 — `§2.5` does not define the `## Evidence base` body rendering** (T3/A5,
+deferred). `§2.5` defines the `## Evidence base` anchor shape (`#### ` entries)
+but not the survived-one-line / refuted-in-full roster rendering, which lives
+only in design.md prose and the YTDB-1069 reference. Track 3 states the rendering
+inline in each agent edit (step 3) rather than citing it. Whether the rendering
+belongs in `§2.5` is a Phase 4 design-final reconciliation candidate, recorded
+here and not changed in this track, since the schema is Track 2's staged
+deliverable and out of Track 3 scope.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
+
+- [x] Technical: PASS at iteration 2 (4 findings — 0 blocker, 2 should-fix, 2 suggestion; all accepted, applied as track-file corrections before decomposition)
+- [x] Risk: PASS at iteration 2 (6 findings — 0 blocker, 4 should-fix, 2 suggestion; all accepted; R5 canary + R6 additive-only fold into decomposition and Idempotence)
+- [x] Adversarial: PASS at iteration 2 (5 findings — 0 blocker, 4 should-fix, 1 suggestion; all accepted; A5 §2.5 evidence-body gap stated inline + recorded as DL2)
 
 ## Context and Orientation
 
@@ -49,22 +93,36 @@ workflow fan-out spawns:
 The 4 pure-standalone agents (`code-reviewer`, `pr-reviewer`,
 `test-quality-reviewer`, `dr-audit`) are never in the workflow fan-out (D9).
 
-Today these agents emit findings inline as their final message, in un-numbered
-`#### Critical`-style buckets, and the orchestrator mints merged `M<n>` IDs at
-synthesis. This track moves ID assignment to the reviewer and gates the
-file-plus-manifest output on a supplied path. The agents run a structured
-protocol (premises, code-path traces, formal claims, Phase-4 refutation check)
-but emit only findings today; the evidence trail makes the refutation check
-verifiable.
+The 16 dimensional agents start from two inline formats, not one. The 5 code and
+5 test dimensions emit findings as un-numbered bullets under `#### Critical` /
+`#### Likely Issues` / `#### Potential Concerns`-style buckets, and the
+orchestrator mints merged `M<n>` IDs at synthesis. The 6 workflow dimensions
+already self-assign their `<PREFIX><N>` IDs inline (e.g. `**WC<N>**` bold
+bullets) and already cite `review-iteration.md § Finding ID prefixes`. The
+`§2.5` file-output shape (a MANIFEST block, `## Findings` with `### <PREFIX><N>`
+anchors, and `## Evidence base`) matches neither today, so the file branch is a
+new output shape for all 16 while the inline branch stays each agent's current
+format. This track moves merged-`M<n>` minting off the orchestrator to
+per-dimension reviewer-side numbering and gates the file-plus-manifest output on
+a supplied path.
+
+The agents do not run a uniform structured protocol. About ten of the 16 carry a
+premise / code-path-trace / Phase-4-refutation structure whose reasoning the D8
+trail makes verifiable. The rest (`review-code-quality`, `review-test-structure`,
+and the workflow dimensions `review-workflow-consistency`,
+`review-workflow-context-budget`, `review-workflow-hook-safety`,
+`review-workflow-prompt-design`) carry no refutation or certificate phase, so for
+them the evidence trail has no source material and the evidence-trail exemption
+applies on structural grounds rather than cost.
 
 **Why path-conditional (D6):** the same `review-*` agents serve the standalone
 `/code-review` and `/fix-ci-failure` skills, which read findings inline.
 Unconditional file output would break them. The output path is a per-spawn
 variable injected by the workflow at the dispatch sites (Track 4); the manifest
 schema instruction lives in the agent definition, gated by the path's presence.
-The no-path branch stays byte-for-byte today's inline format — native severity
-scales, no ID prefix — so the reviewer-side ID assignment never leaks into the
-standalone callers.
+The no-path branch stays byte-for-byte each agent's current inline format (the
+wrap-not-rewrite rule in Plan of Work step 1), so the file-branch ID and
+manifest changes never leak into the standalone callers.
 
 This track edits `.claude/agents/**`, so it stages only after Track 1's
 three-prefix rule is in the staged mirror and the implementer reads it via
@@ -72,34 +130,107 @@ three-prefix rule is in the staged mirror and the implementer reads it via
 
 ## Plan of Work
 
-1. **Path-conditional output (D6), per dimensional agent.** Add the gated
-   instruction: when handed an output path, write the file-plus-manifest (the
-   schema from Track 2) and return only the thin manifest; with no path, return
-   inline exactly as today. Cite the Track 2 schema subsection rather than
-   restating it.
-2. **Reviewer-side ID assignment (D5).** Each dimensional agent self-assigns its
-   `<PREFIX><n>` IDs and writes one `### <PREFIX><n> ` anchored body per finding,
-   continuing from the per-dimension high-water-mark the orchestrator hands back
-   at spawn (the same `{findings_under_recheck}` hand-back the gate-check already
-   uses, applied at the initial review too). Reserve the `### <ID> ` namespace
-   under `## Findings` for finding anchors; reasoning prose lives in
-   `## Evidence base` or the finding body.
-3. **Evidence trail (D8).** Each dimensional agent writes its Phase-4 refutation
-   reasoning to `## Evidence base` using YTDB-1069's roster rendering (survived
-   claims one line, refuted/non-passing claims in full). Add an `exempt because…`
-   hatch for any dimension where the ~1.4K-token cost does not pay.
+1. **Path-conditional output (D6), per dimensional agent — wrap, never
+   rewrite.** Add the gated instruction as a guard *around* the existing Output
+   Format: if an output path is supplied, write the file-plus-manifest (the
+   `§2.5` schema) and return only the thin manifest; otherwise the agent's
+   current inline Output Format below is unchanged. Phrasing the edit as a
+   leading guard that leaves the inline section verbatim is what keeps the
+   no-path branch byte-for-byte today's format (R1); editing the single existing
+   format block in place is the leak path. Cite `§2.5` for the file shape rather
+   than restating it. In the file branch the agent follows `§2.5` heading
+   discipline (MANIFEST block, `## Findings`, `### <PREFIX><N>` anchors,
+   `## Evidence base`) and emits no `### Summary` or `### Findings` heading (the
+   `### <PREFIX><N>` shape is reserved file-wide); the inline branch keeps
+   whatever headings it has today.
+2. **Reviewer-side ID numbering (D5), canonical prefix.** Each dimensional agent
+   numbers findings with its canonical `<PREFIX>` from `review-iteration.md
+   § Finding ID prefixes` (only the integer `<n>` is per-fan-out; the prefix is
+   fixed, not chosen) and writes one `### <PREFIX><n> ` anchored body per finding
+   in the file branch. The 6 workflow dimensions already cite that table; the 10
+   code and test agents gain the same citation. Numbering is two-sided: at the
+   initial review the agent starts at `<PREFIX>1`; at gate-check it reuses and
+   continues from the `{findings_under_recheck}` IDs the orchestrator hands back
+   (the existing gate-check hand-back). There is no initial-review
+   high-water-mark hand-back today, and adding one is Track 4 dispatch-site
+   scope, so the Track 3 agent edit only accepts a seed when present and starts
+   at 1 when absent. Reserve the `### <ID> ` namespace for finding anchors;
+   reasoning prose lives in `## Evidence base` or the finding body.
+3. **Evidence trail (D8), only where a refutation phase exists.** Each
+   dimensional agent that runs a Phase-4 refutation or certificate phase writes
+   that reasoning to `## Evidence base` with this rendering: a survived claim
+   compresses to one line, a refuted or non-passing claim appears in full (the
+   YTDB-1069 roster rendering, stated here inline as the authoritative spec since
+   `§2.5` defines the `## Evidence base` anchor shape but not this body
+   rendering). A dimension with no refutation or certificate phase
+   (`review-code-quality`, `review-test-structure`, `review-workflow-consistency`,
+   `review-workflow-context-budget`, `review-workflow-hook-safety`,
+   `review-workflow-prompt-design`) carries an evidence-trail-exempt annotation
+   instead, with the reason drawn from a closed set of two: (a) no refutation or
+   certificate phase to persist, or (b) the ~1.4K-token externalization cost does
+   not pay for a dimension whose findings are inherently single-claim. This label
+   is distinct from the `§2.5` S5 coverage `exempt because…` (which exempts a
+   whole agent class from writing file+manifest at all): an evidence-trail-exempt
+   agent still writes the MANIFEST and `## Findings`, writes an empty
+   `## Evidence base` (manifest `evidence_base` with `certs: 0`), and is
+   unaffected by the S4/S6 count grep, which counts `## Findings` anchors only.
 4. **Standalone exemptions (D9).** Add the `exempt because: invoked standalone,
    output consumed by the user in the same turn, not accumulated in an
    orchestrator session` annotation to `code-reviewer`, `pr-reviewer`,
    `test-quality-reviewer`, `dr-audit`.
 
-Invariants to preserve: S2 — the per-reviewer `id` prefix is load-bearing twice
-(bucketing dimension proxy + Review-mode override match) and must never be
-renumbered. The no-path branch must stay byte-for-byte today's inline format so
-the standalone callers are untouched.
+Invariants to preserve: S2 — the per-reviewer `id` prefix is the dimension's
+canonical table-bound prefix, load-bearing twice (bucketing dimension proxy and
+Review-mode override match), and is never renumbered. The no-path branch must
+stay byte-for-byte today's inline format for that agent so the standalone
+`/code-review` and `/fix-ci-failure` callers are untouched.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. **Canary: `review-bugs-concurrency.md` end-to-end (template A).** Wrap the
+   path-gated `§2.5` file+manifest output as a leading guard around the existing
+   inline Output Format (no-path branch left verbatim); number findings with the
+   canonical `BC` prefix from `review-iteration.md § Finding ID prefixes`, adding
+   the table citation; write the Phase-4 "Alternative Hypothesis Check" reasoning
+   to `## Evidence base`. Validates the template-A wrap/manifest/evidence shape on
+   one representative agent before steps 2-3 replicate it. — risk: high (override:
+   canary — high blast radius if the wrap-gate or manifest shape is wrong, R1/R5;
+   the step-level dimensional review validates the shape before replication)  [ ]
+2. **Template A across the remaining 9 code and test dimensional agents + the 4
+   D9 standalone exemptions.** Apply the step-1 pattern (wrap-gate + canonical
+   `<PREFIX>` numbering + `review-iteration.md § Finding ID prefixes` citation) to
+   `review-code-quality`, `review-crash-safety`, `review-performance`,
+   `review-security`, `review-test-behavior`, `review-test-completeness`,
+   `review-test-concurrency`, `review-test-crash-safety`, `review-test-structure`;
+   write `## Evidence base` where a refutation phase exists and an
+   evidence-trail-exempt annotation for `review-code-quality` and
+   `review-test-structure` (no refutation phase). In the same commit, add the D9
+   `exempt because: invoked standalone…` annotation to `code-reviewer`,
+   `pr-reviewer`, `test-quality-reviewer`, `dr-audit`. — risk: medium (workflow
+   machinery — single-review-agent-spec behavioral change ×9, plus 4 prose-only
+   D9 annotations; merged tag = medium)  [ ]
+3. **Template B: migrate the 6 workflow dimensional agents.**
+   `review-workflow-consistency`, `review-workflow-context-budget`,
+   `review-workflow-hook-safety`, `review-workflow-instruction-completeness`,
+   `review-workflow-prompt-design`, `review-workflow-writing-style`: wrap the
+   path-gated `§2.5` file output, and in the file branch migrate each agent's
+   existing inline `**<PREFIX><N>**` bold bullets to `### <PREFIX><N>` anchors
+   under a single `## Findings` (no `### Summary` / `### Findings` heading),
+   preserving the documented numbering and the inline no-path branch verbatim;
+   write `## Evidence base` for the two with a refutation phase
+   (`instruction-completeness`, `writing-style`) and an evidence-trail-exempt
+   annotation for the four without (`consistency`, `context-budget`,
+   `hook-safety`, `prompt-design`). — risk: high (override: focal-risk migration
+   distinct from template A — the bold-bullet → `### <PREFIX><n>` transform with
+   byte-for-byte + S4-round-trip fragility flagged by A1/A4/R4; its own step-level
+   dimensional review validates template B across all 6 at once)  [ ]
+
+Sequential: step 1 (canary) validates the shared wrap/manifest/evidence primitive
+before step 2 replicates template A and step 3 applies template B. Steps 2 and 3
+touch disjoint agent files and could run in either order after step 1; kept
+sequential so the template-A lessons inform the template-B migration. Step counts:
+1 high (canary, 1 file), 1 medium (step 2, 13 files), 1 high (step 3, 6 files);
+20 files total, matching the ~20-file scope.
 
 ## Episodes
 <!-- Continuous-log. -->
@@ -108,12 +239,26 @@ the standalone callers are untouched.
 
 - A dimensional agent handed an output path writes a file whose manifest the
   reviewer returns verbatim, with `## Findings` carrying `### <PREFIX><n> `
-  anchored bodies and `## Evidence base` carrying the refutation trail.
-- The same agent with no output path returns inline in today's format —
-  byte-for-byte, no manifest, no ID prefix — so `/code-review` and
-  `/fix-ci-failure` are untouched.
-- Finding IDs are reviewer-assigned `<PREFIX><n>` continuing from the handed-back
-  high-water-mark; no agent renumbers a prior ID (S2).
+  anchored bodies, no stray `### ` heading, and `## Evidence base` carrying the
+  refutation trail (or an empty `## Evidence base` when evidence-trail-exempt).
+- The same agent with no output path returns inline in that agent's current
+  format, byte-for-byte and with no manifest, so `/code-review` and
+  `/fix-ci-failure` are untouched. The 6 workflow dimensions already carry inline
+  IDs today, so "no ID prefix" is not part of their byte-for-byte baseline.
+- Finding numbering is two-sided: an agent spawned with no high-water-mark starts
+  at `<PREFIX>1`; an agent spawned with a gate-check high-water-mark of K
+  continues at `<PREFIX>(K+1)`. The `<PREFIX>` is the dimension's canonical prefix
+  from `review-iteration.md § Finding ID prefixes`; no agent renumbers a prior ID
+  or chooses a non-canonical prefix (S2).
+- For at least one agent per baseline family (one code, one test, and one
+  workflow dimension), the path-branch file passes the S4 round-trip:
+  `grep -cE '^### [A-Z]+[0-9]+ '` over the file equals the manifest `findings`
+  count. The workflow-dimension case gates the bold-bullet to `### <PREFIX><n>`
+  migration.
+- Every dimensional agent carries either `## Evidence base` write instructions or
+  an explicit evidence-trail-exempt annotation with a closed-set reason; the
+  default is non-exempt, and an implementation that exempts every dimension does
+  not pass.
 - Each of the 4 standalone agents carries the `exempt because…` annotation (D9,
   contributes to S5).
 
@@ -122,7 +267,19 @@ the standalone callers are untouched.
 <!-- Reserved for Move 3. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+
+Agent edits are additive: the path branch is wrapped in front of the existing
+inline Output Format, which stays verbatim (step 1). Never delete a live section
+of an agent file to reconcile formats. `§1.7(e)` promotion is `cp -r` additive
+and does not propagate deletions, so a deleted live section would survive into
+the promoted file as stale content; a genuinely required deletion is a Phase 4
+hand-edit, not a Track 3 staged edit.
+
+Re-running a step is safe because each agent edit is an idempotent wrap:
+re-applying the guard over an already-wrapped Output Format is a no-op once the
+guard is present. The implementer verifies the no-path region against develop
+(`git diff origin/develop -- <agent file>` shows only the added guard, with no
+change inside the inline block).
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). -->
