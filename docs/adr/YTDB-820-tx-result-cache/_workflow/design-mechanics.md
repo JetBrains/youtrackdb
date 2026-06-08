@@ -1,4 +1,4 @@
-<!-- workflow-sha: 9a34db786e015e1a0c6d7c4d80932afbddda6a0b -->
+<!-- workflow-sha: 8995acfc3b0c50453595911342427c60742617b4 -->
 # YTDB-820 Transaction-scoped query result cache — Design Mechanics
 
 > Companion to `design.md`. Long-form derivations, full algorithm pseudocode,
