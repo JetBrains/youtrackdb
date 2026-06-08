@@ -187,6 +187,7 @@ classDiagram
         +shutdown() void
         ~tracer() Tracer
         ~clientKind() SpanKind
+        +skinnySpanFilter(SpanProcessor delegate) SpanProcessor$
     }
     class GremlinBytecodeClassifier {
         <<utility>>
@@ -303,6 +304,12 @@ classDiagram
         +onAfterActivate() void
         +onBeforeDeactivate() void
     }
+    class SkinnySpanFilterProcessor {
+        <<SpanProcessor>>
+        -SpanProcessor delegate
+        +wrap(SpanProcessor delegate) SpanProcessor$
+        +onEnd(ReadableSpan span) void
+    }
     QueryMetricsListener ..> QueryDetails : nests
     TransactionMetricsListener ..> TransactionDetails : nests
     QueryMetricsListener <|.. OTelQueryMetricsListener
@@ -323,6 +330,7 @@ classDiagram
     YTDBTransaction --> FrontendTransaction : fluent builder stores tracking-id and mode on
     YouTrackDBOpenTelemetry --> OTelQueryMetricsListener : populates defaultThresholdNanos and defaultHeartbeatNanos from config
     OpenTelemetryServerPlugin --> YouTrackDBOpenTelemetry : setOpenTelemetry(.., ownedByYtdb=true) / shutdown
+    YouTrackDBOpenTelemetry ..> SkinnySpanFilterProcessor : wraps BatchSpanProcessor in YTDB-owned SDKs (D46)
     LogAppenderHook <|.. OTelLogAppender
     OTelLogAppender --> YouTrackDBOpenTelemetry : loggerProvider()
     OTelMetricsBridge --> YouTrackDBOpenTelemetry : meter()
@@ -400,7 +408,7 @@ sequenceDiagram
     Step->>CLS: classify(traversal)
     CLS-->>Step: Classification(SELECT, User)
     Step->>OQL: queryFinished(details, startMs, durNs)
-    OQL->>TR: Span.fromContext(Context.current()).setAttribute(db.operation.name, db.collection.name, db.youtrackdb.profile.enabled)
+    OQL->>TR: Span.fromContext(Context.current()).setAttribute(db.operation.name, db.collection.name, db.youtrackdb.duration_semantics, db.youtrackdb.profile.enabled)
     Note over OQL,TR: GREMLIN path enriches the hook-opened span.<br/>profile.enabled set only when details.getProfileEnabled() == Optional.of(true)
     SQL->>EPMA: toTinkerPopMetrics(executionPlan) when profilingEnabled
     EPMA-->>SQL: MutableMetrics(per-operator durations + annotations)
@@ -525,7 +533,7 @@ Every `Cardinality` cell across the four tables in this section uses one of four
 | `db.youtrackdb.duration_semantics` | resolved `QueryMonitoringMode` at the fire-site: `"active_time"` under `EXACT` (span `executionTimeNanos` is the sum of per-call `hasNext()` / `next()` deltas, consumer idle excluded); `"wall_clock"` under `LIGHTWEIGHT` (span `executionTimeNanos` is the ticker delta from fire-site start to close, consumer idle included). Commit spans always emit `"wall_clock"` because commit has no streaming consumer loop, so active-time and wall-clock collapse to the same value. | `enum (2 values: "wall_clock", "active_time")` | required slice dimension for any histogram aggregating `db.client.response.duration` across queries with potentially differing modes (per-tag mode rules can produce mixed-mode spans inside one TX); dashboards aggregating cross-tag without slicing on this attribute mix two duration semantics in the same bucket |
 | `db.youtrackdb.transaction.tracking_id` | `FrontendTransaction.getExplicitTrackingId(): Optional<String>` — emits attribute iff `Optional.isPresent()`, i.e. iff the host called `withTrackingId(...)` | `host-discipline (host's chosen ID string; UUID-per-request blows cardinality)` | the default fallback `String.valueOf(getId())` is NEVER emitted as an attribute — the OTel listener reads `getExplicitTrackingId()` and skips the attribute when `Optional.empty()`. No config flag: the explicit setter call IS the opt-in, by construction. |
 
-Advisor-foundation namespace (`db.youtrackdb.advisor.*`). A reserved sub-namespace carrying low-cardinality boolean / small-int flags that an advisory dashboard (Phase 2 follow-up per D42) consumes to recommend operator-tunable settings. `cross_class_count` rides the same classifier walk as the structural attributes above. `full_scan` is sourced separately at the fire-site by walking the built execution plan, because index-vs-class-scan is a planner decision not derivable from parser output. Both follow the same bounded-cardinality policy. Initial set:
+Advisor-foundation namespace (`db.youtrackdb.advisor.*`). A reserved sub-namespace carrying low-cardinality boolean / small-int flags that an advisory dashboard (Phase 2 follow-up per D42) consumes to recommend operator-tunable settings. `cross_class_count` rides the same classifier walk as the structural attributes above. `full_scan` is sourced separately at the fire-site by walking the built execution plan, because index-vs-class-scan is a planner decision not derivable from parser output. Both follow the same bounded-cardinality policy and are plain span attributes, so operators with custom dashboards can already filter on them to flag problematic queries ahead of the Phase 2 dashboard. Initial set:
 
 | Attribute | Source | Cardinality | Recommendation downstream |
 |---|---|---|---|
@@ -538,7 +546,11 @@ Advisor-foundation namespace (`db.youtrackdb.advisor.*`). A reserved sub-namespa
 - `FetchFromIndexStep`, `FetchFromIndexedFunctionStep`, `FetchFromIndexValuesStep`, `FetchFromRidsStep` ⇒ `Optional.of(false)`: indexed fetch (`FetchFromIndexValuesStep` is an index-only sort scan; the recommendation does not apply because an index is in use even when used for ORDER BY only) or explicit-RID lookup.
 - `FetchFromIndexManagerStep`, `FetchFromDatabaseMetadataStep`, `FetchFromStorageMetadataStep`, `FetchFromVariableStep` ⇒ `Optional.empty()`: system-metadata virtual tables and context-variable iteration; the advisor's recommendation does not apply, attribute omitted.
 
-Multi-leaf plans (UNION, multi-target FROM, sub-plans inside `ParallelExecStep` / `LetExpressionStep` / `LetQueryStep`): walk recursively through wrapping steps to collect leaf source-steps, then OR-reduce with `true > false > empty` precedence. Any leaf `true` ⇒ `true`; otherwise any leaf `false` ⇒ `false`; only `empty` ⇒ `empty`. Plan unavailable (`getExecutionPlan()` returns null on `computeScript` script paths, on `EXPLAIN` / `PROFILE` wrappers that render the plan as rows instead of executing, and on consumer abandon before iteration) ⇒ `Optional.empty()`. Gremlin Path B aggregates one `wasFullScan` per `YTDBGraphStep` / `YTDBClassCountStep` with the same rules; Gremlin Path A's `YTDBMatchPlanStep.getWasFullScan()` walks the MATCH plan's per-alias leaves (same `FetchFrom*` family) with identical precedence. The Phase 2 advisory dashboard reads both flags through standard span-attribute filtering and synthesizes recommendations; operators with custom dashboards can already filter on these attributes to identify problematic queries.
+When a query reads from a single source the plan has one leaf and `full_scan` is that leaf's verdict from the taxonomy above. Several shapes read from more than one source, so the plan carries several leaves: `UNION`, multi-target `FROM` (`SELECT FROM A, B`), and sub-plans nested inside `ParallelExecStep` / `LetExpressionStep` / `LetQueryStep`. For those, the fire-site descends recursively through the wrapping steps, collects every leaf source-step, and collapses their verdicts into one with the precedence `true` beats `false` beats `empty`: if any leaf is a full scan the query reports `true`; otherwise if any leaf is indexed it reports `false`; only when every leaf is `empty` (metadata virtuals, variable iteration) is the attribute omitted. `true` dominates because a single full-scanning leaf is the actionable signal regardless of what the other leaves did. Example: `SELECT FROM Person WHERE id = ? UNION SELECT FROM Company` reports `true` (Person hits an index, Company scans).
+
+The attribute is omitted entirely when there is no plan to walk: multi-statement scripts (`computeScript` returns no single plan), a query that is itself an `EXPLAIN` / `PROFILE` (the plan comes back as result rows rather than executing), and a result-set the consumer abandoned before iterating (`getExecutionPlan()` is still null).
+
+Gremlin follows the same rule. Path B (per-step fallback) produces one `wasFullScan` per `YTDBGraphStep` / `YTDBClassCountStep` and OR-reduces them; Path A (translated MATCH) walks `YTDBMatchPlanStep.getWasFullScan()` over the MATCH plan's per-alias leaves, same `FetchFrom*` family, same precedence.
 
 Out of MVP (high-cardinality, deferred to follow-up):
 
@@ -547,7 +559,7 @@ Out of MVP (high-cardinality, deferred to follow-up):
 - specific property keys read via `values(...)` or projection — same cardinality concern as ORDER BY keys
 - full execution-plan structure (per-operator timing, per-step row counts) — already covered by the § Non-Goals bullet on per-operator timing; the follow-up ticket sources data from `SQLProfiler` and emits span events rather than span attributes to avoid polluting the per-span attribute set
 
-Cardinality policy. The key set is closed across the four tables above, with one multi-instance shape `db.youtrackdb.gremlin.embedded_sql.N` capped at N = 0..2 (at most 3 entries per outer span). Trace backends typically index per attribute key per distinct value, so an unbounded value range translates directly to backend storage and query cost; the `host-discipline` shape means YTDB has capped the structural side and the host's query content or explicit choice carries any residual cardinality risk consciously (e.g., a host that templates a UUID per request into `db.youtrackdb.transaction.tracking_id` blows cardinality and owns the choice). The four-shape enum (`boolean`, `small int`, `enum`, `host-discipline`) is enforced for any new attribute landing under `db.youtrackdb.*` — see § Future-extension policy.
+Cardinality policy. Two axes have to stay bounded for these attributes to cost a trace backend little: how many distinct keys exist, and how many distinct values each key takes. The key set is closed, meaning the four tables above are the complete list of `db.youtrackdb.*` keys; the only key that multiplies is `db.youtrackdb.gremlin.embedded_sql.N`, capped at N = 0..2 (at most 3 per outer span). Each value is held to one of the four bounded shapes (`boolean`, `small int`, `enum`, `host-discipline`). Both axes matter because backends index per key per distinct value, so total cost tracks the product of the two; bounding one alone still blows up. The `host-discipline` shape is the deliberate exception: YTDB caps the structural side, and the host's query content or explicit choice carries any residual cardinality risk consciously (a host templating a UUID per request into `db.youtrackdb.transaction.tracking_id` blows value-cardinality and owns that). The four-shape constraint is enforced for every new attribute under `db.youtrackdb.*`; see § Future-extension policy.
 
 Future-extension policy. New attributes land under `db.youtrackdb.*` if they pass two tests: (a) bounded cardinality per the policy above, and (b) extractable from existing parser output without re-walking the query. Attributes failing either test go into the per-operator span-events follow-up, which can carry higher-cardinality fields without cost-amplifying the per-span attribute set.
 
