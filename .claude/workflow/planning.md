@@ -448,6 +448,39 @@ autonomous changes bundled into one track stay autonomous and carry no
 interaction, so reviewing them together costs no more than reviewing them
 apart; internal thematic coherence is not a sizing criterion.
 
+*Prefer overlap at the tie.* Among candidate units that fit
+under the ceiling, prefer the one overlapping the track's current in-scope file
+set (the files named in its `## Interfaces and Dependencies`). An overlapping
+unit spends less of the footprint budget, so more change fits before the
+ceiling forces a new track and its review fan-out, and it avoids a later
+cross-track re-read of the shared file. When no candidate overlaps, pack and
+maximize anyway, related or not, exactly as *Maximize first* says. Removing a
+track's review fan-out is the dominant saving whether or not the packed units
+share files. This is a tie-breaker on packing order, subordinate to the
+mergeability and footprint bounds; it never shrinks a track below what the
+ceiling allows, and it is not a sizing or relatedness criterion.
+
+*Prefer the least-shared seam, then order adjacent.* When the
+ceiling or a dependency forces a cut, "Prefer a dependency boundary as the cut"
+above stays primary and wins any disagreement. Among otherwise-equal cuts,
+prefer the seam that shares the fewest files, so a file does not straddle two
+tracks and get cold-read by both their Phase A and Phase C passes. When overlap
+genuinely cannot be co-located, because the ceiling, a dependency, or
+independent mergeability forbids it, order the two resulting tracks adjacent so
+rebase distance is minimal and the orchestrator's cross-track impact read of
+the shared file is freshest. Adjacency between tracks that cannot share an agent
+removes no review fan-out, so prefer co-location and adjacency where the bounds
+permit; treat adjacency between unmergeable tracks as the residual fallback.
+
+*Justify any overlap-split.* When the planner must split overlapping files
+across non-adjacent tracks, it writes the reason in the track file — the same
+written justification an out-of-bounds footprint already carries (the
+*Argumentation gate* below). The Phase 2 structural review flags an undocumented
+non-adjacent overlap-split as a `design-decision` finding (the overlap-split
+criterion under that review's TRACK SIZING checks), so recording the reason up
+front lets a deliberate, documented split pass while only a silent one
+escalates.
+
 *Then clamp with a two-sided bound.* Below: a track of ≤~12 in-scope files
 that folds into an adjacent track under the ceiling is a **merge candidate** —
 flag-only, never auto-merged, since re-partitioning PRs and preserving the
