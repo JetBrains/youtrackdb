@@ -55,6 +55,73 @@ public void queryFinished(QueryDetails details, long startedAtMillis, long execu
 
 The standalone commit span is not threshold-gated in this design. Commit duration is operationally interesting at every length (fast commits show throughput, slow commits show lock or fsync contention), and the per-TX volume of commit spans is bounded by transaction count rather than query count. If commit-span volume becomes a problem in practice, a follow-up adds `OPENTELEMETRY_COMMIT_SLOW_THRESHOLD_MILLIS` against the same shape — single global value plus optional per-tag rules, error bypass, gate inside the listener.
 
+### Bundled skinny-span filter
+
+The on-the-wire span count for Gremlin without a downstream drop equals the traversal count regardless of how aggressive the slow-query and heartbeat gates are. The asymmetry between SQL and Gremlin is the cause: SQL gate-drops cost zero allocations because the gate runs ahead of `spanBuilder()`, but Gremlin's lifecycle hook has already created the span at first `hasNext()` to give Path B inner SQL a parent during iteration. The early return then leaves a no-sem-conv span that still flows through `Span.end()` → `SpanProcessor.onEnd()` → `BatchSpanProcessor` → exporter.
+
+`SkinnySpanFilterProcessor` closes that gap by short-circuiting the export step. The processor inspects every span at `onEnd` and forwards only those that either carry a `db.system.name` attribute (the gate let them through) or originate from a non-YTDB instrumentation scope (a host span that happens to flow through the same SDK). Implementation shape:
+
+```java
+public final class SkinnySpanFilterProcessor implements SpanProcessor {
+    private static final String YTDB_SCOPE = "io.youtrackdb";
+    private final SpanProcessor delegate;
+
+    public static SpanProcessor wrap(SpanProcessor delegate) {
+        return new SkinnySpanFilterProcessor(delegate);
+    }
+
+    @Override public void onStart(Context parentContext, ReadWriteSpan span) {
+        delegate.onStart(parentContext, span);
+    }
+
+    @Override public boolean isStartRequired() { return delegate.isStartRequired(); }
+    @Override public boolean isEndRequired()   { return true; }
+
+    @Override public void onEnd(ReadableSpan span) {
+        if (isSkinnyYtdbSpan(span)) return;       // drop: do not forward to delegate
+        delegate.onEnd(span);
+    }
+
+    private boolean isSkinnyYtdbSpan(ReadableSpan span) {
+        if (!YTDB_SCOPE.equals(span.getInstrumentationScopeInfo().getName())) return false;
+        return span.getAttribute(SemConvAttributes.DB_SYSTEM_NAME) == null;
+    }
+
+    @Override public CompletableResultCode forceFlush() { return delegate.forceFlush(); }
+    @Override public CompletableResultCode shutdown()   { return delegate.shutdown(); }
+}
+```
+
+SDK builder wiring. Both YTDB-owned-SDK paths (server-mode `OpenTelemetryServerPlugin.onAfterActivate()` and embedded `YouTrackDBOpenTelemetry.autoConfigure()`) install the filter through `AutoConfiguredOpenTelemetrySdkBuilder.addTracerProviderCustomizer(...)`:
+
+```java
+sdkBuilder.addTracerProviderCustomizer((tpb, cfg) -> {
+    if (!cfg.getBoolean(OPENTELEMETRY_GREMLIN_DROP_SKINNY_SPANS, true)) return tpb;
+    // The configured BatchSpanProcessor is the last processor added to the builder
+    // by the autoconfigure step. Replace it with a skinny-filter wrapper.
+    SpanProcessor batch = tpb.getActiveSpanProcessor();   // resolved BatchSpanProcessor
+    tpb.clearSpanProcessors();
+    tpb.addSpanProcessor(SkinnySpanFilterProcessor.wrap(batch));
+    return tpb;
+});
+```
+
+(`getActiveSpanProcessor()` / `clearSpanProcessors()` are illustrative; the actual builder API uses a `Map<String, SpanProcessor>`-shaped registration that the customizer reads and replaces. The intent the design fixes is "filter wraps batch", not the specific builder mechanics, which follow the OTel SDK version Track 5 pins.)
+
+Host-owned SDKs. When the host has wired its own `OpenTelemetry` via `setOpenTelemetry(externalSdk, ownedByYtdb=false, ...)` (or via `GlobalOpenTelemetry.set(...)` before YTDB resolves), YTDB does not modify the SDK and the bundled filter is therefore not installed. Hosts that want the same default skinny-span suppression call the public factory:
+
+```java
+SpanProcessor batch = BatchSpanProcessor.builder(otlpExporter).build();
+SpanProcessor filtered = YouTrackDBOpenTelemetry.skinnySpanFilter(batch);
+SdkTracerProvider tracerProvider = SdkTracerProvider.builder()
+    .addSpanProcessor(filtered)
+    .build();
+```
+
+`YouTrackDBOpenTelemetry.skinnySpanFilter(SpanProcessor delegate): SpanProcessor` is the only new public-API method this feature adds.
+
+Path B downstream effect. When the filter drops the outer Gremlin parent and the inner SQL child survives, the inner SQL span surfaces in the backend as a span whose `parent_span_id` references a span the backend never saw. The mechanism: the inner SQL wrapper captured the outer Gremlin span via `setParent(capturedContext)` at construction (§"Context propagation in embedded" step 2), so the inner span's OTLP record carries the parent's `span_id` on the wire before the filter ever sees the outer span at `onEnd`. By the time the filter decides to drop the outer, the inner has already been handed to `BatchSpanProcessor` with a populated `parent_span_id` field. Most trace backends (Jaeger, Tempo, Datadog) render the inner as a "broken trace" with the SQL span as a synthetic root carrying the original `trace_id`. The diagnostic loss is bounded: operators see the SQL leaf with its full sem-conv attribute set and the original `trace_id` correlates it back to host-side spans; the only signal that disappears is the outer Gremlin name and its duration. Operators who depend on outer-Gremlin visibility for Path B disable the filter via `OPENTELEMETRY_GREMLIN_DROP_SKINNY_SPANS=false`.
+
 ### Edge cases / Gotchas
 
 - Default `0` (emit-all) matches the OTel-standard "emit everything, let downstream samplers decide" pattern and gives operators first-run visibility immediately after `OPENTELEMETRY_ENABLED=true`. Operators on read-heavy workloads who want to drop fast successful queries set a positive value (e.g., `100`) and document the choice in their observability runbook; errors always bypass regardless.
@@ -66,9 +133,13 @@ The standalone commit span is not threshold-gated in this design. Commit duratio
 - The global default is captured at OTel listener construction time and stored in the `defaultThresholdNanos` final field. Mid-process changes to the global default require an SDK rebuild (host calls `YouTrackDBOpenTelemetry.setOpenTelemetry(...)` again, or the server restarts). The tag-rule list is also compiled once at startup; mid-process rule changes are not supported in YTDB-496 (same constraint as for mode rules).
 - Custom (non-OTel) `QueryMetricsListener` implementations are unaffected. The gate lives only in `OTelQueryMetricsListener`; the listener iteration in `iterateAllQueryListeners()` still fires every registered listener for every query. Custom listeners that want their own threshold semantics can call `SlowQueryThresholdResolver.global()` themselves, or implement their own gating logic entirely.
 - Threshold-vs-mode coupling. The gate compares against `executionTimeNanos` whose semantic depends on the resolved `QueryMonitoringMode` for the same tag: active-time under `EXACT` (consumer idle excluded), wall-clock under `LIGHTWEIGHT` (consumer idle included). Operators combining a mode-rule and a threshold-rule for the same tag declare a combined intent. For example, `OPENTELEMETRY_QUERY_MODE_TAG_RULES=findHotpath=EXACT` paired with `OPENTELEMETRY_QUERY_SLOW_THRESHOLD_TAG_RULES=findHotpath=100` means "emit a hot-path span when DB-side active work exceeded 100 ms" — not "real-time exceeded 100 ms". The same threshold value `100` paired with `LIGHTWEIGHT` for a different tag means "real-time exceeded 100 ms". A single numeric threshold therefore has different operator-facing meaning depending on its companion mode rule; operators tuning thresholds across tags with mixed modes account for this by reading the mode×threshold table in §"Query tagging and per-tag rule resolution". Cross-tag dashboard aggregation slices spans on `db.youtrackdb.duration_semantics` to keep histograms semantically homogeneous. Inside a single Path B traversal both the outer Gremlin span and the inner SQL spans gate on the same resolved threshold because inner SQL inherits the outer's tag via `YTDBContextKeys.QUERY_TAG` on the OTel `Context` (see §"Query tagging and per-tag rule resolution" → tag inheritance); no parent-child threshold drift within a traversal.
+- Skinny-filter ordering with host-chained processors. The bundled filter wraps the autoconfigured `BatchSpanProcessor` only. A host that appends its own `SpanProcessor` to the same `SdkTracerProvider` after YTDB has installed the filter will receive every span the SDK emits, including skinny ones, because that processor sits as a sibling of the filter (added to the provider's processor list separately) and is not wrapped by it. A host that wants the filter to apply to its processor too instead wraps the host processor with `YouTrackDBOpenTelemetry.skinnySpanFilter(...)` and adds the wrapper, mirroring what the bundled customizer does for the batch processor. The bundled customizer never touches host-added processors; touching them would violate the host-owned-SDK contract and could double-wrap an exporter chain.
+- Path B broken-parent rendering across backends. With the filter ON and the gate dropping the outer Gremlin span, the inner SQL child surfaces with a `parent_span_id` the backend never saw. Jaeger renders this as a root span (the SQL leaf) under the original `trace_id`, with the parent slot greyed out; Tempo renders the SQL span as a standalone root; Datadog APM shows the SQL span as the root of the resource trace. None of the three drop or corrupt the trace; the diagnostic loss is the outer Gremlin name and duration only. Operators who depend on outer-Gremlin visibility for Path B disable the filter for the affected workload.
+- Cross-instrumentation scope safety. The filter's `InstrumentationScopeInfo.name == "io.youtrackdb"` check is the load-bearing safety against collateral damage. A host that wires the YTDB SDK alongside auto-instrumentation for HTTP, gRPC, or its own application code sees those spans flow through `onEnd` unchanged because their scope name differs. Custom YTDB-adjacent code that creates spans via `GlobalOpenTelemetry.getTracer("io.youtrackdb")` (sharing the name) WOULD be subject to the filter; the workaround is to use a distinct scope name (`io.youtrackdb.host`, the host's own package) when authoring custom YTDB-adjacent instrumentation.
+- Filter and `forceFlush` / `shutdown`. The chain wrapper delegates both lifecycle calls unconditionally, so flush semantics during graceful shutdown are identical to the delegate's. Spans dropped by the filter were never added to the batch buffer in the first place, so a flush sees nothing for them.
 
 ### References
-- D-records: D16 (slow-query threshold inside OTel listener, error bypass, per-tag rules via `TagRule<Long>`)
+- D-records: D16 (slow-query threshold inside OTel listener, error bypass, per-tag rules via `TagRule<Long>`), D46 (bundled `SkinnySpanFilterProcessor` wrapping `BatchSpanProcessor` in YTDB-owned SDKs; `InstrumentationScopeInfo.name`-scoped to `"io.youtrackdb"`; public `skinnySpanFilter(SpanProcessor)` factory for host-owned SDKs; gated by `OPENTELEMETRY_GREMLIN_DROP_SKINNY_SPANS=true`)
 
 ## Time-based sampling
 
