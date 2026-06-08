@@ -21,7 +21,7 @@ neighboring track exists to fold into.
 
 ## Progress
 - [ ] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-08T15:10Z [ctx=safe] Review + decomposition complete
