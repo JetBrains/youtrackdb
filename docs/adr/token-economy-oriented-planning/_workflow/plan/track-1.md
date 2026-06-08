@@ -218,3 +218,6 @@ present), so Phase B routes writes through the staged subtree under
 `_workflow/staged-workflow/.claude/` with copy-then-edit on first touch
 (conventions.md §1.7(e)); live `.claude/workflow/**` stays at develop state
 until the Phase 4 promotion.
+
+## Base commit
+98c5dd4719febe5f372e2b55b98940a312afc956
