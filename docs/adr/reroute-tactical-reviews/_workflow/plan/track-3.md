@@ -308,3 +308,7 @@ manifest schema the agents write). Downstream — **Track 4** consumes the
 manifests and IDs these reviewers emit and removes the orchestrator-side `M<n>`
 minting; the path-injection that switches on file output lives in Track 4's
 dispatch-site edits.
+
+## Base commit
+
+dd3606f0b84f093b27dd1dd61e02ccf83d69a7e5
