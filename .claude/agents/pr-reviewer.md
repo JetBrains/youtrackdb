@@ -62,6 +62,8 @@ finding wrong? When in doubt, route through PSI.
 - `mcp-steroid` tools are deferred, so load their schemas via ToolSearch first.
 - For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
 
+> exempt because: invoked standalone, output consumed by the user in the same turn, not accumulated in an orchestrator session
+
 ## Your Review Process
 
 ### Step 1: Gather PR Context

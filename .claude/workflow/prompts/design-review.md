@@ -19,7 +19,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
-| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, navigability, and explanatory-register checks; reviewer tone relaxes to quote evidence. |
+| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
 | §Structural findings (always check) | reviewer-design | 1,4 | Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics. |
@@ -53,6 +53,11 @@ iterate / warn / pass.
   for `**Full design**` link resolution.
 - `plan_dir` (optional) — directory of `plan/track-N.md` files
   carrying `**Full design**` refs; read **only** for link resolution.
+- `output_path` (optional) — absolute path to write this review's output
+  to. Supplied by the `edit-design` `§Step 4` spawn for the Phase 4
+  `phase4-creation` cold-read; **absent** for every other invocation,
+  including the Phase 1 `phase1-creation` cold-read. See § Output format
+  for the path-conditional behavior.
 
 ### Mutation-kind specific instructions
 <!-- roles=reviewer-design phases=1,4 summary="Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts." -->
@@ -175,6 +180,22 @@ phrase or section + anchor). Insufficient material is itself a finding.
 
 ## Output format
 <!-- roles=reviewer-design phases=1,4 summary="The exact comprehension-assessment, mental-model verdict, structural-findings, and suggested-fixes Markdown to emit." -->
+
+**Path-conditional output — file when `output_path` is supplied, inline
+otherwise.** This cold-read is a research/audit producer under the
+review-file coverage rule (`conventions-execution.md` `§2.5` → Coverage
+(S5)). When the spawn supplies `output_path`, write the full Markdown
+below to that path and return only a short summary (the **Verdict** line
+plus the blocker/should-fix count) so the caller pulls the detail on
+demand. When `output_path` is **absent** (the Phase 1 `phase1-creation`
+cold-read and every interactive mutation kind), return the full Markdown
+inline exactly as below, **byte-for-byte today's format**: the no-path
+branch is unchanged, so the `phase1-creation` invocation stays exempt.
+The cold-read emits a comprehension assessment and a verdict, not a
+severity-anchored finding set, so its `## Structural findings` bullets are
+not `### <PREFIX><N> ` anchors and the `§2.5` count grep does not apply;
+the file is the audit-producer summary-plus-detail shape, not the
+manifest-plus-anchors finding shape.
 
 Produce exactly the following Markdown, no preamble:
 

@@ -358,14 +358,14 @@ STAGED_DIR="$PLAN_DIR/_workflow/staged-workflow"
 
 if [ -d "$STAGED_DIR/.claude" ]; then
   git fetch origin develop --quiet
-  DIVERGENCE=$(git log "$(git merge-base origin/develop HEAD)..origin/develop" -- .claude/workflow .claude/skills)
+  DIVERGENCE=$(git log "$(git merge-base origin/develop HEAD)..origin/develop" -- .claude/workflow .claude/skills .claude/agents)
   if [ -n "$DIVERGENCE" ]; then
-    echo "ERROR: origin/develop carries .claude/workflow or .claude/skills commits this branch has not absorbed."
+    echo "ERROR: origin/develop carries .claude/workflow, .claude/skills, or .claude/agents commits this branch has not absorbed."
     echo "Rebase the branch onto current origin/develop before promotion (conventions.md §1.7(f))."
     exit 1
   fi
   cp -r "$STAGED_DIR/.claude/." .claude/
-  git add .claude/workflow .claude/skills
+  git add .claude/workflow .claude/skills .claude/agents
   git diff --cached --quiet || git commit -m "Promote workflow changes from $STAGED_DIR"
   git push
 fi
@@ -425,10 +425,13 @@ git push
 ```
 
 This deletes the plan, `design.md`, `design-mechanics.md`, every track
-file under `plan/`, and the design-mutations log in one commit.
-The squash-merge folds this deletion together with the rest of the
-branch's history; on `develop`, the final state is the two (or three)
-durable artifacts plus the implemented code.
+file under `plan/`, the per-track review files under
+`plan/track-N/reviews/`, and the design-mutations log in one commit. The
+recursive `git rm -r` sweeps the `reviews/` directories automatically —
+no `plan/*`-globbing removal is needed (and would risk catching the
+`plan/track-N.md` files). The squash-merge folds this deletion together
+with the rest of the branch's history; on `develop`, the final state is
+the two (or three) durable artifacts plus the implemented code.
 
 **Step 7 — Run self-improvement reflection.**
 

@@ -13,7 +13,7 @@
 | §Context passed to all sub-agents | orchestrator,reviewer-dim-track | 3C | Shared context every track reviewer receives. |
 | §Pre-staged diff and changed-files list | orchestrator,reviewer-dim-track | 3C | The cumulative track diff and file list given to reviewers. |
 | §Agent selection and launching | orchestrator | 3C | Choosing which reviewers to run and dispatching them. |
-| §Synthesis | orchestrator | 3C | Merging the reviewers' findings into one fix list. |
+| §Synthesis | orchestrator | 3C | Routing the reviewers' manifests into one in-scope fix list, on the index alone. |
 | §Review loop | orchestrator | 3C | The iterate-until-PASS loop over fix and re-review. |
 | §Implementer Spawns | orchestrator | 3C | Spawning the track-level implementer to apply fixes. |
 | §Phase C Implementer Handlers | orchestrator | 3C | Orchestrator handlers for each implementer return value. |
@@ -547,6 +547,47 @@ Review the following code changes from your specialized perspective.
 {context block from above}
 ```
 
+**Inject the per-spawn output path and the per-dimension
+high-water-mark.** This dispatch site — not
+`review-agent-selection.md` — is the switch that turns on the
+reviewers' `§2.5` file-plus-manifest output (D6). For each spawned
+dimensional agent, supply two extra inputs:
+
+- `output_path` — a per-fan-out-unique review-file path under the
+  track's review directory, named `<type>-iter<N>.md` (the same
+  convention the strategic dispatch sites use):
+
+  ```
+  docs/adr/{dir-name}/_workflow/plan/track-{N}/reviews/{type}-iter{M}.md
+  ```
+
+  where `{type}` is the agent's review type and `{M}` is the current
+  Phase C iteration. Handed this path, the agent writes the `§2.5`
+  file-plus-manifest and returns only the manifest (per its §Output
+  routing); handed no path it returns its inline format unchanged, so
+  the standalone `/code-review` and `/fix-ci-failure` callers stay
+  byte-for-byte untouched.
+- The per-dimension high-water-mark hand-back (`{findings_under_recheck}`
+  field) at the **initial** review pass too, not only at gate-check
+  (D5), so each agent continues its own `id` numbering rather than
+  restarting at `<PREFIX>1`. At the initial pass this field carries
+  **only the high-water-mark integer** (the max seen `id` index for
+  that prefix, or empty/0 on the first pass) — no finding IDs, titles,
+  or bodies — so the gate-check prompt's "open findings under re-check
+  (verify these)" reading of the same field
+  (prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+  §Output format) is unambiguously off at initial review. For a track's
+  first fan-out the mark is empty and the agent starts at `<PREFIX>1`;
+  on a re-fan-out it is the max `id` index that dimension reached in
+  this loop's prior review files. Carrying the mark at initial review
+  is what lets per-dimension IDs run cumulative across the loop without
+  the removed `M<n>` layer.
+
+The review files the agents write are plan-directory artifacts (never
+staged), committed at reviewer-return under
+`_workflow/plan/track-{N}/reviews/` and swept by the Phase 4 cleanup
+per conventions-execution.md:orchestrator:2,3A,3B,3C `§2.5` and `§2.1`.
+
 **Launch all selected sub-agents in a single message** (parallel tool calls)
 to maximize efficiency. Wait for all to complete before proceeding to
 synthesis.
@@ -554,36 +595,50 @@ synthesis.
 ---
 
 ## Synthesis
-<!-- roles=orchestrator phases=3C summary="Merging the reviewers' findings into one fix list." -->
+<!-- roles=orchestrator phases=3C summary="Routing the reviewers' manifests into one in-scope fix list, on the index alone." -->
 
-After all selected sub-agents complete, produce a unified findings list
-by running the canonical procedure in
-finding-synthesis-recipe.md:orchestrator:3B,3C. The recipe
+After all selected sub-agents complete, produce a routed in-scope
+findings list by running the canonical procedure in
+finding-synthesis-recipe.md:orchestrator:3B,3C. The orchestrator
+routes on the manifest index alone and never reads a `## Findings`
+body (S1); the implementer reads the bodies by anchor. The recipe
 covers:
 
-1. **Deduplication** by pivot order (`file:line` → issue shape →
-   suggested fix shape → severity tie-break), with a worked example
-   showing a 5-way cross-dimension merge.
-2. **Severity assignment** against the standard `blocker` /
-   `should-fix` / `suggestion` scale defined in
-   review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C §Severity levels,
-   including the rules for downgrading or upgrading singletons whose
-   stated impact does not match the agent's assigned severity.
-3. **Bucketing** into in-scope this iteration, deferred to next
-   iteration, and plan-correction / out-of-track.
+1. **Manifest validation and `loc`-collapse.** Validate each review
+   file with the `§2.5` ID-anchored count grep
+   (`grep -cE '^### [A-Z]+[0-9]+ '`); on a `CONTRACT_VIOLATION` route
+   the whole-section fallback to the implementer rather than reading
+   the body (A1), so a malformed manifest never forces a body read on
+   the orchestrator. Then collapse manifest index entries that share a
+   `loc` into one bucket non-destructively — every contributing `id`
+   stays individually addressable — with REGRESSION rows excluded from
+   the collapse (S3).
+2. **Upgrade-only severity backstop** over the `basis` field: upgrade
+   any `suggestion`/`should-fix` whose `basis` names a correctness/
+   crash/CI-hang/data-loss impact; never downgrade, never second-guess
+   a `blocker` (D4). Severity follows the standard `blocker` /
+   `should-fix` / `suggestion` scale in
+   review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C §Severity levels.
+3. **Bucketing** by `sev` and in-scope `loc` into in-scope this
+   iteration, deferred to next iteration, and plan-correction /
+   out-of-track. A Review-mode override matches the manifest `id`
+   directly (S2).
 4. **Pre-spawn budget** (target 8–12 findings, ≤ 6–8 files per
    iteration — soft pacing under the ~15 / ~10 ceiling enforced in
    §Review loop step 2 below).
-5. **Output format** for the synthesised list, including the
-   per-finding shape the implementer's `findings:` block consumes.
+5. **Implementer spawn handoff**: review-file paths plus the in-scope
+   `id`/`loc`/`sev`/`anchor` rows the implementer's `findings:` block
+   consumes, and the per-dimension high-water-marks handed back to the
+   reviewers at the next spawn.
 
-The recipe also covers gate-check synthesis (mapping `VERIFIED` /
-`REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION` verdicts and folding
-any `New findings` into the next iteration's input) — that is the same
-procedure routed from review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C
+The recipe also covers gate-check routing (mapping `VERIFIED` /
+`REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION` verdicts by reviewer
+`id` and folding any `New findings` into the next iteration's input) —
+that is the same procedure routed from
+review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C
 §Gate-check synthesis routing.
 
-Present the synthesised findings list to proceed to the review loop.
+Present the routed in-scope handoff to proceed to the review loop.
 
 ---
 
@@ -595,17 +650,23 @@ apply spawns a **fresh per-iteration implementer** (`level=track`,
 `mode=FIX_REVIEW_FINDINGS`) per §Implementer Spawns below; the
 orchestrator never edits source files itself in Phase C.
 
-1. **Classify findings.** From the synthesised list, separate
-   in-scope findings (to apply now) from deferred findings (to push
-   to other tracks via plan corrections — see §Plan Corrections from
-   Deferred Findings below). The implementer receives only the
-   in-scope subset.
-2. **Pre-spawn budget check.** If the in-scope subset has ≥ ~15
-   findings or spans ≥ ~10 distinct source files, split the work
-   across multiple iterations rather than one mega-iteration. Pick
-   the highest-severity subset that fits the budget (typical safe
-   shape: 8–12 findings touching ≤ 6–8 files, leaving room for
-   targeted re-runs of the touched test classes per
+1. **Classify findings.** From the routed handoff, separate in-scope
+   findings (to apply now) from deferred findings (to push to other
+   tracks via plan corrections — see §Plan Corrections from Deferred
+   Findings below). The implementer receives only the in-scope subset
+   (review-file paths plus in-scope anchors, never bodies).
+2. **Pre-spawn budget check.** This inline check is the enforcement
+   point; the rationale and the splitting procedure it applies live in
+   finding-synthesis-recipe.md:orchestrator:3B,3C §Step 4 — the two
+   homes are deliberately kept in sync so neither is orphaned. If the
+   in-scope subset has ≥ ~15 findings or spans ≥ ~10 distinct source
+   files, split the work across multiple iterations rather than one
+   mega-iteration. Count findings by contributing reviewer `id`, not
+   by `loc` bucket: a 5-`id` bucket at one `loc` is five findings
+   against the budget, because the implementer still reads five bodies
+   and reconciles them. Pick the highest-severity subset that fits the
+   budget (typical safe shape: 8–12 findings touching ≤ 6–8 files,
+   leaving room for targeted re-runs of the touched test classes per
    implementer-rules.md:implementer:3B,3C §Pacing
    long-running tasks → "Prefer targeted `-Dtest=…` re-runs"). The
    remaining findings re-surface in iteration 2's gate-check
@@ -701,12 +762,12 @@ orchestrator never edits source files itself in Phase C.
    - **After collecting all gate-check returns, run them through
      §Synthesis** before composing the next iteration's implementer
      input (per review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C
-     §Gate-check synthesis routing). Treat
-     `REGRESSION` verdicts as blocker-severity carry-forwards with
-     `revert-or-repair` guidance; treat `REJECTED` and `MOOT`
-     verdicts as cleared (identical to `VERIFIED`); carry
-     `STILL OPEN` verdicts forward verbatim with the original
-     finding ID.
+     §Gate-check synthesis routing). The recipe's §Gate-check routing
+     maps verdicts by reviewer `id`. Treat `REGRESSION` verdicts as
+     blocker-severity carry-forwards with `revert-or-repair` guidance,
+     excluded from `loc`-collapse (S3); treat `REJECTED` and `MOOT`
+     verdicts as cleared (identical to `VERIFIED`); carry `STILL OPEN`
+     verdicts forward by the original reviewer `id`.
    - **Context consumption check** (mandatory after each iteration,
      except the last): run
      `cat /tmp/claude-code-context-usage-$PPID.txt`. If the level is

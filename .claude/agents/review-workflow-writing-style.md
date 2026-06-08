@@ -119,6 +119,57 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 3. For each changed file, scan paragraph by paragraph for em-dash count and length per unit per the three-step decision in `### Section length` above (size threshold → exempt-category check → padding-pattern check).
 4. Spot-check section openings for BLUF.
 
+## Output routing — file-plus-manifest when an output path is supplied
+
+Before using the Output format below, branch on whether the spawn supplied an
+output path:
+
+**If an output path was supplied** — write the `§2.5` file-plus-manifest to that
+path and return **only** the manifest block (echoed verbatim, nothing else). The
+file follows the canonical review-file schema in
+conventions-execution.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§2.5 Review-file schema, count validation, and coverage`;
+do not restate the schema here. Concretely:
+
+- Open the file with the HTML-comment `MANIFEST` block, then `## Findings`, then
+  `## Evidence base`, exactly as `§2.5` specifies.
+- Emit **no** `### Summary` and **no** `### Findings` heading in the file. The
+  `### <PREFIX><N> ` three-hash shape is reserved file-wide for finding anchors
+  (`§2.5`), so the file carries one `### WS<n> [severity] …` anchored body per
+  finding under `## Findings` and nothing else at the three-hash level. Migrate
+  each finding from the inline `**WS<N>**` bold-bullet shape below to a
+  `### WS<n> [severity]` anchor: the native severity (`Critical` / `Recommended`
+  / `Minor`) goes into the anchor's `[severity]` slot and the manifest `sev` field
+  (`§2.5` permits the producer's native scale), and the inline bullet's
+  `Axis` / `Cost` / `Issue` / `Suggestion` clauses become the anchored body.
+- Populate every `§2.5` manifest `index` field — all six: `id`, `sev`, `anchor`
+  (the three `§2.5` marks mandatory) and `loc`, `cert`, `basis` (the three `§2.5`
+  marks downstream-consumed by the tactical routing). The per-finding `cert`
+  cross-links to the matching `#### C<n>` entry you write in `## Evidence base`.
+  The manifest-level `evidence_base`, `cert_index`, and `flags` fields follow the
+  same `§2.5` citation; no need to enumerate them beyond that pointer.
+- Number findings with the canonical `WS` prefix from
+  review-iteration.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§ Finding ID prefixes`
+  (`WS` = Workflow writing style review), preserving the inline `Numbering:` rule below — a single
+  consecutive sequence across severities. The prefix is fixed, not chosen; only the
+  integer `<n>` is per-fan-out. Numbering is two-sided by design: start at `WS1`
+  at the initial review; when a dispatch site supplies a gate-check hand-back of
+  finding IDs (`{findings_under_recheck}`), reuse and continue from the highest.
+  No dispatch site supplies a hand-back on the file-output path today (the gate
+  check runs through the separate
+  prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+  prompt, which is verdict-only and writes no `§2.5` file), so start at `WS1`
+  until one does; never renumber a prior ID.
+- Write the per-finding verification reasoning to `## Evidence base` using the
+  YTDB-1069 roster rendering: a confirmed or surviving finding compresses to one
+  line; a refuted or otherwise non-passing check appears in full. (`§2.5` defines
+  the `## Evidence base` anchor shape as `#### ` four-hash cert entries, but not
+  this survived-one-line / refuted-in-full body rendering, so this paragraph is
+  the authoritative spec for it.) The cert material is each finding's style check from the `## Process` steps: the
+  section-length three-step decision (size threshold → exempt-category → padding-pattern)
+  or the banned-vocabulary sweep result that confirms the violation.
+
+**Otherwise (no output path)** — use the Output format below, unchanged.
+
 ## Output format
 
 ```markdown

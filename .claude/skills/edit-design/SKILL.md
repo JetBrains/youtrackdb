@@ -25,7 +25,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Two operational modes | orchestrator,planner,final-designer | 1,4 | Working mode edits the polished design; sync mode re-distills it from the mechanics companion. |
 | §Skill inputs | orchestrator,planner,final-designer | 1,4 | The mutation kind, target file(s), and edit payload the skill consumes on each invocation. |
 | §Cold-read scope and check-set by mutation kind | orchestrator,planner,final-designer | 1,4 | The per-mutation-kind table mapping each kind to its target files, cold-read scope, and mechanical check set. |
-| §Workflow | orchestrator,planner,final-designer | 1,4 | The nine-step mutation loop: apply, distill, scope, check, cold-read, merge, iterate, log, present. |
+| §Workflow | orchestrator,planner,final-designer | 1,4 | The mutation loop: apply, distill, scope, check, adversarial (phase1-creation), cold-read, merge, iterate, log, present. |
 | §Step 1: Apply the edit | orchestrator,planner,final-designer | 1,4 | Apply the requested mutation to the target design file(s), stamping only on the creation kinds. |
 | §Step 1.5: Distillation (only for `design-sync`) | orchestrator,planner,final-designer | 1,4 | For design-sync only, re-distill the polished design from the current mechanics companion before the cold read. |
 | §Step 2: Determine cold-read scope | orchestrator,planner,final-designer | 1,4 | Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table. |
@@ -217,7 +217,7 @@ stamp). A non-zero exit code means the file is unstamped — compute
 H1, then re-read the file to satisfy the next `Edit` precondition:
 
 ```bash
-WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills .claude/agents)"
 [ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 
@@ -283,7 +283,7 @@ H1 in `design-mechanics.md`, then re-read the file to satisfy the next
 `Edit` precondition:
 
 ```bash
-WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills .claude/agents)"
 [ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 
@@ -480,21 +480,50 @@ sub-agent via the `Agent` tool:
 - plan_dir: <abs path or "(none)">
 ```
 
+**Inject `output_path` only for `phase4-creation`.** When
+`mutation_kind == phase4-creation`, append one more substitution line so
+the Phase 4 cold-read persists its output to a file and returns a summary
+(`prompts/design-review.md` § Output format, the path-conditional branch;
+the review-file coverage rule in `conventions-execution.md` `§2.5`):
+
+```
+- output_path: <abs path under _workflow/plan/ for the cold-read output>
+```
+
+For every other kind — including `phase1-creation` — omit the
+`output_path` line entirely. The cold-read's no-path branch then returns
+inline byte-for-byte today's verdict, so the `phase1-creation` invocation
+stays exempt.
+
 For `design-sync`, also include in the prompt body: *"This sync re-distills
 `design.md` from the current state of `design-mechanics.md`. Verify that every
 TL;DR and mechanism overview in `design.md` accurately summarizes the current
 mechanics file's content for the same-named section."*
 
 The sub-agent returns a structured Markdown verdict per the prompt's output
-format. Parse the **Verdict** line (`PASS` or `NEEDS REVISION`) and the
-**Structural findings** list. Map cold-read findings into the same severity
-schema as mechanical findings.
+format, in one of two shapes split by whether `output_path` was injected
+(`prompts/design-review.md` § Output format, the path-conditional branch):
+
+- **`output_path` absent** (the default — every kind except `phase4-creation`):
+  the sub-agent returns the full Markdown inline. Parse the **Verdict** line
+  (`PASS` or `NEEDS REVISION`) and the inline **Structural findings** list.
+- **`output_path` supplied** (`phase4-creation`): the sub-agent returns only
+  a summary (the **Verdict** line plus the blocker/should-fix counts) and
+  writes the `## Structural findings` detail to the file at `output_path`.
+  Parse the **Verdict** and counts from the return, then partial-fetch the
+  written file's `## Structural findings` section for the finding detail that
+  Step 5 merges.
+
+Map cold-read findings into the same severity schema as mechanical findings.
 
 ### Step 5: Merge findings
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step." -->
 
 Combine mechanical + cold-read findings into a single list (plus the Step 3.5
-adversarial findings for `phase1-creation`). Sort by severity: `blocker` →
+adversarial findings for `phase1-creation`). The cold-read findings are
+whichever source Step 4 produced: the inline list for the no-path case, or
+the `## Structural findings` partial-fetched from the written file for the
+`phase4-creation` file-write path. Sort by severity: `blocker` →
 `should-fix` → `suggestion`. Mechanical findings carry a structured `rule`
 field; cold-read and adversarial findings are free-form bullets and won't
 usually duplicate the mechanical set, but if a cold-read or adversarial bullet

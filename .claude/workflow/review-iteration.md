@@ -139,11 +139,13 @@ The orchestrator processes each gate-check verdict as follows:
   the next implementer spawn.
 - `REJECTED` — the reviewer on re-read concluded the original
   finding was not a real issue (misread, false positive). Clears
-  identically to `VERIFIED`; do not pass to the next implementer.
-  Log a `REJECTED-VERDICT` entry in the §Synthesis audit trail of
-  finding-synthesis-recipe.md:orchestrator:3B,3C
-  Step 5 output so the next reviewer instance does not re-raise the
-  same finding.
+  identically to `VERIFIED`; do not pass to the next implementer. The
+  per-dimension gate-check verdict is itself the record of the recant
+  (see finding-synthesis-recipe.md:orchestrator:3B,3C
+  §Verdict-to-action mapping), so the next reviewer instance keeps its
+  own `id` numbering and does not re-raise the same finding. There is
+  no separate audit-trail entry to mint — the `M<n>` merge layer that
+  once carried a `REJECTED-VERDICT` entry is gone.
 - `MOOT` — finding is no longer reachable (file deleted, code moved,
   approach changed). Clears for loop-termination purposes, identical
   to `VERIFIED`; do not pass to the next implementer.
@@ -161,22 +163,23 @@ The orchestrator processes each gate-check verdict as follows:
 <!-- roles=orchestrator phases=3B,3C summary="Re-run the synthesis recipe over all gate-check returns before composing the next iteration's implementer input." -->
 
 After collecting gate-check returns from all re-spawned agents,
-re-run the canonical synthesis procedure in
+re-run the canonical routing procedure in
 finding-synthesis-recipe.md:orchestrator:3B,3C before
 composing the next iteration's implementer input. The recipe's
-§"Gate-check synthesis" section maps the five verdicts
+§"Gate-check routing" section maps the five verdicts
 (`VERIFIED` / `REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION`) to
-forward / drop actions, then walks the aggregated `New findings`
-blocks through dedup, severity, and bucketing as for any initial
-synthesis. This deduplicates across dimensions and enforces the
-global pre-spawn budget (~15 findings), so the per-agent ≤ 3
-new-findings cap × N agents cannot silently inflate the total. The
-routing applies identically at both review levels — track-level
-re-enters from track-code-review.md:orchestrator:3C
+forward / drop actions by reviewer `id`, then re-runs the aggregated
+`New findings` blocks through the `loc`-collapse, the upgrade-only
+`basis` backstop, and bucketing as for any initial routing. The
+`loc`-collapse groups co-located findings across dimensions and the
+pre-spawn budget guard (~15 findings) bounds the in-scope set, so the
+per-agent ≤ 3 new-findings cap × N agents cannot silently inflate the
+total. The routing applies identically at both review levels —
+track-level re-enters from track-code-review.md:orchestrator:3C
 §Review loop, step-level from
 step-implementation.md:orchestrator:3B §Per-Step
 Orchestration Loop sub-step 4(d) (gate-check collection), which
-re-enters sub-step 4(b) for synthesis.
+re-enters sub-step 4(b) for routing.
 
 ### Gate-check budget enforcement is best-effort
 <!-- roles=orchestrator phases=3B,3C summary="The ≤60-line cap is a steering signal, not a hard gate; accept over-budget reports and continue." -->

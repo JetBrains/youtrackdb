@@ -189,6 +189,60 @@ Script findings and human-judgment findings share one consecutive `WB<N>` sequen
 
 Merge the script's findings into the agent's existing severity buckets and the per-finding output shape in § Output format below. Each finding (script or judgment) renders as a single bullet under the matched H4 with the same `File / Axis / Cost / Issue / Suggestion` fields. For script findings, the Axis is one of `always-loaded`, `load-on-demand discipline`, or `instant per-operation consumption` based on the changed-file bucket; rule 1, 2, 3, 4, 7 hits typically map to `load-on-demand discipline` (the schema gate is a load-on-demand surface), and the rule 5 / 6 / 8 hits inherit the bucket of the file that surfaced the finding.
 
+## Output routing — file-plus-manifest when an output path is supplied
+
+Before using the Output format below, branch on whether the spawn supplied an
+output path:
+
+**If an output path was supplied** — write the `§2.5` file-plus-manifest to that
+path and return **only** the manifest block (echoed verbatim, nothing else). The
+file follows the canonical review-file schema in
+conventions-execution.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§2.5 Review-file schema, count validation, and coverage`;
+do not restate the schema here. Concretely:
+
+- Open the file with the HTML-comment `MANIFEST` block, then `## Findings`, then
+  `## Evidence base`, exactly as `§2.5` specifies.
+- Emit **no** `### Summary` and **no** `### Findings` heading in the file. The
+  `### <PREFIX><N> ` three-hash shape is reserved file-wide for finding anchors
+  (`§2.5`), so the file carries one `### WB<n> [severity] …` anchored body per
+  finding under `## Findings` and nothing else at the three-hash level. Migrate
+  each finding from the inline `**WB<N>**` bold-bullet shape below to a
+  `### WB<n> [severity]` anchor: the native severity (`Critical` / `Recommended`
+  / `Minor`) goes into the anchor's `[severity]` slot and the manifest `sev` field
+  (`§2.5` permits the producer's native scale), and the inline bullet's
+  `Axis` / `Cost` / `Issue` / `Suggestion` clauses become the anchored body.
+- Populate every `§2.5` manifest `index` field — all six: `id`, `sev`, `anchor`
+  (the three `§2.5` marks mandatory) and `loc`, `cert`, `basis` (the three `§2.5`
+  marks downstream-consumed by the tactical routing). For this evidence-trail-exempt
+  dimension the per-finding `cert` is `n/a` — the dimension writes no `#### C<n>`
+  entries (see the evidence-trail-exempt clause below). The manifest-level
+  `evidence_base`, `cert_index`, and `flags` fields follow the same `§2.5` citation;
+  no need to enumerate them beyond that pointer.
+- Number findings with the canonical `WB` prefix from
+  review-iteration.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§ Finding ID prefixes`
+  (`WB` = Workflow context budget review), preserving the inline `Numbering:` rule below — a single
+  consecutive sequence across severities. The prefix is fixed, not chosen; only the
+  integer `<n>` is per-fan-out. Numbering is two-sided by design: start at `WB1`
+  at the initial review; when a dispatch site supplies a gate-check hand-back of
+  finding IDs (`{findings_under_recheck}`), reuse and continue from the highest.
+  No dispatch site supplies a hand-back on the file-output path today (the gate
+  check runs through the separate
+  prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+  prompt, which is verdict-only and writes no `§2.5` file), so start at `WB1`
+  until one does; never renumber a prior ID.
+- This dimension is **evidence-trail-exempt** with the closed-set reason "(a) no
+  refutation or certificate phase to persist": the agent runs no Phase-4-style
+  refutation or certificate phase whose reasoning could be externalized. This is
+  distinct from the `§2.5` S5 coverage exemption (which exempts a whole agent
+  class from writing file+manifest at all). The agent still writes the MANIFEST
+  and `## Findings` (with `### WB<n>` anchors), but writes an **empty**
+  `## Evidence base` and sets the manifest `evidence_base` to `certs: 0`. It is
+  unaffected by the `§2.5` S4/S6 count grep, which counts `### <PREFIX><n>`
+  finding anchors file-wide (this dimension emits those only under
+  `## Findings`).
+
+**Otherwise (no output path)** — use the Output format below, unchanged.
+
 ## Output format
 
 When the diff has no budget impact on any axis, emit:

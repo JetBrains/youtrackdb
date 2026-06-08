@@ -70,6 +70,8 @@ Do **not** flag matters of taste (the rationale could be sharper, the risks list
 
 ## Output format
 
+> exempt because: invoked standalone, output consumed by the user in the same turn, not accumulated in an orchestrator session
+
 Return one Markdown document with two top-level sections. The orchestrator parses it; everything outside the structured blocks is ignored.
 
 Return the document with `## Summary` and `## Findings` as top-level (column-1) Markdown headings, not inside any code block. The schema below is shown fenced for readability only — your actual return is plain Markdown.

@@ -25,6 +25,8 @@ You are an expert code reviewer specializing in Java database internals, concurr
 
 Review code changes in the YouTrackDB project, providing actionable feedback tailored to this codebase.
 
+> exempt because: invoked standalone, output consumed by the user in the same turn, not accumulated in an orchestrator session
+
 ## Project Context
 
 YouTrackDB is a Java 21+ object-oriented graph database with:

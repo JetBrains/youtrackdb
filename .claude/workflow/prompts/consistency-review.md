@@ -121,7 +121,7 @@ Inputs:
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
-**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 ---
 
@@ -430,6 +430,23 @@ file path, configuration parameter), produce a verification entry:
 ## Output Format
 <!-- roles=reviewer-plan phases=2 summary="Two-part output: the verification certificates first, then findings derived from non-matching verdicts." -->
 
+**Output mode — file when handed a path, inline otherwise.** When the
+spawn supplies an output path, persist the structured output to a file in
+the review-file schema (`conventions-execution.md` `§2.5`, the single
+source of truth) and return only the thin manifest; the orchestrator
+partial-fetches `## Findings` from disk. When no path is supplied (the
+develop-state run), return the two parts inline exactly as below —
+byte-for-byte today's format. The schema's body sections map onto this
+prompt's two parts: Part 2 becomes `## Findings` (one `### CR<N> ` anchored
+body per finding, keeping the `**Classification**` / `**Justification**`
+fields below) and Part 1 becomes `## Evidence base` (the ref / flow /
+invariant certificates, emitted as `#### <cert> ` four-hash entries). Fill
+the manifest `index` from the findings — `id`/`sev`/`anchor` mandatory,
+`loc`/`cert`/`basis` filled per `§2.5` — and the `evidence_base` summary
+from the certificates. The two-letter prefix is `CR`; the count grep
+`grep -cE '^### [A-Z]+[0-9]+ '` must equal the manifest `findings` count
+(S4/S6).
+
 ### Part 1: Verification Certificates
 <!-- roles=reviewer-plan phases=2 summary="The evidence base: all ref, flow, and invariant certificates grouped by consistency axis." -->
 
@@ -443,10 +460,14 @@ the evidence base.
 Derived from certificates with non-MATCHES verdicts. Each finding must
 reference the certificate entry that produced it.
 
-For each issue found, produce a finding:
+For each issue found, produce a finding. The finding heading is the bare
+ID `### CR<N> [sev]` — **no `Finding ` word** — so it is the count-validation
+anchor the review-file schema's grep keys on (`conventions-execution.md`
+`§2.5`; `### Finding CR<N>` would not match `^### [A-Z]+[0-9]+ ` and would
+raise a spurious `CONTRACT_VIOLATION`):
 
 ```markdown
-### Finding CR<N> [blocker|should-fix|suggestion]
+### CR<N> [blocker|should-fix|suggestion]
 **Certificate**: <Ref/Flow/Invariant entry ID that produced this finding>
 **Location**: <which document and section, plus code location if applicable>
 **Issue**: <what's inconsistent or missing>

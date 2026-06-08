@@ -246,8 +246,8 @@ stamp-base SHA (`drift.base_sha`), and the first ten subject lines from
 Approximate prompt shape:
 
 ```
-Workflow drift detected: N commits in your branch's range touch .claude/workflow/** or
-.claude/skills/** since stamp base <short-BASE_SHA>.
+Workflow drift detected: N commits in your branch's range touch .claude/workflow/**,
+.claude/skills/**, or .claude/agents/** since stamp base <short-BASE_SHA>.
 
 First commits (oldest first):
   <short-sha-1>  <subject-1>

@@ -108,7 +108,7 @@ Inputs:
 - Episodes from completed tracks: {prior_episodes}
 - Previous findings: {previous_findings}
 
-**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 **Workflow-machinery criteria (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, this track may edit workflow prose, so the criteria below re-point for any reference the track makes to a workflow file:
 
@@ -307,6 +307,22 @@ interface probably has that method" and catches subtle mismatches.
 ## Output Format
 <!-- roles=reviewer-technical phases=3A summary="Two-part output: the evidence certificates first, then findings derived from them." -->
 
+**Output mode — file when handed a path, inline otherwise.** When the
+spawn supplies an output path, persist the structured output to a file in
+the review-file schema (`conventions-execution.md` `§2.5`, the single
+source of truth) and return only the thin manifest; the orchestrator
+partial-fetches `## Findings` from disk. When no path is supplied (the
+develop-state run), return the two parts inline exactly as below —
+byte-for-byte today's format. The schema's body sections map onto this
+prompt's two parts: Part 2 becomes `## Findings` (one `### T<N> ` anchored
+body per finding, the bare-ID heading defined above) and Part 1 becomes
+`## Evidence base` (the premise / edge-case / integration certificates,
+emitted as `#### <cert> ` four-hash entries). Fill the manifest `index`
+from the findings — `id`/`sev`/`anchor` mandatory, `loc`/`cert`/`basis`
+filled per `§2.5` — and the `evidence_base` summary from the certificates.
+The single-letter prefix is `T`; the count grep `grep -cE '^### [A-Z]+[0-9]+ '`
+must equal the manifest `findings` count (S4/S6).
+
 ### Part 1: Evidence Certificates
 <!-- roles=reviewer-technical phases=3A summary="The evidence base: all premise, edge-case, and integration certificates in review-criteria order." -->
 
@@ -319,10 +335,14 @@ order of review criteria. This is the evidence base.
 Derived from certificates. Each finding must reference the certificate
 entry that produced it.
 
-For each issue found, produce a finding:
+For each issue found, produce a finding. The finding heading is the bare
+ID `### T<N> [sev]` — **no `Finding ` word** — so it is the count-validation
+anchor the review-file schema's grep keys on (`conventions-execution.md`
+`§2.5`; `### Finding T<N>` would not match `^### [A-Z]+[0-9]+ ` and would
+raise a spurious `CONTRACT_VIOLATION`):
 
 ```markdown
-### Finding T<N> [blocker|should-fix|suggestion]
+### T<N> [blocker|should-fix|suggestion]
 **Certificate**: <Premise/Edge case/Integration entry that produced this>
 **Location**: <where in the track + relevant source file(s)>
 **Issue**: <what's wrong, with evidence from the codebase>

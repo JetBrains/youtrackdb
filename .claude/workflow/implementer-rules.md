@@ -130,7 +130,20 @@ inputs**.
   review findings the implementer must address. At `level=step` these
   are dimensional-review findings against the step's commit; at
   `level=track` they are cross-step findings synthesised from the
-  track-level review fan-out.
+  track-level review fan-out. The normal entry shape is a per-`loc`
+  bucket carrying per-dimension reviewer `id`s and anchors that the
+  implementer reaches by anchor. When the handoff also carries a
+  **whole-section-fallback entry** — a review file flagged
+  `CONTRACT_VIOLATION` and listed under the handoff's
+  `### Whole-section fallback (CONTRACT_VIOLATION)` sub-section as a
+  path with no anchor rows (see
+  finding-synthesis-recipe.md:orchestrator:3B,3C §Step 5) — the
+  implementer reads that file's **entire `## Findings` section** (not
+  just anchors) and fixes at the code level. The implementer is the
+  fallback owner for a violated tactical file, so it never asks the
+  orchestrator to reconcile the malformed manifest; this mirrors the
+  `§2.5` fallback contract so producer and consumer agree on the
+  handoff shape.
 
 **Step-level-only inputs** (populated only when `level=step`):
 
@@ -240,20 +253,29 @@ rules:
   spawn confirms the open project matches the working tree before
   any IDE-routed action; do not re-probe.
 - **Path mapping for workflow-modifying plans.** Workflow-modifying
-  plans accumulate their `.claude/workflow/**` and `.claude/skills/**`
-  edits under a plan-scoped staged subtree so the branch's live
-  workflow stays at develop's state through Phase B and Phase C. The
+  plans accumulate their `.claude/workflow/**`, `.claude/skills/**`,
+  and `.claude/agents/**` edits under a plan-scoped staged subtree so
+  the branch's live workflow stays at develop's state through Phase B
+  and Phase C. The
   implementer detects the mode per-spawn by reading the plan file's
-  `### Constraints` section and matching the canonical marker sentence
-  defined in conventions.md:any:any `§1.7(b)` verbatim:
+  `### Constraints` section and matching on the stable marker prefix
+  defined in conventions.md:any:any `§1.7(b)`:
 
   ```
-  This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
+  This plan is workflow-modifying:
   ```
+
+  The match is on the stable prefix only — the trailing path-prefix
+  list after the colon (`.claude/workflow/** or .claude/skills/**`, or
+  any future enumeration) is not part of the match. A plan whose
+  `### Constraints` marker still carries the develop-state two-prefix
+  spelling is recognized identically to one carrying a wider list, so
+  the gate keeps matching the authoring plan's own unchanged marker
+  even as the canonical definition in `§1.7(b)` grows new prefixes.
 
   When the marker is present, route every write whose target path
-  begins with `.claude/workflow/` or `.claude/skills/` to the
-  corresponding staged path under
+  begins with `.claude/workflow/`, `.claude/skills/`, or
+  `.claude/agents/` to the corresponding staged path under
   `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/...`. Staged
   paths mirror the live relative path under the `.claude/` prefix
   byte-for-byte. A write to `.claude/workflow/X.md` rewrites to
@@ -362,8 +384,9 @@ gate applies on every spawn including `mode=FIX_REVIEW_FINDINGS`
 respawns.
 
 **Pre-commit gate, live-workflow-path check.** Workflow-modifying
-plans route every `.claude/workflow/**` and `.claude/skills/**`
-write to the staged subtree per Sub-step 1's Path-mapping rule
+plans route every `.claude/workflow/**`, `.claude/skills/**`, and
+`.claude/agents/**` write to the staged subtree per Sub-step 1's
+Path-mapping rule
 above. The gate catches bypass shapes — an absolute live path
 passed to a tool, a `Bash` redirection that the implementer
 forgot to rewrite — at commit time, before the bypass lands in
@@ -376,7 +399,7 @@ no-op.
 After staging and before `git commit`, run:
 
 ```bash
-git diff --cached --name-only -- .claude/workflow/ .claude/skills/
+git diff --cached --name-only -- .claude/workflow/ .claude/skills/ .claude/agents/
 ```
 
 Non-empty output means the staged diff contains live workflow
@@ -905,12 +928,13 @@ EPISODE_DRAFT:                    # populated only at level=step
 FIX_NOTES:                        # populated only at level=track
   what_was_fixed: |
     <factual summary of which findings the iteration addressed,
-    1–4 sentences. Cite the synthesised `M<n>` finding IDs from
-    the `findings:` input block (e.g., M3, M7) — these are
-    branch-only-commit-message-scope identifiers and never leak
-    into durable content. Per-dimension IDs (CQ7, BC3, …) are
-    orchestrator-internal audit-trail concepts and are not visible
-    to the implementer.>
+    1–4 sentences. Cite the per-dimension reviewer IDs from the
+    `findings:` input block (e.g., BC3, CQ7) — under the router
+    model the orchestrator hands these anchors to the implementer
+    directly (there is no synthesised `M<n>` merge layer), so they
+    are the addressing the implementer actually reads bodies by.
+    They are branch-only-commit-message-scope identifiers and never
+    leak into durable content.>
   what_was_skipped: |
     <or "none". Findings the implementer chose not to address
     inside this iteration — typically because they would expand

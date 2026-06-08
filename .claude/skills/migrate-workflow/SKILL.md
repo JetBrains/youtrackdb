@@ -479,7 +479,7 @@ If the level is `warning` or `critical`:
 
 Reflection at Step 6 is deliberately skipped on this early-exit path to protect the already-tight context budget; the next session's reflection at Step 6 (once the migration completes successfully) reports this halt as friction.
 
-If `info`: continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/` or `.claude/skills/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
+If `info`: continue, but delegate to sub-agents for any commit whose `git show --stat <sha>` shows either (a) more than 5 files touched under `.claude/workflow/`, `.claude/skills/`, or `.claude/agents/`, or (b) total changed lines greater than 500. The trigger is derivable from `git show --stat` before the full diff is read into orchestrator context, so the delegation decision itself does not burn context.
 
 **Sub-agent contracts.** The orchestrator must interpolate `$ARGUMENTS` and per-commit values into the sub-agent prompt before launch; sub-agents inherit no conversation context and operate against the current worktree.
 
@@ -499,7 +499,7 @@ If `safe`: continue normally. The `ctx: unknown` fallback (file missing or `$PPI
 
 ```bash
 git show --stat <sha>
-git show <sha> -- .claude/workflow .claude/skills
+git show <sha> -- .claude/workflow .claude/skills .claude/agents
 git log -1 --format='%B' <sha>
 ```
 
@@ -511,16 +511,16 @@ The commit message is load-bearing: it states the intent of the format change. R
 **First, detect path renames as a side concern** (independent of the classification chosen below):
 
 ```bash
-git show --diff-filter=R --name-status <sha> -- .claude/workflow .claude/skills
+git show --diff-filter=R --name-status <sha> -- .claude/workflow .claude/skills .claude/agents
 ```
 
 For each `R<percentage>\t<old>\t<new>` entry, plan to append one `#   <old> -> <new>` line under the `# renames:` header in Step 4.6. The renames block is populated regardless of which classification wins, so later commits can follow path mappings.
 
 **Then classify the commit into one canonical short-name.** Apply the predicates in order; the first match wins:
 
-1. **`format`** — the commit modifies `.claude/workflow/*.md` (rules, conventions, prompts), or makes substantive (non-typo, non-rename-only) edits to `.claude/skills/*/SKILL.md` bodies. Produces migration edits in Step 4.4.
-2. **`skill`** — the commit adds or removes a `.claude/skills/*/SKILL.md` file with no `.claude/workflow/` changes. Promote to `format` iff the new or changed SKILL body contains either (a) a reference to `_workflow/`, `docs/adr/*/`, or a per-branch artifact filename (e.g., `implementation-plan.md`, `design-mutations.md`, `tracks/`); or (b) a `MANDATORY` / `required` / `must` statement creating a new mandatory artifact. Otherwise stay `skill`; no edits in Step 4.4.
-3. **`rename`** — the commit's diff under `.claude/workflow/` and `.claude/skills/` consists exclusively of file renames (no content changes beyond the rename detection threshold). The rename block was populated above; no further edits.
+1. **`format`** — the commit modifies `.claude/workflow/*.md` (rules, conventions, prompts) or `.claude/agents/*.md` (agent definitions), or makes substantive (non-typo, non-rename-only) edits to `.claude/skills/*/SKILL.md` bodies. Produces migration edits in Step 4.4.
+2. **`skill`** — the commit adds or removes a `.claude/skills/*/SKILL.md` file with no `.claude/workflow/` or `.claude/agents/` changes. Promote to `format` iff the new or changed SKILL body contains either (a) a reference to `_workflow/`, `docs/adr/*/`, or a per-branch artifact filename (e.g., `implementation-plan.md`, `design-mutations.md`, `tracks/`); or (b) a `MANDATORY` / `required` / `must` statement creating a new mandatory artifact. Otherwise stay `skill`; no edits in Step 4.4.
+3. **`rename`** — the commit's diff under `.claude/workflow/`, `.claude/skills/`, and `.claude/agents/` consists exclusively of file renames (no content changes beyond the rename detection threshold). The rename block was populated above; no further edits.
 4. **`noop`** — comment-only, whitespace, or single-line typo or wording fixes that do not rename sections, add or remove required fields, or change conventions. Skip 4.4.
 
 Before invoking any edit tool, print one line to the user in the form `commit <short-sha>: <classification> — <reason>` (e.g., `commit 1de3cb0e: format — adds Phase-2 review section to implementation-plan.md`).
