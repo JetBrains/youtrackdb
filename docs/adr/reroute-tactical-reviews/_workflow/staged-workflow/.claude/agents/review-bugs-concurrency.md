@@ -220,14 +220,23 @@ do not restate the schema here. Concretely:
   `### <PREFIX><N> ` three-hash shape is reserved file-wide for finding anchors
   (`§2.5`), so the file carries one `### BC<n> [severity] …` anchored body per
   finding under `## Findings` and nothing else at the three-hash level.
+- Populate every `§2.5` manifest `index` field — all six: `id`, `sev`, `anchor`
+  (the three `§2.5` marks mandatory) and `loc`, `cert`, `basis` (the three `§2.5`
+  marks downstream-consumed by the tactical routing). The per-finding `cert`
+  cross-links to the matching `#### C<n>` entry you write in `## Evidence base`.
+  The manifest-level `evidence_base`, `cert_index`, and `flags` fields follow the
+  same `§2.5` citation; no need to enumerate them beyond that pointer.
 - Number findings with the canonical `BC` prefix from
   review-iteration.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§ Finding ID prefixes`
   (`BC` = Bugs & concurrency review). The prefix is fixed, not chosen; only the
-  integer `<n>` is per-fan-out. Numbering is two-sided: start at `BC1` at the
-  initial review, and when the orchestrator hands back gate-check finding IDs
-  (`{findings_under_recheck}`) reuse and continue from the highest. There is no
-  initial-review high-water-mark hand-back today, so start at `BC1` when none is
-  supplied; never renumber a prior ID.
+  integer `<n>` is per-fan-out. Numbering is two-sided by design: start at `BC1`
+  at the initial review; when a dispatch site supplies a gate-check hand-back of
+  finding IDs (`{findings_under_recheck}`), reuse and continue from the highest.
+  No dispatch site supplies a hand-back on the file-output path today (the gate
+  check runs through the separate
+  prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+  prompt, which is verdict-only and writes no `§2.5` file), so start at `BC1`
+  until one does; never renumber a prior ID.
 - Write the Phase-4 "Alternative Hypothesis Check" refutation reasoning to
   `## Evidence base` using the YTDB-1069 roster rendering: a claim whose verdict
   is CONFIRMED-as-issue (survived the refutation check) compresses to one line; a
