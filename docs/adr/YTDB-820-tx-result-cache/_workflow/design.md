@@ -27,9 +27,9 @@ Seven load-bearing terms appear throughout the design. Each entry pairs the term
 
 **`K0_NONE`.** The cacheable shape for queries the delta-builder cannot reconcile incrementally (LET, GROUP BY, SKIP, LIMIT, expression-DISTINCT, cross-alias-state MATCH patterns, and the other cases enumerated in § Lazy merge-on-read). A `K0_NONE` entry caches under D18's mutation-version gate: serves replay while no tx-mutation has happened, and invalidates on the next lookup once `tx.mutationVersion` diverges from the entry's `populateMutationVersion`. → § Cache invalidation §"K0-version-fallback for NONE shapes".
 
-**Etap A (single-alias MATCH CREATED).** Polish for "stage A". The track-6a delivery: `MATCH {as:u, class:X WHERE p} RETURN <projection of u>` folds to RECORD shape via a stored `returnProjector` that wraps a record into the same single-binding tuple the executor produces. Cacheable in v1. → § Lazy merge-on-read §"MATCH Etap A — RECORD-shape composition".
+**Etap A (single-alias MATCH CREATED).** Polish for "stage A". Delivered in v1: `MATCH {as:u, class:X WHERE p} RETURN <projection of u>` folds to RECORD shape via a stored `returnProjector` that wraps a record into the same single-binding tuple the executor produces. Cacheable in v1. → § Lazy merge-on-read §"MATCH Etap A — RECORD-shape composition".
 
-**Etap B (multi-alias MATCH CREATED).** Polish for "stage B". The track-6b partial delivery in v1: `MATCH_TUPLE_MULTI` covers DELETED + UPDATED via per-RID reverse index, while CREATED on a pattern class tombstones the entry and forces re-execution. Full constrained-pattern-walk discovery on CREATED is deferred to a separate ADR. → § Lazy merge-on-read §"MATCH multi-alias (partial Etap B in v1)".
+**Etap B (multi-alias MATCH CREATED).** Polish for "stage B". The partial delivery in v1: `MATCH_TUPLE_MULTI` covers DELETED + UPDATED via per-RID reverse index, while CREATED on a pattern class tombstones the entry and forces re-execution. Full constrained-pattern-walk discovery on CREATED is deferred to a separate ADR. → § Lazy merge-on-read §"MATCH multi-alias (partial Etap B in v1)".
 
 **`mutationVersion` and `populateMutationVersion`.** Two monotonic `long` counters introduced by D21. `FrontendTransactionImpl.mutationVersion` increments on every `addRecordOperation` call (including collapse-update paths that mutate an existing op in place). Each `CachedEntry` stamps `populateMutationVersion` from `tx.mutationVersion` at the moment the cache miss begins driving the executor. `DeltaBuilder` filters `tx.recordOperations` by `op.version > entry.populateMutationVersion`, which suppresses the double-application that would otherwise occur because the tx-aware executor already reflects every pre-populate mutation in `entry.results`. No analogue in the baseline; the executor's tx-awareness existed but had no version anchor. → § Lazy merge-on-read §"TxDeltaCursor — record/match shape".
 
@@ -185,7 +185,8 @@ classDiagram
 **TL;DR.** Four delta-related classes carry the design: `QueryResultCache` (the LRU bounded map on the transaction), `CachedEntry` (one cache slot holding frozen results, paused stream, and AST metadata), `TxDeltaCursor` (per-view delta snapshot for RECORD and MATCH-Etap-A shape, composed of a skip-set plus sorted inject-list), and `MatchMultiDelta` (per-view delta snapshot for MATCH_TUPLE_MULTI shape, composed of a tuple-index skip-set plus RID skip-set). `CachedResultSetView` is the consumer-facing `ResultSet` wrapper that does a sorted-merge (RECORD) or per-tuple skip-iteration (MATCH_TUPLE_MULTI). `DeltaBuilder` is a stateless utility that iterates `recordOperations` once at view-construction to produce the appropriate delta shape. Everything else is hooks on existing types: `FrontendTransactionImpl` owns the cache and clears it; `DatabaseSessionEmbedded.query()` builds views; `addRecordOperation` is **not** hooked by the cache. `recordOperations` growth is what tx already records, and views snapshot it on construction.
 
 ### References
-- Invariants: I1 (cache cleared on every tx-end path), I2 (cache only touched by owning thread), I7 (view's deltaCursor is immutable post-construction)
+- **D1 — Cache value type is `List<Result>`, not `List<RecordAbstract>`.** *Alternatives:* literal `List<RecordAbstract>` per the spec wording; `List<Result>` (chosen). *Rationale:* `ResultSet.next()` returns `Result`, and projection queries (`SELECT name, age+1 …`) produce computed-property `Result`s that wrap no record, so caching `RecordAbstract` would exclude every projection query (half of DNQ's emission). `Result` is the type that crosses the API boundary. *Risk:* `Result`s must stay valid for replay; they carry no session state directly, so safe.
+- Invariants I1 (clear on every tx-end), I2 (mutation paths owner-thread-only), I7 (view delta immutable post-construction) → § Invariants.
 
 ## Workflow
 
@@ -259,7 +260,11 @@ The sequence diagram above traces one transaction's lifecycle: a miss populating
 - `next()` that pulls from the live stream and appends MUST do so atomically with respect to the `position++` it does locally — trivial under the per-tx single-threading constraint.
 
 ### References
-- D-records: D2 (key composition), D4 (pause/resume), D5-lazy (lazy merge architecture), D6 (non-determinism), D15 (snapshot-at-construction)
+- D2 — cache key composition → § Cache key composition.
+- D4 — pause/resume via shared stream → § Pause/resume mechanics.
+- D5-lazy — lazy merge-on-read architecture → § Lazy merge-on-read.
+- D6 — non-determinism bypass → § Non-determinism handling.
+- D15 — snapshot-at-construction → § Pause/resume mechanics.
 
 ## Cache key composition
 
@@ -285,7 +290,9 @@ Parameter normalization: `Object[]` form is converted to a `LinkedHashMap<Intege
 - MATCH grammar accepts SKIP at the statement level (after RETURN). `SQLMatchStatement.equals()` covers it natively; no special handling.
 
 ### References
-- D-records: D2, D12
+- **D2 — Cache key = (parsed `SQLStatement`, normalized parameter map).** *Alternatives:* raw SQL-text hash; AST + params (chosen); AST `toCanonicalString` output. *Rationale:* `SQLStatement.equals()` is structural (`SQLSelectStatement:380`), giving whitespace/alias-invariant keys for free; parsing already runs on the hot path, so no extra parse cost; the param map is `Map<Object, Object>` (positional-Integer + named-String union), defensive-copied at lookup. *Risk:* AST equality is only as good as every node's `equals()` override, and `STATEMENT_CACHE` keys by text rather than AST, so deep-AST equality is new ground. Per-node equality tests plus an optional `verifyHits` re-execute spy guard it.
+- **D12 — AST identity fast-path on cache lookup.** *Alternatives:* deep `equals()` on every lookup; identity (`==`) fast-path before deep equals (chosen); pre-canonicalized text key (loses D2's invariance). *Rationale:* `SQLEngine.parse()` is backed by `STATEMENT_CACHE`, so identical text returns the same `SQLStatement` instance and `CacheKey.equals` short-circuits on `==` before the deep walk, collapsing thousands of duplicate-text DNQ lookups to a pointer compare. *Risk:* the identity check must only precede deep equals, never replace it; both paths are tested.
+- **D22 — `SQLInputParameter` equals/hashCode audit before the AST key reads it.** *Alternatives:* trust the parser to emit only subclass instances (untested); make `SQLInputParameter` abstract (API break); add concrete `equals`/`hashCode` delegating to subclass-comparable fields (chosen); a cache-side walker that bypasses raw-instance ASTs (cumbersome). *Rationale:* `SQLInputParameter` inherits `Object` identity-equals, so a raw instance reached via `SQLSkip`/`SQLLimit.equals` would compare by identity, causing false cache misses on textually-identical re-parses after `STATEMENT_CACHE` eviction. The failure mode is degraded hit rate, not a wrong hit, but the deep-equals path exists exactly for that re-parse case. *Risk:* a future third subclass with different fields needs the delegation revisited; a regression test forces `STATEMENT_CACHE` eviction plus re-parse to verify the hit.
 
 ## Pause/resume mechanics
 
@@ -302,8 +309,9 @@ Critically — unlike the eager design — `entry.results` is only ever appended
 - **Storage cursor lifetime.** YTDB transactions are thread-affine (`assertOnOwningThread`). A paused stream's underlying B-tree cursor stays alive between the originating `next()` and the resuming `next()` — no concurrent mutation can sneak in on another thread.
 
 ### References
-- D-records: D4, D15
-- Invariants: I3 (paused stream lives at most as long as its CachedEntry), I7 (deltaCursor immutable post-construction)
+- **D4 — Pause/resume via a shared `ExecutionStream` + per-view position counters.** *Alternatives:* force-exhaust on first hit (consumer-unfriendly); materialize-on-demand without resume (spec violation); pause/resume with a shared stream (chosen). *Rationale:* the spec requires "continue iterating during the next execution of the same query", which holding the live stream on the entry achieves; per-view counters make concurrent consumers safe within the single-threaded tx; stream pulls append to the shared list, so later consumers see the full ordered result. *Risk:* a longer-lived storage-cursor reference, but no new failure mode beyond normal consumer-paced iteration.
+- **D15 — `TxDeltaCursor` snapshot at view construction; not refreshed mid-iteration.** *Alternatives:* rebuild the cursor on every `view.next()` (moving-target semantics, duplicate/missing rows); snapshot at construction (chosen). *Rationale:* matches the `OrderByStep` blocking-materializer contract; the natural refresh boundary is `query()` itself, so code that wants to read its own writes issues a new `query()`, the same mental model as REPEATABLE READ. *Risk:* views started before a mutation do not see it; documented, identical to uncached `OrderByStep`.
+- Invariants I3 (paused-stream lifetime ≤ entry lifetime), I7 (view delta immutable post-construction) → § Invariants.
 
 ## Lazy merge-on-read
 
@@ -331,7 +339,7 @@ Non-deterministic shapes (sysdate / random / uuid / $now / $current / $currentMa
 
 1. **Class filter:** if `op.record.getSchemaClass().getName() ∉ entry.effectiveFromClasses`, skip (O(1) hash-set contains; the closure is precomputed at entry construction per D11). Non-`Entity` records and entities with null schema class skip the entry.
 2. **WHERE evaluation:** `match_after = entry.whereClause.matchesFilters(op.record, ctx)`. For shapes with no WHERE clause, treat as `true`.
-3. **Cache-membership check:** `cached_at_build = entry.cachedRids.contains(op.rid)`. `cachedRids` is a `Set<RID>` populated incrementally as the stream pulls records into `entry.results`; at view-construction time it reflects only the prefix the stream has pulled so far, NOT the full storage result set. The lazy stream-pull semantics from Track 1 (pause/resume) mean `cached_at_build=false` does NOT imply "this record is not in the result"; it can mean "this record exists in storage but the stream hasn't reached it yet". See § Stream-pull dispatch unification below for how this gap is closed.
+3. **Cache-membership check:** `cached_at_build = entry.cachedRids.contains(op.rid)`. `cachedRids` is a `Set<RID>` populated incrementally as the stream pulls records into `entry.results`; at view-construction time it reflects only the prefix the stream has pulled so far, NOT the full storage result set. The lazy stream-pull (pause/resume) semantics mean `cached_at_build=false` does NOT imply "this record is not in the result"; it can mean "this record exists in storage but the stream hasn't reached it yet". See § Stream-pull dispatch unification below for how this gap is closed.
 4. **Dispatch on `(op.type, cached_at_build, match_after)`**:
 
 | op.type | cached_at_build | match_after | Action |
@@ -380,7 +388,7 @@ else:
     entry.cachedSkipSet = Collections.unmodifiableSet(skipSet)
     entry.cachedInjectList = Collections.unmodifiableList(injectList)
     entry.cachedDeltaVersion = v
-// Both first-build and reuse paths hand the cursor the unmodifiable wrappers (T3 fix —
+// Both first-build and reuse paths hand the cursor the unmodifiable wrappers (immutability-surface fix —
 // consistent immutability surface across both branches).
 return new TxDeltaCursor(entry.cachedSkipSet, entry.cachedInjectList, injectPosition=0)
 ```
@@ -473,7 +481,7 @@ The collapsed `ResultSet` carries only the scalar, with no per-RID data to deriv
 
 **Splice point.** Post-construction plan rewrite: `DatabaseSessionEmbedded.query()` miss path builds the plan via `statement.createExecutionPlan(ctx, false)` (instead of `statement.execute(...)`, which immediately wraps the plan in a `LocalResultSet` and loses direct access), downcasts to `SelectExecutionPlan` to walk its `steps` list, finds the `AggregateProjectionCalculationStep`, and rewires its `prev` link to a new `AggregateCacheTapStep` whose own `prev` is the original upstream. The cache then drives the plan via `plan.start(ctx).next(ctx)`, a single call that forces the aggregate step's blocking drain (which in turn drives the tap to observe every upstream record). The captured single-row aggregate Result is held on the entry alongside the now-fully-populated `aggregateState`. Local to cache code; no planner changes.
 
-**Splice failure fallback.** If the planner emits an unexpected shape (no `AggregateProjectionCalculationStep` found after walking `SelectExecutionPlan.steps`, or the cast to `SelectExecutionPlan` fails), the cache code: (1) closes the constructed plan (best-effort), (2) increments `QueryCacheMetrics.spliceFailures`, (3) falls back by calling `statement.execute(session, args)` to obtain a standard `LocalResultSet`, (4) returns that `LocalResultSet` directly to the consumer (no cache entry, no view wrapping). A warning is logged identifying the unexpected step types so the planner-versioning issue is surfaced. Track 2 owns this wiring.
+**Splice failure fallback.** If the planner emits an unexpected shape (no `AggregateProjectionCalculationStep` found after walking `SelectExecutionPlan.steps`, or the cast to `SelectExecutionPlan` fails), the cache code: (1) closes the constructed plan (best-effort), (2) increments `QueryCacheMetrics.spliceFailures`, (3) falls back by calling `statement.execute(session, args)` to obtain a standard `LocalResultSet`, (4) returns that `LocalResultSet` directly to the consumer (no cache entry, no view wrapping). A warning is logged identifying the unexpected step types so the planner-versioning issue is surfaced.
 
 **Eager drive on cache-put, and why this asymmetry is necessary.** Aggregate cache-miss fully drives the plan before returning the view; RECORD / MATCH-Etap-A cache-miss does not. The asymmetry is not a design inconsistency. The two shapes have different cacheability semantics:
 
@@ -491,7 +499,7 @@ Single-alias MATCH `MATCH {as:u, class:X WHERE simple-predicate} RETURN <project
 - `orderBy = the ORDER BY from the MATCH statement (if any)`
 - `returnProjector: Function<RecordAbstract, Result>` — a closure built at entry construction from the MATCH `RETURN` clause that takes a single record and produces a `Result` shaped like the original execution's output (e.g., `RETURN u, u.name` produces `Result{u: rec, name: rec.name}`).
 
-Delta-build for MATCH Etap A is the RECORD path with the `returnProjector` applied to each inject-list entry. Equivalence vs fresh re-execution validated by Track 2's T6h test that runs the same MATCH twice (cache miss then hit + delta) and asserts result-set equality across CREATED/UPDATED/DELETED scenarios.
+Delta-build for MATCH Etap A is the RECORD path with the `returnProjector` applied to each inject-list entry. Equivalence vs fresh re-execution is validated by an equivalence test that runs the same MATCH twice (cache miss then hit + delta) and asserts result-set equality across CREATED/UPDATED/DELETED scenarios.
 
 ### MATCH multi-alias (partial Etap B in v1)
 
@@ -579,7 +587,7 @@ For queries that carry SKIP or LIMIT in the AST, classification returns `K0_NONE
 ### Edge cases / Gotchas
 
 - **Aggregate over expression** — `SUM(age + bonus)` is not delta-reconcilable as an aggregate (the map would have to cache the result of the expression, not the property value, which mixes evaluation context with cache storage; not worth the AGGREGATE_SUM-shape complexity for v1). Classify returns `K0_NONE`, so the result is still cached under D18's version gate and served on repeat queries until the next mutation invalidates.
-- **MIN/MAX recompute cost** — worst case O(n) when the current extremum element leaves at delta-build time (DELETED, transitions out of WHERE, or UPDATED to a non-extremum value). Bounded by `maxRecordsPerEntry`. Amortized O(1) for typical workloads where most mutations don't target the extremum. `AggregateState` for MIN/MAX carries an `extremumRid: @Nullable RID` field; `was_extremum = rid.equals(extremumRid)` (boolean RID identity, never `Number.equals`) sidesteps the cross-`Number`-subtype hazard. D14 in `implementation-plan.md` proposes a `TreeMap` sorted-value index for `O(log n)` consistent performance, deferred to v2 gated on D13 measurement of extremum-churn frequency.
+- **MIN/MAX recompute cost** — worst case O(n) when the current extremum element leaves at delta-build time (DELETED, transitions out of WHERE, or UPDATED to a non-extremum value). Bounded by `maxRecordsPerEntry`. Amortized O(1) for typical workloads where most mutations don't target the extremum. `AggregateState` for MIN/MAX carries an `extremumRid: @Nullable RID` field; `was_extremum = rid.equals(extremumRid)` (boolean RID identity, never `Number.equals`) sidesteps the cross-`Number`-subtype hazard. § Open questions deferred to execution catalogues a `TreeMap` sorted-value index (D14) for `O(log n)` consistent performance, deferred to v2 gated on D13 measurement of extremum-churn frequency.
 - **WHERE re-evaluation per query** — under lazy, the same Alice gets re-evaluated through `WHERE.matchesFilters` on every `query()` for an entry whose `effectiveFromClasses` includes her class, for the entire tx duration. Eager evaluated her once at mutation time. Per-entry per-RID memoization could amortize this; left as v2 optimization gated on D13 measurement.
 - **Aggregate result type** — `COUNT(*)` and `COUNT(DISTINCT prop)` return `Long`. `SUM/AVG/MIN/MAX` return whatever the storage aggregate function returns; type evolves through `PropertyTypeInternal.increment` per D19, so cache replay matches fresh execution by construction. No pinned-return-type field; the accumulator type IS the result type, and evolves naturally with input promotion (Long+Integer→Long, Long+Double→Double, BigDecimal+anything→BigDecimal). The cached `Result` wrapping uses the same shape as fresh execution because both paths run the same arithmetic primitive.
 - **WHERE references helper variables (`LET`, `$current`)** — these can't be re-evaluated on a single dirty record outside the original execution context. `classify` returns `K0_NONE` when `LET` is present or when `$current` / `$matched` is referenced anywhere in the WHERE AST; D18's version gate caches the result for pure-read repetition; mutations invalidate.
@@ -590,15 +598,23 @@ For queries that carry SKIP or LIMIT in the AST, classification returns `K0_NONE
 - **MATCH pattern WHEREs referencing cross-alias state** (`$current`, `$matched`, `${otherAlias}.field`) — `classify` returns `K0_NONE`. Per-record re-evaluation can't reconstruct the pattern context for a single dirty record, so the delta-build path is unreachable; D18's version gate handles cache hits on pure-read repetition.
 
 ### References
-- D-records: D5-lazy, D8-lazy, D9 (deterministic ORDER BY admission), D11 (effectiveFromClasses closure), D14 (MIN/MAX sorted-value index — v2-deferred), D15 (snapshot-at-construction), D19 (BigDecimal accumulator for SUM/AVG), D20 (AGGREGATE_COUNT_DISTINCT shape)
-- Invariants: I4 (view output equals fresh-execution composed with tx-delta-applied snapshot), I7 (deltaCursor immutable post-construction)
-- Mechanics: `design-mechanics.md §"Lazy merge-on-read"` — full `view.next()` sorted-merge pseudocode and the sort-correctness derivation
+- **D5-lazy — Lazy merge-on-read via a snapshot `TxDeltaCursor` at view construction.** *Alternatives:* K0 wipe-on-mutation (kills the cache after the first save); eager K1 sharp-merge (mutates `entry.results` in place per mutation, with fail-fast `IllegalStateException` on live views); lazy merge-on-read (chosen). *Rationale:* architecture-driven, not perf-driven. The entry is immutable from populate, the per-view delta cursor is built from a `recordOperations` snapshot, and `view.next()` is a sorted-merge; this eliminates `entry.version`, `expectedEntryVersion`, the fail-fast path, and K1 dispatch, and matches the `OrderByStep` blocking-materializer contract. *Risk:* ~10-20× more raw ops than eager in read-mostly tx with writes (sub-ms absolute, noise-floor against HTTP latency); per-query WHERE re-eval; a >5% D13 regression promotes the v2 per-class index.
+- **D8-lazy — MATCH Etap A as RECORD-shape composition; partial Etap B in v1; CREATED-discovery deferred.** *Alternatives:* K0 for all MATCH; eager K1 per-tuple; Etap A as RECORD composition (chosen, single-alias); partial Etap B as `MATCH_TUPLE_MULTI` (chosen — DELETED + UPDATED via `reverseIndex`, CREATED tombstones the entry); full Etap B constrained-pattern-walk (deferred to a separate ADR). *Rationale:* single-alias MATCH is `SELECT … FROM X` with a tuple RETURN, folding into `buildForRecord` via a stored `returnProjector`; partial Etap B restores the eager design's DELETED + UPDATED multi-alias coverage at modest cost; CREATED-discovery needs net-new infrastructure (`MatchPrefetchStep` plus an edge-CREATED dispatch hook). *Risk:* `returnProjector` must match the original projection (covered by a cache-vs-fresh equivalence test); tombstone latency follows the I7 frozen-view contract; `reverseIndex` memory is bounded by entry size × alias count.
+- **D11 — Pre-expand `fromClasses` to its subclass closure at entry construction (`effectiveFromClasses`).** *Alternatives:* a per-mutation `isSubClassOf` loop over raw `fromClasses`; a pre-expanded closure (chosen, justified by I8); cached `SchemaClass` refs (no benefit). *Rationale:* I8 freezes schema per tx, so the `getAllSubclasses()` closure is stable for the entry's life and the polymorphism gate is one O(1) `Set<String>.contains`. *Risk:* `getAllSubclasses()` cost once per entry (acceptable); the schema-DDL assert is the canary if I8 is relaxed.
+- **D19 — SUM/AVG running total uses `PropertyTypeInternal.increment`, matching storage exactly.** *Alternatives:* raw `Number` widening; a BigDecimal accumulator with type-pinned replay (diverges from storage on Double promotion); direct delegation to `PropertyTypeInternal.increment` (chosen); fail to K0_NONE on first cross-subtype mutation. *Rationale:* cache replay must return the exact `Number` (subtype and value) fresh execution returns; storage SUM/AVG both call `increment`, so delegating gives bit-for-bit parity including overflow wrap, `2^53+1` precision loss, and BigDecimal exactness. *Risk:* the cache inherits storage's cross-subtype quirks (not a bug — it matches no-cache); `increment` is non-commutative for promotion, so replay always calls `increment(runningSum, newValue)`.
+- **D20 — `AGGREGATE_COUNT_DISTINCT` cacheable via per-value RID buckets.** *Alternatives:* K0_NONE under the D18 gate (invalidates on any write); per-value RID buckets on `AggregateState` (chosen); pre-sorted `TreeMap` buckets (overkill). *Rationale:* `distinctBuckets: Map<Object, Set<RID>>` maps each distinct value to its contributing RIDs (the scalar is `distinctBuckets.size()`), reusing `contributingValues` for transition dispatch and extending coverage beyond eager (which K0'd `COUNT(DISTINCT)`). *Risk:* high-cardinality DISTINCT grows linearly, bounded by `maxRecordsPerEntry`; bucket keys use raw `Object.equals` mirroring `SQLFunctionDistinct`'s `LinkedHashSet<Object>`, so `Long(5)` and `Integer(5)` are distinct buckets (matching storage); `COUNT(DISTINCT expr)` routes to K0_NONE.
+- **D21 — Populate-version stamping eliminates miss-path double-application.** *Alternatives:* per-RID dedupe via `cachedRids` on CREATED alone (fails on `RecordIteratorCollection.nextTxId`); a pre-tx-state execution mode (invasive to the core executor); populate-version stamping with an `op.version > populateMutationVersion` filter (chosen). *Rationale:* the tx-aware executor already bakes pre-populate mutations into `entry.results`, so an unfiltered delta double-applies them; stamping `entry.populateMutationVersion` before the first `plan.start(ctx)` and filtering `op.version >` it confines the delta to post-populate mutations. Each `RecordOperation` gains a `version: long` re-stamped on collapse, so it tracks the latest mutation. *Risk:* the dispatch table's `cached_at_build` column stays load-bearing for the CREATE+UPDATE collapse case; the stamp must be captured before `plan.start`, and the stamp/increment pair rides the existing `addRecordOperation` rollback try.
+- D9 — deterministic ORDER BY admission → § Non-determinism handling.
+- D14 — MIN/MAX sorted-value index (v2-deferred) → § Open questions deferred to execution.
+- D15 — snapshot-at-construction → § Pause/resume mechanics.
+- Invariants I4 (view output ≡ fresh execution composed with the tx-delta snapshot), I7 (view delta immutable post-construction) → § Invariants.
+- Mechanics: `design-mechanics.md §"Lazy merge-on-read"` — full `view.next()` sorted-merge pseudocode and the sort-correctness derivation.
 
 ## Cache invalidation
 
 **TL;DR.** Three drop paths converge on `QueryResultCache`:
 
-1. **Bulk-only DML drop.** `DatabaseSessionEmbedded.executeInternal()` calls `queryResultCache.invalidateAll()` for `SQLTruncateClassStatement`, the only legitimately mid-tx-runnable bulk operation. Schema DDL (`CREATE/DROP/ALTER CLASS|PROPERTY|INDEX`) is **excluded** because invariant I8 makes those statements unreachable mid-tx: `SchemaShared.saveInternal` and `IndexManagerEmbedded` throw before any cache effect would matter. Track 3 wires a `Java assert` after parsing that fires if a schema-DDL statement reaches the cache hook while a tx is active. Regular `INSERT`/`UPDATE`/`DELETE` is **not hooked here**; mutations go through `addRecordOperation` and into `recordOperations`, where each subsequent `query()` picks them up via fresh delta build. Scripts (`computeScript(...)`) are outside this path entirely; the plan declares them a Non-Goal.
+1. **Bulk-only DML drop.** `DatabaseSessionEmbedded.executeInternal()` calls `queryResultCache.invalidateAll()` for `SQLTruncateClassStatement`, the only legitimately mid-tx-runnable bulk operation. Schema DDL (`CREATE/DROP/ALTER CLASS|PROPERTY|INDEX`) is **excluded** because invariant I8 makes those statements unreachable mid-tx: `SchemaShared.saveInternal` and `IndexManagerEmbedded` throw before any cache effect would matter. A `Java assert` after parsing fires if a schema-DDL statement reaches the cache hook while a tx is active. Regular `INSERT`/`UPDATE`/`DELETE` is **not hooked here**; mutations go through `addRecordOperation` and into `recordOperations`, where each subsequent `query()` picks them up via fresh delta build. Scripts (`computeScript(...)`) are outside this path entirely — a Non-Goal for v1, since a script begins-and-commits its own sub-statements, so a tx-scoped cache would observe no repeat shapes.
 
 2. **K0-version drop for K0_NONE entries.** Per-entry version gate at lookup time, described in § K0-version-fallback for NONE shapes below.
 
@@ -663,7 +679,8 @@ entries.put(key, entry)
 - Records mutated via direct API (`session.save(record)`) flow through `addRecordOperation` — same as SQL mutation. The cache is unaffected; the next `query()` sees the mutation via delta.
 
 ### References
-- D-records: D3, D18 (K0-version-fallback for NONE shapes)
+- **D3 — Cache lookup gated on `instanceof SQLSelectStatement || SQLMatchStatement`; bulk-bypass types invalidate.** *Alternatives:* cache all statements (DML is non-deterministic); gate on `isIdempotent()` (too wide — PROFILE/EXPLAIN/IF also qualify); a narrow type check (chosen). *Rationale:* PROFILE/EXPLAIN return per-call plan/timing metadata, so a direct `instanceof` against the two cacheable types keeps the gate obvious. DML invalidation uses an explicit list (`SQLTruncateClassStatement` only); regular INSERT/UPDATE/DELETE flow through `addRecordOperation` and are picked up by the next query's delta build; schema DDL is excluded because I8 makes it unreachable mid-tx. *Risk:* new idempotent statement types need explicit opt-in; the schema-DDL assert is the canary if I8 is relaxed.
+- **D18 — K0-version-fallback for NONE shapes: cache complex queries while no mutation occurs.** *Alternatives:* never cache NONE (loses the cache for complex queries even in pure-read tx — 19/20 LDBC SNB queries); eager K0 (invalidate all on any mutation, too aggressive); a K0-version-gate scoped to NONE entries only (chosen); class-scoped K0 invalidation (better precision, deferred to v2). *Rationale:* "cannot reconcile" is not "cannot cache" — reconciliation is unnecessary when no mutation has happened. Stamp `entry.populateMutationVersion` at populate; at lookup, an equal `tx.mutationVersion` is a hit (pure replay) and a diverged one invalidates plus re-populates. Pre-D18 LDBC warm-tx coverage 5% becomes 100% post-D18. *Risk:* coarse — any mutation invalidates every K0_NONE entry regardless of class; the `nonCacheableKeys` route after 3 invalidations bounds churn; class-scoped invalidation is the v2 hardening.
 
 ## Non-determinism handling
 
@@ -700,7 +717,7 @@ The remaining MATCH non-determinism surface is **fully covered** by `NonDetermin
 
 SELECT retains `NOCACHE` for its broader use cases the denylist does not cover: free-form projection debug queries (`SELECT sysdate(), random() FROM ...` style), `LET`-based opt-out where the LET expression embeds a custom function, and user-defined-function escape valves where the user knows their UDF is non-deterministic but the detector cannot see it.
 
-Extending `NOCACHE` to MATCH is a v2 candidate. Decision gate is the D13 Hub-replay measurement (Track 3): if the replay surfaces non-trivial custom-function-in-MATCH usage that the denylist cannot cover, v2 adds the token to the MATCH production. The grammar change is small (~one line in `.jjt` plus generated parser regen); the runtime field already wires through `NonDeterministicQueryDetector` once the field exists on `SQLMatchStatement`.
+Extending `NOCACHE` to MATCH is a v2 candidate. Decision gate is the D13 Hub-replay measurement: if the replay surfaces non-trivial custom-function-in-MATCH usage that the denylist cannot cover, v2 adds the token to the MATCH production. The grammar change is small (~one line in `.jjt` plus generated parser regen); the runtime field already wires through `NonDeterministicQueryDetector` once the field exists on `SQLMatchStatement`.
 
 ### Edge cases / Gotchas
 - **`date(literal)` and `date(field)` are deterministic** — only zero-arg `date()` returns current-time. The denylist entry for `date` checks arity.
@@ -709,7 +726,8 @@ Extending `NOCACHE` to MATCH is a v2 candidate. Decision gate is the D13 Hub-rep
 - **`sysdate()` inside `WHERE` clause** — caught by the AST walk. Cache is bypassed.
 
 ### References
-- D-records: D6, D9
+- **D6 — Non-determinism via a denylist AST walk plus the reused `noCache` hint.** *Alternatives:* a `SQLFunction.isDeterministic()` SPI (adds API surface); denylist plus opt-out (chosen); ignore the problem. *Rationale:* the non-deterministic primitive set is small and stable, so one `NonDeterministicQueryDetector.contains(stmt)` walker handles it, and `SQLSelectStatement.noCache` already parses, so its semantics extend to "skip result cache". *Risk:* user-defined Java functions cannot be inspected — the documented escape valve is the `NOCACHE` hint; new stdlib non-deterministic functions need a denylist entry; per-row context variables (`$current`, `$matched`, and the rest) are bypassed conservatively rather than reconciled, because `DeltaBuilder` does not replicate the executor's per-row `ctx.setSystemVariable` chain.
+- **D9 — Deterministic ORDER BY admission (modifier chains supported).** *Alternatives:* plain-identifier-only ORDER BY (loses `ORDER BY lower(name)`); any ORDER BY expression (needs a grammar change); deterministic modifier-chain ORDER BY (chosen). *Rationale:* `SQLOrderByItem` carries an alias plus an optional `SQLModifier` chain, so reusing `NonDeterministicQueryDetector` on each item's modifier is a clean gate, and the comparator must rank consistently across the entry's life since it runs both at delta-build and at first-execution sort. *Risk:* per-comparator `modifier.execute(...)` adds CPU versus a field lookup, bounded by inject-list size × log size — acceptable for the hits saved.
 
 ## Memory bounds
 
@@ -729,7 +747,8 @@ The delta-cache pair is **shared across views** on the same entry built at the s
 - **K0_NONE entries share the same cap as cacheable shapes.** A K0_NONE entry's `entry.results` grows under `maxRecordsPerEntry`. The `k0NoneInvalidationThreshold` (default 3) is a separate gate against tx-write-heavy churn, not a memory cap.
 
 ### References
-- D-records: D7
+- **D7 — Per-tx memory bound: LRU at `maxEntries` plus per-entry `maxRecordsPerEntry`.** *Alternatives:* unbounded (OOM); time-based eviction (meaningless per-tx); LRU plus per-entry cap (chosen). *Rationale:* a two-dimensional bound, with LRU eviction standard for working-set workloads; the defaults (200 × 10000 = 2M refs) are pessimistic-but-safe for Hub. *Risk:* knob tuning is workload-dependent, hot-changeable via `GlobalConfiguration`.
+- Invariant I9 (view cardinality matches the uncached path under LRU pressure, via live-view pinning) → § Invariants.
 
 ## Concurrency and lifecycle
 
@@ -775,8 +794,8 @@ Both the cache (via `entry.close()`) and the `LocalResultSet` (via `LocalResultS
 
 ENFORCED requirements:
 - `CachedEntry.close()` is idempotent — null-guards `stream`, `plan`, `ctx` and early-returns on second invocation. First close calls `stream.close(ctx)` then nulls `stream`; second close sees null and returns. The wrapped stream's own idempotency (above) defends against the cross-caller case where `closeActiveQueries()` reaches the same wrapped stream via the `LocalResultSet` after the cache has already closed it.
-- `QueryResultCache.clear()` is idempotent — null-safe iteration over snapshot copy, then drops the map. Track 1 adds a test calling `clear` twice and asserting no exception + `size() == 0` both times.
-- `IdempotentExecutionStream.close(ctx)` is idempotent by construction. Track 1 adds a test that constructs an entry with a non-idempotent underlying stream impl (e.g., one that throws on second close), then closes via both paths (cache.clear AND LocalResultSet.close) and asserts the underlying close is observed exactly once and no exception bubbles up.
+- `QueryResultCache.clear()` is idempotent — null-safe iteration over snapshot copy, then drops the map. A test calls `clear` twice and asserts no exception + `size() == 0` both times.
+- `IdempotentExecutionStream.close(ctx)` is idempotent by construction. A test constructs an entry with a non-idempotent underlying stream impl (e.g., one that throws on second close), then closes via both paths (cache.clear AND LocalResultSet.close) and asserts the underlying close is observed exactly once and no exception bubbles up.
 
 ### Lifecycle hooks
 - **Creation:** lazy. First call to `getQueryResultCache()` on the transaction allocates the cache (only when `QUERY_TX_RESULT_CACHE_ENABLED` is true).
@@ -802,7 +821,7 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 - **Concurrent close during view.next().** Pool shutdown invokes `cache.clear()` while owning thread is in `view.next()`. View may observe a closed stream (`stream.next()` throws) or a partially-cleared entries map. Result: arbitrary exception bubbles to consumer. Acceptable for shutdown path; no locking added.
 
 ### References
-- Invariants: I1, I2, I3, I6, I7
+- Invariants I1 (clear on every tx-end), I2 (mutation paths owner-thread-only), I3 (paused-stream lifetime ≤ entry), I6 (idempotent tx-end clear under cross-thread invocation), I7 (view delta immutable post-construction) → § Invariants.
 
 ## Invariants
 
@@ -826,8 +845,11 @@ Consequence: **read iteration of `entries` can mutate the map's structural state
 N/A — this is a pure contract list. Failure modes live alongside the primitive each invariant guards.
 
 ### References
-- D-records: D5-lazy (view-output contract → I4), D6 (non-determinism → I5), D11 (effectiveFromClasses closure depends on I8), D15 (snapshot-at-construction → I7)
-- Tracks: T1 (I1, I2, I6), T3 (I3), T4 (I4, I7 for record/match), T5 (I4, I7 for aggregate), T6a (I4 for MATCH Etap A), T6b (I4 for MATCH_TUPLE_MULTI), T7 (I5)
+- D5-lazy — view-output contract underpins I4 → § Lazy merge-on-read.
+- D6 — non-determinism bypass underpins I5 → § Non-determinism handling.
+- D11 — `effectiveFromClasses` closure depends on I8 → § Lazy merge-on-read.
+- D15 — snapshot-at-construction underpins I7 → § Pause/resume mechanics.
+- D21 — populate-version filter underpins I4 → § Lazy merge-on-read.
 
 ## Known limitations
 
@@ -846,14 +868,16 @@ N/A — this is a pure contract list. Failure modes live alongside the primitive
 N/A — each limitation above is itself a bounded scope cut; no second-order surprises live below them.
 
 ### References
-- D-records: D13, D14, D18
+- D13 — Hub-replay validation gate → § Open questions deferred to execution.
+- D14 — MIN/MAX sorted-value index (v2-deferred) → § Open questions deferred to execution.
+- D18 — K0-version-fallback for NONE shapes → § Cache invalidation.
 
 ## Open questions deferred to execution
 
 **TL;DR.** Six items deferred — four in v1 scope as measurement-gated promotion candidates, two as separate ADRs. Measurement-gated v2 candidates: D14 MIN/MAX sorted-value index; per-entry per-RID WHERE memoization; class-scoped K0_NONE invalidation (D18 v2 hardening); weight-aware LRU eviction. Separate ADRs: MATCH CREATED Etap B (multi-alias incremental tuple discovery); sub-statement caching family (LET sub-expression cache + $matched binding cache). D13 (Hub-replay validation gate) remains the pre-merge measurement step that informs whether any of the v2 candidates promote to v1.1 hardening.
 
 - **MATCH CREATED Etap B (multi-alias)** — separate ADR (not a v1 hardening pass). Approach: pre-populate `ctx[PREFETCHED_MATCH_ALIAS_PREFIX + alias] = [rec]` and re-execute the cached `SelectExecutionPlan` (using `MatchFirstStep`'s prefetch fallback) for each alias that the CREATED record could bind into. Plus edge-CREATED dispatch: a freshly-created vertex only appears in multi-alias tuples once its edges are created, so each edge-CREATED separately triggers re-execution. Scope: extension to the existing `MATCH_TUPLE_MULTI` shape with constrained pattern walk on CREATED, per-tuple reverse index extension, dedicated `DeltaBuilder.buildForMatchMulti` CREATED path, edge-CREATED hook on `addRecordOperation`. Comparable to the rest of YTDB-820 in implementation effort.
-- **D14 MIN/MAX sorted-value index — v2-deferred, measurement-gated.** A `TreeMap<BigDecimal, Set<RID>>` on `AggregateState` would replace the current O(n) extremum-recompute path with O(log n) at modest memory cost. See § Lazy merge-on-read → § Aggregate delta → "Memory-budget asymmetry" for the cost-benefit derivation. Promotion gated on D13 Hub-replay measurement of extremum-churn frequency; if extremum-leaves fires non-trivially across a typical Hub request, v1.1 implements it. Implementation cost when promoted: ~150 lines across `AggregateState.observe` / `applyMutation` / `copy` plus track-5 tests.
+- **D14 MIN/MAX sorted-value index — v2-deferred, measurement-gated.** A `TreeMap<BigDecimal, Set<RID>>` on `AggregateState` would replace the current O(n) extremum-recompute path with O(log n) at modest memory cost. See § Lazy merge-on-read → § Aggregate delta → "Memory-budget asymmetry" for the cost-benefit derivation. Promotion gated on D13 Hub-replay measurement of extremum-churn frequency; if extremum-leaves fires non-trivially across a typical Hub request, v1.1 implements it. Implementation cost when promoted: ~150 lines across `AggregateState.observe` / `applyMutation` / `copy` plus aggregate-shape tests.
 - **Per-entry per-RID WHERE memoization.** Under lazy the same `WHERE.matchesFilters(rec, ctx)` evaluation can fire on every `query()` for an entry that touches `rec.class`. Eager evaluated it once at mutation-time. Memoization would cache `(rid → match_after)` per entry; cost is correctness (entries become mutable again — defeating part of lazy's simplification) vs CPU. Measured under D13 Hub replay; implemented only if measurements show hot.
 - **Class-scoped K0_NONE invalidation — v2 hardening of D18.** v1 D18 uses coarse `tx.mutationVersion` comparison: any mutation invalidates every K0_NONE entry, even mutations on unrelated classes. Extracting an `effectiveFromClasses` set for K0_NONE entries (walking inner FROM / MATCH / subquery structure to enumerate touched classes) and comparing against the last-mutation's record class would invalidate only relevant entries. Trade-off: extraction is non-trivial for nested subqueries and LET-based-unionall shapes; v1's coarse invalidation is correct, just over-pessimistic for tx that mix unrelated mutations and complex queries. D13 measures the cross-class invalidation rate to inform v1.1 vs v2 timing.
 - **Weight-aware LRU eviction.** Current LRU is access-order on `LinkedHashMap`; every entry is equally evictable on overflow. An AGGREGATE_MIN entry over 10k contributors costs O(N) to repopulate via the eager-drive of the full aggregate; a single-row RECORD entry costs O(stream-pull) and amortizes lazily. Weight-aware eviction (entry weight = estimated populate cost) would prefer keeping expensive entries against churning cheap ones. Implementation is ~20 lines as a `LinkedHashMap` subclass overriding `removeEldestEntry`. Decision gated on D13 measurement of eviction frequency × evicted-entry-shape distribution: most Hub tx never approach `maxEntries=200`, so simple LRU is sufficient unless measurement shows aggregate-vs-RECORD eviction asymmetry causes observable cache-miss patterns.
@@ -868,5 +892,7 @@ N/A — each limitation above is itself a bounded scope cut; no second-order sur
 N/A — each bullet above is itself a deferred concern; no second-order surprises live below them.
 
 ### References
-- D-records: D8-lazy (Etap A in scope; Etap B deferred to separate ADR), D13 (Hub-replay), D14 (MIN/MAX sorted-value index — v2-deferred, measurement-gated), D18 (K0-version-fallback for NONE shapes — covers SKIP/LIMIT in v1)
-- Tracks: T8 (JMH + metrics), T6a (Etap A delivery), T6b (partial Etap B delivery)
+- **D13 — Hub-replay validation gate (pre-merge).** *Alternatives:* ship on synthetic JMH alone; ship after a Hub-workload replay validates lazy coverage (chosen, justified by the lazy K1→NONE coverage shift). *Rationale:* under lazy plus D18 the coverage metric is "fraction of queries cacheable", so before Hub deployment replay an anonymized ~1000-query DNQ sample and require ≥70% repeat-shape cacheable AND view-output parity across the recorded mutation sites. The replay also measures delta-build cost, WHERE-re-eval hot RIDs, MIN/MAX extremum churn, Etap B coverage, and paginated K0_NONE invalidation rate, each informing a v2 promotion. *Risk:* needs a staging DNQ-query-log capture (coordinate with Hub); sub-70% coverage raises classify-relaxation priority.
+- **D14 — MIN/MAX sorted-value index — v2-deferred, gated on D13.** *Alternatives:* O(n) extremum recompute when the extremum leaves at delta-build (chosen for v1; `was_extremum` via RID identity keeps non-extremum mutations off the scan); a `TreeMap<BigDecimal, Set<RID>>` sorted index for O(log n) (v2). *Rationale:* only 3 of 11 `applyMutation` cases hit the O(n) scan, and the cost-benefit is ~5 μs saved per HTTP request against hundreds of ms (not observable); `contributingValues`, the blocking dependency every AGGREGATE_* entry already carries, buys correctness, while the TreeMap would buy only an unmeasured latency floor at ~3× memory. *Risk (when promoted):* cross-subtype `Number` keys need BigDecimal string-coercion; ~3× memory growth per MIN/MAX entry; `copy()` becomes O(n log n). Gate: promote to v1.1 if D13 shows recompute >5% of delta-build cost or a churning-extremum workload.
+- D8-lazy — MATCH Etap A in scope; full Etap B CREATED-discovery deferred to a separate ADR → § Lazy merge-on-read.
+- D18 — K0-version-fallback covers SKIP/LIMIT in v1 → § Cache invalidation.

@@ -3,8 +3,8 @@
 
 > Companion to `design.md`. Long-form derivations, full algorithm pseudocode,
 > and exhaustive state-machine listings. Cross-references go one direction:
-> `design.md → design-mechanics.md`. Section names match `design.md` so
-> per-D `**Full design**` refs resolve in either file.
+> `design.md → design-mechanics.md`. Section names match `design.md` so each
+> `Mechanics:` footer link resolves by section name.
 
 ## Lazy merge-on-read
 
