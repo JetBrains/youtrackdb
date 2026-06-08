@@ -1323,3 +1323,35 @@ Surviving residual findings: 26 pre-existing house-style should-fix items + 1 pr
 
 **Iterations**: 1 of 3 (PASS).
 
+## Mutation 72 — 2026-06-08 — content-edit (design.md)
+
+**Diff summary**: Diagram-staleness sync bringing the Mermaid diagrams in `design.md` up to date with prose that landed in M69 and M71 but was never reflected in the diagrams. No design decisions change — only diagram renderings of decisions already in the prose. Two coordinated edits. (1) Class Design `classDiagram`: added the D46 (M71) production class `SkinnySpanFilterProcessor` (`<<SpanProcessor>>`, `-SpanProcessor delegate`, static `wrap(SpanProcessor delegate) SpanProcessor`, `onEnd(ReadableSpan span)`), matching the Java sketch in `design-mechanics.md §"Bundled skinny-span filter"`; added the one new public-API method `skinnySpanFilter(SpanProcessor delegate) SpanProcessor` to the `YouTrackDBOpenTelemetry` node (per `design-mechanics.md` "the only new public-API method this feature adds"); added one dependency arrow `YouTrackDBOpenTelemetry ..> SkinnySpanFilterProcessor : wraps BatchSpanProcessor in YTDB-owned SDKs (D46)`. The §"Class Design" References footer already listed D46 (from M71), so no footer change was needed. (2) "Query span lifecycle in embedded" `sequenceDiagram`: added `db.youtrackdb.duration_semantics` (M69) to the enrich-path `setAttribute(...)` list, placed before `db.youtrackdb.profile.enabled`, since that attribute is set on every span at the fire site under both EXACT and LIGHTWEIGHT modes per the Sem-conv table. Deliberately NOT changed: the M70 `YTDBContextKeys.QUERY_TAG` tag-stamping is an internal Context-derivation detail the sequence diagram abbreviates; its omission is no contradiction, so it was left out of scope.
+
+**Mechanical checks** (target=design): PASS — 0 blockers, 2 should-fix. Both should-fix (Overview length cap on L4, top-level `##` section cap on L1) are pre-existing house-style debt carried forward unchanged since M66; neither sits at an edited line and the diff introduces neither.
+**Cold-read** (scope: bounded): SKIPPED — same rationale as the M65 diagram-staleness fix. The edits are additive diagram-only renderings with no narrative restructuring; every new diagram token (`SkinnySpanFilterProcessor`, `skinnySpanFilter`, the D46 arrow label, `db.youtrackdb.duration_semantics`) resolves to an existing prose mention elsewhere in `design.md` (verified by grep: 13 / 6 / 8 total mentions respectively) or in `design-mechanics.md §"Bundled skinny-span filter"`. The new Mermaid constructs mirror constructs already rendering in the same diagram (`<<…>>` stereotype, `-`/`+` members, `$` static suffix, `..>` labeled dependency, `class { }` block); the classDiagram block stays brace-balanced (33 open / 33 close). Re-running cold-read at bounded scope adds no signal beyond the verified prose-vs-diagram consistency.
+
+**Findings**:
+- 0 blockers introduced.
+- 2 surviving should-fix are pre-existing house-style debt (Overview length cap, top-level section cap), untouched by this mutation.
+
+Surviving residual findings: 2 pre-existing house-style should-fix items — carried forward as known doc debt.
+
+**Iterations**: 1 of 3 (PASS).
+
+## Mutation 73 — 2026-06-08 — content-edit (design.md)
+
+**Diff summary**: Readability rewrite of three paragraphs in §"Sem-conv attribute mapping" after the user flagged two of them as hard to parse ("nie rozumiem" on the `full_scan` multi-leaf paragraph; "pojawia się znikąd" on the Cardinality policy paragraph). No decisions change — same mechanism, clearer prose. (1) The `db.youtrackdb.advisor.full_scan` multi-leaf paragraph was split into three: it now opens by stating the reduce rule (`true` beats `false` beats `empty`) with a worked `SELECT FROM Person WHERE id = ? UNION SELECT FROM Company` example, then a standalone carve-out paragraph for the plan-unavailable cases (`computeScript` scripts, `EXPLAIN`/`PROFILE` wrappers, abandoned result-sets), then a Gremlin-parity paragraph; the prior single run-on stated the precedence twice (symbolic `>` then if-chain) with no example. (2) The "Cardinality policy." paragraph was rewritten to actually define the "closed key set" the legend at L522 forward-references, and to separate the two cardinality axes the prior version tangled — number of distinct keys (closed set + the one `embedded_sql.N` multi-key cap) vs distinct values per key (the four bounded shapes), with the host-discipline shape called out as the deliberate exception. (3) The advisor-foundation intro paragraph (L536) absorbed the relocated dashboard-consumption sentence ("operators with custom dashboards can already filter on them ahead of the Phase 2 dashboard"), which previously dangled at the tail of the `full_scan` paragraph with a "both flags" reference that pointed back across two paragraphs. The cold-read should-fix below ("from the legend" dangling reference) was resolved in the same mutation.
+
+**Mechanical checks** (target=design, scope=bounded): PASS — 0 blockers, 5 should-fix. All five are pre-existing house-style debt outside the edited lines: Overview length cap (L4), top-level `##` section cap (L1), and three `dsc-ai-tell` findings carried forward unchanged (em-dash density on the "Args handling for parameterized queries" paragraph L605; fragmented headers on the vendor-attributes intro TL;DR L516/518 and the Gremlin-DSL-passthrough heading L568/570). The three rewritten paragraphs are em-dash-free and introduced no findings.
+**Cold-read** (scope: bounded): PASS after one iteration. Verdict YES on the working-mental-model question; no hard dangling references (verified "the taxonomy above" → per-leaf bullets two lines up, "Both" → `cross_class_count` + `full_scan`, "these attributes" → `db.youtrackdb.*`). One should-fix: the rewrite's phrase "the four shapes from the legend" referenced an element not labeled "legend"; resolved in-iteration by changing it to "the four bounded shapes (...)", matching the wording at L518/L522. One suggestion (NOT applied per the suggestion-not-retried rule): the inline `(Phase 2 follow-up per D42)` aside at L536 should move to the References footer — pre-existing condition, the section already carries sibling inline asides (`(D40)`, `per D19`, `per D39`), out of this mutation's scope.
+
+**Findings**:
+- 0 blockers introduced.
+- 1 should-fix introduced by the rewrite and resolved in-iteration ("from the legend" → "four bounded shapes").
+- 5 surviving should-fix are pre-existing house-style debt (Overview length, top-level cap, three `dsc-ai-tell`), none at edited lines.
+- 1 suggestion recorded, not applied (inline `per D42` aside relocation, pre-existing, out of scope).
+
+Surviving residual findings: 5 pre-existing house-style should-fix items + 1 recorded suggestion — carried forward as known doc debt.
+
+**Iterations**: 1 of 3 (PASS).
+
