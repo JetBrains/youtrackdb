@@ -27,9 +27,14 @@ agent-definition edits across two different staging prefixes
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-08T07:50Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
+- [x] 2026-06-08T09:12Z [ctx=safe] Step 1 complete (commit 41ad9ff4f6)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-06-08T09:12Z Step 1 closed Track 3's open dispatch-site end: the reviewer
+  fan-out in `step-implementation.md` / `track-code-review.md` now supplies the
+  output path plus the per-dimension high-water-mark, so reviewers no longer fall
+  back to starting at `<PREFIX>1`. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -189,12 +194,57 @@ REGRESSION row exists at initial review (R3).
 
 ## Concrete Steps
 
-1. Router model, orchestrator side (D1+D4+D5): rewrite the tactical-review orchestration in `step-implementation.md` + `track-code-review.md` to bucket on the manifest index, inject the per-spawn output path, run the §2.5 S4/S6 count-validation with the `CONTRACT_VIOLATION`-to-implementer fallback (A1), and host the relocated bucketing / in-scope-classification / pre-spawn-budget functions reconciled against the existing inline budget check in `track-code-review.md` (R1); rewrite `finding-synthesis-recipe.md` to manifest-only routing: drop the five `M<n>` coupling sites, replace the OVERRIDE with the upgrade-only `basis` scan, move the `BC3` override to the manifest `id` (T1, S2); reconcile `review-iteration.md`'s `§Gate-check synthesis routing` + `§Verdict handling` REJECTED-VERDICT references — risk: high (workflow machinery: load-bearing review-iteration + tactical-routing control-flow protocol)  [ ]
+1. Router model, orchestrator side (D1+D4+D5): rewrite the tactical-review orchestration in `step-implementation.md` + `track-code-review.md` to bucket on the manifest index, inject the per-spawn output path, run the §2.5 S4/S6 count-validation with the `CONTRACT_VIOLATION`-to-implementer fallback (A1), and host the relocated bucketing / in-scope-classification / pre-spawn-budget functions reconciled against the existing inline budget check in `track-code-review.md` (R1); rewrite `finding-synthesis-recipe.md` to manifest-only routing: drop the five `M<n>` coupling sites, replace the OVERRIDE with the upgrade-only `basis` scan, move the `BC3` override to the manifest `id` (T1, S2); reconcile `review-iteration.md`'s `§Gate-check synthesis routing` + `§Verdict handling` REJECTED-VERDICT references — risk: high (workflow machinery: load-bearing review-iteration + tactical-routing control-flow protocol)  [x] commit: 41ad9ff4f6
 2. Implementer contract reconciliation, D1 implementer side, in `implementer-rules.md`: the per-iteration implementer reads bodies by anchor (never the evidence base), reconciles cross-dimension framings at the code level, and carries `DESIGN_DECISION_NEEDED` context forward; the `findings:`/`FIX_NOTES` reconciliation is exactly two edits (flip `what_was_fixed` to per-dimension IDs, verify `what_was_skipped`) and must not narrow the four-outcome `level=track` RESULT enum (A2) — risk: high (workflow machinery: implementer read/return contract, S1-load-bearing)  [ ]
 3. Consumer reconciliation + residual cleanup: confirm `review-mode.md`'s `FIX_FINDING`/`SKIP_TRACK` references stay coherent post-`M<n>`-removal (T1), reconcile the residual "synthesised finding list" / "synthesis severity scale" language in the already-per-dimension `dimensional-review-gate-check.md` (T2, R2), and verify `code-review-protocol.md`'s by-file pointer to `finding-synthesis-recipe.md` still resolves after the rewrite (T2) — risk: medium (workflow machinery, bounded: gate-check prompt residual-language reconcile, borderline prose-only) — size: ~3 files; no mergeable low/medium work (rest of track is high)  [ ]
 
 ## Episodes
 <!-- Continuous-log. -->
+
+### Step 1 — commit 41ad9ff4f6, 2026-06-08T09:12Z [ctx=safe]
+**What was done:** Rewrote `finding-synthesis-recipe.md` from in-context dedup
+plus `M<n>` minting to manifest-only routing. Recipe Step 1 now runs the §2.5
+ID-anchored count grep and routes a `CONTRACT_VIOLATION` whole-section fallback to
+the implementer (A1), then `loc`-collapses the manifest index non-destructively
+with REGRESSION rows held out (S3). Recipe Step 2 replaces the two-way severity
+OVERRIDE with an upgrade-only `basis` backstop (D4). Recipe Step 3 matches a
+Review-mode override against the reviewer `id` directly (T1, S2), with the
+`cert`/finding-body drill-down as the bounded S1 exception (R5). Removed the
+`M<n>` minting, the un-map, and the contributing-dimensions audit trail (D5).
+Injected the per-spawn output path and per-dimension high-water-mark at the
+reviewer fan-out dispatch sites in `step-implementation.md` and
+`track-code-review.md`, reconciled both synthesis sections to manifest routing,
+and cross-pointed the duplicate budget check in `track-code-review.md` to the
+recipe so neither home is orphaned (R1). Reconciled `review-iteration.md`'s
+REJECTED-VERDICT and gate-check-synthesis references with the removed merge layer.
+
+**What was discovered:** The output-path injection drives the reviewer fan-out
+(turning on Track 3's file+manifest output), not the implementer template; the
+implementer receives review-file paths via the existing `findings:` field. Track
+3's agent §Output routing had left an open end ("no dispatch site supplies a
+hand-back, so start at `<PREFIX>1` until one does"); this step is that dispatch
+site, supplying both the output path and the initial-review high-water-mark, which
+closes it. The `~15`/`~10` budget ceiling has two homes (recipe §Step 4 rationale
+plus `track-code-review.md` §Review-loop enforcement); R1 resolves by
+cross-pointing them rather than collapsing to one. The Phase 4 flag stands (A2):
+`design-final.md` must reconcile the design body's "`SUCCESS` or
+`DESIGN_DECISION_NEEDED`" narrative against the four-outcome `level=track` RESULT
+enum, and the recipe's renamed sections are the new cross-reference targets.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/finding-synthesis-recipe.md` (new — staged, near-complete rewrite to manifest-only routing)
+- `…/staged-workflow/.claude/workflow/step-implementation.md` (modified — staged, reviewer fan-out dispatch injection)
+- `…/staged-workflow/.claude/workflow/track-code-review.md` (new — staged, synthesis manifest-routing + R1 budget reconcile)
+- `…/staged-workflow/.claude/workflow/review-iteration.md` (new — staged, verdict-handling + synthesis-routing reconcile)
+
+**Critical context:** Step 2 (`implementer-rules.md`) must flip the
+`what_was_fixed` claim that "per-dimension IDs are orchestrator-internal, not
+visible to the implementer" — the implementer is now handed per-dimension anchors
+(`BC3`, `CQ7`) directly. Step 3 must reconcile `dimensional-review-gate-check.md`'s
+residual "synthesised finding list" / "synthesis severity scale" language and
+confirm `review-mode.md`'s `FIX_FINDING` triple stays coherent (its payload has no
+`M<n>`). The recipe keeps its filename, so `code-review-protocol.md`'s by-file
+pointer still resolves (step-3 verify-only).
 
 ## Validation and Acceptance
 
