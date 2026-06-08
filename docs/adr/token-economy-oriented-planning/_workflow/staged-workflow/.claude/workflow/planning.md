@@ -448,19 +448,19 @@ autonomous changes bundled into one track stay autonomous and carry no
 interaction, so reviewing them together costs no more than reviewing them
 apart; internal thematic coherence is not a sizing criterion.
 
-*Packing order — prefer overlap at the tie.* Among candidate units that fit
+*Prefer overlap at the tie.* Among candidate units that fit
 under the ceiling, prefer the one overlapping the track's current in-scope file
 set (the files named in its `## Interfaces and Dependencies`). An overlapping
 unit spends less of the footprint budget, so more change fits before the
 ceiling forces a new track and its review fan-out, and it avoids a later
 cross-track re-read of the shared file. When no candidate overlaps, pack and
-maximize anyway, related or not, exactly as *Maximize first* says — removing a
+maximize anyway, related or not, exactly as *Maximize first* says. Removing a
 track's review fan-out is the dominant saving whether or not the packed units
 share files. This is a tie-breaker on packing order, subordinate to the
 mergeability and footprint bounds; it never shrinks a track below what the
 ceiling allows, and it is not a sizing or relatedness criterion.
 
-*Cut seam — prefer the least-shared seam, then order adjacent.* When the
+*Prefer the least-shared seam, then order adjacent.* When the
 ceiling or a dependency forces a cut, "Prefer a dependency boundary as the cut"
 above stays primary and wins any disagreement. Among otherwise-equal cuts,
 prefer the seam that shares the fewest files, so a file does not straddle two
@@ -469,9 +469,10 @@ genuinely cannot be co-located, because the ceiling, a dependency, or
 independent mergeability forbids it, order the two resulting tracks adjacent so
 rebase distance is minimal and the orchestrator's cross-track impact read of
 the shared file is freshest. Adjacency between tracks that cannot share an agent
-removes no review fan-out, so it is the marginal fallback, not the goal.
+removes no review fan-out, so prefer co-location and adjacency where the bounds
+permit; treat adjacency between unmergeable tracks as the residual fallback.
 
-*Overlap-split justification.* When the planner must split overlapping files
+*Justify any overlap-split.* When the planner must split overlapping files
 across non-adjacent tracks, it writes the reason in the track file — the same
 written justification an out-of-bounds footprint already carries (the
 *Argumentation gate* below). The Phase 2 structural review flags an undocumented

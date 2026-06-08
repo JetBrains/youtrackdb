@@ -210,16 +210,24 @@ TRACK SIZING
   out-of-bounds track passes; an undocumented one is a `design-decision`
   finding (see the `design-decision` triage below). *(plan-file only — the
   Scope line lives in the plan checklist)*
-- Do two non-adjacent tracks share in-scope files with no written reason for
-  the split? The `## Interfaces and Dependencies` file lists you already read
-  for the footprint check reveal cross-track overlap; apply judgment to them
-  (no automated intersection is computed). Overlap-aware packing prefers
+- Do two tracks that are not consecutive in the plan's track ordering share
+  in-scope files with no written reason for the split? Read each pending
+  track's `## Interfaces and Dependencies` in-scope list (the same lists the
+  TRACK DESCRIPTIONS checks above read for description completeness) and
+  compare them pairwise — they reveal cross-track overlap; apply judgment to
+  them (no automated intersection is computed). Overlap-aware packing prefers
   co-locating shared files in one track, or, when a cut is forced, ordering
-  the sharing tracks adjacent. A split that scatters shared files across
-  non-adjacent tracks with no justification in the track file is a
+  the sharing tracks consecutively. A split that scatters shared files across
+  non-consecutive tracks with no justification in the track file is a
   `design-decision` finding — the same class and severity as an undocumented
-  out-of-bounds track. A documented split passes. *(cross-file: read each
-  track's `## Interfaces and Dependencies` in-scope list)*
+  out-of-bounds track (see the `design-decision` triage below). A documented
+  split passes. When a track stopped below the ceiling with a mergeable
+  autonomous unit unpacked (the maximization case in the first bullet above)
+  is the *same* pair as the overlap-split, file one finding under the
+  maximization clause and note the overlap as its motivation; file the
+  overlap-split separately only when the sharing tracks are not that under-fill
+  pair. *(cross-file: read each track's `## Interfaces and Dependencies`
+  in-scope list)*
 - Does any track's description cover work that would naturally split into
   distinct phases with internal sequencing? If so, splitting into
   dependent tracks would give better just-in-time decomposition.
@@ -436,9 +444,12 @@ ANY of these triggers `design-decision`:
   rule (over the `~20-25` ceiling, under the `~12` floor and folding into a
   neighbor, or stopped below the ceiling with a mergeable autonomous unit
   left unpacked) that carries **no written justification** in its track
-  file. Where the split goes, whether the fold is safe, and whether the
-  track is genuinely complete are planner judgments, so the user picks. A
-  documented out-of-bounds track is not a finding.
+  file; or two tracks that are not consecutive in the plan's track ordering
+  sharing in-scope files with no written reason for the split. Where the
+  split goes, whether the fold is safe, whether the track is genuinely
+  complete, and whether the shared files can be co-located are planner
+  judgments, so the user picks. A documented out-of-bounds track or a
+  documented overlap-split is not a finding.
 - **Track contradictions** — Track 1 assumes X, Track 3 assumes
   not-X. Which is right is a design call.
 - **Missing Decision Record** for a non-obvious choice. The user has
