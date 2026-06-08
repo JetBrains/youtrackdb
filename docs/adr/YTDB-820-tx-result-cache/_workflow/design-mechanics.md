@@ -78,6 +78,74 @@ stream-pullable cache row that sorts earlier. Materializing the next stream
 row before consulting `delta_head` is the load-bearing step that holds this
 invariant.
 
+### MATCH multi-alias (partial Etap B in v1)
+
+Full `DeltaBuilder.buildForMatchMulti(entry, tx, ctx)` pseudocode. The matching
+`design.md` MATCH multi-alias section keeps the overview, field definitions, and the
+covers / does-not-cover prose. Two-pass with a tombstone short-circuit; the
+populate-version filter (D21) applies symmetrically, so only post-populate mutations
+enter the build.
+
+```
+1. Snapshot filtered recordOps:
+   snapshot = tx.recordOperations.values().stream()
+              .filter(op -> op.version > entry.populateMutationVersion)
+              .toList()
+
+2. Tombstone-trigger pre-scan:
+   for op in snapshot:
+     cls = op.record's schema class name (Entity-guarded; non-Entity skips this op)
+     if cls not in entry.effectiveFromClasses: continue
+     // CREATE of any class can introduce a tuple the skip-only delta cannot inject;
+     // an edge-class DELETE cannot be dropped incrementally (unbound edge RID untracked).
+     if op.type == CREATED
+        or (op.type == DELETED and cls is an edge class in effectiveFromClasses):
+       entry.tombstoned = true
+       return TOMBSTONE  // signal lookup to evict + miss
+
+3. Build per-tuple skip set + per-RID skip set:
+   tupleSkipSet = new HashSet<Integer>()
+   ridSkipSet = new HashSet<RID>()
+   for op in snapshot:
+     class-filter via effectiveFromClasses; skip if no match
+     rid = op.record.rid
+     affectedTuples = reverseIndex.get(rid)  // may be empty
+     if op.type == DELETED:
+       tupleSkipSet.addAll(affectedTuples)
+       ridSkipSet.add(rid)
+     elif op.type == UPDATED:
+       // (a) Update-into-match: a record now matching an alias WHERE it did not bind
+       // may form new tuples a skip-only delta cannot inject. Gated on the alias having
+       // a WHERE (a no-WHERE alias always matched, so a property update adds no binding).
+       for alias in aliasClasses.keySet():
+         if aliasWheres[alias] != null and op.record's class in aliasClasses[alias]
+            and not rid-binds-alias(rid, alias)
+            and aliasWheres[alias].matchesFilters(op.record, ctx):
+           entry.tombstoned = true
+           return TOMBSTONE
+       // (b) Pass→fail drop for roles the record already binds (vertex or bound edge).
+       for tupleIndex in affectedTuples:
+         // find which alias(es) bind this rid in this tuple
+         for alias in aliasClasses.keySet():
+           if rid binds to alias in tuple[tupleIndex]:
+             if !aliasWheres[alias].matchesFilters(op.record, ctx):
+               tupleSkipSet.add(tupleIndex)
+               break  // one failing alias is enough to drop the tuple
+       ridSkipSet.add(rid)  // also suppress stream-pull-append re-emission of this RID
+       // ridSkipSet on UPDATED guards against the stream emitting a tuple containing
+       // this rid where storage hasn't yet seen the in-tx update — the WHERE check
+       // would pass on stale storage state but fail on post-update state, and the
+       // tuple wouldn't exist in fresh re-execution.
+
+4. Return MatchMultiDelta(tupleSkipSet, ridSkipSet).
+```
+
+The step-2 pre-scan returns before the step-3 skip-set build, so step 3's `DELETED`
+branch only ever sees vertex deletes (edge-class deletes already tombstoned in step 2).
+`rid-binds-alias(rid, alias)` resolves from the cached tuple `Result` at
+`entry.results[i]` via `getProperty(alias)`. The skip sets tie back to invariant I4
+(view output equals fresh-execution composed with the tx-delta-applied snapshot).
+
 ### References
 
 The above pseudocode is referenced from `design.md § Lazy merge-on-read`
