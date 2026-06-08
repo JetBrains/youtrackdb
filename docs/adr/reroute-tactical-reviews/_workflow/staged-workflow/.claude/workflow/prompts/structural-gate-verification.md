@@ -96,7 +96,7 @@ review-file schema's **verdict-producer variant** (`conventions-execution.md`
 `§2.5` → Verdict-producer manifest variant, the single source of truth) and
 return only the thin manifest; the orchestrator partial-fetches on disk.
 When no path is supplied (the develop-state run), return the output inline
-exactly as below — byte-for-byte today's format. This prompt is a verdict
+exactly as below, byte-for-byte today's format. This prompt is a verdict
 producer: it emits per-prior-finding verdicts plus an overall `PASS`/`FAIL`,
 not a fresh severity-graded finding set, so the manifest's `findings` count
 and `## Findings` anchors cover only the **new** findings the re-scan

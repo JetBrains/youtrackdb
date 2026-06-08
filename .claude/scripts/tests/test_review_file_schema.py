@@ -106,13 +106,26 @@ def count_anchors(text: str) -> int:
     return sum(1 for line in text.splitlines() if _ANCHOR_RE.match(line))
 
 
+# Matches the MANIFEST comment block: from `<!-- MANIFEST` to its closing
+# `-->`. Scoping the findings search to this span reads the count
+# structurally rather than relying on the manifest happening to be the
+# first `findings:` occurrence in the file (a fixture's descriptive
+# comment block also mentions `findings: <N>` in prose).
+_MANIFEST_BLOCK_RE = re.compile(r"<!--\s*MANIFEST\b(.*?)-->", re.DOTALL)
+
+
 def manifest_findings_count(text: str) -> int:
     """Read the manifest `findings:` count from the MANIFEST comment block.
 
-    The first `findings: <N>` occurrence is the manifest count. Returns -1
-    when absent so the caller can flag a malformed manifest.
+    Scope the search to the text between the first `<!-- MANIFEST` and its
+    closing `-->`, then read the `findings: <N>` field inside that block.
+    Returns -1 when the manifest block is absent or carries no `findings:`
+    field, so the caller can flag a malformed manifest.
     """
-    m = _FINDINGS_RE.search(text)
+    block = _MANIFEST_BLOCK_RE.search(text)
+    if not block:
+        return -1
+    m = _FINDINGS_RE.search(block.group(1))
     return int(m.group(1)) if m else -1
 
 

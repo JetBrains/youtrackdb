@@ -13,12 +13,13 @@
 | §Gate verification | orchestrator | 2 | Confirming the consistency reviewer's PASS is well-formed. |
 | §Autonomous orchestration loop | orchestrator | 2 | The iterate-until-PASS loop the orchestrator runs autonomously. |
 | §Review output | reviewer-plan | 2 | Shape of the consistency review report. |
+| §Strategic review output path | orchestrator | 2 | The per-spawn review_file_path the orchestrator injects at the Phase 2 dispatch sites and partial-fetches from. |
 | §Step 2: Structural Review | orchestrator,reviewer-plan | 2 | The structural pass: section shape, budgets, bloat. |
 | §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
 | §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
 | §Gate verification | orchestrator | 2 | Confirming the consistency reviewer's PASS is well-formed. |
 | §Autonomous orchestration loop | orchestrator | 2 | The iterate-until-PASS loop the orchestrator runs autonomously. |
-| §Review output | reviewer-plan | 2 | Shape of the consistency review report. |
+| §Review output | reviewer-plan | 2 | Shape of the structural review report. |
 | §Mechanical vs. design-decision classifier | orchestrator | 2 | Deciding whether a finding the orchestrator can fix or must escalate. |
 | §`mechanical` — orchestrator applies the fix without asking | orchestrator | 2 | Fixes the orchestrator applies directly with no user input. |
 | §`design-decision` — orchestrator escalates to the user | orchestrator | 2 | Findings that change design and require user choice. |
@@ -336,7 +337,12 @@ fetch.
 The orchestrator still ingests `## Findings` (its consumer is the
 planner revising the plan, not an implementer), so the strategic side
 keeps the partial-fetch; the on-disk win is the evidence base staying
-off-context, not the findings themselves.
+off-context, not the findings themselves. Before trusting the manifest
+index the orchestrator validates the manifest `findings` count against
+`grep -cE '^### [A-Z]+[0-9]+ '` (the `§2.5` S4 check); on a
+`CONTRACT_VIOLATION` flag or a count mismatch it falls back to a
+whole-section read of the file rather than the partial-fetch (the
+orchestrator/planner owns the strategic fallback per `§2.5`).
 
 ---
 

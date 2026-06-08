@@ -560,7 +560,7 @@ orchestrator believes the user meant.
 
 **`FIX_FINDING` is exempt from the review-file coverage rule (S5).**
 The bulk-producer coverage rule in
-conventions-execution.md:orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-panel:2,3A,3B,3C,4
+conventions-execution.md:orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial:2,3A,3B,3C,4
 `§2.5` requires every bulk-producing sub-agent class to write a
 file-plus-manifest review file or carry an `exempt because…`
 annotation. `FIX_FINDING` is **exempt because** its finding triples are

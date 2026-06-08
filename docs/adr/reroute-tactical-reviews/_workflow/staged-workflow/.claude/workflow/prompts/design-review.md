@@ -19,7 +19,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
-| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, navigability, and explanatory-register checks; reviewer tone relaxes to quote evidence. |
+| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
 | §Structural findings (always check) | reviewer-design | 1,4 | Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics. |
@@ -187,8 +187,8 @@ review-file coverage rule (`conventions-execution.md` `§2.5` → Coverage
 (S5)). When the spawn supplies `output_path`, write the full Markdown
 below to that path and return only a short summary (the **Verdict** line
 plus the blocker/should-fix count) so the caller pulls the detail on
-demand. When `output_path` is **absent** — the Phase 1 `phase1-creation`
-cold-read and every interactive mutation kind — return the full Markdown
+demand. When `output_path` is **absent** (the Phase 1 `phase1-creation`
+cold-read and every interactive mutation kind), return the full Markdown
 inline exactly as below, **byte-for-byte today's format**: the no-path
 branch is unchanged, so the `phase1-creation` invocation stays exempt.
 The cold-read emits a comprehension assessment and a verdict, not a

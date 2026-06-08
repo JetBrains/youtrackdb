@@ -504,7 +504,7 @@ review-mode rounds.
      exists in the 14-section per-track shape.
    - Each strategic panel reviewer writes its findings to a committed
      review file in the
-     conventions-execution.md:orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-panel:2,3A,3B,3C,4
+     conventions-execution.md:orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial:2,3A,3B,3C,4
      `§2.5` schema (under `_workflow/plan/track-N/reviews/` per the `§2.1`
      review-file lifecycle), so the committed file is the durable record
      of what the review found. What stays off the orchestrator's
@@ -638,7 +638,7 @@ instead of restating them.
 | `codebase_path` | Absolute path to the repository root — the sub-agent may Read any file under this path to validate code references. |
 | `prior_episodes` | Summary of track episodes from already-completed tracks. The episodes themselves also appear in the slim plan snapshot pointed at by `plan_path`, but they are passed as a **separate** value so each review prompt's `{prior_episodes}` placeholder resolves without forcing the sub-agent to re-parse the plan. Used for cross-track consistency checks. |
 | `previous_findings` | Findings from earlier iterations of the same review type (empty on iteration 1; populated on iterations 2–3). Used to avoid re-surfacing already-accepted/deferred findings and to verify that review-fix commits resolved prior findings. |
-| `review_file_path` | Absolute path the sub-agent writes its structured output to, in the review-file schema (`conventions-execution.md` `§2.5`). The orchestrator points it at `docs/adr/<dir-name>/_workflow/plan/track-N/reviews/<type>-iter<N>.md` — the `§2.1` lifecycle home — where `<type>` is the review type (`technical` / `risk` / `adversarial`, or `review-gate-verification`) and `<N>` is the iteration, so each fan-out unit writes a distinct file. The sub-agent `mkdir -p`s the `reviews/` directory and writes the file in file-when-handed-a-path mode (see each prompt's output-mode block); the develop-state run that supplies no path falls back to today's inline output. |
+| `review_file_path` | Absolute path the sub-agent writes its structured output to, in the review-file schema (`conventions-execution.md` `§2.5`). The orchestrator points it at `docs/adr/<dir-name>/_workflow/plan/track-N/reviews/<type>-iter<N>.md` — the `§2.1` lifecycle home — where `<type>` is the review type (`technical` / `risk` / `adversarial`, or the per-type gate-verification form `<review_type>-gate-verification`, i.e. `technical-gate-verification` / `risk-gate-verification` / `adversarial-gate-verification`) and `<N>` is the iteration, so each fan-out unit writes a distinct file. The gate-verification filename is parameterized by `<review_type>` so the three per-type gate-verifications in one iteration do not collide on a single name. The sub-agent `mkdir -p`s the `reviews/` directory and writes the file in file-when-handed-a-path mode (see each prompt's output-mode block); the develop-state run that supplies no path falls back to today's inline output. |
 
 Phase A orchestration always passes both `plan_path` and
 `step_file_path` to each sub-agent. Prompts that read the track
@@ -656,7 +656,12 @@ Because each panel reviewer now writes its findings to the committed
 orchestrator reads them back with a partial fetch of the file's
 `## Findings` section (the `§2.5` schema's body) rather than receiving
 the bodies in its conversation context. The reviewer's thin return is
-the manifest only. This is the strategic side of the routing split:
+the manifest only. Before trusting the manifest index, the orchestrator
+validates the manifest `findings` count against `grep -cE '^### [A-Z]+[0-9]+ '`
+(the `§2.5` S4 check); on a `CONTRACT_VIOLATION` flag or a count
+mismatch it falls back to a whole-section read of the file rather than
+the partial-fetch (the orchestrator/planner owns the strategic
+fallback per `§2.5`). This is the strategic side of the routing split:
 the orchestrator still ingests `## Findings` (its consumer is the
 planner revising the track file, not an implementer), so it keeps the
 partial-fetch — the on-disk win is the evidence base (`## Evidence
@@ -674,9 +679,13 @@ which carries finalised findings from earlier iterations) and a
 shared set because the track-scoped reviews do not consume them; the
 gate-verification mini-section below notes their role. The
 gate-verification spawn also receives its own `review_file_path` from
-the shared set above — pointed at the `<type>-iter<N>.md` slot for its
-re-check pass — and writes the verdict-producer manifest variant
-(`§2.5`), which the orchestrator partial-fetches the same way; only its
+the shared set above, pointed at the per-type
+`<review_type>-gate-verification-iter<N>.md` slot for its re-check pass
+(e.g. `technical-gate-verification-iter2.md`), so the technical, risk,
+and adversarial gate-verifications in one iteration each write a
+distinct file. The gate-verification then writes the verdict-producer
+manifest variant (`§2.5`), which the orchestrator partial-fetches the
+same way; only its
 *new* findings live under `## Findings`, while the per-prior-finding
 `VERIFIED` / `STILL OPEN` / `REJECTED` verdicts ride the manifest's
 `verdicts` block.

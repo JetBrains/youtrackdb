@@ -10,7 +10,11 @@
 | §2.2 Episode Formats | orchestrator | 3A,3B,3C | The three episode types (step completion, step failed, track episode) and their field sets; full rules elsewhere. |
 | §2.3 Ephemeral identifier rule — pointer | implementer,final-designer | 3B,3C,4 | Quick recap of the ephemeral-identifier rule plus the pre-commit gate regex; full rule in the dedicated file. |
 | §2.4 Commit messages, code review, complexity, decomposition | orchestrator | 3A,3B,3C | On-demand pointers to commit conventions, the code-review protocol, complexity tiers, and decomposition rules. |
-| §2.5 Review-file schema, count validation, and coverage | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-panel | 2,3A,3B,3C,4 | The canonical manifest-plus-sections review-file schema, the ID-anchored count-validation grep (S4/S6), the verdict-producer variant, and the bulk-producer coverage rule (S5). |
+| §2.5 Review-file schema, count validation, and coverage | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5). |
+| §Manifest-plus-sections file | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields. |
+| §Anchored addressing and count validation (S4/S6) | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback. |
+| §Verdict-producer manifest variant | orchestrator,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate. |
+| §Coverage (S5) | decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection. |
 
 <!--Document index end-->
 
@@ -269,7 +273,7 @@ merge (see `conventions.md` `§1.2` for the full lifecycle and
 `workflow.md` § Final Artifacts for the cleanup procedure).
 
 #### Review-file lifecycle
-<!-- roles=orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-panel phases=2,3A,3B,3C,4 summary="Review files are plan-directory artifacts written and committed at reviewer-return under plan/track-N/reviews/, swept by the Phase 4 cleanup; the thin episode-block shape and the plan/* glob caution." -->
+<!-- roles=orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Review files are plan-directory artifacts written and committed at reviewer-return under plan/track-N/reviews/, swept by the Phase 4 cleanup; the thin episode-block shape and the plan/* glob caution." -->
 
 Review files (the manifest-plus-sections files defined in `§2.5`) are
 **plan-directory artifacts**, not `.claude/` files, so they never touch
@@ -467,15 +471,16 @@ at session startup. Load on demand:
 ---
 
 ## 2.5 Review-file schema, count validation, and coverage
-<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-panel phases=2,3A,3B,3C,4 summary="The canonical manifest-plus-sections review-file schema, the ID-anchored count-validation grep (S4/S6), the verdict-producer variant, and the bulk-producer coverage rule (S5)." -->
+<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5)." -->
 
 This subsection is the **single source of truth** for the review-file
-schema every bulk-producing sub-agent writes. Other documents — the
+schema every bulk-producing sub-agent writes. Other documents (the
 strategic and dimensional reviewer prompts, the orchestrator routing,
-the implementer's anchor-read — cite this subsection rather than
+the implementer's anchor-read) cite this subsection rather than
 restating the schema.
 
 ### Manifest-plus-sections file
+<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields." -->
 
 A bulk-producing sub-agent persists its structured output to a file at a
 spawn-supplied path and returns only the manifest. The file opens with an
@@ -538,6 +543,7 @@ manifest-level (not per-finding): `evidence_base` summarises the
 and `flags` carries `CONTRACT_OK` or `CONTRACT_VIOLATION`.
 
 ### Anchored addressing and count validation (S4/S6)
+<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback." -->
 
 Addressing keys on **stable heading anchors** (`^### BC1 `, `^#### C3 `),
 which survive minor format drift; a line offset, when present, is an
@@ -575,8 +581,8 @@ Because the grep counts heading lines only, a reader validates without
 ingesting any body, so the no-bodies invariant holds through validation
 (S6).
 
-**CONTRACT_VIOLATION fallback.** On a count mismatch — the manifest
-`findings` count differs from the grep count — the manifest carries a
+**CONTRACT_VIOLATION fallback.** On a count mismatch (the manifest
+`findings` count differs from the grep count), the manifest carries a
 `CONTRACT_VIOLATION` flag and the reader falls back to a whole-section
 read. The fallback owner differs by routing class: the implementer for
 tactical reviews, the orchestrator or planner for strategic reviews. The
@@ -589,6 +595,7 @@ manifest; the count grep returns 0, validation passes, and the
 orchestrator routes on counts without spawning an implementer.
 
 ### Verdict-producer manifest variant
+<!-- roles=orchestrator,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate." -->
 
 A **gate-verifying** strategic reviewer (the plan/decomposition
 gate-verification prompts — `consistency-gate-verification.md`,
@@ -621,6 +628,7 @@ A pure-verdict pass with no new finding writes `findings: 0` and an empty
 `## Findings`; the count grep returns 0 and validation passes.
 
 ### Coverage (S5)
+<!-- roles=decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection." -->
 
 Every bulk-producing sub-agent class either follows the file-plus-manifest
 rule above or carries an explicit `exempt because…` annotation stating
