@@ -338,7 +338,7 @@ flowchart TD
   > Carry the closed 15-value role enum and the three concrete panel roles
   > (`reviewer-technical`/`reviewer-risk`/`reviewer-adversarial`) into decomposition.
 
-- [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
+- [x] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
   > The 16 `review-*` dimensional agents gain path-conditional file+manifest
   > output (inline when no path, byte-for-byte today's format), self-assign
   > `<PREFIX><n>` IDs writing one `### <PREFIX><n>` anchored body per finding, and
@@ -346,9 +346,46 @@ flowchart TD
   > pure-standalone agents (`code-reviewer`, `pr-reviewer`,
   > `test-quality-reviewer`, `dr-audit`) carry the `exempt because…` annotation.
   > A uniform edit pattern applied across the dimensional set.
-  > **Scope:** ~20 files covering the 16 `.claude/agents/review-*.md` dimensional
-  > agents and the 4 standalone-exemption annotations
-  > **Depends on:** Track 1, Track 2
+  >
+  > **Track episode:**
+  > All 16 dimensional `review-*` agents now carry a path-conditional
+  > `## Output routing` section: handed an output path they write the §2.5
+  > file+manifest with `### <PREFIX><n>` anchors and return only the manifest; with
+  > no path they return their existing inline format byte-for-byte, so `/code-review`
+  > and `/fix-ci-failure` are untouched. The work split into two edit templates (DL1,
+  > not the planned single uniform edit, because the two agent families start from
+  > different inline formats): template A for the 10 code/test agents (a leading
+  > guard before the inline Output Format) and template B for the 6 workflow agents
+  > (the guard plus the inline `**<PREFIX><N>**` → `### <PREFIX><n>` migration on the
+  > file branch). The 4 standalone agents got the one-line `exempt because…`
+  > annotation (D9/S5). Three steps: canary `review-bugs-concurrency` (high),
+  > template-A bulk + 4 standalone exemptions (medium), template-B migration (high).
+  >
+  > Key discovery — ORCH-1: the canary's `cert`→`#### C<n>` cross-link contradicts
+  > the evidence-trail-exempt clause's empty `## Evidence base`; reconciled to
+  > `cert: n/a` for the 2 exempt code/test dims (CQ, TS) and carried to step 3's 4
+  > exempt workflow dims. The fixed evidence-base map for Track 4's routing: 10
+  > cert-writing dims, 6 evidence-trail-exempt with `certs: 0`.
+  >
+  > Phase C passed at iteration 1: workflow-only diff (baseline skipped); 5
+  > workflow-review agents fired (consistency, context-budget, prompt-design,
+  > instruction-completeness, writing-style; hook-safety did not, since no
+  > hooks/scripts/settings were touched). 0 blockers and 3 should-fix landed in one
+  > `Review fix:` (`3b6fe0de9b`): WC1 corrected the §2.5 S4/S6 grep-scope clause in
+  > the 6 exempt agents from the inverted "## Findings anchors only" to file-wide;
+  > WS1/WS2 cleared em-dash-cap violations in the 10 cert-writers' evidence-base
+  > bullet. Both gate-checks PASS, 0 regressions. 5 suggestions deferred
+  > (WP1/WP2/WP3/WI1/WB1), none routed to other tracks. Resume reflowed the
+  > multi-line-wrapped roster to single-line shape (the precheck substate scanner had
+  > masked the all-done state as steps-partial; whitespace-only).
+  >
+  > Cross-track: Track 4's index-bucketing tactical-routing consumer must tolerate
+  > `cert: n/a` / `certs: 0` from the 6 evidence-trail-exempt dimensions (it keys off
+  > `cert` for contested-finding drill-down). DL2 (whether the §2.5 `## Evidence base`
+  > survived-one-line / refuted-in-full body rendering belongs in §2.5 or stays
+  > stated inline per agent) is a Phase 4 design-final reconciliation candidate.
+  >
+  > **Track file:** `plan/track-3.md` (3 steps, 0 failed)
 
 - [ ] Track 4: Orchestrator tactical routing, severity backstop, and per-dimension addressing
   > Implements route-by-consumer for the tactical class: the orchestrator buckets

@@ -26,12 +26,13 @@ already cite the prefix table. The 4 standalone agents get a one-line exemption
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-08T05:23Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 - [x] 2026-06-08T05:54Z [ctx=safe] Step 1 complete (commit b0b9c93398e087a9955df62458b810910a40fbde)
 - [x] 2026-06-08T06:09Z [ctx=info] Step 2 complete (commit 9c8e8e01641fd280a2b8e878a376753ddf613b41)
 - [x] 2026-06-08T06:22Z [ctx=info] Step 3 complete (commit 87c0261f0a8e0c2492ba118cd7d39f8a377443b4)
 - [x] 2026-06-08T06:54Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-08T07:01Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -93,6 +94,20 @@ deliverable and out of Track 3 scope.
 - [x] Technical: PASS at iteration 2 (4 findings — 0 blocker, 2 should-fix, 2 suggestion; all accepted, applied as track-file corrections before decomposition)
 - [x] Risk: PASS at iteration 2 (6 findings — 0 blocker, 4 should-fix, 2 suggestion; all accepted; R5 canary + R6 additive-only fold into decomposition and Idempotence)
 - [x] Adversarial: PASS at iteration 2 (5 findings — 0 blocker, 4 should-fix, 1 suggestion; all accepted; A5 §2.5 evidence-body gap stated inline + recorded as DL2)
+- [x] Phase C (track-level code review): PASS at iteration 1. Workflow-only diff
+  (baseline skipped); 5 workflow-review agents fired (consistency, context-budget,
+  prompt-design, instruction-completeness, writing-style; hook-safety did not, since
+  no hooks/scripts/settings were touched). 0 blockers and 3 should-fix in one fix
+  iteration (`Review fix: 3b6fe0de9b`); both gate-checks (consistency, writing-style)
+  PASS, 0 new findings, 0 regressions. WC1 corrected the §2.5 S4/S6 count-grep clause
+  in the 6 evidence-trail-exempt agents (inverted "## Findings anchors only" to
+  file-wide `### <PREFIX><n>` anchors). WS1/WS2 cleared the em-dash cap in the 10
+  cert-writers' `## Evidence base` bullet. 5 suggestions deferred (WP1 anchor-tail,
+  WP2 metavariable casing, WP3 cert-anchor restatement, WI1 single-Phase cert source,
+  WB1 numbering verbosity), none routed to other tracks. Resume opened on a
+  multi-line-wrapped roster that defeated the single-line roster parser and masked
+  the all-done state as steps-partial; reflowed to single-line in `9f2424fade` before
+  review.
 
 ## Context and Orientation
 
