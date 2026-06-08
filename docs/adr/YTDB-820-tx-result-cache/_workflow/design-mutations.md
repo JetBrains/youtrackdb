@@ -1187,3 +1187,17 @@ Fragmented-header iteration fixes (three findings introduced by the above edits,
 
 **Iterations**: 1 of 3 (PASS — relocation applied, the reverse-ref should-fix cleared in the same round, mechanical re-run clean).
 
+## Mutation 34 — 2026-06-08 — structural-rewrite (design.md)
+
+**Diff summary**: Fixed a D21-collapse correctness hole in the AGGREGATE_* delta-build, the same class the RECORD path solved with `cached_at_build`. `applyMutation` dispatched on `op.type`, but `addRecordOperation` collapse keeps a pre-populate CREATE labelled CREATED while bumping its version past `populateMutationVersion`, so a CREATED op can carry a record already in `contributingValues` (observed by the blocking populate tap). A status-keyed dispatch misread it as brand-new and no-op'd on `match_after=false`, leaving a stale contributor and a wrong scalar / extremumRid — a silent wrong MIN/MAX/SUM/AVG/COUNT/COUNT_DISTINCT. Four coordinated edits: (1) a governing principle — every aggregate `applyMutation` derives `was_contributing = contributingValues.containsKey(rid)` (COUNT(*): `contributingRids.contains(rid)`) and `now_contributing = (status==DELETED) ? false : match_after`, dispatching on the `(was_contributing → now_contributing)` transition, with `op.type` used only to fold DELETED into now_contributing=false; (2) the MIN/MAX table reframed from `(op.type, match_after, was_extremum)` keys to transition keys (F→T / F→F / T→F / T→T), collapsing the two T→F deletes/leaves into one row so the O(n) count drops from three to two; (3) the COUNT_DISTINCT F→T / T→F triggers de-statused to membership; (4) I4 sharpened to require, per aggregate kind, a collapse-CREATE-already-contributing test. The fix covers all aggregate kinds (the original reviewer scoped it to MIN/MAX, but COUNT/SUM/AVG/COUNT_DISTINCT share the hole) and is cleaner than RECORD's, because the blocking tap makes `contributingValues` complete at populate, so no stream-pull unification is needed.
+
+**Mechanical checks** (target=design, scope=whole-doc): PASS — 0 blockers, 0 should-fix, 1 suggestion (`per-section-length` warn on § Lazy merge-on-read, under the 300 cap).
+
+**Cold-read** (scope: whole-doc): NEEDS REVISION → PASS after iteration. The reviewer confirmed the governing principle, the reframed MIN/MAX table (9 rows, exactly two O(n), matching the intro "only two" and the post-table "Both O(n) cases"), and the COUNT_DISTINCT triggers are internally consistent; that the reframe preserves every action of the old status-keyed table and additionally routes the collapsed-CREATE case correctly (`was_contributing=true` → T→F / T→T, never F→); and that SUM/AVG (already transition-framed) and COUNT(*) are covered by the governing principle, with the `applyMutation(rec, status, matchAfter)` signature correctly retaining `status` to fold DELETED. One should-fix: a stale case count in a References footer.
+
+**Findings**:
+- should-fix (cold-read): the D14 References-footer entry still read "only 3 of 11 applyMutation cases hit the O(n) scan", stale after the table reframe → RESOLVED ("only 2 of the 9 MIN/MAX applyMutation transitions"), matching the intro and post-table prose.
+- suggestion (mechanical): `per-section-length` on § Lazy merge-on-read → INFORMATIONAL, under the 300 cap.
+
+**Iterations**: 1 of 3 (PASS — four-hunk fix applied, the cold-read's stale-count should-fix cleared with the reviewer's suggested value, mechanical re-run clean).
+
