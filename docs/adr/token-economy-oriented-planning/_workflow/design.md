@@ -80,7 +80,7 @@ Packing order is the first refinement. Among candidate units that fit under the 
 
 The cut seam is the second refinement. "Prefer a dependency boundary as the cut" stays the primary cut rule. Among otherwise-equal cuts, the planner prefers the seam that shares the fewest files, so a file does not straddle two tracks and get cold-read by both their Phase A and Phase C passes. When overlap genuinely cannot be co-located, because the ceiling, a dependency, or independent mergeability forbids it, the planner orders the two tracks next to each other so rebase distance is minimal and the orchestrator's cross-track impact read of the shared file is freshest.
 
-Splitting overlapping files across non-adjacent tracks with no stated reason is the placement the planner should justify in the track file, the same way an out-of-bounds footprint already carries a written justification.
+When the planner must split overlapping files across non-adjacent tracks, it writes the reason in the track file, the same written justification an out-of-bounds footprint already carries. The planner-facing rule states this requirement outright rather than leaving it implicit, because the Phase 2 structural review flags an unjustified overlap-split as a `design-decision` finding (see §"Advisory enforcement"). The planner records the reason up front, so a deliberate, documented split passes and only a silent one escalates.
 
 ### Edge cases / Gotchas
 
@@ -93,6 +93,8 @@ Splitting overlapping files across non-adjacent tracks with no stated reason is 
 **D3. Track cut-seam and adjacency ordering.** Alternatives: leave cut-point choice to the dependency boundary and the ceiling alone, which is overlap-blind; always co-locate overlapping files even at the cost of breaking mergeability, which violates the subordination rule. Rationale: when a cut is forced, the least-shared seam keeps overlap on one side at no cost to the metric, and adjacent ordering recovers the residual rebase and freshness benefit. Risk: the seam choice needs the in-scope file lists, which are estimates at Phase 1; the planner estimates, matching how scope indicators already work.
 
 **S1.** The overlap tie-breaker is subordinate to the hard constraints, stated in full under §"The token model".
+
+**S3.** The planner-facing justification requirement is paired with the reviewer-facing check, stated in full under §"Advisory enforcement".
 
 ## Step-level overlap-aware fill
 
@@ -119,7 +121,7 @@ The rule keeps the adjacency caveat explicit. Two distinct steps each spawn thei
 
 The structural review is a reviewer-judgment pass, not a purely mechanical one. Its `**Scope:**`-line count and coverage-cardinality checks are plan-file-only, but its sizing and consistency checks read each pending track file's four sections, and the split-into-phases sizing check already opens `## Interfaces and Dependencies`. So the reviewer who would flag an oversized track already holds the in-scope file lists that reveal overlap; adding an overlap-split criterion costs one bullet and no new read.
 
-What the design declines is a detector that computes the file intersection across tracks mechanically. That is heavier than a tie-breaker warrants, and the existing argumentation gate already supplies the right shape: a documented placement passes autonomously, an undocumented one escalates to the user. The overlap-split criterion reuses that shape. The S1 subordination to the hard constraints is likewise authoring discipline at Phase 1 and Phase A decomposition, not a Phase 2 gate; the structural review sees the plan and track files, not step-level isolation choices, so high-isolation and coherence are enforced where they are decided.
+What the design declines is a detector that computes the file intersection across tracks mechanically. That is heavier than a tie-breaker warrants, and the existing argumentation gate already supplies the right shape: a documented placement passes autonomously, an undocumented one escalates to the user. The overlap-split criterion reuses that shape. The criterion is one half of a pair: the planner-facing track-sizing rule carries the matching instruction that an unavoidable overlap-split needs a written justification, so the producer records what the reviewer checks rather than meeting the requirement only when a finding fires. The S1 subordination to the hard constraints is likewise authoring discipline at Phase 1 and Phase A decomposition, not a Phase 2 gate; the structural review sees the plan and track files, not step-level isolation choices, so high-isolation and coherence are enforced where they are decided.
 
 ### Edge cases / Gotchas
 
@@ -131,3 +133,5 @@ What the design declines is a detector that computes the file intersection acros
 **D5. Advisory, enforced by one reviewer-judgment criterion in the structural review, not an automated detector.** Alternatives: a mechanical detector that computes cross-track file intersection (heavier than a tie-breaker warrants, and redundant with the reviewer already reading the track lists); pure advisory with no review criterion at all (the existing argumentation gate fires only on an out-of-bounds footprint count, never on overlap, so without a new criterion the directive has no backstop). Rationale: the structural review already reads every track file's `## Interfaces and Dependencies`, so one criterion bullet gives a real backstop at the cost of one bullet and no computation, matching the class of the existing out-of-bounds-track criterion. Risk: enforcement rests on reviewer judgment reading the track lists, accepted because the directive is a tie-breaker, not a correctness rule.
 
 **S2.** The sizing metric and bounds are unchanged, stated in full under §"The token model"; the structural-review prompt gains one new criterion bullet, which adds a check rather than editing the unchanged rule, so the sizing-rule paraphrases stay edit-free.
+
+**S3.** The planner-facing track-sizing rule and the reviewer-facing structural-review criterion land in the same change: the planner is told an unavoidable overlap-split needs a written justification, the same requirement the structural review checks. Neither half ships without the other, so the producer is never flagged for a requirement it was not given.

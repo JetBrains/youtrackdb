@@ -33,3 +33,16 @@
 - should-fix (mechanical): fragmented-header on the TL;DR opening — fixed.
 
 **Iterations**: 2 of 3 (PASS)
+
+## Mutation 3 — 2026-06-08 — content-edit (design.md)
+
+**Diff summary**: Closed a producer/consumer completeness gap the user raised. The design described the reviewer side (the Phase 2 structural review flags an undocumented cross-track overlap-split as a `design-decision` finding, D5) but the planner-facing side was a soft "should justify" aside, so a planner could produce an unavoidable overlap-split without knowing a justification was expected and get flagged for it. The edit: (1) §"Track-level packing and cut seams" upgrades the producer sentence to an explicit requirement that names the reviewer check; (2) §"Advisory enforcement" adds that the criterion is one half of a pair, the planner-facing rule carrying the matching justification requirement; (3) adds invariant **S3** (home in §"Advisory enforcement", gist-plus-pointer cross-reference from §"Track-level packing and cut seams") — the planner-facing track-sizing rule and the reviewer-facing structural-review criterion land in the same change, neither ships without the other, so the producer is never flagged for a requirement it was not given. This clarifies that the `planning.md` edit carries both the cut-seam preference and the producer justification requirement; the edit-site count stays at three.
+
+**Mechanical checks** (target=design): PASS.
+
+**Cold-read** (scope: bounded — Track-level + Advisory + Overview): PASS, 0 findings. Confirmed the contract reads symmetrically (planner told → reviewer checks → S3 co-ships both), S3 is orthogonal to S1/S2, the introduce-once home/cross-reference split is correct, and no fourth edit site is implied.
+
+**Findings**:
+- (user feedback) reviewer-side check stated without the matching producer-side requirement — added the explicit planner requirement, the producer/consumer pairing, and invariant S3.
+
+**Iterations**: 1 of 3 (PASS)
