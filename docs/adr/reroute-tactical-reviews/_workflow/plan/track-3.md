@@ -204,43 +204,9 @@ stay byte-for-byte today's inline format for that agent so the standalone
 
 ## Concrete Steps
 
-1. **Canary: `review-bugs-concurrency.md` end-to-end (template A).** Wrap the
-   path-gated `§2.5` file+manifest output as a leading guard around the existing
-   inline Output Format (no-path branch left verbatim); number findings with the
-   canonical `BC` prefix from `review-iteration.md § Finding ID prefixes`, adding
-   the table citation; write the Phase-4 "Alternative Hypothesis Check" reasoning
-   to `## Evidence base`. Validates the template-A wrap/manifest/evidence shape on
-   one representative agent before steps 2-3 replicate it. — risk: high (override:
-   canary — high blast radius if the wrap-gate or manifest shape is wrong, R1/R5;
-   the step-level dimensional review validates the shape before replication)  [x] commit: b0b9c93398e087a9955df62458b810910a40fbde
-2. **Template A across the remaining 9 code and test dimensional agents + the 4
-   D9 standalone exemptions.** Apply the step-1 pattern (wrap-gate + canonical
-   `<PREFIX>` numbering + `review-iteration.md § Finding ID prefixes` citation) to
-   `review-code-quality`, `review-crash-safety`, `review-performance`,
-   `review-security`, `review-test-behavior`, `review-test-completeness`,
-   `review-test-concurrency`, `review-test-crash-safety`, `review-test-structure`;
-   write `## Evidence base` where a refutation phase exists and an
-   evidence-trail-exempt annotation for `review-code-quality` and
-   `review-test-structure` (no refutation phase). In the same commit, add the D9
-   `exempt because: invoked standalone…` annotation to `code-reviewer`,
-   `pr-reviewer`, `test-quality-reviewer`, `dr-audit`. — risk: medium (workflow
-   machinery — single-review-agent-spec behavioral change ×9, plus 4 prose-only
-   D9 annotations; merged tag = medium)  [x] commit: 9c8e8e01641fd280a2b8e878a376753ddf613b41
-3. **Template B: migrate the 6 workflow dimensional agents.**
-   `review-workflow-consistency`, `review-workflow-context-budget`,
-   `review-workflow-hook-safety`, `review-workflow-instruction-completeness`,
-   `review-workflow-prompt-design`, `review-workflow-writing-style`: wrap the
-   path-gated `§2.5` file output, and in the file branch migrate each agent's
-   existing inline `**<PREFIX><N>**` bold bullets to `### <PREFIX><N>` anchors
-   under a single `## Findings` (no `### Summary` / `### Findings` heading),
-   preserving the documented numbering and the inline no-path branch verbatim;
-   write `## Evidence base` for the two with a refutation phase
-   (`instruction-completeness`, `writing-style`) and an evidence-trail-exempt
-   annotation for the four without (`consistency`, `context-budget`,
-   `hook-safety`, `prompt-design`). — risk: high (override: focal-risk migration
-   distinct from template A — the bold-bullet → `### <PREFIX><n>` transform with
-   byte-for-byte + S4-round-trip fragility flagged by A1/A4/R4; its own step-level
-   dimensional review validates template B across all 6 at once)  [x] commit: 87c0261f0a8e0c2492ba118cd7d39f8a377443b4
+1. **Canary: `review-bugs-concurrency.md` end-to-end (template A).** Wrap the path-gated `§2.5` file+manifest output as a leading guard around the existing inline Output Format (no-path branch left verbatim); number findings with the canonical `BC` prefix from `review-iteration.md § Finding ID prefixes`, adding the table citation; write the Phase-4 "Alternative Hypothesis Check" reasoning to `## Evidence base`. Validates the template-A wrap/manifest/evidence shape on one representative agent before steps 2-3 replicate it. — risk: high (override: canary — high blast radius if the wrap-gate or manifest shape is wrong, R1/R5; the step-level dimensional review validates the shape before replication)  [x] commit: b0b9c93398e087a9955df62458b810910a40fbde
+2. **Template A across the remaining 9 code and test dimensional agents + the 4 D9 standalone exemptions.** Apply the step-1 pattern (wrap-gate + canonical `<PREFIX>` numbering + `review-iteration.md § Finding ID prefixes` citation) to `review-code-quality`, `review-crash-safety`, `review-performance`, `review-security`, `review-test-behavior`, `review-test-completeness`, `review-test-concurrency`, `review-test-crash-safety`, `review-test-structure`; write `## Evidence base` where a refutation phase exists and an evidence-trail-exempt annotation for `review-code-quality` and `review-test-structure` (no refutation phase). In the same commit, add the D9 `exempt because: invoked standalone…` annotation to `code-reviewer`, `pr-reviewer`, `test-quality-reviewer`, `dr-audit`. — risk: medium (workflow machinery — single-review-agent-spec behavioral change ×9, plus 4 prose-only D9 annotations; merged tag = medium)  [x] commit: 9c8e8e01641fd280a2b8e878a376753ddf613b41
+3. **Template B: migrate the 6 workflow dimensional agents.** `review-workflow-consistency`, `review-workflow-context-budget`, `review-workflow-hook-safety`, `review-workflow-instruction-completeness`, `review-workflow-prompt-design`, `review-workflow-writing-style`: wrap the path-gated `§2.5` file output, and in the file branch migrate each agent's existing inline `**<PREFIX><N>**` bold bullets to `### <PREFIX><N>` anchors under a single `## Findings` (no `### Summary` / `### Findings` heading), preserving the documented numbering and the inline no-path branch verbatim; write `## Evidence base` for the two with a refutation phase (`instruction-completeness`, `writing-style`) and an evidence-trail-exempt annotation for the four without (`consistency`, `context-budget`, `hook-safety`, `prompt-design`). — risk: high (override: focal-risk migration distinct from template A — the bold-bullet → `### <PREFIX><n>` transform with byte-for-byte + S4-round-trip fragility flagged by A1/A4/R4; its own step-level dimensional review validates template B across all 6 at once)  [x] commit: 87c0261f0a8e0c2492ba118cd7d39f8a377443b4
 
 Sequential: step 1 (canary) validates the shared wrap/manifest/evidence primitive
 before step 2 replicates template A and step 3 applies template B. Steps 2 and 3
