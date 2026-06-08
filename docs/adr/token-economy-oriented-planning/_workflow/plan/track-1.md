@@ -25,6 +25,7 @@ neighboring track exists to fold into.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-08T15:10Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-08T15:25Z [ctx=safe] Step 1 complete (commit 30121a90cd)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -148,12 +149,37 @@ Invariants to preserve (S1, S2):
 
 ## Concrete Steps
 
-1. Refine the three overlap-aware packing rules together — `planning.md` §Track descriptions (packing-order preference, least-shared cut-seam, adjacent ordering, and the producer-side overlap-split justification: D1/D2/D3 + S3 producer half), `track-review.md` §Step Decomposition Fill bullet (overlap-aware merge ordering + adjacency-is-not-a-merge caveat: D2/D4), and `prompts/structural-review.md` TRACK SIZING (one new `design-decision` overlap-split criterion: D5 + S3 consumer half), holding S1 (subordination) and S2 (metric/bounds + byte-identical SYNC set) intact — risk: medium (workflow machinery: behavioral-but-bounded multi-file advisory prose — changes the planner's packing order, the decomposer's fill ordering, and one structural-review criterion, but touches no auto-executing hook/script/settings and no load-bearing control-flow gate or shared schema) — size: ~3 files; entire single-track scope, no other low/medium work exists to merge (closed-set reason a: the step already holds the whole track)  [ ]
+1. Refine the three overlap-aware packing rules together — `planning.md` §Track descriptions (packing-order preference, least-shared cut-seam, adjacent ordering, and the producer-side overlap-split justification: D1/D2/D3 + S3 producer half), `track-review.md` §Step Decomposition Fill bullet (overlap-aware merge ordering + adjacency-is-not-a-merge caveat: D2/D4), and `prompts/structural-review.md` TRACK SIZING (one new `design-decision` overlap-split criterion: D5 + S3 consumer half), holding S1 (subordination) and S2 (metric/bounds + byte-identical SYNC set) intact — risk: medium (workflow machinery: behavioral-but-bounded multi-file advisory prose — changes the planner's packing order, the decomposer's fill ordering, and one structural-review criterion, but touches no auto-executing hook/script/settings and no load-bearing control-flow gate or shared schema) — size: ~3 files; entire single-track scope, no other low/medium work exists to merge (closed-set reason a: the step already holds the whole track)  [x] commit: 30121a90cd
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 30121a90cd, 2026-06-08T15:25Z [ctx=safe]
+**What was done:** Added an advisory, co-locate-first overlap tie-breaker to
+three workflow prose rules, each routed to the staged subtree via
+copy-then-edit on first touch. `planning.md` §Track descriptions gained three
+sub-paragraphs after *Maximize first*: a packing-order preference for an
+overlapping candidate at the tie (D1/D2), a least-shared cut-seam rule with
+adjacent ordering for a forced non-co-locatable split (D3), and a
+producer-side requirement to justify a non-adjacent overlap-split that names
+the matching structural-review check (S3 producer half). `track-review.md`
+§Step Decomposition gained an overlap-aware merge ordering on the Fill bullet
+(with a worked Foo/Bar/Baz example) plus a "step adjacency is not a merge"
+caveat (D2/D4). `prompts/structural-review.md` TRACK SIZING gained one
+criterion bullet flagging an undocumented non-adjacent overlap-split as a
+`design-decision` finding, same class and severity as an out-of-bounds track
+(D5, S3 consumer half). Every addition declares subordination to the hard
+constraints (S1); the sizing metric, the ~12 / ~20-25 bounds, and every
+SYNC-set paraphrase site stayed byte-identical (S2, verified by diff against
+the live files).
+
+**Key files:** (all new staged copies under
+`_workflow/staged-workflow/.claude/workflow/`)
+- `planning.md` (new)
+- `track-review.md` (new)
+- `prompts/structural-review.md` (new)
 
 ## Validation and Acceptance
 
