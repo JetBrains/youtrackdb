@@ -570,11 +570,18 @@ dimensional agent, supply two extra inputs:
 - The per-dimension high-water-mark hand-back (`{findings_under_recheck}`
   field) at the **initial** review pass too, not only at gate-check
   (D5), so each agent continues its own `id` numbering rather than
-  restarting at `<PREFIX>1`. For a track's first fan-out the mark is
-  empty and the agent starts at `<PREFIX>1`; on a re-fan-out it is the
-  max `id` index that dimension reached in this loop's prior review
-  files. Carrying the mark at initial review is what lets per-dimension
-  IDs run cumulative across the loop without the removed `M<n>` layer.
+  restarting at `<PREFIX>1`. At the initial pass this field carries
+  **only the high-water-mark integer** (the max seen `id` index for
+  that prefix, or empty/0 on the first pass) — no finding IDs, titles,
+  or bodies — so the gate-check prompt's "open findings under re-check
+  (verify these)" reading of the same field
+  (prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+  §Output format) is unambiguously off at initial review. For a track's
+  first fan-out the mark is empty and the agent starts at `<PREFIX>1`;
+  on a re-fan-out it is the max `id` index that dimension reached in
+  this loop's prior review files. Carrying the mark at initial review
+  is what lets per-dimension IDs run cumulative across the loop without
+  the removed `M<n>` layer.
 
 The review files the agents write are plan-directory artifacts (never
 staged), committed at reviewer-return under

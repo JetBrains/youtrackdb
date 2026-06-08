@@ -4,28 +4,28 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Step 1 — Validate the manifest and collapse by `loc` | orchestrator | 3B,3C | Run the §2.5 count-validation grep, then collapse manifest index entries that share a `loc` into one bucket key without reading any body. |
-| §`loc`-collapse without a body read | orchestrator | 3B,3C | Group index entries by `loc` so co-located findings route as one implementer concern; REGRESSION rows stay unmerged. |
-| §Worked example — 5-way `Thread.sleep` co-location | orchestrator | 3B,3C | A worked 5-way `loc`-collapse: one polling-loop site flagged by five dimensions stays five addressable `id`s under one bucket. |
-| §Step 2 — Upgrade-only severity backstop | orchestrator | 3B,3C | Scan each entry's `basis` for an under-severed correctness/crash/CI-hang/data-loss impact and upgrade; never downgrade, never second-guess a `blocker`. |
-| §Step 3 — Bucket on the index | orchestrator | 3B,3C | Sort each `loc` bucket into in-scope-now, next-iteration, or plan-correction by `sev` and in-scope `loc`; Review-mode guidance overrides by `id`. |
+| §Step 1 — Validate the manifest and collapse by `loc` | orchestrator | 3B,3C | Run the `§2.5` count grep, then collapse manifest index entries sharing a `loc` into one bucket key, no body read. |
+| §`loc`-collapse without a body read | orchestrator | 3B,3C | Group index entries by loc so co-located findings route as one implementer concern; REGRESSION rows stay unmerged. |
+| §Worked example — 5-way `Thread.sleep` co-location | orchestrator | 3B,3C | A worked 5-way loc-collapse: one polling-loop site flagged by five dimensions stays five addressable ids in one bucket. |
+| §Step 2 — Upgrade-only severity backstop | orchestrator | 3B,3C | Scan each entry's basis for an under-severed correctness/crash/CI-hang/data-loss impact and upgrade; never downgrade. |
+| §Step 3 — Bucket on the index | orchestrator | 3B,3C | Sort each loc bucket into in-scope-now, next-iteration, or plan-correction by sev and loc; Review-mode overrides by id. |
 | §In-scope, this iteration | orchestrator | 3B,3C | All blockers plus correctness/crash-safety/CI-hang should-fixes and small in-scope fixes fitting the pre-spawn budget. |
 | §In-scope, next iteration | orchestrator | 3B,3C | Style/naming/boundary should-fixes, cleanup depending on this iteration's fixes, and budget-displaced items. |
-| §Deferred — plan correction or episode note | orchestrator | 3B,3C | Out-of-track suggestions and over-scope refactors route to plan corrections by `loc`; drop a rejected suggestion outright. |
+| §Deferred — plan correction or episode note | orchestrator | 3B,3C | Out-of-track suggestions and over-scope refactors route to plan corrections by loc; drop a rejected suggestion outright. |
 | §Step 4 — Pre-spawn budget check | orchestrator | 3B,3C | The ~15-finding / ~10-file ceiling, the 8–12 target, when to split vs accept a larger spawn, and high-volume handoff. |
 | §Why the headroom matters | orchestrator | 3B,3C | Aim for 8–12 findings touching ≤6–8 files: per-test re-runs, gate-check carry-overs, and message-budget margin. |
 | §Splitting vs accepting a larger spawn | orchestrator | 3B,3C | Split over-12-finding sets by severity, but accept a larger spawn for independent small fixes or atomic refactors. |
 | §High-volume routing and handoff | orchestrator | 3B,3C | When the binary split cascades (≳24 findings), let the context-consumption gate fire the handoff, not a user prompt. |
-| §Step 5 — Implementer spawn handoff | orchestrator | 3B,3C | The handoff the implementer's `findings:` block consumes: review-file paths plus the in-scope `id`/`loc`/`sev`/`anchor` rows and per-dimension high-water-marks. |
+| §Step 5 — Implementer spawn handoff | orchestrator | 3B,3C | The handoff for the implementer's findings: block: review-file paths, in-scope id/loc/sev/anchor rows, high-water marks. |
 | §Gate-check routing | orchestrator | 3B,3C | Map gate-check verdicts to forward/drop actions, fold in New findings, then re-run Steps 1–4 over the union. |
-| §Verdict-to-action mapping | orchestrator | 3B,3C | VERIFIED/REJECTED/MOOT drop, STILL OPEN forwards by `id`, REGRESSION escalates to blocker and forces FAIL. |
+| §Verdict-to-action mapping | orchestrator | 3B,3C | VERIFIED/REJECTED/MOOT drop, STILL OPEN forwards by id, REGRESSION escalates to blocker and forces FAIL. |
 | §Dedup and termination | orchestrator | 3B,3C | REGRESSION rows never collapse and forward standalone; an empty post-Steps-1–4 list returns PASS and exits the loop. |
 
 <!--Document index end-->
 
 Shared procedure for routing a multi-agent dimensional review
 fan-out to the per-iteration implementer without the orchestrator
-reading a finding body. The reviewers write the §2.5 manifest-plus-
+reading a finding body. The reviewers write the `§2.5` manifest-plus-
 sections review files; this recipe routes on the manifest index alone
 (`id` / `sev` / `loc` / `anchor` / `basis`), preserves every reviewer
 `id` end to end, and hands the implementer file paths plus in-scope
@@ -86,10 +86,10 @@ and signal PASS to the caller. Do not respawn the implementer.
 ---
 
 ## Step 1 — Validate the manifest and collapse by `loc`
-<!-- roles=orchestrator phases=3B,3C summary="Run the §2.5 count-validation grep, then collapse manifest index entries that share a loc into one bucket key without reading any body." -->
+<!-- roles=orchestrator phases=3B,3C summary="Run the `§2.5` count grep, then collapse manifest index entries sharing a `loc` into one bucket key, no body read." -->
 
 Before routing on any manifest, validate it. For each review file,
-run the §2.5 ID-anchored count-validation grep and confirm the
+run the `§2.5` ID-anchored count-validation grep and confirm the
 heading-anchor count equals the manifest's claimed `findings` count
 (S4); the grep reads heading lines only, so validation never ingests a
 body (S6):
@@ -102,11 +102,25 @@ When the count matches (the manifest carries `flags: [CONTRACT_OK]`),
 trust the index and proceed to the `loc`-collapse below. When the
 counts differ (the manifest carries `flags: [CONTRACT_VIOLATION]`), do
 **not** read the body to reconcile: route the **whole-section
-fallback to the implementer** per §2.5 — hand the implementer the
+fallback to the implementer** per `§2.5` — hand the implementer the
 review-file path with an instruction to read the entire `## Findings`
 section and fix at the code level. A tactical file's fallback owner is
 the implementer, never the orchestrator, so a malformed manifest never
 forces a body read on the orchestrator and S1 holds through validation.
+
+A `CONTRACT_VIOLATION` file counts as **one budget unit** at routing
+time (Step 4): the orchestrator cannot count its findings by `id`
+without a body read, which S6 forbids, so the untrusted index
+contributes a single unit to the pre-spawn budget. If the body's true
+finding count blows the iteration budget once the implementer reads it,
+the implementer flags it through the normal failure return
+(`recommended_action: retry` at step level, `escalate` at track level
+per implementer-rules.md:implementer:3B,3C §Fundamental failure) — the
+orchestrator never body-counts to pre-empt this. When every contributing
+review file is `CONTRACT_VIOLATION`, the handoff degenerates to a pure
+whole-section handoff: every file lands under the §Step 5 whole-section
+fallback sub-section and no anchor section is emitted (rather than an
+empty or PASS handoff).
 
 ### `loc`-collapse without a body read
 <!-- roles=orchestrator phases=3B,3C summary="Group index entries by loc so co-located findings route as one implementer concern; REGRESSION rows stay unmerged." -->
@@ -129,10 +143,19 @@ does not make that call — it never reads the bodies.
 
 Group on `loc` alone:
 
-- **Same `loc`** (exact `file:line`, overlapping line ranges, or lines
-  within ±5 of each other in the same method body): the entries share
-  a bucket key. Distant lines in the same file stay in separate
-  buckets.
+- **Same `loc`**: group deterministically on **exact `file:line`** (and
+  overlapping line ranges) — these entries always share a bucket key.
+  Near-but-unequal `loc` proximity (a few lines apart) is an **optional
+  grouping convenience, not a load-bearing rule**: any reasonable
+  grouping is acceptable because the orchestrator's bucketing is
+  non-destructive and every `id` stays individually addressable, so the
+  implementer re-decides one-concern-vs-distinct at the code level
+  regardless of how the orchestrator grouped. There is intentionally no
+  ±N threshold or method-body test — the orchestrator cannot determine a
+  method's extent from a `file:line` manifest field without a body read
+  (S1 forbids it), and a fixed-distance test would be non-transitive
+  with no tie-break, making bucketing walk-order-dependent. Distant
+  lines in the same file stay in separate buckets.
 - **No `loc`** (a missing-test flag, a missing-invariant flag, an
   architectural plan-vs-code drift entry whose `loc` names a component
   or test class rather than a `file:line`): use that component or test
@@ -154,7 +177,7 @@ implementer as two addressable anchors, and the implementer fixes each
 on its own merits.
 
 ### Worked example — 5-way `Thread.sleep` co-location
-<!-- roles=orchestrator phases=3B,3C summary="A worked 5-way loc-collapse: one polling-loop site flagged by five dimensions stays five addressable ids under one bucket." -->
+<!-- roles=orchestrator phases=3B,3C summary="A worked 5-way loc-collapse: one polling-loop site flagged by five dimensions stays five addressable ids in one bucket." -->
 
 A `Thread.sleep(10)` polling loop in a CAS WAL test gets flagged by
 five dimensions at one `loc`. Condensed manifest index entries (drawn
@@ -193,7 +216,7 @@ per-dimension gate-check.
 ---
 
 ## Step 2 — Upgrade-only severity backstop
-<!-- roles=orchestrator phases=3B,3C summary="Scan each entry's basis for an under-severed correctness/crash/CI-hang/data-loss impact and upgrade; never downgrade, never second-guess a blocker." -->
+<!-- roles=orchestrator phases=3B,3C summary="Scan each entry's basis for an under-severed correctness/crash/CI-hang/data-loss impact and upgrade; never downgrade." -->
 
 The orchestrator trusts the reviewer's self-assigned `sev`. It does
 not re-judge severity by reading bodies — that was the body-dependent
@@ -246,7 +269,7 @@ It mutates only `sev`; it never reads `## Findings`.
 ---
 
 ## Step 3 — Bucket on the index
-<!-- roles=orchestrator phases=3B,3C summary="Sort each loc bucket into in-scope-now, next-iteration, or plan-correction by sev and in-scope loc; Review-mode guidance overrides by id." -->
+<!-- roles=orchestrator phases=3B,3C summary="Sort each loc bucket into in-scope-now, next-iteration, or plan-correction by sev and loc; Review-mode overrides by id." -->
 
 For each `loc` bucket, choose one of three destinations using the
 bucket's `sev` and its `loc` (in-track vs out-of-track), never a body
@@ -295,6 +318,20 @@ read:
 
 The split is a judgement call on `sev`, `basis`, and `loc`; the
 destinations above are the default, not a contract.
+
+**Mixed-destination bucket (anchors split across destinations).** A
+`loc` bucket whose anchors do not all route to the same destination —
+e.g., one in-track `blocker` and one out-of-track `suggestion` at the
+same `loc` — routes **as a whole to its strictest-severity
+destination**. The `blocker` keeps the whole bucket in-scope, and the
+per-`id` anchors that would individually defer ride along in-scope
+rather than splitting the bucket apart, so the implementer reads the
+co-located bodies together and reconciles them in one pass (the
+non-destructive collapse already keeps every `id` addressable, so a
+ride-along anchor the implementer judges genuinely out-of-track surfaces
+as a deferred finding in the next gate-check). A bucket with **no**
+in-scope anchor — every anchor defers or routes out-of-track — routes
+wholly to its deferred / plan-correction destination.
 
 **Contested-finding drill-down (the bounded S1 exception).** When a
 single bucket's in-scope/deferred destination genuinely cannot be
@@ -403,7 +440,7 @@ headroom intact.
 ---
 
 ## Step 5 — Implementer spawn handoff
-<!-- roles=orchestrator phases=3B,3C summary="The handoff the implementer's findings: block consumes: review-file paths plus the in-scope id/loc/sev/anchor rows and per-dimension high-water-marks." -->
+<!-- roles=orchestrator phases=3B,3C summary="The handoff for the implementer's findings: block: review-file paths, in-scope id/loc/sev/anchor rows, high-water marks." -->
 
 The handoff the orchestrator composes into the implementer's
 `findings:` input carries **review-file paths plus in-scope anchors**,
@@ -428,6 +465,10 @@ basis (per id, manifest-sourced, no body read):
 
 #### loc bucket: <file:line> [should-fix]
 ... (one per in-scope bucket)
+
+### Whole-section fallback (CONTRACT_VIOLATION)
+- docs/adr/{dir}/_workflow/plan/track-{N}/reviews/{type}-iter{N}.md
+- ... (one per review file whose manifest failed §2.5 count-validation)
 
 ### Deferred to next iteration
 - BC7 (should-fix style) — displaced by pre-spawn budget.
@@ -462,6 +503,21 @@ rather than restarting. This applies at initial review too, not only at
 gate-check: the reviewer self-assigns from the high-water-mark the
 orchestrator passes. The mark per dimension is the max `id` index seen
 across this loop's review files for that prefix.
+
+**Whole-section fallback (CONTRACT_VIOLATION).** A review file whose
+manifest failed the `§2.5` ID-anchored count-validation (Step 1) cannot
+be routed by anchor — its index is untrusted. The orchestrator lists
+each such file under the `### Whole-section fallback
+(CONTRACT_VIOLATION)` sub-section as a path only, with no anchor rows.
+The implementer reads the **entire `## Findings` section** of each listed
+file (not just anchors) and reconciles at the code level, mirroring the
+`§2.5` fallback contract (the implementer is the fallback owner for a
+violated tactical file). The implementer-side contract for this entry
+shape is implementer-rules.md:implementer:3B,3C §Inputs the orchestrator
+passes on each spawn (the `findings:` input rule). The sub-section is
+parallel to `### In-scope this iteration`: it carries paths, not
+`id`/`loc`/`sev`/`anchor` rows, and "omit empty sections" applies to it
+too — a fan-out with no violated manifest emits no whole-section block.
 
 Omit empty sections; never emit a heading with no content beneath it.
 

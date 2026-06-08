@@ -16,7 +16,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §Reference-accuracy | reviewer-dim-step,reviewer-dim-track | 3B,3C | Re-check Java symbols via PSI when reachable; grep only on NOT-reachable with a (grep-only) caveat per verdict. |
-| §Output format (strict — ≤ 60 lines total, including blank lines) | reviewer-dim-step,reviewer-dim-track | 3B,3C | Strict verdicts/new-findings/summary template, capped at 60 lines, routed per dimension by reviewer `id` with no merge layer. |
+| §Output format (strict — ≤ 60 lines total, including blank lines) | reviewer-dim-step,reviewer-dim-track | 3B,3C | Strict verdicts/new-findings/summary template, capped at 60 lines, routed per dimension by reviewer `id`. |
 | §Forbidden in gate-check output | reviewer-dim-step,reviewer-dim-track | 3B,3C | Methodology, process, reviewer-notes, and multi-line evidence sections are stripped to keep the gate-check terse. |
 | §Why the budget | reviewer-dim-step,reviewer-dim-track | 3B,3C | The strict line budget exists for a documented context-burn reason; keep the gate-check output tight. |
 
@@ -99,7 +99,7 @@ and no new finding is severity `blocker` or `should-fix`. Any
 `FAIL`.
 
 ## Output format (strict — ≤ 60 lines total, including blank lines)
-<!-- roles=reviewer-dim-step,reviewer-dim-track phases=3B,3C summary="Strict verdicts/new-findings/summary template, capped at 60 lines, routed per dimension by reviewer `id` with no merge layer." -->
+<!-- roles=reviewer-dim-step,reviewer-dim-track phases=3B,3C summary="Strict verdicts/new-findings/summary template, capped at 60 lines, routed per dimension by reviewer `id`." -->
 
 ```markdown
 ## {dimension} Review (gate check)

@@ -130,7 +130,20 @@ inputs**.
   review findings the implementer must address. At `level=step` these
   are dimensional-review findings against the step's commit; at
   `level=track` they are cross-step findings synthesised from the
-  track-level review fan-out.
+  track-level review fan-out. The normal entry shape is a per-`loc`
+  bucket carrying per-dimension reviewer `id`s and anchors that the
+  implementer reaches by anchor. When the handoff also carries a
+  **whole-section-fallback entry** — a review file flagged
+  `CONTRACT_VIOLATION` and listed under the handoff's
+  `### Whole-section fallback (CONTRACT_VIOLATION)` sub-section as a
+  path with no anchor rows (see
+  finding-synthesis-recipe.md:orchestrator:3B,3C §Step 5) — the
+  implementer reads that file's **entire `## Findings` section** (not
+  just anchors) and fixes at the code level. The implementer is the
+  fallback owner for a violated tactical file, so it never asks the
+  orchestrator to reconcile the malformed manifest; this mirrors the
+  `§2.5` fallback contract so producer and consumer agree on the
+  handoff shape.
 
 **Step-level-only inputs** (populated only when `level=step`):
 

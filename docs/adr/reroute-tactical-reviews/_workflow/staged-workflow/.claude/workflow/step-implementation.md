@@ -654,7 +654,14 @@ finding ID prefixes, and gate format.
       - `{findings_under_recheck}` high-water-mark — at **initial**
         review pass the per-dimension high-water-mark hand-back the
         agent's §Output routing expects so it continues its own `id`
-        numbering rather than restarting at `<PREFIX>1` (D5). For a
+        numbering rather than restarting at `<PREFIX>1` (D5). At the
+        initial pass this field carries **only the high-water-mark
+        integer** (the max seen `id` index for that prefix, or
+        empty/0 on the first pass) — no finding IDs, titles, or
+        bodies — so the gate-check prompt's "open findings under
+        re-check (verify these)" reading of the same field
+        (prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+        §Output format) is unambiguously off at initial review. For a
         first-ever fan-out the mark is empty and the agent starts at
         `<PREFIX>1`; on any re-fan-out it is the max `id` index that
         dimension reached in this loop's prior review files. The mark
