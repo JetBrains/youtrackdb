@@ -23,12 +23,13 @@ agent-definition edits across two different staging prefixes
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-08T07:50Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 - [x] 2026-06-08T09:12Z [ctx=safe] Step 1 complete (commit 41ad9ff4f6)
 - [x] 2026-06-08T09:18Z [ctx=safe] Step 2 complete (commit 751e0342e1)
+- [x] 2026-06-08T09:25Z [ctx=safe] Step 3 complete (commit f763bfdc4b)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -36,6 +37,11 @@ agent-definition edits across two different staging prefixes
   fan-out in `step-implementation.md` / `track-code-review.md` now supplies the
   output path plus the per-dimension high-water-mark, so reviewers no longer fall
   back to starting at `<PREFIX>1`. See Episodes §Step 1.
+- 2026-06-08T09:25Z Step 3 left `code-review-protocol.md`'s "findings are
+  synthesised... attributed to source dimension(s)" block unedited (verify-only,
+  judged accurate under D5), while step 1 dropped the same phrasing from the staged
+  `track-code-review.md`. Phase C `review-workflow-consistency` should confirm that
+  deliberate leave-it call, not re-flag the divergence. See Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -197,7 +203,7 @@ REGRESSION row exists at initial review (R3).
 
 1. Router model, orchestrator side (D1+D4+D5): rewrite the tactical-review orchestration in `step-implementation.md` + `track-code-review.md` to bucket on the manifest index, inject the per-spawn output path, run the §2.5 S4/S6 count-validation with the `CONTRACT_VIOLATION`-to-implementer fallback (A1), and host the relocated bucketing / in-scope-classification / pre-spawn-budget functions reconciled against the existing inline budget check in `track-code-review.md` (R1); rewrite `finding-synthesis-recipe.md` to manifest-only routing: drop the five `M<n>` coupling sites, replace the OVERRIDE with the upgrade-only `basis` scan, move the `BC3` override to the manifest `id` (T1, S2); reconcile `review-iteration.md`'s `§Gate-check synthesis routing` + `§Verdict handling` REJECTED-VERDICT references — risk: high (workflow machinery: load-bearing review-iteration + tactical-routing control-flow protocol)  [x] commit: 41ad9ff4f6
 2. Implementer contract reconciliation, D1 implementer side, in `implementer-rules.md`: the per-iteration implementer reads bodies by anchor (never the evidence base), reconciles cross-dimension framings at the code level, and carries `DESIGN_DECISION_NEEDED` context forward; the `findings:`/`FIX_NOTES` reconciliation is exactly two edits (flip `what_was_fixed` to per-dimension IDs, verify `what_was_skipped`) and must not narrow the four-outcome `level=track` RESULT enum (A2) — risk: high (workflow machinery: implementer read/return contract, S1-load-bearing)  [x] commit: 751e0342e1
-3. Consumer reconciliation + residual cleanup: confirm `review-mode.md`'s `FIX_FINDING`/`SKIP_TRACK` references stay coherent post-`M<n>`-removal (T1), reconcile the residual "synthesised finding list" / "synthesis severity scale" language in the already-per-dimension `dimensional-review-gate-check.md` (T2, R2), and verify `code-review-protocol.md`'s by-file pointer to `finding-synthesis-recipe.md` still resolves after the rewrite (T2) — risk: medium (workflow machinery, bounded: gate-check prompt residual-language reconcile, borderline prose-only) — size: ~3 files; no mergeable low/medium work (rest of track is high)  [ ]
+3. Consumer reconciliation + residual cleanup: confirm `review-mode.md`'s `FIX_FINDING`/`SKIP_TRACK` references stay coherent post-`M<n>`-removal (T1), reconcile the residual "synthesised finding list" / "synthesis severity scale" language in the already-per-dimension `dimensional-review-gate-check.md` (T2, R2), and verify `code-review-protocol.md`'s by-file pointer to `finding-synthesis-recipe.md` still resolves after the rewrite (T2) — risk: medium (workflow machinery, bounded: gate-check prompt residual-language reconcile, borderline prose-only) — size: ~3 files; no mergeable low/medium work (rest of track is high)  [x] commit: f763bfdc4b
 
 ## Episodes
 <!-- Continuous-log. -->
@@ -278,6 +284,37 @@ triple has no `M<n>`), reconcile the residual "synthesised finding list" /
 "synthesis severity scale" language in the already-per-dimension
 `dimensional-review-gate-check.md` (T2, R2), and verify `code-review-protocol.md`'s
 by-file pointer to `finding-synthesis-recipe.md` still resolves (T2, verify-only).
+
+### Step 3 — commit f763bfdc4b, 2026-06-08T09:25Z [ctx=safe]
+**What was done:** Reconciled the three downstream consumers of the removed `M<n>`
+merge layer (Plan of Work item 5). Only `dimensional-review-gate-check.md` needed
+an edit: rewrote the residual "synthesis severity scale" to the shared
+blocker/should-fix/suggestion scale (cross-ref §Severity levels) and the "feeds
+back into the synthesised finding list" claim to the manifest model — gate-check
+verdicts route per dimension by reviewer `id` through
+`finding-synthesis-recipe.md §Gate-check routing` with no merge layer — and
+updated the matching TOC row and section-comment summary. The verdict-flag set
+(VERIFIED/REJECTED/MOOT/STILL OPEN/REGRESSION), the per-dimension addressing, and
+the ≤60-line budget were left untouched. `review-mode.md` and
+`code-review-protocol.md` were verify-only with no edit: `review-mode`'s
+`FIX_FINDING` (`{location, issue, fix}`) and `SKIP_TRACK` (`{track_index, reason}`)
+payloads carry no `M<n>`; `code-review-protocol`'s by-file pointer to
+`finding-synthesis-recipe.md` resolves unchanged (file-by-name, not a renamed
+section heading).
+
+**What was discovered:** `code-review-protocol.md` still carries a "findings are
+synthesised... attributed to source dimension(s)" block that step 1 dropped from
+the staged `track-code-review.md` (replaced by the §Synthesis manifest-routing
+model). The implementer judged the surviving copy accurate-not-contradictory under
+D5 — "deduplicated" maps to `loc`-collapse, "severity-assigned" to the Step-2
+`basis` backstop, "attributed to source dimension(s)" is intrinsically true now
+that each finding keeps its per-dimension `id` end to end — and left it unedited
+per T2's verify-only criterion, deferring to the recipe as the authoritative
+procedure. Phase C `review-workflow-consistency` should confirm that leave-it call
+rather than re-flag the divergence as a defect.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/prompts/dimensional-review-gate-check.md` (modified — staged)
 
 ## Validation and Acceptance
 
