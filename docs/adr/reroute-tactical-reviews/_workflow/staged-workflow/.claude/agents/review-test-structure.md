@@ -153,8 +153,9 @@ do not restate the schema here. Concretely:
   class from writing file+manifest at all). The agent still writes the MANIFEST
   and `## Findings` (with `### TS<n>` anchors), but writes an **empty**
   `## Evidence base` and sets the manifest `evidence_base` to `certs: 0`. It is
-  unaffected by the `§2.5` S4/S6 count grep, which counts `## Findings` anchors
-  only.
+  unaffected by the `§2.5` S4/S6 count grep, which counts `### <PREFIX><n>`
+  finding anchors file-wide (this dimension emits those only under
+  `## Findings`).
 
 **Otherwise (no output path)** — use the Output format below, unchanged.
 

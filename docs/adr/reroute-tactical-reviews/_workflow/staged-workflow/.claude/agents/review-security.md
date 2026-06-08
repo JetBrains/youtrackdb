@@ -247,7 +247,7 @@ do not restate the schema here. Concretely:
   `## Evidence base` using the YTDB-1069 roster rendering: a claim whose verdict
   is CONFIRMED-as-issue (survived the refutation check) compresses to one line; a
   refuted or otherwise non-passing claim appears in full. (`§2.5` defines the
-  `## Evidence base` anchor shape — `#### ` four-hash cert entries — but not this
+  `## Evidence base` anchor shape as `#### ` four-hash cert entries, but not this
   survived-one-line / refuted-in-full body rendering, so this paragraph is the
   authoritative spec for it.)
 

@@ -162,9 +162,9 @@ do not restate the schema here. Concretely:
 - Write the per-finding verification reasoning to `## Evidence base` using the
   YTDB-1069 roster rendering: a confirmed or surviving finding compresses to one
   line; a refuted or otherwise non-passing check appears in full. (`§2.5` defines
-  the `## Evidence base` anchor shape — `#### ` four-hash cert entries — but not
+  the `## Evidence base` anchor shape as `#### ` four-hash cert entries, but not
   this survived-one-line / refuted-in-full body rendering, so this paragraph is
-  the authoritative spec for it.) The cert material is each finding's style check from the `## Process` steps — the
+  the authoritative spec for it.) The cert material is each finding's style check from the `## Process` steps: the
   section-length three-step decision (size threshold → exempt-category → padding-pattern)
   or the banned-vocabulary sweep result that confirms the violation.
 
