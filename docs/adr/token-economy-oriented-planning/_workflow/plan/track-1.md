@@ -132,10 +132,14 @@ requirement it was not given.
 
 Invariants to preserve (S1, S2):
 - Do not change the file-footprint sizing metric or the ~12 / ~20-25 bounds.
-- Leave byte-identical: `conventions.md` §1.1 glossary and §1.2 plan-file
-  Planning rule summary, and the three sizing-rule paraphrases in the
-  technical, risk, and adversarial review prompts. The change adds a criterion
-  and refines packing order; it does not edit the rule those sites paraphrase.
+- Leave byte-identical every synchronized copy of the sizing rule named in the
+  `prompts/structural-review.md` SYNC comment: `conventions.md` §1.1 glossary
+  and §1.2 plan-file Planning rule summary, the create-plan Step 4 sizing rule,
+  and the Track terminology paraphrase in all five review prompts (technical,
+  risk, adversarial, consistency, and structural-review.md's own bullet). The
+  change adds a criterion and refines packing order; it does not edit the rule
+  those sites paraphrase. structural-review.md is edited only in its TRACK
+  SIZING check region, so its paraphrase bullet stays byte-identical.
 - The tie-breaker never moves a step or track out of bounds or past a
   dependency; it is subordinate to coherence, high-isolation, mergeability,
   dependency order, and the bounds.
@@ -169,9 +173,12 @@ Track-level behavioral acceptance (the rule edits are correct and complete):
 - `prompts/structural-review.md` TRACK SIZING carries exactly one new criterion
   bullet for the undocumented non-adjacent overlap-split, classed
   `design-decision`, with no automated intersection computation introduced.
-- The metric, the ~12 / ~20-25 bounds, the §1.1 glossary, the §1.2 plan
-  summary, and the three review-prompt paraphrases are unchanged (verify by
-  diff).
+- The metric, the ~12 / ~20-25 bounds, and every synchronized sizing-rule copy
+  named in the `prompts/structural-review.md` SYNC comment are unchanged (verify
+  by diff): the §1.1 glossary, the §1.2 plan summary, the create-plan Step 4
+  rule, and the Track terminology paraphrase in all five review prompts
+  (technical, risk, adversarial, consistency, and structural-review.md's own
+  bullet).
 - The `planning.md` producer requirement and the `structural-review.md`
   consumer criterion both appear in this track's diff (S3).
 
@@ -196,11 +203,16 @@ In-scope files (all under `.claude/workflow/`):
 - `track-review.md` — §Step Decomposition, "Fill ordinary steps" bullet.
 - `prompts/structural-review.md` — TRACK SIZING checks.
 
-Out-of-scope, must stay byte-identical (S2):
+Out-of-scope, must stay byte-identical (S2) — the full synchronized set named
+in the `prompts/structural-review.md` SYNC comment (the authoritative
+enumeration Phase A pins against before editing):
 - `conventions.md` §1.1 glossary row and §1.2 plan-file Planning rule summary.
-- The three sizing-rule paraphrases in the technical, risk, and adversarial
-  review prompts under `.claude/workflow/prompts/` (Phase A pins the exact
-  filenames before editing).
+- The create-plan skill Step 4 sizing rule.
+- The Track terminology paraphrase in all five review prompts under
+  `.claude/workflow/prompts/`: `technical-review.md`, `risk-review.md`,
+  `adversarial-review.md`, `consistency-review.md`, and `structural-review.md`'s
+  own Track terminology bullet (distinct from the TRACK SIZING check region this
+  track edits).
 
 Inter-track dependencies: none. This is a single-track plan; nothing supplies
 a prerequisite and nothing downstream consumes its output.

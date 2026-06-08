@@ -31,9 +31,12 @@ structural review backstops the planner-facing half.
   subordinate to step coherence, high-isolation, inter-track mergeability,
   dependency ordering, and the footprint bounds (S1).
 - The file-footprint sizing metric and the ~12 / ~20-25 bounds are unchanged
-  (S2). The §1.1 glossary, the §1.2 plan summary, and the three sizing-rule
-  paraphrases (the technical, risk, and adversarial review prompts) stay
-  byte-identical, because the rule they paraphrase does not change.
+  (S2). Every synchronized copy of the sizing rule stays byte-identical,
+  because the rule they paraphrase does not change. The authoritative list of
+  those copies is the SYNC comment in `prompts/structural-review.md`: the §1.1
+  glossary and §1.2 plan summary, the create-plan Step 4 rule, and the Track
+  terminology paraphrase in all five review prompts (technical, risk,
+  adversarial, consistency, and structural-review.md's own bullet).
 - The planner-facing justification requirement and the reviewer-facing
   structural-review criterion land in the same change; neither half ships
   without the other (S3).
@@ -161,10 +164,14 @@ flowchart LR
   states the subordination explicitly and never instructs moving a step or
   track out of bounds or past a dependency to chase overlap.
 - **S2 — Metric and bounds unchanged.** The file-footprint sizing metric and
-  the ~12 / ~20-25 bounds do not move. Testable by diff: the §1.1 glossary, the
-  §1.2 plan-file Planning rule summary, and the technical/risk/adversarial
-  review-prompt paraphrases of the sizing rule stay byte-identical after this
-  change.
+  the ~12 / ~20-25 bounds do not move. Testable by diff: every synchronized
+  copy of the sizing rule named in the `prompts/structural-review.md` SYNC
+  comment stays byte-identical after this change — the §1.1 glossary, the §1.2
+  plan-file Planning rule summary, the create-plan Step 4 rule, and the Track
+  terminology paraphrase in all five review prompts (technical, risk,
+  adversarial, consistency, and structural-review.md's own bullet).
+  structural-review.md is edited only in its TRACK SIZING check region, so its
+  paraphrase bullet stays byte-identical alongside the rest.
 - **S3 — Producer/consumer co-ship.** The planner-facing justification
   requirement (`planning.md`) and the reviewer-facing criterion
   (`structural-review.md`) land in the same track. Testable: both files appear
@@ -207,7 +214,11 @@ flowchart LR
   > **Scope:** ~3 files covering the planner track-sizing rule (`planning.md`), the decomposer step-fill rule (`track-review.md`), and the structural-review overlap-split criterion (`prompts/structural-review.md`)
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 2 (consistency: full pass + gate; structural: full pass + gate)
+
+**Auto-fixed (mechanical)**: S1 — `design.md` §"Advisory enforcement" line-129 still names the pre-CR1 narrow byte-identical set; this is the design.md half of CR1. Recorded and deferred to the Phase 4 `design-final.md` reconciliation because `design.md` is frozen after Phase 1. The plan and track halves already carry the full SYNC set, so no plan/track edit was owed.
+
+**Escalated (design decisions)**: CR1 — invariant S2 enumerated the byte-identical sizing-rule paraphrase set as only the technical/risk/adversarial trio, while the authoritative SYNC comment in `prompts/structural-review.md` names a larger set (and omitted `structural-review.md`, the one edited file that itself carries the paraphrase). User chose the full-SYNC-set rendering. Broadened S2 in `implementation-plan.md` (§Constraints, Invariant S2) and `track-1.md` (§Plan of Work invariants, §Validation and Acceptance, §Interfaces and Dependencies out-of-scope set) to name `conventions.md` §1.1 + §1.2, the create-plan Step 4 rule, and the Track terminology paraphrase in all five review prompts, with the note that `structural-review.md` is edited only in its TRACK SIZING check region. The `design.md` mirror defers to Phase 4 (frozen).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
