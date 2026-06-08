@@ -201,7 +201,7 @@ flowchart LR
   rule text states it buys almost nothing (D4).
 
 ## Checklist
-- [ ] Track 1: Overlap-aware packing as an advisory tie-breaker
+- [x] Track 1: Overlap-aware packing as an advisory tie-breaker
   > Refine three workflow prose rules so packing prefers source-file overlap as
   > a co-locate-first tie-breaker. The planner track-sizing rule gains a
   > packing-order preference, a least-shared cut-seam rule with adjacent
@@ -211,7 +211,27 @@ flowchart LR
   > Phase 2 structural review gains one criterion that flags an undocumented
   > non-adjacent overlap-split as a `design-decision` finding. This is the
   > whole change, so no neighboring track exists to fold into.
-  > **Scope:** ~3 files covering the planner track-sizing rule (`planning.md`), the decomposer step-fill rule (`track-review.md`), and the structural-review overlap-split criterion (`prompts/structural-review.md`)
+  >
+  > **Track episode:**
+  > Added an advisory, co-locate-first overlap tie-breaker across three workflow
+  > prose rules: `planning.md` track-sizing (packing-order preference, a
+  > least-shared cut-seam rule with adjacent-ordering fallback, an overlap-split
+  > justification requirement), `track-review.md` step-fill (overlap-aware merge
+  > ordering plus an "adjacency is not a merge" caveat), and one
+  > `prompts/structural-review.md` TRACK SIZING criterion that flags an
+  > undocumented non-consecutive overlap-split as a `design-decision` finding.
+  > Every addition is subordinate to the existing mergeability / footprint /
+  > dependency-boundary bounds (S1) and leaves the sizing metric and the `~12` /
+  > `~20-25` bounds byte-identical (S2); only an undocumented split escalates.
+  > Phase C reviewed a workflow-only diff with five workflow reviewers and found
+  > seven items (zero blockers); one fix iteration (`5ec6ad0ad9`) resolved all
+  > seven and every re-checked dimension gate-checked PASS. The review-driven
+  > changes gave the structural-review criterion a citable home in the
+  > `design-decision` triage and corrected its mis-attribution of the per-file
+  > `## Interfaces and Dependencies` read to the plan-file-only footprint check.
+  > No cross-track impact: single-track plan.
+  >
+  > **Track file:** `plan/track-1.md` (1 step, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 2 (consistency: full pass + gate; structural: full pass + gate)
