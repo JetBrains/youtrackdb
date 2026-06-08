@@ -28,6 +28,7 @@ agent-definition edits across two different staging prefixes
 - [ ] Track completion
 - [x] 2026-06-08T07:50Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 - [x] 2026-06-08T09:12Z [ctx=safe] Step 1 complete (commit 41ad9ff4f6)
+- [x] 2026-06-08T09:18Z [ctx=safe] Step 2 complete (commit 751e0342e1)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -195,7 +196,7 @@ REGRESSION row exists at initial review (R3).
 ## Concrete Steps
 
 1. Router model, orchestrator side (D1+D4+D5): rewrite the tactical-review orchestration in `step-implementation.md` + `track-code-review.md` to bucket on the manifest index, inject the per-spawn output path, run the §2.5 S4/S6 count-validation with the `CONTRACT_VIOLATION`-to-implementer fallback (A1), and host the relocated bucketing / in-scope-classification / pre-spawn-budget functions reconciled against the existing inline budget check in `track-code-review.md` (R1); rewrite `finding-synthesis-recipe.md` to manifest-only routing: drop the five `M<n>` coupling sites, replace the OVERRIDE with the upgrade-only `basis` scan, move the `BC3` override to the manifest `id` (T1, S2); reconcile `review-iteration.md`'s `§Gate-check synthesis routing` + `§Verdict handling` REJECTED-VERDICT references — risk: high (workflow machinery: load-bearing review-iteration + tactical-routing control-flow protocol)  [x] commit: 41ad9ff4f6
-2. Implementer contract reconciliation, D1 implementer side, in `implementer-rules.md`: the per-iteration implementer reads bodies by anchor (never the evidence base), reconciles cross-dimension framings at the code level, and carries `DESIGN_DECISION_NEEDED` context forward; the `findings:`/`FIX_NOTES` reconciliation is exactly two edits (flip `what_was_fixed` to per-dimension IDs, verify `what_was_skipped`) and must not narrow the four-outcome `level=track` RESULT enum (A2) — risk: high (workflow machinery: implementer read/return contract, S1-load-bearing)  [ ]
+2. Implementer contract reconciliation, D1 implementer side, in `implementer-rules.md`: the per-iteration implementer reads bodies by anchor (never the evidence base), reconciles cross-dimension framings at the code level, and carries `DESIGN_DECISION_NEEDED` context forward; the `findings:`/`FIX_NOTES` reconciliation is exactly two edits (flip `what_was_fixed` to per-dimension IDs, verify `what_was_skipped`) and must not narrow the four-outcome `level=track` RESULT enum (A2) — risk: high (workflow machinery: implementer read/return contract, S1-load-bearing)  [x] commit: 751e0342e1
 3. Consumer reconciliation + residual cleanup: confirm `review-mode.md`'s `FIX_FINDING`/`SKIP_TRACK` references stay coherent post-`M<n>`-removal (T1), reconcile the residual "synthesised finding list" / "synthesis severity scale" language in the already-per-dimension `dimensional-review-gate-check.md` (T2, R2), and verify `code-review-protocol.md`'s by-file pointer to `finding-synthesis-recipe.md` still resolves after the rewrite (T2) — risk: medium (workflow machinery, bounded: gate-check prompt residual-language reconcile, borderline prose-only) — size: ~3 files; no mergeable low/medium work (rest of track is high)  [ ]
 
 ## Episodes
@@ -245,6 +246,38 @@ residual "synthesised finding list" / "synthesis severity scale" language and
 confirm `review-mode.md`'s `FIX_FINDING` triple stays coherent (its payload has no
 `M<n>`). The recipe keeps its filename, so `code-review-protocol.md`'s by-file
 pointer still resolves (step-3 verify-only).
+
+### Step 2 — commit 751e0342e1, 2026-06-08T09:18Z [ctx=safe]
+**What was done:** Flipped the staged `implementer-rules.md`
+`FIX_NOTES.what_was_fixed` guidance to the router model that step 1 landed: cite
+the per-dimension reviewer IDs (`BC3`, `CQ7`) the orchestrator now hands the
+implementer directly, drop the now-false claim that per-dimension IDs are
+"orchestrator-internal... not visible to the implementer," and state there is no
+synthesised `M<n>` merge layer and that these anchors are what the implementer
+reads bodies by. The four-outcome `level=track` RESULT enum
+(`SUCCESS | DESIGN_DECISION_NEEDED | RISK_UPGRADE_REQUESTED | FAILED`) was left
+intact (A2). `what_was_skipped` was verified already post-D5-correct and left
+unchanged, so the planned two-edit reconciliation reduced to one real edit plus
+one no-op verify.
+
+**What was discovered:** A pre-edit grep confirmed the `what_was_fixed` block was
+the only site in the rulebook carrying both the `M<n>` citation and the
+"orchestrator-internal / not visible to the implementer" claim, so the single
+flip is complete coverage of the D5 inversion. The `findings:` input description
+uses "synthesised" in the generic fan-out-produced-a-list sense, carrying neither
+the `M<n>` literal nor the visibility claim, so editing it would have exceeded the
+two-edit budget; it stays unchanged and reads correctly post-D5 (the input is a
+synthesised list; the output notes cite its per-dimension anchors).
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/implementer-rules.md` (modified — staged)
+
+**Critical context:** Step 3 is the last roster step: confirm `review-mode.md`'s
+`FIX_FINDING`/`SKIP_TRACK` references stay coherent (its `{location, issue, fix}`
+triple has no `M<n>`), reconcile the residual "synthesised finding list" /
+"synthesis severity scale" language in the already-per-dimension
+`dimensional-review-gate-check.md` (T2, R2), and verify `code-review-protocol.md`'s
+by-file pointer to `finding-synthesis-recipe.md` still resolves (T2, verify-only).
 
 ## Validation and Acceptance
 
