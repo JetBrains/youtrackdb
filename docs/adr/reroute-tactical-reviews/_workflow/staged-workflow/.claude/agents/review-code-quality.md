@@ -141,10 +141,11 @@ do not restate the schema here. Concretely:
   finding under `## Findings` and nothing else at the three-hash level.
 - Populate every `§2.5` manifest `index` field — all six: `id`, `sev`, `anchor`
   (the three `§2.5` marks mandatory) and `loc`, `cert`, `basis` (the three `§2.5`
-  marks downstream-consumed by the tactical routing). The per-finding `cert`
-  cross-links to the matching `#### C<n>` entry you write in `## Evidence base`.
-  The manifest-level `evidence_base`, `cert_index`, and `flags` fields follow the
-  same `§2.5` citation; no need to enumerate them beyond that pointer.
+  marks downstream-consumed by the tactical routing). For this evidence-trail-exempt
+  dimension the per-finding `cert` is `n/a` — the dimension writes no `#### C<n>`
+  entries (see the evidence-trail-exempt clause below). The manifest-level
+  `evidence_base`, `cert_index`, and `flags` fields follow the same `§2.5` citation;
+  no need to enumerate them beyond that pointer.
 - Number findings with the canonical `CQ` prefix from
   review-iteration.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§ Finding ID prefixes`
   (`CQ` = Code quality review). The prefix is fixed, not chosen; only the
