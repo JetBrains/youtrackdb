@@ -29,9 +29,17 @@ already cite the prefix table. The 4 standalone agents get a one-line exemption
 - [ ] Track completion
 - [x] 2026-06-08T05:23Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 - [x] 2026-06-08T05:54Z [ctx=safe] Step 1 complete (commit b0b9c93398e087a9955df62458b810910a40fbde)
+- [x] 2026-06-08T06:09Z [ctx=info] Step 2 complete (commit 9c8e8e01641fd280a2b8e878a376753ddf613b41)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- 2026-06-08T06:09Z Step 2 discovered (ORCH-1): the canary's six-field manifest `cert`
+  cross-link to a `#### C<n>` entry contradicts the evidence-trail-exempt clause's empty
+  `## Evidence base` / `certs: 0`. Reconciled to "`cert` is `n/a`" in the two exempt code/test
+  dimensions (CQ, TS). Step 3's four evidence-trail-exempt workflow dimensions (`consistency`,
+  `context-budget`, `hook-safety`, `prompt-design`) must use the same "`cert` is `n/a`"
+  phrasing, not the cross-link. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -209,7 +217,7 @@ stay byte-for-byte today's inline format for that agent so the standalone
    `exempt because: invoked standalone…` annotation to `code-reviewer`,
    `pr-reviewer`, `test-quality-reviewer`, `dr-audit`. — risk: medium (workflow
    machinery — single-review-agent-spec behavioral change ×9, plus 4 prose-only
-   D9 annotations; merged tag = medium)  [ ]
+   D9 annotations; merged tag = medium)  [x] commit: 9c8e8e01641fd280a2b8e878a376753ddf613b41
 3. **Template B: migrate the 6 workflow dimensional agents.**
    `review-workflow-consistency`, `review-workflow-context-budget`,
    `review-workflow-hook-safety`, `review-workflow-instruction-completeness`,
@@ -270,6 +278,45 @@ gate still greps two prefixes (`.claude/workflow/`, `.claude/skills/`); the
 
 **Key files:**
 - `…/staged-workflow/.claude/agents/review-bugs-concurrency.md` (new — staged)
+
+### Step 2 — commit 9c8e8e0164, 2026-06-08T06:09Z [ctx=info]
+**What was done:** Replicated the canary template-A wrap across the nine remaining
+code and test dimensional agents and added the D9 standalone-exemption annotation to
+the four pure-standalone agents, all in one commit through the staged mirror
+(copy-then-edit on first touch per §1.7(e); live tree untouched). Each of the nine
+gained a leading `## Output routing` guard before its inline Output Format, copied
+from the canary with only the canonical `<PREFIX>` and the refutation/certificate
+phase name substituted. The seven with a refutation/certificate phase write the trail
+to `## Evidence base` (CS=Phase-5 Alternative Hypothesis Check, PF=Phase-4 Scale
+Validation, SE=Phase-4 Reachability Check, TB=Phase-3 falsifiability analysis,
+TC=Phase-4 alternative-hypothesis check, TX=Phase-3 test-race analysis, TY=Phase-3
+recovery-path verification). The two without one — `review-code-quality` (CQ) and
+`review-test-structure` (TS) — carry the evidence-trail-exempt clause with closed-set
+reason "(a) no refutation or certificate phase to persist", write an empty
+`## Evidence base`, and set the manifest `evidence_base` to `certs: 0`. The four
+standalone agents (`code-reviewer`, `pr-reviewer`, `test-quality-reviewer`,
+`dr-audit`) got the verbatim one-line `exempt because…` annotation only — no guard.
+Medium step, so no step-level dimensional review fired; orchestrator verification of
+the bulk edit found one should-fix (ORCH-1), reconciled in a `Review fix:` commit.
+
+**What was discovered:** ORCH-1 — the canary's six-field manifest bullet cross-links
+each finding's `cert` to a `#### C<n>` evidence-base entry, which contradicts the
+evidence-trail-exempt clause's empty `## Evidence base` / `certs: 0`. For an exempt
+dimension there are no `#### C<n>` entries, so `cert` has nothing to point to. Fixed
+in CQ and TS to "the per-finding `cert` is `n/a`" for the exempt case; the seven
+evidence-base-writing agents keep the cross-link (correct for them). Carry-forward to
+step 3: its four evidence-trail-exempt workflow dimensions (`consistency`,
+`context-budget`, `hook-safety`, `prompt-design`) must use the reconciled "cert is
+n/a" phrasing, not the canary's cross-link, or the contradiction reproduces. Also:
+the test dimensions use a lowercase `## Output format` heading; the guard's "use the
+Output format below" pointer was matched to each agent's actual heading casing.
+
+**Key files:**
+- `…/staged-workflow/.claude/agents/review-code-quality.md` (new — staged, evidence-trail-exempt)
+- `…/staged-workflow/.claude/agents/review-crash-safety.md`, `review-performance.md`, `review-security.md` (new — staged)
+- `…/staged-workflow/.claude/agents/review-test-behavior.md`, `review-test-completeness.md`, `review-test-concurrency.md`, `review-test-crash-safety.md` (new — staged)
+- `…/staged-workflow/.claude/agents/review-test-structure.md` (new — staged, evidence-trail-exempt)
+- `…/staged-workflow/.claude/agents/code-reviewer.md`, `pr-reviewer.md`, `test-quality-reviewer.md`, `dr-audit.md` (new — staged, D9 `exempt because…` annotation only)
 
 ## Validation and Acceptance
 
