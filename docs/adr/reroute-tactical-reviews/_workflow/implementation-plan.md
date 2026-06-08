@@ -331,6 +331,12 @@ flowchart TD
   > iteration 1 (6 workflow dimensions, 9 findings → one `Review fix:`, gate PASS, 0 new).
   >
   > **Track file:** `plan/track-2.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Tracks 1 and 2 delivered Track 3's hard
+  > dependencies (stageable `.claude/agents/`, the §2.5 review-file schema) as
+  > planned; no Track 2 episode contradicts Track 3 and D5/D6/D8/D9 stay intact.
+  > Carry the closed 15-value role enum and the three concrete panel roles
+  > (`reviewer-technical`/`reviewer-risk`/`reviewer-adversarial`) into decomposition.
 
 - [ ] Track 3: Dimensional reviewers emit file+manifest with IDs and an evidence trail
   > The 16 `review-*` dimensional agents gain path-conditional file+manifest
