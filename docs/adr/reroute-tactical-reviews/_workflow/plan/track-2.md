@@ -335,76 +335,13 @@ mechanical and get tests.
 
 ## Concrete Steps
 
-1. **`conventions-execution.md` schema + coverage + lifecycle, with the S4/S6
-   test.** Add the `§2.x` manifest-plus-sections schema: the manifest block, the
-   `## Findings` / `## Evidence base` anchored bodies, the `### <PREFIX><N> `
-   namespace reserved file-wide, the count-validation grep
-   `grep -cE '^### [A-Z]+[0-9]+ '` (S4/S6), the `CONTRACT_VIOLATION` whole-section
-   fallback, the mandatory `id`/`sev`/`anchor` vs downstream `loc`/`cert`/`basis`
-   field split, and the verdict-producer manifest variant. State S5 once with its
-   enforcement status (documented contract, not mechanical this track). Add the
-   review-file lifecycle as new prose under `§2.1` (committed-at-return,
-   `plan/track-N/reviews/`, Phase 4 sweep, thin episode-block shape, `plan/*` glob
-   caution) — not a `#### Section lifecycle` matrix row. Confirm the blanket
-   `git rm -r _workflow/` in `workflow.md §Final Artifacts` + `create-final-design.md`
-   already sweeps review files (cleanup-prose mention only; no `plan/*` glob). Add
-   the `.claude/scripts/tests/` mechanical test for S4/S6 (count==grep,
-   heading-only, a stray-`### CASE1 ` CONTRACT_VIOLATION fixture; fixtures embed
-   and cite the canonical regex). — risk: high (workflow machinery — defines the
-   shared review-file schema/lifecycle every bulk producer keys off)  [x] commit: 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67
+1. **`conventions-execution.md` schema + coverage + lifecycle, with the S4/S6 test.** Add the `§2.x` manifest-plus-sections schema: the manifest block, the `## Findings` / `## Evidence base` anchored bodies, the `### <PREFIX><N> ` namespace reserved file-wide, the count-validation grep `grep -cE '^### [A-Z]+[0-9]+ '` (S4/S6), the `CONTRACT_VIOLATION` whole-section fallback, the mandatory `id`/`sev`/`anchor` vs downstream `loc`/`cert`/`basis` field split, and the verdict-producer manifest variant. State S5 once with its enforcement status (documented contract, not mechanical this track). Add the review-file lifecycle as new prose under `§2.1` (committed-at-return, `plan/track-N/reviews/`, Phase 4 sweep, thin episode-block shape, `plan/*` glob caution) — not a `#### Section lifecycle` matrix row. Confirm the blanket `git rm -r _workflow/` in `workflow.md §Final Artifacts` + `create-final-design.md` already sweeps review files (cleanup-prose mention only; no `plan/*` glob). Add the `.claude/scripts/tests/` mechanical test for S4/S6 (count==grep, heading-only, a stray-`### CASE1 ` CONTRACT_VIOLATION fixture; fixtures embed and cite the canonical regex). — risk: high (workflow machinery — defines the shared review-file schema/lifecycle every bulk producer keys off)  [x] commit: 0b27c8d8ce85fec9f2c1b88515df9ca8fda50c67
 
-2. **Teach the bulk producers to write files in the schema.** Phase A panel
-   (`technical-`/`risk-`/`adversarial-review.md`) + Phase 2 plan-review
-   (`consistency-`/`structural-review.md`): write file + thin manifest, keep the
-   orchestrator's `## Findings` partial-fetch, and **drop the `Finding ` word**
-   from finding headings (`### Finding <PREFIX><N>` → `### <PREFIX><N>`) so the S4
-   grep counts them; `structural-review.md` carries an empty/minimal
-   `## Evidence base`. The three gate-verification prompts (`consistency-`/
-   `structural-`/`review-gate-verification.md`) adopt the verdict-producer
-   manifest variant from step 1. Research/audit: `research.md` Explore delegation
-   states its write-or-`exempt because…` rationale; `design-review.md` made
-   path-conditional (write file + summary when handed an output path, inline
-   otherwise); inject the output path into `edit-design/SKILL.md §Step 4`
-   `## Inputs` gated on `mutation_kind == phase4-creation`, so the Phase 4
-   cold-read writes a file and the Phase 1 `phase1-creation` invocation stays
-   byte-for-byte exempt. — risk: medium (bounded behavioral workflow edits across
-   producer prompts and one skill; no auto-running script or load-bearing gate
-   changed)  [x] commit: 396935bb0ce16c8dc5d808ef32a86f53aa500277
+2. **Teach the bulk producers to write files in the schema.** Phase A panel (`technical-`/`risk-`/`adversarial-review.md`) + Phase 2 plan-review (`consistency-`/`structural-review.md`): write file + thin manifest, keep the orchestrator's `## Findings` partial-fetch, and **drop the `Finding ` word** from finding headings (`### Finding <PREFIX><N>` → `### <PREFIX><N>`) so the S4 grep counts them; `structural-review.md` carries an empty/minimal `## Evidence base`. The three gate-verification prompts (`consistency-`/ `structural-`/`review-gate-verification.md`) adopt the verdict-producer manifest variant from step 1. Research/audit: `research.md` Explore delegation states its write-or-`exempt because…` rationale; `design-review.md` made path-conditional (write file + summary when handed an output path, inline otherwise); inject the output path into `edit-design/SKILL.md §Step 4` `## Inputs` gated on `mutation_kind == phase4-creation`, so the Phase 4 cold-read writes a file and the Phase 1 `phase1-creation` invocation stays byte-for-byte exempt. — risk: medium (bounded behavioral workflow edits across producer prompts and one skill; no auto-running script or load-bearing gate changed)  [x] commit: 396935bb0ce16c8dc5d808ef32a86f53aa500277
 
-3. **Prose-only exemptions + consistency reconciliations.** Annotate
-   `review-mode.md`'s `FIX_FINDING` with `exempt because…` (user-sourced triples,
-   in-conversation, never accumulated). Light consistency pass on
-   `step-implementation-recovery.md` (schema/lifecycle phrasing only; routing
-   wording stays Track 4). Reconcile `track-review.md §Phase A Resume`: the
-   committed strategic review files are durable records and the live-iteration win
-   is the evidence base off-context, while Phase A resume still gates on the
-   `## Outcomes & Retrospective` checkboxes. — risk: low (prose-only — no
-   hook/script/settings, no gate/dispatch/schema change) — size: ~3 files. Of the
-   other low/medium work, step 2 (~11 files) would trip the ~14 overblown line if
-   merged in (reason a), and the inline-replan step 4 (~2 files, medium) stays
-   separate because it touches a disjoint `track-review.md` section and carries a
-   different risk tag; folding this low prose-only step into the medium dispatch
-   step would erase the risk-tag granularity that keeps step 3 on the no-step-review
-   fast path.  [x] commit: a89973811a7d95ff921793f9a377095a9973f60a
+3. **Prose-only exemptions + consistency reconciliations.** Annotate `review-mode.md`'s `FIX_FINDING` with `exempt because…` (user-sourced triples, in-conversation, never accumulated). Light consistency pass on `step-implementation-recovery.md` (schema/lifecycle phrasing only; routing wording stays Track 4). Reconcile `track-review.md §Phase A Resume`: the committed strategic review files are durable records and the live-iteration win is the evidence base off-context, while Phase A resume still gates on the `## Outcomes & Retrospective` checkboxes. — risk: low (prose-only — no hook/script/settings, no gate/dispatch/schema change) — size: ~3 files. Of the other low/medium work, step 2 (~11 files) would trip the ~14 overblown line if merged in (reason a), and the inline-replan step 4 (~2 files, medium) stays separate because it touches a disjoint `track-review.md` section and carries a different risk tag; folding this low prose-only step into the medium dispatch step would erase the risk-tag granularity that keeps step 3 on the no-step-review fast path.  [x] commit: a89973811a7d95ff921793f9a377095a9973f60a
 
-4. **Strategic dispatch path-injection (orchestrator side).** Inject the
-   review-file output path at the strategic spawn sites so step 2's producer
-   prompts (write-when-handed-a-path) gain a caller and the orchestrator
-   partial-fetches `## Findings` from the committed file — the orchestrator-side
-   complement of step 2, without which that write branch has no caller
-   post-promotion. `track-review.md §Inputs`: add the per-spawn output path to the
-   shared set passed to the Phase A panel (`technical`/`risk`/`adversarial`) and the
-   review-gate-verification spawn, naming the
-   `_workflow/plan/track-N/reviews/<type>-iter<N>.md` target (the §2.1 lifecycle
-   home, §2.5 schema) and the orchestrator's partial-fetch read of `## Findings`.
-   `implementation-review.md`: inject the same for the Phase 2
-   `consistency`/`structural` reviewers and their gate-verifications. Both files
-   stage under §1.7. Does not change S1 (strategic reviews keep the orchestrator's
-   partial-fetch by design). — risk: medium (bounded behavioral dispatch/`## Inputs`
-   edits at the strategic spawn sites; no auto-running script or load-bearing gate
-   changed) — size: ~2 files (`track-review.md` already in scope for §Phase A
-   Resume; `implementation-review.md` new); added by inline replan after step 2
-   (DL7)  [ ]
+4. **Strategic dispatch path-injection (orchestrator side).** Inject the review-file output path at the strategic spawn sites so step 2's producer prompts (write-when-handed-a-path) gain a caller and the orchestrator partial-fetches `## Findings` from the committed file — the orchestrator-side complement of step 2, without which that write branch has no caller post-promotion. `track-review.md §Inputs`: add the per-spawn output path to the shared set passed to the Phase A panel (`technical`/`risk`/`adversarial`) and the review-gate-verification spawn, naming the `_workflow/plan/track-N/reviews/<type>-iter<N>.md` target (the §2.1 lifecycle home, §2.5 schema) and the orchestrator's partial-fetch read of `## Findings`. `implementation-review.md`: inject the same for the Phase 2 `consistency`/`structural` reviewers and their gate-verifications. Both files stage under §1.7. Does not change S1 (strategic reviews keep the orchestrator's partial-fetch by design). — risk: medium (bounded behavioral dispatch/`## Inputs` edits at the strategic spawn sites; no auto-running script or load-bearing gate changed) — size: ~2 files (`track-review.md` already in scope for §Phase A Resume; `implementation-review.md` new); added by inline replan after step 2 (DL7)  [x] commit: 48c99d6120fe7a68ca596cd388e077da4e11d784
 
 Sequential: 2 depends on step 1's schema; 3 depends on the step-1 coverage rule
 and the step-2 strategic-file behavior; 4 (added by inline replan, DL7) depends on
