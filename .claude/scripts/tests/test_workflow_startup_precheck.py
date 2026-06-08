@@ -288,9 +288,10 @@ class GitFixture:
 
     def workflow_commit(self, message: str, *, relpath: Optional[str] = None) -> None:
         """Author a commit that touches a path under `.claude/workflow/` — a path
-        the drift `git log $BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/`
-        range watches. A run of these between the stamp base and HEAD is what
-        makes the Phase 2 range non-empty (the drift-detected case). A distinct
+        the drift `git log $BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/
+        .claude/agents/` range watches. A run of these between the stamp base and
+        HEAD is what makes the Phase 2 range non-empty (the drift-detected case).
+        A distinct
         relpath per call keeps successive commits real."""
         rel = relpath or f".claude/workflow/wf-{message.replace(' ', '-')}.md"
         path = self.path / rel
@@ -302,14 +303,31 @@ class GitFixture:
     def staged_workflow_commit(self, message: str = "staged wf edit") -> None:
         """Author a commit that touches ONLY the staged subtree under
         `<plan_dir>/_workflow/staged-workflow/.claude/workflow/`. The drift
-        range's trailing-slash pathspecs (`.claude/workflow/`, `.claude/skills/`)
-        must NOT match this path — it sits under `docs/adr/.../staged-workflow/`,
-        a different prefix — so a commit touching only the staged subtree stays
-        out of the `git log` range (the staged-subtree-exclusion invariant)."""
+        range's trailing-slash pathspecs (`.claude/workflow/`, `.claude/skills/`,
+        `.claude/agents/`) must NOT match this path — it sits under
+        `docs/adr/.../staged-workflow/`, a different prefix, so a commit touching
+        only the staged subtree stays out of the `git log` range (the
+        staged-subtree-exclusion invariant)."""
         rel = (
             f"docs/adr/{self.default_branch}/_workflow/staged-workflow/"
             f".claude/workflow/staged-{message.replace(' ', '-')}.md"
         )
+        path = self.path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(message + "\n", encoding="utf-8")
+        self._git("add", rel)
+        self._git("commit", "-q", "-m", message)
+
+    def agents_commit(self, message: str, *, relpath: Optional[str] = None) -> None:
+        """Author a commit that touches a path under `.claude/agents/` — the third
+        workflow pathspec the drift `git log $BASE_SHA..HEAD -- .claude/workflow/
+        .claude/skills/ .claude/agents/` range watches once §1.6(b)/precheck are
+        extended to three prefixes. An agent-only commit between the stamp base
+        and HEAD must register as drift exactly like a `.claude/workflow/` commit,
+        so the property that an agent-only develop commit registers as a
+        workflow-format change holds. A distinct relpath per call keeps successive
+        commits real."""
+        rel = relpath or f".claude/agents/agent-{message.replace(' ', '-')}.md"
         path = self.path / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(message + "\n", encoding="utf-8")
@@ -1159,7 +1177,8 @@ def test_drift_empty_input_silent_no_drift_kind_null() -> None:
 # When every artifact is stamped, the precheck folds the stamp set pairwise
 # through `git merge-base` to derive BASE_SHA (the oldest stamp reachable from
 # HEAD), then ranges `git log $BASE_SHA..HEAD` against the workflow pathspecs
-# (`.claude/workflow/`, `.claude/skills/`). The fixtures here stamp artifacts
+# (`.claude/workflow/`, `.claude/skills/`, `.claude/agents/`). The fixtures here
+# stamp artifacts
 # with *real* commit SHAs (head_sha / orphan_branch) so the fold resolves them,
 # unlike the Phase 1 fixtures' synthetic SHAs. Four cases:
 #
@@ -1183,10 +1202,11 @@ def test_drift_phase2_detected_reports_range() -> None:
     """An all-stamped plan whose single stamp points at a real commit, with two
     `.claude/workflow/` commits sitting between that stamp base and HEAD, is
     drift: the Phase 2 fold derives BASE_SHA from the stamp, and
-    `git log BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/` returns the two
-    workflow commits. detected=true, base_sha is the stamp's commit, commit_count
-    is 2, and first_commits lists them oldest-first (the `--reverse` order) with
-    full subjects. The plan-artifact commit itself touches `docs/adr/...`, not a
+    `git log BASE_SHA..HEAD -- .claude/workflow/ .claude/skills/ .claude/agents/`
+    returns the two workflow commits. detected=true, base_sha is the stamp's
+    commit, commit_count is 2, and first_commits lists them oldest-first (the
+    `--reverse` order) with full subjects. The plan-artifact commit itself
+    touches `docs/adr/...`, not a
     watched path, so it does not inflate the count."""
     with GitFixture() as fx:
         fx.commit("init")
@@ -1294,10 +1314,11 @@ def test_drift_phase2_staged_subtree_excluded_from_range() -> None:
     """A commit touching ONLY the staged subtree under
     `docs/adr/<branch>/_workflow/staged-workflow/.claude/workflow/` must not
     appear in the drift `git log` range. The range's pathspecs (`.claude/workflow/`,
-    `.claude/skills/`) carry trailing slashes and match those top-level
-    directories, not the staged copy under `docs/adr/.../staged-workflow/` (a
-    different path prefix). With the stamp at the base and only a staged-subtree
-    commit after it, the range is empty: detected=false, commit_count=0. This
+    `.claude/skills/`, `.claude/agents/`) carry trailing slashes and match those
+    top-level directories, not the staged copy under
+    `docs/adr/.../staged-workflow/` (a different path prefix). With the stamp at
+    the base and only a staged-subtree commit after it, the range is empty:
+    detected=false, commit_count=0. This
     pins the staged-subtree-exclusion invariant the byte-source relies on so a
     workflow-modifying branch's staged edits do not self-report as drift."""
     with GitFixture() as fx:
@@ -1344,6 +1365,40 @@ def test_drift_phase2_real_workflow_commit_vs_staged_distinguished() -> None:
         subjects = [c["subject"] for c in drift["first_commits"]]
         assert subjects == ["real workflow edit"], (
             f"only the real workflow commit appears in first_commits, got {subjects!r}"
+        )
+
+
+def test_drift_phase2_agents_commit_detected() -> None:
+    """An all-stamped plan whose stamp points at a real commit, with a
+    `.claude/agents/` commit sitting between that stamp base and HEAD, is drift:
+    the third workflow pathspec (`.claude/agents/`, added alongside the §1.6(b)
+    stamp base) puts an agent-only commit in the `git log BASE_SHA..HEAD --
+    .claude/workflow/ .claude/skills/ .claude/agents/` range exactly like a
+    `.claude/workflow/` commit. detected=true, commit_count=1, and the agent
+    commit's subject appears in first_commits. Pins the third prefix in
+    WORKFLOW_PATHSPECS so a future edit that drops `.claude/agents/` (breaking
+    the property that an agent-only develop commit registers as a workflow-format
+    change) fails here."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()  # the commit the stamp points at
+        # An agent-path commit lands after the stamp base, so it falls in the
+        # BASE_SHA..HEAD range the drift `git log` now watches via the third prefix.
+        fx.agents_commit("agent definition change")
+        # The plan artifact is stamped with the real base SHA; its own commit
+        # touches docs/adr/... (not a watched path) so it stays out of the range.
+        fx.plan_artifact("implementation-plan.md", stamp=base)
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is True, (
+            f"an agent-path commit in range must detect drift: {drift!r}"
+        )
+        assert drift["commit_count"] == 1, (
+            f"commit_count should count the one agent commit, got {drift['commit_count']!r}"
+        )
+        subjects = [c["subject"] for c in drift["first_commits"]]
+        assert subjects == ["agent definition change"], (
+            f"first_commits should list the agent commit, got {subjects!r}"
         )
 
 
@@ -3226,6 +3281,7 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_phase2_merge_base_failed_kind_scalars_null", test_drift_phase2_merge_base_failed_kind_scalars_null),
     ("drift_phase2_staged_subtree_excluded_from_range", test_drift_phase2_staged_subtree_excluded_from_range),
     ("drift_phase2_real_workflow_commit_vs_staged_distinguished", test_drift_phase2_real_workflow_commit_vs_staged_distinguished),
+    ("drift_phase2_agents_commit_detected", test_drift_phase2_agents_commit_detected),
     ("norm_success_one_commit_line1_only_diff_exit0", test_norm_success_one_commit_line1_only_diff_exit0),
     ("norm_uniform_stamps_skip_no_commit", test_norm_uniform_stamps_skip_no_commit),
     ("norm_success_reports_commit_in_actions_taken", test_norm_success_reports_commit_in_actions_taken),

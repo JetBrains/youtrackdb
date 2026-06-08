@@ -10,6 +10,11 @@
 | §2.2 Episode Formats | orchestrator | 3A,3B,3C | The three episode types (step completion, step failed, track episode) and their field sets; full rules elsewhere. |
 | §2.3 Ephemeral identifier rule — pointer | implementer,final-designer | 3B,3C,4 | Quick recap of the ephemeral-identifier rule plus the pre-commit gate regex; full rule in the dedicated file. |
 | §2.4 Commit messages, code review, complexity, decomposition | orchestrator | 3A,3B,3C | On-demand pointers to commit conventions, the code-review protocol, complexity tiers, and decomposition rules. |
+| §2.5 Review-file schema, count validation, and coverage | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5). |
+| §Manifest-plus-sections file | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields. |
+| §Anchored addressing and count validation (S4/S6) | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback. |
+| §Verdict-producer manifest variant | orchestrator,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate. |
+| §Coverage (S5) | decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection. |
 
 <!--Document index end-->
 
@@ -267,6 +272,51 @@ alongside the rest of `_workflow/` in the Phase 4 cleanup commit before
 merge (see `conventions.md` `§1.2` for the full lifecycle and
 `workflow.md` § Final Artifacts for the cleanup procedure).
 
+#### Review-file lifecycle
+<!-- roles=orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Review files are plan-directory artifacts written and committed at reviewer-return under plan/track-N/reviews/, swept by the Phase 4 cleanup; the thin episode-block shape and the plan/* glob caution." -->
+
+Review files (the manifest-plus-sections files defined in `§2.5`) are
+**plan-directory artifacts**, not `.claude/` files, so they never touch
+the staged mirror — they live in the real `_workflow/`. Each lives under
+`docs/adr/<dir-name>/_workflow/plan/track-N/reviews/`, a directory beside
+the `plan/track-N.md` file. A producer `mkdir -p`s its own `reviews/`
+directory (idempotent) and writes a per-fan-out-unique filename so
+concurrent reviewers in one parallel fan-out never share a path.
+
+**Committed at reviewer-return.** A review file is written **and
+committed** at reviewer-return, as a Workflow-update commit. Committing
+(not merely writing) is the resume precondition (D10): a crash before the
+commit would lose the file and force the re-spawn the schema avoids. On a
+`/clear` after a completed review pass whose file is committed, resume
+reads the committed file (manifests for routing, `## Findings` for
+strategic) rather than re-spawning that reviewer. This does **not**
+override the Phase A re-run rule for an *interrupted* iteration:
+`track-review.md` gates Phase A resume on the `## Outcomes &
+Retrospective` checkboxes and re-runs an interrupted review type from
+iteration 1, because mid-iteration findings are not trustworthy once a
+partial fix has landed. The persistence payoff is the completed-review
+boundary, where the committed file is the durable record.
+
+**Thin episode block.** The episode block that records a review pass
+points at the review files and records the manifest counts only — it
+carries no finding bodies. The block sits inside the canonical episode
+shape (`§2.2`).
+
+**Phase 4 sweep.** Review files need no dedicated cleanup step. The Phase
+4 cleanup is a blanket recursive `git rm -r _workflow/` (in `workflow.md`
+§ Final Artifacts and `create-final-design.md`), which removes
+`plan/track-N/reviews/` along with the rest of `_workflow/`
+automatically, the same way it sweeps `handoff-*.md`.
+
+**`plan/*` glob caution.** The `plan/track-N.md` file and the
+`plan/track-N/` directory coexist. Any consumer that walks `plan/` must
+not glob bare `plan/*` expecting files only — it would pick up the
+`track-N/` directory. The current consumers are safe: they glob
+`plan/track-*.md` (the `.md` suffix excludes a `track-N/` directory) or
+`.md`-filter a non-recursive `listdir`, and the Phase 4 cleanup is the
+blanket recursive `rm` above. This caution is a forward guard for any
+future consumer.
+
 #### Risk tag, base commit, and the strategic-guide stance
 <!-- roles=orchestrator,decomposer,implementer phases=3A,3B,3C summary="The risk: tag lifecycle, the mandatory [ctx=<level>] field, and the plan-as-strategic-guide stance." -->
 
@@ -417,3 +467,187 @@ at session startup. Load on demand:
 - **Checklist decomposition rules** (step sizing, cross-cutting concerns,
   parallel step annotation): covered in
   track-review.md:orchestrator,decomposer:3A §Step Decomposition.
+
+---
+
+## 2.5 Review-file schema, count validation, and coverage
+<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5)." -->
+
+This subsection is the **single source of truth** for the review-file
+schema every bulk-producing sub-agent writes. Other documents (the
+strategic and dimensional reviewer prompts, the orchestrator routing,
+the implementer's anchor-read) cite this subsection rather than
+restating the schema.
+
+### Manifest-plus-sections file
+<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields." -->
+
+A bulk-producing sub-agent persists its structured output to a file at a
+spawn-supplied path and returns only the manifest. The file opens with an
+HTML-comment `MANIFEST` block, then segregated body sections:
+
+```markdown
+<!-- MANIFEST
+findings: 12   severity: {blocker: 2, should-fix: 5, suggestion: 5}
+index:
+  - {id: BC1, sev: blocker,    loc: Foo.java:142, anchor: "### BC1 ", cert: C3, basis: "TOCTOU on shared cache map; concrete interleaving traced"}
+  - {id: BC2, sev: should-fix, loc: Bar.java:88,  anchor: "### BC2 ", cert: C7, basis: "missing null check on nullable return"}
+evidence_base: {section: "## Evidence base", certs: 20, matches: 16}
+cert_index:
+  - {id: C3, verdict: WRONG, anchor: "#### C3 "}
+flags: [CONTRACT_OK]
+-->
+
+## Findings
+### BC1 [blocker] ...
+### BC2 [should-fix] ...
+
+## Evidence base
+#### C1 ... MATCHES
+#### C3 ... WRONG
+```
+
+The manifest is the same block the sub-agent returns, echoed verbatim.
+Persisting to a file rather than returning the same structure inline is
+the load-bearing choice: an inline structured return tidies the message
+shape but leaves nothing on disk, so a mid-review `/clear` still
+re-spawns the panel. The file is what makes resume cheap. The manifest
+comment reuses the HTML-comment-plus-regex idiom the workflow-sha stamps
+already rely on, so it parses stably.
+
+**Manifest index fields — mandatory vs downstream.** Each `index` entry
+carries six fields. Three are **mandatory** on every producer's manifest:
+
+- `id` — the per-reviewer finding ID (`BC1`, `T1`); the anchor key and
+  bucketing dimension proxy. Never renumbered.
+- `sev` — the finding's severity (`blocker` / `should-fix` /
+  `suggestion`, or the producer's native scale).
+- `anchor` — the stable heading anchor (`### BC1 `) the body is reached
+  by.
+
+Three are **consumed downstream** — populated by the producer, read by
+the tactical-routing consumers that arrive in a later track:
+
+- `loc` — the `file:line` location, used for `loc`-collapse across
+  dimensions.
+- `cert` — the certificate or evidence-trail anchor, used for
+  contested-finding drill-down.
+- `basis` — the one-line impact statement, used by the orchestrator's
+  upgrade-only severity backstop.
+
+A producer fills all six; the mandatory/downstream split tells a reader
+which fields it may rely on being present versus which a particular
+consumer keys off. `evidence_base`, `cert_index`, and `flags` are
+manifest-level (not per-finding): `evidence_base` summarises the
+`## Evidence base` section, `cert_index` lists the certificate verdicts,
+and `flags` carries `CONTRACT_OK` or `CONTRACT_VIOLATION`.
+
+### Anchored addressing and count validation (S4/S6)
+<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback." -->
+
+Addressing keys on **stable heading anchors** (`^### BC1 `, `^#### C3 `),
+which survive minor format drift; a line offset, when present, is an
+optional fast-path hint only.
+
+The `### <PREFIX><N> ` three-hash heading shape is **reserved file-wide**
+for finding anchors. A producer puts no other `### ` heading anywhere in
+the file: all reasoning prose lives in `## Evidence base` (`#### `
+entries, four-hash, no collision) or inside a finding body using `####`
+or bold sub-structure, never a `### <CAPS><digit>` heading. The
+file-wide reservation (not only under `## Findings`) keeps the count grep
+honest no matter where a stray heading might appear.
+
+Validation is an anchor-header grep, never a body read. A reader confirms
+the manifest's claimed `findings` count matches the canonical regex over
+the file before trusting the index (S4):
+
+```bash
+grep -cE '^### [A-Z]+[0-9]+ ' <file>
+```
+
+The regex is ID-anchored on purpose. A bare `^### ` count would also
+catch any non-finding `### ` heading — the same false-positive trap the
+workflow-sha parser avoids by anchoring on its `workflow-sha:` literal
+rather than a bare 40-hex match. The character class is `[A-Z]+`
+(one-or-more uppercase), **not** `[A-Z]{2,}`: the strategic reviewers use
+single-letter prefixes (`T` technical, `R` risk, `A` adversarial, `S`
+structural) while the dimensional reviewers use two-letter prefixes
+(`BC`, `CQ`, …), and `[A-Z]{2,}` would return zero for a single-letter
+strategic file (`### T1 ` → 0) and raise a spurious `CONTRACT_VIOLATION`.
+`[A-Z]+` matches both prefix shapes; the trailing space after `[0-9]+`
+excludes the four-hash `#### <cert>` evidence entries from the count.
+
+Because the grep counts heading lines only, a reader validates without
+ingesting any body, so the no-bodies invariant holds through validation
+(S6).
+
+**CONTRACT_VIOLATION fallback.** On a count mismatch (the manifest
+`findings` count differs from the grep count), the manifest carries a
+`CONTRACT_VIOLATION` flag and the reader falls back to a whole-section
+read. The fallback owner differs by routing class: the implementer for
+tactical reviews, the orchestrator or planner for strategic reviews. The
+orchestrator therefore never falls back to a tactical body read; a
+violated tactical file routes the whole-section fallback to the
+implementer, preserving the no-bodies invariant on the orchestrator.
+
+A zero-finding reviewer writes an empty `## Findings` and a `findings: 0`
+manifest; the count grep returns 0, validation passes, and the
+orchestrator routes on counts without spawning an implementer.
+
+### Verdict-producer manifest variant
+<!-- roles=orchestrator,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate." -->
+
+A **gate-verifying** strategic reviewer (the plan/decomposition
+gate-verification prompts — `consistency-gate-verification.md`,
+`structural-gate-verification.md`, `review-gate-verification.md`) does not
+emit a fresh severity-graded finding set. It emits per-prior-finding
+verdicts (`VERIFIED` / `STILL OPEN` / `REJECTED`) plus an overall
+`PASS` / `FAIL`. The finding-shaped manifest fields do not map cleanly to
+that output, so a verdict producer uses a variant:
+
+- Its `findings` count and `## Findings` anchors cover only its **new**
+  findings (a verification pass may surface a fresh issue), so the S4
+  count grep still validates the new-finding anchors.
+- It conveys the per-prior-finding verdicts through a distinct `verdicts`
+  manifest block, separate from `index`:
+
+```markdown
+<!-- MANIFEST
+findings: 1   severity: {blocker: 0, should-fix: 1, suggestion: 0}
+index:
+  - {id: T7, sev: should-fix, loc: ..., anchor: "### T7 ", cert: ..., basis: ...}
+verdicts:
+  - {id: T3, verdict: VERIFIED}
+  - {id: T5, verdict: STILL OPEN}
+overall: PASS
+flags: [CONTRACT_OK]
+-->
+```
+
+A pure-verdict pass with no new finding writes `findings: 0` and an empty
+`## Findings`; the count grep returns 0 and validation passes.
+
+### Coverage (S5)
+<!-- roles=decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection." -->
+
+Every bulk-producing sub-agent class either follows the file-plus-manifest
+rule above or carries an explicit `exempt because…` annotation stating
+why the rule does not apply. The rule plus the `exempt because…` hatch is
+itself an invariant: a **new** bulk-producing agent class must declare one
+or the other. The covered classes are the strategic panel reviewers, the
+dimensional reviewers, the gate-check reviewers, the plan reviewers, and
+the research/audit sub-agents; the documented exemptions are the four
+pure-standalone review agents (output consumed by the user in the same
+turn) and `review-mode.md`'s `FIX_FINDING` path (user-sourced triples,
+already in the orchestrator's conversation context).
+
+**Enforcement status.** S5 is a **documented contract checked by the
+decomposer and reviewer**, not a mechanical gate. Nothing enumerates the
+bulk-producing classes and asserts each carries file-plus-manifest or an
+`exempt because…` annotation. A mechanical coverage check over the full
+producer set is deferred: the dimensional reviewer agents do not carry
+their annotations yet (that lands with the dimensional producers), so an
+assertion of universal compliance would fail until then. This is the
+distinction from S4/S6, which are mechanical and carry a test under
+`.claude/scripts/tests/`. A reviewer or decomposer encountering a new
+bulk producer enforces S5 by inspection.

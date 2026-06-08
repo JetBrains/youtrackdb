@@ -113,6 +113,19 @@ When routing exploration to a sub-agent (Explore or any other),
 explicitly instruct it to use mcp-steroid PSI find-usages for symbol
 questions — sub-agents default to grep otherwise.
 
+**Write-or-exempt for the Explore delegation.** Research/audit sub-agents
+are a covered bulk-producer class under the review-file coverage rule
+(`conventions-execution.md` `§2.5` → Coverage (S5)). For an Explore
+delegation, apply the rule by the same in-session-consumption test the
+Phase 1 cold-read uses: write a file (and return a summary the planner
+pulls on demand) when the exploration output would otherwise accumulate
+in this long-lived planning session; otherwise the delegation is
+`exempt because…` its output is consumed in-session by the planner's own
+conversation within the same research turn, never retained in an
+accumulating orchestrator context — the same rationale that exempts the
+Phase 1 cold-read. State whichever applies when delegating; do not leave
+the asymmetry implicit.
+
 For module-graph questions during research ("does `embedded` depend
 on `server`?", "what depends on `lucene`?", "is the Maven module
 boundary where the prose says it is?") load the

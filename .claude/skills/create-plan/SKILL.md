@@ -367,7 +367,7 @@ every artifact created in **this Step 4b session** reuses the single
 a stamp by construction:
 
 ```bash
-WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills .claude/agents)"
 [ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 

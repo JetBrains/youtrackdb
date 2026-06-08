@@ -13,12 +13,13 @@
 | §Gate verification | orchestrator | 2 | Confirming the consistency reviewer's PASS is well-formed. |
 | §Autonomous orchestration loop | orchestrator | 2 | The iterate-until-PASS loop the orchestrator runs autonomously. |
 | §Review output | reviewer-plan | 2 | Shape of the consistency review report. |
+| §Strategic review output path | orchestrator | 2 | The per-spawn review_file_path the orchestrator injects at the Phase 2 dispatch sites and partial-fetches from. |
 | §Step 2: Structural Review | orchestrator,reviewer-plan | 2 | The structural pass: section shape, budgets, bloat. |
 | §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
 | §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
 | §Gate verification | orchestrator | 2 | Confirming the consistency reviewer's PASS is well-formed. |
 | §Autonomous orchestration loop | orchestrator | 2 | The iterate-until-PASS loop the orchestrator runs autonomously. |
-| §Review output | reviewer-plan | 2 | Shape of the consistency review report. |
+| §Review output | reviewer-plan | 2 | Shape of the structural review report. |
 | §Mechanical vs. design-decision classifier | orchestrator | 2 | Deciding whether a finding the orchestrator can fix or must escalate. |
 | §`mechanical` — orchestrator applies the fix without asking | orchestrator | 2 | Fixes the orchestrator applies directly with no user input. |
 | §`design-decision` — orchestrator escalates to the user | orchestrator | 2 | Findings that change design and require user choice. |
@@ -238,8 +239,12 @@ field, not on severity.
 
 ```
 Iteration 1 (full review):
-  1. Spawn the consistency sub-agent with plan, track files, design, codebase.
-  2. Receive findings, each tagged Classification: mechanical | design-decision.
+  1. Spawn the consistency sub-agent with plan, track files, design,
+     codebase, and a review_file_path (see §Strategic review output path
+     below). The sub-agent writes its structured output to that file in
+     the review-file schema and returns a thin manifest.
+  2. Partial-fetch the file's `## Findings` section; each finding is
+     tagged Classification: mechanical | design-decision.
   3. Apply ALL mechanical fixes immediately:
      - Plan / track-file edits: native Edit.
      - A finding whose correction would touch design.md is recorded
@@ -250,8 +255,10 @@ Iteration 1 (full review):
      once (single message listing all open design questions with proposed
      alternatives). Wait for user resolutions. Apply user-approved fixes
      using the same plan-vs-design routing.
-  5. Spawn the gate verification sub-agent with the updated artifacts and
-     the iteration's findings.
+  5. Spawn the gate verification sub-agent with the updated artifacts,
+     the iteration's findings, and its own review_file_path; it writes
+     the verdict-producer manifest variant and the orchestrator
+     partial-fetches its `## Findings`.
 
 Iteration 2-3 (gate, then full re-review if structure changed):
   - If the gate finds new findings, classify and re-route as in iteration 1.
@@ -285,19 +292,57 @@ mechanical fixes that landed so the next session does not re-run them.
 ### Review output
 <!-- roles=reviewer-plan phases=2 summary="Shape of the consistency review report." -->
 
-Findings ride in the orchestrator's conversation context for the
-iteration loop; plan-side fixes are applied via Edit to
-`implementation-plan.md` and the affected `plan/track-N.md` files. A
-finding whose correction would touch `design.md` is recorded only —
-`design.md` is frozen after Phase 1 and its correction defers to
-Phase 4. The review itself is not persisted to a separate file — once
-the gate passes, the conversation is the only in-flight record, and
-the durable trace is:
+The reviewer writes its structured output to the committed
+`review_file_path` file (the durable record); the orchestrator
+partial-fetches the file's `## Findings` for the iteration loop and
+applies plan-side fixes via Edit to `implementation-plan.md` and the
+affected `plan/track-N.md` files. A finding whose correction would
+touch `design.md` is recorded only — `design.md` is frozen after Phase
+1 and its correction defers to Phase 4. The off-context win is the
+file's `## Evidence base`, which the orchestrator does not ingest; the
+durable trace is:
 
+- The committed review file under `plan/track-N/reviews/`.
 - The resulting plan/design state.
 - The gate-PASS commit.
 - The audit summary written into the plan file's `## Plan Review`
   section (see §Audit trail below).
+
+### Strategic review output path
+<!-- roles=orchestrator phases=2 summary="The per-spawn review_file_path the orchestrator injects at the Phase 2 dispatch sites and partial-fetches from." -->
+
+Both Phase 2 reviewers and their gate verifications are **strategic**
+producers: each writes its structured output to a file in the
+review-file schema (`conventions-execution.md` `§2.5`) and the
+orchestrator partial-fetches the file's `## Findings` rather than
+receiving the bodies inline. The orchestrator injects a per-spawn
+`review_file_path` at each dispatch site, pointed at the `§2.1`
+lifecycle home:
+
+```
+docs/adr/<dir-name>/_workflow/plan/track-N/reviews/<type>-iter<N>.md
+```
+
+`<type>` is the producer (`consistency` / `structural`, or
+`consistency-gate-verification` / `structural-gate-verification`) and
+`<N>` is the iteration, so each fan-out unit writes a distinct file.
+The reviewer `mkdir -p`s the `reviews/` directory and writes the file
+in file-when-handed-a-path mode (each prompt's output-mode block);
+supplying no path is the develop-state run that falls back to today's
+inline output. The output path is what wires the producer prompts'
+file-when-handed-a-path branch to a caller — without it the reviewers
+would emit inline and the orchestrator would have nothing on disk to
+fetch.
+
+The orchestrator still ingests `## Findings` (its consumer is the
+planner revising the plan, not an implementer), so the strategic side
+keeps the partial-fetch; the on-disk win is the evidence base staying
+off-context, not the findings themselves. Before trusting the manifest
+index the orchestrator validates the manifest `findings` count against
+`grep -cE '^### [A-Z]+[0-9]+ '` (the `§2.5` S4 check); on a
+`CONTRACT_VIOLATION` flag or a count mismatch it falls back to a
+whole-section read of the file rather than the partial-fetch (the
+orchestrator/planner owns the strategic fallback per `§2.5`).
 
 ---
 
@@ -340,8 +385,12 @@ Same shape as the consistency review:
 
 ```
 Iteration 1 (full review):
-  1. Spawn the structural sub-agent with plan, track files, design.
-  2. Receive findings, each tagged Classification: mechanical | design-decision.
+  1. Spawn the structural sub-agent with plan, track files, design, and a
+     review_file_path (see §Strategic review output path below). The
+     sub-agent writes its structured output to that file in the
+     review-file schema and returns a thin manifest.
+  2. Partial-fetch the file's `## Findings` section; each finding is
+     tagged Classification: mechanical | design-decision.
      Per-prompt rule: ALL bloat findings classify as mechanical; track-ordering
      and contradiction findings classify as design-decision (see §Mechanical
      vs. design-decision classifier below).
@@ -350,8 +399,10 @@ Iteration 1 (full review):
      design.md is frozen after Phase 1; the correction defers to Phase 4.
   4. Batch-escalate any design-decision findings to the user once. Apply
      user-approved fixes.
-  5. Spawn the gate verification sub-agent with the updated artifacts and
-     the iteration's findings.
+  5. Spawn the gate verification sub-agent with the updated artifacts,
+     the iteration's findings, and its own review_file_path; it writes
+     the verdict-producer manifest variant and the orchestrator
+     partial-fetches its `## Findings`.
 
 Iteration 2-3: gate or full re-review (re-run full review if fixes
 significantly restructured the plan).
@@ -365,11 +416,14 @@ the full structural review instead of the gate check to catch cascading
 issues.
 
 ### Review output
-<!-- roles=reviewer-plan phases=2 summary="Shape of the consistency review report." -->
+<!-- roles=reviewer-plan phases=2 summary="Shape of the structural review report." -->
 
-Same as the consistency review — findings ride in the conversation
-during the loop; the durable trace is the plan-file edits, the gate-PASS
-commit, and the audit-summary entry in `## Plan Review`.
+Same as the consistency review — the reviewer writes its output to the
+committed `review_file_path` file (see §Strategic review output path
+above) and the orchestrator partial-fetches `## Findings` during the
+loop; the durable trace is the committed review file, the plan-file
+edits, the gate-PASS commit, and the audit-summary entry in
+`## Plan Review`.
 
 ---
 

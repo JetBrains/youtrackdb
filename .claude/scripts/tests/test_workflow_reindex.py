@@ -4840,6 +4840,203 @@ def test_d17_write_leaves_agent_files_toc_inert() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Staged-agent validation routing (the third stageable prefix).
+#
+# Once `conventions.md §1.7(e)` stages agents, the staged-agents glob in
+# `IN_SCOPE_GLOBS` matches a real file and `discover_in_scope_files` returns
+# the staged agent into `parsed_files`. The hazard: the eight-rule loop would
+# over-fire rules 1/2/3/4/5/8 on it (no stamp, no TOC, no per-section
+# annotations, no in-file refs). The fix routes a staged agent into the same
+# rules-6/7-only scope the live agents use, so it validates like a live agent.
+#
+# These tests are DISTINCT from `test_discover_in_scope_files_picks_up_staged_paths`,
+# which only checks that the staged glob discovers the file. They check what
+# `validate` does with it: rules 6/7 behave exactly as on a live agent, and
+# rules 1/2/3/4/5/8 do NOT fire. The current tree stages no agent, so each
+# test builds its own staged-agent fixture under the §1.7(a) subtree.
+# ---------------------------------------------------------------------------
+
+
+# Repo-relative path of a staged agent under the §1.7(a) subtree, used by the
+# staged-agent routing tests. Mirrors the live `.claude/agents/<name>.md`
+# relative path byte-for-byte beneath the staged-workflow prefix.
+_STAGED_AGENT_REL = (
+    "docs/adr/some-plan/_workflow/staged-workflow/.claude/agents/demo-agent.md"
+)
+
+
+def _staged_agent_setup(root: Path, agent_body: str) -> None:
+    """Write conventions.md, an annotated cross-ref target, and a staged agent.
+
+    The target is the same `_annotated_target_body()` the live-agent tests use
+    (file-level union `roles=orchestrator,implementer phases=3B`), so a ref of
+    `target.md:orchestrator:3B` subset-passes and a ref claiming
+    `reviewer-technical` is a non-subset rule-6 violation. The agent body is
+    written to the staged subtree, not the live `.claude/agents/` directory.
+    """
+    _write_conventions(root)
+    _write_in_scope_file(root, ".claude/workflow/target.md", _annotated_target_body())
+    _write_in_scope_file(root, _STAGED_AGENT_REL, agent_body)
+
+
+def test_staged_agent_routes_to_rules_6_7_only_no_over_fire() -> None:
+    """A staged agent validates like a live agent: rules 6/7 only, no over-fire.
+
+    Scenario: a workflow-modifying branch stages an agent under the §1.7(a)
+    subtree. The agent has the un-annotated `##`/`###` headings and bare
+    cross-file ref shape of a real agent prompt, and is missing the bootstrap
+    heading. Expected: the staged agent is partitioned out of the eight-rule
+    loop into the rules-6/7-only scope, so rules 1/2/3/4/5/8 do NOT fire on it
+    (the over-fire the fix prevents), while rules 6 (bare un-suffixed ref) and
+    7 (missing bootstrap) fire exactly as they would on the live namesake.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        # No bootstrap heading (→ rule 7), a bare un-suffixed `target.md`
+        # ref (→ rule 6 missing-suffix), several un-annotated headings and a
+        # bare `§X.Y` token (would trip rules 2/4/8 if routed wrong), and no
+        # workflow-sha stamp / TOC region (would trip rules 1/2 if routed
+        # wrong).
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Role
+
+            You review code. See target.md for the cross-file convention.
+
+            ## Output format
+
+            ### Findings
+
+            The house-style rule lives in conventions.md §1.5 and applies here.
+            """
+        )
+        _staged_agent_setup(root, agent)
+        findings = MODULE.validate(root)
+        staged_findings = _findings_for_path(findings, _STAGED_AGENT_REL)
+        # Rules 6 and 7 fire like a live agent.
+        rule7 = [f for f in staged_findings if f.rule == "rule_7"]
+        assert rule7, (
+            "rule_7 (missing bootstrap) must fire on a staged agent like a "
+            f"live one; got {staged_findings}"
+        )
+        rule6 = [f for f in staged_findings if f.rule == "rule_6"]
+        assert any(
+            "target.md" in f.explanation and "missing" in f.explanation
+            for f in rule6
+        ), (
+            "rule_6 (missing-suffix ref) must fire on a staged agent like a "
+            f"live one; got {staged_findings}"
+        )
+        # The load-bearing assertion: rules 1/2/3/4/5/8 must NOT over-fire.
+        over_fire = [
+            f
+            for f in staged_findings
+            if f.rule in {"rule_1", "rule_2", "rule_3", "rule_4", "rule_8"}
+            or f.rule.startswith("rule_5")
+        ]
+        assert not over_fire, (
+            "a staged agent must route to the rules-6/7-only scope; rules "
+            f"1/2/3/4/5/8 must not fire, but got {over_fire}"
+        )
+
+
+def test_staged_agent_present_bootstrap_and_valid_ref_is_clean() -> None:
+    """A staged agent with an un-annotated heading but valid bootstrap/ref is clean.
+
+    Scenario: the staged agent carries the bootstrap heading and a correctly
+    suffixed `target.md:orchestrator:3B` ref, so rules 6 and 7 are satisfied.
+    Crucially the fixture also carries an un-annotated, non-bootstrap `## Role`
+    heading — the exact shape the eight-rule loop over-fires on: rule 2 ("H2
+    heading but no TOC region") and rule 4 ("heading has no annotation comment")
+    would both fire if a staged agent were routed through `parsed_files`.
+    Expected: the rules-6/7-only partition suppresses rules 2 and 4 (and the
+    structurally-unreachable rules 1/3/5/8), so the staged agent emits NOTHING.
+
+    Non-vacuity (this test discriminates the fix): if the `_is_staged_agent`
+    partition were removed from `validate`, the staged agent would flow through
+    the eight-rule loop, `## Role` would trip rules 2 and 4, and this assertion
+    would fail — unlike the pre-fix version whose fixture had no non-bootstrap
+    heading and passed under either routing. A live agent in the same shape is
+    likewise clean (its `## Role` heading is exempt under the rules-6/7-only
+    agent scope), which is exactly the parity this test pins.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap body teaching the TOC-aware reading protocol.
+
+            ## Role
+
+            This agent cites target.md:orchestrator:3B in its body.
+            """
+        )
+        _staged_agent_setup(root, agent)
+        findings = MODULE.validate(root)
+        staged_findings = _findings_for_path(findings, _STAGED_AGENT_REL)
+        assert not staged_findings, (
+            "a staged agent with valid bootstrap/ref but an un-annotated "
+            "non-bootstrap heading must emit no findings — the rules-6/7-only "
+            f"partition suppresses the rule-2/4 over-fire; got {staged_findings}"
+        )
+
+
+def test_staged_agent_left_toc_inert_by_write() -> None:
+    """`--write` leaves a staged agent byte-identical (TOC-inert), like a live one.
+
+    The `compute_write_plan` partition excludes staged agents exactly as
+    `validate` does, so the TOC rebuild + rule-8 stamp passes never touch a
+    staged agent. The staged agent's bytes must be unchanged after `--write`,
+    no TOC delimiter may be injected, and the staged path must not appear in
+    the write-plan keyspace.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        agent_body = textwrap.dedent(
+            """\
+            ---
+            name: demo-agent
+            ---
+
+            ## Reading workflow files (TOC protocol)
+
+            Bootstrap body.
+
+            ## Role
+
+            You review code. This agent cites target.md:orchestrator:3B.
+            """
+        )
+        _staged_agent_setup(root, agent_body)
+        staged_path = root / _STAGED_AGENT_REL
+        before = staged_path.read_text(encoding="utf-8")
+        plan = MODULE.compute_write_plan(root)
+        MODULE.apply_write_plan(plan)
+        after = staged_path.read_text(encoding="utf-8")
+        assert after == before, (
+            "--write must leave a staged agent byte-identical (TOC-inert); "
+            "the file changed"
+        )
+        assert MODULE.TOC_START_DELIMITER not in after, (
+            "--write must not inject a TOC region into a staged agent"
+        )
+        assert _STAGED_AGENT_REL not in plan, (
+            "staged agent leaked into the --write plan keyspace; staged "
+            "agents must be partitioned out like live agents"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -5265,6 +5462,18 @@ def main() -> int:
         (
             "agent-scope: --write leaves agent files TOC-inert",
             test_d17_write_leaves_agent_files_toc_inert,
+        ),
+        (
+            "staged-agent: routes to rules 6/7 only, no rule-1/2/3/4/5/8 over-fire",
+            test_staged_agent_routes_to_rules_6_7_only_no_over_fire,
+        ),
+        (
+            "staged-agent: un-annotated heading suppressed, agent stays clean",
+            test_staged_agent_present_bootstrap_and_valid_ref_is_clean,
+        ),
+        (
+            "staged-agent: --write leaves staged agent TOC-inert",
+            test_staged_agent_left_toc_inert_by_write,
         ),
     ]
     for name, fn in tests:

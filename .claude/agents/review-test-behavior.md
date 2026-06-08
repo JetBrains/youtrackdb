@@ -191,6 +191,50 @@ Based on surviving issues from Phases 3-4, produce ranked findings. Each
 finding must cite the specific BEHAVIOR TRACE, FALSIFIABILITY CHECK, or ASSERTION PRECISION CHECK that
 produced it.
 
+## Output routing — file-plus-manifest when an output path is supplied
+
+Before using the Output format below, branch on whether the spawn supplied an
+output path:
+
+**If an output path was supplied** — write the `§2.5` file-plus-manifest to that
+path and return **only** the manifest block (echoed verbatim, nothing else). The
+file follows the canonical review-file schema in
+conventions-execution.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§2.5 Review-file schema, count validation, and coverage`;
+do not restate the schema here. Concretely:
+
+- Open the file with the HTML-comment `MANIFEST` block, then `## Findings`, then
+  `## Evidence base`, exactly as `§2.5` specifies.
+- Emit **no** `### Summary` and **no** `### Findings` heading in the file. The
+  `### <PREFIX><N> ` three-hash shape is reserved file-wide for finding anchors
+  (`§2.5`), so the file carries one `### TB<n> [severity] …` anchored body per
+  finding under `## Findings` and nothing else at the three-hash level.
+- Populate every `§2.5` manifest `index` field — all six: `id`, `sev`, `anchor`
+  (the three `§2.5` marks mandatory) and `loc`, `cert`, `basis` (the three `§2.5`
+  marks downstream-consumed by the tactical routing). The per-finding `cert`
+  cross-links to the matching `#### C<n>` entry you write in `## Evidence base`.
+  The manifest-level `evidence_base`, `cert_index`, and `flags` fields follow the
+  same `§2.5` citation; no need to enumerate them beyond that pointer.
+- Number findings with the canonical `TB` prefix from
+  review-iteration.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§ Finding ID prefixes`
+  (`TB` = Test behavior review). The prefix is fixed, not chosen; only the
+  integer `<n>` is per-fan-out. Numbering is two-sided by design: start at `TB1`
+  at the initial review; when a dispatch site supplies a gate-check hand-back of
+  finding IDs (`{findings_under_recheck}`), reuse and continue from the highest.
+  No dispatch site supplies a hand-back on the file-output path today (the gate
+  check runs through the separate
+  prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C
+  prompt, which is verdict-only and writes no `§2.5` file), so start at `TB1`
+  until one does; never renumber a prior ID.
+- Write the Phase-3 "falsifiability analysis" refutation reasoning to
+  `## Evidence base` using the YTDB-1069 roster rendering: a claim whose verdict
+  is CONFIRMED-as-issue (survived the refutation check) compresses to one line; a
+  refuted or otherwise non-passing claim appears in full. (`§2.5` defines the
+  `## Evidence base` anchor shape as `#### ` four-hash cert entries, but not this
+  survived-one-line / refuted-in-full body rendering, so this paragraph is the
+  authoritative spec for it.)
+
+**Otherwise (no output path)** — use the Output format below, unchanged.
+
 ## Output format
 
 ```markdown

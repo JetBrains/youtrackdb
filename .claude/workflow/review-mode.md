@@ -558,6 +558,22 @@ Each item also carries a one-line intent summary, paraphrased
 from what the user said, so the approval panel can show what the
 orchestrator believes the user meant.
 
+**`FIX_FINDING` is exempt from the review-file coverage rule (S5).**
+The bulk-producer coverage rule in
+conventions-execution.md:orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial:2,3A,3B,3C,4
+`§2.5` requires every bulk-producing sub-agent class to write a
+file-plus-manifest review file or carry an `exempt because…`
+annotation. `FIX_FINDING` is **exempt because** its finding triples are
+user-sourced and already in the orchestrator's conversation context: the
+user states each `{location, issue, proposed fix}` triple in chat during
+accumulation, the orchestrator buffers it in-conversation, and it is
+consumed by the spawned implementer in the same round (§ 5). It is never
+a sub-agent fan-out whose bodies would accumulate in a long-lived
+orchestrator context, so the file-plus-manifest persistence the rule
+exists to enable does not apply — the same in-session-consumption
+rationale as the four pure-standalone review agents and the Phase 1
+cold-read.
+
 ## Validation
 <!-- roles=orchestrator phases=2,3A,3C summary="Checks run before applying buffered actions." -->
 

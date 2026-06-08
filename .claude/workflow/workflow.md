@@ -620,8 +620,9 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
 
 1. **Promote-staged-workflow commit** (workflow-modifying plans only).
    When `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/` exists,
-   copy the staged subtree onto the live `.claude/workflow/` and
-   `.claude/skills/` paths, then commit with the message prefix
+   copy the staged subtree onto the live `.claude/workflow/`,
+   `.claude/skills/`, and `.claude/agents/` paths, then commit with the
+   message prefix
    `Promote workflow changes from docs/adr/<dir-name>/_workflow/staged-workflow`
    per `conventions.md` `§1.7(e)` and the implementer-rules
    live-workflow-path gate's allow-clause. The Phase 4 prompt at
@@ -637,9 +638,13 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    § Step 5; push.
 3. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
-   (plan, `design.md`, `design-mechanics.md`, track files,
-   design-mutations log, and the staged subtree if present). Commit
-   with a message such as `Remove workflow scaffolding`. Push.
+   (plan, `design.md`, `design-mechanics.md`, track files, per-track
+   review files under `plan/track-N/reviews/`, design-mutations log,
+   and the staged subtree if present). The blanket recursive `git rm`
+   sweeps the review-file directories automatically; no `plan/*`-globbing
+   removal is needed (and would risk catching the `plan/track-N.md`
+   files). Commit with a message such as `Remove workflow scaffolding`.
+   Push.
 
 The end-of-session self-improvement reflection runs after the final
 Phase 4 commit lands — it creates any approved proposals as YouTrack

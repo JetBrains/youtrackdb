@@ -141,17 +141,22 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     # plan-scoped and only contains files the author chose to stage.
     "docs/adr/*/_workflow/staged-workflow/.claude/workflow/**/*.md",
     "docs/adr/*/_workflow/staged-workflow/.claude/skills/**/SKILL.md",
-    # Dead glob: agent files fall outside `conventions.md` §1.7(e)'s
-    # stageable-path scope (`.claude/workflow/**` and `.claude/skills/**`
-    # only), so they are modified live — this never matches a real file on a
-    # workflow-modifying branch. It is left inert rather than removed: it
-    # changes no
-    # observable behaviour (no staged agent ever exists) and removing it
-    # would break the staged-discovery test's assertion. Live agent files
-    # enter rules 6 and 7 through the SEPARATE rules-6/7-only citing scope
-    # in `discover_agent_citing_files`, never through `IN_SCOPE_GLOBS`
-    # (which would route them through all eight rules and over-fire rules
-    # 2/3/4/5/8 — see that function's docstring).
+    # Staged agents are the third stageable prefix (`conventions.md §1.7(e)`):
+    # a workflow-modifying branch that edits a `.claude/agents/` file routes
+    # the write to this staged subtree, so this glob matches a real file once
+    # such a branch stages an agent. The match feeds the staged agent into
+    # `discover_in_scope_files` / `parse_in_scope_files`, but `validate` then
+    # partitions it OUT of the eight-rule loop (via `_is_staged_agent`) and
+    # into the rules-6/7-only agent citing scope alongside the live agents, so
+    # it validates exactly like its live namesake. Without the partition the
+    # eight-rule loop would over-fire rules 2/4/8 on a staged agent
+    # (un-annotated `##`/`###` headings, no TOC region, bare `§X.Y` in-file
+    # refs); rules 1/3/5 are already structurally unreachable on a staged agent
+    # (rule 1's staged-mirror exemption, no TOC region for rule 3, no
+    # well-formed annotation for rule 5 to validate), so the partition
+    # suppresses 2/4/8 and future-proofs the rest. Live agent files are NOT in `IN_SCOPE_GLOBS` — they enter rules 6
+    # and 7 through the separate `discover_agent_citing_files` scope (see that
+    # function's docstring); only the *staged* copy passes through this glob.
     "docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md",
 )
 
@@ -1077,18 +1082,22 @@ def discover_bootstrap_scope(repo_root: Path) -> List[Path]:
 # Instead agents enter a SEPARATE citing scope that runs only rule 6
 # (cross-file ref suffix subset) and rule 7 (bootstrap presence) — the two
 # rules that stay live for agents (outgoing workflow-doc refs carry the
-# suffix; each agent carries the bootstrap block). Agent files fall outside
-# `conventions.md` §1.7(e)'s stageable-path scope (`.claude/workflow/**` and
-# `.claude/skills/**` only), so they are modified live and the scope walks the
-# live `.claude/agents/` directory directly. The dead staged-agents glob in
-# `IN_SCOPE_GLOBS` (`docs/adr/*/_workflow/staged-workflow/.claude/agents/**/*.md`)
-# is left inert — agents are outside §1.7's stageable-path scope, so it never
-# matches a real file on a workflow-modifying branch; removing it would break
-# the staged-discovery test's assertion without changing observable behaviour.
+# suffix; each agent carries the bootstrap block).
+#
+# `.claude/agents/` is one of §1.7(e)'s three stageable prefixes
+# (`.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`), so on a
+# workflow-modifying branch an agent edit routes to the staged subtree while
+# the live agent stays at develop-state until the Phase 4 promotion (the
+# live workflow tree never changes mid-branch; see `conventions.md §1.7`).
+# This function discovers only the LIVE agents; the *staged* copies are
+# matched by the staged-agents glob in `IN_SCOPE_GLOBS` and partitioned into
+# the same rules-6/7-only scope by `validate` (via `_is_staged_agent`), so a
+# staged agent validates exactly like its live namesake without entering the
+# eight-rule loop.
 #
 # This walk mirrors `discover_bootstrap_scope`'s agent half (rule 7 already
-# consults that set) so the two never drift: the agent citing scope and the
-# bootstrap scope's agent slice are the same 20 files.
+# consults that set) so the two never drift: the live-agent citing scope and
+# the bootstrap scope's live-agent slice are the same files.
 # ---------------------------------------------------------------------------
 
 
@@ -1098,10 +1107,13 @@ def discover_agent_citing_files(repo_root: Path) -> List[Path]:
     Mirrors the agent slice of `discover_bootstrap_scope`. Returns the live
     agent files in sorted order; missing directory yields an empty list.
     These files are run through rules 6 and 7 only — never rules 1/2/3/4/5/8.
-    Agent files fall outside `conventions.md` §1.7(e)'s stageable-path scope
-    (`.claude/workflow/**` and `.claude/skills/**` only), so they are modified
-    live and only the live directory is walked; no staged copy is expected or
-    discovered.
+    This function walks only the live `.claude/agents/` directory. On a
+    workflow-modifying branch a *staged* agent copy lives under the §1.7(a)
+    subtree and is discovered through the staged-agents glob in
+    `IN_SCOPE_GLOBS` instead; `validate` partitions it into the same
+    rules-6/7-only scope (see `_is_staged_agent`). The two copies are
+    distinct paths — the live develop-state copy here, the staged copy via
+    the glob — so both are validated when both exist.
     """
     paths: List[Path] = []
     agents_dir = repo_root / ".claude" / "agents"
@@ -1225,6 +1237,31 @@ def _logical_workflow_path(pf: ParsedFile) -> str:
 def _is_staged(pf: ParsedFile) -> bool:
     """Return True iff the file is a staged copy under the §1.7(a) subtree."""
     return _STAGED_SUBTREE_PREFIX_RE.match(pf.path) is not None
+
+
+def _is_staged_agent(pf: ParsedFile) -> bool:
+    """Return True iff `pf` is a staged copy of a `.claude/agents/` file.
+
+    Once `conventions.md §1.7(e)` stages agents (the third stageable prefix),
+    the staged-agents glob in `IN_SCOPE_GLOBS` starts matching real files and
+    `discover_in_scope_files` returns the staged agent into `parsed_files`. A
+    staged agent must validate like a live agent — rules 6 and 7 only — not
+    through the eight-rule `parsed_files` loop, which would over-fire rules
+    2/4/8 on it (un-annotated `##`/`###` headings, no TOC region, bare `§X.Y`
+    in-file refs); rules 1/3/5 are already structurally unreachable on a staged
+    agent (rule 1's staged-mirror exemption, no TOC region for rule 3, no
+    well-formed annotation for rule 5 to validate), so the partition suppresses
+    2/4/8 and future-proofs the rest. The validator and the `--write` planner
+    use this predicate to pull
+    a staged agent out of the eight-rule / TOC-rewrite treatment and into the
+    rules-6/7-only citing scope. The logical path (staged prefix stripped)
+    collapses the staged copy onto its live `.claude/agents/<name>.md`
+    namesake, so the test is `staged AND logical path under .claude/agents/`.
+    """
+    if not _is_staged(pf):
+        return False
+    logical = _logical_workflow_path(pf)
+    return logical.startswith(".claude/agents/")
 
 
 def _is_workflow_root_doc(logical: str) -> bool:
@@ -2215,15 +2252,18 @@ def validate(
 
     - **In-scope workflow files** (`IN_SCOPE_GLOBS`): all eight rules
       apply. These are workflow docs, prompts, the 7 workflow-referencing
-      SKILL.md files, and their staged copies.
-    - **Live agent files** (`.claude/agents/*.md`): only rules 6 and 7
-      apply. Agent files carry the bootstrap block and suffix-annotated
+      SKILL.md files, and their staged copies. Staged *agent* copies are
+      partitioned out of this scope below (see the next bullet).
+    - **Agent files** — both live `.claude/agents/*.md` and staged
+      `.claude/agents/` copies under the §1.7(a) subtree: only rules 6 and
+      7 apply. Agent files carry the bootstrap block and suffix-annotated
       outgoing refs but no TOC, per-section annotations, or workflow-sha
       stamp (§1.6(f): only `_workflow/**` artifacts are stamped) — so
-      rules 1/2/3/4/5/8 are gated off for them.
-      Agents are not in `IN_SCOPE_GLOBS` precisely because that set runs
-      the full eight-rule pass; the separate scope below applies the
-      per-rule gate.
+      rules 1/2/3/4/5/8 are gated off for them. Live agents are not in
+      `IN_SCOPE_GLOBS` at all; a staged agent IS matched by the
+      staged-agents glob in `IN_SCOPE_GLOBS` once §1.7(e) stages agents, so
+      it is pulled out of `parsed_files` here and routed into the same
+      rules-6/7-only scope, validating exactly like its live namesake.
 
     `files_filter` is the optional `--files` scope. When provided, the
     validator parses every in-scope file AND every agent file (so
@@ -2236,9 +2276,23 @@ def validate(
     Returns a list of findings sorted by (path, line, rule).
     """
     enums = load_bootstrap_enums(repo_root)
-    parsed_files = parse_in_scope_files(repo_root)
+    in_scope_files = parse_in_scope_files(repo_root)
+    # Partition the in-scope set: a staged agent (matched by the
+    # `IN_SCOPE_GLOBS` staged-agents glob once §1.7(e) stages agents) must
+    # validate like a live agent — rules 6/7 only — not through the eight-rule
+    # loop below, which would over-fire rules 2/4/8 on it (un-annotated
+    # `##`/`###` headings, no TOC region, bare `§X.Y` in-file refs); rules
+    # 1/3/5 are already structurally unreachable on a staged agent (rule 1's
+    # staged-mirror exemption, no TOC region for rule 3, no well-formed
+    # annotation for rule 5 to validate), so the partition suppresses 2/4/8 and
+    # future-proofs the rest. Pull staged agents out
+    # of `parsed_files` and into the agent citing scope alongside the live
+    # agents. On a non-workflow-modifying tree (no staged subtree) this
+    # partition is a no-op and `parsed_files` is the full in-scope set.
+    parsed_files = [pf for pf in in_scope_files if not _is_staged_agent(pf)]
+    staged_agent_files = [pf for pf in in_scope_files if _is_staged_agent(pf)]
     parsed_by_path = {pf.path: pf for pf in parsed_files}
-    # Live agent files form a separate citing scope (rules 6/7 only).
+    # Live + staged agent files form a separate citing scope (rules 6/7 only).
     # They are parsed for cross-file ref scanning and bootstrap presence but
     # are NOT added to the file_lookup keyspace: an agent file is never a
     # valid cross-file ref TARGET (an agent-file-as-target is backtick-
@@ -2248,13 +2302,18 @@ def validate(
     # is exactly the set of valid suffix targets.
     parsed_agent_files = [
         parse_file(p, repo_root) for p in discover_agent_citing_files(repo_root)
-    ]
+    ] + staged_agent_files
     parsed_agent_by_path = {pf.path: pf for pf in parsed_agent_files}
     file_lookup = build_file_lookup(parsed_files)
+    # A staged agent's own path joins the bootstrap-presence scope so rule 7
+    # (`## Reading workflow files (TOC protocol)` presence) fires on it exactly
+    # as it does on its live namesake. `discover_bootstrap_scope` walks only the
+    # live `.claude/agents/` directory, so the staged copy's path would
+    # otherwise be absent and rule 7 would silently skip it.
     bootstrap_paths = frozenset(
         p.resolve().relative_to(repo_root.resolve()).as_posix()
         for p in discover_bootstrap_scope(repo_root)
-    )
+    ) | frozenset(pf.path for pf in staged_agent_files)
     if files_filter is not None:
         # Normalise to repo-relative POSIX paths and silently drop
         # out-of-scope entries (neither in-scope nor an agent file).
@@ -2558,7 +2617,15 @@ def compute_write_plan(
     `changed` flag (True iff the new content differs from the file's
     current content). The caller filters by `changed` before writing.
     """
-    parsed_files = parse_in_scope_files(repo_root)
+    # Exclude staged agents from the write plan exactly as `validate`
+    # excludes them from the eight-rule loop: agents are refs-only (no TOC,
+    # no in-file refs to auto-stamp), so a staged agent must stay TOC-inert
+    # under `--write` like its live namesake. Without this filter the
+    # staged-agents glob (live once §1.7(e) stages agents) would route the
+    # staged agent through the TOC rebuild + rule-8 stamp passes below.
+    parsed_files = [
+        pf for pf in parse_in_scope_files(repo_root) if not _is_staged_agent(pf)
+    ]
     parsed_by_path = {pf.path: pf for pf in parsed_files}
     if files_filter is not None:
         scoped: List[str] = []

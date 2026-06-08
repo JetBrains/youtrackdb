@@ -124,7 +124,7 @@ Inputs:
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
-**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**` or `.claude/skills/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 **Where track descriptions live:** For each **pending** track (`[ ]`),
 read the track's detailed description (what/how/constraints/interactions
@@ -336,10 +336,30 @@ stylistic concern.
   oversized, recommend a global trim pass against the per-section
   budgets.
 
-For each issue found, produce a finding in this format:
+**Output mode — file when handed a path, inline otherwise.** When the
+spawn supplies an output path, persist the structured output to a file in
+the review-file schema (`conventions-execution.md` `§2.5`, the single
+source of truth) and return only the thin manifest; the orchestrator
+partial-fetches `## Findings` from disk. When no path is supplied (the
+develop-state run), return the findings inline exactly as below —
+byte-for-byte today's format. This review reads no codebase and produces
+**no certificates**, so the file carries `## Findings` (one `### S<N> `
+anchored body per finding, keeping the `**Classification**` /
+`**Justification**` fields below) plus an empty/minimal `## Evidence base`
+— the manifest's `evidence_base` reports `certs: 0`. Fill the manifest
+`index` from the findings — `id`/`sev`/`anchor` mandatory, `loc`/`cert`/`basis`
+filled per `§2.5` (a structural finding's `loc` is its plan/track-file
+section; `cert` is empty, since there is no certificate). The single-letter
+prefix is `S`; the count grep `grep -cE '^### [A-Z]+[0-9]+ '` must equal the
+manifest `findings` count (S4/S6).
+
+For each issue found, produce a finding in this format. The finding heading
+is the bare ID `### S<N> [sev]` — **no `Finding ` word** — so it is the
+count-validation anchor the grep keys on (`### Finding S<N>` would not match
+`^### [A-Z]+[0-9]+ ` and would raise a spurious `CONTRACT_VIOLATION`):
 
 ```markdown
-### Finding S<N> [blocker|should-fix|suggestion]
+### S<N> [blocker|should-fix|suggestion]
 **Location**: <where in the plan>
 **Issue**: <what's wrong>
 **Proposed fix**: <concrete change to the plan text>

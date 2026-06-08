@@ -31,7 +31,7 @@
 | §(h) Phase 1 walk bash block | planner,orchestrator | 1 | The bash walk that stamps the initial plan artifacts at Phase 1. |
 | §1.7 Staging for workflow-modifying branches | orchestrator,implementer,planner,final-designer | 1,3A,3B,3C,4 | Routing rule that keeps live workflow at develop while staged edits accumulate until promotion. |
 | §(a) Staged-subtree path layout | orchestrator,implementer,final-designer | 3A,3B,3C,4 | The _workflow/staged-workflow/.claude mirror path layout. |
-| §(b) Canonical workflow-modifying marker | orchestrator,implementer,planner | 1,3A,3B,3C,4 | The verbatim marker sentence that flags a plan as workflow-modifying. |
+| §(b) Canonical workflow-modifying marker | orchestrator,implementer,planner | 1,3A,3B,3C,4 | The canonical marker sentence and the stable prefix consumers match on to flag a plan as workflow-modifying. |
 | §(c) Detection rule — two signals, two consumers | orchestrator,implementer | 3A,3B,3C,4 | How the marker plus path-touch signal is detected and who acts on it. |
 | §(d) Reads precedence — staged copy authoritative when present | orchestrator,implementer,final-designer,migrator | 3A,3B,3C,4 | Read the staged copy when it exists, else the live file. |
 | §(e) Write routing and copy-then-edit on first touch | implementer,orchestrator,final-designer | 3A,3B,3C,4 | Route writes to the staged path; copy the live file in verbatim on first touch. |
@@ -576,13 +576,14 @@ Writers compute the stamp value from a path-scoped log over the
 workflow tooling itself:
 
 ```bash
-WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills)"
+WORKFLOW_SHA="$(git log -1 --format=%H HEAD -- .claude/workflow .claude/skills .claude/agents)"
 [ -z "$WORKFLOW_SHA" ] && WORKFLOW_SHA="$(git rev-parse HEAD)"
 ```
 
 When the path-scoped log returns the empty string (no commit in HEAD's
-ancestry has touched `.claude/workflow/` or `.claude/skills/`), the
-writer falls back to `git rev-parse HEAD`. Every downstream writer
+ancestry has touched `.claude/workflow/`, `.claude/skills/`, or
+`.claude/agents/`), the writer falls back to `git rev-parse HEAD`. Every
+downstream writer
 (create-plan, edit-design phase1-creation, edit-design length-trigger,
 migration final-batch) copies the paired idiom above verbatim so the
 fallback behaves identically across writer sites. In every repo where
@@ -749,8 +750,9 @@ non-empty, which routes to the bootstrap prompt in (d) regardless of
 
 The walk's glob set deliberately omits `$PLAN_DIR/_workflow/staged-workflow/`
 on workflow-modifying plans (see §1.7:orchestrator,implementer,planner,final-designer:1,3A,3B,3C,4 below). The staged subtree mirrors
-live `.claude/workflow/**` and `.claude/skills/**` paths under a
-plan-scoped prefix; those files are not `_workflow/**` artifacts in the
+live `.claude/workflow/**`, `.claude/skills/**`, and `.claude/agents/**`
+paths under a plan-scoped prefix; those files are not `_workflow/**`
+artifacts in the
 stamping sense and do not carry workflow-SHA stamps. Adding the staged
 prefix to the walk would produce spurious `UNSTAMPED_FILES` entries on
 every workflow-modifying plan and route them through the bootstrap
@@ -760,8 +762,9 @@ that Phase 4 promotes into the live tree.
 ## 1.7 Staging for workflow-modifying branches
 <!-- roles=orchestrator,implementer,planner,final-designer phases=1,3A,3B,3C,4 summary="Routing rule that keeps live workflow at develop while staged edits accumulate until promotion." -->
 
-Workflow-modifying branches accumulate every edit to `.claude/workflow/**`
-and `.claude/skills/**` under a plan-scoped staging subtree during
+Workflow-modifying branches accumulate every edit to `.claude/workflow/**`,
+`.claude/skills/**`, and `.claude/agents/**` under a plan-scoped staging
+subtree during
 execution, and a single Phase 4 promotion commit copies the staged
 content into the live paths just before final artifacts land. The live
 workflow files in the branch's checkout stay at develop's state for the
@@ -792,6 +795,7 @@ fixed two-level prefix:
 ```
 docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/...
 docs/adr/<dir-name>/_workflow/staged-workflow/.claude/skills/...
+docs/adr/<dir-name>/_workflow/staged-workflow/.claude/agents/...
 ```
 
 Each staged file mirrors its live counterpart's relative path under the
@@ -800,10 +804,10 @@ Each staged file mirrors its live counterpart's relative path under the
 `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/workflow/implementer-rules.md`;
 a staged copy of `.claude/skills/edit-design/SKILL.md` lives at
 `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/skills/edit-design/SKILL.md`.
-No other prefixes participate: workflow files outside `.claude/workflow/`
-and `.claude/skills/` are not stageable under this convention; the
-staging path layout does not extend to files this convention does not
-govern.
+No other prefixes participate: workflow files outside `.claude/workflow/`,
+`.claude/skills/`, and `.claude/agents/` are not stageable under this
+convention; the staging path layout does not extend to files this
+convention does not govern.
 
 The `<dir-name>` placeholder is the active plan's directory resolved
 per §1.6:orchestrator,planner,migrator,final-designer:1,2,3A,3B,3C,4 (g) *Active-plan scope*. (This placeholder is the same one
@@ -815,36 +819,46 @@ post-merge `develop` history carries only the live promoted files plus
 `design-final.md` and `adr.md`.
 
 ### (b) Canonical workflow-modifying marker
-<!-- roles=orchestrator,implementer,planner phases=1,3A,3B,3C,4 summary="The verbatim marker sentence that flags a plan as workflow-modifying." -->
+<!-- roles=orchestrator,implementer,planner phases=1,3A,3B,3C,4 summary="The canonical marker sentence and the stable prefix consumers match on to flag a plan as workflow-modifying." -->
 
 A plan declares itself workflow-modifying through a fixed sentence in
-the `### Constraints` section of `implementation-plan.md`:
+the `### Constraints` section of `implementation-plan.md`. The
+canonical spelling names the staged prefix set:
 
 ```
-This plan is workflow-modifying: it edits .claude/workflow/** or .claude/skills/**.
+This plan is workflow-modifying: it edits .claude/workflow/**, .claude/skills/**, or .claude/agents/**.
 ```
 
-The literal match is case-sensitive and includes the terminal period;
-the gate's allow-clause does not accept matches that drop trailing
-punctuation.
+Consumers match on the **stable prefix** `This plan is
+workflow-modifying:` alone; everything after the colon (the
+path-prefix enumeration and the terminal period) is descriptive and is
+not part of the match. The prefix match is case-sensitive. A plan that carries an older spelling (for example the
+two-prefix `.claude/workflow/** or .claude/skills/**` list) is
+recognized identically to one carrying the current three-prefix list,
+so growing the canonical enumeration never deactivates the gate for a
+plan whose `### Constraints` marker predates the growth. That property
+is load-bearing for the bootstrap that lets a workflow-modifying plan
+keep its develop-state marker verbatim while the staged definition
+adds prefixes.
 
 The sentence appears as a standalone bullet or paragraph inside
-`### Constraints`. The exact wording is the single string every
+`### Constraints`. The stable prefix is the single string every
 downstream consumer matches against — `implementer-rules.md`'s
 enforcement gate, the Phase 4 prompt, and any future reviewer
-checklist all key off this literal sentence rather than re-deriving
-the predicate from the plan's body. Two planners writing the same
-sentence two different ways is the failure mode this canonical spelling
+checklist all key off this prefix rather than re-deriving the
+predicate from the plan's body. Two planners writing the same marker
+two different ways is the failure mode this canonical spelling
 prevents.
 
-Plans that touch `.claude/workflow/**` or `.claude/skills/**` but
-omit the marker forfeit the staging mechanism: the implementer
-enforcement gate stays inactive, writes land on live paths, and the
+Plans that touch `.claude/workflow/**`, `.claude/skills/**`, or
+`.claude/agents/**` but omit the marker forfeit the staging mechanism:
+the implementer enforcement gate stays inactive, writes land on live
+paths, and the
 drift gate flags the branch's own authoring. Planners who recognise
 their plan as workflow-modifying are responsible for adding the marker
 before Phase A review; reviewers verify the marker's presence on any
-plan whose Plan-of-Work references `.claude/workflow/**` or
-`.claude/skills/**` paths.
+plan whose Plan-of-Work references `.claude/workflow/**`,
+`.claude/skills/**`, or `.claude/agents/**` paths.
 
 ### (c) Detection rule — two signals, two consumers
 <!-- roles=orchestrator,implementer phases=3A,3B,3C,4 summary="How the marker plus path-touch signal is detected and who acts on it." -->
@@ -885,8 +899,8 @@ plan has no gate to route writes into the staged subtree.
 <!-- roles=orchestrator,implementer,final-designer,migrator phases=3A,3B,3C,4 summary="Read the staged copy when it exists, else the live file." -->
 
 During execution of a workflow-modifying plan, the implementer's read
-side resolves every `.claude/workflow/**` and `.claude/skills/**` path
-through a staging-aware check:
+side resolves every `.claude/workflow/**`, `.claude/skills/**`, and
+`.claude/agents/**` path through a staging-aware check:
 
 ```
 if a staged copy exists, read staged; else read live.
@@ -917,8 +931,9 @@ copy to read and live is the only correct source.
 Two consumers resolve staged-first when a staged copy exists. The
 implementer's per-spawn read site resolves through the staging-aware
 check above on every read. Review agents on a workflow-modifying plan
-resolve the same way: a reviewer that opens a `.claude/workflow/**` or
-`.claude/skills/**` file the branch has already restaged reads the
+resolve the same way: a reviewer that opens a `.claude/workflow/**`,
+`.claude/skills/**`, or `.claude/agents/**` file the branch has already
+restaged reads the
 staged copy, because reading the live file would compare a change
 against `develop`'s version of a rule the branch already rewrote and
 report a phantom mismatch. The marker-gated read caveat carried in the
@@ -929,17 +944,19 @@ precedence.
 <!-- roles=implementer,orchestrator,final-designer phases=3A,3B,3C,4 summary="Route writes to the staged path; copy the live file in verbatim on first touch." -->
 
 When the workflow-modifying marker is present, the implementer routes
-every write whose target path begins with `.claude/workflow/` or
-`.claude/skills/` to the corresponding staged path under
-`<dir-name>/_workflow/staged-workflow/`. The routing covers every
+every write whose target path begins with `.claude/workflow/`,
+`.claude/skills/`, or `.claude/agents/` to the corresponding staged
+path under `<dir-name>/_workflow/staged-workflow/`. The routing covers
+every
 write surface (`Edit`, `Write`, `steroid_apply_patch`,
 `steroid_execute_code` file writes, and `Bash` redirections) by
 rewriting the target path before the tool call lands.
 
 **Copy-then-edit on first touch.** When the implementer's first write
-to a given live path under `.claude/workflow/**` or `.claude/skills/**`
-finds no staged copy at the mapped staged path, the implementer first
-copies the live file to the staged path verbatim, then applies the
+to a given live path under `.claude/workflow/**`, `.claude/skills/**`,
+or `.claude/agents/**` finds no staged copy at the mapped staged path,
+the implementer first copies the live file to the staged path
+verbatim, then applies the
 edit to the staged copy. Subsequent writes to the same file in the
 same plan edit the staged copy directly. The copy-then-edit step
 preserves develop's state as the staged copy's baseline so the eventual
@@ -950,9 +967,10 @@ plan did not explicitly rewrite.
 **Promotion is additive only.** The Phase 4 `cp -r` lays the staged
 subtree over the live tree, which covers additions and modifications
 but does not propagate deletions. A plan that needs to retire a live
-`.claude/workflow/**` or `.claude/skills/**` file cannot route the
-deletion through staging; the workaround is to land the deletion in a
-separate commit on a non-workflow-modifying branch, or to apply it as
+`.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file
+cannot route the deletion through staging; the workaround is to land
+the deletion in a separate commit on a non-workflow-modifying branch,
+or to apply it as
 a Phase 4 hand-edit immediately after the promotion commit lands.
 Staged-only-new files (files that exist in the staged subtree but not
 in the live tree) are added silently by `cp -r`; no warning is
@@ -960,9 +978,10 @@ emitted, and the contract is silent-additive.
 
 The pre-commit gate in `implementer-rules.md` enforces the write
 routing at commit time: any commit on a workflow-modifying plan whose
-staged diff contains live `.claude/workflow/**` or `.claude/skills/**`
-matches outside the Phase 4 promotion commit is refused. Authoring
-discipline at write time keeps the gate quiet; the gate exists to
+staged diff contains live `.claude/workflow/**`, `.claude/skills/**`,
+or `.claude/agents/**` matches outside the Phase 4 promotion commit is
+refused. Authoring discipline at write time keeps the gate quiet; the
+gate exists to
 catch the bypass shapes (an absolute live path passed to a tool, a
 `Bash` redirection that the implementer forgot to rewrite).
 
@@ -973,8 +992,8 @@ A workflow-modifying branch that has not rebased onto the current
 `develop` HEAD must do so before Phase 4 promotion runs. The Phase 4
 prompt's pre-promotion divergence sanity check computes
 `$(git merge-base origin/develop HEAD)..origin/develop` on the live
-`.claude/workflow` and `.claude/skills` paths after a `git fetch origin
-develop`; a non-empty diff halts with a manual-reconciliation
+`.claude/workflow`, `.claude/skills`, and `.claude/agents` paths after a
+`git fetch origin develop`; a non-empty diff halts with a manual-reconciliation
 instruction. The rebase is the manual-reconciliation path: rebasing
 onto current `origin/develop` brings the branch's working tree up to a
 state where `origin/develop` no longer carries workflow commits the
@@ -999,8 +1018,9 @@ promotion:
 > rebase-merge from develop excluded by scope.
 
 The wording is precise. "Intra-branch authoring transition" names the
-single moment at which the branch's own authoring of `.claude/workflow/**`
-or `.claude/skills/**` content moves from the staged subtree into the
+single moment at which the branch's own authoring of `.claude/workflow/**`,
+`.claude/skills/**`, or `.claude/agents/**` content moves from the staged
+subtree into the
 live tree. Phase 4's promotion commit is that moment; no other commit
 on the branch carries live-path writes when the convention is
 followed. "Rebase-merge from develop excluded by scope" carves out
