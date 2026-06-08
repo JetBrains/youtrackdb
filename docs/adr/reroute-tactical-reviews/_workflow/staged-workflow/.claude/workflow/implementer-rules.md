@@ -915,12 +915,13 @@ EPISODE_DRAFT:                    # populated only at level=step
 FIX_NOTES:                        # populated only at level=track
   what_was_fixed: |
     <factual summary of which findings the iteration addressed,
-    1–4 sentences. Cite the synthesised `M<n>` finding IDs from
-    the `findings:` input block (e.g., M3, M7) — these are
-    branch-only-commit-message-scope identifiers and never leak
-    into durable content. Per-dimension IDs (CQ7, BC3, …) are
-    orchestrator-internal audit-trail concepts and are not visible
-    to the implementer.>
+    1–4 sentences. Cite the per-dimension reviewer IDs from the
+    `findings:` input block (e.g., BC3, CQ7) — under the router
+    model the orchestrator hands these anchors to the implementer
+    directly (there is no synthesised `M<n>` merge layer), so they
+    are the addressing the implementer actually reads bodies by.
+    They are branch-only-commit-message-scope identifiers and never
+    leak into durable content.>
   what_was_skipped: |
     <or "none". Findings the implementer chose not to address
     inside this iteration — typically because they would expand
