@@ -630,22 +630,62 @@ finding ID prefixes, and gate format.
       `{M}`, and `{commit}` with concrete values when composing each
       prompt.
 
-   b. **Synthesise.** After all selected agents complete, run the
-      canonical procedure in
-      finding-synthesis-recipe.md:orchestrator:3B,3C:
-      deduplicate across dimensions by `file:line` → issue shape →
-      suggested fix shape, prioritise on the
-      `blocker` / `should-fix` / `suggestion` scale (per
+      **Inject the per-spawn output path and the per-dimension
+      high-water-mark.** This dispatch site — not
+      `review-agent-selection.md` — is the switch that turns on the
+      reviewers' `§2.5` file-plus-manifest output (D6). For each
+      spawned dimensional agent, supply two extra inputs:
+
+      - `output_path` — a per-fan-out-unique review-file path under
+        the track's review directory, named
+        `<type>-iter<N>.md` (the convention the strategic dispatch
+        sites already use):
+
+        ```
+        docs/adr/{dir-name}/_workflow/plan/track-{N}/reviews/{type}-iter{M}.md
+        ```
+
+        where `{type}` is the agent's review type
+        (`bugs-concurrency`, …) and `{M}` is the current dim-review
+        iteration. Handed this path, the agent writes the `§2.5`
+        file-plus-manifest and returns only the manifest (per the
+        agent's §Output routing); handed no path it returns its inline
+        format unchanged, so the standalone callers stay untouched.
+      - `{findings_under_recheck}` high-water-mark — at **initial**
+        review pass the per-dimension high-water-mark hand-back the
+        agent's §Output routing expects so it continues its own `id`
+        numbering rather than restarting at `<PREFIX>1` (D5). For a
+        first-ever fan-out the mark is empty and the agent starts at
+        `<PREFIX>1`; on any re-fan-out it is the max `id` index that
+        dimension reached in this loop's prior review files. The mark
+        is the same field the gate-check prompt supplies at
+        sub-step 4(d); injecting it at initial review too is what lets
+        per-dimension IDs run cumulative without the removed `M<n>`
+        layer.
+
+   b. **Route on the manifest index.** After all selected agents
+      complete, run the canonical routing procedure in
+      finding-synthesis-recipe.md:orchestrator:3B,3C: validate each
+      review file with the `§2.5` ID-anchored count grep
+      (`grep -cE '^### [A-Z]+[0-9]+ '`), and on a `CONTRACT_VIOLATION`
+      route the whole-section fallback to the implementer rather than
+      reading the body (A1); then `loc`-collapse the manifest index
+      entries non-destructively, run the upgrade-only `basis` severity
+      backstop, and bucket by `sev` and in-scope `loc`. The
+      orchestrator routes on the manifest index alone and never reads a
+      `## Findings` body (S1); the handoff it composes into the
+      implementer's `findings:` block carries review-file paths plus
+      in-scope anchors, and the implementer reads the bodies by anchor.
+      Severities follow the `blocker` / `should-fix` / `suggestion`
+      scale (per
       review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C §Severity
-      levels), and emit the merged list in the format the
-      implementer's `findings:` block consumes. Step-level review
-      operates on a single step's diff, so the deferred /
-      plan-correction buckets in the recipe are typically empty
-      here — most surfaced findings are in-scope for the next
-      `FIX_REVIEW_FINDINGS` respawn. Items the orchestrator judges
-      out of scope for the step are recorded in the `EPISODE_DRAFT`
-      instead, not routed via §Plan Corrections (that flow is
-      track-level only). The orchestrator stages these notes
+      levels). Step-level review operates on a single step's diff, so
+      the deferred / plan-correction buckets in the recipe are
+      typically empty here — most surfaced findings are in-scope for
+      the next `FIX_REVIEW_FINDINGS` respawn. Items the orchestrator
+      judges out of scope for the step are recorded in the
+      `EPISODE_DRAFT` instead, not routed via §Plan Corrections (that
+      flow is track-level only). The orchestrator stages these notes
       alongside the sub-step 5 cross-track-impact observations;
       sub-step 7's episode merge folds both into
       `EPISODE_DRAFT.what_was_discovered`.
@@ -712,13 +752,14 @@ finding ID prefixes, and gate format.
       rate is identical when it does fire.
 
       After collecting all gate-check returns, re-run sub-step 4(b)
-      **Synthesise** on the aggregated `New findings` blocks before
-      composing the next implementer input. Treat `REGRESSION`
-      verdicts as blocker-severity carry-forwards with
-      `revert-or-repair` guidance; treat `REJECTED` and `MOOT`
-      verdicts as cleared (identical to `VERIFIED`); carry
-      `STILL OPEN` verdicts forward verbatim with the original
-      finding ID.
+      **Route on the manifest index** over the verdicts plus the
+      aggregated `New findings` blocks before composing the next
+      implementer input (the recipe's §Gate-check routing). Treat
+      `REGRESSION` verdicts as blocker-severity carry-forwards with
+      `revert-or-repair` guidance, excluded from `loc`-collapse (S3);
+      treat `REJECTED` and `MOOT` verdicts as cleared (identical to
+      `VERIFIED`); carry `STILL OPEN` verdicts forward by the original
+      reviewer `id`.
    e. If max iterations reached, note remaining findings in the
       `EPISODE_DRAFT` so they appear in the step episode.
    f. **Remove the staged temp files** for this step so they don't
