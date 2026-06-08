@@ -30,6 +30,7 @@ agent-definition edits across two different staging prefixes
 - [x] 2026-06-08T09:12Z [ctx=safe] Step 1 complete (commit 41ad9ff4f6)
 - [x] 2026-06-08T09:18Z [ctx=safe] Step 2 complete (commit 751e0342e1)
 - [x] 2026-06-08T09:25Z [ctx=safe] Step 3 complete (commit f763bfdc4b)
+- [x] 2026-06-08T09:57Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -290,9 +291,9 @@ by-file pointer to `finding-synthesis-recipe.md` still resolves (T2, verify-only
 merge layer (Plan of Work item 5). Only `dimensional-review-gate-check.md` needed
 an edit: rewrote the residual "synthesis severity scale" to the shared
 blocker/should-fix/suggestion scale (cross-ref §Severity levels) and the "feeds
-back into the synthesised finding list" claim to the manifest model — gate-check
+back into the synthesised finding list" claim to the manifest model (gate-check
 verdicts route per dimension by reviewer `id` through
-`finding-synthesis-recipe.md §Gate-check routing` with no merge layer — and
+`finding-synthesis-recipe.md §Gate-check routing` with no merge layer), and
 updated the matching TOC row and section-comment summary. The verdict-flag set
 (VERIFIED/REJECTED/MOOT/STILL OPEN/REGRESSION), the per-dimension addressing, and
 the ≤60-line budget were left untouched. `review-mode.md` and
@@ -306,9 +307,9 @@ section heading).
 synthesised... attributed to source dimension(s)" block that step 1 dropped from
 the staged `track-code-review.md` (replaced by the §Synthesis manifest-routing
 model). The implementer judged the surviving copy accurate-not-contradictory under
-D5 — "deduplicated" maps to `loc`-collapse, "severity-assigned" to the Step-2
+D5 ("deduplicated" maps to `loc`-collapse, "severity-assigned" to the Step-2
 `basis` backstop, "attributed to source dimension(s)" is intrinsically true now
-that each finding keeps its per-dimension `id` end to end — and left it unedited
+that each finding keeps its per-dimension `id` end to end) and left it unedited
 per T2's verify-only criterion, deferring to the recipe as the authoritative
 procedure. Phase C `review-workflow-consistency` should confirm that leave-it call
 rather than re-flag the divergence as a defect.
