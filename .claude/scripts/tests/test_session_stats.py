@@ -3,11 +3,12 @@
 
 Running this script is the validation: it imports the stats helper as a module
 and exercises the worktree-project additions — CLI parsing of `--worktree` /
-`--worktree-cost-file`, the rendered cost line with and without the `wt:`
-figure, the recursive project aggregation (sessions + sub-agents, deduped by
-(msg_id, requestId)), the atomic plain-text publish file, and `main`'s
-end-to-end behaviour (file written only in worktree mode, `wt:` present/absent
-on the line accordingly).
+`--worktree-cost-file`, the rendered cost line with and without the `wt:` /
+`wtday:` figures, the recursive project aggregation (sessions + sub-agents,
+deduped by (msg_id, requestId)) split into all-time and today buckets, the
+atomic plain-text publish file, and `main`'s end-to-end behaviour (file written
+only in worktree mode, `wt:` / `wtday:` present/absent on the line
+accordingly).
 
 Invocation (from repo root):
 
@@ -227,18 +228,30 @@ def test_format_line_no_worktree_exact() -> None:
 
 
 def test_format_line_with_worktree_exact() -> None:
-    """A project total inserts `wt:$…` at the front of the parenthetical, ahead
+    """A project total inserts the two worktree figures at the front of the
+    parenthetical — `wt:$…` (all-time) then `wtday:$…` (today's slice) — ahead
     of the always-present `day:$…` and the `mo:$…` figure."""
     sess = _totals(0.123, **{"in": 1200, "out": 8000, "read": 230000, "w5": 40000, "w1": 0})
     day = _totals(2.34)
     month = _totals(4.56)
     proj = _totals(1.85)
-    line = MODULE.format_stats_line(sess, day, month, proj=proj, no_color=True)
+    proj_day = _totals(0.40)
+    line = MODULE.format_stats_line(sess, day, month, proj=proj, proj_day=proj_day, no_color=True)
     expected = (
-        "$0.123 (wt:$1.85 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
+        "$0.123 (wt:$1.85 wtday:$0.40 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
         "r/5m:5.8x r/1h:-"
     )
     assert line == expected, f"\n got: {line}\nwant: {expected}"
+
+
+def test_format_line_worktree_proj_day_defaults_to_zero() -> None:
+    """When `proj` is given but `proj_day` is omitted, the `wtday:` figure
+    renders `$0.00` rather than crashing on a None index — a defensive path for
+    callers that pass only the all-time total."""
+    line = MODULE.format_stats_line(
+        _totals(0.1), _totals(2.0), _totals(3.0), proj=_totals(1.85), no_color=True
+    )
+    assert "wt:$1.85 wtday:$0.00 " in line, line
 
 
 def test_format_line_no_color_has_no_ansi() -> None:
@@ -251,14 +264,16 @@ def test_format_line_no_color_has_no_ansi() -> None:
 
 
 def test_format_line_colours_when_enabled() -> None:
-    """With colour on, the worktree figure uses the distinct bright-blue code
-    (34), the new today figure uses bright white (37), and the existing
-    session/month codes are still present."""
+    """With colour on, the worktree all-time figure uses bright blue (1;34), the
+    worktree today figure uses dim blue (2;34), today-all-projects uses bright
+    white (37), and the existing session/month codes are still present."""
     with _env("NO_COLOR", None):
         line = MODULE.format_stats_line(
-            _totals(1.0), _totals(2.0), _totals(3.0), proj=_totals(4.0), no_color=False
+            _totals(1.0), _totals(2.0), _totals(3.0),
+            proj=_totals(4.0), proj_day=_totals(0.5), no_color=False,
         )
-    assert "\033[1;34m" in line, "worktree figure should be bright blue"
+    assert "\033[1;34m" in line, "worktree all-time figure should be bright blue"
+    assert "\033[2;34m" in line, "worktree today figure should be dim blue"
     assert "\033[1;36m" in line, "session figure should be bright cyan"
     assert "\033[1;37m" in line, "today figure should be bright white"
     assert "\033[1;35m" in line, "month figure should be bright magenta"
@@ -279,9 +294,11 @@ def test_format_line_no_color_env_respected() -> None:
 
 
 def test_project_totals_aggregates_sessions_and_subagents() -> None:
-    """Every *.jsonl under the project dir is summed — top-level session files
-    and nested subagents/agent-*.jsonl — with (msg_id, requestId) dedup so a
-    record duplicated into a sub-agent transcript is counted once."""
+    """Every *.jsonl under the project dir is summed into the all-time total —
+    top-level session files and nested subagents/agent-*.jsonl — with
+    (msg_id, requestId) dedup so a record duplicated into a sub-agent transcript
+    is counted once. The today element of the returned pair is asserted
+    separately (see test_project_totals_today_bucket)."""
     with tempfile.TemporaryDirectory() as tmp:
         cache = Path(tmp) / "cache"
         proj = Path(tmp) / "project"
@@ -296,25 +313,52 @@ def test_project_totals_aggregates_sessions_and_subagents() -> None:
             ],
         )
         with _patched(CACHE_DIR=cache):
-            out = MODULE.project_totals(str(proj / "sessionA.jsonl"))
+            all_time, _today = MODULE.project_totals(str(proj / "sessionA.jsonl"))
         # m1, m2, m3 distinct -> 3 * 1M input tokens.
-        assert out["in"] == 3_000_000, out["in"]
-        assert _approx(out["cost"], 3 * USD_PER_1M_IN), out["cost"]
+        assert all_time["in"] == 3_000_000, all_time["in"]
+        assert _approx(all_time["cost"], 3 * USD_PER_1M_IN), all_time["cost"]
+
+
+def test_project_totals_today_bucket() -> None:
+    """The second element of the pair keeps only records dated on the injected
+    UTC day. Two records share the project dir — one dated today, one dated
+    yesterday; all-time gets both, the today bucket gets only today's. Mirrors
+    the daily bucketing contract of calendar_totals, applied per worktree."""
+    import datetime as dt
+
+    now = dt.datetime(2026, 6, 8, 12, 0, 0, tzinfo=dt.timezone.utc)
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp) / "cache"
+        proj = Path(tmp) / "project"
+        write_jsonl(
+            proj / "session.jsonl",
+            [
+                _assistant_usage("m1", "r1", ts="2026-06-08T09:00:00.000Z", in_t=1_000_000),
+                _assistant_usage("m2", "r2", ts="2026-06-07T09:00:00.000Z", in_t=1_000_000),
+            ],
+        )
+        with _patched(CACHE_DIR=cache):
+            all_time, today = MODULE.project_totals(str(proj / "session.jsonl"), now=now)
+        # All-time gets both records; today gets only the 2026-06-08 one.
+        assert all_time["in"] == 2_000_000, all_time["in"]
+        assert _approx(all_time["cost"], 2 * USD_PER_1M_IN), all_time["cost"]
+        assert today["in"] == 1_000_000, today["in"]
+        assert _approx(today["cost"], 1 * USD_PER_1M_IN), today["cost"]
 
 
 def test_project_totals_missing_dir_is_zero() -> None:
-    """A transcript path whose parent is not a directory yields zeroed totals."""
+    """A transcript path whose parent is not a directory yields a zeroed pair."""
     out = MODULE.project_totals("/no/such/dir/x.jsonl")
-    assert out == MODULE._zero(), out
+    assert out == (MODULE._zero(), MODULE._zero()), out
 
 
 def test_project_totals_nonexistent_transcript_does_not_scan_parent() -> None:
-    """A non-existent transcript whose *parent* directory exists must yield zero
-    without recursively scanning that parent. Regression for a footgun where
-    project_totals only checked parent.is_dir(): a path like /tmp/nonexistent.jsonl
-    would have rglob'd all of /tmp. A decoy .jsonl carrying real usage sits in the
-    parent; if the parent were scanned the total would be non-zero, so asserting
-    zero proves the parent was never walked."""
+    """A non-existent transcript whose *parent* directory exists must yield a
+    zeroed pair without recursively scanning that parent. Regression for a
+    footgun where project_totals only checked parent.is_dir(): a path like
+    /tmp/nonexistent.jsonl would have rglob'd all of /tmp. A decoy .jsonl
+    carrying real usage sits in the parent; if the parent were scanned the total
+    would be non-zero, so asserting a zeroed pair proves it was never walked."""
     with tempfile.TemporaryDirectory() as tmp:
         cache = Path(tmp) / "cache"
         proj = Path(tmp) / "project"
@@ -322,7 +366,7 @@ def test_project_totals_nonexistent_transcript_does_not_scan_parent() -> None:
         write_jsonl(proj / "decoy.jsonl", [_assistant_usage("m1", "r1", in_t=1_000_000)])
         with _patched(CACHE_DIR=cache):
             out = MODULE.project_totals(str(proj / "nonexistent.jsonl"))
-        assert out == MODULE._zero(), out
+        assert out == (MODULE._zero(), MODULE._zero()), out
 
 
 def test_streaming_snapshots_in_one_file_keep_max_output() -> None:
@@ -345,12 +389,12 @@ def test_streaming_snapshots_in_one_file_keep_max_output() -> None:
             ],
         )
         with _patched(CACHE_DIR=cache):
-            out = MODULE.project_totals(str(proj / "session.jsonl"))
+            all_time, _today = MODULE.project_totals(str(proj / "session.jsonl"))
         # m1 -> 276 (final snapshot), m2 -> 100; first-wins would give 101, no
         # dedup would give 378.
-        assert out["out"] == 376, out["out"]
+        assert all_time["out"] == 376, all_time["out"]
         out_price = MODULE.FALLBACK_PRICES[MODEL]["out"]  # $25 / 1M
-        assert _approx(out["cost"], 376 * out_price / 1_000_000), out["cost"]
+        assert _approx(all_time["cost"], 376 * out_price / 1_000_000), all_time["cost"]
 
 
 def test_streaming_final_snapshot_wins_across_cache_reads() -> None:
@@ -453,38 +497,42 @@ def test_atomic_write_text_writes_and_overwrites() -> None:
 
 
 def test_main_worktree_writes_cost_file_and_shows_wt() -> None:
-    """`main` in worktree mode prints the `wt:` and `day:` figures and publishes
-    the cost file containing exactly `wt_cost: $<proj cost>`. `calendar_totals`
-    is stubbed to return the (today, month) pair main now unpacks."""
+    """`main` in worktree mode prints the `wt:`, `wtday:`, and `day:` figures and
+    publishes the cost file containing exactly `wt_cost: $<all-time proj cost>`
+    (the today slice is statusline-only). `project_totals` is stubbed to return
+    the (all-time, today) pair main now unpacks; `calendar_totals` returns the
+    (today, month) pair."""
     with tempfile.TemporaryDirectory() as tmp:
         wt_file = Path(tmp) / "claude-code-worktree-cost-1234.txt"
         buf = io.StringIO()
         with _patched(
             session_totals=lambda _t: _totals(0.123),
             calendar_totals=lambda: (_totals(2.34), _totals(4.56)),
-            project_totals=lambda _t: _totals(1.85),
+            project_totals=lambda _t: (_totals(1.85), _totals(0.40)),
         ), _env("NO_COLOR", "1"), contextlib.redirect_stdout(buf):
             rc = MODULE.main(["t.jsonl", "--worktree", "--worktree-cost-file", str(wt_file)])
         assert rc == 0, rc
         assert wt_file.read_text() == "wt_cost: $1.85", wt_file.read_text()
         assert "wt:$1.85" in buf.getvalue(), buf.getvalue()
+        assert "wtday:$0.40" in buf.getvalue(), buf.getvalue()
         assert "day:$2.34" in buf.getvalue(), buf.getvalue()
 
 
 def test_main_no_worktree_omits_wt_and_writes_no_file() -> None:
-    """Without worktree flags `main` omits `wt:`, still shows the always-present
-    `day:` figure, and writes no publish file."""
+    """Without worktree flags `main` omits both `wt:` and `wtday:`, still shows
+    the always-present `day:` figure, and writes no publish file."""
     with tempfile.TemporaryDirectory() as tmp:
         wt_file = Path(tmp) / "should-not-exist.txt"
         buf = io.StringIO()
         with _patched(
             session_totals=lambda _t: _totals(0.123),
             calendar_totals=lambda: (_totals(2.34), _totals(4.56)),
-            project_totals=lambda _t: _totals(1.85),
+            project_totals=lambda _t: (_totals(1.85), _totals(0.40)),
         ), _env("NO_COLOR", "1"), contextlib.redirect_stdout(buf):
             rc = MODULE.main(["t.jsonl"])
         assert rc == 0, rc
         assert "wt:" not in buf.getvalue(), buf.getvalue()
+        assert "wtday:" not in buf.getvalue(), buf.getvalue()
         assert "day:$2.34" in buf.getvalue(), buf.getvalue()
         assert not wt_file.exists(), "no cost file should be written without the flag"
 
@@ -511,10 +559,12 @@ def main() -> int:
         ("parse_args cost-file missing value", test_parse_args_cost_file_missing_value),
         ("format line no worktree (exact)", test_format_line_no_worktree_exact),
         ("format line with worktree (exact)", test_format_line_with_worktree_exact),
+        ("format line worktree proj_day defaults to zero", test_format_line_worktree_proj_day_defaults_to_zero),
         ("format line no_color strips ANSI", test_format_line_no_color_has_no_ansi),
         ("format line colours when enabled", test_format_line_colours_when_enabled),
         ("format line NO_COLOR env respected", test_format_line_no_color_env_respected),
         ("project_totals sessions + subagents deduped", test_project_totals_aggregates_sessions_and_subagents),
+        ("project_totals today bucket", test_project_totals_today_bucket),
         ("project_totals missing dir -> zero", test_project_totals_missing_dir_is_zero),
         ("project_totals nonexistent file w/ existing parent -> zero", test_project_totals_nonexistent_transcript_does_not_scan_parent),
         ("streaming snapshots in one file keep max output", test_streaming_snapshots_in_one_file_keep_max_output),

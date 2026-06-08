@@ -8,24 +8,28 @@ Output (single line, second line of the statusline):
 
 The `day:` figure is today's spend across every project — the calendar-day
 analogue of `mo:` — and is always shown. When invoked with `--worktree` (the
-statusline adds it whenever the cwd is a linked git worktree) a cost figure for
-the current worktree's project is inserted at the front of the parenthetical:
+statusline adds it whenever the cwd is a linked git worktree) two worktree-
+scoped figures are inserted at the front of the parenthetical: `wt:` (the
+current worktree project's all-time spend) and `wtday:` (today's slice of that
+same spend):
 
-  $0.123 (wt:$1.85 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  …
+  $0.123 (wt:$1.85 wtday:$0.40 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  …
 
 The current session aggregates the orchestrator transcript plus every
 sub-agent transcript under <transcript-stem>/subagents/. The worktree-project
-figure (`wt:`) aggregates *every* session transcript that lives next to the
-current one — i.e. all sessions under ~/.claude/projects/<cwd-slug>/. Because
-a git worktree has its own cwd, it maps to its own project directory, so this
-figure is the cumulative spend of the current worktree across every session
-run in it. The monthly figure sums every JSONL transcript anywhere under
-~/.claude/projects whose records fall in the current calendar month.
+figures aggregate *every* session transcript that lives next to the current
+one — i.e. all sessions under ~/.claude/projects/<cwd-slug>/. Because a git
+worktree has its own cwd, it maps to its own project directory, so `wt:` is the
+cumulative spend of the current worktree across every session run in it, and
+`wtday:` is the same aggregation keeping only records dated today (UTC). The
+monthly figure sums every JSONL transcript anywhere under ~/.claude/projects
+whose records fall in the current calendar month.
 
-With `--worktree-cost-file PATH` the worktree-project cost is also written to
-PATH (the statusline points this at /tmp/claude-code-worktree-cost-<pid>.txt,
-mirroring the context-usage file) so the model can read the running spend on
-the current worktree on demand.
+With `--worktree-cost-file PATH` the all-time worktree-project cost (the `wt:`
+figure, not the `wtday:` slice) is also written to PATH (the statusline points
+this at /tmp/claude-code-worktree-cost-<pid>.txt, mirroring the context-usage
+file) so the model can read the running spend on the current worktree on
+demand.
 
 Two non-obvious mechanics, both required to match ccusage:
 
@@ -531,18 +535,31 @@ def session_totals(transcript_path):
     return _sum_records(merged)
 
 
-def project_totals(transcript_path):
-    """Aggregate every transcript in the current project's directory, deduped.
+def project_totals(transcript_path, now=None):
+    """Aggregate every transcript in the current project's directory into an
+    (all-time, today) pair of deduped totals.
 
     The project directory is the parent of the session transcript —
     ~/.claude/projects/<cwd-slug>/. A recursive glob picks up both the
     top-level <uuid>.jsonl session files and the nested
     <uuid>/subagents/agent-*.jsonl sub-agent files; the (msg_id, requestId)
-    dedup in `_sum_records` collapses records shared across them.
+    dedup via `_keep_larger_output` collapses records shared across them.
 
     Because a git worktree has its own cwd, it gets its own project directory,
     so summing this directory yields the cumulative cost of the current
     worktree across every session ever run in it — not just the live one.
+
+    Returns `(all_time, today)`. `all_time` sums every record (the `wt:`
+    figure); `today` keeps only records whose own date (payload index 0,
+    `ts[:10]`) equals the current UTC day (the `wtday:` figure), mirroring the
+    daily bucket in `calendar_totals`. Both are produced in one directory walk
+    so a statusline render does not re-stat every transcript twice. There is no
+    mtime pre-filter here (unlike `calendar_totals`): the all-time figure must
+    read every file regardless, so there is nothing to skip.
+
+    `now` defaults to the current UTC instant; it is injectable so the
+    today-bucketing can be exercised against a fixed date in tests. Records are
+    `Z`-suffixed UTC, so `cur_day` is derived in UTC too.
     """
     p = pathlib.Path(transcript_path).expanduser()
     # Mirror session_totals: short-circuit a non-existent transcript before the
@@ -550,15 +567,21 @@ def project_totals(transcript_path):
     # relative path resolving to /tmp/x.jsonl) would recursively scan that whole
     # parent directory for *.jsonl files.
     if not p.exists():
-        return _zero()
+        return _zero(), _zero()
     proj_dir = p.parent
     if not proj_dir.is_dir():
-        return _zero()
-    merged = {}
+        return _zero(), _zero()
+    if now is None:
+        now = _dt.datetime.now(_dt.timezone.utc)
+    cur_day = f"{now.year:04d}-{now.month:02d}-{now.day:02d}"
+    all_merged = {}
+    day_merged = {}
     for jsonl in proj_dir.rglob("*.jsonl"):
         for k, v in aggregate_file(jsonl).items():
-            _keep_larger_output(merged, k, v)  # max-output dedup
-    return _sum_records(merged)
+            _keep_larger_output(all_merged, k, v)  # max-output dedup
+            if v[0] == cur_day:
+                _keep_larger_output(day_merged, k, v)
+    return _sum_records(all_merged), _sum_records(day_merged)
 
 
 def calendar_totals(now=None):
@@ -649,35 +672,45 @@ def parse_args(argv):
     return transcript, show_worktree, wt_cost_file
 
 
-def format_stats_line(sess, day, month, proj=None, no_color=False):
+def format_stats_line(sess, day, month, proj=None, proj_day=None, no_color=False):
     """Render the second statusline row.
 
     The `day:$X` figure (today's spend across all projects) always appears; when
-    `proj` is given (worktree mode) a `wt:$X` figure for the current worktree's
-    project is inserted ahead of it.
+    `proj` is given (worktree mode) two worktree-scoped figures are inserted
+    ahead of it: `wt:$X` (the project's all-time spend) and `wtday:$X`
+    (`proj_day`, today's slice of that same spend). `proj_day` defaults to a
+    zeroed total when omitted so callers that only pass `proj` still render.
 
     Distinct colours so the cost figures are tellable apart at a glance:
     bright cyan = current session (active), bright blue = this worktree's
-    project (cumulative), bright white = today across all projects, bright
-    magenta = calendar month across all projects. Deliberately avoiding
-    red / yellow / green — those are reserved for the context-fill bar in
+    project all-time, dim blue = this worktree's project today (same hue as
+    `wt:` to group the two worktree figures; dimmer = the narrower today
+    window), bright white = today across all projects, bright magenta =
+    calendar month across all projects. Deliberately avoiding red / yellow /
+    green — those are reserved for the context-fill bar in
     statusline-command.sh (critical / warning / safe). Honour NO_COLOR for
     non-TTY consumers.
     """
     if no_color or os.environ.get("NO_COLOR"):
         sess_open = sess_close = mo_open = mo_close = wt_open = wt_close = ""
-        day_open = day_close = ""
+        day_open = day_close = wtd_open = wtd_close = ""
     else:
         sess_open = "\033[1;36m"   # bright cyan    — current session
-        wt_open = "\033[1;34m"     # bright blue    — this worktree's project
+        wt_open = "\033[1;34m"     # bright blue    — this worktree's project, all-time
+        wtd_open = "\033[2;34m"    # dim blue       — this worktree's project, today
         day_open = "\033[1;37m"    # bright white   — today, all projects
         mo_open = "\033[1;35m"     # bright magenta — calendar month, all projects
-        sess_close = mo_close = wt_close = day_close = "\033[0m"
+        sess_close = mo_close = wt_close = day_close = wtd_close = "\033[0m"
 
     day_str = f"day:{day_open}${day['cost']:.2f}{day_close}"
     mo_str = f"mo:{mo_open}${month['cost']:.2f}{mo_close}"
     if proj is not None:
-        scope = f"(wt:{wt_open}${proj['cost']:.2f}{wt_close} {day_str} {mo_str})"
+        # proj and proj_day always travel together from main(); fall back to a
+        # zeroed total if a caller passes proj alone so we never index None.
+        pd = proj_day if proj_day is not None else _zero()
+        wt_str = f"wt:{wt_open}${proj['cost']:.2f}{wt_close}"
+        wtd_str = f"wtday:{wtd_open}${pd['cost']:.2f}{wtd_close}"
+        scope = f"({wt_str} {wtd_str} {day_str} {mo_str})"
     else:
         scope = f"({day_str} {mo_str})"
 
@@ -700,14 +733,19 @@ def main(argv=None):
     try:
         sess = session_totals(transcript)
         day, month = calendar_totals()
-        proj = project_totals(transcript) if show_worktree else None
+        if show_worktree:
+            proj, proj_day = project_totals(transcript)
+        else:
+            proj = proj_day = None
     except Exception as exc:  # noqa: BLE001 — never break the statusline
         print(f"stats error: {exc}", file=sys.stderr)
         return 0
 
     # Publish the worktree-project cost to a per-session file for on-demand
     # reading by the model (mirrors the context-usage file the statusline
-    # writes). Best-effort — a write failure must never break the statusline.
+    # writes). The published figure is the all-time `wt:` cost; the today
+    # slice (`wtday:`) is statusline-only. Best-effort — a write failure must
+    # never break the statusline.
     if wt_cost_file and proj is not None:
         try:
             _atomic_write_text(
@@ -716,7 +754,7 @@ def main(argv=None):
         except Exception:  # noqa: BLE001 — publish is best-effort; never break the statusline
             pass
 
-    print(format_stats_line(sess, day, month, proj))
+    print(format_stats_line(sess, day, month, proj, proj_day))
     return 0
 
 
