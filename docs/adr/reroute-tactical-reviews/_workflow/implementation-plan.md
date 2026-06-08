@@ -397,7 +397,7 @@ flowchart TD
   > exempt dimensions (index-bucketing keys off `cert`); reuse the `<type>-iter<N>.md`
   > review-file naming at the tactical dispatch sites.
 
-- [ ] Track 4: Orchestrator tactical routing, severity backstop, and per-dimension addressing
+- [x] Track 4: Orchestrator tactical routing, severity backstop, and per-dimension addressing
   > Implements route-by-consumer for the tactical class: the orchestrator buckets
   > on the manifest index alone (`loc`-collapse, REGRESSION-excluded, in-scope
   > filter), spawns the implementer with file paths + in-scope anchors, and never
@@ -405,12 +405,44 @@ flowchart TD
   > `M<n>`-to-dimension un-map (D5), hands each dimension's high-water-mark to the
   > reviewer at spawn, and adds the upgrade-only `basis` severity backstop (D4).
   > The implementer reconciles cross-dimension framings at the code level.
-  > **Scope:** ~8 files covering step-implementation.md + track-code-review.md
-  > dispatch/routing, finding-synthesis-recipe.md M<n> removal,
-  > review-iteration.md synthesis-routing reconciliation, implementer-rules.md
-  > findings/FIX_NOTES anchor-read, review-mode.md override match, the tactical
-  > gate-check prompt, and code-review-protocol.md
-  > **Depends on:** Track 2, Track 3
+  >
+  > **Track episode:**
+  > Built the tactical-review router model: the orchestrator buckets a code-review
+  > fan-out on the manifest index alone and never reads a finding body (S1). Step 1
+  > (`41ad9ff4f6`) rewrote `finding-synthesis-recipe.md` to manifest-only routing —
+  > dropped the five `M<n>` coupling sites, the un-map, and the contributing-dimensions
+  > audit trail; replaced the two-way OVERRIDE with the upgrade-only `basis` backstop
+  > (D4); injected the per-spawn output path and per-dimension high-water-mark at the
+  > `step-implementation.md` / `track-code-review.md` reviewer-fan-out dispatch sites
+  > (closing Track 3's open `<PREFIX>1` fallback); reconciled `review-iteration.md`.
+  > Step 2 (`751e0342e1`) flipped `implementer-rules.md` to per-dimension anchors, the
+  > four-outcome `level=track` RESULT enum kept intact (A2). Step 3 (`f763bfdc4b`)
+  > reconciled residual synthesis language in the `dimensional-review-gate-check.md`
+  > prompt.
+  >
+  > Phase C (5 workflow dimensions, baseline skipped on the workflow-only diff;
+  > hook-safety did not fire): 12 findings, 0 blockers, one fix iteration, gate PASS.
+  > The load-bearing find (WI1/WI2): the `CONTRACT_VIOLATION` whole-section fallback
+  > was specified orchestrator-side at all three dispatch sites but had no Step 5
+  > handoff slot and no implementer consumer clause, so S1's malformed-manifest branch
+  > (a delivered Validation criterion, A1) dead-ended on the consumer; fixed with the
+  > handoff slot, the consumer clause, a budget-unit rule, and the all-violated
+  > degenerate case (`23880ea192`). WP1 reframed the `loc`-collapse proximity test off
+  > an S1-contradicting method-body criterion onto exact `file:line`. WB1/WB2/WB3
+  > (reindex schema) and WS1/WS2 (episode em-dashes, `49c467dbeb`) closed the rest.
+  > `review-workflow-consistency` confirmed the step-3 deliberate leave-it call on
+  > `code-review-protocol.md` rather than re-flagging it.
+  >
+  > Phase 4 hand-offs: the A2 reconciliation stands. `design-final.md` must square the
+  > design body's two-outcome "`SUCCESS` or `DESIGN_DECISION_NEEDED`" narrative against
+  > the four-outcome `level=track` RESULT enum, and the recipe's renamed `§Step 4` /
+  > `§Gate-check routing` plus the new `§Step 5` whole-section-fallback slot are new
+  > cross-reference targets. Two out-of-delta items reviewers surfaced for design-final
+  > reconciliation: `review-iteration.md` carries a "30% warning threshold" line
+  > (CLAUDE.md says 40%) and a `file:line`-vs-`loc` terminology split against the
+  > recipe — both pre-existing in verbatim-copied portions, not this track's delta.
+  >
+  > **Track file:** `plan/track-4.md` (3 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1

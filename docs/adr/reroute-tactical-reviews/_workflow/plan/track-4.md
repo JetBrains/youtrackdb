@@ -25,13 +25,14 @@ agent-definition edits across two different staging prefixes
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-08T07:50Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
 - [x] 2026-06-08T09:12Z [ctx=safe] Step 1 complete (commit 41ad9ff4f6)
 - [x] 2026-06-08T09:18Z [ctx=safe] Step 2 complete (commit 751e0342e1)
 - [x] 2026-06-08T09:25Z [ctx=safe] Step 3 complete (commit f763bfdc4b)
 - [x] 2026-06-08T09:57Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-08T10:03Z [ctx=info] Track-level code review complete — gate-check PASS (WB/WI/WP/WS all VERIFIED, 0 blockers, 0 regressions)
+- [x] 2026-06-08T10:33Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -72,6 +73,20 @@ agent-definition edits across two different staging prefixes
   two-outcome "`SUCCESS` or `DESIGN_DECISION_NEEDED`" phrasing with the
   implementer's actual four-outcome `level=track` RESULT contract (happy-path
   narrative vs the full enum).
+- [x] Phase C: PASS at iteration 1. Workflow-only diff, baseline skipped; 5
+  workflow dimensions fired (consistency, context-budget, instruction-completeness,
+  prompt-design, writing-style; hook-safety did not, since no hooks/scripts/settings
+  were touched). 12 findings, 0 blockers, one fix iteration (`23880ea192` for the staged
+  files plus orchestrator track-file fix `49c467dbeb`), gate-check PASS with every
+  verdict VERIFIED and 0 regressions. WI1/WI2 closed the `CONTRACT_VIOLATION`
+  whole-section-fallback consumer-contract gap (handoff slot + implementer clause +
+  budget-unit rule + all-violated case); WP1 reframed the `loc`-collapse proximity
+  test off the S1-contradicting method-body criterion onto exact `file:line`;
+  WB1/WB2/WB3 cleared the reindex schema (bare `§2.5` backticks + over-cap summaries);
+  WS1/WS2 fixed two episode em-dash-cap violations; WP2/WP3 added the dispatch-field
+  disambiguation and the mixed-severity bucket clause. WC1 confirmed the step-3
+  deliberate leave-it call on `code-review-protocol.md`, not re-flagged. No deferred
+  findings, no plan corrections — terminal track.
 
 ## Context and Orientation
 
