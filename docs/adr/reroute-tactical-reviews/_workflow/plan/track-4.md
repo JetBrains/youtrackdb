@@ -259,3 +259,7 @@ behavior for the tactical class only.
 and write manifests before the orchestrator can route on them and drop `M<n>`).
 No downstream tracks. The path injection here is what activates Track 3's
 path-conditional file output for the workflow caller.
+
+## Base commit
+
+199b2801b021029e069dcf94118054e87f497f32
