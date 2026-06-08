@@ -28,6 +28,7 @@ already cite the prefix table. The 4 standalone agents get a one-line exemption
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-08T05:23Z [ctx=info] Review + decomposition complete (3 steps: 2 high, 1 medium; 0 failed)
+- [x] 2026-06-08T05:54Z [ctx=safe] Step 1 complete (commit b0b9c93398e087a9955df62458b810910a40fbde)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -195,7 +196,7 @@ stay byte-for-byte today's inline format for that agent so the standalone
    to `## Evidence base`. Validates the template-A wrap/manifest/evidence shape on
    one representative agent before steps 2-3 replicate it. — risk: high (override:
    canary — high blast radius if the wrap-gate or manifest shape is wrong, R1/R5;
-   the step-level dimensional review validates the shape before replication)  [ ]
+   the step-level dimensional review validates the shape before replication)  [x] commit: b0b9c93398e087a9955df62458b810910a40fbde
 2. **Template A across the remaining 9 code and test dimensional agents + the 4
    D9 standalone exemptions.** Apply the step-1 pattern (wrap-gate + canonical
    `<PREFIX>` numbering + `review-iteration.md § Finding ID prefixes` citation) to
@@ -234,6 +235,41 @@ sequential so the template-A lessons inform the template-B migration. Step count
 
 ## Episodes
 <!-- Continuous-log. -->
+
+### Step 1 — commit b0b9c93398, 2026-06-08T05:54Z [ctx=safe]
+**What was done:** Inserted a path-conditional `## Output routing` guard immediately
+before the `## Output Format` heading of the staged `review-bugs-concurrency.md`
+(copy-then-edit on first touch per §1.7(e): the live develop-state file was copied to
+the staged mirror verbatim, then edited; the live tree stays untouched). With an
+output path the guard directs the reviewer to write the §2.5 file-plus-manifest — all
+six manifest `index` fields (`id`/`sev`/`anchor` mandatory, `loc`/`cert`/`basis`
+downstream-consumed), each per-finding `cert` cross-linked to a `#### C<n>` evidence
+entry, `## Findings` carrying one `### BC<n> [sev]` anchored body per finding, no
+`### Summary` or `### Findings` heading, and only the manifest returned. Findings
+number with the canonical `BC` prefix (two-sided, dormant until a dispatch site
+supplies a hand-back). The Phase-4 "Alternative Hypothesis Check" reasoning writes to
+`## Evidence base` via the YTDB-1069 roster rendering (survived claim → one line,
+refuted → in full). With no path the inline Output Format below stays byte-for-byte
+unchanged. The risk:high step-level review (`review-workflow-prompt-design`) returned
+WP1 (should-fix: manifest-field population) and WP2 (suggestion: gate-check hand-back
+dormancy); both applied in a `Review fix:` commit, gate-check PASS at iteration 2.
+
+**What was discovered:** This canary is the complete template-A wrap that steps 2 and
+3 replicate. Replication carries the six-field manifest bullet, the
+dormant-until-supplied two-sided-numbering phrasing, and the
+`prompts/dimensional-review-gate-check.md:reviewer-dim-step,reviewer-dim-track:3B,3C`
+citation verbatim (its suffix applies to every dimensional reviewer, so it copies
+unchanged), swapping `BC` for each dimension's canonical prefix from
+`review-iteration.md § Finding ID prefixes`. The WP2 finding's proposed path
+`dimensional-review-gate-check.md` did not resolve; the real path is the
+`prompts/`-prefixed one (roles `reviewer-dim-step,reviewer-dim-track`, no
+`orchestrator`), verified before citing. The live `implementer-rules.md` pre-commit
+gate still greps two prefixes (`.claude/workflow/`, `.claude/skills/`); the
+`.claude/agents/` third-prefix gate is staged from Track 1 and self-applied here via
+§1.7(d) reads-precedence — the intended I6 state, made live by the Phase 4 promotion.
+
+**Key files:**
+- `…/staged-workflow/.claude/agents/review-bugs-concurrency.md` (new — staged)
 
 ## Validation and Acceptance
 
