@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
@@ -150,6 +151,26 @@ public class DeltaBuilderTest {
       List<Entity> cachedRecords) {
     var entry = new CachedEntry(
         CacheableShape.RECORD, Set.of(CLASS_NAME), where, orderBy, null, null, null,
+        tx().getMutationVersion());
+    for (var e : cachedRecords) {
+      entry.getCachedRids().add(ridOf(e));
+    }
+    return entry;
+  }
+
+  /**
+   * Like {@link #recordEntry} but populates the class-filter closure through the production
+   * {@link CachedEntry#computeEffectiveFromClasses} path (resolving the live {@link SchemaClass} and
+   * its subclasses via {@code SchemaClass.getName()}) rather than the {@code Set.of(CLASS_NAME)}
+   * literal shortcut. The two must agree on the name form the filter probes with
+   * ({@code Entity.getSchemaClassName()}); building through the closure exercises that equivalence.
+   */
+  private CachedEntry recordEntryViaClosure(SQLWhereClause where, SQLOrderBy orderBy,
+      List<Entity> cachedRecords) {
+    var effectiveFromClasses =
+        CachedEntry.computeEffectiveFromClasses(db.getClass(CLASS_NAME));
+    var entry = new CachedEntry(
+        CacheableShape.RECORD, effectiveFromClasses, where, orderBy, null, null, null,
         tx().getMutationVersion());
     for (var e : cachedRecords) {
       entry.getCachedRids().add(ridOf(e));
@@ -399,6 +420,40 @@ public class DeltaBuilderTest {
     assertTrue("A fresher mutation version must rebuild",
         entry.getCachedDeltaVersion() > firstVersion);
     assertEquals("The rebuilt delta must include the extra create", 2, secondCursor.injectSize());
+    db.rollback();
+  }
+
+  /**
+   * Builds the entry through the production {@link CachedEntry#computeEffectiveFromClasses} closure
+   * (whose set is seeded from {@code SchemaClass.getName()}) instead of the {@code Set.of(CLASS_NAME)}
+   * literal, then stages an in-class post-populate update. The delta must still skip the stale cached
+   * copy and re-inject the post-mutation row, which can only happen if the filter's probe
+   * ({@code Entity.getSchemaClassName()}) returns the same name form the closure stored. This pins the
+   * name-form equivalence the other tests assume, so a future naming drift between the two accessors
+   * (qualified vs simple name, namespace prefix) is caught here rather than silently emitting a stale
+   * cached row.
+   */
+  @Test
+  public void inClassMutationProducesDeltaWhenEntryBuiltThroughProductionClosure() {
+    var rec = committedRec(1);
+    var rid = ridOf(rec);
+    var where = parseWhere("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " > 0");
+    // Closure path: effectiveFromClasses comes from SchemaClass.getName(), not the literal shortcut.
+    var entry = recordEntryViaClosure(where, null, List.of(rec));
+    // Sanity: the closure stored the same name form the filter probes with, so the class filter
+    // accepts this record rather than dropping it.
+    assertTrue("Closure must contain the record's schema-class name form",
+        entry.getEffectiveFromClasses().contains(rec.getSchemaClassName()));
+
+    rec.setProperty(FIELD, 2); // post-populate UPDATE, still matches
+    stage(rec, RecordOperation.UPDATED);
+
+    var cursor = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+    assertTrue("Stale cached copy must be skipped via the production-closure filter",
+        cursor.shouldSkip(rid));
+    assertEquals("Post-mutation copy must be injected", 1, cursor.injectSize());
+    assertEquals(rid, cursor.getInjectList().get(0).getIdentity());
     db.rollback();
   }
 

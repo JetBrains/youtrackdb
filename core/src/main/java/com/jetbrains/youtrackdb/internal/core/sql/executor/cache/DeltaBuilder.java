@@ -109,6 +109,9 @@ public final class DeltaBuilder {
 
     // Fast path: another view on this entry already built the delta at this exact tx state. The
     // cached pair is immutable, so the new cursor shares it and only tracks its own inject position.
+    // Reuse ignores ctx safely: a CachedEntry is keyed by (AST, normalized params), so every view
+    // reaching this entry carries identical :param bindings and would re-evaluate WHERE to the same
+    // result. A future broadening of the cache key would invalidate this reuse and must revisit it.
     if (entry.getCachedDeltaVersion() == version && entry.getCachedSkipSet() != null) {
       return new TxDeltaCursor(entry.getCachedSkipSet(), entry.getCachedInjectList());
     }
@@ -118,6 +121,10 @@ public final class DeltaBuilder {
     // (a) keeps the iteration ConcurrentModificationException-free and (b) excludes any record a
     // UDF-triggered mutation adds during the build — that record becomes visible to the NEXT view,
     // when the mutation version has advanced and a fresh delta is built.
+    // This walks every staged op across all classes (not just the query's closure) and allocates a
+    // transient list per rebuild. That is the accepted cost: rebuilds happen once per mutation
+    // version (the fast path above bounds re-walks), and the cost stays sub-ms against request
+    // latency. A per-class mutation index is the deferred v2 lever if a regression ever justifies it.
     final var snapshot = new ArrayList<RecordOperation>();
     for (final var op : tx.getRecordOperationsInternal()) {
       if (op.version > entry.getPopulateMutationVersion()) {
