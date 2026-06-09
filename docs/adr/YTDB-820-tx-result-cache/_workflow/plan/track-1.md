@@ -99,6 +99,15 @@ flag, passing invariant tests I1-I3, I5 (partial), I6-I10, plus RECORD
 equivalence (cache-miss vs cache-hit-with-delta across CREATED/UPDATED/DELETED ×
 pre/post-populate) and K0_NONE version-gate tests.
 
+### Clarifications
+
+- **Unimplemented-shape bypass (v1).** This track routes only RECORD and K0_NONE
+  through the cache. `ShapeClassifier` returns the final `AGGREGATE_*` /
+  `MATCH_TUPLE_MULTI` values, but the session bypasses those shapes (uncached
+  execution) without a separate "shape implemented" gate check — the simpler of
+  the two wiring options the Interfaces section left open. The aggregate and
+  MATCH delta paths land in Tracks 2 and 3.
+
 ## Plan of Work
 
 Approximate sequence (decomposer sets final step boundaries):
