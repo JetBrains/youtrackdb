@@ -1,4 +1,4 @@
-<!-- workflow-sha: 8995acfc3b0c50453595911342427c60742617b4 -->
+<!-- workflow-sha: 660537f5848e796d2835e63338c9ddb483ca3e09 -->
 # YTDB-820 Transaction-scoped query result cache — Design
 
 ## Overview
