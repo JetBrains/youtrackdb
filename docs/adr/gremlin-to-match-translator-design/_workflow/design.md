@@ -1,4 +1,4 @@
-<!-- workflow-sha: 1d373ea0e682c6e5237f65d2dcb1a8678325ab3a -->
+<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
 # Gremlin-to-MATCH Translator — Design
 
 ## Overview
