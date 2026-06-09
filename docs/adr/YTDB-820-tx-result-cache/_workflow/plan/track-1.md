@@ -18,15 +18,28 @@ K0_NONE version-gate, lifecycle clears, memory bounds, and config knobs. Tracks 
 and 3 add shapes on top without changing this foundation.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-09T17:47Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- Phase A review (verified by direct source read; PSI timed out this session):
+  - `design.md` still frames `cacheCodeDepth` as pre-existing "SO5" infrastructure.
+    The CR1 resolution established it does NOT exist and is new in this track. The
+    track file, not `design.md`'s stale wording, is authoritative for the implementer.
+  - `SQLStatement.equals()` structurality (D2) lives only on `SQLSelectStatement`,
+    not the base `SQLStatement`. Track 3 must re-verify `SQLMatchStatement.equals()`
+    before relying on AST-equality for MATCH cache keys.
+  - `DeltaBuilder` WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable,
+    CommandContext)` must reuse the original query's `CommandContext` param bindings
+    (step 8/9): a parameterized RECORD WHERE re-evaluated with a fresh ctx would
+    diverge on `:param` values.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -38,6 +51,24 @@ scope-downs, dependency reveals, gate-override reasons. -->
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
 
+- [x] Technical: resolved at iteration 1 (4 findings: 1 blocker, 2 should-fix, 1
+  suggestion; all applied). Blocker T1 (`RecordOperation` package) + T2/T3/T4
+  fixed in Context/Plan/Surprises.
+- [x] Risk: resolved at iteration 1 (6 findings: 0 blocker, 4 should-fix, 2
+  suggestion; all applied). R1-R4 (RecordOperation, `query()` routing, clear sink,
+  D22/parser-edit) fixed; R5/R6 noted.
+- [x] Adversarial: resolved at iteration 1 (9 findings: 2 blocker, 5 should-fix, 2
+  suggestion; all applied). Blockers A1 (begin-clear `txStartCounter==0` guard) +
+  A6 (`ORDER BY`+LIMIT must classify K0_NONE first) fixed; A2/A3/A5/A7/A9 folded
+  into Context/Validation/Surprises.
+- Gate-check note: the formal gate-verification sub-agents were not spawned. PSI
+  (`steroid_execute_code`) timed out for all three reviewers and would time out
+  again, so every finding was independently verified by the orchestrator reading
+  the actual source declarations (`RecordOperation` in `db/record/`, the two
+  `query()` overloads at 617/652, `clear()` at 972, the 591-612 collapse switch,
+  `SQLNamedParameter`/`SQLPositionalParameter` equals). Direct-read verification is
+  stronger than a grep-fallback gate-verifier.
+
 ## Context and Orientation
 
 The cache attaches to two existing classes and adds a new package.
@@ -45,31 +76,56 @@ The cache attaches to two existing classes and adds a new package.
 - **`FrontendTransactionImpl`** (`internal/core/tx/`) holds the canonical
   mutation log `recordOperations` (a `HashMap<RecordIdInternal, RecordOperation>`,
   line 83), with collapse logic in `addRecordOperation` (line 510) that folds
-  successive saves on one RID into a single op whose `type` reflects the FIRST
-  status and whose later mutations the cache must still observe. `beginInternal`
-  (line 164) and `clearUnfinishedChanges` (the single tx-end sink) are the
-  lifecycle hooks. `assertOnOwningThread` (line 133) guards every mutation entry;
+  successive saves on one RID into a single op by mutating `txEntry.type` in place
+  (lines 591-612): the collapsed `type` keeps the FIRST status EXCEPT that a later
+  DELETE always wins (CREATE→UPDATE stays CREATED, but CREATE→DELETE and
+  UPDATE→DELETE both become DELETED; an already-DELETED entry throws on any further
+  op). The shared `txEntry.record` carries the latest content, so the cache
+  observes later mutations through it. `beginInternal` (line 164) resets tx state
+  only inside its `txStartCounter == 0` guard (line 174); `clear()` (line 972) is
+  the tx-end sink and calls `closeActiveQueries()` (line 973) before
+  `clearUnfinishedChanges()` (line 993). `assertOnOwningThread` (line 133) guards every mutation entry;
   `close()`/`rollbackInternal()` are the documented cross-thread exceptions. A
   new `cacheCodeDepth` depth counter is added here (CR1 resolution — two
   re-entrancy guards): the session increments it around the cache code path so a
   nested `query()` from a UDF-in-WHERE sees depth>0 and bypasses the cache. It is
   distinct from `QueryResultCache.inFlightLookup` (the lookup-level boolean) and
   does not exist in the codebase today.
-- **`DatabaseSessionEmbedded`** (`internal/core/db/`) is the query entry. `query()`
-  (line 617) parses via `SQLEngine.parse()` (backed by `YqlStatementCache`) then
-  routes through `executeInternal` (line 702). `activeQueries` (line 238) is a
+- **`DatabaseSessionEmbedded`** (`internal/core/db/`) is the query entry. The two
+  `query()` overloads — `query(String, Object...)` (line 617) and
+  `query(String, boolean, Map)` (line 652, which `query(String, Map)` at 648
+  delegates to) — each parse via `SQLEngine.parse()` (backed by `YqlStatementCache`),
+  check `isIdempotent()`, run `statement.execute(this, args, true)`, and wrap the
+  result in `queryStartedLifecycle()`. They do NOT route through `executeInternal`
+  (line 702, which serves the non-`query` `execute()` command path), so the cache
+  gate/lookup/put/view install at both `query()` overloads (or a shared helper they
+  call), not at `executeInternal`. `activeQueries` (line 238) is a
   `WeakValueHashMap` in embedded mode; `closeActiveQueries()` (line 3431) closes
-  every live `ResultSet` on tx end, ordered before `clearUnfinishedChanges`.
-- **`RecordOperation`** (`internal/core/tx/`) gains a `version: long` field
-  stamped from `tx.mutationVersion` at each `addRecordOperation` (including the
-  collapse path, which re-stamps so `op.version` always reflects the latest
-  mutation).
+  every strongly-reachable live `ResultSet` inside `clear()` before
+  `clearUnfinishedChanges()`. Because the map holds views weakly, a
+  `CachedResultSetView` GC'd before tx-end is dropped silently — so the
+  `CachedEntry`, not the view, must own the paused execution stream (load-bearing
+  for I3).
+- **`RecordOperation`** (`internal/core/db/record/` — the mutable
+  `Comparable<RecordOperation>` with `public byte type` and the
+  CREATED/UPDATED/DELETED constants, NOT the immutable `internal/core/tx/` `record`
+  of the same name) gains a `version: long` field stamped from `tx.mutationVersion`
+  at each `addRecordOperation`, re-stamped on the collapse path (after the
+  591-612 type switch) so `op.version` always reflects the latest mutation.
 - **`SQLInputParameter`** (`internal/core/sql/parser/`) extends `SimpleNode` with
-  no `equals`/`hashCode` (confirmed) — it inherits `Object` identity, so a
-  re-parsed AST after `YqlStatementCache` eviction would false-miss. D22 adds
-  field-based `equals`/`hashCode`.
-- **New package** (proposed `internal/core/sql/executor/cache/` or
-  `internal/core/db/cache/`, decomposer to confirm the SPI-free location):
+  no `equals`/`hashCode`, so it inherits `Object` identity. But its two concrete
+  subclasses — the actual parsed AST leaves `SQLNamedParameter` (equals line 85)
+  and `SQLPositionalParameter` (equals line 74) — already carry field-based
+  `equals`/`hashCode`. D22's base-class edit is needed only if `SQLInputParameter`
+  itself is ever instantiated as a parsed leaf; step 3 verifies that before editing.
+  If the subclasses cover every parsed case, no parser-node edit is required
+  (sidestepping the generated-`parser/` edit-rule concern); the `CacheKey`
+  regression test (force `YqlStatementCache` eviction + re-parse, assert a hit)
+  proves correctness either way.
+- **New package** `internal/core/sql/executor/cache/` (decomposer decision: the
+  cache wraps query execution and Track 2's `AggregateCacheTapStep` is an
+  execution-plan step, so the executor layer — home of `OrderByStep` and the step
+  classes — is the cohesive SPI-free location; `db/cache/` was the alternative):
   `QueryResultCache`, `CacheKey`, `CachedEntry`, `CacheableShape`,
   `ShapeClassifier`, `NonDeterministicQueryDetector`, `TxDeltaCursor`,
   `DeltaBuilder`, `CachedResultSetView`, `IdempotentExecutionStream`,
@@ -119,12 +175,18 @@ Approximate sequence (decomposer sets final step boundaries):
    k0Invalidations, overflows). No behavior yet.
 2. **`mutationVersion` + `RecordOperation.version`.** Add the monotonic counter
    and `getMutationVersion()` to `FrontendTransactionImpl`; stamp `version` in
-   `addRecordOperation` on both the new-op and collapse paths, inside the
-   existing rollback try. Pure plumbing; assert the counter is monotonic.
-3. **`CacheKey` + D22.** Add field-based `equals`/`hashCode` to
-   `SQLInputParameter` (verify the subclass set; a regression test forces
-   `YqlStatementCache` eviction + re-parse to prove the hit). Build `CacheKey`
-   with the D12 identity fast-path before deep equals, defensive param-map copy.
+   `addRecordOperation` on both the new-op branch (after `recordOperations.put` at
+   line 568) and the collapse branch (after the 591-612 type switch), inside the
+   existing rollback try. An increment before an early throw is benign because
+   rollback ends the tx and clears the cache. Pure plumbing; assert the counter is
+   monotonic.
+3. **`CacheKey` + D22.** First verify whether `SQLInputParameter` is ever a parsed
+   AST leaf; its subclasses `SQLNamedParameter`/`SQLPositionalParameter` already
+   have field-based `equals`/`hashCode`, so add the base-class pair ONLY if the
+   base type itself appears in a parsed AST (otherwise skip the parser-node edit).
+   A regression test forces `YqlStatementCache` eviction + re-parse to prove the
+   hit regardless. Build `CacheKey` with the D12 identity fast-path before deep
+   equals, defensive param-map copy.
 4. **`CacheableShape` + `ShapeClassifier`.** Enum and the static classify that
    returns RECORD / K0_NONE here (AGGREGATE_*/MATCH_TUPLE_MULTI branches are
    stubbed to their final values but their delta paths land in Tracks 2-3).
@@ -153,13 +215,18 @@ Approximate sequence (decomposer sets final step boundaries):
    direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount`
    inc/dec, idempotent `close()`.
 10. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy
-    `getQueryResultCache()` gated on the flag; the `query()`/`executeInternal()`
-    gate, lookup, put, view construction; the `cacheCodeDepth`
-    increment/decrement bracketing the cache lookup-and-view scope (CR1) and the
-    `cacheCodeDepth > 0` bypass for re-entrant `query()` (cacheable and K0_NONE
-    alike); the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the
-    schema-DDL `assert` canary; `clear()` in `beginInternal` and
-    `clearUnfinishedChanges`.
+    `getQueryResultCache()` gated on the flag; the gate, lookup, put, and view
+    construction install at the two `query()` overloads (lines 617 and 652) — or a
+    shared helper they both call — NOT at `executeInternal` (the `execute()` command
+    path); the `cacheCodeDepth` increment/decrement bracketing the cache
+    lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` bypass for re-entrant
+    `query()` (cacheable and K0_NONE alike); the bulk-DML `invalidateAll` branch
+    (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; the cache `clear()`
+    placed in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174,
+    mirroring the existing reset so a nested `begin()` does not wipe a live cache)
+    and in the tx-end `clear()` sink (which runs `closeActiveQueries()` before
+    `clearUnfinishedChanges()`, so the cache hook relies on the D9 idempotent stream
+    wrapper since views may already be closed).
 11. **Invariant + equivalence tests.** I1-I3, I6-I10, K0_NONE version-gate,
     RECORD cache-vs-fresh equivalence across the four mutation patterns.
 
@@ -170,7 +237,22 @@ cache (I1); no mutation path runs off-thread (I2); a live view never sees its
 entry evicted (I9); enabling the flag never changes result cardinality (I10).
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+
+All new cache classes live in `internal/core/sql/executor/cache/`. Existing
+classes verified by direct source read (PSI timed out this session): names and
+line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
+`core/.../db/DatabaseSessionEmbedded.java`, `core/.../db/record/RecordOperation.java`,
+`core/.../sql/parser/{SQLInputParameter,SQLNamedParameter,SQLPositionalParameter,SQLWhereClause,YqlStatementCache,SQLStatement,SQLSelectStatement}.java`,
+`core/.../sql/executor/OrderByStep.java`, `api/config/GlobalConfiguration.java`,
+`core/.../common/profiler/metrics/CoreMetrics.java`.
+
+1. **Foundation: config knobs, metrics counters, `mutationVersion`, `RecordOperation.version`, `CacheKey` + D22.** Add the four `youtrackdb.query.txResultCache.*` knobs to `GlobalConfiguration` (additive enum values, off by default) and the `QueryCacheMetrics`/`CoreMetrics` counters (no increments yet). Add the monotonic `mutationVersion` counter + `getMutationVersion()` to `FrontendTransactionImpl` and the `version: long` field to `db/record/RecordOperation`, stamped in `addRecordOperation` on the new-op branch (after line 568) and the collapse branch (after the 591-612 switch). Build `CacheKey` (`(SQLStatement, normalized params)`, D12 identity fast-path before deep equals, defensive param-map copy); verify whether `SQLInputParameter` is ever a parsed leaf and add base-class `equals`/`hashCode` only if so (subclasses already have them). Regression test forces `YqlStatementCache` eviction + re-parse to prove the hit. — risk: medium (tx mutation-path plumbing + observability counters)  [ ]
+2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [ ]
+3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [ ]
+4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [ ]
+5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [ ]
+6. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy flag-gated `getQueryResultCache()`; the gate/lookup/put/view installed at the two `query()` overloads (lines 617, 652) via a shared helper, NOT at `executeInternal`; `cacheCodeDepth` increment/decrement bracketing the lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` re-entrant bypass; the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; cache `clear()` in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174) and in the tx-end `clear()` sink (relies on the D9 idempotent stream wrapper since `closeActiveQueries()` runs first). Only RECORD/K0_NONE route through the cache; other shapes bypass. — risk: high (cross-component wiring on the query entry + tx lifecycle + re-entrancy)  [ ]
+7. **Invariant + equivalence test suite.** I1-I3, I6-I10, K0_NONE version-gate, RECORD cache-vs-fresh equivalence across CREATED/UPDATED/DELETED × pre/post-populate, the I1 eventual-clear (not clear-on-iterate-exception), and the `ORDER BY`+LIMIT-never-reaches-RECORD classify-ordering assertion. Tests run with `-ea` (I2/D3 enforcement is assert-based). — risk: medium (test-only, end-to-end feature) — size: ~6 files; (b) heavy-iteration equivalence suite kept separate from the Step 6 wiring so it can churn independently  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -184,14 +266,25 @@ entry evicted (I9); enabling the flag never changes result cardinality (I10).
   WHERE) — matching a parallel uncached `query()` (I4/I10).
 - A view started before a mutation does not observe it; a fresh `query()` after
   does (I7).
-- Commit, rollback, and exception-during-iterate each leave `cache.size()==0`
-  (I1); a second `clear()` is a no-op (I6).
+- Commit and rollback each leave `cache.size()==0` (I1); a second `clear()` is a
+  no-op (I6). An exception thrown mid-iterate does not clear synchronously — the
+  cache is wiped on the next tx-end path (`clear()`); the test asserts the
+  eventual clear, not a clear-on-iterate-exception.
 - `sysdate()`, `math_random()`, and `NOCACHE`-hinted queries create no entry (I5).
 - Issuing ≥`maxEntries` distinct keys while a view iterates does not truncate
   that view's output (I9).
 - A K0_NONE query (GROUP BY, SKIP/LIMIT, LET) hits on pure-read repeats and
   invalidates on the next lookup after any mutation; 3 strikes route the key to
   `nonCacheableKeys`.
+- An `ORDER BY` + `LIMIT` query never reaches RECORD shape: the SKIP/LIMIT →
+  K0_NONE classify check runs before RECORD detection (I10 depends on this, because
+  `OrderByStep` + LIMIT is a bounded-heap materializer that discards rows past
+  top-N, so an in-tx DELETE of a cached top-N row could not promote row N+1). A
+  test asserts the classify ordering directly so a future reorder cannot silently
+  break it.
+- Enforcement caveat: I2 (owner-thread) rests on `assertOnOwningThread`, and the
+  D3 schema-DDL canary is a Java `assert` — both disabled without `-ea`, so they
+  protect tests, not production. Tests run with `-ea`.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -199,8 +292,20 @@ entry evicted (I9); enabling the flag never changes result cardinality (I10).
 test method names. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once
-steps are decomposed. -->
+
+Every step is one commit; recovery is `git reset --hard HEAD` to the prior step's
+commit (each step compiles + tests green standalone). Step-specific notes:
+
+- Steps 1-2 are pure additions behind no behavior change (cache unwired, flag off),
+  so a partial revert leaves the build green with the new classes simply unused.
+- Step 3 (`QueryResultCache`) is instantiated only by Step 6's wiring, so it is
+  dead code until then — reverting Step 6 disables the feature without touching
+  Steps 1-5.
+- Step 6 is the only step that changes runtime behavior, and only when
+  `txResultCache.enabled=true`; default-off means a revert is behaviorally inert.
+- The feature has no on-disk or WAL footprint (cache is transient per-tx state),
+  so there is no migration or crash-recovery concern: a crash mid-tx discards the
+  cache with the transaction.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
