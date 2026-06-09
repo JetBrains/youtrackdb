@@ -111,16 +111,19 @@
 >   updates (reusing the existing hook the SQL cache subscribes to),
 >   registered as a `SharedContext` resource (one accessor on
 >   `SharedContextEmbedded`). Cache key = deterministic string
->   rendering of `MatchPlanInputs` (resolved parameter values are
->   already inlined into the IR by `MatchLiteralBuilder.toLiteral`, so
->   the rendered string captures the parameter discriminator
->   automatically — same composite-key semantic the YQL cache
->   enforces). `GremlinToMatchStrategy.applyTranslation` does the
->   lookup before constructing `MatchExecutionPlanner`; on miss, it
->   plans + puts; on hit, returns the cached plan. Disabling the cache
->   is not an option — JetBrains client applications rely on cached
->   plans, so shipping Phase 1 without it would cause a measurable
->   regression (D5).
+>   rendering of `MatchPlanInputs` with predicate values rendered as
+>   placeholders rather than values. The IR carries
+>   `SQLPositionalParameter` slots, which render as
+>   `PARAMETER_PLACEHOLDER`, so the key captures query shape only, the
+>   value-independent semantic the YQL cache enforces. The per-walk
+>   parameter map is installed into the command context with
+>   `ctx.setInputParameters(...)` so each slot resolves at execution.
+>   `GremlinToMatchStrategy.applyTranslation` does the lookup before
+>   constructing `MatchExecutionPlanner`; on miss it plans and puts, on
+>   hit it returns the cached plan copied against the current context
+>   (which carries this call's parameter values). Disabling the cache
+>   is not an option: JetBrains client applications rely on cached
+>   plans, so shipping Phase 1 without it would regress measurably (D5).
 >
 > **How**:
 > - `GremlinToMatchStrategy.apply(Traversal.Admin)` walks the entire
@@ -377,9 +380,14 @@ flowchart LR
 >   - `Text.containing` (and `TextP.containing`) →
 >     `containsText(field, substring)`.
 >   - `Text.startingWith` / `endingWith` (and the equivalent `TextP.*`
->     plus `TextP.regex`) → recognizer declines; native pipeline
->     handles them. See design.md § Predicate translation for the
->     case-sensitivity / `matches`-vs-`find` divergence rationale.
+>     plus `TextP.regex`) → translate in Phase 1: `startingWith` as a
+>     `>= p AND < p⁺` range (index-aware, case-sensitive; declines on
+>     case-insensitive collation, schema-less / unknown collation, or
+>     empty prefix); `endingWith` / `regex` via new case-sensitive
+>     operators (`SQLEndsWithCondition` and a `SQLMatchesCondition`
+>     find-flag), full-scan, justified by avoiding the D3
+>     whole-traversal decline. See design.md § Predicate translation and
+>     D-TEXT-OPS.
 >   - `P.and(...)` / `P.or(...)` / `P.not(...)` → recursive composition
 >     via `MatchWhereBuilder.and/or/not`.
 > - Implement four `has*` step handlers in `GremlinStepWalker`:
@@ -772,7 +780,12 @@ flowchart LR
 > - Recognize aggregation steps; each maps to a combination of
 >   `SQLProjection` aggregate items + `SQLGroupBy`:
 >   - **`CountGlobalStep`** — `RETURN count(*)` with empty group-by.
->     Output type: scalar `Long`.
+>     Output type: scalar `Long`. Single-class polymorphic class-count
+>     (`g.V()/g.E()[.hasLabel(label)].count()`) is emitted as `count(*)`
+>     and served by the shared engine count short-circuit
+>     (`CountFromClassStep`); multi-label and non-polymorphic counts
+>     decline to the `YTDBGraphCountStrategy` fallback. See D4 and
+>     design.md § "Aggregation barrier semantics".
 >   - **`SumGlobalStep` / `MinGlobalStep` / `MaxGlobalStep` /
 >     `MeanGlobalStep`** — require the prior step to be a
 >     property-extraction step (`values(key)`) so we know which field to
@@ -795,7 +808,11 @@ flowchart LR
 > **How**:
 > - Step ordering (provisional):
 >   1. `CountGlobalStep` — `RETURN count(*)` with empty group-by; pin
->      boundary output to scalar `Long`.
+>      boundary output to scalar `Long`. Single-class polymorphic
+>      class-count (`g.V()/g.E()[.hasLabel(label)].count()`) rides the
+>      shared engine count short-circuit (`CountFromClassStep`);
+>      multi-label and non-polymorphic counts decline to the
+>      `YTDBGraphCountStrategy` fallback (D4).
 >   2. `SumGlobalStep` / `MinGlobalStep` / `MaxGlobalStep` /
 >      `MeanGlobalStep` — coupled with the preceding `values(key)`;
 >      decline if no property-extraction precedes them.
@@ -808,7 +825,10 @@ flowchart LR
 >
 > **Constraints**:
 > - **In-scope files**: `GremlinStepWalker` (aggregate handlers),
->   `GremlinProjectionAssembler`, strategy / translator integration glue.
+>   `GremlinProjectionAssembler`, the shared count short-circuit helper
+>   (factored from `SelectExecutionPlanner.handleHardwiredCountOnClass` /
+>   `handleHardwiredCountOnClassUsingIndex`) and its invocation from
+>   `MatchExecutionPlanner`, strategy / translator integration glue.
 > - **Out of scope**: union (Track 10).
 > - Aggregation steps that are not preceded by the appropriate property-
 >   extraction step must decline the whole traversal under D3.

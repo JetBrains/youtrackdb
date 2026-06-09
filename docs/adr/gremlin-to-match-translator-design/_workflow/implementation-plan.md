@@ -1,3 +1,4 @@
+<!-- workflow-sha: 1d373ea0e682c6e5237f65d2dcb1a8678325ab3a -->
 # Gremlin-to-MATCH Translator
 
 ## Design Document
@@ -55,10 +56,11 @@ this shared layer in the same Phase 1 with no behavior change.
   the IR via class-IN constructs when necessary. Default = polymorphic.
 - **Plan caching is on in Phase 1.** The boundary step requests
   `MatchExecutionPlanner.createExecutionPlan(ctx, profiling, /*useCache=*/true)`,
-  and `GremlinPlanCache` keys on traversal bytecode fingerprint plus
-  resolved parameter values inlined into the IR (see design.md §
+  and `GremlinPlanCache` keys on the value-independent traversal shape;
+  predicate values are bound as `SQLInputParameter` slots and installed
+  at execution via `ctx.setInputParameters(...)` (see design.md §
   "Parameter binding"). Disabling cache would regress JetBrains client
-  applications, so Phase 1 carries the cache and Track 12 measures the
+  applications, so Phase 1 carries the cache and Track 6 measures the
   end-to-end cost.
 - **Gremlin steps marked out-of-scope in the spec stay native** (`repeat`,
   `until`, `times`, `sack`, `store`, `aggregate`, lambdas, `subgraph`,
@@ -186,25 +188,30 @@ What changes:
     keeps using the no-edge-filter form unchanged), `build()` returning
     `(Pattern, aliasClasses, aliasFilters, edgeFilters)`.
   - `MatchWhereBuilder` — `eq`, `op`, `in`, `notIn`, `between`,
-    `containsText`, `isDefined`, `isNotDefined`, `and`, `or`, `not`
-    returning `SQLBooleanExpression`; `wrap()` to a `SQLWhereClause`.
+    `containsText`, `startsWith`, `endsWith`, `matchesRegex`,
+    `isDefined`, `isNotDefined`, `and`, `or`, `not` returning
+    `SQLBooleanExpression`; `wrap()` to a `SQLWhereClause`.
     (`isDefined` / `isNotDefined` wrap the **pre-existing**
     `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST nodes
-    already in `core/.../sql/parser/` — see D-IS-DEFINED. No `startsWith`
-    / `endsWith` factories — those TinkerPop predicates decline under
-    D3; see design.md § Predicate translation.)
+    already in `core/.../sql/parser/`, see D-IS-DEFINED. `startsWith`
+    emits a `>= p AND < p⁺` range, index-aware and case-sensitive;
+    `endsWith` / `matchesRegex` wrap new case-sensitive operators, see
+    D-TEXT-OPS and design.md § Predicate translation.)
   - `MatchLiteralBuilder` — `toLiteral(Object) → SQLExpression`, extracted
-    verbatim from `GqlMatchStatement.toLiteral`.
+    verbatim from `GqlMatchStatement.toLiteral`. Embeds literals for GQL
+    and structural constants; Gremlin predicate values are bound as
+    `SQLPositionalParameter` slots via `WalkerContext.bindParam` (D5), not
+    embedded here.
 - **`YTDBMatchPlanStep` (new,
   `internal/core/gremlin/translator/step/`)** — TinkerPop `AbstractStep` that
   wraps a `SelectExecutionPlan`. On `processNextStart()` it pulls one row from
   the plan's stream, projects the configured boundary output type
   (`ELEMENT` / `MAP` / `SINGLE_VALUE` / `SCALAR` / `LIST`), and emits a
-  `Traverser`. Holds three Track 11 post-processor flags
+  `Traverser`. Holds three Track 6 post-processor flags
   (`unfoldOutput: bool`, `reverseOutput: bool`, `tailLimit: int?`) for
   `unfold` / `reverse` / `tail` terminators that re-shape the projected
   value without changing the output type; `LIST` is the dedicated output
-  type for `fold` materialization. Track 7 sets a `dropOnAbsent` flag
+  type for `fold` materialization. Track 5 sets a `dropOnAbsent` flag
   (queries `EntityImpl.hasProperty(key)` to drop only absent-property
   rows from `values(key)` output, distinct from `dropNullRows` which
   drops on projected-value-null).
@@ -286,15 +293,15 @@ What changes:
   Phase 1 only to retire or rework it later.
 - **Risks/Caveats**: the recognized step set grows track by track; until
   it covers the LDBC-relevant shapes, most production traversals will
-  decline. Track 12's perf baseline must measure against the recognized
+  decline. Track 6's perf baseline must measure against the recognized
   set as it stands at end of Phase 1, not against the full LDBC suite.
 - **Implemented in**: Track 2 (size-1 gate enforces all-or-nothing for
-  the minimal recognized set), Tracks 3-11 (extend the recognized set;
+  the minimal recognized set), Tracks 3-6 (extend the recognized set;
   walker classifies each step as recognized/unrecognized and declines
-  the whole traversal on the first unrecognized step). Track 11 owns
+  the whole traversal on the first unrecognized step). Track 6 owns
   the list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) —
   originally retired as "Hybrid boundary refinement" because output-
-  type negotiation merged into Tracks 7/8/9, reopened after PR #1038
+  type negotiation merged into Track 5, reopened after PR #1038
   review to bring fold/unfold/reverse/tail into Phase 1. Cross-
   boundary label propagation and `path()` interaction remain no-ops
   under all-or-nothing — `path()` stays unrecognized in Phase 1, so
@@ -328,6 +335,21 @@ What changes:
   traversal ends up with `YTDBGraphStep` after all strategies (proves
   fallback fires); (2) a recognised traversal ends up with exactly
   one `YTDBMatchPlanStep` (proves half-measures no-op'd cleanly).
+  Running first also means the translator intercepts the class-count
+  shapes (`g.V()/g.E()[.hasLabel(label)].count()`) that
+  `YTDBGraphCountStrategy` used to fold to `YTDBClassCountStep`. These are
+  not declined: the translator emits `count(*)` and a shared engine count
+  short-circuit (added to `MatchExecutionPlanner` in Track 5) serves
+  single-class polymorphic count via `CountFromClassStep` — the same
+  `countClass` primitive `YTDBClassCountStep` reads, so cost and result
+  are unchanged. Since YTDB-609 that primitive is an O(N),
+  snapshot-isolated position-map scan, not O(1); the genuine O(1) read
+  (`approximateCountClass`) is non-snapshot-isolated and stays detached
+  for Phase 2. `YTDBGraphCountStrategy` remains as the reordered fallback
+  for the shapes the translator does not yet emit (multi-label,
+  non-polymorphic) and for any count-bearing traversal declined for an
+  unrecognized step elsewhere. See design.md § "Aggregation barrier
+  semantics".
 - **Ordering mechanism**: canonical TinkerPop pattern — each of the
   three half-measure strategies (`YTDBGraphStepStrategy`,
   `YTDBGraphCountStrategy`, `YTDBGraphMatchStepStrategy`) lists
@@ -341,34 +363,40 @@ What changes:
   need explicit declarations on either side.
 - **Implemented in**: Track 2.
 
-#### D5: Plan cache lands in Phase 1 keyed on (traversal-fingerprint × parameter values)
+#### D5: Plan cache lands in Phase 1, keyed on traversal shape with values bound at execution
 
 - **Alternatives considered**: (a) ship Phase 1 with cache disabled and
-  measure the cost first (original draft) — rejected: JetBrains client
-  applications rely on cached plans and a cache-disabled rollout would
-  cause a measurable regression that we cannot ship past code review;
-  (b) reuse `YqlExecutionPlanCache` with a synthetic
-  `"GREMLIN_BC:" + normalized-bytecode + ':' + parameter-hash` key —
-  rejected because invalidation hooks differ subtly between YQL and
-  Gremlin and the cross-front-end coupling would leak; (c) ship a
-  dedicated `GremlinPlanCache` modeled on `GqlExecutionPlanCache`, keyed
-  on traversal bytecode fingerprint plus the resolved parameter values
-  that the translator inlines into the IR (chosen).
-- **Rationale**: The `GremlinPlanCache` key already has both halves
-  available at strategy time — bytecode comes from
-  `Bytecode.fromTraversal(traversal)` (or equivalent) and the resolved
-  parameter list falls out of `MatchLiteralBuilder.toLiteral`
-  invocations, so capturing them costs one extra list per walk. Cache
-  invalidation on schema change piggybacks on the YQL plan-cache
-  invalidation hook so `CREATE CLASS` / `CREATE INDEX` flushes Gremlin
-  plans alongside SQL plans.
-- **Risks/Caveats**: Parameter-hash collisions (different parameter
-  values with the same hash) would serve stale plans — we therefore
-  use the parameter list, not just a hash, as part of the cache-key
-  equality check. Cache-key memory grows with parameter-value size; the
-  cache has the same eviction policy as `GqlExecutionPlanCache` and the
-  same memory ceiling.
-- **Implemented in**: Track 12 (cache plumbing + perf measurement).
+  measure the cost first (original draft), rejected because JetBrains
+  client applications rely on cached plans and a cache-disabled rollout
+  would regress measurably; (b) `GremlinPlanCache` keyed on bytecode
+  fingerprint *plus* the resolved parameter values, rejected because a
+  high-cardinality predicate (`has("id", x)` over tens of thousands of
+  ids) mints one cache entry per value and evicts every useful plan,
+  which defeats the cache's purpose; (c) `GremlinPlanCache` keyed on the
+  *structural* traversal fingerprint alone, with predicate values bound
+  as `SQLInputParameter` slots resolved at execution (chosen).
+- **Rationale**: This is the contract YQL already enforces:
+  `YqlExecutionPlanCache` keys on the parameterised statement text
+  (`... WHERE id = ?`), not on the value, and resolves the `?` from the
+  command context at run time. Mirroring it, the recognizer allocates a
+  positional slot per predicate value, collects the values into a
+  per-walk map, and the boundary step installs that map with
+  `ctx.setInputParameters(...)` before running the plan. Structural
+  tokens (class/label, property key, edge label, direction) stay in the
+  key because they drive index and plan selection; they are
+  low-cardinality and do not grow the cache. The mechanism is described
+  in the design's "Parameter binding" section.
+- **Risks/Caveats**: The fingerprint must derive from the
+  value-independent shape — the generic-statement rendering where slots
+  print as `PARAMETER_PLACEHOLDER`, or a normalised bytecode that elides
+  `P`-values. A fingerprint that accidentally captures a value
+  reintroduces the cache blow-up this decision exists to prevent.
+  Traversals that differ only in `P` operator (`gt` vs `eq`) or in
+  structure still produce distinct keys, because the operator and shape
+  are part of the rendering. Schema-change invalidation piggybacks on
+  the YQL plan-cache hook, so `CREATE CLASS` / `CREATE INDEX` flushes
+  Gremlin plans alongside SQL plans.
+- **Implemented in**: Track 6 (cache plumbing + perf measurement).
 
 #### D6: Shared MATCH IR builder package; GQL refactor in Phase 1
 
@@ -380,7 +408,11 @@ What changes:
   AND/OR/NOT composition, `toLiteral`) are thin wrappers over already-stable
   IR classes — not speculative abstractions. Extracting them now means
   one consistent IR construction surface from day 1; future GQL extensions
-  (edges, predicates, projections) reuse the same plumbing. The cost is
+  (edges, predicates, projections) reuse the same plumbing. Predicate
+  **values** are the one part not shared: the translator binds them as
+  `SQLPositionalParameter` slots via `WalkerContext.bindParam` (D5), while
+  `toLiteral` stays the literal-embedding path for GQL and for structural
+  constants. The cost is
   a small GQL refactor (~30 LOC diff in `GqlMatchStatement`) that is
   behavior-preserving and validated by GQL tests.
 - **Risks/Caveats**: GQL test suite must remain green after refactor — a
@@ -428,7 +460,7 @@ What changes:
   empty-sub-traversal, nested-optional, and mid-chain-optional cases
   and pin their multiset semantics against TinkerPop's actual runtime,
   not the table-level approximation.
-- **Implemented in**: Track 10 (union recognition + multi-plan boundary
+- **Implemented in**: Track 6 (union recognition + multi-plan boundary
   step). `optional` is intentionally absent from Phase 1.
 
 #### D9: Type-keyed recognizer dispatch via `Map<Class<? extends Step>, StepRecogniser>`
@@ -470,7 +502,7 @@ What changes:
   the map dispatch it was load-bearing for the whole registry, with
   the map it survives only inside the recognizers that need it.
 - **Implemented in**: Track 2 (initial map dispatch when the walker
-  lands), and a refactor step in Track 5 (combining the two NotStep
+  lands), and a refactor step in Track 4 (combining the two NotStep
   recognizers into one).
 
 #### D10: Walker supports multi-step claims via index-driven iteration
@@ -532,7 +564,7 @@ What changes:
   `core/.../sql/parser/`. Their evaluators call
   `expression.isDefinedFor(...)` — the entity-presence primitive that
   distinguishes absent from null-valued at the record layer, exactly
-  what Track 4 / Track 7 need. `isIndexAware` returns `false` (presence
+  what Track 4 / Track 5 need. `isIndexAware` returns `false` (presence
   predicates can't use value-keyed indexes). The PR #1038 review
   thread settles on these operators because they're already correct;
   Phase 1 only needs to expose them through `MatchWhereBuilder`.
@@ -549,10 +581,52 @@ What changes:
 - **Implemented in**: Track 1 — two `MatchWhereBuilder` factory
   methods (`isDefined` / `isNotDefined`) plus their unit tests
   (~20 lines of code, no parser regeneration). Consumed in Track 4
-  (filter mapping for `has(key)` / `hasNot(key)`) and Track 7
+  (filter mapping for `has(key)` / `hasNot(key)`) and Track 5
   (projection presence classifier reuses the same
   `expression.isDefinedFor(...)` primitive directly, not through SQL
   operators).
+
+#### D-TEXT-OPS: Phase 1 string predicates — range for prefix, new case-sensitive operators for suffix / regex
+
+- **Alternatives considered**: (a) decline `startingWith` / `endingWith`
+  / `regex` in Phase 1 and defer to Phase 2 (original draft) — rejected:
+  PR #1038 review (andrii0lomakin) flagged these as a critical
+  optimization with real production cases, and under D3 all-or-nothing a
+  single declined string predicate forces the **whole** traversal to the
+  native pipeline, losing MATCH scheduling on every other hop. (b) Route
+  prefix / suffix through `SQLLikeOperator` with a case-sensitivity flag
+  — rejected: `LIKE` is case-insensitive (`QueryHelper.like` lowercases
+  both operands), turns user `%` / `?` into wildcards with no escape, and
+  is never index-aware, so even a fixed `LIKE` would full-scan and still
+  mis-handle wildcard characters. (c) Translate `startingWith` as a range
+  and add new case-sensitive operators for `endingWith` / `regex`
+  (chosen).
+- **Rationale**: `startingWith(p)` is the half-open range `[p, p⁺)`, so
+  `MatchWhereBuilder.startsWith` emits `field >= p AND field < p⁺`, two
+  range conditions that are already index-aware
+  (`SQLBinaryCondition.findIndex` / `isIndexAware`), giving a prefix
+  index scan for free, case-sensitive by virtue of the field collation.
+  `endingWith` and `regex` cannot use an index (a suffix is not a
+  contiguous range, a regex is not a range), so they evaluate as
+  full-scan filters (the same cost the native pipeline pays) and are
+  translated only to avoid the D3 whole-traversal decline. They need two
+  new AST condition nodes: `SQLEndsWithCondition` (case-sensitive
+  `String.endsWith`) and a find-mode flag on `SQLMatchesCondition`
+  (`Matcher.find()` partial match instead of `matches()` whole-string).
+- **Risks/Caveats**: **No grammar edit and no parser regeneration** — the
+  translator instantiates the new AST nodes directly, and the
+  `SQLMatchesCondition` find-flag defaults to `false` so existing SQL
+  `MATCHES` behavior is unchanged. The range path needs the field's
+  collation at translation time; when the collation is case-insensitive,
+  or the class is schema-less / the property undeclared (collation
+  unknown), or the prefix is empty, the recognizer declines and the
+  native pipeline handles the query. Both new operators report
+  `isIndexAware() == false`.
+- **Implemented in**: Track 4 — `SQLEndsWithCondition` plus the
+  `SQLMatchesCondition` find-flag (new AST nodes / evaluators), the
+  `startsWith` / `endsWith` / `matchesRegex` `MatchWhereBuilder`
+  factories, and the predicate recognizer that applies the collation
+  gate for `startsWith`.
 
 ### Invariants
 
@@ -587,10 +661,10 @@ What changes:
 - **Property-presence semantics**: `has` / `hasNot` filters and
   `valueMap` / `values` / `select.by` projections route through
   `EntityImpl.hasProperty(key)` (Track 1 `IS DEFINED` /
-  `IS NOT DEFINED` operators for filters; Track 7 classifier for
+  `IS NOT DEFINED` operators for filters; Track 5 classifier for
   projections). `IS NULL` / `IS NOT NULL` are reserved for
   `P.eq(null)` / `P.neq(null)` predicate rewrites. Verified by
-  Track 4 / Track 7 regression tests pinning absent vs null-valued.
+  Track 4 / Track 5 regression tests pinning absent vs null-valued.
 
 ### Integration Points
 
@@ -610,7 +684,7 @@ What changes:
   emits `Traverser`s whose payload types are negotiated by the
   traversal's terminal step (`ELEMENT` / `MAP` / `SINGLE_VALUE` /
   `SCALAR` / `LIST` — five enum values; `LIST` is new for `fold` per
-  Track 11). Boundary post-processor flags (`unfoldOutput`,
+  Track 6). Boundary post-processor flags (`unfoldOutput`,
   `reverseOutput`, `tailLimit`) re-shape the projected value without
   changing the output type. Under D3 all-or-nothing the boundary step
   terminates a fully-translated traversal — there is no native suffix
@@ -625,7 +699,7 @@ What changes:
 - **Entity-presence primitive**: `expression.isDefinedFor(...)` (on
   `SQLExpression`) is the canonical accessor for "is this property
   defined on the record". The pre-existing `SQLIsDefinedCondition` /
-  `SQLIsNotDefinedCondition` evaluators call it; Track 7's projection
+  `SQLIsNotDefinedCondition` evaluators call it; Track 5's projection
   classifier calls the same primitive directly via
   `EntityImpl.hasProperty(key)` for `valueMap` / `values` /
   `select.by`. Same primitive, two consumers — no duplicate code path.
@@ -682,19 +756,32 @@ What changes:
   > `SQLIsNotDefinedCondition` AST nodes — the operators are already
   > in YTDB SQL grammar (D-IS-DEFINED), so this is wiring only, no
   > grammar / parser / evaluator changes.
-  > **Scope:** ~5 steps covering three builder classes, GQL refactor,
+  > **Scope:** ~7 files covering three builder classes, GQL refactor,
   > two `isDefined` / `isNotDefined` builder factories with unit
   > tests, golden-string regression tests.
+  > **Size:** ~7 in-scope files — below the ~12-file floor, kept as a
+  > standalone track by justification: the `match/builder/` package is
+  > foundational and is adopted by GQL independently of the Gremlin
+  > translator, so it stands alone as an independently reviewable,
+  > independently mergeable PR.
 
 - [ ] Track 2: Strategy skeleton + boundary step + minimal `g.V()`/`g.V(ids)` translation
   > Wires `GremlinToMatchStrategy` into the optimization chain and
   > establishes the end-to-end pipeline with the simplest recognized
-  > traversal. Introduces `MatchPlanInputs` record + the single additive
-  > `MatchExecutionPlanner` ctor (D2); creates `YTDBMatchPlanStep`
-  > boundary step.
-  > **Scope:** ~5 steps covering record + ctor, strategy skeleton with
-  > structural gating + ordering, boundary step, minimal `g.V()` /
-  > `g.V(ids)` translator, registration + Cucumber smoke.
+  > traversal. Lands the cross-cutting scaffolding every later track
+  > extends: `MatchPlanInputs` record + the single additive
+  > `MatchExecutionPlanner` ctor (D2), the `GremlinStepWalker` +
+  > `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser`,
+  > `GremlinPlanCache` (D5), `AnonAliasGenerator`, and the
+  > `YTDBMatchPlanStep` boundary step; registers the strategy in the
+  > optimization chain and in the three half-measure strategies'
+  > `applyPrior()` (D4).
+  > **Scope:** ~19 files covering the record + planner ctor, strategy
+  > skeleton with structural gating + ordering, walker + context +
+  > recogniser interface + start recogniser, plan cache, anon-alias
+  > generator, boundary step, registration + half-measure-strategy
+  > edits, minimal `g.V()` / `g.V(ids)` translator, strategy / cache /
+  > boundary tests + Cucumber smoke.
   > **Depends on:** Track 1.
 
 - [ ] Track 3: Edge traversal — `out`, `in`, `both`, `outE.inV`, `inE.outV`, `bothE.otherV`, plus non-adjacent edge filtering
@@ -702,124 +789,81 @@ What changes:
   > including chain-target polymorphism, multi-label edges, and
   > non-adjacent edge filtering (`outE(L).has(...).inV()`). Walker
   > switches from for-each to index-driven iteration to support the
-  > first multi-step recogniser (D10).
-  > **Scope:** ~7 steps covering simple direction handlers, edge+vertex
-  > pairing, non-adjacent edge filtering, walker refactor, multi-label
-  > edges, anonymous-alias generation, correctness tests.
+  > first multi-step recogniser (D10); `WalkerContext` gains the
+  > `polymorphic` flag, edge-filter map, and anon-edge-alias generator.
+  > Lands `GremlinPatternAssembler` and the predicate-adapter skeleton
+  > that Track 4 fills out.
+  > **Scope:** ~15 files covering `EdgeStepRecogniser`,
+  > `VertexStepRecogniser`, `NoOpBarrierRecogniser`, `MatchClassFilters`,
+  > `GremlinPatternAssembler`, predicate-adapter skeleton, the
+  > index-driven walker refactor + context fields, anonymous-alias
+  > generation, correctness + decline-no-mutation tests.
   > **Depends on:** Track 2.
 
-- [ ] Track 4: Filtering + predicates
-  > Extends Track 3's predicate adapter skeleton with the remaining
-  > `P` variants and adds `HasStep` / `YTDBHasLabelStep` / `HasIdStep`
-  > recognisers plus `Text`/`TextP` predicate translations. The bare
-  > presence forms `has(key)` / `hasNot(key)` do NOT land on `HasStep`
-  > (TP encodes them as `TraversalFilterStep(__.values(key))` and
-  > `NotStep(__.values(key))` respectively) — `has(key)` recognition
-  > extends `TraversalFilterStepRecogniser` with a Case A mirror of the
-  > existing `NotFilterStepRecogniser` Case A. Both emit
-  > `IS DEFINED` / `IS NOT DEFINED` via Track 1's `MatchWhereBuilder`
-  > factories (D-IS-DEFINED).
-  > **Scope:** ~6 steps covering predicate adapter (remaining `P`
-  > variants beyond Track 3's skeleton), `HasStep` / `HasLabelStep` /
-  > `HasIdStep` recognisers, `TraversalFilterStepRecogniser` Case A
-  > (presence-form `has(key)`), predicate-equivalence + NULL/Collection-eq
-  > regression tests.
-  > **Depends on:** Track 3 (predicate adapter skeleton) and Track 1
-  > (`isDefined` / `isNotDefined` factories — `TraversalFilterStep` and
-  > `NotFilter` presence cases gate on them).
+- [ ] Track 4: Filtering — predicates + logical filters (`has`/`hasLabel`/`hasId`, `P`/`Text`/`TextP`, `and`/`or`/`not`/`where`)
+  > Merges predicate translation and the logical-filter steps into one
+  > reviewable filtering diff. Fills out the predicate adapter with the
+  > remaining `P` variants and adds `HasStep` / `YTDBHasLabelStep` /
+  > `HasIdStep` recognisers plus `Text` / `TextP` translations via the
+  > new `SQLEndsWithCondition` / `SQLMatchesCondition` operators. The
+  > bare presence forms `has(key)` / `hasNot(key)` recognise via
+  > `TraversalFilterStepRecogniser` / `NotFilterStepRecogniser` Case A
+  > (not `HasStep`), both emitting `IS DEFINED` / `IS NOT DEFINED` via
+  > Track 1's `MatchWhereBuilder` factories. Logical steps descend into
+  > their global children: `AndStep` accepts pure-filter or edge-bearing
+  > children; `OrStep` requires all pure-filter (MATCH IR has no
+  > pattern-fragment OR — Phase 2 via union-of-plans); `NotStep`
+  > branches internally on `hasEdgeHops` (D9, single recogniser file).
+  > **Scope:** ~20 files covering the predicate adapter (full `P` set),
+  > `HasStep` / `HasLabelStep` / `HasIdStep` + presence-form
+  > recognisers, the two new SQL operators, `And` / `Or` / `Not` /
+  > `WhereTraversal` / `WherePredicate` recognisers,
+  > `SubTraversalPredicateAdapter`, and predicate-equivalence +
+  > NULL/Collection-eq + logical-combinator equivalence tests.
+  > **Depends on:** Track 3 (predicate-adapter skeleton) and Track 1
+  > (`isDefined` / `isNotDefined` factories).
 
-- [ ] Track 5: Logical filters — `and`, `or`, `not`, `where`
-  > Implements TinkerPop's logical filter steps with sub-traversals by
-  > descending into their global children. `AndStep` accepts pure-filter
-  > or edge-bearing children; `OrStep` requires all pure-filter (MATCH
-  > IR has no pattern-fragment OR — Phase 2 path via union-of-plans).
-  > `NotStep` branches internally on `hasEdgeHops(subTraversal)` —
-  > edge-bearing routes to `notMatchExpressions`, pure-filter inlines.
-  > **Scope:** ~4 steps covering and/or, `NotStepRecogniser` (single
-  > file with internal dispatch — D9), `WhereTraversalStep`,
-  > `WherePredicateStep`, equivalence tests.
-  > **Depends on:** Track 4.
+- [ ] Track 5: Result shaping — step labels + dedup, projections, order/pagination, aggregations
+  > Merges the four result-producing step families. Adds `as(label)`
+  > propagation and `DedupStep` recognition (`OptionalStep` declines
+  > under D3); `GremlinProjectionAssembler` for `select` / `values` /
+  > `valueMap` / `elementMap` / `project(...).by(...)`, using
+  > `EntityImpl.hasProperty(key)` to distinguish absent from
+  > null-valued; `OrderGlobalStep` + `RangeGlobalStep` (order / limit /
+  > skip / range; `Order.shuffle` declines); and aggregation recognition
+  > (`count` / `sum` / `min` / `max` / `mean` / `group` / `groupCount`)
+  > mapped to `SQLProjection` aggregate items + `SQLGroupBy`, with the
+  > count short-circuit factored out of `SelectExecutionPlanner` and the
+  > `dropNullRows` flag for empty-input semantics. Pins the boundary
+  > output type per terminal step.
+  > **Scope:** ~20 files covering as-label + dedup walker extensions,
+  > `GremlinProjectionAssembler` + projection recognisers, `Order` /
+  > `Range` recognisers, aggregate recognisers + the count short-circuit
+  > helper (`MatchExecutionPlanner` + `SelectExecutionPlanner` edits),
+  > and parity / projection / absent-vs-null / aggregate-equivalence /
+  > empty-result tests.
+  > **Depends on:** Track 4 + Track 1 (`hasProperty` primitive).
 
-- [ ] Track 6: Step labels + dedup
-  > Adds `as(label)` propagation through the walker and `DedupStep` /
-  > `DedupStep(labels...)` recognition. `OptionalStep` declines under
-  > D3 (Phase 2 — D8) because Gremlin / MATCH divergence on empty
-  > sub-traversal flips result-set membership.
-  > **Scope:** ~3 steps covering as-label propagation, dedup, parity
-  > tests with SQL.
-  > **Depends on:** Track 5.
-
-- [ ] Track 7: Projections — `select`, `values`, `valueMap`, `elementMap`, `project`
-  > Implements `GremlinProjectionAssembler` for `select`, `values`,
-  > `valueMap`, `elementMap`, and `project(...).by(...)`. Pins the
-  > boundary output type per terminal step (Track 11 adds `LIST` for
-  > `fold`). Uses `EntityImpl.hasProperty(key)` to distinguish absent
-  > from null-valued at the projection layer (design.md "Track 7
-  > commitment").
-  > **Scope:** ~5 steps covering ProjectionAssembler skeleton, select,
-  > values/valueMap, elementMap, project-by, absent-vs-null regression
-  > tests.
-  > **Depends on:** Track 6 + Track 1 (`hasProperty` primitive).
-
-- [ ] Track 8: Order + pagination — `order().by`, `limit`, `skip`, `range`
-  > Adds `OrderGlobalStep` and `RangeGlobalStep` recognition (covers
-  > `limit`/`skip`/`range` — all `RangeGlobalStep` variants in modern
-  > TinkerPop). `Order.shuffle` declines (no MATCH equivalent).
-  > **Scope:** ~3 steps covering order, range/limit/skip, equivalence
-  > tests including multi-key.
-  > **Depends on:** Track 7.
-
-- [ ] Track 9: Aggregations — `count`, `sum`, `min`, `max`, `mean`, `group`, `groupCount`
-  > Adds aggregation step recognition mapped to `SQLProjection`
-  > aggregate items + `SQLGroupBy`. Boundary output type is the
-  > aggregate result type (scalar for count/sum/min/max/mean; `Map`
-  > for group/groupCount). `dropNullRows` flag (per design.md) drops
-  > null-cell rows for sum/min/max/mean (matching TP empty-input
-  > "no traverser" rule).
-  > **Scope:** ~5 steps covering count/sum/min/max/mean, group,
-  > groupCount, aggregate equivalence + empty-result tests.
-  > **Depends on:** Track 8.
-
-- [ ] Track 10: Union — concatenation of multiple translated patterns
-  > Handles `UnionStep` with N global child traversals.
-  >
-  > Each child sub-traversal is independently inspected; if all
-  > translate as standalone pattern matches with the same boundary
-  > output type, builds `MultiPlanMatchStep` (variant of
-  > `YTDBMatchPlanStep` holding N plans, concatenating their streams).
-  > Children with divergent output types or any unrecognized step
-  > decline (D8).
-  > **Scope:** ~3 steps covering UnionStep handler, MultiPlanMatchStep,
-  > type compatibility check + fallback test.
-  > **Depends on:** Track 9.
-
-- [ ] Track 11: List-shaping terminators — `fold`, `unfold`, `reverse`, `tail`
-  > Adds the four TinkerPop list-shaping steps as recognised
-  > terminators. Introduces `BoundaryOutputType.LIST` for `fold` and
-  > three post-processor flags (`unfoldOutput`, `reverseOutput`,
-  > `tailLimit`) on the boundary step. Accepted only as the **last**
-  > step (mid-traversal use declines under D3 — Phase 2 path documented
-  > in design.md Out-of-scope table).
-  > **Scope:** ~4 steps covering `FoldStepRecogniser` +
-  > `BoundaryOutputType.LIST`, `UnfoldStepRecogniser` + `unfoldOutput`,
-  > `ReverseStepRecogniser` + `reverseOutput`, `TailGlobalStepRecogniser`
-  > + `tailLimit` + composition tests.
-  > **Depends on:** Tracks 7 and 9 (upstream output types for unfold /
-  > fold to operate on); slotted after Track 10 in the checklist for
-  > ordering only (no Track 10 dependency — S7).
-
-- [ ] Track 12: Cucumber green + perf baseline
-  > Final hardening — full TinkerPop Cucumber suite re-run with the
+- [ ] Track 6: Advanced patterns + hardening — union, list-shaping terminators, Cucumber green + perf baseline
+  > Completes the recognised set and validates the whole feature.
+  > Handles `UnionStep` with N global children by building
+  > `MultiPlanMatchStep` (a `YTDBMatchPlanStep` variant concatenating N
+  > plans) when all children share a boundary output type, declining on
+  > divergence (D8). Adds the four list-shaping terminators (`fold` /
+  > `unfold` / `reverse` / `tail`) as last-step recognisers, introducing
+  > `BoundaryOutputType.LIST` + the `unfoldOutput` / `reverseOutput` /
+  > `tailLimit` post-processor flags (mid-traversal use declines under
+  > D3). Final hardening: full TinkerPop Cucumber suite green with the
   > strategy registered (regression bar: all previously-passing
   > scenarios still pass), per-step scenario catalogue, and a
-  > Gremlin-on-vs-Gremlin-off JMH suite mirroring the existing LDBC
-  > SQL benchmarks (load-bearing measurement of the translator's
-  > value).
-  > **Scope:** ~4 steps covering Cucumber re-run + fix, scenario
-  > catalogue, Gremlin LDBC benchmark suite + on/off harness, baseline
-  > report.
-  > **Depends on:** Tracks 10 and 11 (full Phase 1 recognised set must
-  > be in place before Cucumber re-run + benchmark baseline).
+  > Gremlin-on-vs-off JMH suite mirroring the existing LDBC SQL
+  > benchmarks (load-bearing measurement of the translator's value).
+  > **Scope:** ~20 files covering the `UnionStep` handler +
+  > `MultiPlanMatchStep`, the four list-terminator recognisers +
+  > `BoundaryOutputType.LIST` + post-processor flags, the mirrored
+  > Gremlin JMH benchmark classes + on/off harness, type-compatibility +
+  > terminator-composition tests, and the Cucumber re-run + fixes.
+  > **Depends on:** Track 5.
 
 ## Final Artifacts
 
