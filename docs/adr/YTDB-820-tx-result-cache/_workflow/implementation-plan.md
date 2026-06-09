@@ -72,11 +72,13 @@ flowchart TD
   construction, and the bulk-DML `invalidateAll` branch.
 - **`FrontendTransactionImpl`** (modified) — owns `queryResultCache` (lazy,
   enabled-gated), the monotonic `mutationVersion` counter bumped in
-  `addRecordOperation`, and the `clear()` calls in `beginInternal` and
-  `clearUnfinishedChanges` (the single tx-end sink).
+  `addRecordOperation`, the new `cacheCodeDepth` re-entrancy depth counter, and
+  the `clear()` calls in `beginInternal` and `clearUnfinishedChanges` (the single
+  tx-end sink).
 - **`QueryResultCache`** (new) — the per-tx `LinkedHashMap` LRU with
-  `accessOrder`, `nonCacheableKeys`, `inFlightLookup` re-entrancy flag,
-  view-pin-aware `removeEldestEntry`, and idempotent `clear()`.
+  `accessOrder`, `nonCacheableKeys`, the lookup-level `inFlightLookup`
+  re-entrancy flag (paired with the tx-level `cacheCodeDepth` depth counter per
+  CR1 — two guards), view-pin-aware `removeEldestEntry`, and idempotent `clear()`.
 - **`CachedEntry`** (new) — one cache slot: frozen `results`, paused
   `IdempotentExecutionStream`, and all AST-derived metadata (shape, WHERE,
   ORDER BY, `effectiveFromClasses`, `populateMutationVersion`, the shared
@@ -117,13 +119,13 @@ flowchart TD
   AST + params (chosen) with an `==` identity fast-path (D12) before deep equals.
 - **Rationale**: `SQLStatement.equals()` is already structural, giving
   whitespace/alias-invariant keys for free, and the parser already runs on the
-  hot path. `STATEMENT_CACHE` returns the same instance for identical text, so
+  hot path. `YqlStatementCache` returns the same instance for identical text, so
   `CacheKey.equals` short-circuits on `==`, collapsing thousands of duplicate-
   text DNQ lookups to a pointer compare.
-- **Risks/Caveats**: deep-AST equality is new ground (`STATEMENT_CACHE` keys by
+- **Risks/Caveats**: deep-AST equality is new ground (`YqlStatementCache` keys by
   text). `SQLInputParameter` inherits `Object` identity-equals (confirmed: it
   extends `SimpleNode` with no override) — D22 adds field-based equals/hashCode
-  so a re-parsed AST after `STATEMENT_CACHE` eviction still hits.
+  so a re-parsed AST after `YqlStatementCache` eviction still hits.
 - **Implemented in**: Track 1.
 - **Full design**: design.md §"Cache key composition" (D2, D12, D22).
 
@@ -308,12 +310,12 @@ Full statements and per-shape test matrices: design.md §"Invariants".
 - `DatabaseSessionEmbedded.query()` / `executeInternal()` (lines 617 / 702) —
   lookup, put, view construction, bulk-DML `invalidateAll`.
 - `FrontendTransactionImpl.addRecordOperation` (line 510) — `mutationVersion`
-  bump + `RecordOperation.version` stamp; `beginInternal` (165) and
+  bump + `RecordOperation.version` stamp; `beginInternal` (164) and
   `clearUnfinishedChanges` (≈998) — `clear()`.
 - `AggregateProjectionCalculationStep` (≈121-137) — side-tap splice point
   (Track 2).
 - `SQLStatement.isIdempotent()` (129); `SQLSelectStatement.noCache`;
-  `SQLWhereClause.matchesFilters(record, ctx)` — delta-build WHERE re-eval.
+  `SQLWhereClause.matchesFilters(Identifiable, CommandContext)` — delta-build WHERE re-eval (`RecordAbstract` binds via `Identifiable`).
 - `GlobalConfiguration` — four new `youtrackdb.query.txResultCache.*` knobs.
 
 #### Non-Goals
@@ -375,7 +377,13 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > **Depends on:** Track 1, Track 2
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: CR2 — `STATEMENT_CACHE` renamed to `YqlStatementCache` in the plan and track-1 (the real Guava AST cache; D12 identity-fast-path behavior confirmed correct); CR3 — `SQLWhereClause.matchesFilters` signature corrected to `(Identifiable, CommandContext)` (a `RecordAbstract` binds via `Identifiable`) in the plan, track-1, track-3; CR4 — `beginInternal` line citation corrected 165 → 164 in the plan and track-1; S1 — trimmed the `FrontendTransactionImpl` Component-Map bullet to the ≤5-line budget.
+
+**Escalated (design decisions)**: CR1 — the re-entrancy-guard model. `design.md` described it two inconsistent ways (a new `inFlightLookup` boolean vs a `cacheCodeDepth` counter framed as pre-existing SO5 infrastructure that does not exist in `core/src`). User chose **two guards**: a new tx-level `cacheCodeDepth` depth counter on `FrontendTransactionImpl` paired with the lookup-level `inFlightLookup` boolean on `QueryResultCache`, both created in Track 1. Recorded in the plan Component Map and track-1 (Context, Plan of Work steps 7+10, Interfaces).
+
+**Deferred to Phase 4 (design.md frozen)**: the `design.md` halves of CR2/CR3/CR4 and the CR1 `cacheCodeDepth`/`inFlightLookup` internal inconsistency (and the stale "existing SO5" framing) are recorded findings reconciled in `design-final.md` against the as-built code.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

@@ -47,7 +47,7 @@ hook in the cache lookup.
   SELECT, preserved deliberately; v2 candidate). `SQLMatchStatement.equals()`
   covers statement-level SKIP natively, so the cache key needs no special MATCH
   handling.
-- **`SQLWhereClause.matchesFilters(record, ctx)`** — reused to re-evaluate each
+- **`SQLWhereClause.matchesFilters(Identifiable, CommandContext)`** — reused to re-evaluate each
   alias's pattern WHERE against a mutated record at delta-build.
 - **`SchemaClass.getAllSubclasses()`** — the subclass-closure source for
   `aliasClasses` and `traversalEdgeClasses` (D11 symmetry with RECORD's
@@ -192,4 +192,4 @@ not consume aggregate internals.
 - `MatchMultiDelta#shouldSkipTuple(int): boolean`, `#shouldSkipRid(RID): boolean`
 - `CachedEntry#returnProjector: Function<RecordAbstract, Result>` (Etap A)
 - `SchemaClass#getAllSubclasses()` (existing, reused for closures)
-- `SQLWhereClause#matchesFilters(record, ctx): boolean` (existing, reused per alias)
+- `SQLWhereClause#matchesFilters(Identifiable, CommandContext): boolean` (existing, reused per alias)

@@ -47,11 +47,16 @@ The cache attaches to two existing classes and adds a new package.
   line 83), with collapse logic in `addRecordOperation` (line 510) that folds
   successive saves on one RID into a single op whose `type` reflects the FIRST
   status and whose later mutations the cache must still observe. `beginInternal`
-  (line 165) and `clearUnfinishedChanges` (the single tx-end sink) are the
+  (line 164) and `clearUnfinishedChanges` (the single tx-end sink) are the
   lifecycle hooks. `assertOnOwningThread` (line 133) guards every mutation entry;
-  `close()`/`rollbackInternal()` are the documented cross-thread exceptions.
+  `close()`/`rollbackInternal()` are the documented cross-thread exceptions. A
+  new `cacheCodeDepth` depth counter is added here (CR1 resolution — two
+  re-entrancy guards): the session increments it around the cache code path so a
+  nested `query()` from a UDF-in-WHERE sees depth>0 and bypasses the cache. It is
+  distinct from `QueryResultCache.inFlightLookup` (the lookup-level boolean) and
+  does not exist in the codebase today.
 - **`DatabaseSessionEmbedded`** (`internal/core/db/`) is the query entry. `query()`
-  (line 617) parses via `SQLEngine.parse()` (backed by `STATEMENT_CACHE`) then
+  (line 617) parses via `SQLEngine.parse()` (backed by `YqlStatementCache`) then
   routes through `executeInternal` (line 702). `activeQueries` (line 238) is a
   `WeakValueHashMap` in embedded mode; `closeActiveQueries()` (line 3431) closes
   every live `ResultSet` on tx end, ordered before `clearUnfinishedChanges`.
@@ -61,7 +66,7 @@ The cache attaches to two existing classes and adds a new package.
   mutation).
 - **`SQLInputParameter`** (`internal/core/sql/parser/`) extends `SimpleNode` with
   no `equals`/`hashCode` (confirmed) — it inherits `Object` identity, so a
-  re-parsed AST after `STATEMENT_CACHE` eviction would false-miss. D22 adds
+  re-parsed AST after `YqlStatementCache` eviction would false-miss. D22 adds
   field-based `equals`/`hashCode`.
 - **New package** (proposed `internal/core/sql/executor/cache/` or
   `internal/core/db/cache/`, decomposer to confirm the SPI-free location):
@@ -109,7 +114,7 @@ Approximate sequence (decomposer sets final step boundaries):
    existing rollback try. Pure plumbing; assert the counter is monotonic.
 3. **`CacheKey` + D22.** Add field-based `equals`/`hashCode` to
    `SQLInputParameter` (verify the subclass set; a regression test forces
-   `STATEMENT_CACHE` eviction + re-parse to prove the hit). Build `CacheKey`
+   `YqlStatementCache` eviction + re-parse to prove the hit). Build `CacheKey`
    with the D12 identity fast-path before deep equals, defensive param-map copy.
 4. **`CacheableShape` + `ShapeClassifier`.** Enum and the static classify that
    returns RECORD / K0_NONE here (AGGREGATE_*/MATCH_TUPLE_MULTI branches are
@@ -123,10 +128,15 @@ Approximate sequence (decomposer sets final step boundaries):
 6. **`IdempotentExecutionStream` + `CachedEntry`.** The wrapper (D9) and the
    entry with idempotent `close()`, `effectiveFromClasses` closure (D11),
    `populateMutationVersion`, the shared delta-pair cache fields, `liveViewCount`.
-7. **`QueryResultCache`.** The `accessOrder` `LinkedHashMap`, `nonCacheableKeys`,
-   `inFlightLookup` re-entrancy flag, view-pin-aware `removeEldestEntry`,
-   snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at
-   `lookup`, idempotent `clear()`.
+7. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder`
+   `LinkedHashMap`, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean,
+   view-pin-aware `removeEldestEntry`, snapshot-before-iterate in
+   `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent
+   `clear()`. Plus a new tx-level `cacheCodeDepth` counter on
+   `FrontendTransactionImpl`: the session wraps the whole cache lookup-and-view
+   scope in increment/decrement, so a UDF-in-WHERE re-entering `query()` sees
+   depth>0 and bypasses; `inFlightLookup` guards the lookup call itself. Both are
+   created here — neither exists in the codebase today.
 8. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered snapshot,
    the `(op.type, cached_at_build, match_after)` dispatch table, the ORDER BY
    sort, and the cross-view delta-pair sharing keyed on `mutationVersion`.
@@ -135,9 +145,12 @@ Approximate sequence (decomposer sets final step boundaries):
    inc/dec, idempotent `close()`.
 10. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy
     `getQueryResultCache()` gated on the flag; the `query()`/`executeInternal()`
-    gate, lookup, put, view construction; the bulk-DML `invalidateAll` branch
-    (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; `clear()` in
-    `beginInternal` and `clearUnfinishedChanges`.
+    gate, lookup, put, view construction; the `cacheCodeDepth`
+    increment/decrement bracketing the cache lookup-and-view scope (CR1) and the
+    `cacheCodeDepth > 0` bypass for re-entrant `query()` (cacheable and K0_NONE
+    alike); the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the
+    schema-DDL `assert` canary; `clear()` in `beginInternal` and
+    `clearUnfinishedChanges`.
 11. **Invariant + equivalence tests.** I1-I3, I6-I10, K0_NONE version-gate,
     RECORD cache-vs-fresh equivalence across the four mutation patterns.
 
@@ -191,7 +204,8 @@ steps are decomposed. -->
 `IdempotentExecutionStream`, `QueryCacheMetrics`.
 
 **In scope (modified):** `FrontendTransactionImpl` (cache field, `mutationVersion`,
-`getQueryResultCache`, `clear` hooks), `DatabaseSessionEmbedded` (gate/lookup/put/
+`cacheCodeDepth` re-entrancy depth counter, `getQueryResultCache`, `clear` hooks),
+`DatabaseSessionEmbedded` (gate/lookup/put/
 view/bulk-invalidate), `RecordOperation` (`version` field), `SQLInputParameter`
 (equals/hashCode), `GlobalConfiguration` (4 knobs), `CoreMetrics` (counters).
 
@@ -221,4 +235,4 @@ delta-build (Etap A folds into it).
 - `ShapeClassifier#classify(SQLStatement): CacheableShape`
 - `NonDeterministicQueryDetector#containsNonDeterministicReference(SQLStatement): boolean`
 - `DeltaBuilder#buildForRecord(CachedEntry, FrontendTransactionImpl, CommandContext): TxDeltaCursor`
-- `SQLWhereClause#matchesFilters(record, ctx): boolean` (existing, reused)
+- `SQLWhereClause#matchesFilters(Identifiable, CommandContext): boolean` (existing, reused; `RecordAbstract` binds via `Identifiable`)
