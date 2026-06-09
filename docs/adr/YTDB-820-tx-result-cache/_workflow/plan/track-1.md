@@ -26,6 +26,7 @@ and 3 add shapes on top without changing this foundation.
 - [x] 2026-06-09T18:38Z [ctx=safe] Step 1 complete (commit 55d3af99a2)
 - [x] 2026-06-09T19:15Z [ctx=safe] Step 2 complete (commit 75c8762273)
 - [x] 2026-06-09T20:05Z [ctx=safe] Step 3 complete (commit 88cb09bc5a)
+- [x] 2026-06-09T21:33Z [ctx=safe] Step 4 complete (commit 6edeb296a5, +1 review-fix iteration)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -66,6 +67,19 @@ at Phase 1. -->
   - `SQLSelectStatement` is a hand-maintained JJTree node class (not regenerated) despite
     its "do not edit" header; adding accessors for existing fields is in-convention.
 
+- Step 4 findings (See Episodes §Step 4):
+  - `GLOBAL_METRICS` exact-set test: `PrefilterMetricsDefinitionTest` asserts the metric
+    set EXACTLY. Step 1's five `QueryCache*` metrics broke it (only caught in a full
+    build); fixed in Step 4. Tracks 2/3 must update this test in lockstep with any new
+    `CoreMetrics` addition.
+  - Cross-step invariant for cache-key changes: `DeltaBuilder`'s `(skipSet, injectList)`
+    reuse fast path (`DeltaBuilder.java:112`) ignores `ctx` and is sound only because the
+    Step 3 key is `(AST, normalized params)`. Any later track broadening the key must
+    revisit it.
+  - Test-harness fact: `Entity.setProperty` marks dirty but does NOT call
+    `addRecordOperation`; tests staging post-populate ops must call
+    `tx.addRecordOperation(record, type)` directly.
+
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
 scope-downs, dependency reveals, gate-override reasons. -->
@@ -78,9 +92,13 @@ scope-downs, dependency reveals, gate-override reasons. -->
   `overflows` metric Javadoc with its actual LRU-eviction increment site. See Episodes
   §Step 3.
 - Review-burden note: cumulative track diff crossed ~2600 lines after Step 3 (soft
-  ~2000 flag). Expected for a ~20-file foundation track; under the ~4000 reconsider
-  mark. Steps 4-7 (DeltaBuilder, View, wiring, tests) will add more — Phase C
-  review-burden check will measure the final total.
+  ~2000 flag) and ~3500 after Step 4, approaching the ~4000 reconsider mark. Decision:
+  continue rather than inline-replan a split. Track 1 is the deliberately-sized
+  foundation track (~20 files per the plan), and the three remaining steps (Step 5
+  view, Step 6 wiring, Step 7 tests) are interdependent feature-completion work that a
+  split cannot cleanly separate after 4/7 steps. Flagged for Phase C: the track-level
+  review will run the full baseline over a >4000-line cumulative diff and treat the
+  high-risk step ranges (Steps 3-6) as focal points; expect multiple review iterations.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -284,7 +302,7 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 1. **Foundation: config knobs, metrics counters, `mutationVersion`, `RecordOperation.version`, `CacheKey` + D22.** Add the four `youtrackdb.query.txResultCache.*` knobs to `GlobalConfiguration` (additive enum values, off by default) and the `QueryCacheMetrics`/`CoreMetrics` counters (no increments yet). Add the monotonic `mutationVersion` counter + `getMutationVersion()` to `FrontendTransactionImpl` and the `version: long` field to `db/record/RecordOperation`, stamped in `addRecordOperation` on the new-op branch (after line 568) and the collapse branch (after the 591-612 switch). Build `CacheKey` (`(SQLStatement, normalized params)`, D12 identity fast-path before deep equals, defensive param-map copy); verify whether `SQLInputParameter` is ever a parsed leaf and add base-class `equals`/`hashCode` only if so (subclasses already have them). Regression test forces `YqlStatementCache` eviction + re-parse to prove the hit. — risk: medium (tx mutation-path plumbing + observability counters)  [x] commit: 55d3af99a2
 2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [x] commit: 75c8762273
 3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [x] commit: 88cb09bc5a
-4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [ ]
+4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [x] commit: 6edeb296a5
 5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [ ]
 6. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy flag-gated `getQueryResultCache()`; the gate/lookup/put/view installed at the two `query()` overloads (lines 617, 652) via a shared helper, NOT at `executeInternal`; `cacheCodeDepth` increment/decrement bracketing the lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` re-entrant bypass; the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; cache `clear()` in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174) and in the tx-end `clear()` sink (relies on the D9 idempotent stream wrapper since `closeActiveQueries()` runs first). Only RECORD/K0_NONE route through the cache; other shapes bypass. — risk: high (cross-component wiring on the query entry + tx lifecycle + re-entrancy)  [ ]
 7. **Invariant + equivalence test suite.** I1-I3, I6-I10, K0_NONE version-gate, RECORD cache-vs-fresh equivalence across CREATED/UPDATED/DELETED × pre/post-populate, the I1 eventual-clear (not clear-on-iterate-exception), and the `ORDER BY`+LIMIT-never-reaches-RECORD classify-ordering assertion. Tests run with `-ea` (I2/D3 enforcement is assert-based). — risk: medium (test-only, end-to-end feature) — size: ~6 files; (b) heavy-iteration equivalence suite kept separate from the Step 6 wiring so it can churn independently  [ ]
@@ -412,6 +430,50 @@ allocates a `HashMap` unconditionally on the no-arg path; confirm acceptable or 
 **Key files:** `FrontendTransactionImpl` (modified, `cacheCodeDepth` counter +
 accessors); `QueryResultCache` (new); `QueryResultCacheTest`, `TransactionMutationVersionTest`
 (new/modified tests).
+
+### Step 4 — commit 6edeb296a5, 2026-06-09T21:33Z [ctx=safe]
+
+**What was done:** Added `DeltaBuilder.buildForRecord(CachedEntry,
+FrontendTransactionImpl, CommandContext)` and `TxDeltaCursor`. The builder snapshots
+`tx.recordOperations` filtered by `op.version > entry.populateMutationVersion`, dispatches
+each op on `(op.type, cached_at_build, match_after)` per the verified collapse-aware table
+(CREATE→DELETE and UPDATE→DELETE collapse to DELETED → skip-only; cached CREATED/UPDATED
+still matching → skip+reinject; true post-populate CREATE → inject-only), sorts the inject
+list by the entry's ORDER BY via `SQLOrderBy.compare`, and promotes the immutable
+`(skipSet, injectList)` pair onto the entry keyed by `mutationVersion` for cross-view
+sharing. WHERE re-eval uses `SQLWhereClause.matchesFilters(Identifiable, ctx)` with the
+original query's `CommandContext` so `:param` bindings resolve identically. `TxDeltaCursor`
+wraps the shared pair plus a per-view `injectPosition` with `shouldSkip` / `peekInject` /
+`advanceInject` for the Step 5 view. Step-level review (risk: high): `review-bugs-concurrency`
+0 blocker / 1 should-fix / 2 suggestions, `review-performance` 0 blocker / 0 should-fix / 1
+suggestion. The should-fix (BC1) was fixed in one iteration and the gate passed: added a
+test that builds the entry through the production `CachedEntry.computeEffectiveFromClasses`
+closure path to pin the `Entity.getSchemaClassName()` / `SchemaClass.getName()` name-form
+equivalence; BC2 and PF1 applied as clarifying comments; BC3 correctly skipped (the `> 1`
+sort guard was already correct).
+
+**What was discovered:** Step 4 surfaced and fixed a real regression Step 1 introduced:
+`PrefilterMetricsDefinitionTest.globalMetricsContainsExactlyExpectedMetrics` asserts
+`GLOBAL_METRICS` as an EXACT set, and Step 1's five `QueryCache*` rate metrics broke it.
+Step 1's targeted test run never executed this test, so the break only appears in a full
+build — fixed by adding the five metrics to the expected set. Two test-harness facts for
+later steps: (1) `Entity.setProperty` only marks a record dirty, it does NOT call
+`addRecordOperation`, so tests must drive `tx.addRecordOperation(record, type)` directly to
+stage a real post-populate op (a genuine UPDATED/DELETED op needs a record created in a
+prior committed tx); (2) the `GLOBAL_METRICS` assertion is exact-set, so any later
+`CoreMetrics` addition must update `PrefilterMetricsDefinitionTest` in lockstep.
+
+**What changed from the plan:** None. Signatures and behaviour match the Interfaces section
+and the design's build pseudocode.
+
+**Critical context:** BC2 documented a cross-step invariant the delta-pair reuse fast path
+relies on (`DeltaBuilder.java:112`): the `(skipSet, injectList)` reuse ignores `ctx` and is
+sound only because a `CachedEntry` is keyed by `(AST, normalized params)` in the Step 3
+keying layer, so co-reaching views share identical `:param` bindings. Any later track that
+broadens the cache key must revisit this fast path.
+
+**Key files:** `DeltaBuilder`, `TxDeltaCursor` (new); `DeltaBuilderTest` (new),
+`PrefilterMetricsDefinitionTest` (modified, Step-1-regression fix).
 
 ## Validation and Acceptance
 
