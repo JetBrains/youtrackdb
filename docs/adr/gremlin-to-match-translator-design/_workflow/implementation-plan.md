@@ -245,6 +245,28 @@ flowchart TB
 - **Implemented in**: Track 3
 - **Full design**: design.md §"Edge filtering in non-adjacent chains"
 
+#### D11: Unify the exact class-`count(*)` fast path in the MATCH engine
+- **Alternatives considered**: keep declining class-count to the
+  `YTDBGraphCountStrategy` front-end strategy (the earlier approach,
+  motivated by preserving an O(1) non-snapshot-isolated count);
+  per-front-end count optimizers (SQL / GQL / Gremlin each own one).
+- **Rationale**: since YTDB-609 (#791) the class-count fast path stopped
+  being O(1) / non-SI — `countClass(name, true)` is now a snapshot-isolated
+  per-record-visibility scan, so the original "declining preserves O(1)"
+  rationale no longer holds. Factoring `handleHardwiredCountOnClass*` out of
+  `SelectExecutionPlanner` into a shared helper the `MatchExecutionPlanner`
+  also invokes gives SQL, GQL, and translated Gremlin one exact SI count
+  path; the dedicated `CountFromClassStep` / `CountFromIndexWithKeyStep` still
+  win a constant factor (no record-body deserialization). This is the one
+  engine-surface change beyond the additive ctor (D2).
+- **Risks/Caveats**: `CountFromClassStep.canBeCached()==false`, so these MATCH
+  plans are not cached (SELECT already behaves so). Multi-label and
+  non-polymorphic counts decline to the reordered `YTDBGraphCountStrategy`
+  fallback (D4). The genuine O(1) `approximateCountClass` stays detached —
+  an opt-in count mode is Phase 2.
+- **Implemented in**: Track 5
+- **Full design**: design.md §"Aggregation barrier semantics"
+
 #### D-IS-DEFINED: Adopt existing YTDB SQL `IS DEFINED` / `IS NOT DEFINED` operators
 - **Alternatives considered**: map `has(key)`/`hasNot(key)` to `IS NULL`/`IS NOT
   NULL`; add new presence operators from scratch (the earlier design draft).
@@ -360,17 +382,13 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > **Depends on:** Track 2.
 
 - [ ] Track 4: Filtering — predicates + logical filters (`has`/`hasLabel`/`hasId`, `P`/`Text`/`TextP`, `and`/`or`/`not`/`where`)
-  > Merges predicate translation and the logical-filter steps into one
-  > reviewable filtering diff. Fills out the predicate adapter with the full `P`
-  > set, adds `HasStep` / `YTDBHasLabelStep` / `HasIdStep` recognisers plus
-  > `Text` / `TextP` translations via the new `SQLEndsWithCondition` /
-  > `SQLMatchesCondition` find-mode operators and the collate transform on
-  > `SQLContainsTextCondition` (D-TEXT-OPS). Bare presence forms `has(key)` /
-  > `hasNot(key)` recognise via `TraversalFilterStepRecogniser` /
-  > `NotFilterStepRecogniser` and emit `IS DEFINED` / `IS NOT DEFINED`
-  > (D-IS-DEFINED). Logical steps descend into global children: `AndStep`
-  > accepts pure-filter or edge-bearing children; `OrStep` requires all
-  > pure-filter; `NotStep` is one recogniser branching on `hasEdgeHops` (D9).
+  > Merges predicate translation and the step-level logical filters
+  > (`and` / `or` / `not` / `where`) into one reviewable filtering diff.
+  > Covers the full `P` / `Text` / `TextP` predicate algebra (string
+  > operators per D-TEXT-OPS), `has` / `hasLabel` / `hasId`, the bare
+  > presence forms `has(key)` / `hasNot(key)` (`IS DEFINED` / `IS NOT
+  > DEFINED`, D-IS-DEFINED), and the asymmetric `AndStep` / `OrStep` /
+  > `NotStep` sub-walker rules (D9). Detail in plan/track-4.md.
   > **Scope:** ~20 files covering the predicate adapter (full `P` set),
   > `HasStep` / `HasLabelStep` / `HasIdStep` + presence-form recognisers, the
   > two new SQL operators plus the `SQLContainsTextCondition` collate change,
@@ -401,16 +419,13 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > **Depends on:** Track 4 + Track 1 (`hasProperty` primitive / presence check).
 
 - [ ] Track 6: Advanced patterns + hardening — union, list-shaping terminators, Cucumber green + perf baseline
-  > Completes the recognized set and validates the whole feature. Handles
-  > `UnionStep` with N global children via `MultiPlanMatchStep` when all children
-  > share a boundary output type, declining on divergence (D8). Adds the four
-  > list-shaping terminators (`fold` / `unfold` / `reverse` / `tail`) as
-  > last-step recognisers, introducing `BoundaryOutputType.LIST` plus the
-  > `unfoldOutput` / `reverseOutput` / `tailLimit` post-processor flags
-  > (mid-traversal use declines under D3). Final hardening: the full TinkerPop
-  > Cucumber suite green with the strategy registered, a per-step scenario
-  > catalogue, and a Gremlin-on-vs-off JMH suite mirroring the LDBC SQL
-  > benchmarks.
+  > Completes the recognized set and hardens the whole feature:
+  > `union(...)` via `MultiPlanMatchStep` (D8) and the four list-shaping
+  > terminators (`fold` / `unfold` / `reverse` / `tail`) as last-step
+  > recognisers (mid-traversal use declines under D3). Final hardening
+  > runs the full TinkerPop Cucumber suite green with the strategy
+  > registered and adds a Gremlin-on-vs-off JMH baseline mirroring the
+  > LDBC SQL benchmarks. Detail in plan/track-6.md.
   > **Scope:** ~20 files covering the `UnionStep` handler + `MultiPlanMatchStep`,
   > the four list-terminator recognisers + `BoundaryOutputType.LIST` +
   > post-processor flags, the mirrored Gremlin JMH benchmark classes + on/off
@@ -419,7 +434,13 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > **Depends on:** Track 5.
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: S2 — trimmed Track 4 checklist intro to 3 sentences (detail already in plan/track-4.md); S3 — trimmed Track 6 checklist intro to 3 sentences (detail already in plan/track-6.md).
+
+**Escalated (design decisions)**: S1 — missing Decision Record for the class-`count(*)` fast-path unification (the one engine-surface change beyond the additive ctor, reversing the pre-YTDB-609 decline rationale). User approved adding D11, rationale distilled from the frozen design.md §"Aggregation barrier semantics".
+
+Consistency review: no findings (28 verification certificates, all current-state symbols confirmed). Review files: `plan/reviews/consistency-iter1.md`, `plan/reviews/structural-iter1.md`.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
