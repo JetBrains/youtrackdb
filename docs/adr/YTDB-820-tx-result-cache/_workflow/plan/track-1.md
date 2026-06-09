@@ -24,6 +24,7 @@ and 3 add shapes on top without changing this foundation.
 - [ ] Track completion
 - [x] 2026-06-09T17:47Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-09T18:38Z [ctx=safe] Step 1 complete (commit 55d3af99a2)
+- [x] 2026-06-09T19:15Z [ctx=safe] Step 2 complete (commit 75c8762273)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -53,6 +54,16 @@ at Phase 1. -->
   - Surefire quirk for every later step's test run: in the core module, do not pass
     `-DfailIfNoTests=true` with a `-Dtest` filter — the sequential-tests execution
     matches nothing and fails the build; omit the flag.
+
+- Step 2 findings (See Episodes §Step 2):
+  - Track 2 (aggregate): count-distinct in this dialect is `count(distinct(prop))` (a
+    nested `distinct(...)` function), not `count(distinct prop)` — aggregate delta tests
+    must use that form. `ShapeClassifier` maps aggregates by outermost-call name only
+    (no session/plan-shape gate), so an arithmetic-wrapped aggregate (`count(*)+1`) also
+    matches; harmless here because aggregates are bypassed, but Track 2 should confirm
+    the planner actually emits the aggregate step before relying on the classify value.
+  - `SQLSelectStatement` is a hand-maintained JJTree node class (not regenerated) despite
+    its "do not edit" header; adding accessors for existing fields is in-convention.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -260,7 +271,7 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 `core/.../common/profiler/metrics/CoreMetrics.java`.
 
 1. **Foundation: config knobs, metrics counters, `mutationVersion`, `RecordOperation.version`, `CacheKey` + D22.** Add the four `youtrackdb.query.txResultCache.*` knobs to `GlobalConfiguration` (additive enum values, off by default) and the `QueryCacheMetrics`/`CoreMetrics` counters (no increments yet). Add the monotonic `mutationVersion` counter + `getMutationVersion()` to `FrontendTransactionImpl` and the `version: long` field to `db/record/RecordOperation`, stamped in `addRecordOperation` on the new-op branch (after line 568) and the collapse branch (after the 591-612 switch). Build `CacheKey` (`(SQLStatement, normalized params)`, D12 identity fast-path before deep equals, defensive param-map copy); verify whether `SQLInputParameter` is ever a parsed leaf and add base-class `equals`/`hashCode` only if so (subclasses already have them). Regression test forces `YqlStatementCache` eviction + re-parse to prove the hit. — risk: medium (tx mutation-path plumbing + observability counters)  [x] commit: 55d3af99a2
-2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [ ]
+2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [x] commit: 75c8762273
 3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [ ]
 4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [ ]
 5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [ ]
@@ -307,6 +318,46 @@ flag.
 **Key files:** `GlobalConfiguration`, `CoreMetrics`, `RecordOperation`,
 `FrontendTransactionImpl` (modified); `CacheKey`, `QueryCacheMetrics` (new);
 `CacheKeyTest`, `QueryCacheMetricsTest`, `TransactionMutationVersionTest` (new).
+
+### Step 2 — commit 75c8762273, 2026-06-09T19:15Z [ctx=safe]
+
+**What was done:** Added the five Step 2 cache classes under
+`internal/core/sql/executor/cache/`. `CacheableShape` (9-value enum).
+`ShapeClassifier.classify(SQLStatement)` is a session-free static classifier that
+checks SKIP/LIMIT first (so an `ORDER BY` + `LIMIT` query can never reach RECORD),
+routes GROUP BY / LET / UNWIND / subquery-target to K0_NONE, recognises single scalar
+aggregates returning the final `AGGREGATE_*` values, and otherwise returns RECORD.
+`NonDeterministicQueryDetector` is the fail-open denylist (`sysdate` / zero-arg `date` /
+`uuid` / `eval` / `math_random`) plus `$`-prefixed context-variable detection plus the
+`NOCACHE` hint, via a recursive JJTree `jjtGetChild` walk over the whole AST.
+`IdempotentExecutionStream` is the close-once wrapper (D9). `CachedEntry` carries the
+RECORD + K0_NONE fields with idempotent close, the `effectiveFromClasses` D11 closure,
+`populateMutationVersion`, the shared delta-pair fields, `k0InvalidationCount`, and the
+`liveViewCount` refcount. Added a `getNoCache()` accessor to `SQLSelectStatement`.
+27/27 tests pass; 97.1% line / 75.0% branch on changed code.
+
+**What was discovered:** This dialect parses count-distinct as `count(distinct(prop))`
+(a nested `distinct(...)` function), not `count(distinct prop)`, and `ORDER BY` accepts
+only an identifier plus a modifier chain (not a bare function call). Tests use the valid
+forms; the LET-clause position covers the "walk reaches a non-top-level expression"
+requirement. `SQLSelectStatement` carries a "Generated By:JJTree do not edit" header but
+is a committed, hand-maintained node class (it already has `getProjection` / `setNoCache`
+/ `equals`); JJTree does not regenerate an existing node file, so adding the one-line
+`getNoCache()` getter for the pre-existing `noCache` field follows the file's convention
+and does not violate the generated-parser edit rule. The JJTree-walk basis (children
+populated by `openNodeScope` / `closeNodeScope`) was validated empirically by the passing
+detector tests, since PSI timed out this session.
+
+**What changed from the plan:** None.
+
+**Key files:** `SQLSelectStatement` (modified, one-line getter); `CacheableShape`,
+`ShapeClassifier`, `NonDeterministicQueryDetector`, `IdempotentExecutionStream`,
+`CachedEntry` (new); `ShapeClassifierTest`, `NonDeterministicQueryDetectorTest`,
+`CachedEntryTest` (new).
+
+**Critical context:** `CachedEntry` deliberately omits the aggregate / MATCH-only fields
+(`aggregateState`, `reverseIndex`, `aliasClasses`, `returnProjector`) — those land with
+Tracks 2/3; the field list here is the RECORD + K0_NONE subset.
 
 ## Validation and Acceptance
 
