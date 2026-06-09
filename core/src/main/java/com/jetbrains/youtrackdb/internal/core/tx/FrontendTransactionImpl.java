@@ -114,6 +114,13 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   private final boolean readOnly;
 
+  // Monotonic per-transaction mutation counter. Incremented on every addRecordOperation call
+  // (new record or collapse-update of an existing op), so it advances even when the collapse path
+  // leaves recordOperations.size() unchanged. The tx-result cache stamps an entry's
+  // populateMutationVersion from this value and filters operations by version > that stamp; the
+  // counter is transient per-tx state with no on-disk footprint and resets to 0 when the tx ends.
+  private long mutationVersion;
+
   private final RecordSerializationContext recordSerializationContext =
       new RecordSerializationContext();
   private AtomicOperation atomicOperation;
@@ -568,6 +575,11 @@ public class FrontendTransactionImpl implements
           recordOperations.put(record.getIdentity(), txEntry);
           recordsInTransaction.add(record.getIdentity());
 
+          // Stamp the new operation with the next mutation version. The increment lives inside the
+          // outer rollback try, so an increment preceding an early throw is benign: rollback ends
+          // the tx and the cache is cleared, discarding the stamp.
+          txEntry.version = ++mutationVersion;
+
           if (rid instanceof ChangeableIdentity changeableIdentity
               && changeableIdentity.canChangeIdentity()) {
             changeableIdentity.addIdentityChangeListener(this);
@@ -610,6 +622,12 @@ public class FrontendTransactionImpl implements
               }
             }
           }
+
+          // Re-stamp the collapsed operation so version always reflects the latest mutation for
+          // this RID, even when the collapse leaves recordOperations.size() unchanged (e.g.
+          // UPDATED -> DELETED). The cache's version > populateMutationVersion filter depends on
+          // this being the timestamp of the most recent change, not the first.
+          txEntry.version = ++mutationVersion;
         }
       } catch (final Exception e) {
         throw BaseException.wrapException(
@@ -1303,6 +1321,16 @@ public class FrontendTransactionImpl implements
   @Override
   public long getId() {
     return id;
+  }
+
+  /**
+   * Returns the current monotonic mutation version for this transaction. Advances on every {@link
+   * #addRecordOperation(RecordAbstract, byte)} call, including collapse-update paths that mutate an
+   * existing operation in place. The tx-result cache stamps a cached entry's populate version from
+   * this value so it can later filter out mutations the entry already observed.
+   */
+  public long getMutationVersion() {
+    return mutationVersion;
   }
 
   @Override

@@ -35,6 +35,15 @@ public final class RecordOperation implements Comparable<RecordOperation> {
   public byte type;
   public final RecordAbstract record;
 
+  /**
+   * The {@code mutationVersion} stamp captured from {@link
+   * com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl#getMutationVersion()} at the
+   * last {@code addRecordOperation} touching this RID. Re-stamped on the collapse path so it always
+   * reflects the latest mutation for the RID; the tx-result cache filters operations by {@code
+   * version > populateMutationVersion} to skip changes a cached entry already observed.
+   */
+  public long version;
+
   public long recordBeforeCallBackDirtyCounter;
   public long recordPostCallBackDirtyCounter;
   public long dirtyCounterOnClientSide;
@@ -64,8 +73,7 @@ public final class RecordOperation implements Comparable<RecordOperation> {
     return "RecordOperation [record=" + record + ", type=" + getName(type) + "]";
   }
 
-  @Nullable
-  public RecordIdInternal getRecordId() {
+  @Nullable public RecordIdInternal getRecordId() {
     return record != null ? record.getIdentity() : null;
   }
 
