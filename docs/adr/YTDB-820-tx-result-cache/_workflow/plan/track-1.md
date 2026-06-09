@@ -576,6 +576,17 @@ commit (each step compiles + tests green standalone). Step-specific notes:
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
 
+- 2026-06-09 session-end checkpoint: Phase B paused after Step 5 at a clean episode
+  boundary (Steps 1-5 committed + pushed). A partial Step 6 wiring draft (~331 lines
+  across `DatabaseSessionEmbedded`, `LocalResultSet`, `FrontendTransactionImpl` —
+  `serveThroughCache` / `populateAndBuildView` / `buildView` and the stream-wrapper
+  threading) was saved to a git stash, NOT committed: it was never compiled, tested, or
+  reviewed. Recover with
+  `git stash list | grep "YTDB-820 Step 6 WIP"` then `git stash apply <ref>`. The next
+  Phase B session resumes at Step 6 (the first `[ ]` roster step); the implementer may
+  start from this stash (after proper compile + test + step-level review) or regenerate
+  from the Step 6 description. Do not trust the stashed code until it passes the gate.
+
 ## Interfaces and Dependencies
 
 **In scope (new):** `QueryResultCache`, `CacheKey`, `CachedEntry`,
