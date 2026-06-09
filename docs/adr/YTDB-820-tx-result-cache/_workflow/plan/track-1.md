@@ -350,3 +350,6 @@ delta-build (Etap A folds into it).
 - `NonDeterministicQueryDetector#containsNonDeterministicReference(SQLStatement): boolean`
 - `DeltaBuilder#buildForRecord(CachedEntry, FrontendTransactionImpl, CommandContext): TxDeltaCursor`
 - `SQLWhereClause#matchesFilters(Identifiable, CommandContext): boolean` (existing, reused; `RecordAbstract` binds via `Identifiable`)
+
+## Base commit
+f1cf786fbdc40e99c0a2c4b3f0ad2ab736d56eb7
