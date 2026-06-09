@@ -25,6 +25,7 @@ and 3 add shapes on top without changing this foundation.
 - [x] 2026-06-09T17:47Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-09T18:38Z [ctx=safe] Step 1 complete (commit 55d3af99a2)
 - [x] 2026-06-09T19:15Z [ctx=safe] Step 2 complete (commit 75c8762273)
+- [x] 2026-06-09T20:05Z [ctx=safe] Step 3 complete (commit 88cb09bc5a)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -70,6 +71,16 @@ at Phase 1. -->
 scope-downs, dependency reveals, gate-override reasons. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
+
+- Step 3 deferred review suggestions (carried to Phase C track review against the
+  cumulative diff; not fixed at the step because they are suggestion-severity): BC1 —
+  remove the now-dead `CachedEntry.k0InvalidationCount` field; BC2 — reconcile the
+  `overflows` metric Javadoc with its actual LRU-eviction increment site. See Episodes
+  §Step 3.
+- Review-burden note: cumulative track diff crossed ~2600 lines after Step 3 (soft
+  ~2000 flag). Expected for a ~20-file foundation track; under the ~4000 reconsider
+  mark. Steps 4-7 (DeltaBuilder, View, wiring, tests) will add more — Phase C
+  review-burden check will measure the final total.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -272,7 +283,7 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 
 1. **Foundation: config knobs, metrics counters, `mutationVersion`, `RecordOperation.version`, `CacheKey` + D22.** Add the four `youtrackdb.query.txResultCache.*` knobs to `GlobalConfiguration` (additive enum values, off by default) and the `QueryCacheMetrics`/`CoreMetrics` counters (no increments yet). Add the monotonic `mutationVersion` counter + `getMutationVersion()` to `FrontendTransactionImpl` and the `version: long` field to `db/record/RecordOperation`, stamped in `addRecordOperation` on the new-op branch (after line 568) and the collapse branch (after the 591-612 switch). Build `CacheKey` (`(SQLStatement, normalized params)`, D12 identity fast-path before deep equals, defensive param-map copy); verify whether `SQLInputParameter` is ever a parsed leaf and add base-class `equals`/`hashCode` only if so (subclasses already have them). Regression test forces `YqlStatementCache` eviction + re-parse to prove the hit. — risk: medium (tx mutation-path plumbing + observability counters)  [x] commit: 55d3af99a2
 2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [x] commit: 75c8762273
-3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [ ]
+3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [x] commit: 88cb09bc5a
 4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [ ]
 5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [ ]
 6. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy flag-gated `getQueryResultCache()`; the gate/lookup/put/view installed at the two `query()` overloads (lines 617, 652) via a shared helper, NOT at `executeInternal`; `cacheCodeDepth` increment/decrement bracketing the lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` re-entrant bypass; the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; cache `clear()` in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174) and in the tx-end `clear()` sink (relies on the D9 idempotent stream wrapper since `closeActiveQueries()` runs first). Only RECORD/K0_NONE route through the cache; other shapes bypass. — risk: high (cross-component wiring on the query entry + tx lifecycle + re-entrancy)  [ ]
@@ -358,6 +369,49 @@ detector tests, since PSI timed out this session.
 **Critical context:** `CachedEntry` deliberately omits the aggregate / MATCH-only fields
 (`aggregateState`, `reverseIndex`, `aliasClasses`, `returnProjector`) — those land with
 Tracks 2/3; the field list here is the RECORD + K0_NONE subset.
+
+### Step 3 — commit 88cb09bc5a, 2026-06-09T20:05Z [ctx=safe]
+
+**What was done:** Added `QueryResultCache`: the per-tx access-order `LinkedHashMap` LRU,
+the `nonCacheableKeys` set, the lookup-level `inFlightLookup` re-entrancy boolean,
+eldest-only pin-aware eviction (entries with `liveViewCount > 0` exempt, evicted keys
+routed to `nonCacheableKeys`, stream closed, overflow counted), snapshot-before-iterate
+`invalidateAll` and `clear`, the K0_NONE version-gate at `lookup` (equal-version hit,
+diverged-version invalidate + strike, route to `nonCacheableKeys` after
+`k0NoneInvalidationThreshold` strikes), and idempotent `clear` that closes every entry's
+paused stream. Added the tx-level `cacheCodeDepth` counter plus
+`enterCacheCode`/`exitCacheCode` (assert-on-owning-thread, floored decrement) and
+`getCacheCodeDepth` to `FrontendTransactionImpl`. Two implementer commits landed for this
+step (`6428b7a34e` implementation, `88cb09bc5a` counter-accessor test); the step diff and
+review cover the full `fc5aec9cd5..88cb09bc5a` range. Step-level review (risk: high):
+`review-bugs-concurrency` 0 blocker / 0 should-fix / 2 suggestions, `review-performance`
+clean — gate passed at iteration 1.
+
+**What was discovered:** Pin-aware eviction is eldest-only (design.md): inspect the single
+LRU entry, evict if unpinned, else leave the map transiently over the bound. A first draft
+scanned for the first unpinned entry and wrongly discarded the hot just-added entry when
+the cold eldest was pinned; the corrected `evictEldestIfUnpinned` mirrors
+`LinkedHashMap.removeEldestEntry`'s single-eldest decision (caught by a test). The
+lookup-level `inFlightLookup` guard cannot be unit-tested in isolation (nothing inside
+`lookup` re-enters the cache); its end-to-end exercise lands with Step 6's session
+bracketing. K0_NONE strike count lives in a per-key map on the cache (`k0Strikes`), not on
+`CachedEntry`, because invalidation removes the entry and an entry-local counter would be
+lost. Deferred suggestions for the Phase C track review (cumulative diff): BC1 —
+`CachedEntry.k0InvalidationCount` (added in Step 2) is now dead since strikes are tracked
+in the cache's own map, remove it; BC2 — the `overflows` metric Javadoc describes the
+per-entry record cap but its only increment site is LRU eviction, reconcile the wording.
+Out-of-scope perf observation for the Step 6 review: `CacheKey.forArgs` (Step 1's file)
+allocates a `HashMap` unconditionally on the no-arg path; confirm acceptable or use
+`Collections.emptyMap()` when wiring per-query construction.
+
+**What changed from the plan:** None. `lookup` takes the current `mutationVersion` as a
+`long` parameter rather than referencing the transaction, keeping the cache decoupled from
+`FrontendTransactionImpl` (within the plan's signature freedom); Step 6 supplies
+`tx.getMutationVersion()` at the call site.
+
+**Key files:** `FrontendTransactionImpl` (modified, `cacheCodeDepth` counter +
+accessors); `QueryResultCache` (new); `QueryResultCacheTest`, `TransactionMutationVersionTest`
+(new/modified tests).
 
 ## Validation and Acceptance
 
