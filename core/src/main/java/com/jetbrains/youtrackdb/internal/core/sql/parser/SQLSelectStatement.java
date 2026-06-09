@@ -496,6 +496,10 @@ public class SQLSelectStatement extends SQLStatement {
     this.noCache = noCache;
   }
 
+  public Boolean getNoCache() {
+    return noCache;
+  }
+
   @Override
   public Result serialize(DatabaseSessionEmbedded session) {
     var result = (ResultInternal) super.serialize(session);
