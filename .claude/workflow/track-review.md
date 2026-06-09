@@ -784,6 +784,25 @@ below.
   heavy per-step iteration (debugging-prone or test-churny), since
   iteration count, not edited-file count, is the measured context
   driver.
+  - **Overlap-aware merge ordering.** When several `low`/`medium` units
+    are available to merge, prefer the one overlapping the step's
+    current file set: it adds fewer files to the ~12 budget, so more
+    change fits before a new step (a new implementer) is needed, and it
+    removes a future re-read of the shared file. A step holding `Foo`
+    and `Bar` that pulls in a unit touching `Foo` and `Baz` adds only
+    `Baz`; pulling in one touching `Qux` and `Quux` adds two files and
+    removes no re-read. This orders which mergeable unit to pull in
+    first; it does not relax the fill target or the closed under-fill
+    set below.
+  - **Step adjacency is not a merge.** Two distinct steps each spawn
+    their own implementer, and Phase C reads the whole track diff
+    regardless of step order, so ordering two unmergeable steps next to
+    each other removes no implementer invocation — the dominant per-step
+    cost. The one modest step-level adjacency gain is the orchestrator
+    briefing the next implementer from its just-built knowledge of a
+    shared file. State this plainly so the rule does not drift into a
+    false "make steps adjacent" token claim: at the step level, only a
+    merge removes an implementer.
   - **Under-fill justification.** A `low`/`medium` step whose planned
     footprint still lands below the ~12 fill target must carry an
     inline `— size: ~N files; <reason>` clause on its `## Concrete
