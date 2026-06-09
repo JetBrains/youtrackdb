@@ -121,6 +121,15 @@ public class FrontendTransactionImpl implements
   // counter is transient per-tx state with no on-disk footprint and resets to 0 when the tx ends.
   private long mutationVersion;
 
+  // Re-entrancy depth for the tx-result cache lookup-and-view scope. The session brackets the
+  // whole cache lookup-and-view path with enter/exit, so a query() issued from inside that scope
+  // (e.g. a user-defined function in a WHERE clause) observes depth > 0 and bypasses the cache,
+  // falling back to uncached execution. Distinct from QueryResultCache.inFlightLookup, which guards
+  // only the lookup call itself; this counter guards the broader scope that also builds and returns
+  // a view. Transient per-tx owner-thread-only state with no on-disk footprint; resets to 0 with the
+  // transaction.
+  private int cacheCodeDepth;
+
   private final RecordSerializationContext recordSerializationContext =
       new RecordSerializationContext();
   private AtomicOperation atomicOperation;
@@ -1331,6 +1340,39 @@ public class FrontendTransactionImpl implements
    */
   public long getMutationVersion() {
     return mutationVersion;
+  }
+
+  /**
+   * Enters the tx-result cache lookup-and-view scope, bumping the re-entrancy depth counter. The
+   * session calls this before consulting the cache and pairs it with {@link #exitCacheCode()} in a
+   * finally. A nested {@code query()} issued while inside this scope sees {@link #getCacheCodeDepth()}
+   * greater than zero and bypasses the cache. Owner-thread-only, like every other mutation-path
+   * method.
+   */
+  public void enterCacheCode() {
+    assertOnOwningThread();
+    cacheCodeDepth++;
+  }
+
+  /**
+   * Leaves the tx-result cache lookup-and-view scope, decrementing the re-entrancy depth counter. The
+   * decrement is floored at zero so an unbalanced exit cannot drive the counter negative and wrongly
+   * re-enable the cache for a still-nested caller. Paired with {@link #enterCacheCode()} in a finally.
+   */
+  public void exitCacheCode() {
+    assertOnOwningThread();
+    if (cacheCodeDepth > 0) {
+      cacheCodeDepth--;
+    }
+  }
+
+  /**
+   * The current re-entrancy depth of the tx-result cache lookup-and-view scope. Greater than zero
+   * means a cache code path is already on the stack, so a re-entrant {@code query()} must bypass the
+   * cache.
+   */
+  public int getCacheCodeDepth() {
+    return cacheCodeDepth;
   }
 
   @Override
