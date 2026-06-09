@@ -23,6 +23,7 @@ and 3 add shapes on top without changing this foundation.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-09T17:47Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-09T18:38Z [ctx=safe] Step 1 complete (commit 55d3af99a2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -40,6 +41,18 @@ at Phase 1. -->
     CommandContext)` must reuse the original query's `CommandContext` param bindings
     (step 8/9): a parameterized RECORD WHERE re-evaluated with a fresh ctx would
     diverge on `:param` values.
+
+- Step 1 findings (See Episodes §Step 1):
+  - D22 needs no parser-node edit: the base `SQLInputParameter` is never a returned
+    parsed leaf (JavaCC scaffolding only), and the subclasses already carry field-based
+    `equals`/`hashCode`. Track 3 must still re-verify `SQLMatchStatement.equals` before
+    relying on AST-equality for MATCH keys.
+  - `RecordOperation.version` is re-stamped to the latest `mutationVersion` on every
+    collapse, so the Track 2/3 `DeltaBuilder` can rely on `op.version` reflecting the
+    most recent change for a RID, never the first.
+  - Surefire quirk for every later step's test run: in the core module, do not pass
+    `-DfailIfNoTests=true` with a `-Dtest` filter — the sequential-tests execution
+    matches nothing and fails the build; omit the flag.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -246,7 +259,7 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 `core/.../sql/executor/OrderByStep.java`, `api/config/GlobalConfiguration.java`,
 `core/.../common/profiler/metrics/CoreMetrics.java`.
 
-1. **Foundation: config knobs, metrics counters, `mutationVersion`, `RecordOperation.version`, `CacheKey` + D22.** Add the four `youtrackdb.query.txResultCache.*` knobs to `GlobalConfiguration` (additive enum values, off by default) and the `QueryCacheMetrics`/`CoreMetrics` counters (no increments yet). Add the monotonic `mutationVersion` counter + `getMutationVersion()` to `FrontendTransactionImpl` and the `version: long` field to `db/record/RecordOperation`, stamped in `addRecordOperation` on the new-op branch (after line 568) and the collapse branch (after the 591-612 switch). Build `CacheKey` (`(SQLStatement, normalized params)`, D12 identity fast-path before deep equals, defensive param-map copy); verify whether `SQLInputParameter` is ever a parsed leaf and add base-class `equals`/`hashCode` only if so (subclasses already have them). Regression test forces `YqlStatementCache` eviction + re-parse to prove the hit. — risk: medium (tx mutation-path plumbing + observability counters)  [ ]
+1. **Foundation: config knobs, metrics counters, `mutationVersion`, `RecordOperation.version`, `CacheKey` + D22.** Add the four `youtrackdb.query.txResultCache.*` knobs to `GlobalConfiguration` (additive enum values, off by default) and the `QueryCacheMetrics`/`CoreMetrics` counters (no increments yet). Add the monotonic `mutationVersion` counter + `getMutationVersion()` to `FrontendTransactionImpl` and the `version: long` field to `db/record/RecordOperation`, stamped in `addRecordOperation` on the new-op branch (after line 568) and the collapse branch (after the 591-612 switch). Build `CacheKey` (`(SQLStatement, normalized params)`, D12 identity fast-path before deep equals, defensive param-map copy); verify whether `SQLInputParameter` is ever a parsed leaf and add base-class `equals`/`hashCode` only if so (subclasses already have them). Regression test forces `YqlStatementCache` eviction + re-parse to prove the hit. — risk: medium (tx mutation-path plumbing + observability counters)  [x] commit: 55d3af99a2
 2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [ ]
 3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [ ]
 4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [ ]
@@ -256,6 +269,44 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
+
+### Step 1 — commit 55d3af99a2, 2026-06-09T18:38Z [ctx=safe]
+
+**What was done:** Added the four `youtrackdb.query.txResultCache.*` knobs to
+`GlobalConfiguration` (`enabled=false`, `maxEntries=200`, `maxRecordsPerEntry=10000`,
+`k0NoneInvalidationThreshold=3`, all runtime-changeable) and five no-increment rate
+metric definitions to `CoreMetrics` plus the `QueryCacheMetrics` per-tx counter holder.
+Added the monotonic `mutationVersion` counter and `getMutationVersion()` to
+`FrontendTransactionImpl`, stamping `RecordOperation.version` on both the new-op branch
+(after `recordOperations.put`) and the collapse branch (after the type switch), both
+inside the existing rollback try. Built `CacheKey` with the D12 identity fast-path
+before structural deep-equals, a defensive unmodifiable param-map copy, and
+positional-to-index-keyed param normalisation. Tests: `CacheKeyTest` (7),
+`TransactionMutationVersionTest` (3), `QueryCacheMetricsTest` (3) — 13/13 pass, 97.1%
+line / 75.0% branch on changed lines.
+
+**What was discovered:** D22 resolved on the skip-the-parser-edit branch the step
+allowed. The base `SQLInputParameter` is created only as JavaCC node-stack scaffolding
+inside the generated `InputParameter()` production, which always returns the
+`SQLPositionalParameter` / `SQLNamedParameter` subclass; the base instance is never the
+returned value nor stored in a typed AST field that `SQLSelectStatement.equals` walks,
+so every parsed parameter leaf an AST-equality compare sees is a subclass, and the
+subclasses already carry field-based `equals`/`hashCode`. No parser-node edit was
+needed. This was verified by grep over the generated parser plus a direct read of the
+generated `InputParameter()` body, not PSI find-usages (PSI timed out this session); the
+`CacheKeyTest` eviction-and-re-parse regression proves `CacheKey` equality holds
+regardless. `RecordOperation.version` is re-stamped to the latest `mutationVersion` on
+every collapse, so the Track 2/3 `DeltaBuilder` can rely on `op.version` reflecting the
+most recent change for a RID, never the first (consistent with D5/D21). Surefire quirk
+for later steps: in the core module, do not pass `-DfailIfNoTests=true` with a `-Dtest`
+filter — the sequential-tests execution matches nothing and fails the build; omit the
+flag.
+
+**What changed from the plan:** None.
+
+**Key files:** `GlobalConfiguration`, `CoreMetrics`, `RecordOperation`,
+`FrontendTransactionImpl` (modified); `CacheKey`, `QueryCacheMetrics` (new);
+`CacheKeyTest`, `QueryCacheMetricsTest`, `TransactionMutationVersionTest` (new).
 
 ## Validation and Acceptance
 
