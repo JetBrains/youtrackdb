@@ -95,6 +95,38 @@ public class TransactionMutationVersionTest {
   }
 
   /**
+   * The cache-code re-entrancy depth counter must start at zero, count nested enters, and floor its
+   * decrement at zero. The session brackets the whole cache lookup-and-view scope with
+   * enter/exit so a query() issued from inside that scope (for example a user-defined function in a
+   * WHERE clause) sees a positive depth and bypasses the cache; the floor guarantees an unbalanced
+   * exit cannot drive the counter negative and wrongly re-enable the cache for a still-nested caller.
+   */
+  @Test
+  public void cacheCodeDepthCountsNestedEntersAndFloorsAtZero() {
+    db.begin();
+    final var tx = (FrontendTransactionImpl) db.getTransactionInternal();
+    assertEquals("A fresh transaction must start at cache-code depth 0", 0, tx.getCacheCodeDepth());
+
+    tx.enterCacheCode();
+    assertEquals("First enter must raise depth to 1", 1, tx.getCacheCodeDepth());
+
+    // A re-entrant cache scope (e.g. a nested query() under WHERE evaluation) nests the depth.
+    tx.enterCacheCode();
+    assertEquals("Nested enter must raise depth to 2", 2, tx.getCacheCodeDepth());
+
+    tx.exitCacheCode();
+    assertEquals("Exit must lower depth back to 1", 1, tx.getCacheCodeDepth());
+
+    tx.exitCacheCode();
+    assertEquals("Balanced exit must return depth to 0", 0, tx.getCacheCodeDepth());
+
+    // An unbalanced extra exit must clamp at zero rather than go negative.
+    tx.exitCacheCode();
+    assertEquals("An extra exit must clamp depth at 0, never negative", 0, tx.getCacheCodeDepth());
+    db.rollback();
+  }
+
+  /**
    * Each distinct record's operation carries the version stamped at its own addRecordOperation
    * call, so later records have strictly higher version stamps than earlier ones.
    */
