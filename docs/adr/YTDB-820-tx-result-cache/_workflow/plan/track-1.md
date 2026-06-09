@@ -27,6 +27,7 @@ and 3 add shapes on top without changing this foundation.
 - [x] 2026-06-09T19:15Z [ctx=safe] Step 2 complete (commit 75c8762273)
 - [x] 2026-06-09T20:05Z [ctx=safe] Step 3 complete (commit 88cb09bc5a)
 - [x] 2026-06-09T21:33Z [ctx=safe] Step 4 complete (commit 6edeb296a5, +1 review-fix iteration)
+- [x] 2026-06-09T21:53Z [ctx=info] Step 5 complete (commit ec573e2b97)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -91,6 +92,12 @@ scope-downs, dependency reveals, gate-override reasons. -->
   remove the now-dead `CachedEntry.k0InvalidationCount` field; BC2 — reconcile the
   `overflows` metric Javadoc with its actual LRU-eviction increment site. See Episodes
   §Step 3.
+- Step 5 deferred review suggestions (carried to Phase C; Phase C should weigh promoting
+  the first two): BC1 — `CachedResultSetView` feeds `@Nullable Result.getIdentity()` into
+  the non-null skip-set / `cachedRids`, relying on an unstated `isIdentifiable→non-null`
+  invariant (add a guard or assert); BC3 — an exception mid-stream-pull holds the I9 pin
+  and leaves the stream open until tx-end `clear()` (bounded; a try/finally would harden
+  it). Plus BC2 (stale comment) and PF1 (empty-delta fast-path). See Episodes §Step 5.
 - Review-burden note: cumulative track diff crossed ~2600 lines after Step 3 (soft
   ~2000 flag) and ~3500 after Step 4, approaching the ~4000 reconsider mark. Decision:
   continue rather than inline-replan a split. Track 1 is the deliberately-sized
@@ -303,7 +310,7 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 2. **Static AST analysis + entry shapes: `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`, `CachedEntry`, `IdempotentExecutionStream`.** The `CacheableShape` enum and the static `ShapeClassifier.classify` (returns RECORD / K0_NONE here; AGGREGATE_*/MATCH values returned but the session bypasses them per the bypass clarification; SKIP/LIMIT → K0_NONE check runs first). The fail-open `NonDeterministicQueryDetector` (denylist `sysdate`/zero-arg `date`/`uuid`/`eval`/`math_random` + context-variable list + `noCache`; full-AST walk over WHERE, ORDER BY, RETURN, nested). The `IdempotentExecutionStream` wrapper (D9) and `CachedEntry` (idempotent `close()`, `effectiveFromClasses` closure D11, `populateMutationVersion`, shared delta-pair fields, `liveViewCount`). *(parallel with Step 1 once `getMutationVersion()` lands — Step 2 depends only on the Step 1 counter, not the key/config.)* — risk: medium (new classification + entry logic) — size: ~8 files; (a) the remaining track work is high-isolated (Steps 3-6) or the end-of-track test suite (Step 7), so no further low/medium work fits  [x] commit: 75c8762273
 3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [x] commit: 88cb09bc5a
 4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [x] commit: 6edeb296a5
-5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [ ]
+5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [x] commit: ec573e2b97
 6. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy flag-gated `getQueryResultCache()`; the gate/lookup/put/view installed at the two `query()` overloads (lines 617, 652) via a shared helper, NOT at `executeInternal`; `cacheCodeDepth` increment/decrement bracketing the lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` re-entrant bypass; the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; cache `clear()` in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174) and in the tx-end `clear()` sink (relies on the D9 idempotent stream wrapper since `closeActiveQueries()` runs first). Only RECORD/K0_NONE route through the cache; other shapes bypass. — risk: high (cross-component wiring on the query entry + tx lifecycle + re-entrancy)  [ ]
 7. **Invariant + equivalence test suite.** I1-I3, I6-I10, K0_NONE version-gate, RECORD cache-vs-fresh equivalence across CREATED/UPDATED/DELETED × pre/post-populate, the I1 eventual-clear (not clear-on-iterate-exception), and the `ORDER BY`+LIMIT-never-reaches-RECORD classify-ordering assertion. Tests run with `-ea` (I2/D3 enforcement is assert-based). — risk: medium (test-only, end-to-end feature) — size: ~6 files; (b) heavy-iteration equivalence suite kept separate from the Step 6 wiring so it can churn independently  [ ]
 
@@ -474,6 +481,47 @@ broadens the cache key must revisit this fast path.
 
 **Key files:** `DeltaBuilder`, `TxDeltaCursor` (new); `DeltaBuilderTest` (new),
 `PrefilterMetricsDefinitionTest` (modified, Step-1-regression fix).
+
+### Step 5 — commit ec573e2b97, 2026-06-09T21:53Z [ctx=info]
+
+**What was done:** Added `CachedResultSetView`, the consumer-facing `ResultSet`. Its
+`next()` runs the sorted-merge for the RECORD path: a cache cursor over `entry.results`
+(with on-demand pulls from the shared paused `IdempotentExecutionStream`, appended to
+`entry.results` so later views replay the full ordered result, then dropped from the
+current view by the skip-set) merged with the `TxDeltaCursor` — the stream tail is
+materialised before the delta head is consulted for sort correctness, the smaller head
+emits, ties favour the inject side. K0_NONE is a delta-free direct replay plus an
+unfiltered stream-tail pull. The constructor increments `liveViewCount` (the I9 LRU pin);
+`close()` and natural exhaustion each release it through a one-shot `pinReleased` guard so
+the pin drops exactly once (I6). The view never closes the entry's shared stream on its own
+`close()` — the entry owns it (I3); tx-end `clear()` closes it. 16/16 tests; coverage gate
+passed (90.4% line / 78.6% branch over all 24 changed files). Step-level review (risk:
+high): `review-bugs-concurrency` and `review-performance` both 0 blocker / 0 should-fix —
+gate passed at iteration 1, 4 suggestions recorded for Phase C.
+
+**What was discovered:** Two suggestions for Phase C to weigh promoting (both rated
+suggestion by the adversarial reviewers, so judged low-risk): BC1 — `Result.getIdentity()`
+is `@Nullable` and flows into the non-null skip-set / `cachedRids`; correctness rests on the
+unstated `isIdentifiable()==true → non-null getIdentity()` cross-type invariant. BC3 — an
+exception from `stream.next()` mid-pull bypasses the exhausted/close/release-pin tail,
+holding the pin and leaving the stream open until tx-end `clear()` closes it
+unconditionally (bounded, not a true leak). Also BC2 (a comment at line 201 is inaccurate
+when a pull skips intermediate rows; behaviour still correct) and PF1 (an empty-delta
+fast-path in `isSkipped`). The ephemeral-identifier pre-commit gate flags the design's
+invariant/decision labels (I3/I6/I9/I10, D4/D9/D21) as issue-tracker-shaped; they resolve
+to the Allowed domain-terminology list and recur on every cache-package step.
+
+**What changed from the plan:** None. Signatures and behaviour match the Interfaces section
+and the design's `view.next()` pseudocode (ties favour inject; pull-before-peek for sort
+correctness; pin + idempotent close).
+
+**Critical context:** Step 6 wiring must construct the view with the live session, the
+`InternalExecutionPlan`, and the original query `CommandContext`, and rely on the entry (not
+the view) owning the paused stream (I3). The `orderBy == null` branch drains the inject list
+ahead of equally-unordered cache rows (`cmp` treated as -1); Tracks 2/3 should confirm that
+matches their unsorted fresh-execution contract before reusing the merge for MATCH shapes.
+
+**Key files:** `CachedResultSetView` (new); `CachedResultSetViewTest` (new).
 
 ## Validation and Acceptance
 
