@@ -1000,9 +1000,11 @@ TinkerPop). All translate in Phase 1:
 | `TextP.regex(r)` | `SQLMatchesCondition(field, r)` in find mode via `MatchWhereBuilder.matchesRegex` |
 | `TextP.notRegex(r)` | `NOT(SQLMatchesCondition(field, r))` in find mode |
 
-`SQLContainsTextCondition` evaluates via `String.indexOf(sub) > -1`, a
-case-sensitive substring search matching TinkerPop's `TextP.containing`
-exactly. All of these targets are String-only; applied to a non-String
+`SQLContainsTextCondition` evaluates via `String.indexOf(sub) > -1` after
+applying the field collate to both operands, so the substring search
+matches TinkerPop's `TextP.containing` on the `default` collation and
+follows the property collation otherwise (see the collation note below).
+All of these targets are String-only; applied to a non-String
 field the recognizer declines and under D3 all-or-nothing the whole
 traversal declines. The legacy `Text` algebra (pre-TextP) routes through
 the same translation by sharing the same `BiPredicate` instances inside
@@ -1012,46 +1014,82 @@ the same translation by sharing the same `BiPredicate` instances inside
 `SQLLikeOperator`, but it diverges from TinkerPop on two axes and is not
 used here. Its engine `QueryHelper.like` lowercases both operands
 (`QueryHelper.java:39-40`), so `LIKE` is unconditionally case-insensitive
-while `TextP.startingWith("Al")` is case-sensitive (`"Alice"` matches,
-`"alice"` does not). It also rewrites a user's literal `%` / `?` into
+and ignores the property collation, whereas the range form below respects
+it (case-sensitive on the `default` collation, as `TextP.startingWith` is
+by default). It also rewrites a user's literal `%` / `?` into
 wildcards with no escape path (`QueryHelper.java:55-56`), so a prefix
 like `"50%"` silently becomes a pattern. And `LIKE` is never index-aware:
 `SQLBinaryCondition.findIndex` wires only `=`, contains-key, and range
 operators, and `SQLLikeOperator.isRangeOperator()` is `false`, so even a
 case-sensitive `LIKE` would full-scan.
 
-**`startingWith` → range (index-aware, case-sensitive).** A prefix match
-is a half-open range: `startingWith(p)` selects exactly the strings in
-`[p, p⁺)`, where `p⁺` is `p` with its last code point incremented.
+**`startingWith` → range (index-aware, collation-respecting).** A prefix
+match is a half-open range: `startingWith(p)` selects exactly the strings
+in `[p, p⁺)`, where `p⁺` is `p` with its last code point incremented.
 `MatchWhereBuilder.startsWith` emits `field >= p AND field < p⁺`, two
 range conditions. Range operators are index-aware
 (`SQLBinaryCondition.java:668`, gated by `allowsRangeQueries()`), so a
 B-tree index on the field turns this into a prefix range scan, the
-high-value optimization. Correctness depends on the field's collation
-being case-sensitive, because the range order is the index order and a
-case-insensitive collate would match case-insensitively. The recognizer
-reads the property collation from the schema at translation time (the
-strategy already holds the graph via `YTDBStrategyUtil`) and **declines**
-when the collation is case-insensitive, when the class is schema-less or
-the property undeclared (collation unknown), or when `p` is empty.
-Declined cases fall back to the native pipeline, as today.
+high-value optimization.
 
-**`endingWith` / `regex` → new case-sensitive operators (full scan).** A
-suffix is not a contiguous range and a regex is not a range at all, so
-neither can use an index; both evaluate as filters during the scan, the
-same cost the native pipeline pays. They translate in Phase 1 for a
-different reason: under D3 all-or-nothing, declining one string predicate
-declines the **whole** traversal to the native left-to-right pipeline,
-forfeiting MATCH's cost-based scheduling, prefetch, and hash anti-joins
-on every other hop. Keeping these predicates translatable removes that
-decline trigger, so a multi-hop pattern carrying one suffix or regex
-filter still runs through the MATCH planner. The two operators are new
-(unlike `IS DEFINED`, they do not yet exist in YTDB; see decision
-D-TEXT-OPS in the plan): `SQLEndsWithCondition` does a case-sensitive
-`String.endsWith`, and `SQLMatchesCondition` gains a find-mode flag so it
-uses `Matcher.find()` (TinkerPop's partial-match `regex` semantic)
-instead of `matches()` (whole-string). Both report
+The range **respects the property collation** rather than forcing
+case-sensitivity. `SQLBinaryCondition` applies the field's collate to both
+operands (`SQLBinaryCondition.java:101-107`) and the index is ordered by
+that same collate, so the prefix match follows whatever case rule the
+property declares: case-sensitive on the `default` collation (matching
+`TextP.startingWith`'s default Gremlin semantics), case-insensitive on a
+property declared `ci`. Schema-level collation is a deliberate extension
+of the Gremlin spec: every property is `default` / case-sensitive unless
+it opts into `ci`, so the spec semantics hold by default and `ci` matching
+is the intended behavior when a property declares it. This is consistent
+with `between` / `inside` / `outside`, which decompose into the same
+collation-aware range conditions, and with `eq` / `gt` / …, which native
+Gremlin already routes through collation-aware SQL. The translator does
+**not** need to read the collation to choose a comparison mode; the engine
+applies it at evaluation and index-lookup time. Respecting the collation
+rather than declining on it also keeps the index optimization on `ci`
+properties: a `ci`-ordered index runs a `ci` prefix range scan, so
+`startingWith` is index-accelerated on every collation, not only
+`default`. A strict case-sensitive rule would have declined on `ci` and
+forfeited the index there, exactly the case the review flagged as a
+critical optimization.
+
+The recognizer still reads the schema only to confirm a declared String
+property; it **declines** when the class is schema-less or the property is
+undeclared (type unknown), or when `p` is empty (the upper bound `p⁺` is
+undefined for an empty prefix), falling back to the native pipeline as
+today.
+
+**`endingWith` / `containing` → collation-aware full-scan filters;
+`regex` → case-sensitive full-scan filter.** A suffix, substring, or regex
+is not a contiguous range, so none can use an index; all three evaluate as
+filters during the scan, the same cost the native pipeline pays. They
+translate in Phase 1 to avoid the D3 trigger: declining one string
+predicate would decline the **whole** traversal to the native
+left-to-right pipeline, forfeiting MATCH's cost-based scheduling, prefetch,
+and hash anti-joins on every other hop. `endingWith` needs a new AST node
+`SQLEndsWithCondition`; `regex` needs a find-mode flag on
+`SQLMatchesCondition` (`Matcher.find()`, TinkerPop's partial-match
+semantic, instead of `matches()` whole-string). Neither exists in YTDB
+today (see decision D-TEXT-OPS in the plan). Both report
 `isIndexAware() == false`.
+
+`endingWith` and `containing` **respect the property collation**, like the
+range predicates: `SQLEndsWithCondition` and the existing
+`SQLContainsTextCondition` apply the field collate to both operands before
+`String.endsWith` / `String.indexOf`, so they match case-sensitively on
+the `default` collation (TinkerPop's default) and case-insensitively on a
+property declared `ci`. The collate runs at evaluation time on each
+scanned record rather than through an index; the resulting case rule is
+the one `eq` / `gt` / `startingWith` already apply. Because
+`SQLContainsTextCondition` is the existing `CONTAINSTEXT` operator, adding
+the collate transform also makes SQL `CONTAINSTEXT` collation-aware: a
+no-op on the `default` collation (case-sensitive, unchanged) and
+case-insensitive on `ci` properties, matching how `=` / `LIKE` already
+treat `ci`. `regex` stays case-sensitive on every property because
+collate-transforming a regex pattern would change its meaning (lowercasing
+`[A-Z]` is a different expression), so `SQLMatchesCondition` compares
+directly and is collation-blind.
 
 **Custom user predicates** — TinkerPop allows users to extend `P<T>` with
 their own `BiPredicate`. We cannot translate arbitrary code. Detection: if
