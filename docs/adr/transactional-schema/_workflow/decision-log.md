@@ -665,7 +665,9 @@ schema-carrying signal replaces the dead root-record dispatch check); F70 → D1
 filed as YTDB-1101); F71 → D7/F61 (accepted 2026-06-10: timeout = re-wait loop with
 diagnostic; mutex = owner-tracked `Semaphore(1)` with `releaseStranded` reap API after
 full tx rollback; F38 assertion relocated into owner bookkeeping); F72 → D7 (accepted 2026-06-10: genesis
-parenthetical fixed — genesis engages via its D18 transactions). F73–F75 pending.
+parenthetical fixed — genesis engages via its D18 transactions); F73 → F55/YTDB-1099
+(accepted 2026-06-10: three-step replay branch with internal-id matching; pins appended
+to YTDB-1099). F74–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1520,11 +1522,17 @@ microsecond width; the design moves all file creation into this pattern and F48 
 the physical phase to seconds (~24,800 `addFile` calls), with the D20 import as the prime
 victim. Affected: F16, D10, D3, D12, F48, D20.
 
-**Resolution (accepted 2026-06-10, option 3 — lazy consult):** fix the replay, not the
-design shape. Keep strict in-order replay; when a page record references a missing file,
-scan the buffered unit forward for a `FileCreatedWALRecord` with that file id, materialize
-the file at that point, and apply the page — the later `FileCreated` record replays as an
-idempotent no-op; no pending create found means a genuinely broken WAL, throw as today.
+**Resolution (accepted 2026-06-10, option 3 — lazy consult; precision pins added by
+F73):** fix the replay, not the design shape. Keep strict in-order replay; the
+missing-file branch becomes **[`deletedNonDurableFileIds` skip → pending-create consult →
+`restoreFileById` fallback → throw]**: when a page record references a missing file,
+first scan the buffered unit forward for a `FileCreatedWALRecord` matching on
+**`internalFileId`** (record high bits differ after backup/restore, `:5676`/`:5752`),
+materialize through the same `readCache.addFile(name, id, writeCache)` path the
+`FileCreated` branch uses (`:5643`), and apply the page — the later `FileCreated` record
+replays as an idempotent no-op; if no pending create exists, fall through to today's
+`restoreFileById` (which resurrects files deleted by later already-applied units from
+persisted negative name-id entries — load-bearing, must be kept); only then throw.
 This preserves every existing intra-unit ordering property (pages-then-`FileDeleted` drop
 sequences still apply in order — the property a strict two-pass would have to re-derive by
 hand), touches only the missing-file branch (`AbstractStorage:5657`/`:5731`), needs no WAL
@@ -2045,8 +2053,13 @@ through the same `readCache.addFile(name, id, writeCache)` path (`:5643`–`:564
 the consult never fires for F67's recycle shape (no file records exist) — the YTDB-1099
 test matrix must not expect it to. Full analysis: pass-6 report U9.
 
-**Resolution (proposed):** amend F55's resolution text to the three-step branch and carry
-the pins into YTDB-1099's spec. Affected: F55, D10, YTDB-1099.
+**Resolution (accepted 2026-06-10):** F55's resolution text amended to the three-step
+branch [non-durable skip → pending-create consult (internal-id match) →
+`restoreFileById` fallback → throw]; the pins are appended to YTDB-1099 as a comment so
+the issue spec stays self-contained. F67 interaction: the "consult never fires for the
+recycle shape" note above referred to U8's same-name drop+recreate, which F67's option
+(b) dissolved — drop+recreate now produces standard file records and IS a consultable
+YTDB-1099 test case. Affected: F55, D10, YTDB-1099, F67.
 
 ### F74 — The commit's atomic operation opens at transaction BEGIN: a schema tx pins WAL segment cuts for its whole body, and a reaper that releases only the D7 mutex leaves the pin forever [MINOR]
 PSI-verified: the only production caller of `startStorageTx` is
