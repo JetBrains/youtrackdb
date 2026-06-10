@@ -1310,6 +1310,47 @@ flowchart LR
   FIX["fix: schema lock acquired BEFORE stateLock"] --> commit
 ```
 
+**Contention envelope (2026-06-10, PSI call-site census).** How much blocks while a
+schema-carrying commit holds `SchemaShared.lock.writeLock()`: the steady-state data paths
+do **not** touch the lock. `makeSnapshot` serves the cached snapshot lock-free
+(`SchemaShared:194`; the volatile fast path takes no lock until a `forceSnapshot`
+invalidates, which F62 moves to the end of the commit), and after receiver-provenance
+checks the hot paths are snapshot-routed: binary deserialization class resolution
+(`EntityImpl.fetchClassName:4486` reads the immutable snapshot), entity creation with an
+existing class (`setClassNameWithoutPropertiesPostProcessing:3891` snapshot-first),
+core edge creation (`DatabaseSessionEmbedded.addEdgeInternal:1038`), SQL executor checks
+(`CheckClassTypeStep:48`), and global-property lookups (`ImmutableSchema`). The
+genuinely lock-based per-operation MAIN sites are an enumerable short list:
+
+- **Gremlin `addVertex(label)`** — `YTDBGraphImplAbstract.createVertexWithClass:123`–`:128`
+  goes straight at `SchemaShared.getClass` (read lock, `:393`) on every call, unlike its
+  `addEdge` sibling (`YTDBVertexImpl:128`) which is snapshot-first with the lock only on
+  the auto-create miss. The one hot site; trivially convertible to the `addEdge` pattern,
+  which removes it from the blocked set. Pre-existing inconsistency, cheap mitigation.
+- **MATCH planning** — `SQLMatchStatement.getLowerSubclass:368` uses the proxy (per MATCH
+  query); also snapshot-convertible.
+- **Full-scan traversal start** — `YTDBGraphStep.createClassIterator:147` reads
+  `SchemaShared.getClasses` per `g.V()`-style scan.
+- **JSON deserialization / entity copy** — `EntityImpl.getSchemaClass:3863` (proxy;
+  callers: JSON serializer, `PropertyTypeInternal.copy`, `EdgeEntityImpl`).
+- **Auto-create fallbacks** — snapshot-miss `getOrCreateClass`
+  (`EntityImpl:3898`, `YTDBVertexImpl:134`): these are DDL and would park on the D7 mutex
+  anyway.
+- **Session-open / security init / snapshot rebuild** — `SecurityShared`
+  `getClasses` (`:595`/`:1230`), post-invalidation `makeSnapshot` rebuild; brief,
+  per-session-or-rebuild, not per-record.
+- **Admin machinery** — `DatabaseImport`/`Export`/`Compare`, `dropCollection`,
+  `truncateCollection`, scheduler/sequence/function init: cold.
+
+Baseline comparison: today every DDL operation already takes this same write lock
+per-operation and serializes the full schema record under it (F2), so readers on the list
+above already block per-DDL-op; the design trades ~8,400 short holds (the F48 batch) for
+one long hold, and pure-data commits never take the schema lock at all (D19 fast path).
+The one real behavioral delta: a schema-carrying tx that also carries many data writes
+holds the lock across its whole commit, including the data-record writes. Mitigations to
+carry into the plan: convert `createVertexWithClass` (and optionally
+`getLowerSubclass`) to snapshot-first, and note the hold-duration delta in D19.
+
 ### F53 — Commit-failure rollback leaves phantom engines and collections in the shared in-memory registries; D13 makes that failure routine [BLOCKER]
 Reconciliation registers structures in shared in-memory state *before* `commitIndexes`:
 `doAddCollection` → `registerCollection` (`AbstractStorage:4963`/`:5026`, mutating
