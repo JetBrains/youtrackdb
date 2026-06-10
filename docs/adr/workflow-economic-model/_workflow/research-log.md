@@ -37,6 +37,14 @@ Step 2 prompt; quoted exactly to preserve the user's framing>
   - **Why:** a descriptive model (decompose a known run into its cost terms) is directly validatable against the 12-session set; prediction and lever-ROI ranking are only trustworthy once the descriptive form reproduces actuals.
   - **Alternatives rejected:** jump straight to a predictive plan-time forecaster (no validated cost terms to forecast with yet); a single global cost-per-turn average (hides the 4×-between-phase variation — migrate floor 53% vs B+C 28%).
 
+- 2026-06-10T05:26Z [ctx=safe] The primary consumer is the lever-ROI ranking, but it is gated on more functional-form research before the build starts (user: "research more before we start lever-ROI ranking").
+  - **Why:** the ranking only ranks correctly once each lever maps to the cost term it actually moves, and the read term's exponent decides which levers compound. Resolving open Q#1 (below) is the prerequisite.
+  - **Alternatives rejected:** per-phase $ forecast as primary (needs plan-time-knowable inputs that open Q#3 has not settled); budget-setting input (shallower than ranking, and ranking subsumes it); descriptive-only stop (forgoes the actionable payoff the user wants).
+
+- 2026-06-10T05:26Z [ctx=safe] Model the read term with the explicit two-term integral `READ·(a·T + ½·b·T²)`, with a LIVE, uncapped quadratic component; do not collapse it to a fixed `T^1.4` power.
+  - **Why:** the studied sessions never compact (verified: zero `real_prefix` sustained drops; the prefix peaks at the last turn of every session), so the quadratic term is uncapped. The cross-session fit reads `T^1.41` only because at the observed lengths (T=29–89) the linear base `a·T` (base prefix `a`≈87–170K) is still comparable to `½·b·T²`; the local exponent rises toward 2 as T grows. A fixed `T^1.4` power would mis-extrapolate longer sessions. See the Surprises entry below.
+  - **Alternatives rejected:** fixed `T^1.4` power (a regime-specific local slope, not the structural form; under-predicts long sessions); flat per-turn read constant (contradicts the within-session prefix slope of 1900–8500 tok/turn and growth_share 57–74%); a compaction-cap term (zero compaction in the data — the relief valve never opens because the user stops first).
+
 ## Surprises & Discoveries
 <!-- Code-research and external-research findings that shape the plan.
 Format:
@@ -73,6 +81,14 @@ Format:
   - **Source:** `tools/cost-analysis/{wf-content-type-cost,wf-doc-cost-analyzer,wf-orch-distribution}.py` + README; pricing/dedup via `session-stats.py` ((message.id, requestId) dedup, live Opus 4.8 rates 0.50/6.25/25 per MTok).
   - **Implication:** the model has a ready acceptance test — fit the cost terms, then confirm the model reproduces the per-phase actuals ($75.22 / $18.24 / $20.72 / $26.31 / $11.40) within tolerance.
 
+- 2026-06-10T05:26Z [ctx=safe] No compaction fires in the studied sessions — the prefix grows monotonically to the last turn — so the read integral is a genuine two-term `READ·(a·T + ½·b·T²)` with the quadratic LIVE and uncapped. `read$ ∝ T^1.41` is a local slope, not a structural ceiling; total cost is `T^1.07`.
+  - **Source:** new analyzer `tools/cost-analysis/wf-prefix-growth.py` over the 12 sessions. Compaction check: every one of the 12 has `final/peak real_prefix = 1.00` and zero `real_prefix` sustained drops >15% — the prefix peaks at the last turn; the user stops before compaction. The 1–7 per-session events the first cut mislabeled as "compaction" are 5m-TTL cache re-warms (verified: each is a `cache_read` dip with a coincident `cache_write` spike), i.e. the cold-rewrite cost (YTDB-1097), which re-caches content without reducing it. Within-session: linear fit of per-turn `cache_read` against turn index has positive slope everywhere (1900–8500 tok/turn, R² 0.56–0.86); the fitted-integral growth term carries 57–74% of read in exec-tracks/create-plan, 28–34% in migrate; last-decile prefix is 3.8–7.7× the first-decile. Cross-session: `read ∝ T^1.41`, `mean_prefix ∝ T^0.41` (identity `read = T·mean_prefix·READ` ⇒ exponents sum to 1.41), `total cost ∝ T^1.07`. Validation: reproduces orchestrator $151.89 total, $29.17 for d6fb4ed8, output $31.83 — all exact.
+  - **Implication:** resolves open Q#1. The model carries the explicit `READ·(a·T + ½·b·T²)`; the `T^1.41` exponent is regime-specific (linear base still comparable to the quadratic at T<90) and would climb toward 2 in longer sessions, so the structural two-term form must not be replaced by a fixed power. There is no compaction relief valve to model — the cost curve bends upward without bound until the 1M wall or a manual stop. The earlier framing that the quadratic read term is *why B+C is half the spend* is only partly right: B+C dominates mostly because it has the most sessions (4), the longest runs (66 turns avg), and the largest mean prefix (239K) for content reasons; the super-linear amplifier is real but secondary, since read is 42% of the bill and write (36%) + output (21%) scale roughly linearly with T. The marginal cost of turn k is `(a + b·k)·READ + output`, so the LAST turns of a session are the most expensive — trimming turns off the tail saves the most.
+
+- 2026-06-10T05:26Z [ctx=safe] The orchestrator bill splits 42% cache-read / 36% cache-write / 21% output / 0.5% uncached input; read+write (the resident prefix, re-cached and re-read) is 79%.
+  - **Source:** `wf-prefix-growth.py` aggregate over 12 sessions ($151.89): read $64.14, write $55.12, output $31.83, input $0.81.
+  - **Implication:** this is the lever-target map the ranking sits on. Floor-trim (YTDB-1094) and doc-views attack the read+write 79% as a fixed-size cut applied every turn (savings linear in T). Bound-thinking attacks the per-turn prefix growth slope `b` AND the 21% output — the only lever hitting both the super-linear read tail and a linear term. Cold-rewrite (YTDB-1097) attacks the write side after compaction/TTL resets, concentrated in write-bound impl. Coarser/fewer turns cut `T` itself and so hit read (`T^1.4`), write, and output at once.
+
 ## Open Questions
 <!-- Items flagged during research but not yet resolved. Carry into
 Phase 1 as Decision Records to write or as Architecture Notes to fill.
@@ -81,8 +97,8 @@ Format:
   - **Blocking:** <what plan element this blocks>
 -->
 
-- 2026-06-09T12:10Z [ctx=safe] What is the functional form, and does it have a superlinear (≈quadratic-in-turns) read term?
-  - **Blocking:** the core model equation. Content added at turn k is re-read on every remaining T−k turns, so for a prefix that grows with turns the cumulative read cost is structurally O(T²). The descriptive form must decide whether to model this explicitly (prefix-growth × turns) or approximate it per phase. This is what predicts long-session blowup (why B+C is half the spend).
+- 2026-06-09T12:10Z [ctx=safe] ~~What is the functional form, and does it have a superlinear (≈quadratic-in-turns) read term?~~ **RESOLVED 2026-06-10** (see Surprises & Discoveries, 2026-06-10T05:26Z, and the matching Decision Log entry).
+  - **Answer:** yes, a live uncapped quadratic — read integral is `READ·(a·T + ½·b·T²)` because the prefix grows monotonically (zero compaction; it peaks at the last turn). The `T^1.41` cross-session fit is a local slope at T<90 where the linear base `a·T` is still comparable to `½·b·T²`; it rises toward 2 in longer sessions. Total cost `∝ T^1.07` (read is 42% of the bill). Model the explicit two-term form, not a fixed power. B+C dominance is mostly turn count + content-driven mean prefix; the quadratic amplifier is secondary at current lengths.
 
 - 2026-06-09T12:10Z [ctx=safe] What is the modeling unit and driving variable — per-phase with turn count (or session length) as x?
   - **Blocking:** how the cost terms are parameterized. Data is per-session/per-phase; per-track is too granular for the current dataset.
