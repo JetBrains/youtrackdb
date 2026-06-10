@@ -252,8 +252,8 @@ def test_format_line_no_worktree_exact() -> None:
 
 def test_format_line_with_worktree_exact() -> None:
     """A project total inserts the worktree figures at the front of the
-    parenthetical — `wt:$…` (all-time) immediately followed by its
-    `[main:$… sub:$…]` split, then `wtday:$…` (today's slice) — ahead of the
+    parenthetical (`wt:$…` all-time, immediately followed by its
+    `[main:$… sub:$…]` split, then `wtday:$…` today's slice), ahead of the
     always-present `day:$…` and the `mo:$…` figure."""
     sess = _totals(0.123, **{"in": 1200, "out": 8000, "read": 230000, "w5": 40000, "w1": 0})
     day = _totals(2.34)
@@ -350,14 +350,20 @@ def test_project_totals_aggregates_sessions_and_subagents() -> None:
 
 
 def test_project_totals_main_sub_split() -> None:
-    """The 3rd/4th tuple elements split the all-time total by transcript origin:
-    `main` is the top-level (orchestrator / main-session) spend, `sub` is the
-    sub-agent spend (files under a `subagents/` dir). The split partitions the
-    deduped all-time set — a key seen in any sub-agent file goes to `sub`, every
-    other key to `main` — so `main['cost'] + sub['cost']` equals the all-time
-    cost even though m1 is duplicated into the sub-agent transcript here. With
-    m2 unique to a top-level file (main) and m1+m3 attributed to the sub-agent
-    file (sub), main = 1M and sub = 2M, summing to the 3M all-time total."""
+    """The 3rd/4th tuple elements split the all-time total by transcript origin.
+    `main` is the top-level (orchestrator / main-session) spend; `sub` is the
+    sub-agent spend (any file under a `subagents/` dir, at any depth). The split
+    partitions the deduped all-time set (a key seen in any sub-agent file goes to
+    `sub`, every other key to `main`), so `main['cost'] + sub['cost']` equals the
+    all-time cost even though m1 is duplicated into the sub-agent transcript here.
+
+    Two sub-agent layouts are exercised so the classifier is pinned to recognise
+    both depths: m3 sits directly under `subagents/` (immediate parent), and m4
+    sits under the nested `subagents/workflows/wf_*/` layout used by
+    workflow-spawned agents. With m2 unique to a top-level file (main) and
+    m1 + m3 + m4 attributed to sub-agent files (sub), main = 1M and sub = 3M,
+    summing to the 4M all-time total. A classifier that only matched the
+    immediate-parent layout would misbucket m4 into main."""
     with tempfile.TemporaryDirectory() as tmp:
         cache = Path(tmp) / "cache"
         proj = Path(tmp) / "project"
@@ -367,16 +373,21 @@ def test_project_totals_main_sub_split() -> None:
             proj / "sessionA" / "subagents" / "agent-1.jsonl",
             [
                 _assistant_usage("m1", "r1", in_t=1_000_000),  # duplicate of A -> attributed to sub
-                _assistant_usage("m3", "r3", in_t=1_000_000),  # unique sub-agent record
+                _assistant_usage("m3", "r3", in_t=1_000_000),  # unique sub-agent record (immediate parent)
             ],
+        )
+        write_jsonl(
+            proj / "sessionA" / "subagents" / "workflows" / "wf_abc" / "agent-2.jsonl",
+            [_assistant_usage("m4", "r4", in_t=1_000_000)],  # nested workflow sub-agent record
         )
         with _patched(CACHE_DIR=cache):
             all_time, _today, main, sub = MODULE.project_totals(str(proj / "sessionA.jsonl"))
-        # main = {m2}; sub = {m1, m3}; the partition is disjoint and exhaustive.
+        # main = {m2}; sub = {m1, m3, m4}; the partition is disjoint and exhaustive.
         assert main["in"] == 1_000_000, main["in"]
-        assert sub["in"] == 2_000_000, sub["in"]
+        assert sub["in"] == 3_000_000, sub["in"]
         assert _approx(main["cost"], 1 * USD_PER_1M_IN), main["cost"]
-        assert _approx(sub["cost"], 2 * USD_PER_1M_IN), sub["cost"]
+        assert _approx(sub["cost"], 3 * USD_PER_1M_IN), sub["cost"]
+        assert all_time["in"] == 4_000_000, all_time["in"]
         # The invariant the statusline display depends on.
         assert _approx(main["cost"] + sub["cost"], all_time["cost"]), (main, sub, all_time)
 

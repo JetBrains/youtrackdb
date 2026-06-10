@@ -272,7 +272,7 @@ cat /tmp/claude-code-worktree-cost-$PPID.txt
 ```
 Output example: `wt_cost: $1.85 (main: $1.20 sub: $0.65)`. The file is absent in the main checkout (no `wt:` figure there). Implementation: `.claude/scripts/statusline-command.sh` detects the worktree and passes `--worktree` / `--worktree-cost-file` to `.claude/scripts/session-stats.py`, which computes the figures and writes the file.
 
-Pricing is fetched live from LiteLLM (24 h disk cache) with a hardcoded offline fallback table in `session-stats.py`; the fallback covers the current models (Fable 5 at $10/$50 in/out, Opus 4.8/4.7/4.6, Sonnet 4.6, Haiku 4.5) so cold-start / offline cost is still computed rather than zeroed.
+Pricing is fetched live from LiteLLM (24 h disk cache) with a hardcoded offline fallback in `session-stats.py`'s `FALLBACK_PRICES` table, so cold-start / offline cost is still computed rather than zeroed. The fallback's model list is owned by that table — see the sync-list entry below.
 
 The example output format above MUST stay in sync with:
 - `.claude/scripts/statusline-command.sh` — detects the worktree and passes the flags that produce the `wt:$X` / `[main:$X sub:$X]` / `wtday:$X` figures on the statusline's second line

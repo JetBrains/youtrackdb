@@ -12,7 +12,7 @@ statusline adds it whenever the cwd is a linked git worktree) worktree-scoped
 figures are inserted at the front of the parenthetical: `wt:` (the current
 worktree project's all-time spend) immediately followed by its split into
 `[main:` (top-level orchestrator / main-session spend) and `sub:` (sub-agent
-spend) — the two sum to `wt:` — and then `wtday:` (today's slice of `wt:`):
+spend) that together sum to `wt:`, and then `wtday:` (today's slice of `wt:`):
 
   $0.123 (wt:$1.85 [main:$1.20 sub:$0.65] wtday:$0.40 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K …
 
@@ -566,11 +566,12 @@ def project_totals(transcript_path, now=None):
         bucket in `calendar_totals`.
       - `main` / `sub` split `all_time` by where each record lives: a file
         directly under the project dir is a top-level (orchestrator / main)
-        session, while a file whose parent dir is `subagents` is a sub-agent
-        transcript. A sub-agent's records never appear in a top-level file
-        (verified: zero (msg_id, requestId) overlap across sampled projects),
-        so the two record sets are disjoint and `main['cost'] + sub['cost']`
-        equals `all_time['cost']` by construction.
+        session, while a file under a `subagents/` dir at any depth (including
+        the nested `subagents/workflows/wf_*/` layout for workflow-spawned
+        agents) is a sub-agent transcript. A sub-agent's records never appear in
+        a top-level file (verified: zero (msg_id, requestId) overlap across
+        sampled projects), so the two record sets are disjoint and
+        `main['cost'] + sub['cost']` equals `all_time['cost']` by construction.
 
     All four are produced in one directory walk so a statusline render does not
     re-stat every transcript more than once. There is no mtime pre-filter here
@@ -598,10 +599,13 @@ def project_totals(transcript_path, now=None):
     day_merged = {}
     sub_keys = set()
     for jsonl in proj_dir.rglob("*.jsonl"):
-        # A sub-agent transcript lives at <proj>/<uuid>/subagents/agent-*.jsonl,
-        # so its immediate parent dir is named `subagents`; everything else is a
-        # top-level (orchestrator / main) session file.
-        is_sub = jsonl.parent.name == "subagents"
+        # A sub-agent transcript lives somewhere under a `subagents/` dir:
+        # directly at <proj>/<uuid>/subagents/agent-*.jsonl, or nested deeper at
+        # <proj>/<uuid>/subagents/workflows/wf_*/agent-*.jsonl for workflow-spawned
+        # agents. Test for `subagents` anywhere in the path below the project dir
+        # (not just the immediate parent), so both depths count as sub; everything
+        # else is a top-level (orchestrator / main) session file.
+        is_sub = "subagents" in jsonl.relative_to(proj_dir).parts
         for k, v in aggregate_file(jsonl).items():
             _keep_larger_output(all_merged, k, v)  # max-output dedup
             if is_sub:
@@ -609,12 +613,12 @@ def project_totals(transcript_path, now=None):
             if v[0] == cur_day:
                 _keep_larger_output(day_merged, k, v)
     # Partition the deduped all-time records into sub (key seen in any subagent
-    # file) and main (everything else). Partitioning the already-deduped set —
-    # rather than summing two independently-merged buckets — keeps
+    # file) and main (everything else). Partitioning the already-deduped set
+    # (rather than summing two independently-merged buckets) keeps
     # main['cost'] + sub['cost'] == all_time['cost'] unconditionally, even if a
     # record were duplicated across a top-level and a sub-agent file. (It isn't
-    # in practice — verified zero (msg_id, requestId) overlap — but the
-    # partition makes the invariant hold regardless.)
+    # in practice; verified zero (msg_id, requestId) overlap.) The partition
+    # makes the invariant hold regardless.
     main_merged = {k: v for k, v in all_merged.items() if k not in sub_keys}
     sub_merged = {k: v for k, v in all_merged.items() if k in sub_keys}
     return (
