@@ -134,6 +134,16 @@ no orphaned or missing files. The `doAddCollection`/`dropCollectionInternal`
 primitives already take an `AtomicOperation` parameter; today they merely wrap
 it in their own `calculateInsideAtomicOperation`.
 
+**Corrected by F55 (2026-06-10): the "replays cleanly" half is false in one window.**
+Rollback and crash-before-end-record are sound as stated, but recovery of a *committed*
+file-creating unit breaks when the crash lands between the end record becoming durable
+and the completion of the physical apply phase: page records precede the
+`FileCreatedWALRecord`s inside the unit, bookings are not persisted, and
+`restoreAtomicUnit` aborts on the first page record of a never-created file — and
+`restoreFrom` then discards every later committed unit. The F55 lazy-consult replay fix
+(a prerequisite track) restores the all-or-nothing property this entry claims; until it
+lands, F16's guarantee is conditional.
+
 ### F17 — `truncateFile` is NOT crash-safe / not WAL-revertible
 `AtomicOperationBinaryTracking.commitChanges` flags `truncateFile` as unsafe
 (`:1009`–`:1014`); it is the one cache path outside the WAL guarantee. A
@@ -607,8 +617,11 @@ root-entity property sets); F60 → D15/D17 (replacement-object publication via 
 no in-place field writes on shared definitions); F61 → D7 (mutex release on
 session-close/reap + timed/interruptible acquire); F62 → D8/D15 (single trailing
 `forceSnapshot` after both publications, inside the F52 lock scope); F63 → D20 (export
-manifest + import verification, not-in-service-until-verified). **Pending: F55** (replay
-fix choice and the standalone-issue decision — under discussion).
+manifest + import verification, not-in-service-until-verified); F55 → F16/D10 (option 3
+— lazy consult in `restoreAtomicUnit`: a missing-file page record consults the buffered
+unit's pending `FileCreatedWALRecord`s and materializes the file early; prerequisite
+track + kill-mid-physical-phase recovery test; standalone YTDB issue for the pre-existing
+`develop` hole). **All pass-5 findings are resolved.**
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1463,12 +1476,22 @@ microsecond width; the design moves all file creation into this pattern and F48 
 the physical phase to seconds (~24,800 `addFile` calls), with the D20 import as the prime
 victim. Affected: F16, D10, D3, D12, F48, D20.
 
-**Resolution (proposed):** fix the replay, not the design shape — make `restoreAtomicUnit`
-two-pass (apply the unit's `FileCreatedWALRecord`s before its page records; the unit is
-already fully buffered at that point), or persist bookings, or teach `restoreFileById` to
-consult the unit's pending file records. Carry as a **prerequisite track** with a
-kill-mid-physical-phase recovery test at batch scale; candidate for a standalone YTDB issue
-since the hole is live on `develop` today.
+**Resolution (accepted 2026-06-10, option 3 — lazy consult):** fix the replay, not the
+design shape. Keep strict in-order replay; when a page record references a missing file,
+scan the buffered unit forward for a `FileCreatedWALRecord` with that file id, materialize
+the file at that point, and apply the page — the later `FileCreated` record replays as an
+idempotent no-op; no pending create found means a genuinely broken WAL, throw as today.
+This preserves every existing intra-unit ordering property (pages-then-`FileDeleted` drop
+sequences still apply in order — the property a strict two-pass would have to re-derive by
+hand), touches only the missing-file branch (`AbstractStorage:5657`/`:5731`), needs no WAL
+format change, and restores old WALs unchanged. Persisting bookings was rejected: an
+fsynced name-id append per file creation on the forward hot path for a recovery-only
+problem, plus stale negative entries to collect. Carried as a **prerequisite track** with
+a kill-mid-physical-phase recovery test at batch scale (fault hook after the end-record
+log in `commitChanges:1067`; the `LocalPaginatedStorageRestoreFromWALIT` family is the
+home) plus the kill-mid-import D20 scenario. A standalone YTDB issue covers the
+pre-existing `develop` hole so the fix can land and be backported independently of
+YTDB-382.
 
 ```mermaid
 flowchart LR
@@ -2138,6 +2161,11 @@ rolled-back or crashed-before-commit tx leaves the files byte-for-byte
 unchanged — no orphan on create, no data loss on drop. A committed delete is
 permanent and redone from the WAL after a crash, as intended.
 
+- **Recovery caveat (F55).** The "replay cleanly" half of F16 is conditional
+  until the lazy-consult replay fix lands: a crash between the end record
+  becoming durable and the physical apply phase completing aborts the restore
+  of a committed file-creating unit and discards all later units. The F55 fix
+  is a prerequisite track for this decision's crash-recovery claim.
 - **Pool / page-reuse rejected for v1.** Its only correctness benefit
   (revertible delete) is already free (F16). Its performance benefit
   (skip OS file create/delete) needs a new WAL-logged clear-and-reinit op,
