@@ -671,7 +671,10 @@ to YTDB-1099). F74 → D12/D7 (accepted 2026-06-10, option 1 with premise correc
 WAL pin starts at the commit window (`startTxCommit`, `AbstractStorage.commit:2293`),
 not at tx begin — a long tx body pins only the `tsMin` snapshot floor (heap), and
 read-only txs never register; D12 gains the corrected envelope sentence, D7's reaper
-parenthetical corrected). F75 pending.
+parenthetical corrected); F75 → D20 (accepted 2026-06-10: manifest emitted strictly
+last and atomically, import hard-fails on a missing/unparsable manifest for
+manifest-era dumps, legacy distinguished by dump version). **All pass-6 findings are
+resolved.**
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2119,7 +2122,16 @@ case silently degrades to today's unverified import. The current exporter is a s
 JSON writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.), so this is
 net-new behavior to specify. Full analysis: pass-6 report U11.
 
-**Resolution (proposed):** one D20 bullet carrying both pins. Affected: F63, D20.
+```mermaid
+flowchart LR
+  OK["complete export"] -- "manifest last + atomic<br/>(temp+fsync+rename)" --> V["import verifies counts"]
+  X["interrupted export"] -- "manifest absent/unparsable" --> F["import hard-fails<br/>(manifest-era dump, by version)"]
+```
+
+**Resolution (accepted 2026-06-10):** D20 gains the manifest-write-discipline bullet
+carrying both pins (manifest emitted strictly last and atomically; import hard-fails on
+a missing or unparsable manifest for manifest-era dumps, legacy distinguished by dump
+version). Affected: F63, D20.
 
 ---
 
@@ -2866,6 +2878,14 @@ recover.
   the target out of service until verification passes — a crash mid-import is
   loudly incomplete instead of silently so. The D14 version gate stays
   format-only.
+- **Manifest write discipline (F75):** the counts are known only at export end,
+  so the manifest is emitted strictly last and atomically (temp + fsync +
+  rename, or the final section of the dump stream); an interrupted export
+  cannot leave a well-formed manifest. Import hard-fails on a missing or
+  unparsable manifest for any manifest-era dump — legacy dumps are
+  distinguished by dump version, not manifest absence. Net-new behavior to
+  specify: the current exporter is a streaming JSON writer with no terminal
+  marker (`DatabaseExport.exportSchema:449` ff.).
 - **Scope effect on D14.** D14 loses the on-open migration sub-task and its
   crash-safety burden; it keeps the `toStream`/`fromStream` per-class-record
   rewrite and the version bump, which becomes a reject-and-redirect gate, not a
