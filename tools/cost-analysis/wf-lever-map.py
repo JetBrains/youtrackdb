@@ -15,7 +15,7 @@ session length). That split is what ranks the levers.
 Buckets -> levers:
   FLOOR              floor / tool-schema trim (YTDB-1094)        -> a
   wf_proc + wf_art   per-(role,phase) doc views                  -> a + b
-  model_gen          bound/manage retained thinking + output     -> b + output
+  model_gen          bound retained thinking + output (YTDB-1098) -> b + output
   subagent + task    sub-agent output routing (YTDB-883)         -> a + b
   (write rewarm)     cold-rewrite re-warm (YTDB-1097)            -> write overhead
   T                  fewer / coarser turns                       -> all terms
@@ -148,17 +148,30 @@ PHASE = {
     "7349adfa": "create-plan P0/1", "60c8ca29": "create-plan P0/1", "779b4af1": "migrate-workflow", "5640d186": "migrate-workflow"}
 LEVER = {
     "FLOOR": "floor-trim (YTDB-1094)", "wf_proc": "doc-views", "wf_art": "doc-views",
-    "model_gen": "bound-thinking + output", "subagent": "subagent-routing (883)",
+    "model_gen": "bound-thinking (YTDB-1098)", "subagent": "subagent-routing (883)",
     "task": "subagent-routing (883)", "tool_out": "(intrinsic: tool output)",
     "code": "(intrinsic: source reads)", "RESIDUAL": "(untranscribed)"}
 ORDER = ["FLOOR", "model_gen", "wf_proc", "wf_art", "subagent", "task", "tool_out", "code", "RESIDUAL"]
 
-BASE = os.environ.get("WF_PROJECT_DIR", "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-open-speedup")
+_STUDY = "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-open-speedup"
 _DEFAULT = ["d6fb4ed8-e29c-4ab6-a046-aa0a72736ca7", "2294a479-6125-4811-8a1d-91bda3fad3e8", "5a35307e-9757-40b0-b180-8a86e2086db0",
     "c65d3661-d17f-4ccd-a344-00ae878b8cc1", "46764d14-5dbb-4c34-8aac-ad5c5eea993a", "86b0deec-8420-49db-93e9-3f5aebf3e7f4",
     "48f12216-f339-45e7-bea9-fb545eaaf48c", "eb3a9289-651e-4143-a128-407d4671f762", "7349adfa-5d47-4717-a5fc-c8d0797b9353",
     "60c8ca29-4869-4ffc-aeb8-22b4e007ca90", "779b4af1-1222-4829-9311-c09c9d343d91", "5640d186-3a7b-4814-9229-41b0e03d97d5"]
 SIDS = [a for a in sys.argv[1:] if not a.startswith("--")] or _DEFAULT
+
+
+def resolve_base(sids):
+    """Transcript dir: WF_PROJECT_DIR wins; else the study dir when it holds the
+    requested sessions; else the current project's own dir (cwd, Claude-encoded)."""
+    env = os.environ.get("WF_PROJECT_DIR")
+    if env: return env
+    if all(os.path.exists(os.path.join(_STUDY, s + ".jsonl")) for s in sids):
+        return _STUDY
+    return os.path.expanduser("~/.claude/projects/" + os.getcwd().replace("/", "-").replace(".", "-"))
+
+
+BASE = resolve_base(SIDS)
 
 # accumulate per phase
 ph = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(float)))
@@ -194,7 +207,7 @@ print("   [ttl-rewarm write $ = cache_creation beyond the one-time prefix build 
 
 # ---- per-lever rollup: $/session by lever, blended growth share ----
 LEVER_BUCKETS = {
-    "bound-thinking (no issue)": ["model_gen"],
+    "bound-thinking (YTDB-1098)": ["model_gen"],
     "floor-trim (YTDB-1094)": ["FLOOR"],
     "doc-views": ["wf_proc", "wf_art"],
     "subagent-routing (YTDB-883)": ["subagent", "task"],
@@ -222,3 +235,30 @@ for p in phases:
 print()
 print("\n  [cell = $/session / growth%. cold-rewrite cell = $/session of TTL-rewarm write (all write-side).]")
 print("  [fewer/coarser turns: not a bucket — cuts T, hits read (~T^1.4), write, and output at once.]")
+
+# ---- grand savings-ceiling rollup across all sessions ----
+# Content-removing levers are bucket-additive (disjoint buckets). cold-rewrite is
+# NOT additive: its $ is the re-warm SLICE of write already inside every bucket, so
+# fixing it cuts the write that remains, it does not stack on top of the bucket sums.
+ALL_BUCKETS = ["FLOOR", "model_gen", "wf_proc", "wf_art", "subagent", "task", "tool_out", "code", "RESIDUAL"]
+g = {bk: 0.0 for bk in ALL_BUCKETS}
+g_rewarm = 0.0
+for p in ph:
+    g_rewarm += ph_rewarm[p]
+    for bk in ALL_BUCKETS:
+        if bk in ph[p]:
+            g[bk] += ph[p][bk]["read"] + ph[p][bk]["write"] + ph[p][bk]["out"]
+bill = sum(g.values())  # orchestrator read+write+out (excludes ~$0.81 uncached input)
+addressable = g["FLOOR"] + g["model_gen"] + g["wf_proc"] + g["wf_art"] + g["subagent"] + g["task"]
+intrinsic = g["tool_out"] + g["code"] + g["RESIDUAL"]
+print("\n\n=== GRAND SAVINGS CEILING (all 12 sessions, orchestrator read+write+out) ===")
+print(f"  bill (bucketed)                 ${bill:7.2f}  (+ ~$0.81 uncached input = ~$151.89 true bill)")
+print(f"  bound-thinking (YTDB-1098)       ${g['model_gen']:7.2f}  {100*g['model_gen']/bill:4.1f}%")
+print(f"  floor-trim (YTDB-1094)           ${g['FLOOR']:7.2f}  {100*g['FLOOR']/bill:4.1f}%")
+print(f"  doc-views                        ${g['wf_proc']+g['wf_art']:7.2f}  {100*(g['wf_proc']+g['wf_art'])/bill:4.1f}%")
+print(f"  sub-agent routing (YTDB-883)     ${g['subagent']+g['task']:7.2f}  {100*(g['subagent']+g['task'])/bill:4.1f}%")
+print(f"  ---- addressable bucket total    ${addressable:7.2f}  {100*addressable/bill:4.1f}%  (GROSS ceiling if each bucket -> 0)")
+print(f"  cold-rewrite (YTDB-1097)         ${g_rewarm:7.2f}  {100*g_rewarm/bill:4.1f}%  (re-warm SLICE of write, NOT additive)")
+print(f"  intrinsic (tool_out+code+resid)  ${intrinsic:7.2f}  {100*intrinsic/bill:4.1f}%  (no lever)")
+print("\n  [GROSS ceiling assumes a lever removes its whole bucket - unrealistic. A bucket cannot]")
+print("  [go to zero: you still generate some thinking, keep a system floor, read some docs.]")

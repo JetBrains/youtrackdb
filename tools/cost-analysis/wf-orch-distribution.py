@@ -108,11 +108,9 @@ LABEL = {"FLOOR": "floor", "INJECTED": "injected", "OUTPUT": "output", "wf_proc"
          "wf_art": "wf-art", "subagent": "subagt-out", "task": "task-prompt", "orch_gen": "orch-gen",
          "tool_out": "tool-out", "code": "code-read", "INPUT": "input"}
 
-# Transcript dir: override with WF_PROJECT_DIR=/home/coder/.claude/projects/<encoded-path>.
-BASE = os.environ.get("WF_PROJECT_DIR",
-    "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-open-speedup")
 # Default study set (open-speedup). Override by passing session-id stems as args;
 # any 8-char prefix not in PHASE rolls up under "other".
+_STUDY = "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-open-speedup"
 _DEFAULT_SIDS = ["d6fb4ed8-e29c-4ab6-a046-aa0a72736ca7", "2294a479-6125-4811-8a1d-91bda3fad3e8",
         "5a35307e-9757-40b0-b180-8a86e2086db0", "c65d3661-d17f-4ccd-a344-00ae878b8cc1",
         "46764d14-5dbb-4c34-8aac-ad5c5eea993a", "86b0deec-8420-49db-93e9-3f5aebf3e7f4",
@@ -120,6 +118,19 @@ _DEFAULT_SIDS = ["d6fb4ed8-e29c-4ab6-a046-aa0a72736ca7", "2294a479-6125-4811-8a1
         "7349adfa-5d47-4717-a5fc-c8d0797b9353", "60c8ca29-4869-4ffc-aeb8-22b4e007ca90",
         "779b4af1-1222-4829-9311-c09c9d343d91", "5640d186-3a7b-4814-9229-41b0e03d97d5"]
 SIDS = [a for a in sys.argv[1:] if not a.startswith("--")] or _DEFAULT_SIDS
+
+
+def resolve_base(sids):
+    """Transcript dir: WF_PROJECT_DIR wins; else the study dir when it holds the
+    requested sessions; else the current project's own dir (cwd, Claude-encoded)."""
+    env = os.environ.get("WF_PROJECT_DIR")
+    if env: return env
+    if all(os.path.exists(os.path.join(_STUDY, s + ".jsonl")) for s in sids):
+        return _STUDY
+    return os.path.expanduser("~/.claude/projects/" + os.getcwd().replace("/", "-").replace(".", "-"))
+
+
+BASE = resolve_base(SIDS)
 
 by_phase = collections.defaultdict(lambda: collections.defaultdict(float))
 phase_total = collections.defaultdict(float)

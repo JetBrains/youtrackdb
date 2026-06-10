@@ -20,11 +20,16 @@ Sizing: len(content)/4. tiktoken cl100k measures real-token/char4 = 0.98 across
 41 workflow docs; Claude's tokenizer runs ~10% higher, so DOC_FACTOR = 1.08
 (band 0.98-1.20) converts char/4 -> real tokens. Both raw and calibrated reported.
 """
-import json, sys, glob, os, importlib.util, collections
+import json, sys, glob, os, importlib.util, pathlib, collections
 from datetime import datetime
 
-SS_PATH = "/home/andrii0lomakin/Projects/ytdb/develop/.claude/scripts/session-stats.py"
-spec = importlib.util.spec_from_file_location("ss", SS_PATH)
+# session-stats.py lives at <repo-root>/.claude/scripts/; this file is at
+# <repo-root>/tools/cost-analysis/. Resolve relative to __file__ so the script
+# is portable across worktrees; fall back to the develop checkout if absent.
+_ss = pathlib.Path(__file__).resolve().parents[2] / ".claude" / "scripts" / "session-stats.py"
+if not _ss.exists():
+    _ss = pathlib.Path("/home/andrii0lomakin/Projects/ytdb/develop/.claude/scripts/session-stats.py")
+spec = importlib.util.spec_from_file_location("ss", str(_ss))
 ss = importlib.util.module_from_spec(spec); spec.loader.exec_module(ss)
 
 WRITE = 6.25 / 1_000_000   # Opus 4.8 cache write_5m $/token
@@ -247,14 +252,10 @@ PHASE = {
 }
 
 if __name__ == "__main__":
-    # Transcript dir of the project to analyze. Override with
-    #   WF_PROJECT_DIR=/home/coder/.claude/projects/<encoded-path>
-    # (default: the open-speedup study set). Pass session-id stems as args.
-    BASE = os.environ.get("WF_PROJECT_DIR",
-        "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-open-speedup")
     mode = "--summary" if "--summary" in sys.argv else "--detail"
     # Default to the open-speedup 12-session study set when no sids are passed,
     # matching the sibling analyzers (avoids a divide-by-zero on a bare run).
+    _STUDY = "/home/coder/.claude/projects/-home-andrii0lomakin-Projects-ytdb-open-speedup"
     _DEFAULT = ["d6fb4ed8-e29c-4ab6-a046-aa0a72736ca7", "2294a479-6125-4811-8a1d-91bda3fad3e8",
         "5a35307e-9757-40b0-b180-8a86e2086db0", "c65d3661-d17f-4ccd-a344-00ae878b8cc1",
         "46764d14-5dbb-4c34-8aac-ad5c5eea993a", "86b0deec-8420-49db-93e9-3f5aebf3e7f4",
@@ -262,6 +263,17 @@ if __name__ == "__main__":
         "7349adfa-5d47-4717-a5fc-c8d0797b9353", "60c8ca29-4869-4ffc-aeb8-22b4e007ca90",
         "779b4af1-1222-4829-9311-c09c9d343d91", "5640d186-3a7b-4814-9229-41b0e03d97d5"]
     targets = [a for a in sys.argv[1:] if not a.startswith("--")] or _DEFAULT
+
+    def resolve_base(sids):
+        """Transcript dir: WF_PROJECT_DIR wins; else the study dir when it holds the
+        requested sessions; else the current project's own dir (cwd, Claude-encoded)."""
+        env = os.environ.get("WF_PROJECT_DIR")
+        if env: return env
+        if all(os.path.exists(os.path.join(_STUDY, s + ".jsonl")) for s in sids):
+            return _STUDY
+        return os.path.expanduser("~/.claude/projects/" + os.getcwd().replace("/", "-").replace(".", "-"))
+
+    BASE = resolve_base([s for s in targets if not s.endswith(".jsonl")])
     rows = []
     for sid in targets:
         path = os.path.join(BASE, sid + ".jsonl") if not sid.endswith(".jsonl") else sid

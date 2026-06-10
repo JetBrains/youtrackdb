@@ -280,6 +280,7 @@ The example output format above MUST stay in sync with:
 ### Recipes
 
 - **Read the current worktree's running cost** — when you want to know the cumulative spend on this worktree before wrapping up or reporting cost, `cat /tmp/claude-code-worktree-cost-$PPID.txt` (the statusline refreshes it each render). Empty result means the cwd is the main checkout or the file has not been written yet this session.
+- **Decompose what a Claude session cost and why** — when a cost figure needs explaining (per content type, per phase, prefix growth, doc-read discipline), run the transcript analyzers in `tools/cost-analysis/` (see its README); they accept session-id stems and resolve the transcript dir from the cwd.
 
 ## MCP Steroid — IntelliJ IDE Control
 
