@@ -361,6 +361,17 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > aggregate branches, splice + fallback in `DatabaseSessionEmbedded`, and the
   > per-aggregate-kind I4 + I5-enumeration tests.
   > **Depends on:** Track 1
+  > **Carried from Track-1 Phase C review:** wire the global
+  > `QUERY_CACHE_*_RATE` metric increments — Track 1 defines and registers
+  > them in `CoreMetrics` but never increments them, and the
+  > "wiring lands in later steps" comment is now stale; finalize them where
+  > this track records cache hits/misses for aggregate shapes. Route every
+  > per-RID/row append through `CachedEntry.recordPulledRow` so the
+  > `maxRecordsPerEntry` cap (enforced only at that point) applies to
+  > aggregate material. If the aggregate splice calls `QueryResultCache.lookup`
+  > outside the `cacheCodeDepth` bracket, the lookup-level `inFlightLookup`
+  > guard becomes reachable and needs end-to-end coverage. Use
+  > `exitCacheCodeUnchecked` for any view-owned cross-thread guard release.
 
 - [ ] Track 3: MATCH shapes — Etap A composition, partial Etap B, tombstone floor
   > Adds MATCH caching: Etap A (single-alias) folds to RECORD shape via a stored
@@ -375,6 +386,9 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > tombstone handling in `QueryResultCache`, and the I4 MATCH test matrix
   > (vertex + edge CREATE/DELETE/UPDATE, update-into-match, cross-class deref).
   > **Depends on:** Track 1, Track 2
+  > **Carried from Track-1 Phase C review:** the same `recordPulledRow`
+  > cap-routing, `inFlightLookup`-liveness, and `exitCacheCodeUnchecked`
+  > cautions as Track 2 apply to the MATCH view and cursor paths.
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
