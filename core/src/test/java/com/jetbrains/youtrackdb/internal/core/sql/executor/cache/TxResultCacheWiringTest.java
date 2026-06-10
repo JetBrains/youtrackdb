@@ -3,11 +3,19 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import java.lang.reflect.Method;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -219,5 +227,105 @@ public class TxResultCacheWiringTest extends DbTestBase {
     assertNull("no cache is allocated when the flag is off", tx().getQueryResultCache());
 
     session.rollback();
+  }
+
+  // ===========================================================================
+  // Re-entrancy guard balance on the populate no-view branch
+  // ===========================================================================
+
+  /**
+   * Guard-balance regression test for the populate fallback that builds no view. The cache gate
+   * enters the tx re-entrancy guard around the lookup-and-populate scope and normally hands that
+   * guard to the {@code CachedResultSetView} it returns, which releases it on close/exhaustion. But
+   * the populate path has a fallback: when real execution does not return a {@code LocalResultSet}
+   * (so the cache cannot lift its stream), it returns the unwrapped result and builds no view. On
+   * that branch no view exists to release the guard, so the gate must release it itself in the
+   * finally; the prior guard-handoff logic transferred ownership unconditionally and leaked the
+   * depth bump for the rest of the transaction, silently disabling the cache.
+   *
+   * <p>SELECT/MATCH always return a {@code LocalResultSet} today, so this branch is unreachable
+   * through normal SQL; the test reaches it by invoking the private {@code serveThroughCache} with a
+   * deterministic, RECORD-classified SELECT statement whose execution is overridden to return a
+   * plain non-{@code LocalResultSet} result set. It asserts the gate returns that unwrapped result
+   * (no view built) and, critically, that {@code getCacheCodeDepth() == 0} once the call returns —
+   * proving the guard was released exactly once on the no-view branch and is not leaked.
+   */
+  @Test
+  public void populateNoViewBranchReleasesGuardExactlyOnce() throws Exception {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    seed(1);
+
+    session.begin();
+    var tx = tx();
+    assertNotNull("cache must exist with the flag on", tx.getQueryResultCache());
+    assertEquals("guard starts balanced before the gated call", 0, tx.getCacheCodeDepth());
+
+    // A bare SELECT statement with no projection/group-by/skip/limit classifies as RECORD and is
+    // deterministic (empty AST), so it passes every gate check and reaches the populate path. Its
+    // execution is overridden to return an InternalResultSet (a concrete ResultSet that is NOT a
+    // LocalResultSet), forcing the populate no-view fallback branch.
+    var nonLocalResult = new InternalResultSet(session);
+    var statement = new NonLocalResultSelectStatement(nonLocalResult);
+
+    var served = invokeServeThroughCache(session, statement, null);
+
+    assertSame(
+        "no-view branch returns the unwrapped non-LocalResultSet result, not a view",
+        nonLocalResult,
+        served);
+    assertEquals(
+        "re-entrancy guard is released exactly once on the no-view branch (no leak)",
+        0,
+        tx.getCacheCodeDepth());
+
+    // A subsequent real query in the same transaction must still reach the cache: a leaked guard
+    // would force every later query() onto the depth > 0 re-entrant bypass, leaving the cache dead.
+    var cache = tx.getQueryResultCache();
+    countQuery("SELECT FROM " + CLASS_NAME);
+    assertEquals(
+        "follow-up query still populates the cache, proving the guard did not leak",
+        1,
+        cache.size());
+
+    session.rollback();
+  }
+
+  /** Reflectively invokes the private {@code serveThroughCache(SQLStatement, Object)} gate. */
+  private static ResultSet invokeServeThroughCache(
+      DatabaseSessionEmbedded session, SQLStatement statement, Object args) throws Exception {
+    Method m =
+        DatabaseSessionEmbedded.class.getDeclaredMethod(
+            "serveThroughCache", SQLStatement.class, Object.class);
+    m.setAccessible(true);
+    return (ResultSet) m.invoke(session, statement, args);
+  }
+
+  /**
+   * A SELECT statement whose execution returns a caller-supplied non-{@code LocalResultSet} result.
+   * Empty AST keeps it RECORD-classified and deterministic so it passes the cache gate, while the
+   * overridden {@code execute} drives the populate no-view fallback branch under test.
+   */
+  private static final class NonLocalResultSelectStatement extends SQLSelectStatement {
+
+    private final ResultSet result;
+
+    private NonLocalResultSelectStatement(ResultSet result) {
+      super(-1);
+      this.result = result;
+    }
+
+    @Override
+    public boolean isIdempotent() {
+      return true;
+    }
+
+    @Override
+    public ResultSet execute(
+        DatabaseSessionEmbedded session,
+        Object[] args,
+        CommandContext parentContext,
+        boolean usePlanCache) {
+      return result;
+    }
   }
 }

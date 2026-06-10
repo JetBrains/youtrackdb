@@ -793,14 +793,21 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         // yet; route them to uncached execution until those paths land.
         return executeUncached(statement, args);
       }
-      var view = populateAndBuildView(statement, args, key, shape, tx, cache);
-      viewOwnsGuard = true;
-      return view;
+      var result = populateAndBuildView(statement, args, key, shape, tx, cache);
+      // Transfer the guard to the view only when one was actually built. The populate path has a
+      // fallback that returns the unwrapped uncached result when execution did not yield a
+      // LocalResultSet (no entry, no view): on that branch no view exists to release the guard, so
+      // ownership must NOT transfer or the finally would skip release and leak the depth bump for the
+      // rest of the transaction. A built view is always a CachedResultSetView, so the instanceof check
+      // distinguishes the two outcomes exactly.
+      viewOwnsGuard = result instanceof CachedResultSetView;
+      return result;
     } finally {
       // Release the bare-lookup guard only when no view took ownership of it. When a view was
       // returned, the view holds the guard for its iteration lifetime and releases it on close /
       // exhaustion (paired with its entry pin); releasing here would reopen the cache to a
-      // re-entrant query() while the view is still being consumed.
+      // re-entrant query() while the view is still being consumed. On the populate fallback path
+      // (no view built) viewOwnsGuard stays false, so the guard is released here exactly once.
       if (!viewOwnsGuard) {
         tx.exitCacheCode();
       }
