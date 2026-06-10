@@ -625,11 +625,17 @@ root-entity property sets); F60 → D15/D17 (replacement-object publication via 
 no in-place field writes on shared definitions); F61 → D7 (mutex release on
 session-close/reap + timed/interruptible acquire); F62 → D8/D15 (single trailing
 `forceSnapshot` after both publications, inside the F52 lock scope); F63 → D20 (export
-manifest + import verification, not-in-service-until-verified); F55 → F16/D10 (option 3
+manifest + import verification, not-in-service-until-verified — manifest write discipline
+extended by F75); F55 → F16/D10 (option 3
 — lazy consult in `restoreAtomicUnit`: a missing-file page record consults the buffered
 unit's pending `FileCreatedWALRecord`s and materializes the file early; prerequisite
 track + kill-mid-physical-phase recovery test; standalone issue YTDB-1099 for the
 pre-existing `develop` hole). **All pass-5 findings are resolved.**
+
+**Pass-6 resolutions (settling one by one):** F64 → D7/D15/D19 (accepted 2026-06-10:
+four-lock order — D7 mutex → `SchemaShared.lock` → `IndexManagerEmbedded.lock` →
+`stateLock`; overlay publication under the held index write lock; uniform sequence for
+index-only txs). F65–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1722,13 +1728,15 @@ stops maintaining the index, and subsequent data commits corrupt it durably. Loc
 publication naively recreates C1's ABBA on (indexLock, stateLock): reload orders
 indexLock.write → `stateLock.read` (`:89` → `:91`). Full analysis: pass-6 report C8.
 
-**Resolution (proposed):** the index-manager lock joins the global order as a fourth
-member — **D7 mutex → `SchemaShared.lock` → `IndexManagerEmbedded.lock` → `stateLock`**.
-The schema-carrying commit acquires the index write lock after the schema lock, before
-`stateLock.writeLock()`, and holds it through overlay publication and the trailing
-`forceSnapshot` (CHM puts stay, for lock-free reader safety). `reload`/`load` already
-conform; no path takes the index lock before the schema lock. State the four-lock order in
-D7/D19. Affected: F52, F60, D15, D19, D7, F44.
+**Resolution (accepted 2026-06-10):** the index-manager lock joins the global order as a
+fourth member — **D7 mutex → `SchemaShared.lock` → `IndexManagerEmbedded.lock` →
+`stateLock`**. The schema-carrying commit acquires the index write lock after the schema
+lock, before `stateLock.writeLock()`, and holds it through overlay publication and the
+trailing `forceSnapshot` (CHM puts stay, for lock-free reader safety). `reload`/`load`
+already conform; no path takes the index lock before the schema lock. Index-only txs take
+the same uniform four-lock sequence — forking the order for them would split the
+acyclicity proof for marginal gain. Stated in D7/D19. Affected: F52, F60, D15, D19, D7,
+F44.
 
 ```mermaid
 flowchart LR
@@ -2127,14 +2135,19 @@ Serialize schema/index-changing txns with a new exclusive lock (a
 - **At commit**, structural reconciliation additionally takes
   `stateLock.writeLock()` briefly (D1) to exclude concurrent data commits
   during the physical apply.
-- **Lock ordering (amended per F52)** is always metadata-mutex →
-  `SchemaShared.lock` → `stateLock.writeLock`; nothing takes them in reverse,
-  and a second schema tx blocks on the mutex before touching anything else, so
-  it is deadlock-free. The schema lock joined the proof because the commit-side
-  promotion (D8) mutates the lock-guarded shared maps while `reload` takes
-  `SchemaShared.lock.write` → `stateLock.read` from the data path
-  (`EntityImpl:4173`); acquiring the schema write lock before `stateLock`
-  keeps the order acyclic.
+- **Lock ordering (amended per F52/F64)** is always metadata-mutex →
+  `SchemaShared.lock` → `IndexManagerEmbedded.lock` → `stateLock.writeLock`;
+  nothing takes them in reverse, and a second schema tx blocks on the mutex
+  before touching anything else, so it is deadlock-free. The schema lock
+  joined the proof because the commit-side promotion (D8) mutates the
+  lock-guarded shared maps while `reload` takes `SchemaShared.lock.write` →
+  `stateLock.read` from the data path (`EntityImpl:4173`); the index-manager
+  lock joined for the same shape one registry over (F64:
+  `IndexManagerAbstract.load`'s clear-and-rebuild under the index lock races
+  the commit's lock-free overlay publication, and `reload` orders
+  indexLock.write → `stateLock.read`). Acquiring both metadata write locks
+  before `stateLock` keeps the order acyclic; index-only txs take the same
+  uniform sequence.
 - **Release on abnormal termination (F61).** Closing a session with an active
   schema tx runs rollback's mutex release on the owning thread; server-side
   reaping of a dead session routes through the same close path. The acquire is
@@ -2293,8 +2306,10 @@ IndexManager" framing.
   changed per-index entities and update the manager link set, then — after
   `endTxCommit` succeeds (F53) — publish the definition overlay into the shared
   index manager as replacement objects via the CHM put (F60, mirroring
-  `addIndexInternalNoLock`'s copy-on-write discipline), sharing the single
-  trailing `forceSnapshot` with D8's schema promotion (F62, inside the F52 lock
+  `addIndexInternalNoLock`'s copy-on-write discipline), under the index-manager
+  write lock held per the F64 four-lock order (which excludes `reload`'s
+  clear-and-rebuild for the whole window), sharing the single trailing
+  `forceSnapshot` with D8's schema promotion (F62, inside the F52/F64 lock
   scope). At rollback, discard the overlay and the tracked key-entries; storage
   engines were never touched (D10/F16).
 - **Index-change tracking stays consistent.** The per-tx key-entry tracking
@@ -2581,8 +2596,9 @@ today's concurrency. This supersedes D1's "upgrade" framing.
 
 - **No upgrade, no deadlock window.** The exclusive lock is held for the whole
   schema commit, so there is nothing to reconcile mid-commit and D7's ordering
-  proof (metadata-mutex → `SchemaShared.lock` → `stateLock.writeLock`, amended
-  per F52) holds without the read-lock caveat F33 raised.
+  proof (metadata-mutex → `SchemaShared.lock` → `IndexManagerEmbedded.lock` →
+  `stateLock.writeLock`, amended per F52/F64) holds without the read-lock
+  caveat F33 raised.
 - **Cost bounded by the low schema-change rate (D5).** A schema commit excludes
   concurrent data commits for its duration; acceptable because schema changes
   are rare, the same premise that justifies D5/D7/D12.
@@ -2599,15 +2615,18 @@ today's concurrency. This supersedes D1's "upgrade" framing.
   already expose them (`doAddCollection`/`dropCollectionInternal`, F8); engines
   need `doAddIndexEngine`/`doDeleteIndexEngine(atomicOperation, …)` extracted from
   the inlined bodies of `addIndexEngine`/`deleteIndexEngine`.
-- **Schema lock joins the entry sequence (F52, accepted 2026-06-10).** A
-  schema-carrying commit acquires `SchemaShared.lock.writeLock()` immediately
-  before `stateLock.writeLock()` and holds it through promotion and the
-  trailing `forceSnapshot`. Hold-duration delta vs today: the lock-based reader
-  set blocks once for the whole commit (including the tx's data-record writes)
-  instead of once per DDL op; the blocked set is small (F52 contention
-  envelope) and the snapshot-routed hot paths are unaffected. In-scope
-  mitigations: convert `YTDBGraphImplAbstract.createVertexWithClass` (`:123`)
-  and `SQLMatchStatement.getLowerSubclass` (`:368`) to snapshot-first reads,
+- **Both metadata locks join the entry sequence (F52/F64, accepted
+  2026-06-10).** A schema-carrying commit acquires
+  `SchemaShared.lock.writeLock()`, then `IndexManagerEmbedded.lock`'s write
+  lock, then `stateLock.writeLock()`, and holds all three through promotion,
+  overlay publication, and the trailing `forceSnapshot`. Hold-duration delta
+  vs today: the lock-based reader set blocks once for the whole commit
+  (including the tx's data-record writes) instead of once per DDL op; the
+  blocked set is small (F52 contention envelope; F64 adds the lock-based
+  index-metadata readers and `reload`) and the snapshot-routed hot paths are
+  unaffected. In-scope mitigations: convert
+  `YTDBGraphImplAbstract.createVertexWithClass` (`:123`) and
+  `SQLMatchStatement.getLowerSubclass` (`:368`) to snapshot-first reads,
   removing the only per-record and per-MATCH lock-based sites.
 
 ```mermaid
