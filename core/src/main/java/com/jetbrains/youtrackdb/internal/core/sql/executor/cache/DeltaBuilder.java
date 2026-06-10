@@ -116,20 +116,36 @@ public final class DeltaBuilder {
       return new TxDeltaCursor(entry.getCachedSkipSet(), entry.getCachedInjectList());
     }
 
-    // Snapshot the version-filtered operations before iterating: WHERE re-evaluation may invoke a UDF
-    // that calls save(), which would structurally modify recordOperations mid-iteration. A snapshot
+    // Snapshot the relevant operations before iterating: WHERE re-evaluation may invoke a UDF that
+    // calls save(), which would structurally modify recordOperations mid-iteration. A snapshot
     // (a) keeps the iteration ConcurrentModificationException-free and (b) excludes any record a
     // UDF-triggered mutation adds during the build — that record becomes visible to the NEXT view,
     // when the mutation version has advanced and a fresh delta is built.
-    // This walks every staged op across all classes (not just the query's closure) and allocates a
-    // transient list per rebuild. That is the accepted cost: rebuilds happen once per mutation
-    // version (the fast path above bounds re-walks), and the cost stays sub-ms against request
-    // latency. A per-class mutation index is the deferred v2 lever if a regression ever justifies it.
+    //
+    // The snapshot applies both filters that depend only on the op and the entry's frozen metadata —
+    // the populate-version filter and the class-closure filter — so the transient list and the
+    // dispatch loop below only ever see ops this RECORD query can possibly select. The class checks
+    // are pure reads (no save()), so hoisting them ahead of the WHERE re-eval is safe and keeps the
+    // O(d) dispatch loop free of ops it would only skip. The remaining full-log walk is the accepted
+    // v1 cost; a per-class mutation index is the deferred v2 lever if a regression ever justifies it.
+    final var effectiveFromClasses = entry.getEffectiveFromClasses();
     final var snapshot = new ArrayList<RecordOperation>();
     for (final var op : tx.getRecordOperationsInternal()) {
-      if (op.version > entry.getPopulateMutationVersion()) {
-        snapshot.add(op);
+      if (op.version <= entry.getPopulateMutationVersion()) {
+        // Already reflected in the populated result; replaying it would double-apply.
+        continue;
       }
+      // Class filter (subclass closure, O(1) hash-set probe). Non-Entity records (e.g. Blobs) and
+      // entities whose schema class is null or outside the query's class closure are not part of
+      // this RECORD query's result and contribute no delta.
+      if (!(op.record instanceof Entity entity)) {
+        continue;
+      }
+      final var className = entity.getSchemaClassName();
+      if (className == null || !effectiveFromClasses.contains(className)) {
+        continue;
+      }
+      snapshot.add(op);
     }
 
     final var skipSet = new HashSet<RID>();
@@ -138,17 +154,6 @@ public final class DeltaBuilder {
 
     for (final var op : snapshot) {
       final var record = op.record;
-      // Class filter (subclass closure, O(1) hash-set probe). Non-Entity records (e.g. Blobs) and
-      // entities whose schema class is null or outside the query's class closure are not part of
-      // this RECORD query's result and contribute no delta.
-      if (!(record instanceof Entity entity)) {
-        continue;
-      }
-      final var className = entity.getSchemaClassName();
-      if (className == null || !entry.getEffectiveFromClasses().contains(className)) {
-        continue;
-      }
-
       final var rid = record.getIdentity();
       final var cachedAtBuild = entry.getCachedRids().contains(rid);
       // Re-evaluate WHERE against the post-mutation record using the original query's context so
