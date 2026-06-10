@@ -19,7 +19,7 @@ and 3 add shapes on top without changing this foundation.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-09T17:47Z [ctx=safe] Review + decomposition complete
@@ -29,6 +29,7 @@ and 3 add shapes on top without changing this foundation.
 - [x] 2026-06-09T21:33Z [ctx=safe] Step 4 complete (commit 6edeb296a5, +1 review-fix iteration)
 - [x] 2026-06-09T21:53Z [ctx=info] Step 5 complete (commit ec573e2b97)
 - [x] 2026-06-10T09:32Z [ctx=safe] Step 6 complete (commit 651f38f629, +2 review-fix iterations)
+- [x] 2026-06-10T10:07Z [ctx=safe] Step 7 complete (commit c47abadf58)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -97,6 +98,16 @@ at Phase 1. -->
     RECORD delta path must carry populate-context variables, not just params.
   - `invalidateCacheForBulkDml` covers only TRUNCATE CLASS; any future mid-tx bulk op
     that bypasses `addRecordOperation` must be added there.
+
+- Step 7 findings (See Episodes §Step 7):
+  - Cache-vs-fresh equivalence must compare ordered FIELD values, not RIDs: the flag-off
+    and flag-on halves are independent executions that assign different physical RIDs to
+    created rows, so RID-level comparison drifts. Tracks 2/3 extending the equivalence
+    matrix must keep the value-not-RID contract; RID-level skip/inject correctness is
+    pinned separately by `DeltaBuilderTest` / `CachedResultSetViewTest`.
+  - The feature flag is a process-global and an equivalence pair shares one database, so
+    each run must be self-contained: `clearClass()` with the flag forced off, then rebuild
+    a fixed committed seed. Tracks 2/3 can reuse the `runScenario` / `clearClass` harness.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -586,6 +597,37 @@ variables; `invalidateCacheForBulkDml` covers only TRUNCATE CLASS.
 (modified), `CachedEntry` (modified), `IdempotentExecutionStream` (modified),
 `NonDeterministicQueryDetector` (modified); `TxResultCacheWiringTest` (new),
 `CachedResultSetViewTest` (modified).
+
+### Step 7 — commit c47abadf58, 2026-06-10T10:07Z [ctx=safe]
+
+**What was done:** Added `TxResultCacheInvariantsTest`, the exhaustive invariant and
+cache-vs-fresh equivalence matrix deferred from the Step 6 wiring suite. The core
+equivalence pattern runs each cacheable scenario twice through the live `query()` path
+(flag off for the fresh uncached source of truth, flag on for the populate-then-second-
+query path served through the delta-merged view) and asserts the two ordered FIELD-value
+sequences are equal. Covers RECORD equivalence across CREATED/UPDATED/DELETED ×
+before/after-populate, the K0_NONE version gate (pure-read hit plus post-mutation
+invalidation), I1 eventual clear (commit/rollback clears; an iterate-time exception does
+not clear synchronously while the next tx-end does), I3 stream lifetime, I6 idempotent
+clear, I7 view-snapshot isolation, I8 schema-stable class filter, I9 live-view LRU
+pinning (maxEntries=1), I2 re-entrancy guard balance, and the ORDER BY + LIMIT
+classify-ordering guard on the live path. 18/18 pass with `-ea`; 97/97 across the whole
+cache package.
+
+**What was discovered:** The feature flag is a process-global and both halves of an
+equivalence pair share one database, so committed seed records accumulate across the two
+halves. Comparing on (RID, value) failed twice (cardinality drift from accumulated
+commits, then RID drift because two independent executions assign different physical RIDs
+to created rows). The honest end-to-end comparison is on ordered FIELD values (the
+observable I10 guarantees: cardinality, order, content); RID-level skip/inject
+correctness is already pinned by `DeltaBuilderTest` and `CachedResultSetViewTest`. Each
+equivalence run is now self-contained: `clearClass()` (flag forced off so the clearing
+DELETE never touches the cache under test) then rebuild a fixed committed seed inside the
+run, so both halves see identical committed state. Staging a genuine UPDATED/DELETED
+still needs a record committed in a prior tx then `tx.addRecordOperation(record, type)`
+directly (the Step 4 harness fact), confirmed.
+
+**Key files:** `TxResultCacheInvariantsTest` (new).
 
 ## Validation and Acceptance
 
