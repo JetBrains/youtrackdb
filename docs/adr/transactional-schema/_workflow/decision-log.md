@@ -664,7 +664,8 @@ schema-carrying signal replaces the dead root-record dispatch check); F70 → D1
 (accepted 2026-06-10: accept-and-document the pre-existing enqueue-phase window; closure
 filed as YTDB-1101); F71 → D7/F61 (accepted 2026-06-10: timeout = re-wait loop with
 diagnostic; mutex = owner-tracked `Semaphore(1)` with `releaseStranded` reap API after
-full tx rollback; F38 assertion relocated into owner bookkeeping). F72–F75 pending.
+full tx rollback; F38 assertion relocated into owner bookkeeping); F72 → D7 (accepted 2026-06-10: genesis
+parenthetical fixed — genesis engages via its D18 transactions). F73–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2029,8 +2030,9 @@ shared empty schema — then D18's commit has nothing to diff or promote. Concur
 harmless (genesis is single-threaded; the `SharedContext.lock` → mutex ordering cannot
 cycle). Full analysis: pass-6 report C15.
 
-**Resolution (proposed):** fix the D7 parenthetical to "load/reload never engage; genesis
-engages through its explicit D18 transactions". Affected: D7, D18, F31, F44.
+**Resolution (accepted 2026-06-10):** D7's parenthetical fixed to "load/reload never
+engage; genesis engages through its explicit D18 transactions". Affected: D7, D18, F31,
+F44.
 
 ### F73 — The F55 lazy-consult wording drops three replay details the real branch depends on [MINOR]
 (1) Keep the `restoreFileById` fallback — it resurrects files deleted by a later
@@ -2217,7 +2219,8 @@ context / storage — an owner-tracked, cross-thread-releasable mutex
   methods parks tx2 on the mutex while it already holds the shared write lock,
   freezing every lock-based schema read for tx1's whole duration and
   deadlocking against the F52 commit-side schema-lock acquisition. Engage only
-  inside an active user tx (load/reload/genesis paths never engage) and at
+  inside an active user tx (load/reload never engage; genesis engages through
+  its explicit D18 transactions — F72) and at
   mutation time, not commit time, so a second schema-changing tx blocks (D5).
   Ordering: D7 mutex → seed → tx-local locks only during the body; shared
   locks only at commit, in the F52/F64 order. The engage surface includes the
