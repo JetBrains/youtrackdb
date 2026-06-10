@@ -653,7 +653,10 @@ tx-local write-view during the session's schema tx, with mutex engage on the fir
 write-routed proxy call; impl-typed arguments always re-resolved by name); F66 → D12/F32
 (accepted 2026-06-10: commit-time re-derivation of tx-created indexes' entries from the
 tx's complete record-operation set; pre-existing indexes keep the incremental path;
-F32's "on every record write" timing model corrected). F67–F75 pending.
+F32's "on every record write" timing model corrected); F67 → D16 (accepted 2026-06-10,
+option (b): the stable-base-keyed engine-files half of D16 pulled into v1 with
+unconditional id-keyed bases — no legacy engines can exist under D20 — dissolving the
+same-name collision; rename feature stays in YTDB-1066). F68–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1860,13 +1863,24 @@ deterministically. D3 never pins the intra-reconciliation order; F16/D10's file-
 does not know the recycle branch exists; the YTDB-1099 test plan is blind to this shape
 (no file records to consult). Full analysis: pass-6 report U8.
 
-**Resolution (proposed):** pin in D3 that reconciliation applies engine/file **drops
-before creates** (recycle becomes the deterministic path); document the recycle semantics
-in F16's model (no WAL file records, id reuse, content overlaid, length retained); extend
-YTDB-1099's test matrix with a same-name drop+recreate kill-mid-physical-phase scenario
-and an order-B regression guard (same-name drop+create must not throw). Cross-reference
-D16/YTDB-1066, which dissolves the seam by making the file bases distinct. Affected: D3,
-D9, D12, D15, F16, D10, F27, F48, F55/YTDB-1099.
+**Resolution (accepted 2026-06-10, option (b) — dissolve via D16's file-base half pulled
+into v1).** Relying on an essentially unexercised recycle branch for a headline migration
+pattern (option (a): pin drops-before-creates and document/test the recycle semantics)
+was judged a design risk; instead v1 adopts the stable-base-keyed engine **files** half
+of D16: every engine file base derives from the stable engine id (F29), so a same-name
+drop+recreate collides on nothing — the drop logs `FileDeletedWALRecord`, the create logs
+`FileCreatedWALRecord` under a distinct base, space is reclaimed, the replay model stays
+uniform (F16/F55 as written), and the recycle branch remains unexercised. Simplification
+under D20: D14's version gate forces export/import, so no legacy name-keyed engine file
+can exist in a v1 database — v1 keys **every** engine file by id unconditionally and
+F29's dual-base (name-default for pre-existing engines) compat is dropped. The persisted
+base, `StorageComponent`'s immutable file base (logical `setName` never touches files),
+and the histogram `.ixs` sourcing the same base follow D16's planning notes. The
+index-name rename *feature* (inert rename, `ALTER INDEX … RENAME`) stays deferred to
+YTDB-1066. No D3 drops-vs-creates pin is needed (collision-free in either order); the
+YTDB-1099 matrix keeps a plain same-tx drop+recreate replay test, which now exercises
+standard file records. Affected: D16 (status), D3, D9, F16, D10, F27, F29,
+F55/YTDB-1099, F73.
 
 ```mermaid
 flowchart LR
@@ -2539,7 +2553,16 @@ physical collection mutation. Decoupling removes that path, strengthens D9 from
 id-based, F15).
 
 ### D16 — Stable-base-keyed engine files; index rename is metadata-only
-**Status: deferred to follow-up YTDB-1066; v1 ships the metadata-only fix (D17).**
+**Status (amended per F67, 2026-06-10): split. The stable-base-keyed engine *files* half
+is pulled into v1** — every engine file base derives from the stable engine id,
+unconditionally: under D20's import-only migration no legacy name-keyed engine file can
+exist in a v1 database, so the dual-base compat below (id for new, name for pre-existing)
+is dropped. v1 scope: persisted base, `StorageComponent` immutable file base (`setName`
+changes only the logical name), data + null-bucket + histogram `.ixs` files all derive
+from the base. Motivation: dissolves F67's same-name drop+recreate file collision (no
+recycle branch, no `bookFileId` throw, uniform WAL replay model). **The index-name rename
+feature (inert rename, `ALTER INDEX … RENAME`) remains deferred to YTDB-1066; v1 ships
+the metadata-only class-rename fix (D17).**
 
 From the assignee's steer (2026-06-03: "F28 should cause introduction of
 id-keyed engine files"), refined by the F29 feasibility check. Decouple an
