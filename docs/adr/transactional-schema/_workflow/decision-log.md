@@ -581,7 +581,14 @@ interaction seams between D8/F41 (tx-local seed), D14 (per-class records), and D
 (index overlay), adding F45–F47, all PSI-verified against live code. A performance pass
 (2026-06-04) assessed the 400-class / 4,000-index batch workload against the design, adding
 F48–F51 (concentration costs and one F35 implementation invariant), with quantities
-code-grounded.
+code-grounded. A fifth pass (2026-06-10, two parallel sub-agents: a concurrency lens and a
+durability/crash-safety lens) attacked the lock architecture, the commit-failure path, and
+the WAL replay machinery, adding F52–F63 (all code-verified, symbol claims PSI-verified;
+the convergent pairs C2+U5 and C3+U6 from the two reports each fold into one entry). Full
+agent reports with the failed-attack lists: `adversarial-pass5-concurrency.md` and
+`adversarial-pass5-durability.md`. Resolutions for F52–F63 are proposed inside each entry
+and pending the fix discussion; the resolution map below will be extended when they
+settle.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1257,6 +1264,350 @@ flowchart TD
   TRIG -- "lazy null + rebuild-on-read (forceSnapshot:218): O(1)" --> OK["pure single-col DDL: no rebuild (Q3), O(N) total"]
   TRIG -- "eager reconstruct per call: O(N)" --> BAD["O(N²) for the batch — must NOT do this"]
   COMP["composite index OR data interleaved"] -. "forces snapshot build per op" .-> COST["per-op rebuild cost returns"]
+```
+
+### F52 — D8's promotion of the tx-local schema into the shared `SchemaShared` has no specified lock, and every naive choice fails [BLOCKER]
+D8 says the commit "promotes the tx-local structure to the shared `SchemaShared`" and F43's
+diff reads the committed in-memory schema, both inside the D19 `stateLock.writeLock()`
+window — but no entry names the lock guarding them. The shared maps are not concurrent
+(`classes` is a plain `HashMap`, `SchemaShared:70`; `collectionsToClasses` an
+`Int2ObjectOpenHashMap`, `:71`) and every reader uses the schema read lock (`getClass:398`,
+`makeSnapshot:198`). The three choices all break:
+
+- **Take `SchemaShared.lock` inside the commit → ABBA deadlock with `reload`.** Commit
+  order: `stateLock.write` → `SchemaShared.lock`. `reload` order: `SchemaShared.lock.write`
+  (`:356`) → `session.load` (`:363`) → `stateLock.readLock` (`AbstractStorage:4584`).
+  `ScalableRWLock`'s writer preference parks reload's read behind the commit's held write
+  lock; permanent deadlock. Reload is reachable from the **data path**:
+  `EntityImpl.getGlobalPropertyById` calls `metadata.reload()` (`EntityImpl:4173`) on an
+  unknown global-property id, which is exactly a reader's state right after another
+  session's schema commit.
+- **Skip the schema lock** → concurrent readers see a plain `HashMap` mid-mutation: torn
+  reads, resize loops, and `makeSnapshot` can cache a half-promoted schema for every session.
+- **Defer promotion past `stateLock` release** → window where storage has the new
+  collections but the shared schema lacks them; `getClassByCollectionId(realId)` → null on
+  the F42 caller list, now on real ids.
+
+Instance-swap is foreclosed by code: `ProxedResource.delegate` is `final`
+(`ProxedResource:30`) and sessions bind the instance at `MetadataDefault.init` (`:124`).
+
+**Resolution (proposed):** fix the global lock order as **D7 mutex → `SchemaShared.lock` →
+`stateLock`**. The schema-carrying commit acquires `SchemaShared.lock.writeLock()` *before*
+`stateLock.writeLock()` and holds it through promotion + `forceSnapshot`; `reload` already
+conforms. State the schema lock as a third member of D19's ordering proof. Affected: D8,
+D19, D7, F43, F42.
+
+```mermaid
+flowchart LR
+  subgraph commit["schema commit (D19)"]
+    SW["stateLock.write"] --> SL["wants SchemaShared.lock"]
+  end
+  subgraph reload["SchemaShared.reload (EntityImpl:4173 data path)"]
+    RL["SchemaShared.lock.write (:356)"] --> SR["wants stateLock.read (:4584)"]
+  end
+  SL -. "blocked by" .-> RL
+  SR -. "blocked by" .-> SW
+  FIX["fix: schema lock acquired BEFORE stateLock"] --> commit
+```
+
+### F53 — Commit-failure rollback leaves phantom engines and collections in the shared in-memory registries; D13 makes that failure routine [BLOCKER]
+Reconciliation registers structures in shared in-memory state *before* `commitIndexes`:
+`doAddCollection` → `registerCollection` (`AbstractStorage:4963`/`:5026`, mutating
+`collections`/`collectionMap` `:263`–`:264`) and the engine-create body does
+`indexEngineNameMap.put` + `indexEngines.add` (`:2811`–`:2812`) plus config-cache updates.
+`commitIndexes` (`:2375`) then runs the UNIQUE validators — D13 defers uniqueness
+enforcement to exactly this point, so `RecordDuplicatedException` there is a routine,
+user-data-caused event. It is a `HighLevelException`: the catch routes to
+`rollback(error, atomicOperation)` (`:2398`), which only ends the atomic operation
+(`:3702`–`:3705`) and deliberately does not poison the storage. The WAL/file side rolls
+back cleanly (F16/D10); nothing unwinds the in-memory registrations. After the abort:
+engines with valid `indexId`s but no files (D13's `indexId < 0` planner guard does not
+protect anyone), collections with no files, leaked engine slots (F29), and follow-on
+durable writes computed from the poisoned state. Today the exposure is a sliver
+(registration is the last statement of its small atomic op); the design inserts minutes of
+user-data-dependent work between registration and operation end. Merges the concurrency
+and durability reports' C2+U5.
+
+**Resolution (proposed):** defer all registry publication (collections array, engine maps,
+config caches) to the post-`commitChanges` success path, matching D8/D15's existing
+publish-at-commit discipline — avoids new undo code; tx-local→shared promotion (F52) and
+D15 overlay publication run strictly after `endTxCommit`. Test: schema tx + duplicate key
+in the same tx → commit fails → retry succeeds → restart → consistent. Affected: D3, D10,
+D12, D13, D15, D19, F39.
+
+```mermaid
+flowchart LR
+  REG["registerCollection / engine-map put (:5026, :2811)"] --> CI["commitIndexes (:2375)"]
+  CI -- "RecordDuplicatedException (D13, routine)" --> RB["rollback: ends atomic op only (:3702)"]
+  RB --> PH["phantom engines + collections live in memory"]
+  FIX["fix: publish registries only after commitChanges succeeds"] -.-> REG
+```
+
+### F54 — The commit-time index build re-enters `stateLock` through the session read and batch-commit paths; the batched-tx fallback tears durability instead [BLOCKER]
+D12 keeps "populate from committed data" inside the D19 `stateLock.writeLock()` window, but
+the only population machinery is `IndexAbstract.indexCollection` (`:962`–`:1015`): copied
+session (`:989`), `browseCollection` (`:990`), batched micro-transactions
+(`executeInTxBatchesInternal`, `:991`). Every leg re-acquires `stateLock`: record reads via
+`readRecord`/`readRecordInternal` (`AbstractStorage:2031`/`:4584`), each batch commit
+(`:2285`). `ScalableRWLock` is non-reentrant (`ScalableRWLock:64`): the first row read
+self-deadlocks the commit while the WAL operation is open and the write lock held; the
+operator kill then lands on the F55 recovery path. F22 flagged the refactor generically;
+F39 extracted only `doAddIndexEngine`/`doDeleteIndexEngine` — the per-row population path
+was never resolved. The same seam hits F46's emptiness probes: `addCollection(requireEmpty)`
+and `removeCollection` probe via `session.browseCollection` (`IndexAbstract:676`, `:698`).
+The tempting fallback — keep today's `fillIndex` shape and call it "at commit" — is a
+durability bug: each batch commits its own WAL unit, so the build becomes durable
+independently of the schema commit's unit, recreating exactly the torn state D1 removes.
+Merges C3+U6. Affected: D12, D18 (genesis builds the `OUser.name` index through this
+path), D19, F22, F39, F46.
+
+**Resolution (proposed):** extend F39's extraction to the scan: commit-time population
+iterates the source collection via lock-free storage-internal primitives that take the
+commit's `AtomicOperation` (no session, no nested transactions) and feeds keys straight to
+the engine's `doPut` on that same operation; F46's probes get an internal
+`isEmpty(atomicOperation)`. D12 gains the invariant: population emits **zero additional WAL
+units**.
+
+```mermaid
+flowchart LR
+  POP["indexCollection (:989-991)"] --> RR["readRecord → stateLock.read (:2031)"]
+  POP --> BC["batch commit → stateLock.read (:2285)"]
+  RR & BC -- "non-reentrant under held write lock (D19)" --> DL["self-deadlock"]
+  ALT["fallback: keep batched txs"] --> TORN["separate WAL units → torn build on crash"]
+  FIX["fix: lock-free scan + doPut on the commit's AtomicOperation"] -.-> POP
+```
+
+### F55 — Replay of a file-creating atomic unit aborts mid-restore: page-op records precede `FileCreatedWALRecord` and booked file ids are not durable; F16's all-or-nothing claim is false in the apply window [BLOCKER — pre-existing, design-amplified]
+WAL record order inside a file-creating unit is fixed by the machinery: page-op records
+flush during the operation at component boundaries (`AtomicOperationsManager:195`/`:228`;
+leftovers at the top of `commitChanges`, `AtomicOperationBinaryTracking:979`);
+`FileDeletedWALRecord`/`FileCreatedWALRecord` are logged only inside `commitChanges`
+(`:993`/`:1006`); then `AtomicUnitEndRecord` (`:1067`); then the **physical** phase
+(`readCache.addFile` per file + page application, `:1088`–`:1177`). The background flusher
+(`CASDiskWriteAheadLog:311`–`:313`) makes the end record durable independently of the
+physical phase. Kill the process mid-physical-phase and recovery applies the unit in list
+order: a page record for a never-created file hits `writeCache.exists` → false
+(`WOWCache:1195`), `restoreFileById` finds no booking — `bookFileId` is in-memory only
+(`:732`); negative name-id entries are written only on delete (`:1965`) — returns null, and
+`restoreAtomicUnit` throws (`AbstractStorage:5661`). `restoreFrom`'s catch (`:5602`) then
+**abandons the entire remaining restore**: the unit stays half-applied and every later
+committed unit is silently discarded. The window exists today per 4-file unit at
+microsecond width; the design moves all file creation into this pattern and F48 stretches
+the physical phase to seconds (~24,800 `addFile` calls), with the D20 import as the prime
+victim. Affected: F16, D10, D3, D12, F48, D20.
+
+**Resolution (proposed):** fix the replay, not the design shape — make `restoreAtomicUnit`
+two-pass (apply the unit's `FileCreatedWALRecord`s before its page records; the unit is
+already fully buffered at that point), or persist bookings, or teach `restoreFileById` to
+consult the unit's pending file records. Carry as a **prerequisite track** with a
+kill-mid-physical-phase recovery test at batch scale; candidate for a standalone YTDB issue
+since the hole is live on `develop` today.
+
+```mermaid
+flowchart LR
+  WAL["WAL unit: [Start, PageOps…, FileCreated…, End]"] --> PHYS["physical phase: addFile ×24,800 (seconds, F48)"]
+  PHYS -- "crash mid-phase (End already durable)" --> REC["restore: page record for missing file"]
+  REC --> BOOK["restoreFileById → null (bookFileId in-memory only :732)"]
+  BOOK --> ABORT["StorageException :5661 → restoreFrom :5602 abandons ALL later units"]
+  FIX["fix: apply FileCreated records first (two-pass restoreAtomicUnit)"] -.-> REC
+```
+
+### F56 — F44's engage-points acquire the shared metadata locks before the D7 mutex; a parked second schema tx freezes schema readers, and deadlocks outright once F52's commit-side lock lands [MAJOR]
+Both F44 chokepoints take their shared lock as the first statement:
+`SchemaShared.acquireSchemaWriteLock` does `lock.writeLock().lock()` at `:415`;
+`IndexManagerEmbedded.acquireExclusiveLock` at `:189`. A hook inside them engages the D7
+mutex while already holding the shared lock, so tx2's first schema mutation parks on the
+mutex (held by tx1 for its whole body) while holding the shared schema **write** lock:
+every lock-based schema read in every session stalls for tx1's duration
+(`SchemaProxy.getOrCreateClass:87` → `acquireSchemaReadLock:398`), gutting D7's "does not
+block schema reads" premise. With F52's resolution in place it is a hard deadlock: tx1's
+commit wants the schema lock tx2 holds; tx2 waits on tx1's mutex. There is also a
+D8-routing wrinkle F44 predates: mid-tx mutations run against the tx-local instance, so a
+hook on the shared instance's lock method either never fires mid-tx or fires on the wrong
+instance. Affected: D7, D8, F44, F47.
+
+**Resolution (proposed):** engage the D7 mutex at the `SchemaProxy`/index-routing layer, on
+the first write-routed operation, strictly before any shared metadata lock and before
+seeding the tx-local copy. Restate D7's ordering: mutex → (seed) → tx-local locks only
+during the body; shared locks only at commit, in F52's order.
+
+```mermaid
+flowchart LR
+  TX2["tx2: acquireSchemaWriteLock takes SchemaShared.lock FIRST (:415)"] --> PARK["then parks on D7 mutex (held by tx1)"]
+  PARK --> FREEZE["all schema readers stall behind held write lock"]
+  PARK -- "with F52 commit-side lock" --> DEAD["tx1 commit wants schema lock → deadlock"]
+  FIX["fix: engage mutex at proxy layer, before any shared lock"] -.-> TX2
+```
+
+### F57 — The single commit-time atomic unit must fit in heap twice — forward and at recovery; the populated-class index build makes it unbounded [MAJOR]
+Forward: every touched page's change tree stays in heap until `commitChanges` applies it
+(`pageChangesMap` → `restoreChanges`, `AtomicOperationBinaryTracking:1159`). Recovery:
+`restoreFrom` buffers the entire unit as a `List<WALRecord>` and applies only at the end
+record (`AbstractStorage:5521`–`:5553`), so a crash after a successful giant commit (end
+record durable, pages not yet flushed) forces the next open to materialize the whole unit
+— a recovery OOM looks like an unopenable database. WAL disk retention compounds it: no
+checkpoint/segment cut while the operation is open (`flushAllData:4509`–`:4513`). F48's
+"tens of MB" bullet bounds only the empty-class forward path; D12's accepted
+populated-class build is O(all B-tree pages written by the scan) with no documented bound.
+Affected: F48, D12, F22.
+
+**Resolution (proposed):** state a hard v1 bound: commit-time eager build only for empty
+classes (or population below a documented size cap); populated-class builds go explicitly
+to YTDB-1064. Add the recovery-side requirement to F48's envelope: recovery heap = forward
+heap.
+
+```mermaid
+flowchart LR
+  UNIT["giant atomic unit"] --> FWD["forward: pageChangesMap in heap until apply (:1159)"]
+  UNIT --> REC["recovery: whole unit buffered before apply (:5521-5553)"]
+  REC -- "OOM" --> LOOP["crash-restart-crash: database looks unopenable"]
+  FIX["fix: v1 bound — empty-class builds only; populated → YTDB-1064"] -.-> UNIT
+```
+
+### F58 — D8's commit narrative lets the per-class record serialize provisional collection ids; the corruption is durable and surfaces only at the next open [MAJOR]
+D8's "At commit" bullet orders `toStream` per changed class *before* reconciliation. Taken
+literally — serialize early to feed the diff — a new class's record bytes carry its
+provisional ids (≤ −2, D2/F42). The unit commits flawlessly and the in-memory promotion is
+patched provisional→real (F42), so the running process is correct; at the next open
+`fromStream` rebuilds the class with negative ids, every map skips negatives
+(`SchemaShared.addCollectionClassMap:871`), and the class permanently loses its collections
+— silent, durable schema corruption. The correct ordering is achievable with the existing
+machinery: byte production happens in `commitEntry`, which runs in the record-write loop
+after position allocation (`AbstractStorage:2361`–`:2368`), and D3 puts reconciliation
+before that loop. But D2's patch list names only in-memory structures; no entry says the
+record **property values** must be re-pointed before serialization. Affected: D2, D3, D8,
+D14, F42, F43.
+
+**Resolution (proposed):** add the invariant to D2/D8: provisional→real resolution lands in
+the per-class record properties before `commitEntry` serializes them (reconcile → patch the
+class-record entities → serialize); the structural diff is computed from in-memory
+structures (F43), never from pre-serialized bytes. Cheap regression test: create class +
+insert + commit + reopen.
+
+```mermaid
+flowchart LR
+  EARLY["toStream before reconciliation (D8 as written)"] --> BYTES["record bytes carry ids ≤ -2"]
+  BYTES --> OPEN["next open: fromStream → addCollectionClassMap skips negatives (:871)"]
+  OPEN --> LOST["class permanently loses its collections"]
+  FIX["fix: reconcile → patch entities → commitEntry serializes (:2361)"] -.-> EARLY
+```
+
+### F59 — The root schema record's non-link payload (global-property table, collectionCounter, blobCollections) has no write-trigger under D14's per-class-records rule [MAJOR]
+Under D14 the root record still carries monolithic state besides the class link set:
+`globalProperties` (`SchemaShared.toStream:659`–`:665`), `collectionCounter` (`:666`),
+`blobCollections` (`:667`). Today every schema save rewrites the whole record; D8 says "at
+commit only the class records in the changed-class set are written, never the full schema",
+and the only stated root trigger is the link-set delta (F37/F43). Two committed-but-stale
+cases: (1) **property create on an existing class** — the most common DDL — allocates a
+global property (`findOrCreateGlobalProperty:805`) but changes no link set; after restart
+the property's `globalRef` resolves null (`SchemaPropertyImpl:562`–`:564`;
+`getGlobalPropertyById:758` is `@Nullable`) and the first touch NPEs. (2) **Collection add
+without class create** (D11/F46 path) bumps `collectionCounter` (`:835`–`:838`) with no
+link-set change; after restart the stale counter regenerates a colliding collection name,
+and the colliding DDL fails in a loop (each retry mutates only the tx-local copy). Extends
+F50: the same monolithic-manifest asymmetry, worse failure modes. Affected: D8, D11, D14,
+F37, F43, F50.
+
+**Resolution (proposed):** D14 enumerates the root payload and its dirtiness rule — the
+root record is written whenever the link set, the global-property table, the counter, or
+the blob set changes; mechanically, set those properties on the root entity in-tx so D6's
+dirty tracking covers them for free. Alternatively make the counter load-derived (always
+recompute at open) and keep the global table as the only extra trigger. Test:
+property-create → restart → read.
+
+```mermaid
+flowchart LR
+  PC["createProperty on existing class"] --> GP["allocates globalProperty (:805)"]
+  GP -- "no link-set change → root not written" --> STALE["committed root: stale global table"]
+  STALE --> NPE["restart: globalRef = null (:758 @Nullable) → NPE on first touch"]
+  FIX["fix: D14 dirtiness rule — root written on table/counter/blob change"] -.-> STALE
+```
+
+### F60 — Commit-time in-place mutation of shared `IndexDefinition`/`Index` fields races lock-free readers [MINOR]
+D17/F46 apply class-rename re-association and membership by mutating
+`IndexDefinition.className` (recursing composites, F30) and the committed `Index`, under
+`stateLock.writeLock()` plus per-index locks. But hot readers read those objects with no
+lock and no happens-before edge: `getClassIndex` reads
+`indexes.get(name).getDefinition().getClassName()` lock-free
+(`IndexManagerAbstract:154`–`:164`); `getClassRawIndexes` iterates `classPropertyIndex`
+lock-free. Under the JMM a direct reader can see a stale `className` indefinitely or a torn
+composite. The codebase's own pattern for this map is publication, not mutation:
+`addIndexInternalNoLock` copies the inner map and republishes via CHM `put`
+(`:229`–`:252`). Affected: D15, D17, F30, F40, F46.
+
+**Resolution (proposed):** publish rename/membership changes as replacement objects
+installed via the CHM put, mirroring `addIndexInternalNoLock`'s copy-on-write discipline.
+
+```mermaid
+flowchart LR
+  MUT["commit mutates shared IndexDefinition.className in place"] -. "no happens-before" .-> RD["lock-free reader (getClassIndex :154)"]
+  RD --> STALE2["stale or torn definition, indefinitely"]
+  FIX["fix: copy-on-write republish via CHM put (:229-252)"] -.-> MUT
+```
+
+### F61 — The tx-scoped D7 mutex has no release path on abnormal session termination [MINOR]
+D7 holds a `ReentrantLock` from first mutation to the `finally` of the outermost
+commit/rollback. F38 guards wrong-thread release; the uncovered case is no release at all —
+a session whose thread dies or is reaped server-side never reaches the `finally`, and a
+`ReentrantLock` held by a dead thread cannot be released by anyone else. Every subsequent
+schema tx parks forever on the bare `lock()` (D5 chose blocking, no timeout). Today's
+per-operation locks bound the stranded-lock exposure to one operation; the tx-scoped
+lifetime makes it proportional to user code between first mutation and commit. Affected:
+D5, D7, F13, F38.
+
+**Resolution (proposed):** tie mutex release to the session-close/cleanup path (close of a
+session with an active schema tx runs rollback's release on the owning thread where
+possible), and use a timed/interruptible acquire with a diagnostic instead of bare
+`lock()`. State the reaper-close semantics as a D7 bullet next to the F38 guard.
+
+```mermaid
+flowchart LR
+  DIE["session thread dies mid-schema-tx"] --> HELD["ReentrantLock never released"]
+  HELD --> PARKED["every later schema tx parks forever (bare lock(), D5)"]
+  FIX["fix: release on session-close/reap + timed acquire"] -.-> HELD
+```
+
+### F62 — D8 and D15 publish in two steps with two `forceSnapshot`s; the mid-window rebuild can cache a torn class-set/index-set snapshot [MINOR]
+D8 says "promote then forceSnapshot"; D15 says "publish the overlay … then forceSnapshot."
+Implemented as two publish+invalidate pairs, a concurrent `makeSnapshot` (legal mid-commit
+whenever the shared snapshot is already null; the rebuild takes only the schema read lock,
+`SchemaShared:198`, and reads the index manager lock-free per F44) can run between the two
+publications and cache new classes with the old index set or the reverse, surviving until
+the second `forceSnapshot`. Under F52's resolution (schema write lock held across the whole
+publication) the rebuild is excluded for the window and this collapses to a wording fix.
+Affected: D8, D15, F44, F52.
+
+**Resolution (proposed):** state the commit-side publication order once: schema promotion
+and index-overlay publication both complete (after `endTxCommit`, per F53), then a single
+trailing `forceSnapshot`, all inside F52's lock scope.
+
+```mermaid
+flowchart LR
+  P1["publish classes + forceSnapshot #1"] --> W["window: makeSnapshot rebuild (read lock only :198)"]
+  W --> TORNS["snapshot: new classes + old index set"]
+  P2["publish overlay + forceSnapshot #2"] --> GONE["torn snapshot survives until here"]
+  FIX["fix: one trailing forceSnapshot inside F52's lock scope"] -.-> P1
+```
+
+### F63 — D20's import has no completion marker and "offline" is not enforced; a crash mid-import yields a database that opens cleanly but is silently incomplete [MINOR]
+`DatabaseImport` rebuilds schema and records through the normal API in many transactions
+(`DatabaseImport.importSchema:495`); there is no terminal "import complete" marker and
+nothing prevents clients from using the target mid-import. A crash or operator interruption
+leaves a fresh, version-correct database that passes every open-time check — the D14
+version gate validates format, not completeness — and silently misses classes, indexes, or
+records. The old database is untouched (export only reads), so recovery is delete and
+re-import, but nothing tells the operator the import was partial. Affected: D14, D20, F49.
+
+**Resolution (proposed):** document the procedure — import into a target not yet exposed to
+clients, verify against a manifest (class/index/record counts emitted by export, checked by
+import), and only then put the database in service. A manifest check turns "silently
+incomplete" into "loudly incomplete".
+
+```mermaid
+flowchart LR
+  IMP["import: many txs (importSchema:495)"] -- "crash mid-way" --> HALF["version-correct, silently partial DB"]
+  HALF --> OPEN2["opens cleanly (D14 gate checks format only)"]
+  FIX["fix: export manifest + import verification + not-in-service-until-verified"] -.-> HALF
 ```
 
 ---
