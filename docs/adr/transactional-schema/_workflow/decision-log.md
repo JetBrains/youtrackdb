@@ -656,7 +656,9 @@ tx's complete record-operation set; pre-existing indexes keep the incremental pa
 F32's "on every record write" timing model corrected); F67 → D16 (accepted 2026-06-10,
 option (b): the stable-base-keyed engine-files half of D16 pulled into v1 with
 unconditional id-keyed bases — no legacy engines can exist under D20 — dissolving the
-same-name collision; rename feature stays in YTDB-1066). F68–F75 pending.
+same-name collision; rename feature stays in YTDB-1066); F68 → D8 (accepted 2026-06-10:
+promotion = re-parse of changed per-class records into the existing shared instances,
+`owner` stays `final`, never adopt tx-local objects). F69–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1900,12 +1902,22 @@ span two owner graphs; the ripple mutates across both). An implementer who satis
 for the seed has no instruction stopping the adoption shortcut for promotion — it
 type-checks and passes single-threaded tests. Full analysis: pass-6 report C11.
 
-**Resolution (proposed):** state the promotion mechanism in D8, mirroring F41: promotion
-**reconstructs into the shared instance** (fresh shared-owner-bound class objects built
-from the tx-local state, or a reload-style `fromStream` of the just-committed records),
-never adopts tx-local objects; graph references re-wired to shared-owned instances; the
-F45 per-class record RIDs ride the same reconstruction; all under the F52 lock scope.
-Affected: D8, F41, F45, F52.
+**Resolution (accepted 2026-06-10, re-parse refinement; `owner` stays `final`):**
+promotion **reconstructs into the existing shared instance** by re-parsing the
+just-committed per-class records (`fromStream` of the changed subset, O(changed)): new
+classes via `createClassInstance` bound to the shared owner, changed classes re-parsed
+into their existing shared instances, dropped classes removed, superclass/subclass edges
+re-resolved by name against the shared maps, the F45 RIDs riding along; never adopts
+tx-local objects; all under the F52/F64 lock scope. The mutable-`owner`+adoption
+alternative was examined and rejected on four grounds: (1) adoption replaces the changed
+classes' objects, permanently orphaning every captured reference (including F65 tier-2
+proxy delegates) on pre-tx instances — in-place reconstruction preserves the object
+identity today's API holders rely on; (2) adopted objects' graph edges point at tx-local
+instances of unchanged classes, so edge re-wiring is needed anyway; (3) `final owner`
+makes the lock-identity invariant hold by construction instead of by a fragile
+F13+publication analysis; (4) re-parse makes every schema commit an implicit
+bytes≡memory round-trip check, catching F58-class divergence immediately rather than at
+the next restart. Affected: D8, F41, F45, F52, F58, F65.
 
 ```mermaid
 flowchart LR
@@ -2256,7 +2268,12 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   record writes and `endTxCommit`, the tx-local structure is promoted to the
   shared `SchemaShared`, the D15 overlay publishes, and one single trailing
   `forceSnapshot` invalidates the shared snapshot (F62 — never two separate
-  publish+invalidate pairs). The promotion and the `forceSnapshot` run under
+  publish+invalidate pairs). **Promotion mechanism (F68):** re-parse the
+  just-committed per-class records into the **existing** shared instances
+  (new classes via `createClassInstance` bound to the shared owner; dropped
+  classes removed; edges re-resolved by name; F45 RIDs carried) — never adopt
+  tx-local objects, whose `final owner` is the dead tx-local instance; the
+  re-parse doubles as a bytes≡memory round-trip check for F58. The promotion and the `forceSnapshot` run under
   `SchemaShared.lock.writeLock()`, acquired **before** `stateLock.writeLock()`
   per the F52 lock order, so lock-based readers and `makeSnapshot` rebuilds are
   excluded for the whole publication window. The commit-time
