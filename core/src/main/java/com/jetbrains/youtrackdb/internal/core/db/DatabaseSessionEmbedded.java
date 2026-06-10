@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
@@ -121,9 +122,32 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.st
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheKey;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheableShape;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedEntry;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedResultSetView;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.DeltaBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.IdempotentExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.NonDeterministicQueryDetector;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.ShapeClassifier;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.TxDeltaCursor;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAlterClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAlterPropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreateClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreateIndexStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreatePropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropIndexStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropPropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTruncateClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
@@ -634,8 +658,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           throw new CommandExecutionException(getDatabaseName(),
               "Cannot execute query on non idempotent statement: " + query);
         }
-        var original = statement.execute(this, args, true);
-        return queryStartedLifecycle(original);
+        var served = serveThroughCache(statement, args);
+        return queryStartedLifecycle(served);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -675,8 +699,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               "Cannot execute query on non idempotent statement: " + query);
         }
         @SuppressWarnings("unchecked")
-        var original = statement.execute(this, args, true);
-        return queryStartedLifecycle(original);
+        Map<Object, Object> typedArgs = args;
+        var served = serveThroughCache(statement, typedArgs);
+        return queryStartedLifecycle(served);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -684,6 +709,246 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       rollback();
       throw e;
     }
+  }
+
+  /**
+   * Shared cache entry point for both {@code query()} overloads. Decides whether the parsed,
+   * already-confirmed-idempotent {@code statement} is eligible for the tx-result cache and, when it
+   * is, serves the result from the cache (hit) or populates a fresh entry (miss); otherwise it runs
+   * the ordinary uncached execution and returns its result unchanged.
+   *
+   * <p>The gate bypasses to uncached execution when any of the following holds: the feature flag is
+   * off (the transaction's cache is {@code null}); a cache code path is already on the stack ({@code
+   * cacheCodeDepth > 0}, the re-entrancy guard, so a {@code query()} issued from a UDF in a WHERE
+   * clause does not recurse into the cache); the statement is not a SELECT or MATCH; the statement
+   * references a non-deterministic function or per-row context variable; or the classified shape is
+   * not one whose delta/view path is wired yet (only {@code RECORD} and {@code K0_NONE} route through
+   * the cache — {@code AGGREGATE_*} and {@code MATCH_TUPLE_MULTI} are classified but not yet wired,
+   * so they bypass here).
+   *
+   * @param statement the parsed, idempotent query statement
+   * @param args      the positional {@code Object[]} or named {@code Map<Object,Object>} parameters
+   *                  (or {@code null}); used to build the cache key and the view's command context
+   */
+  private ResultSet serveThroughCache(@Nonnull SQLStatement statement, @Nullable Object args) {
+    // The cache lives only on a real transaction; a no-tx command path (FrontendTransactionNoTx) has
+    // no cache, so route it straight to uncached execution. The query() overloads call
+    // beginReadOnly() first, so this is normally a FrontendTransactionImpl, but the guard keeps the
+    // path safe if a query ever runs outside an active transaction.
+    if (!(currentTx instanceof FrontendTransactionImpl tx)) {
+      return executeUncached(statement, args);
+    }
+    var cache = tx.getQueryResultCache();
+    // Feature off (null cache) or re-entrant call: run the plain uncached path. The tx-level
+    // re-entrancy depth brackets the whole lookup-and-view scope below, so any query() launched
+    // while we are inside it sees depth > 0 here and never touches the cache.
+    if (cache == null
+        || tx.getCacheCodeDepth() > 0
+        || !(statement instanceof SQLSelectStatement || statement instanceof SQLMatchStatement)
+        || NonDeterministicQueryDetector.containsNonDeterministicReference(statement)) {
+      return executeUncached(statement, args);
+    }
+
+    var shape = ShapeClassifier.classify(statement);
+    if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
+      // AGGREGATE_* and MATCH_TUPLE_MULTI are classified but their delta/view paths are not wired
+      // yet; route them to uncached execution until those paths land.
+      return executeUncached(statement, args);
+    }
+
+    var key = (args instanceof Map)
+        ? CacheKey.forParams(statement, asParamMap(args))
+        : CacheKey.forArgs(statement, (Object[]) args);
+
+    // A key already routed out of the cache (entry overflowed its size cap, or a K0_NONE entry
+    // exceeded its re-population strike limit) stays uncached for the rest of the transaction; do
+    // not build a doomed entry.
+    if (cache.isNonCacheable(key)) {
+      return executeUncached(statement, args);
+    }
+
+    // Two-guard bracketing: bump the tx-level depth around the entire lookup-and-view scope so a
+    // nested query() (e.g. a UDF in WHERE) bypasses the cache; the cache's own inFlightLookup guards
+    // the lookup call. Decremented in the finally so an exception mid-build still restores the depth.
+    tx.enterCacheCode();
+    try {
+      var hit = cache.lookup(key, tx.getMutationVersion());
+      if (hit != null) {
+        return buildView(hit, tx, args);
+      }
+      return populateAndBuildView(statement, args, key, shape, tx, cache);
+    } finally {
+      tx.exitCacheCode();
+    }
+  }
+
+  /** Runs the ordinary uncached execution path, dispatching on the parameter shape. */
+  private ResultSet executeUncached(@Nonnull SQLStatement statement, @Nullable Object args) {
+    if (args instanceof Map) {
+      return statement.execute(this, asParamMap(args), true);
+    }
+    return statement.execute(this, (Object[]) args, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<Object, Object> asParamMap(@Nonnull Object args) {
+    return (Map<Object, Object>) args;
+  }
+
+  /**
+   * Populates a fresh cache entry for a miss: stamps the populate mutation version before driving the
+   * executor (so the delta builder later admits only post-populate mutations), runs the real
+   * execution, lifts the live stream and plan off the resulting {@link LocalResultSet}, wraps the
+   * stream in an {@link IdempotentExecutionStream}, threads that one wrapper into BOTH the entry and
+   * the {@code LocalResultSet}'s stream slot so a close from either owner closes the underlying
+   * stream exactly once, stores the entry, and returns a view over it. The entry owns the paused
+   * stream (closed on evict or tx-end); the view never closes it.
+   */
+  private ResultSet populateAndBuildView(
+      @Nonnull SQLStatement statement,
+      @Nullable Object args,
+      @Nonnull CacheKey key,
+      @Nonnull CacheableShape shape,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull QueryResultCache cache) {
+    // Stamp before execution: the LocalResultSet constructor calls plan.start(), so the populate
+    // version must be captured first so the delta builder later filters in only post-populate ops.
+    var populateMutationVersion = tx.getMutationVersion();
+
+    var original = executeUncached(statement, args);
+    // SELECT/MATCH execution returns a LocalResultSet; if a future shape returns something else, the
+    // cache cannot lift its stream, so fall back to returning the uncached result unwrapped.
+    if (!(original instanceof LocalResultSet localResult)) {
+      return original;
+    }
+
+    var plan = localResult.getInternalExecutionPlan();
+    var ctx = plan.getContext();
+    var wrapped = new IdempotentExecutionStream(localResult.getStream());
+    // Thread the single wrapper into both owners so a close from either side closes the underlying
+    // exactly once.
+    localResult.setStream(wrapped);
+
+    var entry = new CachedEntry(
+        shape,
+        effectiveFromClasses(statement),
+        whereClauseOf(statement),
+        orderByOf(statement),
+        wrapped,
+        plan,
+        ctx,
+        populateMutationVersion);
+    cache.put(key, entry);
+
+    return buildView(entry, tx, args);
+  }
+
+  /**
+   * Builds the consumer-facing view over a cached entry. RECORD entries carry a {@link TxDeltaCursor}
+   * reconciling post-populate mutations; K0_NONE entries replay directly (the lookup-time version
+   * gate already proved no mutation happened since populate, so there is nothing to merge). The view's
+   * command context for the merge is the entry's populate-time context when still live, else a fresh
+   * context with the same parameter bindings (equivalent because the entry is keyed by AST + params).
+   */
+  private ResultSet buildView(
+      @Nonnull CachedEntry entry, @Nonnull FrontendTransactionImpl tx, @Nullable Object args) {
+    var ctx = entry.getCtx();
+    if (ctx == null) {
+      // The entry's stream has been exhausted and its context released; rebuild an equivalent context
+      // so ORDER BY comparison and WHERE re-evaluation still resolve the same :param bindings.
+      ctx = freshContext(args);
+    }
+    TxDeltaCursor delta = entry.getShape() == CacheableShape.RECORD
+        ? DeltaBuilder.buildForRecord(entry, tx, ctx)
+        : null;
+    return new CachedResultSetView(entry, delta, this, entry.getPlan(), ctx);
+  }
+
+  /** A command context carrying the query's parameter bindings, mirroring the executor's setup. */
+  private CommandContext freshContext(@Nullable Object args) {
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(this);
+    Map<Object, Object> params = new HashMap<>();
+    if (args instanceof Map) {
+      params.putAll(asParamMap(args));
+    } else if (args instanceof Object[] positional) {
+      for (var i = 0; i < positional.length; i++) {
+        params.put(i, positional[i]);
+      }
+    }
+    ctx.setInputParameters(params);
+    return ctx;
+  }
+
+  /**
+   * The subclass closure of the statement's read classes for the entry's delta class filter. A
+   * plain SELECT resolves its FROM target class; anything without a resolvable single class target
+   * (subquery target, RID target, MATCH) yields the empty set, so the delta filter matches nothing
+   * and the entry behaves as a pure replay — correct because only RECORD-classified plain SELECTs
+   * reach the delta path here.
+   */
+  private Set<String> effectiveFromClasses(@Nonnull SQLStatement statement) {
+    if (statement instanceof SQLSelectStatement select && select.getTarget() != null) {
+      var item = select.getTarget().getItem();
+      if (item != null) {
+        SchemaClass fromClass = item.getSchemaClass(this);
+        return CachedEntry.computeEffectiveFromClasses(fromClass);
+      }
+    }
+    return Set.of();
+  }
+
+  @Nullable private static SQLWhereClause whereClauseOf(@Nonnull SQLStatement statement) {
+    return statement instanceof SQLSelectStatement select ? select.getWhereClause() : null;
+  }
+
+  @Nullable private static SQLOrderBy orderByOf(@Nonnull SQLStatement statement) {
+    return statement instanceof SQLSelectStatement select ? select.getOrderBy() : null;
+  }
+
+  /**
+   * Bulk-DML cache invalidation hook on the command path. A {@code TRUNCATE CLASS} run mid-transaction
+   * removes stored records without flowing through {@code addRecordOperation}, so the cache cannot see
+   * the change via the delta build and must drop every entry. Regular INSERT/UPDATE/DELETE need no
+   * hook here — they land in {@code recordOperations} and the next query's delta build picks them up.
+   * Schema DDL (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX) is unreachable mid-transaction (the schema is
+   * immutable for the life of a transaction), guarded by a {@code Java assert} canary so a future
+   * relaxation that lets schema DDL run mid-tx surfaces loudly in test builds rather than silently
+   * serving a stale cache.
+   */
+  private void invalidateCacheForBulkDml(@Nonnull SQLStatement statement) {
+    // executeInternal does not begin a transaction, so currentTx may be a no-tx placeholder
+    // (FrontendTransactionNoTx) with no cache to invalidate; only a real transaction carries one.
+    if (!(currentTx instanceof FrontendTransactionImpl tx)) {
+      return;
+    }
+    var cache = tx.getQueryResultCache();
+    if (cache == null) {
+      return;
+    }
+    if (statement instanceof SQLTruncateClassStatement) {
+      cache.invalidateAll();
+      return;
+    }
+    // Schema-immutability canary: schema DDL must not reach the cache hook while a transaction is
+    // active. TRUNCATE CLASS (handled above) is the only legitimately mid-tx-runnable DDL; every
+    // other schema-DDL statement throws before any cache effect would matter, so reaching here is a
+    // contract breach.
+    assert !isSchemaDdl(statement)
+        : "Schema DDL reached the tx-result cache hook while a transaction was active: "
+            + statement.getClass().getSimpleName();
+  }
+
+  /** Whether the statement is a schema-DDL statement (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX). */
+  private static boolean isSchemaDdl(@Nonnull SQLStatement statement) {
+    return statement instanceof SQLCreateClassStatement
+        || statement instanceof SQLDropClassStatement
+        || statement instanceof SQLAlterClassStatement
+        || statement instanceof SQLCreatePropertyStatement
+        || statement instanceof SQLDropPropertyStatement
+        || statement instanceof SQLAlterPropertyStatement
+        || statement instanceof SQLCreateIndexStatement
+        || statement instanceof SQLDropIndexStatement;
   }
 
   public ResultSet execute(String query, Object... args) {
@@ -720,6 +985,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       try {
         var statement =
             (parsedStatement != null) ? parsedStatement : SQLEngine.parse(stringStatement, this);
+        invalidateCacheForBulkDml(statement);
         ResultSet original;
         switch (args) {
           case Map<?, ?> map -> {

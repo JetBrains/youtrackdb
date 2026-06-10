@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
@@ -56,6 +57,8 @@ import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryCacheMetrics;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -130,6 +133,12 @@ public class FrontendTransactionImpl implements
   // transaction.
   private int cacheCodeDepth;
 
+  // The per-transaction query-result cache. Lazily created on first access only when the
+  // youtrackdb.query.txResultCache.enabled flag is set; stays null for the whole transaction when the
+  // flag is off, which is the zero-behaviour-change compatibility floor. Transient per-tx state with
+  // no on-disk footprint; cleared on begin (fresh tx) and on every tx-end path (commit/rollback/close).
+  @Nullable private QueryResultCache queryResultCache;
+
   private final RecordSerializationContext recordSerializationContext =
       new RecordSerializationContext();
   private AtomicOperation atomicOperation;
@@ -200,6 +209,13 @@ public class FrontendTransactionImpl implements
       var storage = session.getStorage();
       atomicOperation = storage.startStorageTx();
       storageTxThreadId = Thread.currentThread().threadId();
+
+      // Wipe any cache state carried over from a prior transaction on this reused transaction object.
+      // Placed inside the txStartCounter == 0 guard so a nested begin() (counter already positive)
+      // does not clear a cache populated by the live outer transaction.
+      if (queryResultCache != null) {
+        queryResultCache.clear();
+      }
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
         throw new RollbackException(
@@ -999,6 +1015,15 @@ public class FrontendTransactionImpl implements
   private void clear() {
     session.closeActiveQueries();
 
+    // Tx-end cache sink: drop every cached entry and close its paused stream. Runs after
+    // closeActiveQueries() has already closed the consumer-facing views, so a view's stream may
+    // already be closed; the entry's stream is the shared IdempotentExecutionStream wrapper, whose
+    // second close is a no-op, so this closes each underlying stream exactly once. Idempotent: a
+    // second clear() (e.g. close after rollback) finds an empty cache.
+    if (queryResultCache != null) {
+      queryResultCache.clear();
+    }
+
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {
       var record = txEntry.record;
@@ -1373,6 +1398,23 @@ public class FrontendTransactionImpl implements
    */
   public int getCacheCodeDepth() {
     return cacheCodeDepth;
+  }
+
+  /**
+   * Returns this transaction's query-result cache, lazily creating it on first access when the {@code
+   * youtrackdb.query.txResultCache.enabled} flag is set. Returns {@code null} when the flag is off, so
+   * the session's caller treats a null cache as "feature disabled" and runs the ordinary uncached
+   * query path — the cache field is never allocated and no behaviour changes. The flag is read once at
+   * creation; toggling it mid-transaction does not retroactively create or drop the cache.
+   */
+  @Nullable public QueryResultCache getQueryResultCache() {
+    if (queryResultCache == null) {
+      if (!GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean()) {
+        return null;
+      }
+      queryResultCache = new QueryResultCache(new QueryCacheMetrics());
+    }
+    return queryResultCache;
   }
 
   @Override

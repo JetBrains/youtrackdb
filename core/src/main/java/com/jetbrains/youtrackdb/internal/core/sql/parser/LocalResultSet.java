@@ -56,6 +56,30 @@ public class LocalResultSet implements ResultSet {
     return queryId;
   }
 
+  /**
+   * The live execution stream backing this result set. The tx-result cache reads it on a cache miss
+   * to hand the populating query's stream to the cached entry, then substitutes an idempotent wrapper
+   * back via {@link #setStream(ExecutionStream)} so a later close through this result set and a close
+   * through the cache entry collapse to a single underlying close.
+   */
+  public ExecutionStream getStream() {
+    return stream;
+  }
+
+  /**
+   * Replaces the backing execution stream. Used only by the tx-result cache to swap in the idempotent
+   * wrapper it shares with the cached entry; the wrapper forwards {@code hasNext}/{@code next} to the
+   * original stream, so iteration is unchanged and only {@code close} becomes a safe-to-repeat no-op.
+   */
+  public void setStream(ExecutionStream stream) {
+    this.stream = stream;
+  }
+
+  /** The execution plan backing this result set, typed for the cache's entry construction. */
+  public InternalExecutionPlan getInternalExecutionPlan() {
+    return executionPlan;
+  }
+
   @Override
   public boolean hasNext() {
     assert session == null || session.assertIfNotActive();
