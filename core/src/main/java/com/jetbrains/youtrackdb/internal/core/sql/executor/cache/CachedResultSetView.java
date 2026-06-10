@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
@@ -57,14 +58,24 @@ import javax.annotation.Nullable;
  * K0_NONE path the skip-set is empty so nothing is dropped. Pulled rows are appended to the shared
  * {@code entry.results} / {@code cachedRids} so later views replay the full ordered result.
  *
- * <p><b>View pinning (I9).</b> The constructor increments {@link CachedEntry#getLiveViewCount()} and
+ * <p><b>View pinning.</b> The constructor increments {@link CachedEntry#getLiveViewCount()} and
  * {@link #close()} (or natural exhaustion) decrements it exactly once, pinning the entry against LRU
  * eviction while this view iterates so a mid-iteration view never loses rows.
  *
- * <p><b>Idempotent close (I6).</b> {@link #close()} is a no-op after the first call and releases the
- * pin exactly once. The view never closes the entry's shared stream itself: the stream is owned by the
- * {@link CachedEntry} (closed at tx-end cache clear) and possibly other views, so closing it here would
- * truncate them.
+ * <p><b>Re-entrancy guard ownership.</b> The session opens the transaction's cache-code guard
+ * ({@code FrontendTransactionImpl.enterCacheCode()}) around the synchronous lookup and hands the open
+ * guard to this view. The view holds it for its whole iteration lifetime and releases it
+ * ({@code exitCacheCode()}) exactly once, paired with the pin release on close / exhaustion. This is
+ * load-bearing: the rows of a cached query are pulled lazily during {@link #next()} /
+ * {@link #pullOneFromStream}, after the session's {@code serveThroughCache} has already returned, so a
+ * UDF embedded in the populating query's WHERE / projection fires during that lazy pull. Holding the
+ * guard across iteration keeps such a re-entrant {@code query()} bypassed (depth &gt; 0) for the whole
+ * consumption window, not just the lookup window.
+ *
+ * <p><b>Idempotent close.</b> {@link #close()} is a no-op after the first call and releases the pin
+ * and the cache-code guard exactly once. The view never closes the entry's shared stream itself: the
+ * stream is owned by the {@link CachedEntry} (closed at tx-end cache clear) and possibly other views,
+ * so closing it here would truncate them.
  *
  * <p>Single-transaction state observed only by the owning thread; no field is synchronised.
  */
@@ -76,6 +87,13 @@ public final class CachedResultSetView implements ResultSet {
   @Nullable private final TxDeltaCursor delta;
 
   @Nullable private DatabaseSessionEmbedded session;
+
+  /**
+   * The transaction whose cache-code guard this view holds for its iteration lifetime. The session
+   * entered the guard around the lookup and passed ownership here; the view exits it exactly once on
+   * close / exhaustion via {@link #releasePin()}.
+   */
+  private final FrontendTransactionImpl tx;
 
   @Nullable private final InternalExecutionPlan executionPlan;
 
@@ -90,22 +108,28 @@ public final class CachedResultSetView implements ResultSet {
 
   private boolean closed;
 
-  /** Guards the pin decrement so {@link #close()} and exhaustion together release it at most once. */
+  /**
+   * Guards the single release of the pin AND the cache-code guard so {@link #close()} and exhaustion
+   * together release each at most once.
+   */
   private boolean pinReleased;
 
   public CachedResultSetView(
       @Nonnull CachedEntry entry,
       @Nullable TxDeltaCursor delta,
       @Nullable DatabaseSessionEmbedded session,
+      @Nonnull FrontendTransactionImpl tx,
       @Nullable InternalExecutionPlan executionPlan,
       @Nonnull CommandContext ctx) {
     this.entry = entry;
     this.delta = delta;
     this.session = session;
+    this.tx = tx;
     this.executionPlan = executionPlan;
     this.ctx = ctx;
     // Pin the entry for this view's whole lifetime so LRU eviction cannot close the shared stream
-    // out from under an in-flight iteration (I9).
+    // out from under an in-flight iteration. The cache-code guard is already open (entered by the
+    // session around the lookup); this view now owns it and releases it on close / exhaustion.
     entry.incrementLiveViewCount();
   }
 
@@ -268,11 +292,17 @@ public final class CachedResultSetView implements ResultSet {
     return null;
   }
 
-  /** Decrements the entry's live-view pin exactly once across {@link #close()} and exhaustion. */
+  /**
+   * Releases the entry's live-view pin and the transaction's cache-code guard exactly once across
+   * {@link #close()} and natural exhaustion. The guard exit is paired with the pin decrement so the
+   * re-entrancy bypass holds for the whole view-consumption lifetime (covering the lazy stream pulls
+   * during iteration) and is lifted once the view can no longer pull rows.
+   */
   private void releasePin() {
     if (!pinReleased) {
       pinReleased = true;
       entry.decrementLiveViewCount();
+      tx.exitCacheCode();
     }
   }
 

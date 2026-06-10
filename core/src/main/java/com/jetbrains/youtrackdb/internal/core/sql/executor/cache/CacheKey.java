@@ -54,40 +54,57 @@ public final class CacheKey {
   private final Map<Object, Object> params;
   private final int hash;
 
-  private CacheKey(@Nonnull SQLStatement statement, @Nonnull Map<Object, Object> normalizedParams) {
+  /**
+   * Takes ownership of {@code ownedParams}: the caller must hand in a map nothing else retains a
+   * reference to (a freshly built map or {@link Collections#emptyMap()}), because this ctor wraps it
+   * unmodifiable in place rather than copying it again. The factory methods below build that map and
+   * never alias it, so there is exactly one map allocation per non-empty key and none for the
+   * empty-param case (the shared {@link Collections#emptyMap()} singleton is unmodifiable already).
+   */
+  private CacheKey(@Nonnull SQLStatement statement, @Nonnull Map<Object, Object> ownedParams) {
     this.statement = statement;
-    // Defensive copy: the caller's array or map must not be able to mutate a live key after it is
-    // stored. The copy is wrapped unmodifiable so nothing downstream mutates it either.
-    this.params = Collections.unmodifiableMap(new HashMap<>(normalizedParams));
-    // Precompute the hash from statement.hashCode() (structural on the SELECT statement) and the
-    // normalised params. Consistent with equals: two equal-but-distinct statement instances hash
-    // equally because SQLStatement.hashCode() is structural, and equal params hash equally. Both
-    // inputs are immutable for the key's lifetime, and the key is a HashMap key on every lookup.
-    this.hash = Objects.hash(statement.hashCode(), this.params);
+    // The caller-owned map is already private and unaliased, so wrap it unmodifiable without a
+    // second defensive copy. emptyMap() is itself immutable, so the wrap is a cheap no-op for it.
+    this.params = ownedParams.isEmpty()
+        ? Collections.emptyMap()
+        : Collections.unmodifiableMap(ownedParams);
+    // Precompute the hash without Objects.hash varargs (no boxing, no Object[] allocation on the hot
+    // path). Consistent with equals: two equal-but-distinct statement instances hash equally because
+    // SQLStatement.hashCode() is structural, and equal params hash equally. Both inputs are immutable
+    // for the key's lifetime, and the key is a HashMap key on every lookup.
+    this.hash = 31 * statement.hashCode() + this.params.hashCode();
   }
 
   /**
    * Builds a key from positional {@code query(sql, Object...)} arguments. A {@code null} or empty
-   * array yields a key with no parameters.
+   * array yields a key with no parameters (no map allocation — the shared empty map is used).
    */
   public static CacheKey forArgs(@Nonnull SQLStatement statement, @Nullable Object[] args) {
+    if (args == null || args.length == 0) {
+      return new CacheKey(statement, Collections.emptyMap());
+    }
     Map<Object, Object> normalized = new HashMap<>();
-    if (args != null) {
-      for (var i = 0; i < args.length; i++) {
-        normalized.put(i, args[i]);
-      }
+    for (var i = 0; i < args.length; i++) {
+      normalized.put(i, args[i]);
     }
     return new CacheKey(statement, normalized);
   }
 
   /**
-   * Builds a key from a {@code query(sql, Map)} parameter map. A {@code null} map yields a key with
-   * no parameters. Keys are taken as-is (the named/positional convention is the caller's), so a
-   * map keyed by {@link Integer} indices collides with the equivalent positional call.
+   * Builds a key from a {@code query(sql, Map)} parameter map. A {@code null} or empty map yields a
+   * key with no parameters. The caller's map is copied once into a key-owned map (so a later caller
+   * mutation cannot change a live key); the ctor then wraps that copy unmodifiable without a second
+   * copy. Keys are taken as-is (the named/positional convention is the caller's), so a map keyed by
+   * {@link Integer} indices collides with the equivalent positional call.
    */
   public static CacheKey forParams(@Nonnull SQLStatement statement,
       @Nullable Map<Object, Object> params) {
-    return new CacheKey(statement, params == null ? Collections.emptyMap() : params);
+    if (params == null || params.isEmpty()) {
+      return new CacheKey(statement, Collections.emptyMap());
+    }
+    // Defensive copy: the caller could mutate its map after the key is stored. This is the only
+    // copy — the ctor wraps the result unmodifiable in place.
+    return new CacheKey(statement, new HashMap<>(params));
   }
 
   @Override

@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -93,6 +94,16 @@ public class CachedResultSetViewTest {
 
   private CommandContext ctx() {
     return new BasicCommandContext(db);
+  }
+
+  /**
+   * The live transaction backing {@code db}. The view holds the transaction's cache-code re-entrancy
+   * guard for its iteration lifetime and releases it on close / exhaustion; these unit tests never
+   * enter that guard first, so the view's {@code exitCacheCode()} is a floored-at-zero no-op against
+   * the real transaction and does not perturb the pin-count assertions below.
+   */
+  private FrontendTransactionImpl tx() {
+    return (FrontendTransactionImpl) db.getTransactionInternal();
   }
 
   private static SQLOrderBy parseOrderBy(String selectSql) {
@@ -190,7 +201,7 @@ public class CachedResultSetViewTest {
     var cached = List.of(newRec(10), newRec(30));
     var entry = recordEntry(orderBy, cached);
     var inject = List.<Result>of(resultOf(newRec(20)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, tx(), null, ctx());
 
     assertEquals(List.of(10, 20, 30), drainValues(view));
   }
@@ -207,7 +218,7 @@ public class CachedResultSetViewTest {
     var thirty = newRec(30);
     var entry = recordEntry(orderBy, List.of(ten, twenty, thirty));
     var view = new CachedResultSetView(
-        entry, cursor(Set.of(ridOf(twenty)), List.of()), db, null, ctx());
+        entry, cursor(Set.of(ridOf(twenty)), List.of()), db, tx(), null, ctx());
 
     assertEquals(List.of(10, 30), drainValues(view));
   }
@@ -228,7 +239,7 @@ public class CachedResultSetViewTest {
     moving.setProperty(FIELD, 25);
     var inject = List.<Result>of(resultOf(moving));
     var view = new CachedResultSetView(
-        entry, cursor(Set.of(ridOf(moving)), inject), db, null, ctx());
+        entry, cursor(Set.of(ridOf(moving)), inject), db, tx(), null, ctx());
 
     assertEquals(List.of(20, 25, 30), drainValues(view));
   }
@@ -243,7 +254,7 @@ public class CachedResultSetViewTest {
   public void noOrderByEmitsAllRowsWithoutLoss() {
     var entry = recordEntry(null, List.of(newRec(1), newRec(2)));
     var inject = List.<Result>of(resultOf(newRec(9)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, tx(), null, ctx());
 
     var values = drainValues(view);
     assertEquals("All cached and injected rows must be emitted exactly once", 3, values.size());
@@ -263,7 +274,7 @@ public class CachedResultSetViewTest {
   public void streamPullMaterializesAndAppendsRows() {
     var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
     var entry = streamEntry(orderBy, List.of(newRec(1), newRec(2), newRec(3)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
 
     assertEquals(List.of(1, 2, 3), drainValues(view));
     assertTrue("Stream drain must flip the entry to exhausted", entry.isExhausted());
@@ -286,7 +297,7 @@ public class CachedResultSetViewTest {
     var three = newRec(3);
     var entry = streamEntry(orderBy, List.of(one, two, three));
     var view = new CachedResultSetView(
-        entry, cursor(Set.of(ridOf(two)), List.of()), db, null, ctx());
+        entry, cursor(Set.of(ridOf(two)), List.of()), db, tx(), null, ctx());
 
     assertEquals("Skipped stream row must not be emitted", List.of(1, 3), drainValues(view));
     assertEquals("All pulled rows are still appended to the shared cache", 3,
@@ -304,7 +315,7 @@ public class CachedResultSetViewTest {
     var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
     var entry = streamEntry(orderBy, List.of(newRec(10), newRec(30)));
     var inject = List.<Result>of(resultOf(newRec(20)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, tx(), null, ctx());
 
     assertEquals(List.of(10, 20, 30), drainValues(view));
   }
@@ -324,7 +335,7 @@ public class CachedResultSetViewTest {
         CacheableShape.K0_NONE, Set.of(CLASS_NAME), null, null,
         new ListExecutionStream(List.of(resultOf(newRec(7)), resultOf(newRec(8)))),
         null, ctx(), 0L);
-    var view = new CachedResultSetView(entry, null, db, null, ctx());
+    var view = new CachedResultSetView(entry, null, db, tx(), null, ctx());
 
     assertEquals(List.of(7, 8), drainValues(view));
     assertTrue(entry.isExhausted());
@@ -338,7 +349,7 @@ public class CachedResultSetViewTest {
     entry.getResults().add(resultOf(newRec(1)));
     entry.getResults().add(resultOf(newRec(2)));
     entry.setExhausted(true);
-    var view = new CachedResultSetView(entry, null, db, null, ctx());
+    var view = new CachedResultSetView(entry, null, db, tx(), null, ctx());
 
     assertEquals(List.of(1, 2), drainValues(view));
   }
@@ -352,7 +363,7 @@ public class CachedResultSetViewTest {
   public void constructionPinsEntry() {
     var entry = recordEntry(null, List.of(newRec(1)));
     assertEquals(0, entry.getLiveViewCount());
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
     assertEquals("View construction must pin the entry", 1, entry.getLiveViewCount());
     view.close();
   }
@@ -361,7 +372,7 @@ public class CachedResultSetViewTest {
   @Test
   public void closeReleasesPin() {
     var entry = recordEntry(null, List.of(newRec(1)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
     view.close();
     assertEquals("Close must release the pin", 0, entry.getLiveViewCount());
     assertTrue(view.isClosed());
@@ -371,7 +382,7 @@ public class CachedResultSetViewTest {
   @Test
   public void exhaustionReleasesPin() {
     var entry = recordEntry(null, List.of(newRec(1)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
     drainValues(view);
     assertFalse(view.hasNext());
     assertEquals("Draining to exhaustion must release the pin", 0, entry.getLiveViewCount());
@@ -386,7 +397,7 @@ public class CachedResultSetViewTest {
     var entry = recordEntry(null, List.of(newRec(1)));
     // Pin twice so a buggy double-release would visibly drop the count below the second pin.
     entry.incrementLiveViewCount();
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
     assertEquals(2, entry.getLiveViewCount());
     drainValues(view);
     assertEquals("Exhaustion releases the view's own pin once", 1, entry.getLiveViewCount());
@@ -400,7 +411,7 @@ public class CachedResultSetViewTest {
   public void doubleCloseIsIdempotent() {
     var entry = recordEntry(null, List.of(newRec(1)));
     entry.incrementLiveViewCount(); // baseline pin so a double-release would underflow below 1
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
     assertEquals(2, entry.getLiveViewCount());
     view.close();
     view.close();
@@ -412,7 +423,7 @@ public class CachedResultSetViewTest {
   @Test
   public void closedViewHasNoNext() {
     var entry = recordEntry(null, List.of(newRec(1)));
-    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, null, ctx());
+    var view = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
     view.close();
     assertFalse(view.hasNext());
     assertThrows(NoSuchElementException.class, view::next);
@@ -426,8 +437,8 @@ public class CachedResultSetViewTest {
   public void twoViewsPinIndependently() {
     var entry = recordEntry(null, List.of(newRec(1)));
     var skip = Collections.<RID>unmodifiableSet(new HashSet<>());
-    var a = new CachedResultSetView(entry, cursor(skip, List.of()), db, null, ctx());
-    var b = new CachedResultSetView(entry, cursor(skip, List.of()), db, null, ctx());
+    var a = new CachedResultSetView(entry, cursor(skip, List.of()), db, tx(), null, ctx());
+    var b = new CachedResultSetView(entry, cursor(skip, List.of()), db, tx(), null, ctx());
     assertEquals(2, entry.getLiveViewCount());
     a.close();
     assertEquals("Entry stays pinned while the second view iterates", 1, entry.getLiveViewCount());

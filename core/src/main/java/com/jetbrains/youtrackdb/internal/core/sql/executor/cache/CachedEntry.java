@@ -60,10 +60,12 @@ import javax.annotation.Nullable;
  * reference to the prior pair until they are done. These fields are written by the delta builder in a
  * later step; this foundation establishes their storage and the entry lifecycle.
  *
- * <p><b>Idempotent close.</b> {@link #close} may be reached twice at transaction end — once via the
- * consumer-facing result set and once via the cache clear. It null-guards and early-returns on the
- * second call; the underlying stream's own idempotency (via {@link IdempotentExecutionStream})
- * defends the cross-owner race.
+ * <p><b>Idempotent close.</b> {@link #close} closes the stream and then the plan, null-guarding and
+ * early-returning on a second call. The entry is the sole closer of both today: the consumer-facing
+ * {@link CachedResultSetView} never closes the shared stream, and the populating {@code
+ * LocalResultSet} whose stream this entry adopted is orphaned (never registered in the session's
+ * active-query set), so its own close never runs. The stream is still wrapped in an {@link
+ * IdempotentExecutionStream} as a defensive guard against a future second owner.
  *
  * <p>Single-transaction state observed only by the owning thread; no field is synchronised.
  */
@@ -266,9 +268,18 @@ public final class CachedEntry {
   }
 
   /**
-   * Releases the live execution stream. Idempotent: the first call closes the stream through its
-   * context and nulls the stream/plan/context references; a second call sees the nulled stream and
-   * returns. Safe to reach from both the cache clear and the consumer-facing result set close.
+   * Releases the live execution stream and its plan. Idempotent: the first call closes the stream
+   * then the plan through its context and nulls the stream/plan/context references; a second call
+   * sees the nulled stream and returns. Safe to reach from both the cache clear and the
+   * consumer-facing result set close.
+   *
+   * <p>The populating {@code LocalResultSet} whose stream this entry adopted is never registered in
+   * the session's active-query set (only the consumer-facing view is), so its own {@code close()} —
+   * which would otherwise close the plan — never fires. This entry is therefore the sole closer of
+   * the plan, mirroring the uncached path's {@code LocalResultSet.close()} order (stream first, then
+   * {@code executionPlan.close()}). Skipping the plan close would leave each cached query's step
+   * chain un-closed (the per-step {@code alreadyClosed} flip and any step-level resource release
+   * that the stream close does not duplicate would never run).
    */
   public void close() {
     if (stream == null) {
@@ -277,12 +288,22 @@ public final class CachedEntry {
       ctx = null;
       return;
     }
+    var planToClose = plan;
     try {
       stream.close(ctx);
     } finally {
-      stream = null;
-      plan = null;
-      ctx = null;
+      // Close the plan after the stream, mirroring LocalResultSet.close(). Run in a finally so a
+      // stream-close failure still releases the plan; null the references afterwards so a second
+      // close is a no-op.
+      try {
+        if (planToClose != null) {
+          planToClose.close();
+        }
+      } finally {
+        stream = null;
+        plan = null;
+        ctx = null;
+      }
     }
   }
 }

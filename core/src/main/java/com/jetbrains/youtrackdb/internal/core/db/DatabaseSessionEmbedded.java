@@ -740,19 +740,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
     var cache = tx.getQueryResultCache();
     // Feature off (null cache) or re-entrant call: run the plain uncached path. The tx-level
-    // re-entrancy depth brackets the whole lookup-and-view scope below, so any query() launched
-    // while we are inside it sees depth > 0 here and never touches the cache.
+    // re-entrancy depth brackets the whole lookup-and-view scope below (and, via the view, the lazy
+    // stream pull during iteration), so any query() launched while we are inside it sees depth > 0
+    // here and never touches the cache. The non-determinism and shape walks deliberately do NOT run
+    // here: they descend the full AST, so running them ahead of the lookup would re-pay the
+    // classification cost on every cache HIT — the exact work the cache exists to save. They run
+    // only on the miss/populate branch below, where the result is needed to build the entry; a hit
+    // trusts the stored entry's shape because the statement was already proven deterministic and
+    // RECORD/K0_NONE-shaped when that entry was populated.
     if (cache == null
         || tx.getCacheCodeDepth() > 0
-        || !(statement instanceof SQLSelectStatement || statement instanceof SQLMatchStatement)
-        || NonDeterministicQueryDetector.containsNonDeterministicReference(statement)) {
-      return executeUncached(statement, args);
-    }
-
-    var shape = ShapeClassifier.classify(statement);
-    if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
-      // AGGREGATE_* and MATCH_TUPLE_MULTI are classified but their delta/view paths are not wired
-      // yet; route them to uncached execution until those paths land.
+        || !(statement instanceof SQLSelectStatement || statement instanceof SQLMatchStatement)) {
       return executeUncached(statement, args);
     }
 
@@ -769,16 +767,43 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     // Two-guard bracketing: bump the tx-level depth around the entire lookup-and-view scope so a
     // nested query() (e.g. a UDF in WHERE) bypasses the cache; the cache's own inFlightLookup guards
-    // the lookup call. Decremented in the finally so an exception mid-build still restores the depth.
+    // the lookup call. Decremented in the finally so an exception mid-lookup still restores the
+    // depth. The view extends this bracket across its own iteration (see CachedResultSetView), so
+    // the guard is not released here for the hit/miss view returned below — only the bare-lookup
+    // window is.
     tx.enterCacheCode();
+    boolean viewOwnsGuard = false;
     try {
       var hit = cache.lookup(key, tx.getMutationVersion());
       if (hit != null) {
-        return buildView(hit, tx, args);
+        // Hit: the stored entry was proven deterministic and RECORD/K0_NONE at populate, so neither
+        // the non-determinism walk nor the shape classifier runs again — the entry carries its shape.
+        var view = buildView(hit, tx, args);
+        viewOwnsGuard = true;
+        return view;
       }
-      return populateAndBuildView(statement, args, key, shape, tx, cache);
+      // Miss: now (and only now) pay for the AST analysis needed to decide whether to populate an
+      // entry. A non-deterministic statement or an unwired shape bypasses the cache uncached.
+      if (NonDeterministicQueryDetector.containsNonDeterministicReference(statement)) {
+        return executeUncached(statement, args);
+      }
+      var shape = ShapeClassifier.classify(statement);
+      if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
+        // AGGREGATE_* and MATCH_TUPLE_MULTI are classified but their delta/view paths are not wired
+        // yet; route them to uncached execution until those paths land.
+        return executeUncached(statement, args);
+      }
+      var view = populateAndBuildView(statement, args, key, shape, tx, cache);
+      viewOwnsGuard = true;
+      return view;
     } finally {
-      tx.exitCacheCode();
+      // Release the bare-lookup guard only when no view took ownership of it. When a view was
+      // returned, the view holds the guard for its iteration lifetime and releases it on close /
+      // exhaustion (paired with its entry pin); releasing here would reopen the cache to a
+      // re-entrant query() while the view is still being consumed.
+      if (!viewOwnsGuard) {
+        tx.exitCacheCode();
+      }
     }
   }
 
@@ -799,10 +824,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * Populates a fresh cache entry for a miss: stamps the populate mutation version before driving the
    * executor (so the delta builder later admits only post-populate mutations), runs the real
    * execution, lifts the live stream and plan off the resulting {@link LocalResultSet}, wraps the
-   * stream in an {@link IdempotentExecutionStream}, threads that one wrapper into BOTH the entry and
-   * the {@code LocalResultSet}'s stream slot so a close from either owner closes the underlying
-   * stream exactly once, stores the entry, and returns a view over it. The entry owns the paused
-   * stream (closed on evict or tx-end); the view never closes it.
+   * stream in an {@link IdempotentExecutionStream}, stores the entry, and returns a view over it. The
+   * entry is the sole owner of the paused stream and its plan, closing both on evict or tx-end; the
+   * view never closes the stream. The wrapper is also threaded back into the {@code LocalResultSet}'s
+   * stream slot, but that {@code LocalResultSet} is orphaned here (never returned, never registered in
+   * the active-query set), so its close never fires — the wrapper's idempotency is a defensive guard
+   * against a future second owner, not a live double-close path (see {@link IdempotentExecutionStream}
+   * and {@link CachedEntry#close()}).
    */
   private ResultSet populateAndBuildView(
       @Nonnull SQLStatement statement,
@@ -817,7 +845,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var original = executeUncached(statement, args);
     // SELECT/MATCH execution returns a LocalResultSet; if a future shape returns something else, the
-    // cache cannot lift its stream, so fall back to returning the uncached result unwrapped.
+    // cache cannot lift its stream, so fall back to returning the uncached result unwrapped. The
+    // cache.put below is the only mutation of cache state on this path and runs after this gate, so
+    // this early return leaves the cache untouched (only the miss already counted by lookup) — no
+    // half-built entry, no dangling liveViewCount. The aggregate-splice fallback in a later track
+    // inherits the same contract.
     if (!(original instanceof LocalResultSet localResult)) {
       return original;
     }
@@ -825,8 +857,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var plan = localResult.getInternalExecutionPlan();
     var ctx = plan.getContext();
     var wrapped = new IdempotentExecutionStream(localResult.getStream());
-    // Thread the single wrapper into both owners so a close from either side closes the underlying
-    // exactly once.
+    // Thread the wrapper back into the LocalResultSet's stream slot too. That LocalResultSet is
+    // orphaned (not returned, not registered in activeQueries), so its close never fires; the entry
+    // is the sole closer today. The wrapper's idempotency is the defensive guard for a future second
+    // owner, not a live double-close path.
     localResult.setStream(wrapped);
 
     var entry = new CachedEntry(
@@ -848,20 +882,34 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * reconciling post-populate mutations; K0_NONE entries replay directly (the lookup-time version
    * gate already proved no mutation happened since populate, so there is nothing to merge). The view's
    * command context for the merge is the entry's populate-time context when still live, else a fresh
-   * context with the same parameter bindings (equivalent because the entry is keyed by AST + params).
+   * context with the same parameter bindings. Rebuilding from params alone is sound for every shape
+   * that reaches the delta path: only RECORD-classified plain SELECTs build a delta, and a statement
+   * referencing any per-row context variable ({@code $current}, {@code $parent}, a {@code LET}
+   * binding, ...) is excluded upstream — the non-determinism detector bypasses {@code $}-prefixed
+   * identifiers, and the shape classifier routes {@code LET} to K0_NONE (which builds no delta). So
+   * the WHERE re-eval and ORDER BY {@code compare} that run against the rebuilt context never read any
+   * context state beyond the {@code :param} bindings, which the rebuild reproduces exactly. A future
+   * shape broadening that lets a context-variable query reach the delta path must revisit this (the
+   * populate context's variables would then need to be carried, not just its params).
    */
   private ResultSet buildView(
       @Nonnull CachedEntry entry, @Nonnull FrontendTransactionImpl tx, @Nullable Object args) {
     var ctx = entry.getCtx();
     if (ctx == null) {
       // The entry's stream has been exhausted and its context released; rebuild an equivalent context
-      // so ORDER BY comparison and WHERE re-evaluation still resolve the same :param bindings.
+      // so ORDER BY comparison and WHERE re-evaluation still resolve the same :param bindings. Sound
+      // because the wired delta-path shapes carry no non-param context state (see method Javadoc).
       ctx = freshContext(args);
     }
     TxDeltaCursor delta = entry.getShape() == CacheableShape.RECORD
         ? DeltaBuilder.buildForRecord(entry, tx, ctx)
         : null;
-    return new CachedResultSetView(entry, delta, this, entry.getPlan(), ctx);
+    // The view takes ownership of the open cache-code guard (entered in serveThroughCache) and holds
+    // it for its whole iteration lifetime, releasing it exactly once on close / exhaustion. This
+    // keeps a re-entrant query() — e.g. a UDF in WHERE evaluated during the lazy stream pull, which
+    // happens after serveThroughCache has returned — bypassed for the entire view consumption, not
+    // just the synchronous lookup window.
+    return new CachedResultSetView(entry, delta, this, tx, entry.getPlan(), ctx);
   }
 
   /** A command context carrying the query's parameter bindings, mirroring the executor's setup. */

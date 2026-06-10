@@ -28,13 +28,15 @@ import javax.annotation.Nonnull;
  * An {@link ExecutionStream} decorator that makes {@link #close} safe to call more than once.
  *
  * <p>The cache stores the live execution stream of a populating query and substitutes this wrapper
- * into the consumer-facing result set's stream slot, so two independent owners can reach the same
- * underlying stream: the cache (via the cached entry's {@code close()} fired from the tx-end cache
- * clear) and the consumer-facing result set (via its own {@code close()} fired from {@code
- * closeActiveQueries()}). The tx-end ordering runs {@code closeActiveQueries()} before the cache
- * clear, so without idempotency the underlying stream would receive two {@code close} calls. The
- * {@link ExecutionStream} contract does not promise a no-op second close, so the cache provides one
- * here.
+ * into both the cached entry and the populating {@code LocalResultSet}'s stream slot. On the current
+ * wiring only one owner ever closes the underlying stream: the cached entry, via {@code
+ * CachedEntry.close()} fired from the tx-end cache clear. The consumer-facing {@code
+ * CachedResultSetView} deliberately never closes the shared stream, and the populating {@code
+ * LocalResultSet} is orphaned (never registered in the session's active-query set), so its own {@code
+ * close()} never runs. The idempotency here is therefore a defensive guard, not a live double-close
+ * path: it costs nothing today and protects against a future second owner (or a future shape that
+ * returns the {@code LocalResultSet} directly) without depending on the {@link ExecutionStream}
+ * contract, which does not promise a no-op second close.
  *
  * <p>{@link #hasNext} and {@link #next} forward unconditionally — the wrapper adds no buffering or
  * state beyond the {@code closed} flag, so iteration behaves exactly as the underlying stream's.

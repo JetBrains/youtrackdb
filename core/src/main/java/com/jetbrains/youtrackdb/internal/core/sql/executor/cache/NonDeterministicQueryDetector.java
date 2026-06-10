@@ -25,7 +25,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SimpleNode;
-import java.util.Locale;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -68,8 +67,9 @@ public final class NonDeterministicQueryDetector {
 
   /**
    * Builtin function names whose result varies per invocation. Compared case-insensitively against
-   * the lowercased function name. {@code date} is handled specially (only the zero-argument form is
-   * non-deterministic) and is therefore NOT in this set; see {@link #isNonDeterministicFunction}.
+   * the raw function name via {@code equalsIgnoreCase}. {@code date} is handled specially (only the
+   * zero-argument form is non-deterministic) and is therefore NOT in this set; see {@link
+   * #isNonDeterministicFunction}.
    */
   private static final Set<String> NON_DETERMINISTIC_FUNCTIONS =
       Set.of("sysdate", "uuid", "eval", "math_random");
@@ -124,16 +124,20 @@ public final class NonDeterministicQueryDetector {
     if (name == null) {
       return false;
     }
-    var lower = name.getStringValue();
-    if (lower == null) {
+    var raw = name.getStringValue();
+    if (raw == null) {
       return false;
     }
-    lower = lower.toLowerCase(Locale.ROOT);
-    if (NON_DETERMINISTIC_FUNCTIONS.contains(lower)) {
-      return true;
+    // Compare case-insensitively against the small static denylist without allocating a lowercased
+    // String per function-call node (this runs for every call node in the full-AST walk). The
+    // denylist is tiny, so a handful of equalsIgnoreCase checks are cheaper than a toLowerCase copy.
+    for (var fn : NON_DETERMINISTIC_FUNCTIONS) {
+      if (fn.equalsIgnoreCase(raw)) {
+        return true;
+      }
     }
     // Zero-arg date() is "now"; date(<arg>) is a fixed parse of the literal and stays cacheable.
-    return "date".equals(lower) && call.getParams().isEmpty();
+    return "date".equalsIgnoreCase(raw) && call.getParams().isEmpty();
   }
 
   /**
