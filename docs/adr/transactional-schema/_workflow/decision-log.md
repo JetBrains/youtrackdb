@@ -571,6 +571,18 @@ Consequence for a newly-created index with no engine (`indexId == -1`):
   avoids it by skipping unbuilt indexes (D13), which is exactly why genesis is
   two-phase (D18) for the `OUser.name` direct lookup.
 
+**Timing corrected by F66 (2026-06-10): "on every record write" is wrong.** The
+translation is batched: record operations accumulate in
+`operationsBetweenCallbacks` and `ClassIndexManager` runs at exactly two
+points — the outermost commit (`FrontendTransactionImpl.commitInternalImpl:232`,
+where it sees the final overlay set, so the engine-agnostic conclusions above
+hold) and **every `deleteRecord`** (`:483`), which drains the whole queue early
+against the index set of that moment; drained operations are not re-translated
+at commit (`:775`). A tx-created index therefore misses entries for every
+operation drained before its `createIndex` — the F66 corruption. The F66
+re-derivation invariant (D12) is what restores this entry's "identical to a
+built index" conclusion for the early-flush shapes.
+
 ```mermaid
 flowchart TD
   W["record write in tx"] --> CIM["ClassIndexManager: cls.getRawIndexes() includes new index via D15 overlay"]
@@ -638,8 +650,10 @@ four-lock order — D7 mutex → `SchemaShared.lock` → `IndexManagerEmbedded.l
 index-only txs); F65 → D7/D8 (accepted 2026-06-10, three tiers: snapshot reads untouched;
 captured-delegate fast path outside schema txs; per-call name re-resolution against the
 tx-local write-view during the session's schema tx, with mutex engage on the first
-write-routed proxy call; impl-typed arguments always re-resolved by name). F66–F75
-pending.
+write-routed proxy call; impl-typed arguments always re-resolved by name); F66 → D12/F32
+(accepted 2026-06-10: commit-time re-derivation of tx-created indexes' entries from the
+tx's complete record-operation set; pre-existing indexes keep the incremental path;
+F32's "on every record write" timing model corrected). F67–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1807,13 +1821,21 @@ Both are unreachable today only because F21 forbids in-tx `createIndex`; the des
 de-guards it. F32's "on every record write" timing model is wrong; D12's "each key counted
 once" inherits the error. Full analysis: pass-6 report C10.
 
-**Resolution (proposed):** D12 gains a completeness invariant — for every tx-created
-index, the commit accounts for **all** of the tx's record operations: re-derive that
-index's entries from the tx's full record-operation set at commit (or have population
-consult it to skip tx-deleted RIDs and add tx-created rows), instead of trusting the
-incrementally-flushed queue. Regression tests: delete-then-createIndex (dangling entry)
-and insert-delete-other-createIndex (missing entry). Affected: D12, F54, F32, F35, F20,
-D3.
+**Resolution (accepted 2026-06-10):** commit-time re-derivation for tx-created indexes
+only. At commit, once the overlay is final, the enqueue source for each **tx-created**
+index is the tx's complete record-operation set (which `FrontendTransaction` retains):
+inserts contribute put(final values), deletes of committed rows contribute removes
+(composing with population's puts inside `commitIndexes` — put then remove nets to
+absent), updates contribute their delta. Pre-existing indexes keep today's incremental
+path, so the fix costs nothing for txs that create no index. D12 gains the completeness
+invariant: for every tx-created index the commit accounts for all of the tx's record
+operations; the eager delete-flush is not a sufficient tracking source once mid-tx index
+DDL exists (corrects F32's timing model). Rejected alternative: suppressing the eager
+delete-flush during schema txs — it exists because deleted records' field values are
+needed for key extraction before unload, and retaining them until commit changes the
+data path's lifecycle to fix a DDL edge. Regression tests: delete-then-createIndex
+(dangling entry) and insert-delete-other-createIndex (missing entry), each in UNIQUE and
+non-unique variants. Affected: D12, F54, F32, F35, F20, D3.
 
 ```mermaid
 flowchart LR
@@ -2468,7 +2490,12 @@ atomic operation — no copied session, no nested batch transactions (both re-en
 non-reentrant `stateLock` under the held write lock, and separate batch units would make
 the build durable independently of the schema commit; F54). The F46 emptiness probes use
 an internal `isEmpty(atomicOperation)`. Invariant: population emits **zero additional WAL
-units**. v1 scopes the commit-time eager build to **empty classes** (or population below
+units**. **Completeness invariant (F66):** for every tx-created index, the commit
+accounts for all of the tx's record operations — the commit-time enqueue for tx-created
+indexes re-derives entries from the tx's complete record-operation set, never from the
+residual `operationsBetweenCallbacks` queue, because `deleteRecord`'s eager flush
+(`FrontendTransactionImpl:483`) drains that queue early against the pre-`createIndex`
+index set. v1 scopes the commit-time eager build to **empty classes** (or population below
 a documented size bound): forward heap and recovery heap both scale with the unit size —
 recovery buffers the whole unit before applying (F57) — so the unbounded populated-class
 case moves explicitly to YTDB-1064. The v1 behavior at the boundary (loud rejection
