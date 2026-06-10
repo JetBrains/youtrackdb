@@ -264,17 +264,19 @@ If you change a threshold here, grep for the others and update them in the same 
 
 ## Cost Monitor
 
-The statusline's second line shows session, today, and calendar-month cost. The `day:$X` figure is today's spend across every project (the calendar-day analogue of the month figure, deduped the same way) and always appears: `$0.123 (day:$2.34 mo:$4.56) …`. When the cwd is a linked git worktree, the line gains two worktree-scoped figures at the front of the parenthetical: `wt:$X`, the cumulative spend on the *current worktree's project* (every session ever run in this worktree, orchestrator + sub-agents, deduped), and `wtday:$X`, today's slice of that same spend (the worktree analogue of the global `day:` figure, bucketed per record by UTC date): `$0.123 (wt:$1.85 wtday:$0.40 day:$2.34 mo:$4.56) …`.
+The statusline's second line shows session, today, and calendar-month cost. The `day:$X` figure is today's spend across every project (the calendar-day analogue of the month figure, deduped the same way) and always appears: `$0.123 (day:$2.34 mo:$4.56) …`. When the cwd is a linked git worktree, the line gains worktree-scoped figures at the front of the parenthetical: `wt:$X`, the cumulative spend on the *current worktree's project* (every session ever run in this worktree, orchestrator + sub-agents, deduped), immediately followed by its `[main:$X sub:$X]` split, and then `wtday:$X`, today's slice of `wt:` (the worktree analogue of the global `day:` figure, bucketed per record by UTC date): `$0.123 (wt:$1.85 [main:$1.20 sub:$0.65] wtday:$0.40 day:$2.34 mo:$4.56) …`. In the split, `main` is the top-level orchestrator / main-session spend and `sub` is the sub-agent spend; the two sum to `wt:` exactly, because a sub-agent's records live only under `<session>/subagents/` and never in a top-level session file, so the record sets are disjoint.
 
-In a worktree the all-time `wt:` cost (not the `wtday:` slice) is also published to a per-session file, mirroring the context-usage file, so it can be read on demand:
+In a worktree the all-time `wt:` cost (not the `wtday:` slice), with its main/sub split, is also published to a per-session file, mirroring the context-usage file, so it can be read on demand:
 ```bash
 cat /tmp/claude-code-worktree-cost-$PPID.txt
 ```
-Output example: `wt_cost: $1.85`. The file is absent in the main checkout (no `wt:` figure there). Implementation: `.claude/scripts/statusline-command.sh` detects the worktree and passes `--worktree` / `--worktree-cost-file` to `.claude/scripts/session-stats.py`, which computes the figure and writes the file.
+Output example: `wt_cost: $1.85 (main: $1.20 sub: $0.65)`. The file is absent in the main checkout (no `wt:` figure there). Implementation: `.claude/scripts/statusline-command.sh` detects the worktree and passes `--worktree` / `--worktree-cost-file` to `.claude/scripts/session-stats.py`, which computes the figures and writes the file.
+
+Pricing is fetched live from LiteLLM (24 h disk cache) with a hardcoded offline fallback in `session-stats.py`'s `FALLBACK_PRICES` table, so cold-start / offline cost is still computed rather than zeroed. The fallback's model list is owned by that table — see the sync-list entry below.
 
 The example output format above MUST stay in sync with:
-- `.claude/scripts/statusline-command.sh` — detects the worktree and passes the flags that produce the `wt:$X` / `wtday:$X` figures on the statusline's second line
-- `.claude/scripts/session-stats.py` — computes the figure and writes the `wt_cost:` file
+- `.claude/scripts/statusline-command.sh` — detects the worktree and passes the flags that produce the `wt:$X` / `[main:$X sub:$X]` / `wtday:$X` figures on the statusline's second line
+- `.claude/scripts/session-stats.py` — computes the figures and writes the `wt_cost:` file; holds the `FALLBACK_PRICES` table
 - `.claude/scripts/tests/test_session_stats.py` — pins both formats with exact-match assertions
 
 ### Recipes

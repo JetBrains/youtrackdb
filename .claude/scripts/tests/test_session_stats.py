@@ -209,6 +209,29 @@ def test_parse_args_cost_file_missing_value() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Fallback pricing.
+# ---------------------------------------------------------------------------
+
+
+def test_fallback_prices_have_fable5_and_opus48() -> None:
+    """Fable 5 and Opus 4.8 are present in the offline fallback table with the
+    published per-1M rates, so their cost is computed (not silently zeroed) when
+    the live LiteLLM table is unavailable. Fable 5 is $10/$50 in/out with cache
+    read 0.1x, write-5m 1.25x, write-1h 2.0x; Opus 4.8 matches Opus 4.7 at
+    $5/$25. `_model_pricing` resolves both exactly and longest-prefix-matches a
+    dated Fable 5 SKU. (MODULE._LIVE_PRICES is emptied at load, so these
+    exercise the fallback path.)"""
+    fable = MODULE.FALLBACK_PRICES["claude-fable-5"]
+    assert (fable["in"], fable["out"]) == (10.0, 50.0), fable
+    assert (fable["read"], fable["write_5m"], fable["write_1h"]) == (1.0, 12.5, 20.0), fable
+    opus48 = MODULE.FALLBACK_PRICES["claude-opus-4-8"]
+    assert (opus48["in"], opus48["out"]) == (5.0, 25.0), opus48
+    assert MODULE._model_pricing("claude-fable-5") == fable
+    assert MODULE._model_pricing("claude-fable-5-20260601") == fable, "dated SKU should prefix-match"
+    assert MODULE._model_pricing("claude-opus-4-8") == opus48
+
+
+# ---------------------------------------------------------------------------
 # format_stats_line.
 # ---------------------------------------------------------------------------
 
@@ -228,30 +251,36 @@ def test_format_line_no_worktree_exact() -> None:
 
 
 def test_format_line_with_worktree_exact() -> None:
-    """A project total inserts the two worktree figures at the front of the
-    parenthetical — `wt:$…` (all-time) then `wtday:$…` (today's slice) — ahead
-    of the always-present `day:$…` and the `mo:$…` figure."""
+    """A project total inserts the worktree figures at the front of the
+    parenthetical (`wt:$…` all-time, immediately followed by its
+    `[main:$… sub:$…]` split, then `wtday:$…` today's slice), ahead of the
+    always-present `day:$…` and the `mo:$…` figure."""
     sess = _totals(0.123, **{"in": 1200, "out": 8000, "read": 230000, "w5": 40000, "w1": 0})
     day = _totals(2.34)
     month = _totals(4.56)
     proj = _totals(1.85)
     proj_day = _totals(0.40)
-    line = MODULE.format_stats_line(sess, day, month, proj=proj, proj_day=proj_day, no_color=True)
+    proj_main = _totals(1.20)
+    proj_sub = _totals(0.65)
+    line = MODULE.format_stats_line(
+        sess, day, month, proj=proj, proj_day=proj_day,
+        proj_main=proj_main, proj_sub=proj_sub, no_color=True,
+    )
     expected = (
-        "$0.123 (wt:$1.85 wtday:$0.40 day:$2.34 mo:$4.56)  in:1.2K out:8.0K read:230K w5m:40K w1h:0  "
-        "r/5m:5.8x r/1h:-"
+        "$0.123 (wt:$1.85 [main:$1.20 sub:$0.65] wtday:$0.40 day:$2.34 mo:$4.56)  "
+        "in:1.2K out:8.0K read:230K w5m:40K w1h:0  r/5m:5.8x r/1h:-"
     )
     assert line == expected, f"\n got: {line}\nwant: {expected}"
 
 
-def test_format_line_worktree_proj_day_defaults_to_zero() -> None:
-    """When `proj` is given but `proj_day` is omitted, the `wtday:` figure
-    renders `$0.00` rather than crashing on a None index — a defensive path for
-    callers that pass only the all-time total."""
+def test_format_line_worktree_split_defaults_to_zero() -> None:
+    """When `proj` is given but `proj_day` / `proj_main` / `proj_sub` are
+    omitted, each renders `$0.00` rather than crashing on a None index — a
+    defensive path for callers that pass only the all-time total."""
     line = MODULE.format_stats_line(
         _totals(0.1), _totals(2.0), _totals(3.0), proj=_totals(1.85), no_color=True
     )
-    assert "wt:$1.85 wtday:$0.00 " in line, line
+    assert "wt:$1.85 [main:$0.00 sub:$0.00] wtday:$0.00 " in line, line
 
 
 def test_format_line_no_color_has_no_ansi() -> None:
@@ -297,8 +326,9 @@ def test_project_totals_aggregates_sessions_and_subagents() -> None:
     """Every *.jsonl under the project dir is summed into the all-time total —
     top-level session files and nested subagents/agent-*.jsonl — with
     (msg_id, requestId) dedup so a record duplicated into a sub-agent transcript
-    is counted once. The today element of the returned pair is asserted
-    separately (see test_project_totals_today_bucket)."""
+    is counted once. The today element of the returned tuple is asserted
+    separately (see test_project_totals_today_bucket); the main/sub split has
+    its own test (test_project_totals_main_sub_split)."""
     with tempfile.TemporaryDirectory() as tmp:
         cache = Path(tmp) / "cache"
         proj = Path(tmp) / "project"
@@ -313,10 +343,53 @@ def test_project_totals_aggregates_sessions_and_subagents() -> None:
             ],
         )
         with _patched(CACHE_DIR=cache):
-            all_time, _today = MODULE.project_totals(str(proj / "sessionA.jsonl"))
+            all_time, _today, _main, _sub = MODULE.project_totals(str(proj / "sessionA.jsonl"))
         # m1, m2, m3 distinct -> 3 * 1M input tokens.
         assert all_time["in"] == 3_000_000, all_time["in"]
         assert _approx(all_time["cost"], 3 * USD_PER_1M_IN), all_time["cost"]
+
+
+def test_project_totals_main_sub_split() -> None:
+    """The 3rd/4th tuple elements split the all-time total by transcript origin.
+    `main` is the top-level (orchestrator / main-session) spend; `sub` is the
+    sub-agent spend (any file under a `subagents/` dir, at any depth). The split
+    partitions the deduped all-time set (a key seen in any sub-agent file goes to
+    `sub`, every other key to `main`), so `main['cost'] + sub['cost']` equals the
+    all-time cost even though m1 is duplicated into the sub-agent transcript here.
+
+    Two sub-agent layouts are exercised so the classifier is pinned to recognise
+    both depths: m3 sits directly under `subagents/` (immediate parent), and m4
+    sits under the nested `subagents/workflows/wf_*/` layout used by
+    workflow-spawned agents. With m2 unique to a top-level file (main) and
+    m1 + m3 + m4 attributed to sub-agent files (sub), main = 1M and sub = 3M,
+    summing to the 4M all-time total. A classifier that only matched the
+    immediate-parent layout would misbucket m4 into main."""
+    with tempfile.TemporaryDirectory() as tmp:
+        cache = Path(tmp) / "cache"
+        proj = Path(tmp) / "project"
+        write_jsonl(proj / "sessionA.jsonl", [_assistant_usage("m1", "r1", in_t=1_000_000)])
+        write_jsonl(proj / "sessionB.jsonl", [_assistant_usage("m2", "r2", in_t=1_000_000)])
+        write_jsonl(
+            proj / "sessionA" / "subagents" / "agent-1.jsonl",
+            [
+                _assistant_usage("m1", "r1", in_t=1_000_000),  # duplicate of A -> attributed to sub
+                _assistant_usage("m3", "r3", in_t=1_000_000),  # unique sub-agent record (immediate parent)
+            ],
+        )
+        write_jsonl(
+            proj / "sessionA" / "subagents" / "workflows" / "wf_abc" / "agent-2.jsonl",
+            [_assistant_usage("m4", "r4", in_t=1_000_000)],  # nested workflow sub-agent record
+        )
+        with _patched(CACHE_DIR=cache):
+            all_time, _today, main, sub = MODULE.project_totals(str(proj / "sessionA.jsonl"))
+        # main = {m2}; sub = {m1, m3, m4}; the partition is disjoint and exhaustive.
+        assert main["in"] == 1_000_000, main["in"]
+        assert sub["in"] == 3_000_000, sub["in"]
+        assert _approx(main["cost"], 1 * USD_PER_1M_IN), main["cost"]
+        assert _approx(sub["cost"], 3 * USD_PER_1M_IN), sub["cost"]
+        assert all_time["in"] == 4_000_000, all_time["in"]
+        # The invariant the statusline display depends on.
+        assert _approx(main["cost"] + sub["cost"], all_time["cost"]), (main, sub, all_time)
 
 
 def test_project_totals_today_bucket() -> None:
@@ -338,7 +411,7 @@ def test_project_totals_today_bucket() -> None:
             ],
         )
         with _patched(CACHE_DIR=cache):
-            all_time, today = MODULE.project_totals(str(proj / "session.jsonl"), now=now)
+            all_time, today, _main, _sub = MODULE.project_totals(str(proj / "session.jsonl"), now=now)
         # All-time gets both records; today gets only the 2026-06-08 one.
         assert all_time["in"] == 2_000_000, all_time["in"]
         assert _approx(all_time["cost"], 2 * USD_PER_1M_IN), all_time["cost"]
@@ -347,9 +420,9 @@ def test_project_totals_today_bucket() -> None:
 
 
 def test_project_totals_missing_dir_is_zero() -> None:
-    """A transcript path whose parent is not a directory yields a zeroed pair."""
+    """A transcript path whose parent is not a directory yields a zeroed 4-tuple."""
     out = MODULE.project_totals("/no/such/dir/x.jsonl")
-    assert out == (MODULE._zero(), MODULE._zero()), out
+    assert out == (MODULE._zero(), MODULE._zero(), MODULE._zero(), MODULE._zero()), out
 
 
 def test_project_totals_nonexistent_transcript_does_not_scan_parent() -> None:
@@ -366,7 +439,7 @@ def test_project_totals_nonexistent_transcript_does_not_scan_parent() -> None:
         write_jsonl(proj / "decoy.jsonl", [_assistant_usage("m1", "r1", in_t=1_000_000)])
         with _patched(CACHE_DIR=cache):
             out = MODULE.project_totals(str(proj / "nonexistent.jsonl"))
-        assert out == (MODULE._zero(), MODULE._zero()), out
+        assert out == (MODULE._zero(), MODULE._zero(), MODULE._zero(), MODULE._zero()), out
 
 
 def test_streaming_snapshots_in_one_file_keep_max_output() -> None:
@@ -389,7 +462,7 @@ def test_streaming_snapshots_in_one_file_keep_max_output() -> None:
             ],
         )
         with _patched(CACHE_DIR=cache):
-            all_time, _today = MODULE.project_totals(str(proj / "session.jsonl"))
+            all_time, _today, _main, _sub = MODULE.project_totals(str(proj / "session.jsonl"))
         # m1 -> 276 (final snapshot), m2 -> 100; first-wins would give 101, no
         # dedup would give 378.
         assert all_time["out"] == 376, all_time["out"]
@@ -497,42 +570,44 @@ def test_atomic_write_text_writes_and_overwrites() -> None:
 
 
 def test_main_worktree_writes_cost_file_and_shows_wt() -> None:
-    """`main` in worktree mode prints the `wt:`, `wtday:`, and `day:` figures and
-    publishes the cost file containing exactly `wt_cost: $<all-time proj cost>`
-    (the today slice is statusline-only). `project_totals` is stubbed to return
-    the (all-time, today) pair main now unpacks; `calendar_totals` returns the
-    (today, month) pair."""
+    """`main` in worktree mode prints `wt:`, its `[main: sub:]` split, `wtday:`,
+    and `day:`, and publishes the cost file containing the all-time proj cost
+    with the same split — `wt_cost: $1.85 (main: $1.20 sub: $0.65)` (the today
+    slice is statusline-only). `project_totals` is stubbed to return the
+    (all-time, today, main, sub) tuple main now unpacks; `calendar_totals`
+    returns the (today, month) pair."""
     with tempfile.TemporaryDirectory() as tmp:
         wt_file = Path(tmp) / "claude-code-worktree-cost-1234.txt"
         buf = io.StringIO()
         with _patched(
             session_totals=lambda _t: _totals(0.123),
             calendar_totals=lambda: (_totals(2.34), _totals(4.56)),
-            project_totals=lambda _t: (_totals(1.85), _totals(0.40)),
+            project_totals=lambda _t: (_totals(1.85), _totals(0.40), _totals(1.20), _totals(0.65)),
         ), _env("NO_COLOR", "1"), contextlib.redirect_stdout(buf):
             rc = MODULE.main(["t.jsonl", "--worktree", "--worktree-cost-file", str(wt_file)])
         assert rc == 0, rc
-        assert wt_file.read_text() == "wt_cost: $1.85", wt_file.read_text()
-        assert "wt:$1.85" in buf.getvalue(), buf.getvalue()
+        assert wt_file.read_text() == "wt_cost: $1.85 (main: $1.20 sub: $0.65)", wt_file.read_text()
+        assert "wt:$1.85 [main:$1.20 sub:$0.65]" in buf.getvalue(), buf.getvalue()
         assert "wtday:$0.40" in buf.getvalue(), buf.getvalue()
         assert "day:$2.34" in buf.getvalue(), buf.getvalue()
 
 
 def test_main_no_worktree_omits_wt_and_writes_no_file() -> None:
-    """Without worktree flags `main` omits both `wt:` and `wtday:`, still shows
-    the always-present `day:` figure, and writes no publish file."""
+    """Without worktree flags `main` omits `wt:`, its split, and `wtday:`, still
+    shows the always-present `day:` figure, and writes no publish file."""
     with tempfile.TemporaryDirectory() as tmp:
         wt_file = Path(tmp) / "should-not-exist.txt"
         buf = io.StringIO()
         with _patched(
             session_totals=lambda _t: _totals(0.123),
             calendar_totals=lambda: (_totals(2.34), _totals(4.56)),
-            project_totals=lambda _t: (_totals(1.85), _totals(0.40)),
+            project_totals=lambda _t: (_totals(1.85), _totals(0.40), _totals(1.20), _totals(0.65)),
         ), _env("NO_COLOR", "1"), contextlib.redirect_stdout(buf):
             rc = MODULE.main(["t.jsonl"])
         assert rc == 0, rc
         assert "wt:" not in buf.getvalue(), buf.getvalue()
         assert "wtday:" not in buf.getvalue(), buf.getvalue()
+        assert "[main:" not in buf.getvalue(), buf.getvalue()
         assert "day:$2.34" in buf.getvalue(), buf.getvalue()
         assert not wt_file.exists(), "no cost file should be written without the flag"
 
@@ -559,11 +634,13 @@ def main() -> int:
         ("parse_args cost-file missing value", test_parse_args_cost_file_missing_value),
         ("format line no worktree (exact)", test_format_line_no_worktree_exact),
         ("format line with worktree (exact)", test_format_line_with_worktree_exact),
-        ("format line worktree proj_day defaults to zero", test_format_line_worktree_proj_day_defaults_to_zero),
+        ("format line worktree split defaults to zero", test_format_line_worktree_split_defaults_to_zero),
         ("format line no_color strips ANSI", test_format_line_no_color_has_no_ansi),
         ("format line colours when enabled", test_format_line_colours_when_enabled),
         ("format line NO_COLOR env respected", test_format_line_no_color_env_respected),
+        ("fallback prices have fable5 + opus48", test_fallback_prices_have_fable5_and_opus48),
         ("project_totals sessions + subagents deduped", test_project_totals_aggregates_sessions_and_subagents),
+        ("project_totals main/sub split", test_project_totals_main_sub_split),
         ("project_totals today bucket", test_project_totals_today_bucket),
         ("project_totals missing dir -> zero", test_project_totals_missing_dir_is_zero),
         ("project_totals nonexistent file w/ existing parent -> zero", test_project_totals_nonexistent_transcript_does_not_scan_parent),
