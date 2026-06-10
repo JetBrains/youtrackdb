@@ -61,7 +61,9 @@ def turns(path):
     """Return ordered list of per-turn dicts {cr,w,intok,out} for deduped assistant turns."""
     out = []
     seen = set()
-    for line in open(path):
+    with open(path, encoding="utf-8") as fh:
+        raw = fh.readlines()
+    for line in raw:
         if not line.strip():
             continue
         o = json.loads(line)

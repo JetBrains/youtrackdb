@@ -25,10 +25,12 @@ from datetime import datetime
 
 # session-stats.py lives at <repo-root>/.claude/scripts/; this file is at
 # <repo-root>/tools/cost-analysis/. Resolve relative to __file__ so the script
-# is portable across worktrees; fall back to the develop checkout if absent.
+# is portable across worktrees.
 _ss = pathlib.Path(__file__).resolve().parents[2] / ".claude" / "scripts" / "session-stats.py"
 if not _ss.exists():
-    _ss = pathlib.Path("/home/andrii0lomakin/Projects/ytdb/develop/.claude/scripts/session-stats.py")
+    raise FileNotFoundError(
+        f"session-stats.py not found at {_ss}; run this script from its place "
+        "inside the repository (tools/cost-analysis/)")
 spec = importlib.util.spec_from_file_location("ss", str(_ss))
 ss = importlib.util.module_from_spec(spec); spec.loader.exec_module(ss)
 
@@ -71,7 +73,7 @@ def parse_ts(ts):
         return None
 
 def analyze_transcript(path):
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         lines = [json.loads(l) for l in fh if l.strip()]
 
     read_id_to_path = {}
@@ -232,7 +234,7 @@ def analyze_session(orch_path):
         any_compaction = any_compaction or r["compaction"]
         diags.append(r)
     sess = ss.session_totals(orch_path)
-    orch = ss.aggregate_file(__import__("pathlib").Path(orch_path))
+    orch = ss.aggregate_file(pathlib.Path(orch_path))
     orch_cost = ss._sum_records(orch)["cost"]
     return {"agg": agg, "orch_agg": orch_agg, "per_file_tot": dict(per_file_tot),
             "per_file_load": dict(per_file_load), "compaction": any_compaction,

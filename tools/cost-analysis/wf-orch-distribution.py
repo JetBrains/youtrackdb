@@ -18,11 +18,13 @@ equals its true bill. Buckets:
 import json, os, importlib.util, pathlib, collections, sys
 # session-stats.py lives at <repo-root>/.claude/scripts/; this file is at
 # <repo-root>/tools/cost-analysis/. Resolve relative to __file__ so the script
-# is portable across worktrees; fall back to the develop checkout if absent.
+# is portable across worktrees.
 _here = pathlib.Path(__file__).resolve()
 _ss = _here.parents[2] / ".claude" / "scripts" / "session-stats.py"
 if not _ss.exists():
-    _ss = pathlib.Path("/home/andrii0lomakin/Projects/ytdb/develop/.claude/scripts/session-stats.py")
+    raise FileNotFoundError(
+        f"session-stats.py not found at {_ss}; run this script from its place "
+        "inside the repository (tools/cost-analysis/)")
 spec = importlib.util.spec_from_file_location("ss", str(_ss))
 ss = importlib.util.module_from_spec(spec); spec.loader.exec_module(ss)
 
@@ -42,7 +44,8 @@ def clen(c):
     return 0
 
 def decompose(path):
-    lines = [json.loads(l) for l in open(path) if l.strip()]
+    with open(path, encoding="utf-8") as fh:
+        lines = [json.loads(l) for l in fh if l.strip()]
     read_id = {}; task_ids = set()
     resident = collections.defaultdict(float); pending = collections.defaultdict(float)
     seen = set(); rcost = collections.defaultdict(float); wcost = collections.defaultdict(float)

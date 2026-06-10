@@ -60,7 +60,8 @@ def linfit(xs, ys):
 def decompose(path):
     """Per-bucket {read$, write$, out$, a_tok (base), b_tok (growth slope),
     base_read$, growth_read$} + session T, ttl-rewarm write overhead $."""
-    lines = [json.loads(l) for l in open(path) if l.strip()]
+    with open(path, encoding="utf-8") as fh:
+        lines = [json.loads(l) for l in fh if l.strip()]
     read_id = {}; task_ids = set()
     resident = collections.defaultdict(float); pending = collections.defaultdict(float); seen = set()
     floor = None; cum_out = 0.0

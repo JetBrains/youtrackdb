@@ -103,7 +103,9 @@ def scan(path):
     n, tokens, eof_total or None} plus the transcript's deduped turn count."""
     read_req = {}; seen = set(); turns = 0
     events = []
-    for line in open(path):
+    with open(path, encoding="utf-8") as fh:
+        raw = fh.readlines()
+    for line in raw:
         if not line.strip(): continue
         o = json.loads(line)
         t = o.get("type")

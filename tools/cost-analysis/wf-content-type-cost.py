@@ -37,7 +37,8 @@ def clen(c):
 
 def decompose(path):
     """Return {bucket: {'w':$, 'r':$, 'o':$}} + input$ for one orchestrator transcript."""
-    lines = [json.loads(l) for l in open(path) if l.strip()]
+    with open(path, encoding="utf-8") as fh:
+        lines = [json.loads(l) for l in fh if l.strip()]
     read_id = {}; task_ids = set()
     resident = collections.defaultdict(float); pending = collections.defaultdict(float); seen = set()
     W = collections.defaultdict(float); R = collections.defaultdict(float); O = collections.defaultdict(float); I = 0.0
