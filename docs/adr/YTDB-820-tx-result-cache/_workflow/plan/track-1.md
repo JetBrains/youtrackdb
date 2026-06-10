@@ -28,6 +28,7 @@ and 3 add shapes on top without changing this foundation.
 - [x] 2026-06-09T20:05Z [ctx=safe] Step 3 complete (commit 88cb09bc5a)
 - [x] 2026-06-09T21:33Z [ctx=safe] Step 4 complete (commit 6edeb296a5, +1 review-fix iteration)
 - [x] 2026-06-09T21:53Z [ctx=info] Step 5 complete (commit ec573e2b97)
+- [x] 2026-06-10T09:32Z [ctx=safe] Step 6 complete (commit 651f38f629, +2 review-fix iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -80,6 +81,22 @@ at Phase 1. -->
   - Test-harness fact: `Entity.setProperty` marks dirty but does NOT call
     `addRecordOperation`; tests staging post-populate ops must call
     `tx.addRecordOperation(record, type)` directly.
+
+- Step 6 findings (See Episodes §Step 6):
+  - Tracks 2/3 relax the `shape != RECORD && shape != K0_NONE` cache bypass at the
+    documented splice point in `serveThroughCache` when their delta/view paths land;
+    the bypass branch and its comment mark the spot.
+  - `CachedResultSetView` now takes the live `FrontendTransactionImpl` as guard owner;
+    any later track constructing a view directly must pass it. Guard-ownership contract:
+    `result instanceof CachedResultSetView` means the view releases the re-entrancy
+    guard, otherwise the `finally` does, so a new populate fallback must return a
+    non-view `ResultSet` to keep release balanced.
+  - `freshContext` copies params and session only. Sound today (the non-determinism
+    detector excludes `$`-context variables and `ShapeClassifier` routes LET to K0_NONE
+    with no delta), but a future aggregate-splice or context-variable shape reaching the
+    RECORD delta path must carry populate-context variables, not just params.
+  - `invalidateCacheForBulkDml` covers only TRUNCATE CLASS; any future mid-tx bulk op
+    that bypasses `addRecordOperation` must be added there.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -311,7 +328,7 @@ line citations confirmed against `core/.../tx/FrontendTransactionImpl.java`,
 3. **`QueryResultCache` + two-level re-entrancy guard (CR1).** The `accessOrder` `LinkedHashMap` LRU, `nonCacheableKeys`, the lookup-level `inFlightLookup` boolean, view-pin-aware `removeEldestEntry` (pinned `liveViewCount` entries exempt, I9), snapshot-before-iterate in `invalidateAll`/`clear`, K0_NONE version-gate at `lookup`, idempotent `clear()`. Plus the tx-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. — risk: high (cache lookup/eviction logic + re-entrancy guards)  [x] commit: 88cb09bc5a
 4. **`DeltaBuilder.buildForRecord` + `TxDeltaCursor`.** The D21-filtered `recordOperations` snapshot, the `(op.type, cached_at_build, match_after)` dispatch table (correct for the verified collapse semantics: CREATE→DELETE and UPDATE→DELETE collapse to DELETED), the ORDER BY sort, and cross-view delta-pair sharing keyed on `mutationVersion`. WHERE re-eval via `SQLWhereClause#matchesFilters(Identifiable, CommandContext)` reuses the original query's `CommandContext` param bindings. — risk: high (merge-on-read correctness floor, I10)  [x] commit: 6edeb296a5
 5. **`CachedResultSetView`.** The sorted-merge `next()` (record path), the K0_NONE direct-replay path, the stream-pull-with-skip-set unification, `liveViewCount` inc/dec, idempotent `close()`. — risk: high (I10 view output + I9 view pinning)  [x] commit: ec573e2b97
-6. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy flag-gated `getQueryResultCache()`; the gate/lookup/put/view installed at the two `query()` overloads (lines 617, 652) via a shared helper, NOT at `executeInternal`; `cacheCodeDepth` increment/decrement bracketing the lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` re-entrant bypass; the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; cache `clear()` in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174) and in the tx-end `clear()` sink (relies on the D9 idempotent stream wrapper since `closeActiveQueries()` runs first). Only RECORD/K0_NONE route through the cache; other shapes bypass. — risk: high (cross-component wiring on the query entry + tx lifecycle + re-entrancy)  [ ]
+6. **`DatabaseSessionEmbedded` + `FrontendTransactionImpl` wiring.** Lazy flag-gated `getQueryResultCache()`; the gate/lookup/put/view installed at the two `query()` overloads (lines 617, 652) via a shared helper, NOT at `executeInternal`; `cacheCodeDepth` increment/decrement bracketing the lookup-and-view scope (CR1) and the `cacheCodeDepth > 0` re-entrant bypass; the bulk-DML `invalidateAll` branch (`TRUNCATE CLASS` only) with the schema-DDL `assert` canary; cache `clear()` in `beginInternal` INSIDE the `txStartCounter == 0` guard (line 174) and in the tx-end `clear()` sink (relies on the D9 idempotent stream wrapper since `closeActiveQueries()` runs first). Only RECORD/K0_NONE route through the cache; other shapes bypass. — risk: high (cross-component wiring on the query entry + tx lifecycle + re-entrancy)  [x] commit: 651f38f629
 7. **Invariant + equivalence test suite.** I1-I3, I6-I10, K0_NONE version-gate, RECORD cache-vs-fresh equivalence across CREATED/UPDATED/DELETED × pre/post-populate, the I1 eventual-clear (not clear-on-iterate-exception), and the `ORDER BY`+LIMIT-never-reaches-RECORD classify-ordering assertion. Tests run with `-ea` (I2/D3 enforcement is assert-based). — risk: medium (test-only, end-to-end feature) — size: ~6 files; (b) heavy-iteration equivalence suite kept separate from the Step 6 wiring so it can churn independently  [ ]
 
 ## Episodes
@@ -522,6 +539,53 @@ ahead of equally-unordered cache rows (`cmp` treated as -1); Tracks 2/3 should c
 matches their unsorted fresh-execution contract before reusing the merge for MATCH shapes.
 
 **Key files:** `CachedResultSetView` (new); `CachedResultSetViewTest` (new).
+
+### Step 6 — commit 651f38f629, 2026-06-10T09:32Z [ctx=safe]
+
+**What was done:** Wired the cache into the live `query()` path. A shared
+`serveThroughCache` helper at both `query()` overloads gates on flag, re-entrancy
+depth, statement type, non-determinism, and shape (RECORD + K0_NONE only; other
+shapes fall through to `executeUncached`). On a miss it stamps the populate version,
+executes once, threads one `IdempotentExecutionStream` into both the `CachedEntry`
+and the returned `LocalResultSet`, and builds a `CachedResultSetView`. The
+`cacheCodeDepth` re-entrancy guard is entered before the lookup and handed to the
+view, which releases it once on close or exhaustion (paired with the LRU pin), so a
+re-entrant `query()` issued during the lazy stream pull sees depth > 0 and bypasses.
+`invalidateCacheForBulkDml` (TRUNCATE CLASS only) and the schema-DDL `assert` canary
+sit on `executeInternal`; the tx field is lazily flag-gated and cleared in
+`beginInternal`'s fresh-tx guard and the tx-end sink. The work started from the resume
+WIP stash after verifying every cache-API call against the actual signatures. 79/79
+cache tests pass with `-ea`; coverage gate passed. Step-level review (risk: high):
+`review-performance` reached PASS at iteration 2 (PF1 hot-path reorder so a hit no
+longer re-walks the AST, PF2 `CacheKey` allocation cut, PF3 `equalsIgnoreCase`);
+`review-bugs-concurrency` reached PASS at iteration 3 (BC1 guard scope, BC2 populate
+plan close, BC3 doc, BC4/BC5 verified not-defects, BC6 a guard-leak regression the BC1
+fix introduced).
+
+**What was discovered:** The BC1 guard-scope fix introduced a latent guard leak (BC6):
+setting `viewOwnsGuard = true` unconditionally after populate left the guard
+un-released on the no-view fallback branch (a populate result that is not a
+`CachedResultSetView`), stranding `cacheCodeDepth` at 1 and silently disabling the
+cache for the rest of the tx. The fix makes ownership transfer conditional on
+`result instanceof CachedResultSetView`. That branch is unreachable through normal SQL
+today (SELECT/MATCH always return a `LocalResultSet`), so the regression test reaches
+it reflectively. Forward notes for later tracks: Tracks 2/3 relax the
+`shape != RECORD && shape != K0_NONE` bypass at the documented splice point in
+`serveThroughCache` when their delta/view paths land; the `CachedResultSetView`
+constructor now takes the live `FrontendTransactionImpl` as guard owner, so any later
+direct view construction must pass it, and the guard-ownership contract (`instanceof`
+view releases, else the `finally` releases) means a new populate fallback must return
+a non-view `ResultSet` to stay balanced; `freshContext` copies params and session
+only, sound today because the detector excludes `$`-context variables and the
+classifier routes LET to K0_NONE with no delta, but a future aggregate-splice or
+context-variable shape reaching the RECORD delta path must carry populate-context
+variables; `invalidateCacheForBulkDml` covers only TRUNCATE CLASS.
+
+**Key files:** `DatabaseSessionEmbedded` (modified), `FrontendTransactionImpl`
+(modified), `LocalResultSet` (modified), `CachedResultSetView` (modified), `CacheKey`
+(modified), `CachedEntry` (modified), `IdempotentExecutionStream` (modified),
+`NonDeterministicQueryDetector` (modified); `TxResultCacheWiringTest` (new),
+`CachedResultSetViewTest` (modified).
 
 ## Validation and Acceptance
 
