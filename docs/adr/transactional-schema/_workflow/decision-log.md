@@ -586,15 +586,29 @@ durability/crash-safety lens) attacked the lock architecture, the commit-failure
 the WAL replay machinery, adding F52–F63 (all code-verified, symbol claims PSI-verified;
 the convergent pairs C2+U5 and C3+U6 from the two reports each fold into one entry). Full
 agent reports with the failed-attack lists: `adversarial-pass5-concurrency.md` and
-`adversarial-pass5-durability.md`. Resolutions for F53–F63 are proposed inside each entry
-and pending the fix discussion; the resolution map below will be extended as they settle.
+`adversarial-pass5-durability.md`.
 
-**Pass-5 resolutions settled so far:** F52 → D7/D8/D19 (accepted 2026-06-10: third lock
-in the ordering proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying
-commit acquires the schema write lock before `stateLock` and holds it through promotion
-plus the trailing `forceSnapshot`; snapshot-first conversions of
-`createVertexWithClass` and `getLowerSubclass` folded into scope as contention
-mitigations).
+**Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
+proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
+the schema write lock before `stateLock` and holds it through promotion plus the trailing
+`forceSnapshot`; snapshot-first conversions of `createVertexWithClass` and
+`getLowerSubclass` folded into scope as contention mitigations); F53 → D3/D10/D13/D15
+(option (a) — commit-local resolution: registry publication deferred to the
+post-`commitChanges` success path; commit steps read commit-local references, PSI audit of
+registry read sites is the first implementation step); F54 → D3/D12/D19 (lock-free
+population scan + `doPut` on the commit's atomic operation; zero additional WAL units;
+`isEmpty(atomicOperation)` probes); F56 → D7 (mutex engages at the proxy/routing layer,
+before any shared metadata lock); F57 → D12/F48 (v1 eager build scoped to empty classes /
+bounded population, populated-class builds → YTDB-1064; recovery heap = forward heap;
+boundary behavior — reject vs accept-with-envelope — settles in Phase 1); F58 → D2/D8
+(reconcile → patch record properties → serialize in `commitEntry`; diff from in-memory
+structures, never pre-serialized bytes); F59 → D14 (root-record dirtiness rule via
+root-entity property sets); F60 → D15/D17 (replacement-object publication via CHM put,
+no in-place field writes on shared definitions); F61 → D7 (mutex release on
+session-close/reap + timed/interruptible acquire); F62 → D8/D15 (single trailing
+`forceSnapshot` after both publications, inside the F52 lock scope); F63 → D20 (export
+manifest + import verification, not-in-service-until-verified). **Pending: F55** (replay
+fix choice and the standalone-issue decision — under discussion).
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1377,11 +1391,15 @@ durable writes computed from the poisoned state. Today the exposure is a sliver
 user-data-dependent work between registration and operation end. Merges the concurrency
 and durability reports' C2+U5.
 
-**Resolution (proposed):** defer all registry publication (collections array, engine maps,
-config caches) to the post-`commitChanges` success path, matching D8/D15's existing
-publish-at-commit discipline — avoids new undo code; tx-local→shared promotion (F52) and
-D15 overlay publication run strictly after `endTxCommit`. Test: schema tx + duplicate key
-in the same tx → commit fails → retry succeeds → restart → consistent. Affected: D3, D10,
+**Resolution (accepted 2026-06-10, option (a) — commit-local resolution):** defer all
+registry publication (collections array, engine maps, config caches) to the
+post-`commitChanges` success path, matching D8/D15's existing publish-at-commit
+discipline — avoids new undo code; tx-local→shared promotion (F52) and D15 overlay
+publication run strictly after `endTxCommit`. The commit's own later steps resolve new
+collections/engines through commit-local references, never the shared registries; the
+first implementation step is a PSI audit of which commit steps read the shared
+registries, so commit-local resolution covers every read site. Test: schema tx +
+duplicate key in the same tx → commit fails → retry succeeds → restart → consistent. Affected: D3, D10,
 D12, D13, D15, D19, F39.
 
 ```mermaid
@@ -1410,7 +1428,7 @@ independently of the schema commit's unit, recreating exactly the torn state D1 
 Merges C3+U6. Affected: D12, D18 (genesis builds the `OUser.name` index through this
 path), D19, F22, F39, F46.
 
-**Resolution (proposed):** extend F39's extraction to the scan: commit-time population
+**Resolution (accepted 2026-06-10):** extend F39's extraction to the scan: commit-time population
 iterates the source collection via lock-free storage-internal primitives that take the
 commit's `AtomicOperation` (no session, no nested transactions) and feeds keys straight to
 the engine's `doPut` on that same operation; F46's probes get an internal
@@ -1475,7 +1493,7 @@ D8-routing wrinkle F44 predates: mid-tx mutations run against the tx-local insta
 hook on the shared instance's lock method either never fires mid-tx or fires on the wrong
 instance. Affected: D7, D8, F44, F47.
 
-**Resolution (proposed):** engage the D7 mutex at the `SchemaProxy`/index-routing layer, on
+**Resolution (accepted 2026-06-10):** engage the D7 mutex at the `SchemaProxy`/index-routing layer, on
 the first write-routed operation, strictly before any shared metadata lock and before
 seeding the tx-local copy. Restate D7's ordering: mutex → (seed) → tx-local locks only
 during the body; shared locks only at commit, in F52's order.
@@ -1500,7 +1518,7 @@ checkpoint/segment cut while the operation is open (`flushAllData:4509`–`:4513
 populated-class build is O(all B-tree pages written by the scan) with no documented bound.
 Affected: F48, D12, F22.
 
-**Resolution (proposed):** state a hard v1 bound: commit-time eager build only for empty
+**Resolution (accepted 2026-06-10):** state a hard v1 bound: commit-time eager build only for empty
 classes (or population below a documented size cap); populated-class builds go explicitly
 to YTDB-1064. Add the recovery-side requirement to F48's envelope: recovery heap = forward
 heap.
@@ -1527,7 +1545,7 @@ before that loop. But D2's patch list names only in-memory structures; no entry 
 record **property values** must be re-pointed before serialization. Affected: D2, D3, D8,
 D14, F42, F43.
 
-**Resolution (proposed):** add the invariant to D2/D8: provisional→real resolution lands in
+**Resolution (accepted 2026-06-10):** add the invariant to D2/D8: provisional→real resolution lands in
 the per-class record properties before `commitEntry` serializes them (reconcile → patch the
 class-record entities → serialize); the structural diff is computed from in-memory
 structures (F43), never from pre-serialized bytes. Cheap regression test: create class +
@@ -1557,7 +1575,7 @@ and the colliding DDL fails in a loop (each retry mutates only the tx-local copy
 F50: the same monolithic-manifest asymmetry, worse failure modes. Affected: D8, D11, D14,
 F37, F43, F50.
 
-**Resolution (proposed):** D14 enumerates the root payload and its dirtiness rule — the
+**Resolution (accepted 2026-06-10):** D14 enumerates the root payload and its dirtiness rule — the
 root record is written whenever the link set, the global-property table, the counter, or
 the blob set changes; mechanically, set those properties on the root entity in-tx so D6's
 dirty tracking covers them for free. Alternatively make the counter load-derived (always
@@ -1584,8 +1602,9 @@ composite. The codebase's own pattern for this map is publication, not mutation:
 `addIndexInternalNoLock` copies the inner map and republishes via CHM `put`
 (`:229`–`:252`). Affected: D15, D17, F30, F40, F46.
 
-**Resolution (proposed):** publish rename/membership changes as replacement objects
-installed via the CHM put, mirroring `addIndexInternalNoLock`'s copy-on-write discipline.
+**Resolution (accepted 2026-06-10):** publish rename/membership changes as replacement
+objects installed via the CHM put, mirroring `addIndexInternalNoLock`'s copy-on-write
+discipline.
 
 ```mermaid
 flowchart LR
@@ -1604,7 +1623,7 @@ per-operation locks bound the stranded-lock exposure to one operation; the tx-sc
 lifetime makes it proportional to user code between first mutation and commit. Affected:
 D5, D7, F13, F38.
 
-**Resolution (proposed):** tie mutex release to the session-close/cleanup path (close of a
+**Resolution (accepted 2026-06-10):** tie mutex release to the session-close/cleanup path (close of a
 session with an active schema tx runs rollback's release on the owning thread where
 possible), and use a timed/interruptible acquire with a diagnostic instead of bare
 `lock()`. State the reaper-close semantics as a D7 bullet next to the F38 guard.
@@ -1626,7 +1645,7 @@ the second `forceSnapshot`. Under F52's resolution (schema write lock held acros
 publication) the rebuild is excluded for the window and this collapses to a wording fix.
 Affected: D8, D15, F44, F52.
 
-**Resolution (proposed):** state the commit-side publication order once: schema promotion
+**Resolution (accepted 2026-06-10):** state the commit-side publication order once: schema promotion
 and index-overlay publication both complete (after `endTxCommit`, per F53), then a single
 trailing `forceSnapshot`, all inside F52's lock scope.
 
@@ -1647,7 +1666,7 @@ version gate validates format, not completeness — and silently misses classes,
 records. The old database is untouched (export only reads), so recovery is delete and
 re-import, but nothing tells the operator the import was partial. Affected: D14, D20, F49.
 
-**Resolution (proposed):** document the procedure — import into a target not yet exposed to
+**Resolution (accepted 2026-06-10):** document the procedure — import into a target not yet exposed to
 clients, verify against a manifest (class/index/record counts emitted by export, checked by
 import), and only then put the database in service. A manifest check turns "silently
 incomplete" into "loudly incomplete".
@@ -1708,7 +1727,10 @@ record to its class. So provisional ids must be a disjoint sub-range (`<= -2`)
 (populate the reverse map, validate uniqueness) while file/storage sites keep
 skipping them. The commit-time patch list above gains a fourth item: re-key
 `collectionsToClasses` provisional→real, alongside the class id-list, the record
-RIDs, and the provisional→real resolution step.
+RIDs, and the provisional→real resolution step. It gains a fifth item (F58): the
+changed-class records' **property values** are re-pointed provisional→real before
+`commitEntry` serializes them — the serialized bytes must never carry provisional
+ids, or the class durably loses its collections at the next open.
 
 ### D3 — Commit ordering: structural reconciliation before record allocation
 At commit, create/drop collections and indexes (driven by the commit's atomic
@@ -1723,6 +1745,16 @@ the assignee. Reconciliation calls the lock-free inner primitives —
 public methods for engines — never the public `addCollection`/`addIndexEngine`/
 `dropCollection`/`deleteIndexEngine`, which re-acquire the non-reentrant
 `stateLock.writeLock()` the commit already holds (F39).
+
+Commit-time index **population** follows the same discipline (F54): a lock-free
+internal scan of the source collection feeding the engine's `doPut`, all on the
+commit's atomic operation — never the session read path or nested batch
+transactions, which re-enter `stateLock` under the held write lock. And
+reconciliation's **shared in-memory registry publication** (collections array,
+engine maps, config caches) is deferred to the post-`commitChanges` success path
+(F53, option (a)): the commit's own later steps resolve new structures through
+commit-local references, so a commit-apply failure (e.g., a D13 uniqueness
+violation) rolls back the WAL with no phantom registrations left behind.
 
 ### D4 — Isolation is record-local, identical to data-record updates
 Schema mutations during a tx change only the tx's copies of the metadata
@@ -1772,14 +1804,23 @@ Serialize schema/index-changing txns with a new exclusive lock (a
   the releasing thread equals the acquiring thread; a session migrated to
   another thread mid-tx would make this `finally` release throw
   `IllegalMonitorStateException`. v1 scopes mid-tx session migration out (F13).
-  **Engage-point (F44):** the two mutation chokepoints —
-  `SchemaShared.acquireSchemaWriteLock` (`:414`, also drives `saveInternal`) for
-  schema and `IndexManagerEmbedded.acquireExclusiveLock` (`:188`) for index
-  definitions. They use disjoint locks, so the single mutex engages idempotently at
-  both; an index-only tx never touches the schema chokepoint yet must still engage.
-  Engage only inside an active user tx (the chokepoints also fire during
-  load/reload/genesis) and at mutation time, not commit time, so a second
-  schema-changing tx blocks (D5).
+  **Engage-point (F44, amended per F56):** the mutex engages at the
+  `SchemaProxy` / index-routing layer, on a tx's first write-routed schema or
+  index mutation, **strictly before** acquiring any shared metadata lock
+  (`SchemaShared.lock` or the index-manager lock) and before seeding the
+  tx-local copy (D8/D15). F44's chokepoint analysis still supplies the
+  funnel inventory — schema and index definitions use disjoint locks, so both
+  routes must engage, and an index-only tx engages without touching the schema
+  funnel — but the hook sits above the locks, where the D8 write-routing
+  decision is made, not inside `SchemaShared.acquireSchemaWriteLock` (`:414`)
+  or `IndexManagerEmbedded.acquireExclusiveLock` (`:188`): a hook inside those
+  methods parks tx2 on the mutex while it already holds the shared write lock,
+  freezing every lock-based schema read for tx1's whole duration and
+  deadlocking against the F52 commit-side schema-lock acquisition. Engage only
+  inside an active user tx (load/reload/genesis paths never engage) and at
+  mutation time, not commit time, so a second schema-changing tx blocks (D5).
+  Ordering: D7 mutex → seed → tx-local locks only during the body; shared
+  locks only at commit, in the F52 order.
 - **Does not block** data commits (`stateLock.readLock`) or snapshot-based
   schema reads (F12), so the low-rate → low-contention premise holds.
 - **At commit**, structural reconciliation additionally takes
@@ -1793,6 +1834,12 @@ Serialize schema/index-changing txns with a new exclusive lock (a
   `SchemaShared.lock.write` → `stateLock.read` from the data path
   (`EntityImpl:4173`); acquiring the schema write lock before `stateLock`
   keeps the order acyclic.
+- **Release on abnormal termination (F61).** Closing a session with an active
+  schema tx runs rollback's mutex release on the owning thread; server-side
+  reaping of a dead session routes through the same close path. The acquire is
+  timed/interruptible with a diagnostic naming the holder, never a bare
+  `lock()`, so a stranded holder (thread death before the `finally`) surfaces
+  as a loud diagnosis instead of an eternal silent park.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
 - **Rejected:** holding `stateLock.writeLock` for the whole tx (blocks all
   commits, too coarse); reusing `SchemaShared.lock` for tx lifetime (conflates
@@ -1825,16 +1872,24 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   polymorphic ripple mutates superclasses lock-free (`addPolymorphicCollectionId:644`),
   so it does not pollute the set, and `polymorphicCollectionIds` is derived and
   unserialized, so rippled superclasses need no rewrite (F47).
-- **At commit:** for each changed class, `toStream` writes its own record (D14);
-  the diff (D6) over those changed records derives the structural delta,
-  reconciliation (D1, D3) applies it, then the tx-local structure is promoted to
-  the shared `SchemaShared` and `forceSnapshot` invalidates the shared snapshot.
-  The promotion and the `forceSnapshot` run under `SchemaShared.lock.writeLock()`,
-  acquired **before** `stateLock.writeLock()` per the F52 lock order, so
-  lock-based readers and `makeSnapshot` rebuilds are excluded for the whole
-  publication window. The commit-time `makeThreadLocalSchemaSnapshot`
-  (`AbstractStorage:2235`) pins the tx-local (new) schema so data records
-  inserted into a new class resolve to it.
+- **At commit (ordering amended per F58):** the structural delta is computed
+  from the in-memory structures — committed `SchemaShared` vs tx-local (D9/F43),
+  never from pre-serialized bytes. Reconciliation (D1, D3) applies it and
+  resolves provisional→real collection ids; the changed-class records' property
+  values are then patched to the real ids (D2's fifth patch item), and only
+  after that does the record-write loop serialize each changed class into its
+  own record (`commitEntry`, D14). Serializing earlier would durably write
+  provisional ids (≤ −2) that `fromStream` skips at the next open
+  (`addCollectionClassMap:871`) — the F58 silent-corruption case. After the
+  record writes and `endTxCommit`, the tx-local structure is promoted to the
+  shared `SchemaShared`, the D15 overlay publishes, and one single trailing
+  `forceSnapshot` invalidates the shared snapshot (F62 — never two separate
+  publish+invalidate pairs). The promotion and the `forceSnapshot` run under
+  `SchemaShared.lock.writeLock()`, acquired **before** `stateLock.writeLock()`
+  per the F52 lock order, so lock-based readers and `makeSnapshot` rebuilds are
+  excluded for the whole publication window. The commit-time
+  `makeThreadLocalSchemaSnapshot` (`AbstractStorage:2235`) pins the tx-local
+  (new) schema so data records inserted into a new class resolve to it.
 - **At rollback:** discard the tx-local structure and the changed-class set; the
   shared `SchemaShared` was never touched (D4's free rollback).
 - **Deferred, not rejected — approach B (in-memory overlay).** An immutable-base
@@ -1934,10 +1989,13 @@ IndexManager" framing.
   (serialized once at commit); the incremental case folds into YTDB-1064.
 - **Commit / rollback.** At commit, the changed-index set drives: create engines
   for tx-created indexes (D12, F22), drop engines for tx-dropped ones, write the
-  changed per-index entities and update the manager link set, then publish the
-  definition overlay into the shared index manager and `forceSnapshot`. At
-  rollback, discard the overlay and the tracked key-entries; storage engines
-  were never touched (D10/F16).
+  changed per-index entities and update the manager link set, then — after
+  `endTxCommit` succeeds (F53) — publish the definition overlay into the shared
+  index manager as replacement objects via the CHM put (F60, mirroring
+  `addIndexInternalNoLock`'s copy-on-write discipline), sharing the single
+  trailing `forceSnapshot` with D8's schema promotion (F62, inside the F52 lock
+  scope). At rollback, discard the overlay and the tracked key-entries; storage
+  engines were never touched (D10/F16).
 - **Index-change tracking stays consistent.** The per-tx key-entry tracking
   (F20) references the `Index` object; the session's `ClassIndexManager`
   enqueues changes against the overlaid (tx-created or committed) `Index`
@@ -2021,6 +2079,15 @@ sets `superClass`/`superClasses` to names, `:587`–`:597`).
   unchanged, no migration" assumption.**
 - **Diff (D6/D9) becomes naturally per-class** — changed class records appear
   directly in the tx's changed-record set.
+- **Root-record payload and dirtiness rule (F59):** the root schema record
+  keeps non-link payload — the global-property table, `collectionCounter`,
+  `blobCollections` (`toStream:659`–`667`). The root is written whenever the
+  class link set **or any of that payload** changes; mechanically, the tx sets
+  those properties on the root entity (property create → global table;
+  alter-add-collection → counter), so D6's dirty tracking puts the root in the
+  write set for free. Without this, a committed property-create restarts into a
+  null `globalRef` NPE and a stale counter regenerates colliding collection
+  names (F59). Regression test: property-create → restart → read.
 - **Scope: v1** (assignee, 2026-06-03). The split is a primary goal of
   YTDB-382 (write-amplification reduction), and doing it alongside the
   transactional work avoids a second schema-format migration later. Carried as
@@ -2045,6 +2112,19 @@ F48 scenario: 400 classes / 4,000 indexes builds ~24,800 files and 4,000 engines
 envelope; a live-DB batch DDL stalls all data commits for the build (F48). Off-lock /
 streamed / empty-class-scoped build is the YTDB-1064 optimization (F50 folds the monolithic
 index-manager link-set rewrite into the same scope).
+
+**Amended per F54/F57 (2026-06-10).** The population mechanism is a lock-free internal
+scan of the source collection feeding the engine's `doPut`, all on the commit's single
+atomic operation — no copied session, no nested batch transactions (both re-enter the
+non-reentrant `stateLock` under the held write lock, and separate batch units would make
+the build durable independently of the schema commit; F54). The F46 emptiness probes use
+an internal `isEmpty(atomicOperation)`. Invariant: population emits **zero additional WAL
+units**. v1 scopes the commit-time eager build to **empty classes** (or population below
+a documented size bound): forward heap and recovery heap both scale with the unit size —
+recovery buffers the whole unit before applying (F57) — so the unbounded populated-class
+case moves explicitly to YTDB-1064. The v1 behavior at the boundary (loud rejection
+pointing at YTDB-1064, vs accept with a documented heap envelope) is a planning decision
+to settle in Phase 1.
 
 ### D10 — Structural revertibility via the existing atomic-operation WAL; no pool
 From the assignee, 2026-06-03. Collection/index create and drop run inside the
@@ -2140,7 +2220,9 @@ index stays associated with the old class name, so the tx's own queries on the
 renamed class fall back to a correct unaccelerated scan (the same staleness
 accepted for the index name); the re-key and `className` mutation land at commit
 under the exclusive write lock (D19), avoiding any mid-tx mutation of the shared
-`Index` object.
+`Index` object. The commit-time application publishes replacement objects via the
+CHM put rather than field writes into the shared definition (F60), so lock-free
+readers never observe a stale or torn `className`.
 
 ```mermaid
 flowchart LR
@@ -2259,6 +2341,11 @@ recover.
 - **Composes with the transactional model.** Import builds the schema and then
   loads records — the same schema-then-data ordering as the genesis bootstrap
   (D18); the schema-creating API calls run under the new tx-aware path (D1).
+- **Import verification (F63):** export emits a manifest (class/index/record
+  counts); import verifies it at completion, and the documented procedure keeps
+  the target out of service until verification passes — a crash mid-import is
+  loudly incomplete instead of silently so. The D14 version gate stays
+  format-only.
 - **Scope effect on D14.** D14 loses the on-open migration sub-task and its
   crash-safety burden; it keeps the `toStream`/`fromStream` per-class-record
   rewrite and the version bump, which becomes a reject-and-redirect gate, not a
