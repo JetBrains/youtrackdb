@@ -111,12 +111,16 @@ public final class CachedEntry {
 
   private long cachedDeltaVersion = -1;
 
-  /**
-   * Strikes counted for a K0_NONE entry that was invalidated by an intervening mutation. The cache
-   * routes a key to the non-cacheable set once this crosses the configured threshold; incremented by
-   * the cache in a later step.
-   */
-  private int k0InvalidationCount;
+  // Per-entry record-cap guard. The cache installs the cap and the overflow callback at put time; the
+  // view's row append checks the cap so an entry whose populate crosses it removes itself from the
+  // cache and routes its key to the non-cacheable set, while the consuming view still receives every
+  // row from the live stream. maxRecordsPerEntry stays at MAX_VALUE for an entry never put through the
+  // cache (the cap then never fires). overflowed latches the one-shot eviction so it runs exactly once.
+  private int maxRecordsPerEntry = Integer.MAX_VALUE;
+
+  @Nullable private Runnable onOverflow;
+
+  private boolean overflowed;
 
   /**
    * Number of live views iterating this entry. A pinned ({@code > 0}) entry is exempt from LRU
@@ -240,14 +244,6 @@ public final class CachedEntry {
     this.cachedDeltaVersion = cachedDeltaVersion;
   }
 
-  public int getK0InvalidationCount() {
-    return k0InvalidationCount;
-  }
-
-  public int incrementK0InvalidationCount() {
-    return ++k0InvalidationCount;
-  }
-
   public int getLiveViewCount() {
     return liveViewCount;
   }
@@ -262,9 +258,51 @@ public final class CachedEntry {
     }
   }
 
-  /** Rows cached so far; the LRU eviction cap and the per-entry record bound read this. */
+  /** Rows cached so far; the LRU eviction decision reads this. */
   public int sizeHint() {
     return results.size();
+  }
+
+  /**
+   * Installs the per-entry record cap and the overflow callback the cache fires when an append crosses
+   * it. Called once by {@link QueryResultCache#put} when the entry is stored. A cap of {@code
+   * Integer.MAX_VALUE} (the default for an entry never stored) disables the check.
+   */
+  public void setOverflowGuard(int maxRecordsPerEntry, @Nonnull Runnable onOverflow) {
+    this.maxRecordsPerEntry = maxRecordsPerEntry;
+    this.onOverflow = onOverflow;
+  }
+
+  /**
+   * Appends a freshly pulled stream row to the shared cache ({@link #results} and, for an identifiable
+   * row, {@link #cachedRids}) and enforces the per-entry record cap. The append always happens: the
+   * already-iterating view positions its cache cursor by index into {@link #results}, so dropping rows
+   * mid-stream would break the merge. The cap instead governs cache <i>membership</i>: the first append
+   * that pushes the entry past {@code maxRecordsPerEntry} fires the overflow callback exactly once,
+   * which removes the entry from the cache and routes its key to the non-cacheable set. The entry is
+   * then unreachable for any future query (no second view re-runs the over-cap result) and is released
+   * when this view closes, while the consuming view still receives every row. So an over-cap result is
+   * served once, end to end, but never retained for reuse, which is what the cap exists to bound.
+   */
+  public void recordPulledRow(@Nonnull Result r) {
+    results.add(r);
+    if (r.isIdentifiable()) {
+      var rid = r.getIdentity();
+      // isIdentifiable() implies a non-null RID; a null would corrupt the cachedRids membership the
+      // delta builder probes. Assert it (no-op without -ea) so a broken invariant fails loudly in tests.
+      assert rid != null : "isIdentifiable() result has a null getIdentity()";
+      cachedRids.add(rid);
+    }
+    if (!overflowed && results.size() > maxRecordsPerEntry) {
+      // The entry just crossed its per-entry record cap. Evict it from the cache once: it stays
+      // reachable to this view (which holds it directly) so iteration continues, but no future query
+      // can hit or re-populate it. Fired after the append so the boundary is cap+1, matching the knob's
+      // documented "when populating crosses this cap" semantics.
+      overflowed = true;
+      if (onOverflow != null) {
+        onOverflow.run();
+      }
+    }
   }
 
   /**

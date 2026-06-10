@@ -20,6 +20,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.Before;
@@ -620,6 +621,178 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
         shape);
     assertNotEquals("a bounded top-N prefix must never be treated as a RECORD delta result",
         CacheableShape.RECORD, shape);
+  }
+
+  // ===========================================================================
+  // Per-entry record cap (maxRecordsPerEntry) overflow
+  // ===========================================================================
+
+  /**
+   * A populate that crosses {@code maxRecordsPerEntry} overflows the entry: it is removed from the
+   * cache, its key is routed to the non-cacheable set, and an overflow is counted, while the consuming
+   * view still receives every row. With the cap set to 2 and four matching records, draining the view
+   * pulls all four rows (the consumer loses nothing), but the over-cap entry is dropped (cache empty),
+   * an overflow is counted, and a second identical query stays uncached (no entry re-created) because
+   * the key is now non-cacheable. The boundary is cap+1: caching the third row is what triggers the
+   * overflow.
+   */
+  @Test
+  public void perEntryRecordCapOverflowEvictsEntryAndStaysUncached() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    var prevCap =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.getValueAsInteger();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.setValue(2);
+    try {
+      seed(4);
+      session.begin();
+      var sql = "SELECT FROM " + CLASS_NAME;
+      var cache = tx().getQueryResultCache();
+
+      // Draining the view materialises all four rows; the consumer must still receive every one even
+      // though the entry overflows its 2-record cap partway through the pull.
+      var rows = drainRows(session.query(sql));
+      assertEquals("the consumer still receives every row past the cap", 4, rows.size());
+
+      assertEquals("an over-cap entry is removed from the cache", 0, cache.size());
+      assertEquals("crossing the per-entry cap counts exactly one overflow", 1,
+          cache.getMetrics().getOverflows());
+
+      // A second identical query must stay uncached: the key was routed to the non-cacheable set, so
+      // no entry is re-created and the cache remains empty.
+      var second = drainRows(session.query(sql));
+      assertEquals("the re-query returns the same rows uncached", rows, second);
+      assertEquals("an overflowed key does not re-populate the cache", 0, cache.size());
+
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.setValue(prevCap);
+    }
+  }
+
+  /**
+   * Boundary check: an entry whose result count equals the cap exactly is cached normally (no
+   * overflow). With the cap at 3 and three matching records, the entry holds all three rows and stays
+   * in the cache after a full drain, and no overflow is counted. This pins the cap-vs-cap+1 boundary
+   * against the overflow test above.
+   */
+  @Test
+  public void perEntryRecordCountEqualToCapIsCachedWithoutOverflow() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    var prevCap =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.getValueAsInteger();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.setValue(3);
+    try {
+      seed(3);
+      session.begin();
+      var sql = "SELECT FROM " + CLASS_NAME;
+      var cache = tx().getQueryResultCache();
+
+      var rows = drainRows(session.query(sql));
+      assertEquals("all rows at the cap are emitted", 3, rows.size());
+      assertEquals("an at-cap entry survives in the cache", 1, cache.size());
+      assertEquals("an at-cap entry counts no overflow", 0, cache.getMetrics().getOverflows());
+
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.setValue(prevCap);
+    }
+  }
+
+  // ===========================================================================
+  // Cross-thread cache-code guard release (best-effort pool-shutdown contract)
+  // ===========================================================================
+
+  /**
+   * The one genuinely concurrent path the feature has: a live, pinned view's pin release reaching the
+   * transaction's cache-code guard from a foreign thread, the way the pool-shutdown sink
+   * ({@code closeActiveQueries()} on the cleanup thread during {@code realClose()}) does. The view
+   * releases the guard through {@code exitCacheCodeUnchecked()}, which must NOT assert the owning thread
+   * (the floored decrement is harmless off-thread). The synchronous session path keeps the asserting
+   * {@code exitCacheCode()}. This pins both halves: after a query has set the owning thread, a foreign
+   * unchecked exit must not throw, while a foreign checked exit must trip the owner assert. Run with
+   * {@code -ea} (the suite's mandated mode); before the unchecked-exit fix the view's release used the
+   * asserting path and a cross-thread shutdown threw an {@code AssertionError}.
+   */
+  @Test
+  public void crossThreadGuardReleaseUsesUncheckedExitAndDoesNotAssert() throws Exception {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    seed(3);
+    session.begin();
+    try {
+      // A query on the owning thread sets storageTxThreadId and leaves the guard balanced.
+      drainRows(session.query("SELECT FROM " + CLASS_NAME));
+      var tx = tx();
+
+      // The unchecked exit is the path the view's releasePin() now takes. From a foreign thread it must
+      // not trip assertOnOwningThread. Enter on the owning thread so there is depth to decrement.
+      tx.enterCacheCode();
+      var uncheckedError = new AtomicReference<Throwable>();
+      var uncheckedThread = new Thread(() -> {
+        try {
+          tx.exitCacheCodeUnchecked();
+        } catch (Throwable t) {
+          uncheckedError.set(t);
+        }
+      });
+      uncheckedThread.start();
+      uncheckedThread.join();
+      assertNull(
+          "the unchecked guard exit must not assert the owning thread (cross-thread shutdown)",
+          uncheckedError.get());
+
+      // The checked exit (the synchronous session path) still asserts the owning thread off-thread.
+      tx.enterCacheCode();
+      var checkedError = new AtomicReference<Throwable>();
+      var checkedThread = new Thread(() -> {
+        try {
+          tx.exitCacheCode();
+        } catch (Throwable t) {
+          checkedError.set(t);
+        }
+      });
+      checkedThread.start();
+      checkedThread.join();
+      assertTrue("the checked guard exit must still trip the owner assert off-thread under -ea",
+          checkedError.get() instanceof AssertionError);
+    } finally {
+      session.rollback();
+    }
+  }
+
+  // ===========================================================================
+  // TRUNCATE CLASS inside a SQL script invalidates a sibling query()'s cache
+  // ===========================================================================
+
+  /**
+   * A {@code TRUNCATE CLASS} embedded in a {@code command(script)} must invalidate the tx-result cache
+   * the same way the direct command path does, so a sibling {@code query()} that populated an entry
+   * earlier in the same transaction cannot serve stale rows for records the truncate removed. Without
+   * the per-statement script invalidation hook the second query would return the pre-truncate rows,
+   * a result-cardinality change from merely enabling the cache. Here a query populates, a script
+   * truncates the class, and a second identical query must observe zero rows.
+   */
+  @Test
+  public void scriptTruncateClassInvalidatesSiblingQueryCache() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    seed(3);
+    session.begin();
+    try {
+      var sql = "SELECT FROM " + CLASS_NAME;
+      var before = drainRows(session.query(sql));
+      assertEquals("the populated query observes the seeded rows", 3, before.size());
+      assertEquals("the query populated a cache entry", 1, tx().getQueryResultCache().size());
+
+      // TRUNCATE CLASS run through the SQL script executor (not the single-statement command path)
+      // removes the stored records without flowing through the mutation log; the script path must
+      // still invalidate the cache so the next query is not served stale.
+      session.executeSQLScript("TRUNCATE CLASS " + CLASS_NAME + ";");
+
+      var after = drainRows(session.query(sql));
+      assertTrue("a query after a script TRUNCATE must not return the truncated rows",
+          after.isEmpty());
+    } finally {
+      session.rollback();
+    }
   }
 
   // ===========================================================================

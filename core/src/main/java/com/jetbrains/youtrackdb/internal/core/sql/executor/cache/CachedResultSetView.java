@@ -254,7 +254,17 @@ public final class CachedResultSetView implements ResultSet {
     if (delta == null) {
       return false;
     }
-    return r.isIdentifiable() && delta.shouldSkip(r.getIdentity());
+    if (!r.isIdentifiable()) {
+      return false;
+    }
+    var rid = r.getIdentity();
+    // getIdentity() is @Nullable, but an identifiable result always carries a non-null RID. The skip
+    // set is a Set<RID>, so a null here would silently miss (a stale row would never be suppressed)
+    // rather than fail loudly, degrading into a wrong-result merge with no test signal. Assert the
+    // invariant so a future change to isIdentifiable() semantics surfaces in the -ea test runs the
+    // suite mandates.
+    assert rid != null : "isIdentifiable() result has a null getIdentity()";
+    return delta.shouldSkip(rid);
   }
 
   /**
@@ -274,12 +284,11 @@ public final class CachedResultSetView implements ResultSet {
     var streamCtx = entry.getCtx();
     while (stream.hasNext(streamCtx)) {
       var r = stream.next(streamCtx);
-      // Append to the shared cache before any skip decision so later views see the full ordered
-      // result regardless of this view's skip-set.
-      entry.getResults().add(r);
-      if (r.isIdentifiable()) {
-        entry.getCachedRids().add(r.getIdentity());
-      }
+      // Append to the shared cache before any skip decision so later views see the full ordered result
+      // regardless of this view's skip-set. recordPulledRow also enforces the per-entry record cap: a
+      // pull that crosses maxRecordsPerEntry overflows the entry (evicted from the cache, key routed
+      // non-cacheable) and stops caching, but this view keeps emitting r so the consumer loses nothing.
+      entry.recordPulledRow(r);
       if (isSkipped(r)) {
         // Suppressed for this view; keep pulling for a row this view can emit.
         continue;
@@ -302,7 +311,12 @@ public final class CachedResultSetView implements ResultSet {
     if (!pinReleased) {
       pinReleased = true;
       entry.decrementLiveViewCount();
-      tx.exitCacheCode();
+      // Unchecked exit: this release also fires on the tx-end clear path, which the pool-shutdown
+      // thread may reach cross-thread (an abandoned-but-strongly-held view closed by
+      // closeActiveQueries() during realClose()). The owning-thread assert on exitCacheCode() would
+      // trip there under -ea even though the floored decrement is harmless off-thread, so the view
+      // releases through the unchecked path while the synchronous session path keeps the assert.
+      tx.exitCacheCodeUnchecked();
     }
   }
 

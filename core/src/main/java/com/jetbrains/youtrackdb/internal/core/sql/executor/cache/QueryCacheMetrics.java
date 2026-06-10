@@ -36,7 +36,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
  *       planner emitted an unexpected execution-plan shape.
  *   <li>{@code k0Invalidations} — K0_NONE entries invalidated because an intervening mutation
  *       advanced the mutation version past the entry's populate version.
- *   <li>{@code overflows} — entries removed because populating crossed the per-entry record cap.
+ *   <li>{@code overflows} — entries removed by a cache bound: either LRU eviction at the per-tx entry
+ *       count ({@code maxEntries}) or a populate crossing the per-entry record cap
+ *       ({@code maxRecordsPerEntry}). Both route the key to the non-cacheable set.
  * </ul>
  */
 public final class QueryCacheMetrics {

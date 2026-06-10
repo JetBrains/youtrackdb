@@ -139,6 +139,13 @@ public class FrontendTransactionImpl implements
   // no on-disk footprint; cleared on begin (fresh tx) and on every tx-end path (commit/rollback/close).
   @Nullable private QueryResultCache queryResultCache;
 
+  // Latches the per-transaction "is the cache enabled?" decision so the disabled path costs a single
+  // boolean read after the first access instead of re-reading the global config flag on every query().
+  // false until getQueryResultCache() first resolves the flag; once true, queryResultCache is either the
+  // live cache (enabled) or stays null forever (disabled). Reset on fresh-tx begin so a config toggle
+  // between transactions on a reused object is observed. Transient owner-thread-only state.
+  private boolean cacheResolved;
+
   private final RecordSerializationContext recordSerializationContext =
       new RecordSerializationContext();
   private AtomicOperation atomicOperation;
@@ -212,10 +219,16 @@ public class FrontendTransactionImpl implements
 
       // Wipe any cache state carried over from a prior transaction on this reused transaction object.
       // Placed inside the txStartCounter == 0 guard so a nested begin() (counter already positive)
-      // does not clear a cache populated by the live outer transaction.
+      // does not clear a cache populated by the live outer transaction. The re-entrancy depth counter
+      // is reset too: it is within-tx scope with no meaning across the tx boundary, and a view that was
+      // abandoned (GC'd before close) or stranded by a mid-iteration exception in a prior transaction
+      // could otherwise leave it above zero and silently disable the cache for this reused object. The
+      // resolved-flag latch is dropped so the enabled decision is re-made for the fresh transaction.
       if (queryResultCache != null) {
         queryResultCache.clear();
       }
+      cacheCodeDepth = 0;
+      cacheResolved = false;
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
         throw new RollbackException(
@@ -1386,6 +1399,18 @@ public class FrontendTransactionImpl implements
    */
   public void exitCacheCode() {
     assertOnOwningThread();
+    exitCacheCodeUnchecked();
+  }
+
+  /**
+   * Decrements the cache-code re-entrancy depth without asserting the owning thread. Used by the view's
+   * pin release, which runs on the tx-end clear path that {@code DatabaseSessionEmbeddedPooled.realClose}
+   * may reach cross-thread during pool shutdown (the same cross-thread exception that {@link #close()}
+   * and {@link #rollbackInternal()} carry). The decrement is floored at zero, so an off-thread call is
+   * harmless: it only ever lowers a counter that has no meaning past tx end. Keeping the assert on the
+   * synchronous {@link #exitCacheCode()} session path preserves the owner-thread check where it can fire.
+   */
+  public void exitCacheCodeUnchecked() {
     if (cacheCodeDepth > 0) {
       cacheCodeDepth--;
     }
@@ -1404,14 +1429,19 @@ public class FrontendTransactionImpl implements
    * Returns this transaction's query-result cache, lazily creating it on first access when the {@code
    * youtrackdb.query.txResultCache.enabled} flag is set. Returns {@code null} when the flag is off, so
    * the session's caller treats a null cache as "feature disabled" and runs the ordinary uncached
-   * query path — the cache field is never allocated and no behaviour changes. The flag is read once at
-   * creation; toggling it mid-transaction does not retroactively create or drop the cache.
+   * query path: the cache field is never allocated and no behaviour changes. The flag is resolved once
+   * per transaction (latched on first access) for both the enabled and the disabled outcome, so a later
+   * call costs one boolean read; toggling the flag mid-transaction does not retroactively create or
+   * drop the cache.
    */
   @Nullable public QueryResultCache getQueryResultCache() {
-    if (queryResultCache == null) {
-      if (!GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean()) {
-        return null;
-      }
+    if (cacheResolved) {
+      // The enabled/disabled decision was already made for this transaction: return the live cache
+      // (enabled) or null (disabled) on a single boolean read, with no repeat config lookup.
+      return queryResultCache;
+    }
+    cacheResolved = true;
+    if (GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean()) {
       queryResultCache = new QueryResultCache(new QueryCacheMetrics());
     }
     return queryResultCache;

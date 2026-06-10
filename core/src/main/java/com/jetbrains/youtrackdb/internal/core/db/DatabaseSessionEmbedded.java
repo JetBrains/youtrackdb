@@ -962,16 +962,19 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * Bulk-DML cache invalidation hook on the command path. A {@code TRUNCATE CLASS} run mid-transaction
-   * removes stored records without flowing through {@code addRecordOperation}, so the cache cannot see
-   * the change via the delta build and must drop every entry. Regular INSERT/UPDATE/DELETE need no
-   * hook here — they land in {@code recordOperations} and the next query's delta build picks them up.
+   * Bulk-DML cache invalidation hook. A {@code TRUNCATE CLASS} run mid-transaction removes stored
+   * records without flowing through {@code addRecordOperation}, so the cache cannot see the change via
+   * the delta build and must drop every entry. Called per statement from both the single-statement
+   * command path ({@code executeInternal}) and the script path ({@code SqlScriptExecutor}), so a
+   * TRUNCATE embedded in a script invalidates a sibling {@code query()}'s cached entry the same way the
+   * direct command does. Regular INSERT/UPDATE/DELETE need no hook here: they land in {@code
+   * recordOperations} and the next query's delta build picks them up.
    * Schema DDL (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX) is unreachable mid-transaction (the schema is
    * immutable for the life of a transaction), guarded by a {@code Java assert} canary so a future
    * relaxation that lets schema DDL run mid-tx surfaces loudly in test builds rather than silently
    * serving a stale cache.
    */
-  private void invalidateCacheForBulkDml(@Nonnull SQLStatement statement) {
+  public void invalidateCacheForBulkDml(@Nonnull SQLStatement statement) {
     // executeInternal does not begin a transaction, so currentTx may be a no-tx placeholder
     // (FrontendTransactionNoTx) with no cache to invalidate; only a real transaction carries one.
     if (!(currentTx instanceof FrontendTransactionImpl tx)) {

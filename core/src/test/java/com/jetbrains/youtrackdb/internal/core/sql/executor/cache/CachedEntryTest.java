@@ -141,14 +141,4 @@ public class CachedEntryTest {
     entry.decrementLiveViewCount();
     Assert.assertEquals(0, entry.getLiveViewCount());
   }
-
-  /** The K0_NONE strike counter must increment monotonically and return its new value. */
-  @Test
-  public void k0InvalidationCountIncrementsMonotonically() {
-    var entry = recordEntry(null);
-    Assert.assertEquals(0, entry.getK0InvalidationCount());
-    Assert.assertEquals(1, entry.incrementK0InvalidationCount());
-    Assert.assertEquals(2, entry.incrementK0InvalidationCount());
-    Assert.assertEquals(2, entry.getK0InvalidationCount());
-  }
 }

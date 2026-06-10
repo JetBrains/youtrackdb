@@ -70,6 +70,7 @@ public final class QueryResultCache {
 
   private final QueryCacheMetrics metrics;
   private final int maxEntries;
+  private final int maxRecordsPerEntry;
   private final int k0NoneInvalidationThreshold;
 
   /**
@@ -100,6 +101,8 @@ public final class QueryResultCache {
   public QueryResultCache(@Nonnull QueryCacheMetrics metrics) {
     this.metrics = metrics;
     this.maxEntries = GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_ENTRIES.getValueAsInteger();
+    this.maxRecordsPerEntry =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.getValueAsInteger();
     this.k0NoneInvalidationThreshold =
         GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
             .getValueAsInteger();
@@ -174,8 +177,26 @@ public final class QueryResultCache {
       return;
     }
     entries.put(key, entry);
+    // Install the per-entry record cap. The entry's lazy row append fires this callback the moment a
+    // populate would push it past maxRecordsPerEntry: the entry is dropped from the cache and its key
+    // routed out, so no further query re-populates it, while the live view keeps streaming every row.
+    entry.setOverflowGuard(maxRecordsPerEntry, () -> overflowEntry(key));
     if (entries.size() > maxEntries) {
       evictEldestIfUnpinned();
+    }
+  }
+
+  /**
+   * Handles a per-entry record-cap overflow reported by a populating view: removes the over-cap
+   * entry from the map, routes its key to the non-cacheable set so the same query stays uncached for
+   * the rest of the transaction, and counts an overflow. The entry's stream is deliberately NOT closed
+   * here: the view that triggered the overflow is still pulling from it and owns the consumer-facing
+   * result. The entry is no longer reachable through the map, so it is released when that view closes.
+   */
+  private void overflowEntry(@Nonnull CacheKey key) {
+    if (entries.remove(key) != null) {
+      nonCacheableKeys.add(key);
+      metrics.incrementOverflows();
     }
   }
 
