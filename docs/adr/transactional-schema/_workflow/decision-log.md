@@ -586,9 +586,15 @@ durability/crash-safety lens) attacked the lock architecture, the commit-failure
 the WAL replay machinery, adding F52–F63 (all code-verified, symbol claims PSI-verified;
 the convergent pairs C2+U5 and C3+U6 from the two reports each fold into one entry). Full
 agent reports with the failed-attack lists: `adversarial-pass5-concurrency.md` and
-`adversarial-pass5-durability.md`. Resolutions for F52–F63 are proposed inside each entry
-and pending the fix discussion; the resolution map below will be extended when they
-settle.
+`adversarial-pass5-durability.md`. Resolutions for F53–F63 are proposed inside each entry
+and pending the fix discussion; the resolution map below will be extended as they settle.
+
+**Pass-5 resolutions settled so far:** F52 → D7/D8/D19 (accepted 2026-06-10: third lock
+in the ordering proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying
+commit acquires the schema write lock before `stateLock` and holds it through promotion
+plus the trailing `forceSnapshot`; snapshot-first conversions of
+`createVertexWithClass` and `getLowerSubclass` folded into scope as contention
+mitigations).
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1291,11 +1297,13 @@ window — but no entry names the lock guarding them. The shared maps are not co
 Instance-swap is foreclosed by code: `ProxedResource.delegate` is `final`
 (`ProxedResource:30`) and sessions bind the instance at `MetadataDefault.init` (`:124`).
 
-**Resolution (proposed):** fix the global lock order as **D7 mutex → `SchemaShared.lock` →
-`stateLock`**. The schema-carrying commit acquires `SchemaShared.lock.writeLock()` *before*
-`stateLock.writeLock()` and holds it through promotion + `forceSnapshot`; `reload` already
-conforms. State the schema lock as a third member of D19's ordering proof. Affected: D8,
-D19, D7, F43, F42.
+**Resolution (accepted 2026-06-10):** fix the global lock order as **D7 mutex →
+`SchemaShared.lock` → `stateLock`**. The schema-carrying commit acquires
+`SchemaShared.lock.writeLock()` *before* `stateLock.writeLock()` and holds it through
+promotion + `forceSnapshot`; `reload` already conforms. The schema lock is a third member
+of D19's ordering proof. Accepted with the contention envelope below; the two
+snapshot-first conversions it names (`createVertexWithClass`, `getLowerSubclass`) are
+folded into scope as mitigations. Affected: D8, D19, D7, F43, F42.
 
 ```mermaid
 flowchart LR
@@ -1777,9 +1785,14 @@ Serialize schema/index-changing txns with a new exclusive lock (a
 - **At commit**, structural reconciliation additionally takes
   `stateLock.writeLock()` briefly (D1) to exclude concurrent data commits
   during the physical apply.
-- **Lock ordering** is always metadata-mutex → `stateLock.writeLock`; nothing
-  takes them in reverse, and a second schema tx blocks on the mutex before
-  touching anything else, so it is deadlock-free.
+- **Lock ordering (amended per F52)** is always metadata-mutex →
+  `SchemaShared.lock` → `stateLock.writeLock`; nothing takes them in reverse,
+  and a second schema tx blocks on the mutex before touching anything else, so
+  it is deadlock-free. The schema lock joined the proof because the commit-side
+  promotion (D8) mutates the lock-guarded shared maps while `reload` takes
+  `SchemaShared.lock.write` → `stateLock.read` from the data path
+  (`EntityImpl:4173`); acquiring the schema write lock before `stateLock`
+  keeps the order acyclic.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
 - **Rejected:** holding `stateLock.writeLock` for the whole tx (blocks all
   commits, too coarse); reusing `SchemaShared.lock` for tx lifetime (conflates
@@ -1816,9 +1829,12 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   the diff (D6) over those changed records derives the structural delta,
   reconciliation (D1, D3) applies it, then the tx-local structure is promoted to
   the shared `SchemaShared` and `forceSnapshot` invalidates the shared snapshot.
-  The commit-time `makeThreadLocalSchemaSnapshot` (`AbstractStorage:2235`) pins
-  the tx-local (new) schema so data records inserted into a new class resolve to
-  it.
+  The promotion and the `forceSnapshot` run under `SchemaShared.lock.writeLock()`,
+  acquired **before** `stateLock.writeLock()` per the F52 lock order, so
+  lock-based readers and `makeSnapshot` rebuilds are excluded for the whole
+  publication window. The commit-time `makeThreadLocalSchemaSnapshot`
+  (`AbstractStorage:2235`) pins the tx-local (new) schema so data records
+  inserted into a new class resolve to it.
 - **At rollback:** discard the tx-local structure and the changed-class set; the
   shared `SchemaShared` was never touched (D4's free rollback).
 - **Deferred, not rejected — approach B (in-memory overlay).** An immutable-base
@@ -2177,8 +2193,8 @@ today's concurrency. This supersedes D1's "upgrade" framing.
 
 - **No upgrade, no deadlock window.** The exclusive lock is held for the whole
   schema commit, so there is nothing to reconcile mid-commit and D7's ordering
-  proof (metadata-mutex → `stateLock.writeLock`) holds without the read-lock
-  caveat F33 raised.
+  proof (metadata-mutex → `SchemaShared.lock` → `stateLock.writeLock`, amended
+  per F52) holds without the read-lock caveat F33 raised.
 - **Cost bounded by the low schema-change rate (D5).** A schema commit excludes
   concurrent data commits for its duration; acceptable because schema changes
   are rare, the same premise that justifies D5/D7/D12.
@@ -2195,6 +2211,16 @@ today's concurrency. This supersedes D1's "upgrade" framing.
   already expose them (`doAddCollection`/`dropCollectionInternal`, F8); engines
   need `doAddIndexEngine`/`doDeleteIndexEngine(atomicOperation, …)` extracted from
   the inlined bodies of `addIndexEngine`/`deleteIndexEngine`.
+- **Schema lock joins the entry sequence (F52, accepted 2026-06-10).** A
+  schema-carrying commit acquires `SchemaShared.lock.writeLock()` immediately
+  before `stateLock.writeLock()` and holds it through promotion and the
+  trailing `forceSnapshot`. Hold-duration delta vs today: the lock-based reader
+  set blocks once for the whole commit (including the tx's data-record writes)
+  instead of once per DDL op; the blocked set is small (F52 contention
+  envelope) and the snapshot-routed hot paths are unaffected. In-scope
+  mitigations: convert `YTDBGraphImplAbstract.createVertexWithClass` (`:123`)
+  and `SQLMatchStatement.getLowerSubclass` (`:368`) to snapshot-first reads,
+  removing the only per-record and per-MATCH lock-based sites.
 
 ```mermaid
 flowchart TD
