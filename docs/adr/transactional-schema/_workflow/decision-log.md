@@ -667,7 +667,11 @@ diagnostic; mutex = owner-tracked `Semaphore(1)` with `releaseStranded` reap API
 full tx rollback; F38 assertion relocated into owner bookkeeping); F72 → D7 (accepted 2026-06-10: genesis
 parenthetical fixed — genesis engages via its D18 transactions); F73 → F55/YTDB-1099
 (accepted 2026-06-10: three-step replay branch with internal-id matching; pins appended
-to YTDB-1099). F74–F75 pending.
+to YTDB-1099). F74 → D12/D7 (accepted 2026-06-10, option 1 with premise correction: the
+WAL pin starts at the commit window (`startTxCommit`, `AbstractStorage.commit:2293`),
+not at tx begin — a long tx body pins only the `tsMin` snapshot floor (heap), and
+read-only txs never register; D12 gains the corrected envelope sentence, D7's reaper
+parenthetical corrected). F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2074,10 +2078,36 @@ rollback** (ending the atomic operation), not merely release the mutex — else 
 stranded session pins segment cuts forever with no visible symptom. Full analysis: pass-6
 report U10.
 
-**Resolution (proposed):** one sentence in F61's D7 bullet (reap = full tx rollback,
-which ends the atomic operation and releases the WAL pin) and one in F57's envelope (WAL
-retention runs from tx begin; migration guidance keeps schema txs short in wall-clock
-terms). Affected: F57, F61, D7, D5.
+**Correction (verified at acceptance, 2026-06-10).** The begin-time premise is wrong.
+`startStorageTx` (`AbstractStorage:4629`) calls `startAtomicOperation`
+(`AtomicOperationsManager:81`), which only snapshots the operations table for SI reads
+and registers the thread's `tsMin` holder; it never writes the `AtomicOperationsTable`
+and never touches the WAL. The `IN_PROGRESS` registration at the active segment happens
+in `startToApplyOperations` (`AtomicOperationsManager:106`), whose only frontend-tx
+caller is `startTxCommit` (`AbstractStorage.commit:2293`): the commit window. The
+truncation bounds (`getSegmentEarliestNotPersistedOperation`, consumed at
+`AbstractStorage:4330` and `:6350`; the full checkpoint's
+`getSegmentEarliestOperationInProgress` at `:4509`) see a tx only during that window. A
+read-only tx never enters the table at all (`FrontendTransactionImpl.doCommit` calls
+`internalCommit` only when `isWriteTransaction()`; rollback of a never-applied operation
+releases the snapshot without table contact). What a long tx body pins from begin is the
+`tsMin` snapshot floor: heap-resident snapshot/visibility-index GC, not WAL segments.
+
+```mermaid
+flowchart LR
+  B["tx begin<br/>startStorageTx :4629<br/>SI snapshot + tsMin"] -- "body:<br/>pins snapshot-index GC (heap)<br/>WAL free to truncate" --> C["commit window<br/>startTxCommit :2293<br/>startOperation(commitTs, activeSegment)<br/>IN_PROGRESS → COMMITTED"]
+  C -- "PERSISTED" --> P["segment cut unblocked"]
+  RO["read-only tx"] -. "isWriteTransaction() == false:<br/>never registers, no WAL pin" .-> C
+```
+
+**Resolution (accepted 2026-06-10, option 1 with corrected mechanics):** D12's envelope
+gains the corrected sentence: WAL retention and checkpoint deferral apply only during
+the commit window; a long schema-tx body pins the SI snapshot floor (heap), not the WAL,
+so migration guidance is heap-bounded wall-clock advice, and the D20 import pattern
+(each tx begin-and-commit back-to-back) keeps both windows short. The reaper half stays
+as folded by F71 into D7 (reap = full tx rollback, ending the atomic operation and
+releasing whatever pin exists at reap time); D7's parenthetical corrected from "WAL-pin
+half" to pin-release. Affected: F57, D12, D7, D5.
 
 ### F75 — F63's manifest needs its own write discipline: emitted last and atomically, hard-required at import [MINOR]
 The counts are known only at export end, so the manifest must be emitted strictly last
@@ -2262,7 +2292,8 @@ context / storage — an owner-tracked, cross-thread-releasable mutex
   with an active schema tx runs rollback's mutex release on the owning thread.
   Server-side reaping of a vanished session runs from another thread: the reap
   path runs the session's **full tx rollback** (ending the atomic operation —
-  the F74 WAL-pin half) and then `releaseStranded(session)`, the explicit
+  releasing the F74 pins: the `tsMin` snapshot floor, plus the WAL segment pin
+  only if stranded mid-commit-window) and then `releaseStranded(session)`, the explicit
   cross-thread release the owner-tracked primitive provides; the F38
   same-thread assertion lives in the owner bookkeeping and guards only the
   normal release path. The acquire is timed with a diagnostic naming the
@@ -2586,7 +2617,16 @@ a documented size bound): forward heap and recovery heap both scale with the uni
 recovery buffers the whole unit before applying (F57) — so the unbounded populated-class
 case moves explicitly to YTDB-1064. The v1 behavior at the boundary (loud rejection
 pointing at YTDB-1064, vs accept with a documented heap envelope) is a planning decision
-to settle in Phase 1.
+to settle in Phase 1. **WAL/heap envelope (F74, corrected at acceptance):** WAL
+retention and checkpoint deferral apply only during the commit window — the atomic
+operation registers `IN_PROGRESS` at its WAL segment in `startTxCommit`
+(`AbstractStorage.commit:2293`), not at tx begin. A long schema-tx *body* pins the
+`tsMin` snapshot floor (heap-resident snapshot/visibility-index GC); read-only txs never
+register in the operations table. Migration guidance: long-lived schema txs are
+heap-bounded, not WAL-bounded; checkpoint deferral bites only inside the commit window,
+which for a populated-class build or a large import commit is exactly this decision's
+existing stall envelope. The D20 import naturally complies (each import tx is
+begin-and-commit back-to-back).
 
 ### D10 — Structural revertibility via the existing atomic-operation WAL; no pool
 From the assignee, 2026-06-03. Collection/index create and drop run inside the
