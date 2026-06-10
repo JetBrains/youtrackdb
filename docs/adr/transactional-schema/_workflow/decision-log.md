@@ -635,7 +635,11 @@ pre-existing `develop` hole). **All pass-5 findings are resolved.**
 **Pass-6 resolutions (settling one by one):** F64 → D7/D15/D19 (accepted 2026-06-10:
 four-lock order — D7 mutex → `SchemaShared.lock` → `IndexManagerEmbedded.lock` →
 `stateLock`; overlay publication under the held index write lock; uniform sequence for
-index-only txs). F65–F75 pending.
+index-only txs); F65 → D7/D8 (accepted 2026-06-10, three tiers: snapshot reads untouched;
+captured-delegate fast path outside schema txs; per-call name re-resolution against the
+tx-local write-view during the session's schema tx, with mutex engage on the first
+write-routed proxy call; impl-typed arguments always re-resolved by name). F66–F75
+pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1759,12 +1763,27 @@ mutex entirely. The argument-unwrapping facet re-opens F41: `getImplementation()
 `createClass`, and the polymorphic ripple then mutates committed class objects. Full
 analysis: pass-6 report C9.
 
-**Resolution (proposed):** the routing seam is per-call, not per-object —
-`SchemaClassProxy`/`SchemaPropertyProxy` re-resolve their target by **name** against the
-session's current write-view on every mutating call (engaging the mutex there), and
-impl-typed arguments are re-resolved by name on the tx-local side before linking. State in
-D8 that class/property proxies are name-binding, not instance-binding, during a schema tx.
-Affected: F56, D7, D8, F41, F44.
+**Resolution (accepted 2026-06-10, three-tier refinement):** the routing seam is
+per-call, not per-object, confined to the DDL surface:
+
+- **Tier 1 — snapshot reads (hot paths): untouched.** Non-mutating consumers read the
+  immutable snapshot (`ImmutableSchema`/`SchemaImmutableClass`), a separate object family
+  that never routes through the proxies; during the session's own schema tx the snapshot
+  tier already routes tx-local via the existing D8/F35/F51 machinery.
+- **Tier 2 — mutable proxy surface, no active schema tx in the session: captured-delegate
+  fast path.** The captured object is the shared committed impl, exactly what
+  name-resolution would return; behavior stays today's. The per-call check is one null
+  test ("does this session have a schema-tx write-view?").
+- **Tier 3 — mutable proxy surface during the session's own schema tx: name-binding.**
+  Every call (read and write — D8 requires proxy reads to see tx-local state) re-resolves
+  by name against the tx-local write-view; a mutating call on a pre-tx proxy is the tx's
+  first write and engages the D7 mutex + seeds before resolving. Stale-handle-on-rename
+  fails loudly and only within tier 3 (a second proxy captured pre-tx, used after an
+  in-tx rename); outside a schema tx nothing changes.
+
+`getImplementation()` argument unwrapping does not get the tier-2 relaxation: impl-typed
+arguments are re-resolved by name whenever the receiving call runs in a schema tx,
+regardless of where the argument proxy was captured. Affected: F56, D7, D8, F41, F44.
 
 ```mermaid
 flowchart LR
@@ -2129,7 +2148,10 @@ Serialize schema/index-changing txns with a new exclusive lock (a
   inside an active user tx (load/reload/genesis paths never engage) and at
   mutation time, not commit time, so a second schema-changing tx blocks (D5).
   Ordering: D7 mutex → seed → tx-local locks only during the body; shared
-  locks only at commit, in the F52 order.
+  locks only at commit, in the F52/F64 order. The engage surface includes the
+  class/property proxies' mutating calls (F65): a mutation through a pre-tx
+  captured `SchemaClassProxy` is the tx's first write and engages here via
+  tier-3 name re-resolution, so instance capture cannot bypass the mutex.
 - **Does not block** data commits (`stateLock.readLock`) or snapshot-based
   schema reads (F12), so the low-rate → low-contention premise holds.
 - **At commit**, structural reconciliation additionally takes
@@ -2222,7 +2244,18 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   the derived-state ripple and locking inside the copy (F41). `SchemaProxy` read
   methods (`getClass`, etc.), not only the snapshot, must also route to the
   tx-local structure during a schema-tx, since the schema API reads through the
-  proxy. Reuses the existing `toStream`/`fromStream`/`makeSnapshot` machinery.
+  proxy. **Class/property proxies are name-binding, not instance-binding,
+  during a schema tx (F65, three tiers):** `SchemaClassProxy`/
+  `SchemaPropertyProxy` hold a `final` delegate (`ProxedResource:30`) captured
+  at resolution time, so during the session's schema tx every proxy call
+  re-resolves its target by name against the tx-local write-view (tier 3); the
+  captured-delegate fast path applies only when the session has no schema-tx
+  write-view (tier 2); snapshot reads are a separate untouched family (tier 1).
+  Impl-typed arguments (`getImplementation()` unwrapping) are re-resolved by
+  name on the tx-local side before linking whenever the receiving call runs in
+  a schema tx, so a shared impl never enters the tx-local graph (F41's
+  cross-graph ripple). Reuses the existing
+  `toStream`/`fromStream`/`makeSnapshot` machinery.
   Under D14 the seed must additionally bind each existing class's committed per-class
   record RID into the tx-local copy. A `toStream`→`fromStream` round-trip through the
   link-set-aware serializer preserves it; a fresh-object reconstruction that drops
