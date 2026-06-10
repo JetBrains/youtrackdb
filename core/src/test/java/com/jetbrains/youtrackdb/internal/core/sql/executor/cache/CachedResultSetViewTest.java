@@ -261,6 +261,27 @@ public class CachedResultSetViewTest {
     assertTrue(values.containsAll(List.of(1, 2, 9)));
   }
 
+  /**
+   * When a cached row and an inject row carry the EQUAL ORDER BY key, the both-heads merge arm hits
+   * the {@code cmp == 0} tie branch ({@code orderBy.compare(...) == 0}), which favours the inject side
+   * ({@code cmp <= 0} drains the inject first) and must then still emit the cached row — both exactly
+   * once, neither dropped nor duplicated. Cached {10, 20}, inject {10} under ORDER BY ASC must come
+   * back {10, 10, 20}. Every other RECORD-merge test uses distinct keys, so this is the only case that
+   * drives the tie branch: a regression flipping the comparison to {@code cmp < 0} would drop one of
+   * the two equal-key rows and pass every other test.
+   */
+  @Test
+  public void injectWithEqualOrderByKeyEmitsBothExactlyOnce() {
+    var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+    var entry = recordEntry(orderBy, List.of(newRec(10), newRec(20)));
+    // A distinct record carrying the same ORDER BY key as the cached 10, so the comparator ties.
+    var inject = List.<Result>of(resultOf(newRec(10)));
+    var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, tx(), null, ctx());
+
+    assertEquals("a tie on the ORDER BY key must emit both rows exactly once",
+        List.of(10, 10, 20), drainValues(view));
+  }
+
   // ===========================================================================
   // Stream-pull-with-skip-set unification
   // ===========================================================================

@@ -273,6 +273,94 @@ public class DeltaBuilderTest {
   }
 
   /**
+   * A post-populate CREATE that is then DELETED in the same transaction collapses to a DELETED op (the
+   * delete always wins the collapse). The DELETED dispatch arm must skip the RID and inject nothing,
+   * exactly like a genuine delete — the row was created and removed within the tx, so a fresh execution
+   * would not show it. This drives the collapse-to-DELETED path the genuine-delete test does not: here
+   * the RID was never committed and is not in {@code cachedRids}, yet the DELETED arm still skips
+   * unconditionally, proving the dispatch consults only the op type for DELETED, not cache membership or
+   * WHERE.
+   */
+  @Test
+  public void collapsedCreateThenDeleteSkipsAndNeverInjects() {
+    db.begin();
+    var where = parseWhere("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " > 0");
+    // Empty cache: the create/delete pair is entirely post-populate.
+    var entry = recordEntry(where, null, List.of());
+
+    var rec = newRec(5); // post-populate CREATE (matches WHERE), op typed CREATED
+    var rid = ridOf(rec);
+    stage(rec, RecordOperation.DELETED); // collapses CREATE -> DELETE to a DELETED op
+    assertEquals("the create+delete pair must collapse to a single DELETED op",
+        RecordOperation.DELETED, tx().getRecordEntry(rid).type);
+
+    var cursor = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+    assertTrue("a collapsed create+delete skips the RID", cursor.shouldSkip(rid));
+    assertEquals("a collapsed create+delete never injects", 0, cursor.injectSize());
+    db.rollback();
+  }
+
+  /**
+   * A post-populate UPDATE followed by a DELETE on a cached record collapses to a DELETED op. The
+   * DELETED dispatch arm must skip the cached copy and inject nothing, so the view drops the row — the
+   * same outcome as a direct delete. This pins that a collapsed update-then-delete reaches the DELETED
+   * arm and is treated identically to a genuine delete even though the record IS in {@code cachedRids}
+   * and would still match WHERE, proving the DELETED arm ignores both facts.
+   */
+  @Test
+  public void collapsedUpdateThenDeleteOfCachedRecordSkipsAndNeverInjects() {
+    var rec = committedRec(5); // committed before the tx, so staged ops are genuine (not a CREATE)
+    var rid = ridOf(rec);
+    var where = parseWhere("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " > 0");
+    // The record is in the cache; populate version is captured before the mutations.
+    var entry = recordEntry(where, null, List.of(rec));
+
+    rec.setProperty(FIELD, 7); // still matches WHERE
+    stage(rec, RecordOperation.UPDATED); // post-populate UPDATE
+    stage(rec, RecordOperation.DELETED); // collapses UPDATE -> DELETE to a DELETED op
+    assertEquals("the update+delete pair must collapse to a single DELETED op",
+        RecordOperation.DELETED, tx().getRecordEntry(rid).type);
+
+    var cursor = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+    assertTrue("a collapsed update+delete of a cached row skips it", cursor.shouldSkip(rid));
+    assertEquals("a collapsed update+delete never injects", 0, cursor.injectSize());
+    db.rollback();
+  }
+
+  /**
+   * The twin of {@link #collapsedCreateAlreadyCachedSkipsAndReinjects}: a collapsed CREATE (still typed
+   * CREATED after absorbing an in-place update) whose post-mutation value drives it OUT of the WHERE
+   * clause. The {@code CREATED, cached=true, matchAfter=false} dispatch cell must skip the stale cached
+   * copy and inject NOTHING — a re-injection would emit a row a fresh execution no longer returns (an
+   * I10 violation). Exercises the {@code if (matchAfter)} false branch for the cached-CREATED arm, the
+   * symmetric counterpart to the already-tested UPDATED-fails-WHERE case.
+   */
+  @Test
+  public void collapsedCreateDrivenOutOfWhereSkipsWithoutReinject() {
+    db.begin();
+    var rec = newRec(5); // CREATED op, matches WHERE n > 0
+    var rid = ridOf(rec);
+    var where = parseWhere("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " > 0");
+    // Treat the freshly-created record as already cached; stamp populate BEFORE the update so the
+    // collapse (still typed CREATED, version re-stamped) is post-populate and enters the delta.
+    var entry = recordEntry(where, null, List.of(rec));
+
+    rec.setProperty(FIELD, -1); // collapsed update drives it out of WHERE (n > 0 now false)
+    stage(rec, RecordOperation.UPDATED); // collapses onto the CREATED op, re-stamping its version
+
+    // Sanity: the op is still typed CREATED after the collapse, exercising the CREATED cached arm.
+    assertEquals(RecordOperation.CREATED, tx().getRecordEntry(rid).type);
+
+    var cursor = DeltaBuilder.buildForRecord(entry, tx(), ctx(null));
+
+    assertTrue("stale cached copy of a collapsed create is skipped", cursor.shouldSkip(rid));
+    assertEquals("no reinject once the collapsed create fails WHERE", 0, cursor.injectSize());
+    db.rollback();
+  }
+
+  /**
    * Mutations that landed at or before the entry's populate version are already reflected in the
    * cached result, so the version filter ({@code op.version > populateMutationVersion}) must exclude
    * them: an update made before populate produces an empty delta.

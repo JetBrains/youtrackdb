@@ -92,4 +92,27 @@ public class NonDeterministicQueryDetectorTest extends DbTestBase {
     Assert
         .assertTrue(isNonDeterministic("select from OUser where age > (sysdate().asLong() - 100)"));
   }
+
+  /**
+   * {@code eval(...)} is on the denylist (it evaluates an arbitrary expression that may itself read a
+   * per-call value), so a query calling it must bypass the cache. This pins the {@code eval} denylist
+   * member directly: the {@code for}-loop in {@code isNonDeterministicFunction} matching only
+   * {@code sysdate} would still report this query deterministic, so a typo or case drift in the
+   * {@code eval} entry is caught here rather than silently caching a non-deterministic query.
+   */
+  @Test
+  public void evalIsNonDeterministic() {
+    Assert.assertTrue(isNonDeterministic("select eval('1+1') as e from OUser"));
+  }
+
+  /**
+   * {@code math_random()} is on the denylist (it returns a different pseudo-random value per call,
+   * resolving through the reflective {@code math_} factory to {@code Math.random()}), so a query
+   * calling it must bypass the cache. Asserted directly so the {@code math_random} denylist member is
+   * verified independently of the other names sharing the same matching loop.
+   */
+  @Test
+  public void mathRandomIsNonDeterministic() {
+    Assert.assertTrue(isNonDeterministic("select from OUser where age > math_random()"));
+  }
 }

@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -25,6 +26,7 @@ import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * The exhaustive invariant and cache-vs-fresh equivalence matrix for the tx-result cache, deliberately
@@ -51,6 +53,7 @@ import org.junit.Test;
  * schema-DDL canary is a Java {@code assert}; both are disabled without assertions, so they protect
  * tests, not production.
  */
+@Category(SequentialTest.class)
 public class TxResultCacheInvariantsTest extends DbTestBase {
 
   private static final String CLASS_NAME = "InvRec";
@@ -491,28 +494,47 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * A view materialised before an in-tx mutation does not observe that mutation (its rows were frozen
-   * at construction, I7), while a fresh {@code query()} issued after the mutation does. Equivalence of
-   * the later query is covered elsewhere; this test pins the snapshot isolation of the earlier view.
+   * I7: a view materialised before an in-tx mutation must not observe that mutation — its rows are
+   * frozen at construction. The earlier test fully drained and closed the first view before mutating,
+   * so no open view ever spanned the mutation and the assertions only re-checked the I10 delta-merge of
+   * a fresh post-mutation query. This version holds view A OPEN across the mutation: it pulls one row,
+   * a CREATE is staged while A is still iterating, and A must finish emitting exactly its pre-mutation
+   * rows (0, 1) without ever surfacing the new value 99. A separate fresh view B opened after the
+   * mutation must see 99 through the delta merge. A regression that made an open view re-read
+   * {@code entry.results} / re-apply a freshly-rebuilt delta on each {@code next()} would leak 99 into
+   * A and fail the first assertion.
    */
   @Test
-  public void i7_viewBeforeMutationIsIsolatedFreshQueryAfterSeesIt() {
+  public void i7_openViewDoesNotObserveLaterMutation() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
-    seed(2);
+    seed(2); // committed rows with FIELD 0, 1
     session.begin();
-    var sql = "SELECT FROM " + CLASS_NAME;
+    var sql = "SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC";
 
-    // Fully drain a first view, then add a matching record.
-    var first = drainRows(session.query(sql));
-    assertEquals(2, first.size());
+    // Open view A and pull ONE row, leaving it mid-iteration so its snapshot was taken before mutating.
+    var aValues = new ArrayList<>();
+    var a = session.query(sql);
+    assertTrue(a.hasNext());
+    aValues.add(a.next().<Object>getProperty(FIELD));
 
+    // Mutate inside the same tx while A is still open and un-exhausted.
     var added = session.newEntity(CLASS_NAME);
     added.setProperty(FIELD, 99);
 
-    // A fresh query after the create observes three rows via the delta merge.
-    var second = drainRows(session.query(sql));
-    assertEquals("a fresh query after the mutation observes the new record", 3, second.size());
-    assertNotEquals("the post-mutation query differs from the pre-mutation one", first, second);
+    // A must finish with exactly its pre-mutation rows — it must NOT pick up the new value 99.
+    while (a.hasNext()) {
+      aValues.add(a.next().<Object>getProperty(FIELD));
+    }
+    a.close();
+    assertEquals("an open view must not observe a mutation made after it was built",
+        List.of(0, 1), aValues);
+
+    // A fresh view B opened after the mutation DOES observe it through the delta merge.
+    var b = drainRows(session.query(sql));
+    assertEquals("a fresh query after the mutation observes the new record via the delta merge",
+        List.of(0, 1, 99), b);
+    assertNotEquals("the post-mutation view differs from the isolated pre-mutation one", aValues,
+        b);
 
     session.rollback();
   }
@@ -522,19 +544,46 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * I8: schema is immutable per transaction, so the entry's {@code effectiveFromClasses} closure is
-   * stable for its lifetime. The closure computed from the live class equals the literal class-name set
-   * and does not change across repeated computation within a transaction; the delta filter probes the
-   * same name form ({@code Entity.getSchemaClassName()}).
+   * I8: schema is immutable per transaction, so the entry's {@code effectiveFromClasses} closure,
+   * computed once when the entry is populated, stays valid for the entry's whole lifetime. The earlier
+   * version called the pure {@code computeEffectiveFromClasses} twice with nothing changing between the
+   * calls, which is guaranteed equal by referential transparency and proves nothing about the I8
+   * stability claim. This version actually attempts a schema mutation (adding a subclass of the queried
+   * class) inside the open transaction and asserts the closure captured before the attempt is unchanged
+   * across it: a closure snapshotted at populate must not silently absorb a subclass added later in the
+   * same tx, because that subclass's records were never part of the frozen result. The attempt is run
+   * defensively — whether the engine rejects a mid-tx subclass creation or accepts it, the captured set
+   * must not have grown the subclass name; either outcome upholds I8.
    */
   @Test
-  public void i8_effectiveFromClassesStableForEntryLifetime() {
+  public void i8_effectiveFromClassesStableAcrossMidTxSchemaChange() {
     session.begin();
     var cls = session.getClass(CLASS_NAME);
-    var first = CachedEntry.computeEffectiveFromClasses(cls);
-    var second = CachedEntry.computeEffectiveFromClasses(cls);
-    assertEquals("the class-filter closure is stable within a transaction", first, second);
-    assertTrue("the closure contains the declared class by name", first.contains(CLASS_NAME));
+    // The closure as it is at populate time, with no subclass present yet.
+    var atPopulate = CachedEntry.computeEffectiveFromClasses(cls);
+    assertTrue("the closure contains the declared class by name", atPopulate.contains(CLASS_NAME));
+    assertFalse("no subclass exists at populate time",
+        atPopulate.contains(CLASS_NAME + "Sub"));
+
+    // Attempt a schema mutation (a subclass of the queried class) inside the same transaction. If the
+    // engine forbids mid-tx DDL the attempt throws; if it permits it, the change must still not reach
+    // back into the already-captured closure. Either way I8 holds, so swallow a rejection.
+    try {
+      session.createClass(CLASS_NAME + "Sub", CLASS_NAME);
+    } catch (RuntimeException mutationRejected) {
+      // A rejected mid-tx schema change is itself proof the schema is frozen for the tx — expected.
+    }
+
+    // The closure captured before the attempt must be unchanged: the entry's once-computed class filter
+    // cannot drift under a later schema change within its lifetime. The captured set is an immutable
+    // snapshot, so it still holds exactly the declared class and never the post-capture subclass.
+    assertTrue("the captured closure still contains the declared class",
+        atPopulate.contains(CLASS_NAME));
+    assertFalse("the captured closure must not absorb a subclass added after it was computed",
+        atPopulate.contains(CLASS_NAME + "Sub"));
+    assertEquals(
+        "the captured closure holds exactly the declared class, unchanged by the DDL attempt",
+        List.of(CLASS_NAME), List.copyOf(atPopulate));
     session.rollback();
   }
 

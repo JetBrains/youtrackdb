@@ -7,6 +7,7 @@ import static org.junit.Assert.assertSame;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -19,6 +20,7 @@ import java.lang.reflect.Method;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /**
  * End-to-end wiring tests for the tx-result cache on the live {@code query()} path. They prove the
@@ -33,6 +35,7 @@ import org.junit.Test;
  * wiring smoke plus the flag-off and re-entrancy proofs. Run with {@code -ea} so the schema-DDL
  * canary and the owner-thread asserts are live.
  */
+@Category(SequentialTest.class)
 public class TxResultCacheWiringTest extends DbTestBase {
 
   private static final String CLASS_NAME = "WireRec";
