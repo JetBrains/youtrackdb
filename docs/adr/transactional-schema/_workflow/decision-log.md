@@ -662,7 +662,9 @@ promotion = re-parse of changed per-class records into the existing shared insta
 commit fires `onSchemaUpdate`/`onIndexManagerUpdate` after lock release; D19
 schema-carrying signal replaces the dead root-record dispatch check); F70 → D12
 (accepted 2026-06-10: accept-and-document the pre-existing enqueue-phase window; closure
-filed as YTDB-1101). F71–F75 pending.
+filed as YTDB-1101); F71 → D7/F61 (accepted 2026-06-10: timeout = re-wait loop with
+diagnostic; mutex = owner-tracked `Semaphore(1)` with `releaseStranded` reap API after
+full tx rollback; F38 assertion relocated into owner bookkeeping). F72–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1994,12 +1996,21 @@ D5 violation. And `unlock()` from any thread but the owner throws
 where possible" covers only graceful close; after owner-thread death the mutex is
 stranded until restart. Full analysis: pass-6 report C14.
 
-**Resolution (proposed):** amend the F61 bullet in D7: timeout → emit the diagnostic and
-**re-wait in a loop** (only an operator-level interrupt breaks it), never abort; and
-either state "stranded holder = schema DDL unavailable until restart" explicitly, or
-switch the mutex to an owner-tracked, cross-thread-releasable primitive (e.g.
-`Semaphore(1)` with owner bookkeeping, relocating the F38 same-thread assertion into that
-bookkeeping). Affected: D5, D7, F38, F61.
+**Resolution (accepted 2026-06-10):** both arms strengthened. (1) Timeout → emit the
+diagnostic (holder session, hold duration) and **re-wait in a loop**; only an
+operator-level interrupt breaks it; the timed acquire exists for observability, never
+liveness enforcement. (2) The mutex is an **owner-tracked, cross-thread-releasable
+primitive** (`Semaphore(1)` + owner bookkeeping), not a `ReentrantLock`: in server mode a
+client that opens a schema tx and vanishes is reaped *from another thread* between
+operations — a routine event, net-new exposure under D7's tx-scoped lifetime — and a
+`ReentrantLock` would brick schema DDL until restart. The F38 same-thread assertion
+relocates into the bookkeeping (normal release asserts owner == current thread); a
+separate explicit `releaseStranded(session)` API exists solely for the session-reap path
+and runs only after the session's full tx rollback (F74 carries the WAL-pin half).
+Phase-1 checkpoint: verify `AtomicOperationsManager`'s thread-binding allows ending a
+stranded tx's atomic operation from the reaper thread. The weaker arm ("stranded = DDL
+unavailable until restart") was rejected: it turns a routine disconnect into a
+production-restart event. Affected: D5, D7, F38, F61.
 
 ```mermaid
 flowchart LR
@@ -2177,9 +2188,11 @@ D9's set difference over the committed vs tx-local in-memory structures, not the
 record-level property diff (F43). From the assignee, 2026-06-03.
 
 ### D7 — A dedicated, transaction-scoped metadata-write mutex
-Serialize schema/index-changing txns with a new exclusive lock (a
-`ReentrantLock` on the shared context / storage), distinct from `stateLock`,
-`SchemaShared.lock`, and `IndexManager.lock`. From the assignee, 2026-06-03.
+Serialize schema/index-changing txns with a new exclusive lock on the shared
+context / storage — an owner-tracked, cross-thread-releasable mutex
+(`Semaphore(1)` + owner bookkeeping per F71; originally sketched as a
+`ReentrantLock`) — distinct from `stateLock`, `SchemaShared.lock`, and
+`IndexManager.lock`. From the assignee, 2026-06-03.
 
 - **One lock for schema and indexes both** — a class with a unique property
   creates a class and an index in the same tx, so a single metadata-write mutex
@@ -2229,12 +2242,17 @@ Serialize schema/index-changing txns with a new exclusive lock (a
   indexLock.write → `stateLock.read`). Acquiring both metadata write locks
   before `stateLock` keeps the order acyclic; index-only txs take the same
   uniform sequence.
-- **Release on abnormal termination (F61).** Closing a session with an active
-  schema tx runs rollback's mutex release on the owning thread; server-side
-  reaping of a dead session routes through the same close path. The acquire is
-  timed/interruptible with a diagnostic naming the holder, never a bare
-  `lock()`, so a stranded holder (thread death before the `finally`) surfaces
-  as a loud diagnosis instead of an eternal silent park.
+- **Release on abnormal termination (F61, refined by F71).** Closing a session
+  with an active schema tx runs rollback's mutex release on the owning thread.
+  Server-side reaping of a vanished session runs from another thread: the reap
+  path runs the session's **full tx rollback** (ending the atomic operation —
+  the F74 WAL-pin half) and then `releaseStranded(session)`, the explicit
+  cross-thread release the owner-tracked primitive provides; the F38
+  same-thread assertion lives in the owner bookkeeping and guards only the
+  normal release path. The acquire is timed with a diagnostic naming the
+  holder and **re-waits in a loop** on timeout (never aborts — a healthy
+  F48-scale holder is not contention to punish, D5); only an operator-level
+  interrupt breaks the wait.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
 - **Rejected:** holding `stateLock.writeLock` for the whole tx (blocks all
   commits, too coarse); reusing `SchemaShared.lock` for tx lifetime (conflates
