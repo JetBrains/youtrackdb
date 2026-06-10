@@ -332,7 +332,7 @@ Full statements and per-shape test matrices: design.md §"Invariants".
 - `SQLFunction.isDeterministic()` SPI and MATCH `NOCACHE` grammar — v2.
 
 ## Checklist
-- [ ] Track 1: Cache foundation — infra, key, lifecycle, RECORD + K0_NONE shapes
+- [x] Track 1: Cache foundation — infra, key, lifecycle, RECORD + K0_NONE shapes
   > Stands up the opt-in cache end-to-end for the two shapes that need no side-
   > tap: the `QueryResultCache` LRU on the transaction, the `(AST, params)`
   > `CacheKey` with the D22 `SQLInputParameter` fix, the `ShapeClassifier` and
@@ -341,12 +341,49 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > + `TxDeltaCursor` + `CachedResultSetView` sorted-merge + pause/resume), the
   > K0_NONE version-gate, lifecycle clears, memory bounds, and the config knobs.
   > This is the reference architecture every later shape builds on.
-  > **Scope:** ~20 files covering `QueryResultCache`, `CacheKey`, `CachedEntry`,
-  > `CacheableShape`, `ShapeClassifier`, `NonDeterministicQueryDetector`,
-  > `TxDeltaCursor`, `DeltaBuilder` (record path), `CachedResultSetView`,
-  > `IdempotentExecutionStream`, `QueryCacheMetrics`, plus hooks in
-  > `FrontendTransactionImpl`, `DatabaseSessionEmbedded`, `RecordOperation`,
-  > `SQLInputParameter`, `GlobalConfiguration`, `CoreMetrics`, and tests.
+  >
+  > **Track episode:**
+  > Built the RECORD and K0_NONE cache path end to end: the off-by-default
+  > config knobs, the `mutationVersion` / `RecordOperation.version` plumbing,
+  > `CacheKey` over `(AST, normalized params)`, the static `ShapeClassifier`
+  > and fail-open `NonDeterministicQueryDetector`, `CachedEntry` with
+  > `IdempotentExecutionStream`, the `QueryResultCache` LRU with the two-guard
+  > re-entrancy model (tx-level `cacheCodeDepth` plus lookup-level
+  > `inFlightLookup`), `DeltaBuilder.buildForRecord` with `TxDeltaCursor`, the
+  > `CachedResultSetView` sorted merge, the session and transaction wiring, and
+  > the invariant plus cache-vs-fresh equivalence suite. Aggregate and MATCH
+  > shapes bypass to Tracks 2 and 3.
+  >
+  > Phase C review found three correctness gaps the step tests missed, all
+  > fixed (Review fix commits `4cf3ae0b08`, `5320761b42`, `a1b53d079a`): the
+  > `maxRecordsPerEntry` cap was defined but never enforced, now enforced at
+  > the single `CachedEntry.recordPulledRow` append point that evicts the
+  > over-cap entry and routes its key non-cacheable while the in-flight
+  > consumer still receives every row; the design-sanctioned cross-thread
+  > tx-end `clear()` tripped `assertOnOwningThread`, now routed through
+  > `exitCacheCodeUnchecked` so the assert stays on the synchronous path; and a
+  > `TRUNCATE CLASS` inside a SQL script bypassed invalidation, now closed by a
+  > per-statement bulk-DML hook in `SqlScriptExecutor`. Strengthening the
+  > schema-stability test exposed that DDL is strictly non-transactional in
+  > this engine (the prior test had swallowed the mid-tx `createClass`
+  > rejection, making its assertion vacuous). A user review-mode round then
+  > narrowed the delta snapshot to the entry's effective classes (Review fix
+  > `991b89979a`); two further perf suggestions were examined and declined as a
+  > false positive and an unsafe change against a tested key-equality invariant.
+  >
+  > Cross-track impact folded into the Track 2 and Track 3 entries: route row
+  > appends through `recordPulledRow` for the cap, treat the `inFlightLookup`
+  > guard as defense-in-depth that needs coverage only if a later track calls
+  > `lookup` outside the `cacheCodeDepth` bracket, use `exitCacheCodeUnchecked`
+  > for cross-thread releases, and wire the global `QUERY_CACHE_*_RATE` metrics
+  > that Track 1 defines but never increments. The cumulative diff is large
+  > (~5,928 changed lines across 29 files, generated excluded), past the soft
+  > ~4,000-line review-capacity threshold; recorded as a planning-calibration
+  > signal, not a defect. Eleven suggestion-severity findings remain deferred
+  > (perf micro-optimizations, dead-API and comment cleanup, a few edge-case
+  > tests).
+  >
+  > **Track file:** `plan/track-1.md` (7 steps, 0 failed)
 
 - [ ] Track 2: Aggregate shapes — side-tap, storage-parity replay, COUNT_DISTINCT
   > Adds the `AGGREGATE_*` family on top of Track 1's foundation: the
