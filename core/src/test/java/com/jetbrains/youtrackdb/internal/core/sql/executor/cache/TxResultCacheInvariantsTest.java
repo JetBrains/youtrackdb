@@ -544,47 +544,57 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * I8: schema is immutable per transaction, so the entry's {@code effectiveFromClasses} closure,
-   * computed once when the entry is populated, stays valid for the entry's whole lifetime. The earlier
-   * version called the pure {@code computeEffectiveFromClasses} twice with nothing changing between the
-   * calls, which is guaranteed equal by referential transparency and proves nothing about the I8
-   * stability claim. This version actually attempts a schema mutation (adding a subclass of the queried
-   * class) inside the open transaction and asserts the closure captured before the attempt is unchanged
-   * across it: a closure snapshotted at populate must not silently absorb a subclass added later in the
-   * same tx, because that subclass's records were never part of the frozen result. The attempt is run
-   * defensively — whether the engine rejects a mid-tx subclass creation or accepts it, the captured set
-   * must not have grown the subclass name; either outcome upholds I8.
+   * I8: the entry's {@code effectiveFromClasses} closure, computed once when the entry is populated,
+   * stays valid for the entry's whole lifetime even if the schema later gains a subclass of the queried
+   * class. {@code computeEffectiveFromClasses} reads the live schema on every call (the queried class
+   * plus every current subclass, each by name), so a fresh call made after a subclass is added genuinely
+   * sees the new subclass — that freshness is what makes the snapshot-stability claim falsifiable here
+   * rather than tautological.
+   *
+   * <p>Schema changes in this engine are not transactional: {@code createClass} is rejected while a
+   * transaction is active and otherwise mutates the live schema immediately. The invariant is therefore
+   * about a populate-time snapshot resisting a schema change that lands later in the entry's lifetime
+   * (between the populate and a later observation), not about DDL inside one open transaction. The test
+   * captures the populate-time snapshot, adds a real subclass {@code CLASS_NAME + "Sub"} of the queried
+   * class against the live schema, then contrasts two reads of the same pure function: a FRESH
+   * {@code computeEffectiveFromClasses} DOES contain the new subclass (proving the schema change is live
+   * and observable), WHILE the populate-time snapshot does NOT. If the once-computed closure had leaked
+   * the later subclass — i.e. if it were a live view rather than a frozen snapshot — the snapshot
+   * assertion would fail. That contrast is the I8 guarantee: a populate-time class filter resists a real,
+   * observable later schema change.
    */
   @Test
   public void i8_effectiveFromClassesStableAcrossMidTxSchemaChange() {
-    session.begin();
     var cls = session.getClass(CLASS_NAME);
-    // The closure as it is at populate time, with no subclass present yet.
+    // The closure as it is at populate time, with no subclass present yet. This immutable snapshot stands
+    // in for the entry's once-computed effectiveFromClasses captured when the entry was populated.
     var atPopulate = CachedEntry.computeEffectiveFromClasses(cls);
     assertTrue("the closure contains the declared class by name", atPopulate.contains(CLASS_NAME));
     assertFalse("no subclass exists at populate time",
         atPopulate.contains(CLASS_NAME + "Sub"));
 
-    // Attempt a schema mutation (a subclass of the queried class) inside the same transaction. If the
-    // engine forbids mid-tx DDL the attempt throws; if it permits it, the change must still not reach
-    // back into the already-captured closure. Either way I8 holds, so swallow a rejection.
-    try {
-      session.createClass(CLASS_NAME + "Sub", CLASS_NAME);
-    } catch (RuntimeException mutationRejected) {
-      // A rejected mid-tx schema change is itself proof the schema is frozen for the tx — expected.
-    }
+    // Add a subclass of the QUERIED class against the live schema (DDL is non-transactional and rejected
+    // inside an open tx, so this runs with no active transaction). computeEffectiveFromClasses includes
+    // the queried class plus all its subclasses, so a fresh call after this DDL must see "Sub".
+    session.createClass(CLASS_NAME + "Sub", CLASS_NAME);
 
-    // The closure captured before the attempt must be unchanged: the entry's once-computed class filter
-    // cannot drift under a later schema change within its lifetime. The captured set is an immutable
-    // snapshot, so it still holds exactly the declared class and never the post-capture subclass.
+    // Freshness check: a NEW compute call reads the live schema and DOES contain the just-added subclass.
+    // This proves the schema change is genuinely live and observable, not a no-op — without it the
+    // snapshot-stability assertion below would be vacuous.
+    var fresh = CachedEntry.computeEffectiveFromClasses(session.getClass(CLASS_NAME));
+    assertTrue("a fresh closure observes the live schema and includes the just-added subclass",
+        fresh.contains(CLASS_NAME + "Sub"));
+
+    // Stability check: the populate-time snapshot did NOT absorb the later subclass. The contrast with
+    // the fresh closure above is what makes this falsifiable — if the once-computed closure were a live
+    // view rather than a frozen snapshot, it would now contain "Sub" and this assertion would fail.
     assertTrue("the captured closure still contains the declared class",
         atPopulate.contains(CLASS_NAME));
     assertFalse("the captured closure must not absorb a subclass added after it was computed",
         atPopulate.contains(CLASS_NAME + "Sub"));
     assertEquals(
-        "the captured closure holds exactly the declared class, unchanged by the DDL attempt",
+        "the captured closure holds exactly the declared class, unchanged by the live schema change",
         List.of(CLASS_NAME), List.copyOf(atPopulate));
-    session.rollback();
   }
 
   // ===========================================================================
