@@ -616,7 +616,17 @@ file-id recycle branch. It added F64–F75 (reports:
 `adversarial-pass6-concurrency.md` / `adversarial-pass6-durability.md`; the pass-5 fixes
 themselves largely held — the F53/F58/F62 commit sequence is crash-consistent at every
 boundary, and the F55 lazy consult survived its direct attacks). Resolutions for F64–F75
-are proposed inside each entry and settle one by one in the fix discussion.
+are proposed inside each entry and settle one by one in the fix discussion. A seventh
+pass (2026-06-10, same two lenses, fresh agents primed with all four prior failed-attack
+lists) audited the text the pass-5/6 resolutions themselves wrote into the D entries —
+the never-attacked folds. It added F76–F82 (reports: `adversarial-pass7-concurrency.md`
+/ `adversarial-pass7-durability.md`; 0 BLOCKER — the F64 four-lock order held against
+every inversion hunt and F74's corrected premises re-verified clean; the convergent
+pairs C16+U15 and C17+U14 each fold into one entry). The pass-7 common root: three
+accepted fixes (F53, F66, F71/F74) each name a mechanism whose load-bearing input the
+live machinery does not provide — id allocation reads the deferred registries, the
+retained operation set has no field values for early-flushed records, and the `tsMin`
+holder cannot be released from the reaper's thread.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -675,6 +685,8 @@ parenthetical corrected); F75 → D20 (accepted 2026-06-10: manifest emitted str
 last and atomically, import hard-fails on a missing/unparsable manifest for
 manifest-era dumps, legacy distinguished by dump version). **All pass-6 findings are
 resolved.**
+
+**Pass-7 resolutions (settling one by one):** F76–F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2132,6 +2144,230 @@ flowchart LR
 carrying both pins (manifest emitted strictly last and atomically; import hard-fails on
 a missing or unparsable manifest for manifest-era dumps, legacy distinguished by dump
 version). Affected: F63, D20.
+
+### F76 — The reap path cannot release a stranded tx's `tsMin` pin, and "full tx rollback" of a mid-commit-window tx races a live atomic operation [MAJOR]
+Convergent: pass-7 reports C16 + U15. D7's reap bullet (F71/F74 folds) claims pin
+releases the machinery cannot deliver. The `tsMin` floor lives in a per-thread
+`TsMinHolder` (`tsMinThreadLocal`, `AbstractStorage:367`); the only release API,
+`resetTsMin`, operates on the *calling* thread's holder and throws when that holder has
+no active tx (`:4679`–`:4687`); `FrontendTransactionImpl.close()` already encodes the
+cross-thread answer by skipping the reset when `storageTxThreadId` is not the current
+thread (`:954`; PSI: `close():955` is the only tx-end caller). So every cross-thread
+reap leaves the pooled owner thread's holder with a stranded `+1`: `tsMin` only ratchets
+down (`Math.min`, `:4653`), `computeGlobalLowWaterMark` (`:6954`) is floored forever,
+and the snapshot/visibility indexes grow without bound — silently (the YTDB-550 monitor
+warns, releases nothing). That is U10's invisible-pin shape relocated from the WAL to
+the heap, on the path the design promotes to routine recovery, while D12's heap-bounded
+migration guidance assumes the floor releases at tx end. The mid-commit-window arm is
+not a defined operation either: the freezer's per-thread depth throws cross-thread
+(`OperationsFreezer:59`–`:62`), component-lock release is silently skipped for
+non-owners (`AtomicOperationsManager:480`), and a reaper racing `commitChanges` can
+transition a unit whose end record is already durable, poisoning the storage (loud,
+restart-recoverable). The operation-object half of F71's Phase-1 checkpoint passes:
+`endAtomicOperation` is parameter-based (`AtomicOperationsManager:258`), no ThreadLocal
+current-operation exists, and a mid-body tx has no table entry to transition.
+
+```mermaid
+flowchart LR
+  T["owner thread T (pooled)<br/>TsMinHolder: count +1, tsMin floor"] -- "client vanishes" --> R["reaper thread:<br/>rollbackInternal → close()"]
+  R -- "storageTxThreadId != current →<br/>resetTsMin SKIPPED (:954)" --> L["holder leaks: LWM floored (:6954),<br/>snapshot index grows unbounded"]
+  FIX["pin: capture holder on the tx,<br/>release by reference cross-thread"] -.-> L
+```
+
+**Resolution (proposed):** two pins in D7. (1) Operation-scoped pin release: the tx
+captures its owner's `TsMinHolder` at `startStorageTx` (it already captures
+`storageTxThreadId`), `activeTxCount` becomes cross-thread-safe, and both `close()` arms
+plus the reap release by captured holder — this also fixes the pre-existing
+pool-shutdown leak. (2) Scope the reap to between-operations stranding: a tx whose owner
+thread is inside the commit window belongs to the storage-error/restart path, and D7's
+parenthetical stops claiming the segment-pin release. F71's Phase-1 checkpoint is
+thereby resolved: the operation-object half passes, the tsMin/freezer/component-lock
+halves fail. Affected: D7, F71, F74, D12, F61, F38, D5.
+
+### F77 — F66's re-derivation has no key source for its delete leg: values are unloaded at the eager flush, tx reads refuse tx-deleted RIDs, and an in-window committed re-read is the F54 self-deadlock [MAJOR]
+Convergent: pass-7 reports C17 + U14. The accepted F66 text prescribes "deletes of
+committed rows contribute removes", but a remove needs the deleted row's key and every
+source fails: the in-memory values are gone (the eager `deleteRecord` flush exists
+because "after this operation record will be unloaded", `FrontendTransactionImpl:482`;
+`clearTrackData` wipes processed operations, `:922`–`:926`), the tx-routed read refuses
+tx-deleted RIDs (`loadRecord:455`, `exists:436`), and a committed re-read inside
+`commitIndexes` re-enters `stateLock.readLock` under the held D19 write lock — the F54
+self-deadlock on a new leg. F66's own rejected-alternative sentence concedes the
+in-memory source was rejected; the accepted mechanism needs exactly that source.
+Shipping without the delete leg resurrects C10's interleaving 1: a durable dangling
+entry and phantom `RecordDuplicatedException` on a UNIQUE index, and
+delete-bad-rows-then-add-UNIQUE-index is the headline YTDB-382 migration workload.
+
+```mermaid
+flowchart LR
+  D["deleteRecord: eager flush,<br/>record unloaded (:482)"] --> NK["commit: remove needs key —<br/>no value in memory, tx read refuses (:455),<br/>storage re-read = F54 deadlock"]
+  FIX["population skips tx-touched RIDs;<br/>re-derivation = final-state puts only"] -.-> NK
+```
+
+**Resolution (proposed):** remove the need for committed keys instead of finding them.
+The F54 population scan becomes tx-aware: it skips every RID present in the tx's
+record-operation set. Re-derivation contributes final-state puts only (tx-created and
+tx-updated rows; values in memory). Deletes need no remove at all — the row is simply
+never put. D12's completeness invariant rewords to: population covers committed rows the
+tx did not touch; re-derivation covers exactly the tx-touched rows. The tx-bypassing
+committed-read alternative is rejected (it re-creates the cross-layer entanglement
+F54/F66 removed). D12's regression-test pair stays as specified. Affected: F66, D12,
+F54, F32, D3.
+
+### F78 — DDL against a frozen storage parks the schema commit inside `OperationsFreezer` holding all four locks: the freeze window becomes a total read outage [MAJOR]
+Pass-7 report C18. The commit path contains a fifth synchronization object the D7/D19
+ordering proof never names. `startTxCommit` → `startToApplyOperations` first calls
+`writeOperationsFreezer.startOperation()` (`AtomicOperationsManager:107`), which parks
+while a freeze is engaged (`OperationsFreezer:30`–`:47`). `freeze(db, false)` returns
+with the freezer engaged holding no locks (`AbstractStorage:3889`/`:3905`/`:3930`). A
+schema-carrying commit then takes the D7 mutex, `SchemaShared.lock`,
+`IndexManagerEmbedded.lock`, and `stateLock.writeLock()` (D19), and parks on the frozen
+gate holding all four; every `stateLock.readLock()` acquisition parks behind the held
+write lock, so all reads, queries, and lock-based metadata reads stop for the whole
+freeze window (operator-scale: minutes). Today the same interleaving parks a data commit
+holding only `stateLock.read`, and a frozen database keeps serving reads — the backup
+contract. No deadlock (`release(db)` takes no locks; the lock orders conform, see the
+report's dry list), but D7's "does not block data commits or snapshot-based schema
+reads" premise fails wholesale for the window.
+
+```mermaid
+sequenceDiagram
+  participant O as operator
+  participant DDL as schema commit
+  participant R as readers
+  O->>O: freeze(db) — freezer engaged, no locks held
+  DDL->>DDL: acquire mutex + schema + index + stateLock.write
+  DDL->>DDL: startTxCommit → freezer gate PARKS (holding all four)
+  R--xDDL: every stateLock.read parks behind the writer — outage until release(db)
+```
+
+**Resolution (proposed):** gate schema commits on the freezer before the lock window via
+check-and-back-off: after acquiring the four locks, probe `freezeRequests`; if a freeze
+is pending or active, release all four, park on the freezer gate, retry the acquisition.
+(The naive freezer-first reorder deadlocks against `freeze`'s own `stateLock.read` →
+drain order.) Alternative: route schema commits through the `throwException` freeze
+semantics so DDL-during-freeze fails loudly. Either way, name the freezer in D7/D19's
+ordering discussion. Affected: D19, D7, F48, D12.
+
+### F79 — The D7 mutex's normal release must be a hard compare-owner-and-clear: an assert-guarded `Semaphore.release()` from a reaped-but-alive owner breaks D5 mutual exclusion [MINOR]
+Pass-7 report C19. `Semaphore.release()` increments unconditionally from any thread. A
+reaped owner that is stalled rather than dead (GC pause, long scan — nothing excludes
+it: `activateOnCurrentThread` never deactivates the owner, so reaper and owner are
+concurrently "active", the dual activation the pooled `realClose` path already permits)
+eventually runs its outermost `finally` release; with Java asserts compiled out, F71's
+"asserts owner == current thread" evaluates nothing, permits go 0→1 while the next
+session holds the mutex, and a third session acquires concurrently — two schema writers
+under the same four locks.
+
+```mermaid
+sequenceDiagram
+  participant S1 as S1 owner (stalled)
+  participant RP as reaper
+  participant S2
+  participant S3
+  RP->>RP: reap S1 → releaseStranded → permits 1
+  S2->>S2: acquire (permits 0)
+  S1->>S1: wakes → finally → release() unconditional → permits 1
+  S3->>S3: acquire — S2 and S3 both hold the "exclusive" mutex
+```
+
+**Resolution (proposed):** the normal release is a CAS compare-owner-and-clear on an
+owner token keyed by session and acquisition epoch; a mismatch is a detected no-op (or
+throw), never a bare `assert` plus unconditional `release()` — the zombie's release
+becomes a detected no-op. One added D7 caveat: between reap and the zombie's wake-up,
+two threads operate on one session's tx state with no synchronization
+(`assertOnOwningThread` exempts `close()`/`rollbackInternal`,
+`FrontendTransactionImpl:130`), so the reap path must tolerate the owner racing it.
+Affected: D7, F71, F38, D5.
+
+### F80 — Structural-id allocation reads the registries F53 defers: any commit creating two or more collections or engines allocates duplicate ids; `fileIdBTreeMap` is a fourth registry missing from F53's list [MAJOR]
+Pass-7 report U12. Both structural-id allocators are reads of the registries F53 defers,
+and they run early in reconciliation: a new collection id is the first null slot of the
+shared `collections` array (`doAddCollection:4991`–`:4997`), updated only by the
+deferred `registerCollection` (`:5026`; PSI: callers are `doAddCollection` and the
+open-time `createCollectionFromConfig:4941`); a new engine id is `indexEngines.size()`
+(`addIndexEngine:2786`), grown only by the deferred `indexEngines.add` (`:2812`). Under
+deferral the scan returns the same slot for every structure the commit creates, and one
+class create allocates 8 collections (F49) — the standard path, not a corner. The
+failure is loud today: duplicate id N derives the same id-keyed file names
+(`FILE_NAME_PREFIX + collectionId`, `LinkCollectionsBTreeManagerShared:92`; F67's v1
+bases for engines) and `addFile` throws on a same-name re-add within one operation
+(`AtomicOperationBinaryTracking:808`–`:811`): deterministic commit failure, clean
+rollback, identical retry failure. Two silent variants sit one implementation choice
+away: keeping registration eager "for allocation's sake" reopens F53's
+phantom-registration hole wholesale; and duplicate-id config records overwrite each
+other (`updateCollection` keyed by collection id, `:5028`), leaving one durable config
+entry for two collections. Also, `createComponent` publishes into `fileIdBTreeMap`
+during reconciliation (`LinkCollectionsBTreeManagerShared:97`) — a fourth registry
+F53's deferral list misses (self-healing on retry via `bookFileId`'s negative-entry
+re-book, `WOWCache:739`, so bounded).
+
+```mermaid
+flowchart LR
+  A["collection #1: scan finds<br/>null slot N (:4991)"] --> B["registerCollection<br/>DEFERRED (F53)"]
+  B --> C["collection #2: scan<br/>returns N again"]
+  C --> D2["id-keyed names collide →<br/>addFile throws (:808), commit fails"]
+  FIX["commit-local allocator<br/>seeded at commit entry"] -.-> C
+```
+
+**Resolution (proposed):** state a commit-local structural-id allocator invariant in
+D3/F53: collection and engine ids are drawn from a commit-local allocator seeded from
+the shared registries at commit entry (safe — schema commits are serialized by D7 +
+`stateLock.write`), unique across the commit, and published together with the registries
+on the success path; a failed commit leaks no durable trace, so its ids are reusable.
+Extend F53's PSI-audit instruction: allocation sites are read sites too. Add
+`fileIdBTreeMap` to the deferred-registry list. Regression test: one tx creates two
+classes (16 collections, 2+ engines) → commit succeeds → restart → all collections and
+engines resolve. Affected: D3, F53, F39, D16/F67, F29, F48/F49.
+
+### F81 — The D20 migration dump is produced by the old binaries, so it is always a pre-manifest legacy dump: F75's version gate exempts exactly the migration path the manifest was designed for [MAJOR]
+Pass-7 report U13. D20's procedure exports with the old binaries (the D14 version gate
+makes the new binaries refuse the old format), and the old binaries predate manifest
+emission (`EXPORTER_VERSION = 14`, `DatabaseExport:59`, written at `:366`); so every D20
+migration dump is a legacy dump under F75's version-gated hard-fail, and the import
+skips verification on the one dump the manifest was invented to protect. A truncated
+old-binary export (likeliest shape: operator interruption between phases — schema
+exported, records not) imports as whatever subset parses and reports success: a fresh,
+version-correct, silently incomplete database, verbatim the F63 failure mode, alive on
+the primary upgrade path.
+
+```mermaid
+flowchart LR
+  OLD["old-binary export<br/>(pre-manifest by definition)"] --> DUMP["dump version ≤ 14: LEGACY"]
+  DUMP --> IMP["new import: F75 gate →<br/>no manifest required"]
+  IMP --> BAD["truncated dump imports,<br/>silently incomplete (= F63)"]
+  FIX["(c) JSON-close check<br/>+ (b) explicit ack flag"] -.-> IMP
+```
+
+**Resolution (proposed):** pick and state in D20: (a) backport manifest emission to a
+terminal release of the old format and require exporting with it (the YTDB-1099
+backport precedent); (b) the new import refuses legacy dumps unless the operator passes
+an explicit unverified-import acknowledgment flag; (c) a weak completeness check for
+legacy dumps — the dump is a single JSON document, so "the document closes cleanly"
+detects truncation with no manifest. Direction: (c) plus (b) — (c) is cheap and catches
+the truncation case, (b) makes the residue a logged, deliberate choice. Affected: D20,
+F63, F75, D14.
+
+### F82 — F75's atomicity covers the manifest file, not the dump it vouches for; the stream variant's truncation-unparsability is assumed, not specified [MINOR]
+Pass-7 report U16. Temp + fsync + rename makes the *manifest* durable; nothing orders
+the *dump's* durability before manifest visibility. After a power loss the rename can be
+durable while the dump's tail is still in the page cache: a well-formed manifest beside
+a truncated dump, and a tail that damages record content inside parseable structure
+passes count verification entirely. The stream variant assumes a truncated final section
+is unparsable; that property must be stated (length or checksum trailer, or the manifest
+as the closing keys of the single JSON document so any truncation breaks the document
+close), since the current exporter has no terminal marker to inherit
+(`exportSchema:449` ff.).
+
+```mermaid
+flowchart LR
+  D2["fsync dump file(s)"] --> T["manifest → temp<br/>(same directory)"] --> F["fsync temp"] --> R["rename"] --> DF["fsync directory"]
+```
+
+**Resolution (proposed):** extend D20's F75 bullet with the fsync ordering — dump
+durable before manifest visible, same-directory temp (same-filesystem rename
+guarantee), directory fsync after rename — and the stream variant's self-validating-tail
+requirement. One sentence each. Affected: F75, D20, F63.
 
 ---
 
