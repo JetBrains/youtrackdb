@@ -658,7 +658,9 @@ option (b): the stable-base-keyed engine-files half of D16 pulled into v1 with
 unconditional id-keyed bases — no legacy engines can exist under D20 — dissolving the
 same-name collision; rename feature stays in YTDB-1066); F68 → D8 (accepted 2026-06-10:
 promotion = re-parse of changed per-class records into the existing shared instances,
-`owner` stays `final`, never adopt tx-local objects). F69–F75 pending.
+`owner` stays `final`, never adopt tx-local objects); F69 → D8/D15 (accepted 2026-06-10:
+commit fires `onSchemaUpdate`/`onIndexManagerUpdate` after lock release; D19
+schema-carrying signal replaces the dead root-record dispatch check). F70–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1938,12 +1940,15 @@ rename/drop, plans referencing dropped engines fail loudly at query time; new in
 never picked up; stale plans persist until unrelated DDL happens to touch the root record.
 Full analysis: pass-6 report C12.
 
-**Resolution (proposed):** the commit-side publication step fires `onSchemaUpdate` and
-(when the changed-index set is non-empty) `onIndexManagerUpdate` once, after the trailing
-`forceSnapshot` and **after** the F52 locks are released (listener code is arbitrary;
-today's dispatch is also post-commit, lock-free). The dead `record == schemaRecord` check
-is replaced by the schema-carrying signal D19 already computes. Affected: D8, D14, D15,
-F59, F62.
+**Resolution (accepted 2026-06-10):** the commit-side publication step fires
+`onSchemaUpdate` and (when the changed-index set is non-empty) `onIndexManagerUpdate`
+once, after the trailing `forceSnapshot` and **after** the F52/F64 locks are released
+(listener code is arbitrary; today's dispatch is also post-commit, lock-free, so the
+released-but-pending window keeps today's semantics). The dead `record == schemaRecord`
+check is replaced by the schema-carrying signal D19 already computes. The alternative —
+a snapshot-version check inside the plan caches' `get` — was rejected: a per-query cost
+to compensate for a missing notification, and the listener mechanism reaches every
+registered consumer, not just the caches. Affected: D8, D14, D15, F59, F62.
 
 ```mermaid
 flowchart LR
@@ -2273,7 +2278,12 @@ shared `SchemaShared` stays at committed state for other sessions (D4).
   (new classes via `createClassInstance` bound to the shared owner; dropped
   classes removed; edges re-resolved by name; F45 RIDs carried) — never adopt
   tx-local objects, whose `final owner` is the dead tx-local instance; the
-  re-parse doubles as a bytes≡memory round-trip check for F58. The promotion and the `forceSnapshot` run under
+  re-parse doubles as a bytes≡memory round-trip check for F58. **Listener
+  dispatch (F69):** after the F52/F64 locks release, the commit fires
+  `onSchemaUpdate` (and `onIndexManagerUpdate` when the changed-index set is
+  non-empty) so plan caches and other `MetadataUpdateListener` consumers
+  invalidate; the old `record == schemaRecord` dispatch check is dead under
+  D14 and is replaced by the D19 schema-carrying signal. The promotion and the `forceSnapshot` run under
   `SchemaShared.lock.writeLock()`, acquired **before** `stateLock.writeLock()`
   per the F52 lock order, so lock-based readers and `makeSnapshot` rebuilds are
   excluded for the whole publication window. The commit-time
@@ -2396,7 +2406,8 @@ IndexManager" framing.
   write lock held per the F64 four-lock order (which excludes `reload`'s
   clear-and-rebuild for the whole window), sharing the single trailing
   `forceSnapshot` with D8's schema promotion (F62, inside the F52/F64 lock
-  scope). At rollback, discard the overlay and the tracked key-entries; storage
+  scope), and firing `onIndexManagerUpdate` after the locks release (F69 —
+  the `releaseExclusiveLock` notify path is bypassed by overlay publication). At rollback, discard the overlay and the tracked key-entries; storage
   engines were never touched (D10/F16).
 - **Index-change tracking stays consistent.** The per-tx key-entry tracking
   (F20) references the `Index` object; the session's `ClassIndexManager`
