@@ -7,9 +7,11 @@
 # Threshold rationale: see CLAUDE.md § Context Window Monitor.
 #
 # When the cwd is a *linked* git worktree, the second (cost) line gains a
-# `wt:$X` figure for the spend on the current worktree's project, and that
-# cost is also written to /tmp/claude-code-worktree-cost-<claude_pid>.txt for
-# on-demand reading (the worktree figure and file are produced by
+# `wt:$X` figure for the spend on the current worktree's project, its
+# `[main:$X sub:$X]` split (orchestrator/main-session vs sub-agent spend, which
+# sum to `wt:`), and a `wtday:$X` today-slice. The all-time `wt:` cost with its
+# split is also written to /tmp/claude-code-worktree-cost-<claude_pid>.txt for
+# on-demand reading (the worktree figures and file are produced by
 # session-stats.py — this script only detects the worktree and passes flags).
 
 input=$(cat)
