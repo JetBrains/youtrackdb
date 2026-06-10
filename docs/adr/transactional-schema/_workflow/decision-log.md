@@ -596,7 +596,15 @@ durability/crash-safety lens) attacked the lock architecture, the commit-failure
 the WAL replay machinery, adding F52–F63 (all code-verified, symbol claims PSI-verified;
 the convergent pairs C2+U5 and C3+U6 from the two reports each fold into one entry). Full
 agent reports with the failed-attack lists: `adversarial-pass5-concurrency.md` and
-`adversarial-pass5-durability.md`.
+`adversarial-pass5-durability.md`. A sixth pass (2026-06-10, same two lenses, fresh
+agents primed with the pass-5 failed-attack lists) targeted the seams the pass-5
+resolutions created or moved — and two pre-existing machinery areas no pass had walked:
+the session-layer commit phase (index-entry enqueue, listener dispatch) and the
+file-id recycle branch. It added F64–F75 (reports:
+`adversarial-pass6-concurrency.md` / `adversarial-pass6-durability.md`; the pass-5 fixes
+themselves largely held — the F53/F58/F62 commit sequence is crash-consistent at every
+boundary, and the F55 lazy consult survived its direct attacks). Resolutions for F64–F75
+are proposed inside each entry and settle one by one in the fix discussion.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -1700,6 +1708,276 @@ flowchart LR
   HALF --> OPEN2["opens cleanly (D14 gate checks format only)"]
   FIX["fix: export manifest + import verification + not-in-service-until-verified"] -.-> HALF
 ```
+
+### F64 — The index-manager lock is missing from the F52 order: `reload`'s clear-and-rebuild races the commit's lock-free overlay publication [BLOCKER]
+`IndexManagerAbstract.load` does `indexes.clear()` + `classPropertyIndex.clear()` + rebuild
+(`:191`–`:193`) under only the index-manager write lock (`IndexManagerEmbedded.reload:89`),
+and is data-path-reachable through the same route as F52's killer caller:
+`EntityImpl:4173` → `SharedContext.reload:160`. F60's commit-side publication is lock-free
+CHM puts — a fully disjoint lock set — so a reload that read the manager record under
+`stateLock.read` *before* the commit took `stateLock.write` rebuilds from stale bytes
+concurrently with the publication: the committed index is erased from the shared maps (or a
+dropped one resurrected), the next snapshot caches the clobbered set, `ClassIndexManager`
+stops maintaining the index, and subsequent data commits corrupt it durably. Locking the
+publication naively recreates C1's ABBA on (indexLock, stateLock): reload orders
+indexLock.write → `stateLock.read` (`:89` → `:91`). Full analysis: pass-6 report C8.
+
+**Resolution (proposed):** the index-manager lock joins the global order as a fourth
+member — **D7 mutex → `SchemaShared.lock` → `IndexManagerEmbedded.lock` → `stateLock`**.
+The schema-carrying commit acquires the index write lock after the schema lock, before
+`stateLock.writeLock()`, and holds it through overlay publication and the trailing
+`forceSnapshot` (CHM puts stay, for lock-free reader safety). `reload`/`load` already
+conform; no path takes the index lock before the schema lock. State the four-lock order in
+D7/D19. Affected: F52, F60, D15, D19, D7, F44.
+
+```mermaid
+flowchart LR
+  A["commit: stateLock.write + lock-free CHM publication"] -. "disjoint locks" .-> B["reload: indexLock.write, rebuild from stale bytes (:191)"]
+  B --> ERASE["committed index erased from shared maps → durable corruption"]
+  FIX["fix: 4-lock order — mutex → schema → indexLock → stateLock"] -.-> A
+```
+
+### F65 — `SchemaClassProxy`/`SchemaPropertyProxy` bind the shared impl in a `final` delegate: the canonical `getClass` → mutate idiom routes the tx's first schema write into the SHARED schema [BLOCKER]
+`SchemaProxy.getClass` wraps the resolved impl in a new `SchemaClassProxy`
+(`SchemaProxy:218`–`:219`) whose `delegate` is `final` (`ProxedResource:30`); every
+class-level mutation (`createProperty:56`, `setName:296`, `addSuperClass:276`, …)
+delegates to that captured impl. The canonical DDL shape `var cls = schema.getClass("Foo");
+cls.createProperty(...)` resolves *before* the tx's first write, so the proxy captures the
+**shared** `SchemaClassImpl`; the subsequent mutation lands on the shared schema mid-tx —
+a D4 isolation leak, invisible to the changed-class set, polluting the F43 diff's old
+side, and (if the F56 engage hook is on `SchemaProxy` methods only) bypassing the D7
+mutex entirely. The argument-unwrapping facet re-opens F41: `getImplementation()`
+(`SchemaProxy:93`–`:127`) hands a *shared* impl as superclass into a tx-local
+`createClass`, and the polymorphic ripple then mutates committed class objects. Full
+analysis: pass-6 report C9.
+
+**Resolution (proposed):** the routing seam is per-call, not per-object —
+`SchemaClassProxy`/`SchemaPropertyProxy` re-resolve their target by **name** against the
+session's current write-view on every mutating call (engaging the mutex there), and
+impl-typed arguments are re-resolved by name on the tx-local side before linking. State in
+D8 that class/property proxies are name-binding, not instance-binding, during a schema tx.
+Affected: F56, D7, D8, F41, F44.
+
+```mermaid
+flowchart LR
+  G["getClass before first write"] --> CAP["proxy captures SHARED SchemaClassImpl (final delegate, ProxedResource:30)"]
+  CAP --> MUT["createProperty → mutates shared schema mid-tx (D4 leak, mutex bypass)"]
+  FIX["fix: per-call name re-resolution against the session write-view"] -.-> CAP
+```
+
+### F66 — `deleteRecord`'s eager callback flush freezes index-entry enqueue against the pre-`createIndex` index set: the commit builds a durably wrong index [BLOCKER]
+PSI-verified: `ClassIndexManager` enqueue runs from
+`preProcessRecordsAndExecuteCallCallbacks` at exactly two points — the outermost commit
+(`FrontendTransactionImpl.commitInternalImpl:232`, where it sees the final overlay set and
+composes correctly with F54's population) and **every `deleteRecord`** (`:483`), which
+flushes the *whole pending queue* against the index set of that moment; processed
+operations are not re-processed at commit unless re-dirtied (`:775`). Two single-tx
+interleavings break a tx-created index: **delete r, then createIndex** → population scans
+committed data (r still there), no remove is tracked → dangling key→deleted-RID, phantom
+UNIQUE conflicts; **insert r, delete anything, createIndex** → r was flushed against the
+pre-index set and is not committed → r missing from the index, uniqueness unvalidated.
+Both are unreachable today only because F21 forbids in-tx `createIndex`; the design
+de-guards it. F32's "on every record write" timing model is wrong; D12's "each key counted
+once" inherits the error. Full analysis: pass-6 report C10.
+
+**Resolution (proposed):** D12 gains a completeness invariant — for every tx-created
+index, the commit accounts for **all** of the tx's record operations: re-derive that
+index's entries from the tx's full record-operation set at commit (or have population
+consult it to skip tx-deleted RIDs and add tx-created rows), instead of trusting the
+incrementally-flushed queue. Regression tests: delete-then-createIndex (dangling entry)
+and insert-delete-other-createIndex (missing entry). Affected: D12, F54, F32, F35, F20,
+D3.
+
+```mermaid
+flowchart LR
+  DEL["deleteRecord (:483): flush WHOLE queue vs pre-index set"] --> FROZEN["ops removed from queue, not re-processed (:775)"]
+  CI2["later same-tx createIndex"] --> POP["population: committed rows only"]
+  FROZEN & POP --> BAD2["dangling or missing entries in the new index"]
+  FIX["fix: re-derive tx-created index entries from the full record-op set"] -.-> BAD2
+```
+
+### F67 — Same-name drop+create in one atomic operation logs NO file records: it silently recycles the file id, and the unstated drops-vs-creates order decides between recycling and a deterministic commit failure [MAJOR]
+Drop+recreate of a same-named index (directly, or drop class + recreate same-named class
+with auto-named indexes; engine files are name-keyed in v1, F27/D16 deferred) inside one
+atomic operation: with drops applied first, `AtomicOperationBinaryTracking.addFile` takes
+the recycle branch (`:815`–`:818`) — pulls the old file id from `deletedFileNameIdMap`,
+marks `isNew=false`, so `commitChanges` logs **neither** `FileDeletedWALRecord` nor
+`FileCreatedWALRecord`; the new engine's pages overlay the old file in place (allocation
+horizon reset at `:829` makes `BTree.create`'s page-0/1 init pass), and the old file
+length is never reclaimed. Crash replay of this shape is consistent (verified — the file
+exists throughout, page LSN gates the re-apply). With creates applied first,
+`WOWCache.bookFileId:742` **throws** on the live name and the commit fails
+deterministically. D3 never pins the intra-reconciliation order; F16/D10's file-op model
+does not know the recycle branch exists; the YTDB-1099 test plan is blind to this shape
+(no file records to consult). Full analysis: pass-6 report U8.
+
+**Resolution (proposed):** pin in D3 that reconciliation applies engine/file **drops
+before creates** (recycle becomes the deterministic path); document the recycle semantics
+in F16's model (no WAL file records, id reuse, content overlaid, length retained); extend
+YTDB-1099's test matrix with a same-name drop+recreate kill-mid-physical-phase scenario
+and an order-B regression guard (same-name drop+create must not throw). Cross-reference
+D16/YTDB-1066, which dissolves the seam by making the file bases distinct. Affected: D3,
+D9, D12, D15, F16, D10, F27, F48, F55/YTDB-1099.
+
+```mermaid
+flowchart LR
+  DC["same-name drop+create, one atomic op"] -- "drops first" --> REC["recycle (:815): isNew=false, NO WAL file records, old length kept"]
+  DC -- "creates first" --> THROW["bookFileId:742 throws — commit fails"]
+  FIX["fix: pin drops-before-creates in D3 + document recycle in F16"] -.-> DC
+```
+
+### F68 — D8's promotion direction has the same final-`owner` object-identity trap F41 fixed for the seed: adopting tx-local class objects into the shared schema destroys mutual exclusion [MAJOR]
+Promotion (tx-local → shared) has no specified mechanism. Adopting tx-local
+`SchemaClassImpl`s into the shared maps installs objects whose `final owner` is the
+**tx-local** `SchemaShared` — every future mutation through them locks the dead tx-local
+instance's lock (`SchemaClassImpl:1169` → `SchemaShared:414`), a different
+`ReentrantReadWriteLock` than readers and the next commit use: no mutual exclusion, no
+error, intermittent map tearing. Partial adoption is worse (superclass/subclass references
+span two owner graphs; the ripple mutates across both). An implementer who satisfied F41
+for the seed has no instruction stopping the adoption shortcut for promotion — it
+type-checks and passes single-threaded tests. Full analysis: pass-6 report C11.
+
+**Resolution (proposed):** state the promotion mechanism in D8, mirroring F41: promotion
+**reconstructs into the shared instance** (fresh shared-owner-bound class objects built
+from the tx-local state, or a reload-style `fromStream` of the just-committed records),
+never adopts tx-local objects; graph references re-wired to shared-owned instances; the
+F45 per-class record RIDs ride the same reconstruction; all under the F52 lock scope.
+Affected: D8, F41, F45, F52.
+
+```mermaid
+flowchart LR
+  ADOPT["promotion via putAll(txLocal.classes)"] --> WRONG["shared maps hold classes with owner = dead tx-local instance"]
+  WRONG --> NOLOCK["future mutations lock the WRONG lock — silent map tearing"]
+  FIX["fix: reconstruct into shared instance (F41 mirror), never adopt"] -.-> ADOPT
+```
+
+### F69 — Commit-side publication never fires `MetadataUpdateListener`, and D14 kills the only existing schema trigger: YQL/GQL plan caches serve stale plans indefinitely after DDL [MAJOR]
+Plan caches invalidate only via listeners (`YqlExecutionPlanCache:119`–`:173`; no schema
+version check at `get`). Today's schema trigger fires only when the tx's record set
+contains **the** root schema record (`record.getIdentity().equals(schemaId)`,
+`DatabaseSessionEmbedded:1620`–`:1627`) — under D14 most DDL writes only per-class
+records (and F59's dirtiness rule correctly *reduces* root writes), so the trigger
+starves. The index trigger fires only from `IndexManagerEmbedded.releaseExclusiveLock`
+(`:211`–`:221`), which the D15 overlay publication bypasses. Net: after a committed
+rename/drop, plans referencing dropped engines fail loudly at query time; new indexes are
+never picked up; stale plans persist until unrelated DDL happens to touch the root record.
+Full analysis: pass-6 report C12.
+
+**Resolution (proposed):** the commit-side publication step fires `onSchemaUpdate` and
+(when the changed-index set is non-empty) `onIndexManagerUpdate` once, after the trailing
+`forceSnapshot` and **after** the F52 locks are released (listener code is arbitrary;
+today's dispatch is also post-commit, lock-free). The dead `record == schemaRecord` check
+is replaced by the schema-carrying signal D19 already computes. Affected: D8, D14, D15,
+F59, F62.
+
+```mermaid
+flowchart LR
+  DDL2["committed DDL (per-class records only, D14)"] -. "root record not written" .-> TRIG["schema trigger (:1622) never matches"]
+  OV["overlay publication"] -. "bypasses releaseExclusiveLock (:211)" .-> TRIG2["index trigger never fires"]
+  TRIG & TRIG2 --> STALEP["plan caches never invalidated — stale plans indefinitely"]
+  FIX["fix: fire listeners from commit publication, after locks release"] -.-> STALEP
+```
+
+### F70 — A concurrent pure-data commit whose enqueue phase overlaps the schema commit misses the new index: pre-existing window, narrowed but not closed [MINOR]
+Data tx B resolves its index set in the session layer outside any storage lock
+(`commitInternalImpl:232` via the cached snapshot), then parks at `stateLock.read`
+(`:2285`). Schema commit A (createIndex on B's class) interleaves between those points:
+population scans committed data (B's rows absent), B writes rows with no tracked entries
+for the new index — rows durably missing, uniqueness unvalidated. The window exists today
+with the same shape around `fillIndex` (`IndexManagerEmbedded:362`–`:375`); the design
+narrows it. Recorded because D12/F54's correctness argument silently assumes an exclusion
+that does not hold. Full analysis: pass-6 report C13.
+
+**Resolution (proposed):** state the residual window in D12 and pick a v1 stance:
+accept-and-document (matches today), or close via a snapshot epoch/version stamp
+re-validated under `stateLock` in `doCommit` with enqueue retry on mismatch. Affected:
+D12, D13, F54.
+
+```mermaid
+flowchart LR
+  B1["data tx B: enqueue vs old index set (no lock)"] --> P["parks at stateLock.read"]
+  A1["schema commit A: createIndex + populate committed rows"] -. "interleaves" .-> P
+  P --> MISS2["B's rows never tracked for the new index"]
+```
+
+### F71 — F61's timed acquire under-specified: abort-on-timeout violates D5, and a dead `ReentrantLock` owner cannot be released by a reaper [MINOR]
+An F48-scale commit legitimately holds the D7 mutex for minutes; a second schema tx whose
+timed acquire *throws* on timeout is aborted by contention against a healthy holder — a
+D5 violation. And `unlock()` from any thread but the owner throws
+`IllegalMonitorStateException` (the F38 guard's reason), so "release on the owning thread
+where possible" covers only graceful close; after owner-thread death the mutex is
+stranded until restart. Full analysis: pass-6 report C14.
+
+**Resolution (proposed):** amend the F61 bullet in D7: timeout → emit the diagnostic and
+**re-wait in a loop** (only an operator-level interrupt breaks it), never abort; and
+either state "stranded holder = schema DDL unavailable until restart" explicitly, or
+switch the mutex to an owner-tracked, cross-thread-releasable primitive (e.g.
+`Semaphore(1)` with owner bookkeeping, relocating the F38 same-thread assertion into that
+bookkeeping). Affected: D5, D7, F38, F61.
+
+```mermaid
+flowchart LR
+  TO["timed acquire times out vs healthy long holder (F48)"] -- "abort" --> D5V["D5 violation"]
+  TO -- "re-wait + diagnostic" --> OK3["correct"]
+  DEAD["owner thread dies"] --> STR["ReentrantLock stranded — reaper cannot unlock"]
+```
+
+### F72 — D7 says genesis never engages the mutex; D18 says the genesis schema tx acquires it — the stale parenthetical breaks D18's seeding if followed [MINOR]
+The F56 fold wrote "(load/reload/genesis paths never engage)" into D7's engage bullet,
+but D18 requires the genesis schema tx to acquire the D7 mutex, seed the tx-local copy,
+and commit through the normal diff path (`SharedContext.create` runs `schema.createClass`
+for `V`/`E` at `:185`–`:187`, wrapped in explicit txs per F31). An implementer who
+special-cases genesis out of engage-and-seed applies genesis mutations directly to the
+shared empty schema — then D18's commit has nothing to diff or promote. Concurrency-wise
+harmless (genesis is single-threaded; the `SharedContext.lock` → mutex ordering cannot
+cycle). Full analysis: pass-6 report C15.
+
+**Resolution (proposed):** fix the D7 parenthetical to "load/reload never engage; genesis
+engages through its explicit D18 transactions". Affected: D7, D18, F31, F44.
+
+### F73 — The F55 lazy-consult wording drops three replay details the real branch depends on [MINOR]
+(1) Keep the `restoreFileById` fallback — it resurrects files deleted by a later
+already-applied unit from persisted negative name-id entries (`AbstractStorage:5658`/
+`:5732`, `WOWCache:2397`–`:2414`); "throw as today" must read [non-durable skip →
+pending-create consult → `restoreFileById` → throw]. (2) The `deletedNonDurableFileIds`
+gates stay first (`:5628`/`:5638`/`:5653`). (3) Match page-record↔FileCreated file ids on
+`internalFileId` (backup/restore changes the high bits; `:5676`/`:5752`) and materialize
+through the same `readCache.addFile(name, id, writeCache)` path (`:5643`–`:5646`). Also:
+the consult never fires for F67's recycle shape (no file records exist) — the YTDB-1099
+test matrix must not expect it to. Full analysis: pass-6 report U9.
+
+**Resolution (proposed):** amend F55's resolution text to the three-step branch and carry
+the pins into YTDB-1099's spec. Affected: F55, D10, YTDB-1099.
+
+### F74 — The commit's atomic operation opens at transaction BEGIN: a schema tx pins WAL segment cuts for its whole body, and a reaper that releases only the D7 mutex leaves the pin forever [MINOR]
+PSI-verified: the only production caller of `startStorageTx` is
+`FrontendTransactionImpl.beginInternal:185` — the atomic operation starts at user-tx
+begin and is registered `IN_PROGRESS` at its WAL segment
+(`AtomicOperationsManager:109`–`:122`); both segment-cut bounds count `IN_PROGRESS`
+(`AtomicOperationsTable:415`/`:447`) and the full checkpoint refuses while any operation
+is open. So WAL retention and checkpoint deferral run from tx **begin**, not from the
+commit window F57's envelope describes; concurrent data-commit volume accumulates uncut
+for the whole schema-tx body. The sharper half: F61's reaper must run the **full tx
+rollback** (ending the atomic operation), not merely release the mutex — else the
+stranded session pins segment cuts forever with no visible symptom. Full analysis: pass-6
+report U10.
+
+**Resolution (proposed):** one sentence in F61's D7 bullet (reap = full tx rollback,
+which ends the atomic operation and releases the WAL pin) and one in F57's envelope (WAL
+retention runs from tx begin; migration guidance keeps schema txs short in wall-clock
+terms). Affected: F57, F61, D7, D5.
+
+### F75 — F63's manifest needs its own write discipline: emitted last and atomically, hard-required at import [MINOR]
+The counts are known only at export end, so the manifest must be emitted strictly last
+and atomically (temp + fsync + rename, or the final section of the dump stream) — an
+interrupted export must be incapable of leaving a well-formed manifest. And the import
+must hard-fail on a missing/unparsable manifest for any manifest-era dump (legacy dumps
+distinguished by dump version, not by manifest absence) — otherwise the truncated-export
+case silently degrades to today's unverified import. The current exporter is a streaming
+JSON writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.), so this is
+net-new behavior to specify. Full analysis: pass-6 report U11.
+
+**Resolution (proposed):** one D20 bullet carrying both pins. Affected: F63, D20.
 
 ---
 
