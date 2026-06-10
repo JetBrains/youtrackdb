@@ -620,8 +620,8 @@ session-close/reap + timed/interruptible acquire); F62 → D8/D15 (single traili
 manifest + import verification, not-in-service-until-verified); F55 → F16/D10 (option 3
 — lazy consult in `restoreAtomicUnit`: a missing-file page record consults the buffered
 unit's pending `FileCreatedWALRecord`s and materializes the file early; prerequisite
-track + kill-mid-physical-phase recovery test; standalone YTDB issue for the pre-existing
-`develop` hole). **All pass-5 findings are resolved.**
+track + kill-mid-physical-phase recovery test; standalone issue YTDB-1099 for the
+pre-existing `develop` hole). **All pass-5 findings are resolved.**
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1489,9 +1489,9 @@ fsynced name-id append per file creation on the forward hot path for a recovery-
 problem, plus stale negative entries to collect. Carried as a **prerequisite track** with
 a kill-mid-physical-phase recovery test at batch scale (fault hook after the end-record
 log in `commitChanges:1067`; the `LocalPaginatedStorageRestoreFromWALIT` family is the
-home) plus the kill-mid-import D20 scenario. A standalone YTDB issue covers the
-pre-existing `develop` hole so the fix can land and be backported independently of
-YTDB-382.
+home) plus the kill-mid-import D20 scenario. Standalone issue **YTDB-1099** (filed
+2026-06-10, relates to YTDB-382) covers the pre-existing `develop` hole so the fix can
+land and be backported independently of YTDB-382.
 
 ```mermaid
 flowchart LR
