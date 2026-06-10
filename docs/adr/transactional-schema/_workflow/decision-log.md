@@ -660,7 +660,9 @@ same-name collision; rename feature stays in YTDB-1066); F68 → D8 (accepted 20
 promotion = re-parse of changed per-class records into the existing shared instances,
 `owner` stays `final`, never adopt tx-local objects); F69 → D8/D15 (accepted 2026-06-10:
 commit fires `onSchemaUpdate`/`onIndexManagerUpdate` after lock release; D19
-schema-carrying signal replaces the dead root-record dispatch check). F70–F75 pending.
+schema-carrying signal replaces the dead root-record dispatch check); F70 → D12
+(accepted 2026-06-10: accept-and-document the pre-existing enqueue-phase window; closure
+filed as YTDB-1101). F71–F75 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -1968,10 +1970,14 @@ with the same shape around `fillIndex` (`IndexManagerEmbedded:362`–`:375`); th
 narrows it. Recorded because D12/F54's correctness argument silently assumes an exclusion
 that does not hold. Full analysis: pass-6 report C13.
 
-**Resolution (proposed):** state the residual window in D12 and pick a v1 stance:
-accept-and-document (matches today), or close via a snapshot epoch/version stamp
-re-validated under `stateLock` in `doCommit` with enqueue retry on mismatch. Affected:
-D12, D13, F54.
+**Resolution (accepted 2026-06-10: accept-and-document; closure tracked as
+YTDB-1101).** v1 documents the residual window in D12 as today's semantics, unchanged —
+the exposure needs a `createIndex` racing an in-flight data commit on the same class
+within a milliseconds-wide window, and the D20 migration runs offline. The closure
+mechanism (snapshot epoch re-validated under `stateLock` in `doCommit`, enqueue retry on
+mismatch) is filed as **YTDB-1101** (relates to YTDB-382): it would re-run the
+session-layer translation from inside the storage commit, exactly the cross-layer
+entanglement F54/F66 cleaned out, so it is a follow-up, not v1. Affected: D12, D13, F54.
 
 ```mermaid
 flowchart LR
@@ -2537,7 +2543,11 @@ accounts for all of the tx's record operations — the commit-time enqueue for t
 indexes re-derives entries from the tx's complete record-operation set, never from the
 residual `operationsBetweenCallbacks` queue, because `deleteRecord`'s eager flush
 (`FrontendTransactionImpl:483`) drains that queue early against the pre-`createIndex`
-index set. v1 scopes the commit-time eager build to **empty classes** (or population below
+index set. **Residual window (F70, documented):** a concurrent pure-data commit whose
+session-layer enqueue ran before the schema commit published the new index still misses
+it — pre-existing semantics, same shape as today's `fillIndex` race, narrowed by the
+design; closure (snapshot-epoch re-validation under `stateLock` with enqueue retry) is
+follow-up YTDB-1101. v1 scopes the commit-time eager build to **empty classes** (or population below
 a documented size bound): forward heap and recovery heap both scale with the unit size —
 recovery buffers the whole unit before applying (F57) — so the unbounded populated-class
 case moves explicitly to YTDB-1064. The v1 behavior at the boundary (loud rejection
