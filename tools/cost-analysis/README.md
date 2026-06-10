@@ -67,6 +67,28 @@ sessions. The 1–7 per-session "resets" are 5m-TTL cache re-warms (cold-rewrite
 YTDB-1097), not content reduction. Aggregate bill: 42% read / 36% write / 21%
 output / 0.5% input. Reproduces $151.89 orchestrator total exactly.
 
+## wf-lever-map.py — lever -> cost-coefficient map
+
+Resolves open question #6: which cost coefficient each named lever moves, and
+the per-session $ it targets. Per content bucket, fits resident-vs-turn
+intercept `a` (base: resident from turn 1, re-read ~T times) and slope `b`
+(growth: accumulates, the quadratic source), splits each bucket's read bill
+into base vs growth, and reports the TTL-rewarm write overhead. Validated:
+bucket sums + uncached input reproduce every per-phase actual to the cent.
+
+```bash
+python3 wf-lever-map.py                      # default 12-session study set
+python3 wf-lever-map.py <sid> ...            # custom set
+WF_PROJECT_DIR=... python3 wf-lever-map.py <sid> ...
+```
+
+Lever ranking by addressable $/session (B+C, the dominant phase): bound-thinking
+$7.70 (100% growth, `b`+output) > floor-trim/YTDB-1094 $5.27 (0% growth, base
+`a`) > cold-rewrite/YTDB-1097 $5.12 (write-side TTL-rewarm) > doc-views $2.71
+(mixed) > sub-agent routing/YTDB-883 $1.70 (growth). Growth-share decides
+compounding: growth levers win long sessions; floor-trim wins short/lean phases
+(it is #1 for migrate). Cold-rewrite is 68% of B+C cache-write.
+
 ## Headline result (open-speedup, 12 sessions)
 
 Orchestrator cost ≈ 55% system/harness overhead (floor+injected, re-read every turn),
