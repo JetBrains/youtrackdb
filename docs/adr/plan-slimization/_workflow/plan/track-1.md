@@ -24,11 +24,25 @@ the tier-aware Step 1c resume branch.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-11T06:17Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-11T08:26Z [ctx=safe] Step 1 complete (commit 5f1e63c92d)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-06-11T08:26Z Step 1 resolved the CR6 open question: `workflow-reindex.py`
+  is staged-aware and reindexes the staged mirror directly (`--write`/`--check`
+  on staged paths), so steps 2-4 reindex their staged copies the same way. Two
+  recurring traps: backtick-wrap cross-file `§X.Y` refs (else rule_8 fires) and
+  keep section summaries ≤120 chars with no suffixless cross-file token (else
+  rule_5c/rule_6 fire). See Episodes §Step 1.
+- 2026-06-11T08:26Z Step 1 surfaced three §2.1 reconciliation items for Track 2:
+  the stale "four sections" framing in `adversarial-review.md`'s `## Workflow
+  Context`; the new §2.5 third-scope review-file home under `_workflow/reviews/`
+  vs the canonical `plan/track-N/reviews/`; and the now-describes-real-work §2.1
+  Decision-Log placeholder in `design-review.md`. Cross-track impact: Continue
+  (all three sit inside Track 2's planned §2.1 scope). See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -240,7 +254,7 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 
 ## Concrete Steps
 
-1. Stage the vocabulary + phase-rule + review-prompt prose every later step cites — conventions.md (§1.1 tier/gate/log/aggregator/track-decision glossary, §1.2 research-log + per-tier matrix, §1.6(f) log exclusion with the D19 glob-shared rationale), research.md (Phase 0 → durable log, D5), planning.md (per-tier Phase-1 flow + inline track DRs D7 + Gate-1 cross-ref), risk-tagging.md (HIGH list = Gate 1 change-level source D4, verbatim labels), prompts/adversarial-review.md (additive third research-log scope D6), prompts/design-review.md (write-time target + absorption/fidelity D8), conventions-execution.md §2.5 (add phase 1 + role planner; third-scope lifecycle sub-clause D17) — risk: medium (workflow machinery: bounded shared vocabulary + prompt prose) — size: ~7 files; (a) all remaining work is HIGH-isolated (steps 2-5) or the end-of-track tests-only fixture (step 6)  [ ]
+1. Stage the vocabulary + phase-rule + review-prompt prose every later step cites — conventions.md (§1.1 tier/gate/log/aggregator/track-decision glossary, §1.2 research-log + per-tier matrix, §1.6(f) log exclusion with the D19 glob-shared rationale), research.md (Phase 0 → durable log, D5), planning.md (per-tier Phase-1 flow + inline track DRs D7 + Gate-1 cross-ref), risk-tagging.md (HIGH list = Gate 1 change-level source D4, verbatim labels), prompts/adversarial-review.md (additive third research-log scope D6), prompts/design-review.md (write-time target + absorption/fidelity D8), conventions-execution.md §2.5 (add phase 1 + role planner; third-scope lifecycle sub-clause D17) — risk: medium (workflow machinery: bounded shared vocabulary + prompt prose) — size: ~7 files; (a) all remaining work is HIGH-isolated (steps 2-5) or the end-of-track tests-only fixture (step 6)  [x] commit: 5f1e63c92d
 2. Stage create-plan/SKILL.md Phase-0→1 gate machinery — Phase 0 log creation; Step 4 two-gate classifier (tier + matched categories, user-confirmed lens add/drop D2/D3/D4/D16); gate spawn (D14 model/effort pin, D17 output path + thin manifest + Findings partial-fetch); per-tier Step 4a/4b routing; Step 1c resume branch on implementation-plan.md presence + D18 tier line (S2-safe, no new log read); templates (D18 tier line, shape-complete minimal stub D1, inline-DR track template) — risk: high (workflow machinery: tier classifier, per-tier dispatch, Step 1c auto-resume routing)  [ ]
 3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [ ]
 4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [ ]
@@ -251,6 +265,63 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 5f1e63c92d, 2026-06-11T08:26Z [ctx=safe]
+**What was done:** Staged the seven Phase-0/1 prose files that later steps
+cite, all routed to the plan's staged mirror so live `.claude/` stays
+untouched and I6 holds. `conventions.md` gained five glossary terms (change
+tier, the two tier gates, research log, aggregator plan, track-canonical live
+decision), a per-tier artifact-set matrix in §1.2, and the `research-log.md`
+entry on the §1.6(f) never-stamped list with the three-walk-site/S1 rationale
+(D19). `research.md` rewired Phase 0 output to the durable five-section
+research log with append cadence and one-way read discipline (D5).
+`planning.md` gained a tier-classification section (two gates, tier map, Gate 1
+sourced from `risk-tagging.md`, per-tier Phase-1 flow, inline-DR carrier) and
+scoped its design-first language to `full` (D7). `risk-tagging.md` gained a
+Gate-1-reuse note quoting the seven HIGH labels verbatim (D4).
+`prompts/adversarial-review.md` gained the additive third scope (research-log
+gate, gate semantics, domain priming, file-mode output) (D6).
+`prompts/design-review.md` gained the second write-time target, track sections,
+plus the absorption-completeness and full-tier fidelity criteria (D8).
+`conventions-execution.md` §2.5 gained `planner`/phase-`1` access on the TOC
+row and three subsections, resolved the iteration-≥2 runs to the
+verdict-producer variant, and added the third-scope review-file-home clause
+(D17).
+
+**What was discovered:** The CR6 open question (whether `workflow-reindex.py`
+runs against the staged mirror or TOCs are hand-written) resolves cleanly: the
+reindex script is already staged-aware — it probes the staged `conventions.md`
+for the enum bootstrap — and accepts staged paths via `--files`, so `--write`
+then `--check` against the staged copies is the supported path. Authoring hit
+two reindex traps, both fixed: bare non-backtick cross-file `§X.Y` refs trip
+rule_8 as unresolved in-file refs (backtick-wrap them), and section-annotation
+summaries cap at 120 chars (rule_5c) where a bare `design.md` token trips rule_6
+as a suffixless cross-file ref. The three §1.6(h) walk sites the D19 rationale
+cites sit at precheck-script lines ~391/~488/~689. Track 2's §2.1 work inherits
+three reconciliation items this step left untouched by design: the file-level
+`## Workflow Context` block in `adversarial-review.md` still frames track detail
+as "split across four sections" (stale against the 14-section template); the new
+§2.5 third-scope clause names a pre-Step-4b review-file home under
+`_workflow/reviews/`, distinct from the canonical `plan/track-N/reviews/`, which
+§2.1's lifecycle text must stay consistent with; and the §2.1 Decision-Log
+placeholder in `design-review.md` now describes work this branch performs.
+
+**What changed from the plan:** One in-scope consistency fix beyond the literal
+step text. `planning.md` §Plan file structure carried a develop-baseline framing
+("Track files do not exist during Phase 1") that contradicts both the D7/D1
+inline-DR-at-Phase-1 carrier this step documents and the `conventions.md` §1.1
+glossary truth that track files are created at Phase 1. Corrected to state track
+files are created at Phase 1, with only the Concrete Steps roster deferred to
+Phase 3. No future step is affected.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/conventions.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/research.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/planning.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/risk-tagging.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/conventions-execution.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/prompts/design-review.md` (new staged copy)
 
 ## Validation and Acceptance
 
