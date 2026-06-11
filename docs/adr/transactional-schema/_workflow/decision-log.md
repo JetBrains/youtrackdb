@@ -642,7 +642,8 @@ F83/F84/F85/F89 attacked the F76 reap mechanism, and the settlement withdrew
 the mechanism itself (cross-thread reaping postponed to YTDB-1114) rather than
 hardening it; the remaining pass-8 findings (F86–F88, F90–F91) are independent
 of the reaper. F84's grep caveat was discharged during settlement (PSI/AST
-sweep, results on YTDB-1113); F87's and F88's caveats remain pending.
+sweep, results on YTDB-1113); F87's caveat was discharged at its fold (PSI
+caller inventory complete at five sites); F88's caveat remains pending.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -739,8 +740,13 @@ discharged by PSI/AST sweep — initiator inventory and the two today-bugs
 recorded on YTDB-1113); F85 → F76/YTDB-1113 (resolved 2026-06-11: dissolved —
 no second claimant; today's hook-driven tear variant recorded on YTDB-1113);
 F89 → F76 (resolved 2026-06-11: dissolved — no strong capture, weak-keyed
-self-heal stands; no-strong-pin constraint transferred to YTDB-1114); F86–F88,
-F90–F91 pending.
+self-heal stands; no-strong-pin constraint transferred to YTDB-1114); F86 →
+D7/F78 (resolved 2026-06-11: accepted — placement half of the composed
+freezer-bullet rewrite: pre-lock probe plus freeze-aware bounded try-acquire,
+in-window gate demoted to backstop); F87 → D7/F78 (resolved 2026-06-11:
+accepted — signal half: freeze-kind taxonomy at registration, throw only
+against operator freezes, two wiring pins; PSI caveat discharged, caller set
+complete at five sites); F88, F90–F91 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2651,6 +2657,15 @@ on each timeout and throws if one engaged. The in-window gate stays as the
 authoritative backstop. D7's freezer bullet states that the gate alone cannot deliver
 the availability claim. Affected: D7, F78, D19, F48.
 
+**Resolved (2026-06-11): accepted as proposed, folded with F87 into one D7
+freezer-bullet rewrite.** Placement half of the composed mechanism: pre-lock
+probe at schema-commit entry plus the freeze-aware bounded try-acquire on
+`stateLock.writeLock` (re-probe per timeout; a throw releases the three held
+metadata locks before the write-lock request finishes queueing, so reads keep
+flowing); the in-window gate is demoted to authoritative backstop. D7's
+freezer bullet now states that the gate alone cannot deliver the availability
+claim.
+
 ### F87 — "The freezer's throwing variant" does not exist per-operation, and both implementable keys break a premise [MAJOR]
 Convergent: pass-8 reports U18 + C24. Throw-vs-park is a property of the **freeze**,
 not the entrant: the gate throws only when the freeze registered a `FreezeParameters`
@@ -2680,6 +2695,17 @@ rollback/endTxCommit branch). Regression pair: schema commit vs engaged
 `freeze(db, false)` → loud error, locks released, reads flowing; schema commit vs
 in-flight `doSynch`/backup segment cut → brief park, commit succeeds. Affected: D7,
 F78, D19, D5, D12, D20.
+
+**Resolved (2026-06-11): accepted as proposed, folded with F86 into one D7
+freezer-bullet rewrite.** Signal half of the composed mechanism: freeze-kind
+taxonomy at registration (operator/long-lived vs transient internal quiesce),
+the schema-commit gate throws only against operator freezes and parks bounded
+for transient ones, both wiring pins carried into D7 (throw before depth
+increment; frontend-commit path only). The grep caveat is discharged: the PSI
+caller inventory of `freezeWriteOperations` is complete at five sites —
+`doSynch` (`AbstractStorage:3749`), both `freeze()` arms (`:3901` throw-mode,
+`:3905` park-mode), `copyWALToBackup` (`DiskStorage:356`),
+`storeBackupDataToStream` (`:1248`) — no callers beyond the entry's set.
 
 ### F88 — F80's allocator seed must be read inside the `stateLock.write` window [MINOR]
 Pass-8 report C25. The D7 mutex serializes only schema commits against each other;
@@ -2982,20 +3008,50 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
-- **Freezer gate (F78, reject-loudly).** The commit path's fifth
-  synchronization object, the `OperationsFreezer`
+- **Freezer gate (F78 reject-loudly; mechanism composed per F86+F87).** The
+  commit path's fifth synchronization object, the `OperationsFreezer`
   (`startToApplyOperations`'s first statement, `AtomicOperationsManager:107`),
   is not part of the lock order — it is a park gate engaged lock-free by
-  `freeze(db)`. A schema-carrying commit that parked on it would hold all four
-  locks and convert the freeze window into a total read outage (today the same
-  interleaving parks a data commit holding only `stateLock.read`, and reads
-  keep flowing). Accepted semantics: the schema commit routes through the
-  freezer's throwing variant, so DDL against an engaged freeze fails with a
-  loud storage-frozen error, rolls back, and releases the locks; the caller
-  retries after `release(db)`. Check-and-back-off (release all four, park,
-  retry) was rejected as fragile. Data commits keep today's behavior; a freeze
-  that engages after the gate waits for the in-flight commit to drain, as
-  today.
+  `freeze(db)`. A schema-carrying commit that parked on it would hold all
+  four locks and convert the freeze window into a total read outage. The
+  in-window gate alone cannot deliver the loud-failure promise (F86): a data
+  commit that parks at its own gate holds `stateLock.read` for the whole
+  window (`:2285`–`:2432`; the drain skips parked entrants,
+  `OperationsFreezer:38`), so DDL queues on `stateLock.write` behind it,
+  writer preference parks every later read, and the schema commit never
+  reaches its gate. And the "throwing variant" is not an entrant-side choice
+  (F87): throw-vs-park belongs to the freeze registration
+  (`OperationsFreezer:114`–`:118`), the operator filesystem-snapshot freeze
+  is park-mode (`freeze(db,false)`, `AbstractStorage:3905`), and the two
+  naive entrant keys both break a premise — any-freeze keying aborts DDL
+  against routine transient quiesces (`doSynch:3749` from every `synch()`
+  including the D20 import and the index-rebuild task, the incremental-backup
+  WAL copy `DiskStorage:356`, the backup segment cut `:1248`; PSI-verified
+  caller set, complete at five sites), the D5 violation F71 closed reopened
+  at the fifth synchronization object; throw-mode-only keying lets the
+  park-mode backup freeze re-create the outage. Composed mechanism: (1)
+  freeze registration gains a **freeze-kind taxonomy** — operator/long-lived
+  vs transient internal quiesce (kind flag or second counter at the five
+  call sites); (2) the **loud-fail decision executes before the four-lock
+  sequence** — the schema commit probes the freezer at entry: operator
+  freeze → throw with zero locks held, caller retries after `release(db)`;
+  transient quiesce → bounded park with the F61-style diagnostic; (3)
+  `stateLock.writeLock()` is acquired through a **bounded try-acquire loop
+  that re-probes the freezer on each timeout** and throws — releasing the
+  three held metadata locks — if an operator freeze engaged after the probe;
+  the write-lock request never finishes queueing, so reads keep flowing; (4)
+  the **in-window gate stays as the authoritative backstop** for a freeze
+  engaging after the write lock is held, with two wiring pins: it throws
+  strictly before the freezer depth increment (else `endAtomicOperation`'s
+  unconditional `endOperation()` corrupts the freezer count,
+  `AtomicOperationsManager:442`) and lands on the frontend-commit path only
+  (the wrapper `calculateInsideAtomicOperation` carries a dormant
+  double-masking cascade). Data commits keep today's uniform park
+  everywhere. Acceptance pair: schema commit vs engaged `freeze(db,false)` →
+  loud error, locks released, reads flowing; schema commit vs in-flight
+  `doSynch`/backup segment cut → brief park, commit succeeds.
+  Check-and-back-off (release all four, park, retry) stays rejected as
+  fragile.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
 - **Rejected:** holding `stateLock.writeLock` for the whole tx (blocks all
   commits, too coarse); reusing `SchemaShared.lock` for tx lifetime (conflates
