@@ -644,7 +644,22 @@ hardening it; the remaining pass-8 findings (F86–F88, F90–F91) are independe
 of the reaper. F84's grep caveat was discharged during settlement (PSI/AST
 sweep, results on YTDB-1113); F87's caveat was discharged at its fold (PSI
 caller inventory complete at five sites); F88's caveat was discharged at its
-fold (PSI registrar inventory complete) — no pass-8 caveats remain open.
+fold (PSI registrar inventory complete) — no pass-8 caveats remain open. A ninth
+pass (2026-06-11, same two lenses, fresh agents primed with all eight failed-attack
+lists) attacked the pass-8 settlement text itself: the decision-log diff
+`589116eee3..f1c0c4928d` (the rewritten D7 teardown and freezer bullets, D3's F88
+seed pin, D20's F90/F91 rewrites, and the F83–F91 records as specs). It added
+F92–F95 (reports: `adversarial-pass9-concurrency.md` /
+`adversarial-pass9-durability.md`; 0 BLOCKER; the convergent pair C27+U21 folds
+into one entry; the composed F86+F87 freezer mechanism survived every direct
+attack, with its load-bearing enclosure property — every transient freeze's
+engage→release window sits inside a `stateLock.read` window — recorded in the
+concurrency dry list as a Phase-1 pin candidate). The pass-9 common root:
+settlement sentences claim more than the mechanisms they name deliver (the owner
+token discriminates acquisitions, not threads; the export procedure's three checks
+all miss the exporter's swallowed iterator failures; gzip's CRC32 is per-member,
+not whole-stream). mcp-steroid was reachable for this pass; every new
+reference-accuracy claim is PSI-verified, and no caveats are open.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -2837,6 +2852,137 @@ fail-closed; non-atomic move fallback stated). Correction folded in: the
 `atomicMoveWithFallback` fallback is warn-logged
 (`LogManager.warn` at the fallback site), not silent — verified at fold time
 along with the `DiskStorage:2088`–`:2093` best-effort precedent.
+
+### F92 — D7's owner-thread-only invariant is unenforced at the teardown entry points: the owner token discriminates acquisitions, not threads, and the exempted cross-thread `rollbackInternal` reaches a live commit [MAJOR]
+Convergent: pass-9 reports C27 + U21. The rewritten abnormal-termination bullet
+claims "cross-thread teardown attempts are rejected or no-op, extending the
+thread-id-gate semantics that ship today", with the F79 token "load-bearing today
+against the stray Gremlin-hook initiators recorded in YTDB-1113". Two facets of
+the tree contradict it.
+
+(1) Mutex facet (C27). F79's sketch (`OwnerToken(session, epoch)`, release =
+`owner.compareAndSet(token, null)`) discriminates acquisitions: it rejects a
+*stale* token (the reaped-zombie case it was built for), but a foreign thread
+running the same session's rollback reads the *current* token from session state
+and wins the CAS. The shipped gate the bullet claims to extend compares thread ids
+(`FrontendTransactionImpl:954`); the token compares object identity, dropping the
+one discriminator the new invariant needs (and the folded F38 assertion evaluates
+nothing in production — the gap C19 closed for the permit count). A Gremlin
+`afterTimeout` rollback on the scheduler thread (`YTDBGremlinSession:219`–`:226`,
+`YTDBAbstractOpProcessor:614`–`:619`) presents token K and releases the D7 mutex
+mid-transaction; a second schema tx enters, and D5 mutual exclusion is lost.
+Everything layered on the mutex re-premises on it: F80 id uniqueness, F53
+publication happens-before, D8 promotion serialization.
+
+(2) Commit-tear facet (U21). The shipped thread-id gate covers only `resetTsMin`;
+`close()` and `rollbackInternal` are deliberately exempt from
+`assertOnOwningThread` (`FrontendTransactionImpl:130`–`:133`), and the
+`BEGUN, COMMITTING ->` arm proceeds for foreign callers (`:368`–`:386`). A foreign
+`clear()`/`close()` tears the open atomic operation and the tx record state while
+the owner's `commitEntry` serialization is reading them; in the losing race the
+end record lands and recovery durably replays the torn unit (the F85/U17 shape).
+The design widens the COMMITTING window from sub-millisecond data commits to
+F48-scale DDL (D12's commit-time population), turning timeout-fires-mid-commit
+into the expected schedule for long DDL over Gremlin, yet classifies YTDB-1113 as
+an independent today-bug, and the bullet's resource enumeration omits the only two
+tx-scoped resources whose cross-thread teardown corrupts durable state: the open
+atomic operation and the tx record-operation state.
+
+```mermaid
+sequenceDiagram
+  participant W as T-worker (owner)
+  participant S as T-timer (scheduler)
+  participant U2 as T-user2
+  W->>W: schema tx; D7 mutex held; token K in session state
+  W->>W: doCommit: status=COMMITTING, F48-scale window (D12)
+  S->>S: afterTimeout: tx.rollback() — exempt, proceeds foreign
+  S->>S: clear()+close() tear atomicOperation + record state
+  S->>S: release(K): CAS succeeds, mutex free mid-tx
+  U2->>U2: second schema tx acquires mutex (D5 lost)
+  W->>W: remaining writes may serialize torn state; end record may land
+```
+
+**Resolution (proposed):** one pin per facet. (a) The owner token carries the
+acquiring thread, and `release()` hard-checks `Thread.currentThread()` against it
+before the CAS; a foreign thread gets the logged no-op the invariant promises
+(equivalently, the token lives in owner-thread-confined state rather than
+session-reachable state). (b) The bullet's resource enumeration extends to the
+open atomic operation and the tx record-operation state, and the design either
+names YTDB-1113's owner-executor fix a v1 prerequisite of D7 or gives
+`rollbackInternal` a real COMMITTING-window gate (foreign rollback rejected while
+the owner is inside the commit) in place of the exempted assert. Affected: D7,
+F79, F85, F38, D5, D12.
+
+### F93 — "Data commits keep today's uniform park everywhere" misstates the shipped gate: throw-mode freezes throw, and an implementer keeping the stated park turns `freeze(db, true)` into a write hang [MINOR]
+Pass-9 report C28. `OperationsFreezer.startOperation` runs
+`throwFreezeExceptionIfNeeded()` before parking (`OperationsFreezer:35`–`:48`,
+throw at `:40` via `:114`–`:118`), and `freeze(db, true)` registers exactly that
+supplier (`AbstractStorage:3901`–`:3903`): park-mode freezes park, throw-mode
+freezes reject loudly. That split is the operator-facing contract of the
+prohibited-modification window — writes fail fast instead of queueing. The pass-7
+fold's "data commits keep today's behavior" was accurate; the settlement rewrite
+replaced it with a behavioral claim the tree contradicts, and the acceptance pair
+exercises only the schema-commit arms, so the silent conversion of
+`freeze(db, true)`'s loud rejection into an indefinite hang would ship invisible.
+
+**Resolution (proposed):** restore the accurate sentence in both the D7 freezer
+bullet and F87's resolution record: data commits keep today's gate semantics
+(park for park-mode freezes, throw for throw-mode freezes). While editing the
+same bullet, reconcile the wiring-pin rationale drift the dry list recorded:
+D7's parenthetical says the unguarded ordering "corrupts the freezer count" while
+F87's entry says it "masks" the gate throw; the pinned action is identical, the
+F87 wording is the accurate one. Affected: D7, F87.
+
+### F94 — F90's residue claim is contradicted: the legacy exporter turns a mid-collection iteration failure into a success exit with the collection's tail silently absent, passing exit status, section presence, and the ack flag [MAJOR]
+Pass-9 report U22. In `exportRecords` the per-collection `try` wraps the whole
+iterator loop; only `YTIOException` rethrows (`DatabaseExport:212`–`:220`). Every
+other `it.hasNext()`/`it.next()` failure (the corrupted-record class the
+"It seems corrupted" log message exists for) lands in `catch (Exception)`
+(`:221`): logged when a record was fetched, silent when the collection's first
+fetch fails, no `brokenRids` entry, no rethrow; the loop proceeds to the next
+collection and the tool exits 0. `brokenRids` is populated only inside
+`exportRecord` (`:582` ff.) for fetched-but-unserializable records, so
+iterator-level failures never reach it. One unreadable record in the old database
+(no crash needed — the exact population the migration serves) leaves records k..n
+absent from a dump that passes the entire settled procedure: exit status 0, all
+six sections present, ack flag given, import reports success. The loss surfaces
+only in the export listener output (per-collection
+`OK (records=current/approximateTotal)`, `:243`–`:245`), which the procedure does
+not pin.
+
+```mermaid
+flowchart LR
+  A[scan collection X] -->|record k throws non-IO| B[catch: log or silence,<br/>no brokenRids, no rethrow]
+  B --> C[next collection; exit 0]
+  C --> D[six sections present,<br/>ack flag given]
+  D --> E[import succeeds;<br/>records k..n gone]
+```
+
+**Resolution (proposed):** widen the residue enumeration and the procedure. The
+ack flag's coverage is rephrased to "any source-side loss the old exporter does
+not report"; the operator procedure pins a count comparison (per-collection record
+counts read from the old binaries against the import's reported counts) or, at
+minimum, a review of the export listener output for per-collection counts and
+error lines. Option (a) — patching the old binaries — stays rejected. Affected:
+D20, F81, F90, F63.
+
+### F95 — "Whole-stream gzip CRC32 for free" is a per-member fact: the JDK decoder reads a malformed next-member header as clean EOF, so full decompression validates only a prefix under multi-member framing nothing pins away [MINOR]
+Pass-9 report U23. RFC 1952 puts CRC32/ISIZE in each member's trailer and a gzip
+file is a concatenation of members; `GZIPInputStream.readTrailer()` swallows the
+`IOException` from a malformed next-member header and reports clean end-of-stream,
+so truncation or zero-fill at a member boundary reads as a fully-validated
+decompression of a prefix. The claim holds today only because the exporter writes
+a single member (`DatabaseExport:90`–`:98`), and no settlement text pins that;
+flush-per-section multi-member output is the natural way an implementer adds
+streaming flush boundaries to the net-new stream variant. No schedule escapes both
+layers (manifest-last means every silent prefix-stop also drops the manifest and
+F75 hard-fails), so the defect is the false equivalence that collapses the
+design's two independent validation layers into one.
+
+**Resolution (proposed):** one pinning sentence on D20's F82 bullet: the dump
+stays a single gzip member, or decompression success is stated as necessary and
+never sufficient, with the manifest and section-presence checks remaining the
+authority. Affected: D20, F82, F91, F75.
 
 ---
 
