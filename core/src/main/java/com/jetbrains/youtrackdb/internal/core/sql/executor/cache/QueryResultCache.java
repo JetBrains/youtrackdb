@@ -251,6 +251,36 @@ public final class QueryResultCache {
     }
   }
 
+  /**
+   * Installs the aggregate contributor cap and a one-shot overflow callback on {@code state}, mirroring
+   * the per-entry record cap {@link #put} installs on a {@link CachedEntry}. The cap bounds the
+   * aggregate's per-contributor collections (not its single-scalar {@code results}); the callback fires
+   * the first time {@link AggregateState#observe} crosses {@code maxRecordsPerEntry} during the eager
+   * populate drive, routing {@code key} non-cacheable and counting an overflow. Unlike the record cap,
+   * the entry is not yet in the map at populate-time overflow (the cache-put happens after the drive), so
+   * the callback adds the key directly rather than removing a mapped entry; a later {@link #put} of that
+   * now-overflowed key is a no-op (the {@link #nonCacheableKeys} guard in {@code put} closes it).
+   */
+  public void installAggregateOverflowGuard(
+      @Nonnull CacheKey key, @Nonnull AggregateState state) {
+    state.setOverflowGuard(maxRecordsPerEntry, () -> {
+      // Idempotent on the key: nonCacheableKeys is a Set and the metric counts once because the state's
+      // own one-shot latch fires this callback at most once per populate.
+      nonCacheableKeys.add(key);
+      metrics.incrementOverflows();
+    });
+  }
+
+  /**
+   * Counts an aggregate-splice fallback: a miss whose populating plan had no {@code
+   * AggregateProjectionCalculationStep} to splice the side-tap above (e.g. a hardwired {@code
+   * CountFromClassStep}, or any unexpected plan shape), so the query ran uncached. Routes through the
+   * metric bridge to the global splice-failure rate.
+   */
+  public void incrementSpliceFailures() {
+    metrics.incrementSpliceFailures();
+  }
+
   /** Number of live cache entries. */
   public int size() {
     return entries.size();

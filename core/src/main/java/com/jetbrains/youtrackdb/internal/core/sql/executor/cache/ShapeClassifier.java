@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Node;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
@@ -11,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SimpleNode;
 import java.util.Locale;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Maps a parsed statement to the {@link CacheableShape} that drives its delta-reconciliation path.
@@ -51,6 +53,81 @@ import javax.annotation.Nonnull;
 public final class ShapeClassifier {
 
   private ShapeClassifier() {
+  }
+
+  /**
+   * The per-shape facts the aggregate cache-miss path needs to build an {@link AggregateState} and shape
+   * its output row: the {@code AGGREGATE_*} {@code kind}, the {@code propertyName} the value aggregate
+   * reads from each contributing record ({@code null} for {@code COUNT(*)}, which reads no value), and
+   * the {@code alias} the single scalar row carries (the projection alias the aggregation step emits).
+   */
+  public record AggregateMetadata(
+      @Nonnull CacheableShape kind, @Nullable String propertyName, @Nonnull String alias) {
+
+  }
+
+  /**
+   * Returns the {@link AggregateMetadata} for a statement the aggregate cache miss path can populate, or
+   * {@code null} when the statement is not a cacheable single-aggregate shape. The kind matches {@link
+   * #classify} exactly: this method returns non-null precisely for the statements {@code classify}
+   * returns an {@code AGGREGATE_*} shape for, so a caller that already gated on the shape can derive the
+   * metadata without re-classifying. {@code COUNT(DISTINCT prop)} returns {@code null} (it classifies
+   * {@code K0_NONE} and never reaches the aggregate path), as do bare {@code COUNT(*)} and every
+   * non-aggregate shape.
+   */
+  @Nullable public static AggregateMetadata aggregateMetadata(@Nonnull SQLSelectStatement select) {
+    var shape = classify(select);
+    if (!isAggregateKind(shape)) {
+      return null;
+    }
+    var item = select.getProjection().getItems().getFirst();
+    var call = rootAggregateCall(item);
+    if (call == null) {
+      // classify already proved this is a clean single-aggregate item, so the call is always present;
+      // the guard keeps the derivation total in the face of a future classify/derive divergence.
+      return null;
+    }
+    var alias = item.getProjectionAlias().getStringValue();
+    var propertyName = call.isStar() ? null : baseIdentifierArg(call);
+    return new AggregateMetadata(shape, propertyName, alias);
+  }
+
+  private static boolean isAggregateKind(@Nonnull CacheableShape shape) {
+    return shape == CacheableShape.AGGREGATE_COUNT
+        || shape == CacheableShape.AGGREGATE_SUM
+        || shape == CacheableShape.AGGREGATE_AVG
+        || shape == CacheableShape.AGGREGATE_MIN
+        || shape == CacheableShape.AGGREGATE_MAX
+        || shape == CacheableShape.AGGREGATE_COUNT_DISTINCT;
+  }
+
+  /**
+   * The property name a single-argument value aggregate reads, when its argument is a bare property
+   * reference ({@code SUM(price)} &rarr; {@code price}); {@code null} for anything else (no argument, a
+   * computed-expression argument, multiple arguments). A computed or multi-argument aggregate classifies
+   * {@code K0_NONE} upstream, so a {@code null} here on a shape that reached the aggregate path means the
+   * caller falls back to uncached execution.
+   */
+  @Nullable private static String baseIdentifierArg(@Nonnull SQLFunctionCall call) {
+    var params = call.getParams();
+    if (params == null || params.size() != 1) {
+      return null;
+    }
+    return basePropertyName(params.getFirst());
+  }
+
+  /**
+   * The bare property name an aggregate argument expression refers to, or {@code null} when the argument
+   * is anything other than a single base identifier. {@code SQLExpression.getDefaultAlias} yields the
+   * identifier text for a base-property expression (e.g. {@code price}); a computed expression has no
+   * such base alias and yields {@code null}.
+   */
+  @Nullable private static String basePropertyName(@Nonnull SQLExpression arg) {
+    var defaultAlias = arg.getDefaultAlias();
+    if (defaultAlias == null) {
+      return null;
+    }
+    return defaultAlias.getStringValue();
   }
 
   public static CacheableShape classify(@Nonnull SQLStatement statement) {
@@ -135,6 +212,15 @@ public final class ShapeClassifier {
       return null;
     }
     var shape = aggregateShapeForCall(call);
+    if (shape == CacheableShape.AGGREGATE_COUNT && isDistinct(call)) {
+      // COUNT(DISTINCT prop) is routed to K0_NONE rather than a distinct-count aggregate shape: the
+      // engine has no native distinct-count and computes count(distinct(prop)) as a plain row count, so
+      // the K0 version gate (re-execute on any mutation) already reproduces the engine's result exactly,
+      // and modelling a true distinct-count in the aggregate replay would diverge from that native
+      // semantics. The AggregateState COUNT_DISTINCT machinery is retained for a future engine with a
+      // true distinct-count, but no production path reaches it in v1.
+      return CacheableShape.K0_NONE;
+    }
     if (shape == CacheableShape.AGGREGATE_COUNT && call.isStar() && !hasWhereClause) {
       // Bare COUNT(*) FROM C (no WHERE) is hardwired in the planner to a CountFromClassStep before any
       // AggregateProjectionCalculationStep is built, so the aggregate side-tap can never reach it.
@@ -227,10 +313,12 @@ public final class ShapeClassifier {
   }
 
   /**
-   * Maps a recognised aggregate function name to its shape. {@code COUNT(DISTINCT prop)} is the
-   * count-distinct shape; a non-DISTINCT count is {@code AGGREGATE_COUNT}. {@code SUM/AVG/MIN/MAX}
-   * map directly. Any other function name (a non-aggregate scalar like {@code lower(name)}, or an
-   * aggregate this foundation does not model such as {@code median}) returns {@code null}.
+   * Maps a recognised aggregate function name to its shape. Every {@code count} (DISTINCT or not) maps
+   * to {@code AGGREGATE_COUNT} here; the DISTINCT form is split off to {@code K0_NONE} by {@link
+   * #singleAggregateShape}, while keeping the name recognised so {@link #projectionContainsAggregate}
+   * still treats it as an aggregate. {@code SUM/AVG/MIN/MAX} map directly. Any other function name (a
+   * non-aggregate scalar like {@code lower(name)}, or an aggregate this foundation does not model such
+   * as {@code median}) returns {@code null}.
    */
   private static CacheableShape aggregateShapeForCall(@Nonnull SQLFunctionCall call) {
     var name = call.getName();
@@ -239,8 +327,7 @@ public final class ShapeClassifier {
     }
     var lower = name.getStringValue().toLowerCase(Locale.ROOT);
     return switch (lower) {
-      case "count" -> isDistinct(call) ? CacheableShape.AGGREGATE_COUNT_DISTINCT
-          : CacheableShape.AGGREGATE_COUNT;
+      case "count" -> CacheableShape.AGGREGATE_COUNT;
       case "sum" -> CacheableShape.AGGREGATE_SUM;
       case "avg" -> CacheableShape.AGGREGATE_AVG;
       case "min" -> CacheableShape.AGGREGATE_MIN;

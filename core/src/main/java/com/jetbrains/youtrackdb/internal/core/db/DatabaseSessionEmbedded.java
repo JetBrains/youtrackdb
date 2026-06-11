@@ -120,8 +120,15 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.Re
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregateProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.AggregateCacheTapStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.AggregateState;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheKey;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheableShape;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedEntry;
@@ -722,9 +729,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * cacheCodeDepth > 0}, the re-entrancy guard, so a {@code query()} issued from a UDF in a WHERE
    * clause does not recurse into the cache); the statement is not a SELECT or MATCH; the statement
    * references a non-deterministic function or per-row context variable; or the classified shape is
-   * not one whose delta/view path is wired yet (only {@code RECORD} and {@code K0_NONE} route through
-   * the cache — {@code AGGREGATE_*} and {@code MATCH_TUPLE_MULTI} are classified but not yet wired,
-   * so they bypass here).
+   * not one whose delta/view path is wired yet ({@code RECORD}, {@code K0_NONE}, and the {@code
+   * AGGREGATE_*} family route through the cache; {@code MATCH_TUPLE_MULTI} is classified but not yet
+   * wired, so it bypasses here. The {@code AGGREGATE_*} miss takes its own eager-drive populate path
+   * with a side-tap splice, and falls back uncached on an untappable plan shape).
    *
    * @param statement the parsed, idempotent query statement
    * @param args      the positional {@code Object[]} or named {@code Map<Object,Object>} parameters
@@ -788,9 +796,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         return executeUncached(statement, args);
       }
       var shape = ShapeClassifier.classify(statement);
+      if (isAggregateShape(shape) && statement instanceof SQLSelectStatement select) {
+        // AGGREGATE_* shapes take a separate populate path: the side-tap must observe every
+        // contributing record, so the miss builds a per-execution plan copy, splices the tap upstream
+        // of the aggregation step, and eager-drives it (RECORD/K0_NONE lazy-pull cannot seed an
+        // aggregate). On any unexpected plan shape (e.g. a hardwired CountFromClassStep) it falls back
+        // to uncached execution and counts a splice failure. The two-guard contract is preserved: a
+        // built CachedResultSetView owns the cache-code guard, an uncached fallback leaves
+        // viewOwnsGuard false so the finally below releases it — identical to the RECORD path.
+        var aggregateResult =
+            populateAndBuildAggregateView(select, args, key, shape, tx, cache);
+        viewOwnsGuard = aggregateResult instanceof CachedResultSetView;
+        return aggregateResult;
+      }
       if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
-        // AGGREGATE_* and MATCH_TUPLE_MULTI are classified but their delta/view paths are not wired
-        // yet; route them to uncached execution until those paths land.
+        // MATCH_TUPLE_MULTI is classified but its delta/view path is not wired yet; route it to
+        // uncached execution until that path lands.
         return executeUncached(statement, args);
       }
       var result = populateAndBuildView(statement, args, key, shape, tx, cache);
@@ -884,6 +905,167 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     return buildView(entry, tx, args);
   }
 
+  /** Whether a classified shape is one of the {@code AGGREGATE_*} family the aggregate path serves. */
+  private static boolean isAggregateShape(@Nonnull CacheableShape shape) {
+    return shape == CacheableShape.AGGREGATE_COUNT
+        || shape == CacheableShape.AGGREGATE_SUM
+        || shape == CacheableShape.AGGREGATE_AVG
+        || shape == CacheableShape.AGGREGATE_MIN
+        || shape == CacheableShape.AGGREGATE_MAX
+        || shape == CacheableShape.AGGREGATE_COUNT_DISTINCT;
+  }
+
+  /**
+   * Populates a fresh cache entry for an aggregate-shape miss and returns a view over it, or falls back
+   * to a plain uncached execution (counting a splice failure) on any unexpected plan shape.
+   *
+   * <p>Unlike the RECORD/K0_NONE populate, the aggregate path cannot reuse {@link
+   * #populateAndBuildView}: a collapsed aggregate result carries only the scalar, so the per-RID
+   * material a delta replay needs must be seeded by a side-tap that observes every contributing record
+   * before the aggregation collapses them. The path therefore builds its own per-execution plan copy
+   * ({@code select.createExecutionPlan} returns a private {@code copy(ctx)} or a fresh plan, never the
+   * shared cached instance, so rewiring its {@code prev} pointers cannot corrupt other callers), finds
+   * the aggregation step, splices an {@link AggregateCacheTapStep} upstream of it, and eager-drives the
+   * plan to full drain so the tap observes every contributor. The single resulting scalar is fully
+   * computed at populate, so the entry holds no live stream (its stream/plan/ctx are {@code null} on the
+   * {@link CachedEntry}).
+   *
+   * <p>It independently re-mirrors the three Track-1 populate contracts: stamp the populate mutation
+   * version BEFORE driving so the delta builder admits only post-populate ops; release the cache-code
+   * guard on every exit (the caller's {@code viewOwnsGuard} transfer covers the view-built path, this
+   * method's own fallbacks return an uncached result so the guard is released by the caller's finally);
+   * and close the plan idempotently (the outer finally closes it, the entry holds no stream to close).
+   *
+   * @param select the parsed single-aggregate SELECT (already shape-gated by the caller)
+   */
+  private ResultSet populateAndBuildAggregateView(
+      @Nonnull SQLSelectStatement select,
+      @Nullable Object args,
+      @Nonnull CacheKey key,
+      @Nonnull CacheableShape shape,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull QueryResultCache cache) {
+    var metadata = ShapeClassifier.aggregateMetadata(select);
+    if (metadata == null || metadata.kind() != shape) {
+      // The classifier accepted the shape but the metadata derivation found no clean single-aggregate
+      // (e.g. a computed-expression argument that classify routed elsewhere): there is nothing to seed,
+      // so run uncached and count a splice failure.
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    // Build a command context mirroring SQLSelectStatement.execute's setup so :param bindings resolve
+    // identically when the side-tap drives the plan.
+    var ctx = freshContext(args);
+
+    // Stamp BEFORE building/driving the plan so the delta builder later admits only post-populate ops.
+    var populateMutationVersion = tx.getMutationVersion();
+
+    var plan = select.createExecutionPlan(ctx, false);
+    if (!(plan instanceof SelectExecutionPlan selectPlan)) {
+      plan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var aggregateStep = findAggregateStep(selectPlan);
+    if (aggregateStep == null) {
+      // No AggregateProjectionCalculationStep to splice above — e.g. a bare or single-field-indexed
+      // COUNT(*) the planner hardwired to a CountFromClassStep. Fall back uncached and count the splice
+      // failure (the global splice-failure rate picks it up through the metric bridge).
+      selectPlan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var state = new AggregateState(metadata.kind(), metadata.propertyName(), metadata.alias());
+    // Install the contributor cap BEFORE driving so an over-cap populate routes the key non-cacheable
+    // mid-drive; the put below is then a no-op (the cache's nonCacheableKeys guard closes the entry).
+    cache.installAggregateOverflowGuard(key, state);
+    spliceTap(aggregateStep, new AggregateCacheTapStep(state, ctx));
+
+    try {
+      // Eager-drive: pull the plan's single-row stream to exhaustion. The aggregation is blocking, so
+      // draining it forces every upstream (tapped) record to be observed before the scalar is emitted.
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(ctx)) {
+          stream.next(ctx);
+        }
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      // The entry holds no live stream (the scalar is fully computed), so the plan is closed here and
+      // the entry is built with null stream/plan/ctx. Idempotent close mirrors the uncached path.
+      plan.close();
+    }
+
+    // The scalar is fully in the seeded state; the entry carries no stream/plan/ctx to lazy-pull.
+    var entry = new CachedEntry(
+        shape,
+        effectiveFromClasses(select),
+        select.getWhereClause(),
+        select.getOrderBy(),
+        null,
+        null,
+        null,
+        populateMutationVersion);
+    entry.setAggregateState(state);
+    // put is a no-op if the cap already routed the key non-cacheable during the drive; otherwise it
+    // stores the entry. Either way the view below is built directly over this entry's seeded state.
+    cache.put(key, entry);
+
+    return buildView(entry, tx, args);
+  }
+
+  /**
+   * Finds the aggregation step the side-tap splices above. Returns the first {@link
+   * AggregateProjectionCalculationStep} in the plan's step chain, or {@code null} when the plan has none
+   * (the hardwired-COUNT fallback case). The plan is a SELECT plan, so a present aggregation step is the
+   * single one the planner emits for a single-aggregate query.
+   */
+  @Nullable private static AggregateProjectionCalculationStep findAggregateStep(
+      @Nonnull SelectExecutionPlan plan) {
+    for (var step : plan.getSteps()) {
+      if (step instanceof AggregateProjectionCalculationStep aggregateStep) {
+        return aggregateStep;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Splices {@code tap} into the plan chain immediately upstream of the aggregation step. When a
+   * pre-aggregate {@link ProjectionCalculationStep} sits directly above the aggregation (every value
+   * aggregate carries one, projecting the per-row field), the tap is spliced ABOVE that projection: the
+   * projection strips record identity, and {@link AggregateState#observe} requires a non-null RID, so the
+   * tap must see the raw filtered records. The projection still sits between the tap and the aggregation,
+   * leaving the collapsed scalar unchanged. Otherwise (e.g. COUNT(*) over a WHERE, no pre-aggregate
+   * projection) the tap is spliced directly upstream of the aggregation.
+   */
+  private static void spliceTap(
+      @Nonnull AggregateProjectionCalculationStep aggregateStep,
+      @Nonnull AggregateCacheTapStep tap) {
+    // AggregateProjectionCalculationStep extends ProjectionCalculationStep, so the instanceof must
+    // exclude the aggregation step itself; only a *plain* pre-aggregate projection is the splice-above
+    // case. Both step types expose prev through AbstractExecutionStep.
+    ExecutionStepInternal spliceBelow = aggregateStep;
+    var prev = aggregateStep.prev;
+    if (prev instanceof ProjectionCalculationStep
+        && !(prev instanceof AggregateProjectionCalculationStep)) {
+      spliceBelow = (AbstractExecutionStep) prev;
+    }
+    var below = (AbstractExecutionStep) spliceBelow;
+    var upstream = below.prev;
+    tap.setPrevious(upstream);
+    if (upstream != null) {
+      upstream.setNext(tap);
+    }
+    below.setPrevious(tap);
+    tap.setNext(below);
+  }
+
   /**
    * Builds the consumer-facing view over a cached entry. RECORD entries carry a {@link TxDeltaCursor}
    * reconciling post-populate mutations; K0_NONE entries replay directly (the lookup-time version
@@ -908,14 +1090,21 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // because the wired delta-path shapes carry no non-param context state (see method Javadoc).
       ctx = freshContext(args);
     }
-    TxDeltaCursor delta = entry.getShape() == CacheableShape.RECORD
-        ? DeltaBuilder.buildForRecord(entry, tx, ctx)
-        : null;
     // The view takes ownership of the open cache-code guard (entered in serveThroughCache) and holds
     // it for its whole iteration lifetime, releasing it exactly once on close / exhaustion. This
     // keeps a re-entrant query() — e.g. a UDF in WHERE evaluated during the lazy stream pull, which
     // happens after serveThroughCache has returned — bypassed for the entire view consumption, not
     // just the synchronous lookup window.
+    if (isAggregateShape(entry.getShape())) {
+      // Aggregate: copy the seeded state and replay the post-populate mutations onto the copy; the view
+      // emits the single replayed scalar. The entry holds no stream, so the view's plan slot is null.
+      var aggregateDelta = DeltaBuilder.buildForAggregate(entry, tx, ctx);
+      return CachedResultSetView.forAggregate(entry, aggregateDelta, this, tx, entry.getPlan(),
+          ctx);
+    }
+    TxDeltaCursor delta = entry.getShape() == CacheableShape.RECORD
+        ? DeltaBuilder.buildForRecord(entry, tx, ctx)
+        : null;
     return new CachedResultSetView(entry, delta, this, tx, entry.getPlan(), ctx);
   }
 

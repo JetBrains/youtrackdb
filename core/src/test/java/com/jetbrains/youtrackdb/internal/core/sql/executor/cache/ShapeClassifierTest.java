@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import org.junit.Assert;
@@ -156,14 +157,19 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
-   * {@code COUNT(DISTINCT(prop))} maps to the count-distinct shape, distinct from a plain count. In
-   * this dialect the DISTINCT keyword inside a function call parses as a nested {@code distinct(...)}
-   * function, which is what the classifier detects.
+   * {@code COUNT(DISTINCT(prop))} classifies K0_NONE, not a distinct-count aggregate shape. The engine
+   * has no native distinct-count and computes {@code count(distinct(prop))} as a plain row count, so the
+   * K0 version gate (re-execute on any mutation) reproduces the engine's result exactly; modelling a
+   * true distinct-count in the aggregate replay would diverge from that native semantics. The DISTINCT
+   * keyword inside a function call parses as a nested {@code distinct(...)} call, which is what the
+   * classifier detects to make this routing decision.
    */
   @Test
-  public void countDistinctClassifiesAsAggregateCountDistinct() {
+  public void countDistinctClassifiesAsK0None() {
     Assert.assertEquals(
-        CacheableShape.AGGREGATE_COUNT_DISTINCT,
+        "count(distinct(prop)) must classify K0_NONE so the K0 version gate keeps it matching the"
+            + " engine's native row-count semantics",
+        CacheableShape.K0_NONE,
         ShapeClassifier.classify(parse("select count(distinct(name)) from OUser")));
   }
 
@@ -184,5 +190,62 @@ public class ShapeClassifierTest extends DbTestBase {
     Assert.assertEquals(
         CacheableShape.RECORD,
         ShapeClassifier.classify(parse("select name.toLowerCase() from OUser")));
+  }
+
+  // ===========================================================================
+  // aggregateMetadata — the side-tap populate path's per-shape facts
+  // ===========================================================================
+
+  private ShapeClassifier.AggregateMetadata metadata(String sql) {
+    return ShapeClassifier.aggregateMetadata((SQLSelectStatement) parse(sql));
+  }
+
+  /**
+   * A value aggregate over a bare property yields metadata carrying that property name and the matching
+   * kind, so the side-tap reads the right field from each contributing record. The alias is the
+   * projection alias the aggregation step emits ({@code sum(age)}).
+   */
+  @Test
+  public void aggregateMetadataForSumCarriesPropertyAndKind() {
+    var md = metadata("select sum(age) from OUser");
+    Assert.assertEquals(CacheableShape.AGGREGATE_SUM, md.kind());
+    Assert.assertEquals("age", md.propertyName());
+    Assert.assertEquals("sum(age)", md.alias());
+  }
+
+  /** MIN/MAX/AVG likewise carry the bare property name they read from each contributing record. */
+  @Test
+  public void aggregateMetadataForMinMaxAvgCarryProperty() {
+    Assert.assertEquals("age", metadata("select min(age) from OUser").propertyName());
+    Assert.assertEquals("age", metadata("select max(age) from OUser").propertyName());
+    Assert.assertEquals("age", metadata("select avg(age) from OUser").propertyName());
+  }
+
+  /**
+   * {@code COUNT(*)} with a WHERE (the tappable count shape) yields metadata with a {@code null} property
+   * name: it observes membership only and reads no value. The kind is AGGREGATE_COUNT.
+   */
+  @Test
+  public void aggregateMetadataForCountStarHasNullProperty() {
+    var md = metadata("select count(*) from OUser where name = ?");
+    Assert.assertEquals(CacheableShape.AGGREGATE_COUNT, md.kind());
+    Assert.assertNull("COUNT(*) reads no per-row value", md.propertyName());
+  }
+
+  /**
+   * {@code count(distinct(prop))} returns null metadata: it classifies K0_NONE and must never reach the
+   * aggregate populate path. A null here is the signal the session uses to bypass the splice entirely.
+   */
+  @Test
+  public void aggregateMetadataForCountDistinctIsNull() {
+    Assert.assertNull(
+        "count(distinct(prop)) is K0_NONE; the aggregate path must not derive metadata for it",
+        metadata("select count(distinct(name)) from OUser"));
+  }
+
+  /** A non-aggregate (plain RECORD) statement yields null metadata. */
+  @Test
+  public void aggregateMetadataForRecordShapeIsNull() {
+    Assert.assertNull(metadata("select from OUser where name = ?"));
   }
 }
