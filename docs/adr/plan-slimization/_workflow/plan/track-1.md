@@ -32,6 +32,7 @@ the tier-aware Step 1c resume branch.
 - [x] 2026-06-11T09:56Z [ctx=info] Step 6 complete (commit 51d7df455a)
 - [x] 2026-06-11T09:58Z [ctx=info] Step implementation complete (all 6 steps [x])
 - [x] 2026-06-11T10:32Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-11T10:39Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -95,6 +96,19 @@ summary at Phase C. -->
 - [x] Technical: PASS at iteration 2 (3 findings — T1/T2/T3, all suggestions, all applied as plan-prose sharpenings: scope-note on the adversarial-review.md edit, verbatim risk-tagging HIGH labels, three-walk-site stamp citation)
 - [x] Risk: PASS at iteration 2 (4 findings — R1 should-fix applied as a §2.5-readability precondition; R2 applied; R3 already covered by the State-transition acceptance bullet; R4 rejected as D8's accepted semantic-check residual)
 - [x] Adversarial: PASS at iteration 2 (7 findings — A1/A2/A4 should-fix applied [S3 log-state carrier, D19 glob-set rationale, S2-safe Step 1c]; A3 should-fix rejected on merits, gate-confirmed [the `planner` §2.5 axis add is necessary, not redundant — create-plan runs as `planner`]; A5/A6/A7 suggestions applied)
+
+### Phase C — track-level code review (workflow-only diff, baseline group skipped)
+
+Six workflow reviewers fired (consistency, prompt-design, instruction-completeness, hook-safety, context-budget, writing-style). 13 findings, 0 blockers, all in-scope, fixed in one iteration (`Review fix:` `23b7c0edfb`); gate-check PASS on all five dimensions with findings, 0 regressions, 0 new findings. The consistency reviewer wrote `consistency-track-iter1.md` rather than `consistency-iter1.md` to avoid clobbering the pre-existing State-0 plan-review file of that name (`PATH_COLLISION_AVOIDED`).
+
+- [x] Consistency: PASS at gate-check (WC1/WC2). WC1 should-fix — the S3 freeze-order gate's verdict carrier had no producer and no slot in the research-log schema, contradicting D17's review-file output; reconciled by defining a canonical `## Adversarial gate record` log section once in `research.md` (heading shape + match-latest-dated-entry + cadence) and repointing `edit-design`, `create-plan`, the D15 batch, conventions-execution §2.5, and adversarial-review.md at it. WC2 should-fix — conventions §1.2 *Plan file content* template made per-tier (tier line, full-only design link, tier-keyed final artifacts + matrix pointer). Both resolve the pre-flagged consistency items (a) and (b).
+- [x] Prompt-design: PASS at gate-check (WP1 should-fix applied — design-review.md phase1-creation block rewritten to D6 reality, no longer contradicting the prompt header or the cold-read-only edit-design spawn).
+- [x] Instruction-completeness: PASS at gate-check (WI1/WI2 should-fix, WI3/WI4 suggestion all applied — capped the Phase-0→1 gate loop and the D15 batch gate run at `iteration_budget=3`; gave the escape-hatch its cold-read loop-back; added an open-question handling rule; pinned the Step-4b cold-read budget inline).
+- [x] Hook-safety: PASS at gate-check (WH1/WH2 suggestions applied — renamed the stale `### References` footer in the mechanical-check advice/docstring to `Decisions & invariants`; added `timeout=60` + `TimeoutExpired` handling to the stub-precheck subprocess). S1 holds; both live Python tests green.
+- [x] Context-budget: PASS at initial review (0 findings — new vocabulary justified, bulky mechanics behind TOC role/phase filters, D17 file-output caps the gate loop).
+- [x] Writing-style: PASS at gate-check (WS1–WS4 should-fix applied — four em-dash/double-dash overruns dropped to house style; no new AI-tell introduced by the WC1 carrier addition).
+
+Deferred findings / plan corrections: none (all 13 in-scope and applied). The implementer's WC1 fix surfaced and fixed a downstream 5→6 research-log section-count drift in the create-plan Step 2 prose. Cross-track carryover for Track 2 captured in the plan-file track episode and `## Surprises & Discoveries`.
 
 ## Context and Orientation
 

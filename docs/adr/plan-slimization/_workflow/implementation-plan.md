@@ -458,7 +458,7 @@ flowchart TB
 
 ## Checklist
 
-- [ ] Track 1: Phase 0/1 authoring pipeline — tier classifier, research log, relocated adversarial gate, write-time cold-read, carrier templates
+- [x] Track 1: Phase 0/1 authoring pipeline — tier classifier, research log, relocated adversarial gate, write-time cold-read, carrier templates
   > Rebuild the Phase 0/1 authoring pipeline around the tier. Phase 0 appends
   > to a durable research log; the Step 4 classifier proposes the tier the
   > user confirms; the adversarial review relocates onto the log as a gated
@@ -466,10 +466,48 @@ flowchart TB
   > cold-read moves to write time with absorption and fidelity criteria; the
   > Phase-1 templates gain the aggregator plan, the `minimal` stub, inline
   > track DRs, the tier line, and the tier-aware Step 1c resume branch.
-  > **Scope:** ~13 files covering the create-plan and edit-design SKILLs,
-  > Phase 0/1 rule docs, adversarial and cold-read prompts, conventions
-  > vocabulary and §1.6(f)/§2.5, risk-tagging note, and the live
-  > mechanical-check script
+  >
+  > **Track episode:**
+  > Staged the Phase-0/1 authoring pipeline under
+  > `_workflow/staged-workflow/.claude/`: 11 prose files (create-plan and
+  > edit-design SKILLs; research, planning, design-document-rules,
+  > mid-phase-handoff, risk-tagging; conventions §1.1/§1.2/§1.6(f);
+  > conventions-execution §2.5; the adversarial-review third scope; the
+  > design-review write-time target) plus two live edits outside the §1.7
+  > prefixes: the D11 backward-compatible `design-mechanical-checks.py` change
+  > (both footer spellings + the decision-cited-without-rationale check) and a
+  > stub-plan precheck fixture. I6 and S1 held throughout (live
+  > `.claude/{workflow,skills,agents}` byte-identical to develop; precheck and
+  > its existing test untouched).
+  >
+  > Track-level review ran six workflow reviewers on the workflow-only diff
+  > (baseline group skipped): 13 findings, 0 blockers, fixed in one iteration,
+  > gate-check PASS on all five dimensions with findings. The load-bearing fix
+  > reconciled the S3 freeze-order gate's verdict carrier — `edit-design`'s
+  > cold-read blocked on a research-log section that nothing produced and the
+  > log schema did not define, contradicting D17's review-file output.
+  > Grounded in the frozen `design.md` (carrier = "the research log's own gate
+  > records"), the fix defined a canonical `## Adversarial gate record` log
+  > section once in `research.md` and repointed the five producer/consumer
+  > sites at it. Secondary fixes capped the relocated gate loop and the D15
+  > batch at `iteration_budget=3`, added the D15 escape-hatch cold-read
+  > loop-back, made conventions §1.2 per-tier, and reconciled the stale
+  > design-review phase1-creation block with D6.
+  >
+  > Cross-track carryover for Track 2: the new `## Adversarial gate record`
+  > section is the canonical verdict carrier the Phase-4 fold reads, defined
+  > once in `research.md` (not the ephemeral `_workflow/reviews/` files). The
+  > D14 model/effort pin has only a partial harness surface (the Agent `model`
+  > field carries the model half; no per-spawn effort field, no reviewer agent
+  > file, so xhigh effort rides the session default), which Track 2's
+  > Phase-3A adversarial spawn hits identically. Two §2.1 reconciliation items
+  > stay open for Track 2: the stale "four sections" framing in
+  > `adversarial-review.md`'s `## Workflow Context`, and the third-scope
+  > review-file home versus the canonical `plan/track-N/reviews/`. The
+  > `design.md` "single-decision / single-finding route" wording is a
+  > frozen-seed item for Phase 4.
+  >
+  > **Track file:** `plan/track-1.md` (6 steps, 0 failed)
 
 - [ ] Track 2: Execution-side tier consumption — carrier lifecycle, review selection, design-presence conditionals, Phase 4 audit trail
   > Teach the execution side to consume what Track 1 produces. Track files
