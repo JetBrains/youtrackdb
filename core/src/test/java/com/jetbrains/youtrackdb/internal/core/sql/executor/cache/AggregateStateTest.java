@@ -303,6 +303,128 @@ public class AggregateStateTest {
     db.rollback();
   }
 
+  /** Folds a value list through {@code increment} in list order, the deterministic storage scan-order fold. */
+  private static Number scanOrderSumFold(List<? extends Number> values) {
+    Number acc = null;
+    for (var v : values) {
+      acc = acc == null ? v : PropertyTypeInternal.increment(acc, v);
+    }
+    return acc;
+  }
+
+  /**
+   * SUM over Double inputs must fold in observe (== storage scan) order, not in hash-bucket order.
+   * IEEE-754 addition is not associative, so a fold permuted by the backing map's iteration order can
+   * round to a different low-order bit than a fresh scan-order execution. With enough contributors
+   * spanning many magnitudes (a large running total plus many tiny addends), the scan-order fold and a
+   * sorted/permuted fold give measurably different doubles, so this test fails if {@code
+   * contributingValues} ever reverts to an unordered map. The cached scalar must equal the scan-order
+   * {@code increment} fold over the SAME input order bit-for-bit.
+   */
+  @Test
+  public void sumDoubleFoldsInObserveOrderMatchingStorageScanOrder() {
+    db.begin();
+    // 1e16 first (so it dominates the running total), then 64 tiny addends each below the running
+    // total's ULP: in scan order each tiny add rounds away to nothing; a permuted fold that sums the
+    // tiny values together first preserves them, yielding a different double. The order is therefore
+    // load-bearing for the result, not just the type.
+    var values = new java.util.ArrayList<Double>();
+    values.add(1.0e16d);
+    for (var i = 0; i < 64; i++) {
+      values.add(1.0d);
+    }
+    var recs = new java.util.ArrayList<Entity>();
+    for (var v : values) {
+      recs.add(newRec(v));
+    }
+    var s = populate(CacheableShape.AGGREGATE_SUM, FIELD, recs);
+    var expected = scanOrderSumFold(values);
+    assertEquals("SUM double fold must match the scan-order increment fold bit-for-bit", expected,
+        scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * AVG over Double inputs divides a scan-order-folded sum, so the divided result is also order-
+   * sensitive: an out-of-order fold feeds a different sum into {@code computeAverage}. The cached AVG
+   * must equal a fresh scan-order fold divided by the contributor count, pinning that the observe-order
+   * fold reaches the AVG finalisation too.
+   */
+  @Test
+  public void avgDoubleFoldsInObserveOrderMatchingStorageScanOrder() {
+    db.begin();
+    var values = new java.util.ArrayList<Double>();
+    values.add(1.0e16d);
+    for (var i = 0; i < 64; i++) {
+      values.add(1.0d);
+    }
+    var recs = new java.util.ArrayList<Entity>();
+    for (var v : values) {
+      recs.add(newRec(v));
+    }
+    var s = populate(CacheableShape.AGGREGATE_AVG, FIELD, recs);
+    var expectedSum = scanOrderSumFold(values).doubleValue();
+    assertEquals("AVG double must divide the scan-order sum", expectedSum / values.size(),
+        (Double) scalarOf(s), 0.0d);
+    db.rollback();
+  }
+
+  /**
+   * SUM over mixed Integer inputs straddling the {@code Integer} overflow boundary is type-sensitive to
+   * fold order: {@code PropertyTypeInternal.increment} promotes Integer+Integer to Long only when the
+   * partial sum overflows, so whether an intermediate overflows (and thus whether the result type ends
+   * up Integer or Long) depends on the partial-sum order. Folding in observe order must reproduce the
+   * scan-order fold's type AND value exactly; an unordered fold could overflow at a different step and
+   * disagree on both. Inputs chosen so the running scan-order total crosses {@code Integer.MAX_VALUE}
+   * mid-fold.
+   */
+  @Test
+  public void sumMixedIntOverflowFoldsInObserveOrderMatchingStorageScanOrder() {
+    db.begin();
+    // Scan-order partials: 2e9, then +2e9 overflows int (promotes to Long 4e9), then +(-1e9) and
+    // +1 stay Long. A different fold order (e.g. summing the negative early) would keep the partial
+    // in int range longer and could land on a different result type.
+    var values = List.of(2_000_000_000, 2_000_000_000, -1_000_000_000, 1);
+    var recs = new java.util.ArrayList<Entity>();
+    for (var v : values) {
+      recs.add(newRec(v));
+    }
+    var s = populate(CacheableShape.AGGREGATE_SUM, FIELD, recs);
+    var expected = scanOrderSumFold(values);
+    var scalar = scalarOf(s);
+    assertEquals("mixed-int SUM must match the scan-order fold value", expected, scalar);
+    assertEquals("mixed-int SUM must match the scan-order fold type", expected.getClass(),
+        scalar.getClass());
+    db.rollback();
+  }
+
+  /**
+   * The SUM/AVG re-fold is deferred to a single fold per build, not run once per replayed mutation
+   * (the running scalar is never read between mutations). Replaying several SUM-affecting mutations
+   * onto a copy and reading the scalar once must produce the correct final fold; the deferral is
+   * observable through {@code copy()} carrying the dirty flag — the copy folds lazily on its first read
+   * rather than the original having folded eagerly per observe. This pins that intermediate folds are
+   * collapsed without changing the observable result.
+   */
+  @Test
+  public void sumDeferredFoldProducesCorrectFinalScalarAfterManyMutations() {
+    var a = committedRec(10);
+    var b = committedRec(20);
+    var c = committedRec(30);
+    var s = populate(CacheableShape.AGGREGATE_SUM, FIELD, List.of(a, b, c));
+    // Three post-populate value changes; with deferral the scalar is folded once, on the read below.
+    a.setProperty(FIELD, 1);
+    s.applyMutation((RecordAbstract) a, RecordOperation.UPDATED, true);
+    b.setProperty(FIELD, 2);
+    s.applyMutation((RecordAbstract) b, RecordOperation.UPDATED, true);
+    c.setProperty(FIELD, 3);
+    s.applyMutation((RecordAbstract) c, RecordOperation.UPDATED, true);
+    var expected = PropertyTypeInternal.increment(PropertyTypeInternal.increment(1, 2), 3);
+    assertEquals("the single deferred fold yields the final scan-order fold", expected,
+        scalarOf(s));
+    db.rollback();
+  }
+
   // ===========================================================================
   // applyMutation transitions, per kind
   // ===========================================================================

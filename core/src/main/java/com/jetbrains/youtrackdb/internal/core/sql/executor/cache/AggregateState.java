@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -94,8 +95,16 @@ public final class AggregateState {
    * The post-state value each contributing RID supplies, kept so a set-changing mutation can re-fold
    * (SUM/AVG), rescan for a new extremum (MIN/MAX), or re-bucket (COUNT_DISTINCT). This is the blocking
    * dependency every value-aggregate carries; its O(n) memory is the price of incremental replay.
+   *
+   * <p>A {@link LinkedHashMap} so iteration order equals contributor insertion order, which is the
+   * populate-time observe order (== storage's plan scan order). The SUM/AVG re-fold folds these values
+   * in iteration order, so an insertion-ordered map reproduces storage's scan-order fold bit-for-bit;
+   * a plain {@code HashMap} would fold in hash-bucket order and diverge on order-sensitive arithmetic
+   * (IEEE-754 float/double non-associativity, Integer&rarr;Long overflow-promotion typing). {@link
+   * #copy} preserves the ordering ({@code LinkedHashMap.putAll} from a {@code LinkedHashMap} source
+   * copies in source iteration order).
    */
-  private final Map<RID, Object> contributingValues = new HashMap<>();
+  private final Map<RID, Object> contributingValues = new LinkedHashMap<>();
 
   // ---- SUM / AVG ----
   /** Running SUM/AVG total, folded through {@link PropertyTypeInternal#increment} (D19). Seeded null. */
@@ -103,6 +112,17 @@ public final class AggregateState {
 
   /** Contributor count, the AVG divisor; recomputed alongside {@link #sumAccumulator} on every re-fold. */
   private int count;
+
+  /**
+   * Whether {@link #sumAccumulator}/{@link #count} are stale and a re-fold is owed before the next read.
+   * SUM/AVG contributor changes (observe-time seeds and replay-time add/remove/update) set this rather
+   * than re-folding eagerly; {@link #ensureSumFolded} performs the single O(n) fold on the next read of
+   * the scalar. Deferring collapses a build that replays {@code m} mutations from {@code m} folds
+   * (O(m&middot;n)) to one fold (O(n + m)) without weakening storage-fold parity: only the final
+   * scalar is observable, and a single fold over the final contributor set is the same fold a fresh
+   * execution runs.
+   */
+  private boolean sumDirty;
 
   // ---- MIN / MAX ----
   /** The current extremum value (MIN/MAX). */
@@ -273,7 +293,7 @@ public final class AggregateState {
     switch (kind) {
       case AGGREGATE_SUM, AGGREGATE_AVG -> {
         contributingValues.put(rid, value);
-        refoldSum();
+        sumDirty = true;
       }
       case AGGREGATE_MIN, AGGREGATE_MAX -> {
         contributingValues.put(rid, value);
@@ -295,7 +315,7 @@ public final class AggregateState {
     switch (kind) {
       case AGGREGATE_SUM, AGGREGATE_AVG -> {
         contributingValues.remove(rid);
-        refoldSum();
+        sumDirty = true;
       }
       case AGGREGATE_MIN, AGGREGATE_MAX -> {
         var wasExtremum = rid.equals(extremumRid);
@@ -317,7 +337,7 @@ public final class AggregateState {
     switch (kind) {
       case AGGREGATE_SUM, AGGREGATE_AVG -> {
         contributingValues.put(rid, newValue);
-        refoldSum();
+        sumDirty = true;
       }
       case AGGREGATE_MIN, AGGREGATE_MAX -> {
         var wasExtremum = rid.equals(extremumRid);
@@ -352,11 +372,26 @@ public final class AggregateState {
   }
 
   /**
+   * Folds {@link #sumAccumulator}/{@link #count} from {@link #contributingValues} only when {@link
+   * #sumDirty} is set, then clears the flag. Called lazily on every read of the SUM/AVG scalar so the
+   * fold runs once per build (after the replay loop has applied all membership/value changes) rather
+   * than once per mutation.
+   */
+  private void ensureSumFolded() {
+    if (sumDirty) {
+      refoldSum();
+      sumDirty = false;
+    }
+  }
+
+  /**
    * Re-folds the entire {@link #contributingValues} through {@link PropertyTypeInternal#increment}
    * from a verbatim first-value seed, exactly as storage's SUM/AVG accumulate. A full re-fold (rather
    * than an incremental add/subtract) is mandated by D19: {@code PropertyTypeInternal} exposes no
    * symmetric subtract, and only re-folding from scratch reproduces storage's numeric-promotion and
-   * overflow behaviour bit-for-bit. Also recomputes {@link #count} (the AVG divisor).
+   * overflow behaviour bit-for-bit. The fold walks {@link #contributingValues} in insertion (==
+   * observe == scan) order so the result matches storage's scan-order fold bit-for-bit. Also recomputes
+   * {@link #count} (the AVG divisor).
    */
   private void refoldSum() {
     Number acc = null;
@@ -478,6 +513,7 @@ public final class AggregateState {
     c.contributingValues.putAll(contributingValues);
     c.sumAccumulator = sumAccumulator;
     c.count = count;
+    c.sumDirty = sumDirty;
     c.currentScalar = currentScalar;
     c.extremumRid = extremumRid;
     for (var e : distinctBuckets.entrySet()) {
@@ -506,8 +542,14 @@ public final class AggregateState {
       case AGGREGATE_COUNT -> (long) contributingRids.size();
       case AGGREGATE_COUNT_DISTINCT -> (long) distinctBuckets.size();
       // SQLFunctionSum.getResult returns 0 (an int) for an empty sum, not null; match it exactly.
-      case AGGREGATE_SUM -> sumAccumulator == null ? 0 : sumAccumulator;
-      case AGGREGATE_AVG -> computeAverage(sumAccumulator, count);
+      case AGGREGATE_SUM -> {
+        ensureSumFolded();
+        yield sumAccumulator == null ? 0 : sumAccumulator;
+      }
+      case AGGREGATE_AVG -> {
+        ensureSumFolded();
+        yield computeAverage(sumAccumulator, count);
+      }
       case AGGREGATE_MIN, AGGREGATE_MAX -> currentScalar;
       default -> throw new IllegalStateException("scalar() on non-aggregate kind " + kind);
     };
@@ -537,10 +579,12 @@ public final class AggregateState {
   // ---- Test / inspection accessors (package-private; the replay path uses the methods above) ----
 
   @Nullable Number getSumAccumulator() {
+    ensureSumFolded();
     return sumAccumulator;
   }
 
   int getCount() {
+    ensureSumFolded();
     return count;
   }
 
