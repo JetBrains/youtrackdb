@@ -698,7 +698,10 @@ source is needed; tx-bypassing committed read rejected); F78 → D7/D19 (accepte
 2026-06-11, reject-loudly: schema commits route through the freezer's throwing variant,
 DDL against an engaged freeze fails loudly and rolls back; check-and-back-off rejected
 as fragile; the freezer named in D7's ordering discussion as the fifth synchronization
-object). F79–F82 pending.
+object); F79 → D7 (accepted 2026-06-11: per-acquisition owner token, normal release is
+a hard CAS compare-owner-and-clear, stale release from a reaped-but-alive owner is a
+logged no-op, reap-vs-zombie race explicitly tolerated; Java sketch recorded in the
+entry). F80–F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2295,14 +2298,55 @@ sequenceDiagram
   S3->>S3: acquire — S2 and S3 both hold the "exclusive" mutex
 ```
 
-**Resolution (proposed):** the normal release is a CAS compare-owner-and-clear on an
-owner token keyed by session and acquisition epoch; a mismatch is a detected no-op (or
-throw), never a bare `assert` plus unconditional `release()` — the zombie's release
-becomes a detected no-op. One added D7 caveat: between reap and the zombie's wake-up,
-two threads operate on one session's tx state with no synchronization
-(`assertOnOwningThread` exempts `close()`/`rollbackInternal`,
-`FrontendTransactionImpl:130`), so the reap path must tolerate the owner racing it.
-Affected: D7, F71, F38, D5.
+**Resolution (accepted 2026-06-11):** the normal release is a CAS
+compare-owner-and-clear on a per-acquisition owner token; a mismatch is a detected,
+logged no-op (or throw), never a bare `assert` plus unconditional `release()` — the
+zombie's release becomes a no-op. Reference sketch (recorded for Phase 1):
+
+```java
+record OwnerToken(DatabaseSessionEmbedded session, long epoch) {}
+// Fresh object per acquire: AtomicReference CAS compares by identity, so a
+// stale token can never match a newer acquisition (ABA-free); epoch is for
+// diagnostics only.
+
+OwnerToken acquire(DatabaseSessionEmbedded session) throws InterruptedException {
+  while (!permits.tryAcquire(TIMEOUT_S, SECONDS)) {  // F61 re-wait loop
+    logHolderDiagnostic(owner.get());
+  }
+  var token = new OwnerToken(session, epochGen.incrementAndGet());
+  owner.set(token);                  // single holder; volatile set suffices
+  return token;                      // stored in the session's schema-tx state
+}
+
+void release(OwnerToken token) {     // owner thread's commit/rollback finally
+  if (owner.compareAndSet(token, null)) {
+    permits.release();
+  } else {
+    warn("stale schema-mutex release — acquisition was reaped");
+  }
+}
+
+void releaseStranded(DatabaseSessionEmbedded session) {  // reaper thread
+  var cur = owner.get();
+  if (cur != null && cur.session() == session && owner.compareAndSet(cur, null)) {
+    permits.release();
+  }
+}
+```
+
+Implementation edge: a reap firing between `tryAcquire` success and `owner.set` sees a
+null or stale slot and no-ops the semaphore; the F61 re-wait diagnostic is the backstop
+and the next reap cycle sees the token. Reaper grounding (established in this
+discussion): the design's "reaper" is a role, filled today by the Gremlin Server kill
+path — `YTDBGremlinSession.touch()`'s idle-timeout task and `manualKill` on channel
+close run on non-owner threads; the graceful `kill(false)` rolls back on the session's
+own executor thread (no cross-thread issue), and the wedged-executor fallthrough
+(`executor.shutdownNow()`, "up to the underlying graph implementation" to clean up
+orphaned transactions) is exactly the gap the D7 reap protocol fills. One added D7
+caveat: between reap and the zombie's wake-up, two threads operate on one session's tx
+state with no synchronization (`assertOnOwningThread` exempts
+`close()`/`rollbackInternal`, `FrontendTransactionImpl:130`), so the reap path must
+tolerate the owner racing it. Affected: D7, F71, F38, D5.
 
 ### F80 — Structural-id allocation reads the registries F53 defers: any commit creating two or more collections or engines allocates duplicate ids; `fileIdBTreeMap` is a fourth registry missing from F53's list [MAJOR]
 Pass-7 report U12. Both structural-id allocators are reads of the registries F53 defers,
@@ -2578,11 +2622,19 @@ context / storage — an owner-tracked, cross-thread-releasable mutex
   the freezer's per-thread depth throws, component-lock release skips
   non-owners); that case belongs to the storage-error/restart path. After the
   rollback, `releaseStranded(session)` is the explicit cross-thread release
-  the owner-tracked primitive provides; the F38 same-thread assertion lives in
-  the owner bookkeeping and guards only the normal release path. The acquire
-  is timed with a diagnostic naming the holder and **re-waits in a loop** on
-  timeout (never aborts; a healthy F48-scale holder is not contention to
-  punish, D5); only an operator-level interrupt breaks the wait.
+  the owner-tracked primitive provides. Ownership is a per-acquisition token
+  (fresh object per acquire; reference identity is the ABA guard, the epoch
+  field is diagnostics): the normal release is a hard CAS
+  compare-owner-and-clear, never a bare `assert` plus unconditional
+  `Semaphore.release()`, so a stale release from a reaped-but-alive owner is a
+  detected, logged no-op (F79, sketch in the entry); the F38 same-thread
+  assertion folds into this token bookkeeping. Between reap and a zombie
+  owner's wake-up, two threads touch one session's tx state unsynchronized
+  (`assertOnOwningThread` exempts `close()`/`rollbackInternal`), so the reap
+  path tolerates the owner racing it. The acquire is timed with a diagnostic
+  naming the holder and **re-waits in a loop** on timeout (never aborts; a
+  healthy F48-scale holder is not contention to punish, D5); only an
+  operator-level interrupt breaks the wait.
 - **Freezer gate (F78, reject-loudly).** The commit path's fifth
   synchronization object, the `OperationsFreezer`
   (`startToApplyOperations`'s first statement, `AtomicOperationsManager:107`),
