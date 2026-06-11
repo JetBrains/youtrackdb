@@ -350,3 +350,6 @@ internals.
 - `SQLFunctionAverage#computeAverage(...)` (existing, reused for AVG finalization)
 - `QueryResultCache#incrementSpliceFailures()` (the only new per-tx metric;
   hit/miss/k0/overflow increments already exist in Track 1)
+
+## Base commit
+babd8d607687b284687b57ccb882cf838148055b
