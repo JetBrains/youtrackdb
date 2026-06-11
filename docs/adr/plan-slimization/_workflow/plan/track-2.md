@@ -26,6 +26,7 @@ into the per-tier durable carrier.
 - [x] 2026-06-11T14:34Z [ctx=safe] Step 1 complete (commit 7db9da10d0)
 - [x] 2026-06-11T14:46Z [ctx=safe] Step 2 complete (commit 83e003509c)
 - [x] 2026-06-11T14:46Z [ctx=safe] Step implementation complete (2/2 steps)
+- [x] 2026-06-11T15:20Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -67,13 +68,13 @@ Phase A reviews (Complex track → full Technical + Risk + Adversarial pipeline)
 found 17 findings, 0 blockers, all accepted and applied as track-file
 refinements. The gate verification ran once at iteration 2 as a single
 consolidated pass over all three review types (the findings overlapped
-heavily — T2≈R2, T5≈R5≈A2, T3≈R4 — and were all 0-blocker plan-of-work
+heavily: T2≈R2, T5≈R5≈A2, T3≈R4, and were all 0-blocker plan-of-work
 enumeration gaps), VERIFYING every finding with 0 regressions. Highest-value
 catches: R2/T2 (the propagation duty's primary `[ ]`-track write path needed
 `## Decision Log` in inline-replanning cases 2-3, not only the completed-track
-carve-out — left unfixed it would silently desync duplicated decisions); A6
+carve-out; left unfixed it would silently desync duplicated decisions); A6
 (`minimal` consistency drops the plan half too, not only the design half); A1
-(the "xhigh effort pin" overstated the harness — reconciled to D14's
+(the "xhigh effort pin" overstated the harness, reconciled to D14's
 session-default degradation caveat). Review files under `reviews/`.
 ## Context and Orientation
 
@@ -429,7 +430,7 @@ authoring docs vs Phase-2/3/4 consumption docs); the tracks are adjacent,
 and the single shared file (`conventions-execution.md`) is split on disjoint
 sections with the reason recorded in both track files.
 
-**Dependencies.** Upstream: Track 1 — the tier vocabulary (glossary), the
+**Dependencies.** Upstream: Track 1 supplies the tier vocabulary (glossary), the
 D18 tier-line shape the Phase-2/3A selectors read, the inline-DR track shape
 this track's lifecycle, rendering, and propagation rules govern, and the
 `research.md` `## Adversarial gate record` section the Phase-4 fold reads
@@ -453,8 +454,11 @@ adversarial pass). The xhigh-effort half of the D14 pin rides the session
 default, because the Agent surface exposes no per-spawn effort field and there
 is no adversarial-reviewer agent file to carry it in frontmatter. That is
 D14's documented degradation caveat, and neither outcome reopens the decision.
-The D18 tier line is read-only for every consumer in this track; only
-`create-plan` writes it.
+The D18 tier line is read-only for every consumer in this track; `create-plan`
+writes it at confirmation. The one execution-time exception is a mid-flight
+tier upgrade on the inline-replan ESCALATE path, which rewrites the line as the
+first artifact it lands (the re-entered Phase-2/3A selectors then read the
+upgraded tier); `inline-replanning.md` carries that writer.
 
 ## Base commit
 
