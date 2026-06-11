@@ -18,12 +18,14 @@ into the per-tier durable carrier.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-11T13:54Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-11T14:34Z [ctx=safe] Step 1 complete (commit 7db9da10d0)
+- [x] 2026-06-11T14:46Z [ctx=safe] Step 2 complete (commit 83e003509c)
+- [x] 2026-06-11T14:46Z [ctx=safe] Step implementation complete (2/2 steps)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -42,6 +44,10 @@ at Phase 1. -->
   Rewiring those spawn prompts is a recorded follow-up, flagged in the doc
   so a reviewer does not read the rendering as already in effect. See
   Episodes §Step 1.
+- 2026-06-11T14:46Z Step 2 discovered: the propagation duty's `## Decision
+  Log` addition lives in two enumerations (`inline-replanning.md` cases 2-3
+  and `conventions-execution.md` §2.1's mid-execution-rewrite line). Phase 4
+  promotion must carry both forward in sync. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -255,7 +261,7 @@ edits staged).
    §2.1 lifecycle must define `## Decision Log` as a plan-at-start section
    first. — risk: high (workflow machinery: edits the inline-replan
    control-flow protocol; a propagation defect silently desyncs duplicated
-   decisions across many sessions before a human notices)  [ ]
+   decisions across many sessions before a human notices)  [x] commit: 83e003509c
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -312,6 +318,44 @@ reference). All fixed; `--check` now exits 0.
 plan-at-start lifecycle, is now staged, so Step 2 (cross-track replan
 propagation) can append `## Decision Log` to not-yet-completed tracks. Item
 3 was held for Step 2 by design.
+
+### Step 2 — commit 83e003509c, 2026-06-11T14:46Z [ctx=safe]
+**What was done:** Staged the cross-track replan propagation duty
+(Plan-of-Work item 3) across two §1.7-mirror files. `inline-replanning.md`
+gained a "Cross-track propagation duty" block in §Process step 3: the
+orchestrator owns it, scope is every not-yet-completed track copy revised in
+the same replan, and completed tracks get a supersession note appended to
+their `## Decision Log`. The decision-state-based copy-shape rule is carried
+verbatim (any post-seed copy of an ever-revised decision keeps the
+inline-replan revision format with the seed pinned in `**Original
+decision**`, routing it to the fidelity check's provenance-only path), as is
+the D12 tier-upgrade-rides-ESCALATE note. `## Decision Log` was added to the
+cases 2-3 updatable-section lists, opening the duty's primary `[ ]`-track
+write path with no ESCALATE pause, and case 4 gained a documentation-only
+carve-out for the supersession-note append. The same `## Decision Log`
+addition is mirrored in the staged `conventions-execution.md` §2.1
+mid-execution-rewrite line so the two enumerations stay consistent.
+
+**What was discovered:** Sub-step 4 fired zero step-level reviewers. A
+`risk: high` step editing only `.claude/workflow/*.md` matches neither
+`hook-safety` nor `prompt-design` globs, so by `review-agent-selection.md`
+§Step-level vs track-level routing it fully defers to the Phase C track
+pass, which judges the multi-file gate change against the cumulative diff.
+Orchestrator verification confirmed both enumerations (inline-replanning
+cases 2-3 and §2.1) list `## Decision Log` and that reindex `--check`
+passes. The implementer found the copy-shape rule's provenance-only path
+already realized in the Step-1-staged `prompts/design-review.md` fidelity
+criterion, so the revision-format marker and the supersession-note mechanism
+interlock with no further reconciliation.
+
+**Key files:**
+- `staged-workflow/.claude/workflow/inline-replanning.md` (new)
+- `staged-workflow/.claude/workflow/conventions-execution.md` (modified, §2.1)
+
+**Critical context:** Phase 4 promotion overwrites the live tree with the
+staged mirror, so both edited enumerations (the inline-replanning cases 2-3
+lists and the §2.1 mid-execution-rewrite line) carry forward together. They
+must stay in sync if either is later edited on develop before promotion.
 
 ## Validation and Acceptance
 
