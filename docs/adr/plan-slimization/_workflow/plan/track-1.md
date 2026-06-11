@@ -25,6 +25,7 @@ the tier-aware Step 1c resume branch.
 - [ ] Track completion
 - [x] 2026-06-11T06:17Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-11T08:26Z [ctx=safe] Step 1 complete (commit 5f1e63c92d)
+- [x] 2026-06-11T08:51Z [ctx=info] Step 2 complete (commit 4ad4335c03)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -43,6 +44,17 @@ at Phase 1. -->
   vs the canonical `plan/track-N/reviews/`; and the now-describes-real-work §2.1
   Decision-Log placeholder in `design-review.md`. Cross-track impact: Continue
   (all three sit inside Track 2's planned §2.1 scope). See Episodes §Step 1.
+- 2026-06-11T08:51Z Step 2 found the D14 model/effort pin has only a partial
+  harness surface: the Agent tool's `model` field carries the model half, but
+  there is no per-spawn effort field and no reviewer agent file under
+  `.claude/agents/`, so the xhigh-effort pin rides the session default (the
+  caveat D14 accepts). Track 2's Phase-3A adversarial spawn (D14) hits the same
+  surface and should use the same resolution. Cross-track impact: Continue. See
+  Episodes §Step 2.
+- 2026-06-11T08:51Z Step 2 flagged a `conventions.md` §1.2 *Plan file content*
+  schematic lag — no D18 tier line, unconditional `## Design Document` link —
+  against the operative create-plan templates and §1.2 matrix. Candidate for
+  Phase C track-level review or a Track 2 conventions touch. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -255,7 +267,7 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 ## Concrete Steps
 
 1. Stage the vocabulary + phase-rule + review-prompt prose every later step cites — conventions.md (§1.1 tier/gate/log/aggregator/track-decision glossary, §1.2 research-log + per-tier matrix, §1.6(f) log exclusion with the D19 glob-shared rationale), research.md (Phase 0 → durable log, D5), planning.md (per-tier Phase-1 flow + inline track DRs D7 + Gate-1 cross-ref), risk-tagging.md (HIGH list = Gate 1 change-level source D4, verbatim labels), prompts/adversarial-review.md (additive third research-log scope D6), prompts/design-review.md (write-time target + absorption/fidelity D8), conventions-execution.md §2.5 (add phase 1 + role planner; third-scope lifecycle sub-clause D17) — risk: medium (workflow machinery: bounded shared vocabulary + prompt prose) — size: ~7 files; (a) all remaining work is HIGH-isolated (steps 2-5) or the end-of-track tests-only fixture (step 6)  [x] commit: 5f1e63c92d
-2. Stage create-plan/SKILL.md Phase-0→1 gate machinery — Phase 0 log creation; Step 4 two-gate classifier (tier + matched categories, user-confirmed lens add/drop D2/D3/D4/D16); gate spawn (D14 model/effort pin, D17 output path + thin manifest + Findings partial-fetch); per-tier Step 4a/4b routing; Step 1c resume branch on implementation-plan.md presence + D18 tier line (S2-safe, no new log read); templates (D18 tier line, shape-complete minimal stub D1, inline-DR track template) — risk: high (workflow machinery: tier classifier, per-tier dispatch, Step 1c auto-resume routing)  [ ]
+2. Stage create-plan/SKILL.md Phase-0→1 gate machinery — Phase 0 log creation; Step 4 two-gate classifier (tier + matched categories, user-confirmed lens add/drop D2/D3/D4/D16); gate spawn (D14 model/effort pin, D17 output path + thin manifest + Findings partial-fetch); per-tier Step 4a/4b routing; Step 1c resume branch on implementation-plan.md presence + D18 tier line (S2-safe, no new log read); templates (D18 tier line, shape-complete minimal stub D1, inline-DR track template) — risk: high (workflow machinery: tier classifier, per-tier dispatch, Step 1c auto-resume routing)  [x] commit: 4ad4335c03
 3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [ ]
 4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [ ]
 5. Edit the LIVE .claude/scripts/design-mechanical-checks.py (D11) — accept both "### References" and "### Decisions & invariants" footers and add the decision-cited-without-rationale check, scoped so the legacy bare-D<N> References footer never trips it; the frozen design.md keeps passing; no existing test modified (S1) — risk: high (workflow machinery: a script that runs automatically; behavioral Python change)  [ ]
@@ -322,6 +334,51 @@ Phase 3. No future step is affected.
 - `…/staged-workflow/.claude/workflow/conventions-execution.md` (new staged copy)
 - `…/staged-workflow/.claude/workflow/prompts/adversarial-review.md` (new staged copy)
 - `…/staged-workflow/.claude/workflow/prompts/design-review.md` (new staged copy)
+
+### Step 2 — commit 4ad4335c03, 2026-06-11T08:51Z [ctx=info]
+**What was done:** Staged `create-plan/SKILL.md` (copy-then-edit from the live
+baseline, so I6 holds) with the Phase-0→1 gate machinery. Phase 0 seeds the
+durable research log at aim capture (unstamped per D19, idempotent on resume)
+and appends decision/surprise/open-question entries as research proceeds. Step 4
+gained the two-gate tier classifier (tier + centrally-matched HIGH-risk
+categories from `risk-tagging.md`, user-confirmed with explicit lens add/drop),
+the relocated adversarial gate on the log (D14 model/effort pin, D17 file-output
++ thin manifest + `## Findings` partial-fetch, `_workflow/reviews/` home, iter-1
+fresh set vs iter-≥2 verdict-producer variant, loop-on-blocker /
+gate-on-should-fix / no-`skip`), and per-tier Step 4a/4b routing (`full` → design
+boundary; `lite`/`minimal` → single Step-4b session). Step 4a became cold-read-only
+behind the S3 gate; a Step-4b write-time cold-read runs on the plan-at-start track
+sections. Step 1c gained the tier-aware resume branch keyed on
+`implementation-plan.md` presence plus the D18 tier line (S2-safe, no new log read).
+Templates gained the D18 tier line, the shape-complete `minimal` stub (D1), the
+inline-DR track Decision Log carrier (D7), and tier-keyed Step 5 commit cadence
+with the `minimal` PR description as the D16 verdict carrier. The step-level
+dimensional review (prompt-design, the only workflow reviewer matching the
+`.claude/skills/*/SKILL.md` glob on a workflow-only diff) raised two findings,
+both fixed in one Review fix: commit `4ad4335c03` — the reviewer spawns gained the
+explicit Agent-tool recipe and a concrete D14 `model`-field surface (WP1,
+should-fix); the Phase-0 log-create action lost its empty `bash` fence (WP2,
+suggestion). Gate-check PASS at iteration 2.
+
+**What was discovered:** The D14 model/effort pin has only a partial harness
+surface. The Agent tool's `model` field carries the model half (`full` → fable,
+`lite`/`minimal` → opus), but there is no per-spawn effort field, and no
+adversarial or cold-read reviewer agent file exists under `.claude/agents/` (the
+reviewers are prompt-file + `general-purpose` spawns), so the design's
+"reviewer agent's frontmatter" fallback has no file to live on. The xhigh-effort
+pin therefore rides the session default — the inheritance caveat D14 already
+accepts. Track 2's Phase-3A adversarial spawn (D14, "Implemented in: Track 2")
+hits the identical surface and should use the same resolution. Separately, the
+`conventions.md` §1.2 *Plan file content* schematic (staged in Step 1) still
+carries the develop-baseline shape: no D18 tier line and an unconditional
+`## Design Document` link. The operative authoring source is this SKILL's
+ready-to-paste templates plus the §1.2 *Per-tier artifact set* matrix Step 1
+added, so this reads as a schematic-versus-operative-template lag, not a
+contradiction. It is a candidate for the Phase C track-level review or a Track 2
+conventions touch.
+
+**Key files:**
+- `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (new staged copy)
 
 ## Validation and Acceptance
 
