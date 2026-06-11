@@ -384,6 +384,11 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > tests).
   >
   > **Track file:** `plan/track-1.md` (7 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1's cross-track obligations
+  > (recordPulledRow cap routing, QUERY_CACHE_*_RATE metric wiring,
+  > inFlightLookup liveness, exitCacheCodeUnchecked) are already folded into the
+  > Track 2 and Track 3 entries; no new downstream impact.
 
 - [ ] Track 2: Aggregate shapes — side-tap, storage-parity replay, COUNT_DISTINCT
   > Adds the `AGGREGATE_*` family on top of Track 1's foundation: the
