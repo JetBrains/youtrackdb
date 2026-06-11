@@ -626,7 +626,17 @@ pairs C16+U15 and C17+U14 each fold into one entry). The pass-7 common root: thr
 accepted fixes (F53, F66, F71/F74) each name a mechanism whose load-bearing input the
 live machinery does not provide — id allocation reads the deferred registries, the
 retained operation set has no field values for early-flushed records, and the `tsMin`
-holder cannot be released from the reaper's thread.
+holder cannot be released from the reaper's thread. An eighth pass (2026-06-11, same
+two lenses, primed with all six failed-attack lists) attacked the pass-7 folds
+themselves. It added F83–F91 (reports: `adversarial-pass8-concurrency.md` /
+`adversarial-pass8-durability.md`; 1 BLOCKER — the first since pass 6; the convergent
+pairs C22+U17 and C24+U18 fold into one entry each; F77's tx-aware split, F79's
+owner-token sketch, and F80's crash/replay shapes survived their direct attacks). The
+pass-8 common root: the F76/F78 folds each move a single-threaded compound onto a
+second thread or behind a different gate and fix only the field-level memory mode,
+leaving the surrounding check-then-act compounds non-atomic. mcp-steroid was
+unreachable for this pass, so new reference-accuracy claims carry grep-based caveats
+pending PSI re-verification.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -709,6 +719,8 @@ legacy dump plus an explicit unverified-import acknowledgment flag; backport opt
 rejected); F82 → D20 (accepted 2026-06-11: dump fsync ordered before manifest
 visibility with same-directory temp and directory fsync; stream variant requires a
 self-validating tail). **All pass-7 findings are resolved.**
+
+**Pass-8 resolutions (settling one by one):** F83–F91 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2445,6 +2457,236 @@ flowchart LR
 rename guarantee; directory fsync after rename) and the stream variant's
 self-validating-tail requirement (length or checksum trailer, or the manifest as the
 closing keys of the single JSON document). Affected: F75, D20, F63.
+
+### F83 — The reaper's decrement-then-reset races the owner's min-then-increment: `tsMin` ends at MAX_VALUE with a live tx, and cleanup evicts entries that tx is reading [BLOCKER]
+Pass-8 report C20. F76's "atomic RMW" covers only the count; the release is the
+two-field compound {decrement; on zero → reset `tsMin` to MAX_VALUE} and begin is the
+mirror compound {min-write `tsMin`; increment} (`AbstractStorage:4653`–`:4654`,
+`:4687`–`:4696`). With the release on the reaper's thread, the interleaving below
+leaves `activeTxCount = 1, tsMin = MAX_VALUE`: a live transaction invisible to the
+cleanup thread. `cleanupSnapshotIndex` runs at every tx close, computes the global LWM
+over the holders, and evicts snapshot/visibility entries the live tx's SI reads still
+need — `TsMinHolder:33` names this exact failure ("a stale MAX_VALUE would let cleanup
+evict entries the read session is actively using"). Silent read corruption on the
+design's routine reap overlapping one tx begin on the same pooled thread; orderings
+2-1-4-3 and 2-1-3-4 both land there, so no one-instruction window. Skipping the
+reaper-side reset re-creates the F76 leak in idle-thread form, and the documented
+fence-free fallback has the same deferral hole (an owner thread that never runs another
+tx never folds the pending decrement).
+
+```mermaid
+sequenceDiagram
+  participant R as reaper
+  participant T as owner thread T (pooled)
+  R->>R: count 1→0 (observes zero)
+  T->>T: S2 begin: tsMin = min(1000, 2000) = 1000
+  T->>T: count 0→1
+  R->>R: acts on zero: tsMin = MAX_VALUE
+  Note over R,T: count=1, tsMin=MAX — live tx invisible; cleanup evicts its entries
+```
+
+**Resolution (proposed):** treat `{activeTxCount, tsMin}` as one atomically updated
+state, not two fields. Options: (a) a small per-holder lock or a CAS loop over packed
+state, taken by begin, end, and reap — begin/end are per-tx, so the cost argument that
+chose the RMW still holds; (b) the count stays the single authority and
+`computeGlobalLowWaterMark` ignores zero-count holders, so the reaper only decrements
+and never resets — this requires re-deriving the fallback's TOCTOU argument
+(`:6900`–`:6903`), because the min-ratchet lets a new tx inherit a stale residue below
+the fallback. Either way D7's fold text states the compound invariant and who restores
+it. Affected: D7, F76, D12, D5.
+
+### F84 — The pin release is not once-only: concurrent rollback initiators double-decrement the captured holder [MAJOR]
+Pass-8 report C21. Three rollback initiators can target one tx: the D7 reaper, the
+zombie owner's own unwind (F79's premise), and the Gremlin evaluation-timeout hook
+(`YTDBGremlinSession:219`–`:226`, outside the `synchronized kill` monitor; grep-based
+caveat). The tx state they traverse is unsynchronized by design (`assertOnOwningThread`
+exempts `close()`/`rollbackInternal`; `close()`'s guard is a check-then-act on the
+plain `atomicOperation` field, read `:951`, nulled `:964`). Two initiators both pass
+the guard → the captured holder is decremented twice for one tx: with an intervening
+new tx on that thread, the second decrement takes the new tx's count 1→0 and resets
+`tsMin` (the F83 end state via double-release); without one, the count underflows and
+the floor stays pinned. Today's thread-id gate (`close():954`) makes the cross-thread
+arm harmless; F76 removes it deliberately and adds no once-only replacement — while
+F79 solved this exact class for the mutex with the token CAS.
+
+**Resolution (proposed):** make the pin release once-only per tx, mirroring F79: the
+tx's captured holder reference is consumed with `getAndSet(null)`; only the winning arm
+decrements; every other initiator's release is a logged no-op. F76's regression test
+gains a concurrent double-rollback variant. Affected: D7, F76, F79, F61.
+
+### F85 — The reap scope has no atomic discriminator, and `rollbackInternal`'s COMMITTING arm proceeds cross-thread: a reap racing a zombie's commit can durably commit torn tx state [MAJOR]
+Convergent: pass-8 reports C22 + U17. The scope test "is the owner inside the commit
+window?" rides plain fields: `status` is non-volatile (`FrontendTransactionImpl:81`),
+written with plain stores (`doCommit:668`, `rollbackInternal:369`); no commit-window
+flag exists. So the reaper's scope-check-then-rollback races the owner's
+check-then-commit, and `rollbackInternal`'s `BEGUN, COMMITTING ->` arm (`:368`) — built
+for the owner's own commit-failure path — proceeds for a cross-thread reaper too.
+Interleaving: the reaper reads stale `BEGUN` and starts the rollback (`clear()` wipes
+`recordOperations`, `close()` deactivates the operation) while the zombie owner wakes,
+reads its own stale `BEGUN` (`:637`), sets COMMITTING, and enters
+`AbstractStorage.commit`, serializing the very maps the reaper is wiping. Outcomes
+range from loud (CME, deactivated-operation throw, post-end-record poisoning — the
+U15(b) shape) to silent and durable: a HashMap iterated under concurrent `clear()`
+yields an arbitrary subset, and the unit commits a partial record set that every future
+recovery replays faithfully.
+
+```mermaid
+flowchart LR
+  R["reaper: stale BEGUN →<br/>rollbackInternal: clear(), deactivate()"] --> X["same tx state,<br/>no synchronization"]
+  O["zombie owner: stale BEGUN →<br/>doCommit → serialize recordOperations"] --> X
+  X --> BAD["durable unit from torn state<br/>(or loud CME / poisoning)"]
+  FIX["CAS handshake: BEGUN→COMMITTING (owner)<br/>vs BEGUN→REAPING (reaper)"] -.-> X
+```
+
+**Resolution (proposed):** the scope decision rides an atomic status handshake on one
+carrier: the owner's commit entry CASes `BEGUN → COMMITTING`; the reaper's claim CASes
+`BEGUN → REAPING`; exactly one side wins and the loser stands down (the reaper defers
+to the storage-error path; the owner fails its commit loudly before touching storage).
+COMMITTING already spans the whole window the scope must cover (set at `doCommit:668`,
+cleared to COMPLETED at `:699` after promotion, overlay publication, and the trailing
+`forceSnapshot`), so one carrier closes both edges and supplies the missing
+discriminator. D7's tolerance sentence narrows to: the reap tolerates a zombie's stale
+mutex release (F79's token no-op); it never shares tx state with a live commit.
+Affected: D7, F76, F79, F71, D12, D5.
+
+### F86 — The freezer gate sits below `stateLock.write`: a parked data commit holds `stateLock.read` for the freeze window and the C18 outage returns one lock up [MAJOR]
+Pass-8 report C23. A data commit that reaches its gate after the freeze engaged parks
+holding `stateLock.readLock()` (taken `:2285`, released `:2432`); the freeze's drain
+does not wait for parked entrants (they decrement `operationsCount` before parking,
+`OperationsFreezer:38`), so `freeze()` returns with that reader parked for the window.
+DDL then takes the mutex, schema, and index locks and blocks on `stateLock.writeLock()`
+behind the parked reader; writer preference parks every subsequent read. The throwing
+gate never fires — the schema commit never reaches it — so the promised loud failure
+silently degrades into "hang through the freeze while blocking all reads", which is
+C18's end state one lock up. Needs only one write tx committing during the freeze
+window. A weaker variant exists today (a structural self-commit parks at its own gate
+under `stateLock.write`), so the outage is partly pre-existing; design-created is the
+fold's claim that the throw preserves read availability.
+
+```mermaid
+flowchart LR
+  F["freeze engaged"] --> DC["data commit parks at gate<br/>HOLDING stateLock.read (:2285)"]
+  DC --> DDL["DDL queues on stateLock.write"]
+  DDL --> OUT["writer preference: all reads park —<br/>C18 outage, gate never throws"]
+  FIX["pre-lock freeze probe +<br/>freeze-aware bounded try-acquire"] -.-> DDL
+```
+
+**Resolution (proposed):** the loud-fail decision executes before the commit queues on
+any lock readers need: (a) probe the freezer at schema-commit entry, before the
+four-lock sequence; (b) for the freeze-engages-after-probe ordering, acquire
+`stateLock.writeLock()` through a bounded try-acquire loop that re-probes the freezer
+on each timeout and throws if one engaged. The in-window gate stays as the
+authoritative backstop. D7's freezer bullet states that the gate alone cannot deliver
+the availability claim. Affected: D7, F78, D19, F48.
+
+### F87 — "The freezer's throwing variant" does not exist per-operation, and both implementable keys break a premise [MAJOR]
+Convergent: pass-8 reports U18 + C24. Throw-vs-park is a property of the **freeze**,
+not the entrant: the gate throws only when the freeze registered a `FreezeParameters`
+supplier (`OperationsFreezer:114`–`:118`); the filesystem-snapshot freeze is park-mode
+(`freeze(db, false)` passes null, `AbstractStorage:3905`). The entrant-side throwing
+gate F78 needs is net-new, and the two signals it could key on each break a premise:
+keying on `freezeRequests > 0` aborts schema commits against routine transient internal
+quiesces — `doSynch` (`:3749`, reached from every `synch()` including the D20 import
+itself, `DatabaseImport:252`, and the index-rebuild task), the incremental-backup WAL
+copy (`DiskStorage:356`), the backup segment cut (`:1248`) — the D5 violation F71
+closed for the mutex timeout, reopened at the fifth synchronization object, with no
+operator and no `release(db)` to retry after (grep-based caller set); keying on
+registered `FreezeParameters` (throw-mode freezes only) leaves the park-mode backup
+freeze re-creating C18. Wiring pins: the gate must throw before the freezer depth
+increment (else `endAtomicOperation`'s unconditional `endOperation()` masks it,
+`AtomicOperationsManager:442`), and must land on the frontend-commit path only — the
+wrapper paths (`calculateInsideAtomicOperation`) hit a pre-existing dormant
+double-masking cascade (`getCommitTs` throws on the -1 sentinel, then the depth throw).
+
+**Resolution (proposed):** name the mechanism net-new in D7: the freeze registration
+gains a freeze-kind taxonomy (operator/long-lived vs transient internal quiesce — a
+second counter or kind flag); the schema-commit gate throws only against operator
+freezes and parks (bounded, with the F61-style diagnostic) for transient ones; data
+commits keep the uniform park. Gate placement pinned to the frontend-commit path with
+the clean-unwind property (throw before depth increment; `startTxCommit` outside the
+rollback/endTxCommit branch). Regression pair: schema commit vs engaged
+`freeze(db, false)` → loud error, locks released, reads flowing; schema commit vs
+in-flight `doSynch`/backup segment cut → brief park, commit succeeds. Affected: D7,
+F78, D19, D5, D12, D20.
+
+### F88 — F80's allocator seed must be read inside the `stateLock.write` window [MINOR]
+Pass-8 report C25. The D7 mutex serializes only schema commits against each other;
+engine-id registrars exist under `stateLock.write` alone: `IndexAbstract.rebuild:305`
+→ `addIndexEngine` (reachable from the crash-recovery rebuild background thread,
+`IndexManagerEmbedded:489`–`:502`, and the user-facing rebuild API) and
+`loadExternalIndexEngine` (`IndexAbstract:240`); grep-based caller inventory. A seed
+read before the commit acquires `stateLock.writeLock()` races them, and the F80
+duplicate-id failure returns through the one window the fold left unpinned. Read inside
+the write-lock window, the seed is serialized against every registrar.
+
+**Resolution (proposed):** one D3 wording pin: the allocator seed is read after
+`stateLock.writeLock()` is acquired. The F53/F80 PSI audit also enumerates the
+non-commit registrars (`rebuild`, `loadExternalIndexEngine`, `recreateIndexes`) and
+states whether each survives under the design or routes through the schema-commit
+path. Affected: D3, F80, F53.
+
+### F89 — The tx's strong capture of the `TsMinHolder` defeats the weak-keyed self-heal for dead-thread leaks [MINOR]
+Pass-8 report C26. Today a dead thread's stranded holder becomes weakly reachable and
+the `tsMins` weak-key eviction drops it — the leak self-heals. F76's strong chain
+(session → tx → captured holder) keeps a leaked, never-closed session's holder in
+`tsMins` forever. Server deployments are covered by the reap; the regression is
+confined to embedded/no-reaper usage (the reap grounding is the Gremlin kill path).
+
+**Resolution (proposed):** null the captured reference in every `close()` arm, bounding
+the strong chain to the tx's active life, and name the residual in D7: a leaked
+never-closed session in an embedded deployment loses the weak-eviction backstop F76
+trades away. Affected: D7, F76, D12.
+
+### F90 — The legacy exporter's failure path finalizes the JSON document and renames into place: F81's JSON-close check passes exactly the failed exports it was invented to reject [MAJOR]
+Pass-8 report U19. Both directions of the F81 premise fail. (1) The truncations the
+check targets never reach the final name: the legacy exporter writes
+`<name>.json.gz.tmp` and promotes it only in `close()` (`DatabaseExport:87`/`:291`),
+and a truncated gzip member throws at import decompression anyway
+(`DatabaseImport:138`–`:143`). (2) The failures that do reach the final name are
+cleanly closed by construction: `exportDatabase` runs `close()` in a `finally`
+(`:157`–`:158`) — on the failure path too — which writes `writeEndObject` (`:277`),
+Jackson's default `AUTO_CLOSE_JSON_CONTENT` closes every still-open scope, and the
+rename promotes. A mid-records source-side failure therefore yields a well-formed,
+valid-gzip dump at the final name with only an error exit status to distinguish it. The
+import's tag loop never checks section presence (`DatabaseImport:226`–`:242`), so a
+dump missing whole sections imports and reports success — and the F81 ack flag is
+mandatory on every D20 migration import, so its deliberate-choice signal is void on the
+primary path.
+
+```mermaid
+flowchart LR
+  EX["export fails mid-records"] --> FIN["finally: close() →<br/>writeEndObject + auto-close + rename (:291)"]
+  FIN --> DUMP["well-formed gzip dump at final name,<br/>error exit status only"]
+  DUMP --> IMP["import: JSON-close PASSES,<br/>sections never checked (:226)"]
+  IMP --> BAD["silently incomplete DB (= F63)"]
+  FIX["section-presence check +<br/>verify export exit status"] -.-> IMP
+```
+
+**Resolution (proposed):** replace the cleanly-closed criterion with section presence:
+a complete legacy dump always contains `info`, `collections` (or `clusters`),
+`schema`, `records`, `brokenRids`, and `indexes` (the last section written,
+`DatabaseExport:393`); the import hard-fails a legacy dump missing any expected section
+(the residue — truncation inside the final `indexes` section — is covered honestly by
+the ack flag). Procedure pins: a dump file can exist at the final name after a FAILED
+export, so the operator verifies the export's exit status before importing; the ack
+flag is a procedural acknowledgment, not a detection mechanism. Affected: D20, F81,
+F63, F75, D14.
+
+### F91 — F82's stream-trailer and rename pins under-specify scope and platform degradation [MINOR]
+Pass-8 report U20. Three one-sentence pins on D20's F82 bullet. (1) Stream variant:
+page-cache writeback is unordered, so a durable self-validating tail can sit over a
+zero-filled middle; the trailer must cover the entire stream and the file is fsynced
+before the export reports success — the existing gzip envelope gives whole-stream
+CRC32 for free, so "keep the dump gzip-framed and verify full decompression" is the
+cheapest compliant form. (2) Directory fsync is best-effort per repo precedent
+(`DiskStorage:2088`–`:2093`; `FileChannel.open(directory)` fails on non-POSIX), and
+that is safe because every lost-rename outcome is fail-closed (missing manifest →
+F75 hard-fail; missing dump → loud). (3) `FileUtils.atomicMoveWithFallback`
+(`FileUtils:306`–`:319`) silently falls back to a non-atomic `Files.move`; acceptable
+for the manifest for the same fail-closed reason, but stated, not assumed.
+
+**Resolution (proposed):** extend D20's F82 bullet with the three pins. Affected: F82,
+F75, D20.
 
 ---
 
