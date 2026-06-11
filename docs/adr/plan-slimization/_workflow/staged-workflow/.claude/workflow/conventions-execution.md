@@ -62,6 +62,10 @@ Surprises & Discoveries, Decision Log, Outcomes & Retrospective — come
 first so a restart-from-cold reader sees current state before static
 plan; Episodes sits adjacent to its plan-at-start partner (Concrete
 Steps) so per-step roster and per-step result are physically co-located.
+(`## Decision Log` is plan-at-start **and** continuous per D7 — Phase 1
+seeds it with the track's full inline Decision Records and execution
+appends to the same section; it sits with the continuous-log group so the
+cold reader still sees the live decision state before the static plan.)
 
 **Authoritative template:** the verbatim Markdown `/create-plan` writes
 at Phase 1 lives in `design.md` §"New per-track file shape". The block
@@ -97,11 +101,18 @@ is tabulated in the *Section lifecycle* subsection below.
    findings promoted by the orchestrator from per-step episodes when
    the finding affects future steps or other tracks. Empty at Phase 1.
 
-4. **`## Decision Log`** — continuous-log of execution-time decisions
-   (inline-replan choices, scope-downs, dependency reveals, gate
-   overrides). Move 1 (YTDB-814) will later land per-track inlined
-   Decision Records here. Slot below the running log is reserved for
-   Move 1 (empty placeholder until that Move lands).
+4. **`## Decision Log`** — plan-at-start **and** continuous (D7). Phase 1
+   writes the track's full inline Decision Records here: every decision
+   this track realizes, recorded in full inline (the track is the
+   live decision carrier in every tier; in `full` the records are seeded
+   from the frozen `design.md` D-records, in `lite`/`minimal` directly
+   from the research log). Execution then appends to the same section —
+   inline-replan choices, scope-downs, dependency reveals, gate
+   overrides, and supersession notes from the cross-track propagation
+   duty. This is the track-side analog of the design seed's introduce-once
+   inline-record home: the former "reserved for Move 1" placeholder is now
+   the active plan-at-start inline-DR slot, populated at Phase 1 rather
+   than left empty until a later Move.
 
 5. **`## Outcomes & Retrospective`** — continuous-log absorbing today's
    `## Reviews completed`. Each Phase A/B/C review iteration appends one
@@ -218,10 +229,12 @@ per D6 and D10:
   per-step lines in `## Validation and Acceptance`. Cleared when Phase
   A runs.
 - **Sibling Move placeholders** in `## Purpose / Big Picture` (Move 2
-  ADDED/MODIFIED/REMOVED triad slot), in `## Decision Log` (Move 1
-  per-track inlined Decision Records slot), and in `## Validation and
+  ADDED/MODIFIED/REMOVED triad slot) and in `## Validation and
   Acceptance` (Move 3 EARS/Gherkin acceptance slot). Cleared when the
-  corresponding Move lands.
+  corresponding Move lands. `## Decision Log` no longer carries a
+  sibling-Move placeholder: its inline-DR slot is now plan-at-start
+  populated at Phase 1 (D7), so a `full`-tier track's `## Decision Log`
+  holds real Decision Records before Phase A, not an empty placeholder.
 
 #### Section lifecycle
 <!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="Per-section writer/reader matrix across Phase 1/A/B/C for each of the 14 track-file sections." -->
@@ -231,7 +244,7 @@ per D6 and D10:
 | `## Purpose / Big Picture` | BLUF + intro paragraph + Move 2 placeholder | — | — | — | Phase 2 reviews; Phase A/B/C orchestration; Phase 4 aggregation |
 | `## Progress` | four pre-seeded phase-checkpoint entries (`- [ ] Review + decomposition`, `- [ ] Step implementation`, `- [ ] Track-level code review`, `- [ ] Track completion`) — State C resume reads these as phase markers | decomposition-complete entry **(D12 statusline read → `[ctx=<level>]`; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | per-step entry **(sub-step 7; same D12 read)** | per-iteration entry + track-completion entry **(same D12 read)** | resume-readers (most-recent entry = current phase); Phase 4 |
 | `## Surprises & Discoveries` | (empty) | (rare — Pre-Flight clarification surfaces a cross-cutting fact) | promotion from per-step episode at sub-step 7 (when cross-cutting) | promotion from review iteration findings (when cross-cutting) | Phase A Pre-Flight Panel 1; Phase 4 |
-| `## Decision Log` | Move 1 placeholder | — | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries | Phase A reviews; Phase 4 |
+| `## Decision Log` | full inline Decision Records (D7; seeded from `design.md` D-records in `full`, from the research log in `lite`/`minimal`) | — | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries + cross-track propagation supersession notes | Phase A reviews; Phase 2 consistency / structural; Phase 4 |
 | `## Outcomes & Retrospective` | (empty) | Phase A review iteration entries (prefix: `Technical:` / `Risk:` / `Adversarial:`) | (occasional — dimensional review iteration entries) | review iteration entries + track completion summary (prefix: `Track-level code review iteration N…` / `Track complete`) | Phase A reviews; Phase 4 |
 | `## Context and Orientation` | "what's there today" prose | Pre-Flight clarifications (appended as `### Clarifications` subsection) | — | — | Phase A/B/C orchestration; Phase 4 |
 | `## Plan of Work` | "what we'll change" prose | per-step sequencing summary referencing Concrete Steps | — | — | Phase A/B/C orchestration; Phase 4 |
@@ -462,9 +475,9 @@ at session startup. Load on demand:
   The per-tier baseline selection differs — the step tier launches a
   subset (`review-bugs-concurrency` only), the track tier all four;
   see code-review-protocol.md:orchestrator:3B,3C.
-- **Complexity tiers** (which pre-execution reviews to run for Simple /
-  Moderate / Complex tracks): covered in
-  track-review.md:orchestrator:3A §Complexity Assessment.
+- **Tier-driven review selection** (which Phase-3A pre-execution reviews
+  to run, keyed off the confirmed tier rather than step count): covered in
+  track-review.md:orchestrator:3A §Tier-driven review selection.
 - **Checklist decomposition rules** (step sizing, cross-cutting concerns,
   parallel step annotation): covered in
   track-review.md:orchestrator,decomposer:3A §Step Decomposition.
