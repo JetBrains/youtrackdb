@@ -28,6 +28,7 @@ the tier-aware Step 1c resume branch.
 - [x] 2026-06-11T08:51Z [ctx=info] Step 2 complete (commit 4ad4335c03)
 - [x] 2026-06-11T09:10Z [ctx=info] Step 3 complete (commit bde2d550494)
 - [x] 2026-06-11T09:26Z [ctx=info] Step 4 complete (commit 1dd16f09ef)
+- [x] 2026-06-11T09:48Z [ctx=info] Step 5 complete (commit 6d9dbafc7f)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -287,7 +288,7 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 2. Stage create-plan/SKILL.md Phase-0→1 gate machinery — Phase 0 log creation; Step 4 two-gate classifier (tier + matched categories, user-confirmed lens add/drop D2/D3/D4/D16); gate spawn (D14 model/effort pin, D17 output path + thin manifest + Findings partial-fetch); per-tier Step 4a/4b routing; Step 1c resume branch on implementation-plan.md presence + D18 tier line (S2-safe, no new log read); templates (D18 tier line, shape-complete minimal stub D1, inline-DR track template) — risk: high (workflow machinery: tier classifier, per-tier dispatch, Step 1c auto-resume routing)  [x] commit: 4ad4335c03
 3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [x] commit: bde2d550494
 4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [x] commit: 1dd16f09ef
-5. Edit the LIVE .claude/scripts/design-mechanical-checks.py (D11) — accept both "### References" and "### Decisions & invariants" footers and add the decision-cited-without-rationale check, scoped so the legacy bare-D<N> References footer never trips it; the frozen design.md keeps passing; no existing test modified (S1) — risk: high (workflow machinery: a script that runs automatically; behavioral Python change)  [ ]
+5. Edit the LIVE .claude/scripts/design-mechanical-checks.py (D11) — accept both "### References" and "### Decisions & invariants" footers and add the decision-cited-without-rationale check, scoped so the legacy bare-D<N> References footer never trips it; the frozen design.md keeps passing; no existing test modified (S1) — risk: high (workflow machinery: a script that runs automatically; behavioral Python change)  [x] commit: 6d9dbafc7f
 6. Add a new LIVE fixture under .claude/scripts/tests/ — run workflow-startup-precheck.sh --mode full against a synthesized minimal stub plan dir, assert a readable state, and walk the post-review transitions (Plan Review flipped to done → State A/C; track plus Final Artifacts flipped → State D/Done), proving the unchanged precheck parses the D1 stub (S1's testable assertion) — risk: low (tests-only, new file) — size: ~1 file; (a) end-of-track tests-only unit validating the live precheck; all other work is HIGH-isolated  [ ]
 
 ## Episodes
@@ -471,6 +472,45 @@ footer.
 **Key files:**
 - `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (new staged copy)
 - `…/staged-workflow/.claude/workflow/design-document-rules.md` (new staged copy)
+
+### Step 5 — commit 6d9dbafc7f, 2026-06-11T09:48Z [ctx=info]
+**What was done:** Made D11 live in `.claude/scripts/design-mechanical-checks.py` — the
+one workflow file outside the §1.7 staged-prefix set, edited on the live path per the
+plan's Constraints (I6 unaffected: the edit touches `.claude/scripts/`, none of the
+three staged prefixes). Per-section footer detection now accepts the renamed
+`### Decisions & invariants` / `**Decisions & invariants.**` footer alongside the legacy
+`### References` / `**References.**` spelling, through one shared footer regex so the four
+toggle sites cannot drift. A new `check_decision_cited_without_rationale` flags a D-code
+cited bare under D-records with no inline rationale and no full record introduced anywhere
+in design.md (should-fix); a citation carrying inline rationale, or whose full record
+exists elsewhere, passes regardless of footer spelling. Added a self-contained test
+(`test_design_mechanical_checks_d11.py`) plus four fixtures (legacy-footer pass,
+new-footer pass, bare-decision fail, nested-code pass); no existing test modified (S1
+holds). The step-level hook-safety review raised WH1 — a latent false-positive where
+`_iter_footer_dcode_citations` scanned the whole joined D-records entry, so a code nested
+in another's parenthetical (`D1 (see D2)`) surfaced as a bare citation — fixed in Review
+fix commit `6d9dbafc7f` with a parenthetical-depth gate that yields only top-level codes
+(depth clamped ≥0), plus a pinning fixture and assertion. Gate-check PASS at iteration 2;
+the frozen design.md keeps verdict PASS with zero decision-cited-without-rationale
+findings.
+
+**What was discovered:** The frozen design.md does not use `**Dn.**` full-record markup —
+its full records live in the plan, and each footer carries rationale inline in a per-code
+parenthetical (`D2 (two-gate model …)`). The satisfaction path the frozen seed relies on
+is "inline rationale in the footer", not "full record elsewhere"; the check recognizes
+both. A first cut produced two false positives (D12, D17) from line-wrapped continuation
+parentheticals, fixed by joining each D-records entry into one offset-mapped string before
+scanning. The now-live check enforces two D11 contracts on any future full-tier design.md:
+footers may use either spelling (new name preferred), and every footer D-code must carry
+inline rationale or be introduced once in full.
+
+**Key files:**
+- `.claude/scripts/design-mechanical-checks.py` (modified, live)
+- `.claude/scripts/tests/test_design_mechanical_checks_d11.py` (new, live)
+- `.claude/scripts/tests/fixtures/d11-footer-legacy-pass.md` (new, live)
+- `.claude/scripts/tests/fixtures/d11-footer-newname-pass.md` (new, live)
+- `.claude/scripts/tests/fixtures/d11-decision-bare-fail.md` (new, live)
+- `.claude/scripts/tests/fixtures/d11-footer-nested-code-pass.md` (new, live)
 
 ## Validation and Acceptance
 
