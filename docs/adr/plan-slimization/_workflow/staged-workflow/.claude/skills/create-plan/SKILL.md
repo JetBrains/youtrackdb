@@ -235,18 +235,19 @@ the aim. Wait for the user's response before starting any research or
 planning work.
 
 Once the user provides the aim, write the **research log's `## Initial
-request`** — the verbatim aim — as the first durable Phase-0 action. The
+request`** (the verbatim aim) as the first durable Phase-0 action. The
 `_workflow/plan/` directory already exists from Step 1b
 (`mkdir -p .../plan`), so write the log directly: create
 `docs/adr/<dir-name>/_workflow/research-log.md` (a `Write`, not a shell
-command) with the five
+command) with the six
 sections `research.md` §The research log defines: `## Initial request`
-(the verbatim aim, written once), and the empty `## Decision Log`,
-`## Surprises & Discoveries`, `## Open Questions` continuous logs, plus
+(the verbatim aim, written once); the empty `## Decision Log`,
+`## Surprises & Discoveries`, `## Open Questions` continuous logs;
 `## Baseline and re-validation` filled **only** on a workflow-modifying
-branch. The log is created **unstamped** — it is on the `§1.6(f)` never-
-stamped list (D19), so no line-1 `workflow-sha` comment is written and the
-`§1.6(b)` paired-idiom does not run for it. Idempotent on resume: if the
+branch; and the empty `## Adversarial gate record` the Step 4 gate appends
+its verdict headings to. The log is created **unstamped**: it is on the
+`§1.6(f)` never-stamped list (D19), so no line-1 `workflow-sha` comment is
+written and the `§1.6(b)` paired-idiom does not run for it. Idempotent on resume: if the
 log already exists (a prior Phase-0 session created it), leave its
 `## Initial request` intact and append to the continuous logs only.
 
@@ -405,14 +406,30 @@ reviewer-return as a Workflow-update commit (the resume precondition;
   §Verdict-producer manifest variant.
 - A `should-fix` **gates**: the log's rationale must strengthen before the
   gate clears.
+- **Iteration cap (`iteration_budget`, default 3).** The re-spawn loop is
+  bounded exactly as the sibling `edit-design` cold-read loop is
+  (`edit-design/SKILL.md` § Inputs `iteration_budget`, § Failure modes and
+  recovery). Cap the gate at `iteration_budget` re-spawns. On exhaustion with
+  blockers or unaddressed should-fix findings still open, **do not loop
+  further: the user is the gate** — surface the still-open findings and the
+  decision history and let the user accept the risk, revise the decision, or
+  abandon the change, mirroring `edit-design` § Failure modes "the user is
+  the gate when the budget is exhausted". A gate must never spin unbounded on
+  a contested decision.
 - There is **no `skip`** — the log is not a track that can be dropped; a
   would-be `skip` is raised to a `blocker` so the change is re-justified in
   research before any artifact derives.
 
-The gate's review files are ephemeral (they die at the Phase 4 cleanup);
-the durable verdict carrier the Phase-4 consumers read is the research
-log's own gate records, not these files (`conventions-execution.md` `§2.5`
-§Third-scope review-file home).
+**Record the verdict on the log.** At each gate-clear or re-challenge,
+append one verdict heading to the research log's `## Adversarial gate record`
+section in the canonical shape defined once in `research.md` §The research log
+(Gate-record cadence): `### Adversarial review of this log (<ISO>) — <PASS | NEEDS REVISION[: <counts>]>`,
+followed by a one-line pointer to the iteration's `_workflow/reviews/research-log-adversarial-iter<N>.md`
+file. This on-log record is the gate's durable verdict carrier. The gate's
+review files are ephemeral (they die at the Phase 4 cleanup); the durable
+verdict carrier the Phase-4 consumers and the S3 freeze-order gate read is
+this `## Adversarial gate record` section, not the review files
+(`conventions-execution.md` `§2.5` §Third-scope review-file home).
 
 **Pre-presentation re-trigger vs post-presentation queue.** While
 authoring a Phase-1 artifact (the `full`-tier Step-4a design), a
@@ -653,9 +670,13 @@ Help the user develop the plan:
    cold-read returns inline, exempt from the review-file rule the same way
    the Step-4a `phase1-creation` cold-read is (`prompts/design-review.md`
    § Output format). A `blocker` re-opens Step-4b derivation in the **same
-   session** (the iterate loop mirrors `edit-design`); the written plan and
-   tracks are then presented for the user's pre-persist confirmation, which
-   is the presentation D15's review window opens at.
+   session** (the iterate loop mirrors `edit-design`): re-run at most
+   `iteration_budget` (default 3) times, and on exhaustion escalate to the
+   user as the gate, exactly as `edit-design/SKILL.md` § Failure modes and
+   recovery does — the cap is restated here so the loop carries its own
+   termination contract rather than borrowing it across skills. The written
+   plan and tracks are then presented for the user's pre-persist
+   confirmation, which is the presentation D15's review window opens at.
 
 Do NOT implement anything. Only research and plan.
 
@@ -1034,7 +1055,10 @@ review done, then run the batch.
    re-runs whole-batch until no blocker remains and every should-fix has been
    addressed in the log. The iteration ≥2 runs use the verdict-producer
    manifest variant (per `conventions-execution.md` `§2.5`), exactly as the
-   Step 4 part 2 gate loop does.
+   Step 4 part 2 gate loop does. The whole-batch re-run inherits the Step 4
+   part 2 gate's `iteration_budget` cap (default 3) and its budget-exhausted
+   recovery: on exhaustion with findings still open, the user is the gate
+   (the same escalation, not an unbounded loop).
 2. **One mutation.** After the gate clears, the cleared `[decision]` items and
    the `[clarification]` items apply to the artifact in **one** mutation
    (through `edit-design` for `design.md`, through the Step-4b plan/track
@@ -1044,8 +1068,8 @@ review done, then run the batch.
 3. **One cold-read, with loop-back.** One cold-read (the Step-4a or Step-4b
    cold-read, whichever the presented artifact uses) covers all the batch's
    changes. A decision-shaped cold-read finding **re-enters the gate step**
-   (step 1) and the batch cannot close — nor the artifact re-present — while a
-   log entry is open. S3 holds across the whole loop: no cold-read runs while a
+   (step 1); while a log entry is open the batch cannot close and the artifact
+   cannot re-present. S3 holds across the whole loop: no cold-read runs while a
    log-adversarial entry is open.
 
 A budget-exhausted mutation escalates to the user as a failure, not as a
@@ -1056,10 +1080,15 @@ for immediate processing of a single blocking finding; that finding runs the
 single-decision route (one gate run, one mutation, one cold-read for the lone
 finding) at its full per-finding cost, and ends with a one-line note of what
 moved: in chat, and in the handoff's queue block when the hold spans
-sessions. The processed finding is then dropped from the in-session queue so
-the review-done batch does not re-process it (the handoff's
-`Escape-hatch findings already processed this hold` line is the cross-session
-form of the same dedup rule).
+sessions. The single-decision route carries the **same step-3 loop-back as
+the three-step batch**: if its terminal cold-read surfaces a *new*
+decision-shaped finding, that finding re-enters the gate (or is enqueued as a
+new `[decision]` item) and the escape-hatch route does **not** close while a
+log entry it opened is unresolved — so S3 holds on the escape-hatch path too.
+Only once its cold-read is clean is the processed finding dropped from the
+in-session queue so the review-done batch does not re-process it (the
+handoff's `Escape-hatch findings already processed this hold` line is the
+cross-session form of the same dedup rule).
 
 **Multi-session holds.** A queue that outlives the session carries in the
 mid-phase handoff. When the context-consumption gate fires a pause with a

@@ -633,9 +633,9 @@ The Phase-0→1 research-log adversarial gate (`prompts/adversarial-review.md`
 loops on blockers, so its **iteration-1** run is a fresh finding set
 (finding-shaped manifest) and its **iteration≥2** re-challenges emit
 per-prior-finding verdicts plus any new finding (the verdict-producer
-variant above). This resolves D17's open implementation question — the
+variant above). This resolves D17's open implementation question: the
 gate's re-challenge runs use the verdict variant, not a fold of verdicts
-into the finding set — which is why the `planner`/`1` access this section
+into the finding set. That is why the `planner`/`1` access this section
 grants covers both the gate writer (`reviewer-adversarial` at phase `1`)
 and the `create-plan` reader (`planner` at phase `1`) on the variant row.
 
@@ -659,9 +659,12 @@ the file is written **and committed** at reviewer-return as a
 Workflow-update commit (the resume precondition), and the Phase 4 cleanup's
 blanket recursive `git rm -r _workflow/` sweeps `_workflow/reviews/` along
 with the rest, so no dedicated cleanup step is needed. The verdict carrier
-the Phase-4 consumers read is the research log's own gate records, not
-these review files; the review files die at cleanup without feeding either
-the `adr.md` fold or the `minimal` PR-description summary.
+the Phase-4 consumers read is the research log's `## Adversarial gate record`
+section (the gate writes one verdict heading there per iteration; the heading
+shape and cadence are defined once in `research.md` §The research log under
+Gate-record cadence), not these review files; the review files die at cleanup
+without feeding either the `adr.md` fold or the `minimal` PR-description
+summary.
 
 ### Coverage (S5)
 <!-- roles=decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection." -->

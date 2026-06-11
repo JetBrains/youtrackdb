@@ -415,13 +415,15 @@ sound.
 open (the S3 freeze-order gate).** Under D6 the decision/assumption challenge
 runs as a gate on the research log at the Phase 0 → 1 boundary, not as a local
 adversarial pass here. So for `phase1-creation` — before spawning the
-cold-read — read the research log's `### Adversarial review of this log …`
-section (the gate's durable verdict carrier, `prompts/adversarial-review.md`
-§Research-log-scoped review (Phase 0→1); the gate's own review files under
-`_workflow/reviews/` are ephemeral and not the carrier). The gate's verdict is
-encoded in that section's heading: a `NEEDS REVISION` heading with any open
-blocker or should-fix is an **open** entry. The cold-read **must not run while
-any log-adversarial entry is open**: that is the S3 invariant — a `design.md`
+cold-read — read the research log's `## Adversarial gate record` section (the
+gate's durable verdict carrier; the heading shape and the open/resolved and
+latest-dated-entry rules are defined once in `research.md` §The research log
+under Gate-record cadence). The gate's own review files under
+`_workflow/reviews/` are ephemeral and not the carrier. The gate's verdict is
+encoded in the section's headings: when the gate has looped, **match the
+latest dated heading**, and a `NEEDS REVISION` heading with any open blocker
+or should-fix is an **open** entry. The cold-read **must not run while the
+latest log-adversarial entry is open**: that is the S3 invariant — a `design.md`
 draft cannot reach cold-read while a log-adversarial entry is open, so a
 load-bearing decision surfaced while authoring the design is appended to the
 log, re-challenged at the gate, and cleared before the cold-read assesses

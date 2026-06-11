@@ -144,7 +144,12 @@ What changes from the design and track reviews:
   decision states. SCOPE and SIMPLIFICATION challenges are **mostly
   not-applicable** before decomposition — there is no track to split and no
   step count to shrink — so emit one only when a decision's scope is itself
-  the load-bearing choice. The certificate templates, the Semi-Formal
+  the load-bearing choice. Raise an OPEN-QUESTION challenge on any
+  `## Open Questions` entry that bears on a load-bearing decision: an
+  unresolved question is a not-yet-made decision, so deriving an artifact over
+  it is a gap. Grade it at least a `should-fix` — it must be resolved into the
+  `## Decision Log`, or explicitly waived by the user as out-of-scope, before
+  the gate clears. A non-load-bearing open question is a `suggestion`. The certificate templates, the Semi-Formal
   Reasoning Protocol, and the Part 1 / Part 2 output format are unchanged;
   each `### A<N>` finding cites a Challenge / Violation / Assumption entry,
   and `Target` names the log decision or assumption rather than a plan
@@ -178,7 +183,13 @@ five-prose-criteria supersession for workflow-prose references), ignoring
 only the track / plan / episode framing. Your output mode is **file**: an
 `output_path` is always supplied, so persist the `§2.5` review file and
 return the thin manifest exactly as §Output Format's Output-mode note
-prescribes.
+prescribes. That review file is **ephemeral** — it dies at the Phase 4
+cleanup. The gate's **durable** verdict carrier is the research log's own
+`## Adversarial gate record` section, which the spawning orchestrator
+(`create-plan` §Step 4) appends per iteration from your manifest verdict;
+the heading shape is defined once in `research.md` §The research log
+(Gate-record cadence). You write the review file; the orchestrator writes
+the on-log record.
 
 Everything below this section (`## Workflow Context` onward) is shared
 mechanics. Ignore its track / plan / episode framing when you are in

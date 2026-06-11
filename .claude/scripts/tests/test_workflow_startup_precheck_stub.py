@@ -79,14 +79,24 @@ def run_precheck(*args: str, cwd: Optional[Path] = None) -> subprocess.Completed
     stdout/stderr. `check=False` so a non-zero exit surfaces as a clear
     per-case assertion rather than a raised CalledProcessError. `cwd` runs the
     script inside the fixture git repo so the state walk resolves the fixture's
-    branch (and thus its plan dir) rather than the runner's own checkout."""
-    return subprocess.run(
-        ["bash", str(SCRIPT_PATH), *args],
-        capture_output=True,
-        text=True,
-        check=False,
-        cwd=str(cwd) if cwd is not None else None,
-    )
+    branch (and thus its plan dir) rather than the runner's own checkout.
+    `timeout=60` so a wedged child (a git operation that escapes the script's
+    own internal `timeout 10` guard) fails fast with a clear message instead of
+    hanging the runner; mirrors the D11 test's `run_script` bound."""
+    try:
+        return subprocess.run(
+            ["bash", str(SCRIPT_PATH), *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=str(cwd) if cwd is not None else None,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit(
+            f"workflow-startup-precheck.sh timed out after 60s "
+            f"(args={args!r}, cwd={cwd}); possible wedged subprocess."
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

@@ -226,10 +226,14 @@ frozen `design.md` keeps a seed copy as historical provenance.
 ```markdown
 # <Feature Name>
 
+<!-- `## Design Document` is `full`-only — omit these two lines in lite/minimal,
+     which have no design.md (see §Per-tier artifact set above). -->
 ## Design Document
 [design.md](design.md)
 
 ## High-level plan
+
+**Change tier:** <full | lite | minimal> — matched categories: <…>
 
 ### Goals
 <what this feature achieves and why>
@@ -253,8 +257,16 @@ frozen `design.md` keeps a seed copy as historical provenance.
 - [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
 
 ## Final Artifacts
+<!-- Tier-keyed per §Per-tier artifact set: `full` → design-final.md + adr.md;
+     `lite` → adr.md; `minimal` → a PR-description verdict summary (no docs/adr entry). -->
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
 ```
+
+The `## Design Document` block and the `## Final Artifacts` line are
+tier-conditional: the §Per-tier artifact set matrix above is the authority on
+which artifacts each tier produces, and the `create-plan` templates are the
+operative per-tier source. The schematic above shows the `full` shape; consult
+§Per-tier artifact set for `lite`/`minimal`.
 
 The `## Plan Review` section is the State 0 marker the
 `/execute-tracks` startup protocol reads (see

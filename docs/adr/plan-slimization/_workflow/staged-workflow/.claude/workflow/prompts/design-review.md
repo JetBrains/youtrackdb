@@ -103,20 +103,27 @@ to both targets).
 <!-- roles=reviewer-design phases=1,4 summary="Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts." -->
 
 - **`phase1-creation`**: `design.md` and `design-mechanics.md`
-  were just seeded together. **You run after the adversarial pass.**
-  The `phase1-creation` loop runs adversarial review first
-  (`prompts/adversarial-review.md` § Design-scoped review (Phase 1)),
-  then this cold-read — the design you are reading has already
-  survived a decision/assumption challenge, so assess comprehension,
-  not whether the decisions hold. The `design.md` serves both human
-  readers (the user reviewing the plan, the architect during
-  structural review, the PR reviewer reading the draft) and
-  agent readers (the implementer executing the plan). Verify
-  (a) the `design.md` is internally coherent on its own (a fresh
-  reader can navigate it); (b) every
-  `Mechanics: design-mechanics.md §"…"` link resolves to a
-  matching section in mechanics. **Plus the Human-reader
-  cold-read additions (§ below).**
+  were just seeded together. **You run gated behind the cleared
+  log-adversarial gate (S3).** Under D6 the decision/assumption
+  challenge no longer runs as a local pass here; it ran once on the
+  **research log** at the Phase 0 → 1 boundary
+  (`prompts/adversarial-review.md` § Research-log-scoped review
+  (Phase 0→1)), and the `edit-design` § Step 4 S3 gate blocks this
+  cold-read until that log gate clears (`research.md` §The research
+  log, Gate-record cadence). So the design's decisions have already
+  survived challenge **on the log**: assess comprehension, not whether
+  the decisions hold. The `design.md` serves both human readers (the
+  user reviewing the plan, the architect during structural review,
+  the PR reviewer reading the draft) and agent readers (the
+  implementer executing the plan). Verify (a) the `design.md` is
+  internally coherent on its own (a fresh reader can navigate it);
+  (b) every `Mechanics: design-mechanics.md §"…"` link resolves to a
+  matching section in mechanics; (c) the **absorption-completeness
+  cross-check** this invocation owns — every load-bearing research-log
+  decision appears as a seed D-record in `design.md` (see
+  §Track-scoped cold-read, the `target=design` direction of the
+  criterion; run only when `research_log_path` is supplied). **Plus
+  the Human-reader cold-read additions (§ below).**
 - **`design-sync`**: this sync re-distilled `design.md` from the
   current state of `design-mechanics.md`. **In addition to the
   standard whole-doc cold-read**, verify that every TL;DR and

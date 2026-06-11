@@ -58,7 +58,7 @@ tier-specific artifact (see `prompts/adversarial-review.md`
 §Research-log-scoped review (Phase 0→1) and `planning.md` §Tier
 classification).
 
-**Five sections:**
+**Six sections:**
 
 - `## Initial request` — the verbatim aim, written **once** at aim
   capture so a later session boundary never re-asks it. A plan-at-start
@@ -73,6 +73,13 @@ classification).
 - `## Baseline and re-validation` — filled **only** on a
   workflow-modifying branch (the rebase-drift anchor such a branch needs);
   omitted otherwise.
+- `## Adversarial gate record` — the durable verdict carrier the Phase-0→1
+  adversarial gate writes. One `### Adversarial review of this log (<ISO>) — <PASS | NEEDS REVISION[: <counts>]>`
+  heading per gate iteration, each followed by a one-line note pointing at
+  the iteration's ephemeral `_workflow/reviews/research-log-adversarial-iter<N>.md`
+  file. This section is the gate's on-log record, distinct from those
+  ephemeral review files; it is what the Step-4a/4b cold-reads and the
+  Phase-4 fold read as the verdict. See the gate-record cadence below.
 
 **Append cadence.** Write `## Initial request` when the user gives the
 aim. Append to the three continuous-log sections as research proceeds,
@@ -84,13 +91,33 @@ load-bearing decision surfaced while authoring `design.md` is appended
 and re-triggers the adversarial gate — see `planning.md` §Tier
 classification and `prompts/design-review.md`).
 
+**Gate-record cadence.** The `## Adversarial gate record` section is the
+single definition of the gate's durable verdict heading, referenced by every
+consumer rather than re-spelled. The canonical heading shape is:
+
+```
+### Adversarial review of this log (<ISO>) — <PASS | NEEDS REVISION[: <counts>]>
+```
+
+The Phase-0→1 gate (`create-plan` §Step 4) appends one such heading per gate
+iteration at each gate-clear or re-challenge, and the D15 review-hold batch
+appends one per batch gate run. An entry is **open** when its heading reads
+`NEEDS REVISION` with any unresolved blocker or should-fix; it is **resolved**
+when the latest dated heading reads `PASS`. A looped (multi-iteration) gate
+writes one heading per iteration, so a consumer checking gate state **matches
+the latest dated entry**, not any earlier one. This is the single carrier the
+freeze-order gate (S3) reads — `edit-design` §Step 4 and the Step-4b cold-read
+block while the latest entry is open.
+
 **Read-scope discipline (S2).** The log → carrier flow is strictly
-one-way: the log is read for decision *content* in exactly two places —
-at Step 4a/4b artifact authoring (to seed the carriers) and by the
-Phase-2 consistency review (as a cross-check) — and is never cross-linked
-from the artifacts it seeds. After a track absorbs a decision as an inline
-Decision Record, the **track** is authoritative and the log is historical
-provenance. The log is removed in the Phase 4 cleanup with the rest of
+one-way: the log is read for decision *content* in exactly two places: at
+Step 4a/4b artifact authoring (to seed the carriers) and by the Phase-2
+consistency review (as a cross-check). It is never cross-linked from the
+artifacts it seeds. The `## Adversarial gate record` heading is a
+verdict/status read, not a decision-content read, so the gate consumers
+reading it add no third decision-content site. After a track absorbs a
+decision as an inline Decision Record, the **track** is authoritative and the
+log is historical provenance. The log is removed in the Phase 4 cleanup with the rest of
 `_workflow/`, so any audit trail that must survive merge is folded into a
 durable carrier (`adr.md`, or the `minimal`-tier PR-description summary),
 not left in the log.

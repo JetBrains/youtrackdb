@@ -1147,7 +1147,8 @@ def check_per_section_length(
                 "per-section-length",
                 location,
                 (f"Section `{section['title']}` is {length} lines (blocker at >{BLOCKER_SECTION_LINES}). "
-                 "Move long-form material to `design-mechanics.md` and reference via the `### References` footer."),
+                 "Move long-form material to `design-mechanics.md` and reference via the "
+                 "`### Decisions & invariants` footer."),
                 f"Move worked examples / derivations from `{section['title']}` to design-mechanics.md.",
             ))
         elif length > SUGGESTED_SECTION_CAP:
@@ -1179,7 +1180,8 @@ def check_dsc_parenthetical_asides(
     """Reject `(per D27)`, `(see S14)` style parenthetical asides anywhere in prose.
 
     Allowed: D-codes / S-codes when they are the SUBJECT of a sentence
-    ("D27 makes histograms volatile") and inside the `### References` block.
+    ("D27 makes histograms volatile") and inside the
+    `### Decisions & invariants` footer block (or the legacy `### References`).
 
     Operates on whichever file the caller passes — design.md or
     design-mechanics.md. Parenthetical asides are forbidden in both.
