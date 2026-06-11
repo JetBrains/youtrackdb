@@ -640,11 +640,11 @@ Help the user develop the plan:
 
      ```
      - target: tracks
-     - research_log_path: docs/adr/<dir-name>/_workflow/research-log.md
+     - research_log_path: <abs path to the research log under _workflow/>
      - tier: <the confirmed tier — selects whether the full-tier fidelity criterion applies>
-     - plan_dir: docs/adr/<dir-name>/_workflow/plan/
-     - plan_path: docs/adr/<dir-name>/_workflow/implementation-plan.md
-     - design_path: docs/adr/<dir-name>/_workflow/design.md   # full only; omit this line in lite/minimal
+     - plan_dir: <abs path to the plan/ directory under _workflow/>
+     - plan_path: <abs path to the implementation plan under _workflow/>
+     - design_path: <abs path to the design doc under _workflow/>   # full only; omit this line in lite/minimal
      ```
 
    The `design_path` line is present in `full` only, so the reviewer can run
@@ -1056,7 +1056,10 @@ for immediate processing of a single blocking finding; that finding runs the
 single-decision route (one gate run, one mutation, one cold-read for the lone
 finding) at its full per-finding cost, and ends with a one-line note of what
 moved: in chat, and in the handoff's queue block when the hold spans
-sessions.
+sessions. The processed finding is then dropped from the in-session queue so
+the review-done batch does not re-process it (the handoff's
+`Escape-hatch findings already processed this hold` line is the cross-session
+form of the same dedup rule).
 
 **Multi-session holds.** A queue that outlives the session carries in the
 mid-phase handoff. When the context-consumption gate fires a pause with a
@@ -1065,7 +1068,7 @@ queue block in `mid-phase-handoff.md`:planner:1 § Review-hold queue block
 (D15), so the flush session re-loads the tagged entries instead of asking the
 user to re-raise them. A held batch flushes at cold context in that later
 session, which counts as the "same session" for the blocker loop above; a
-batch of one degenerates to the single-finding route.
+batch of one degenerates to the single-decision route.
 
 **Step 5 — Commit, push, and open the draft PR.**
 
