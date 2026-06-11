@@ -349,3 +349,7 @@ rendering, propagation duty).
 output-path argument per D17; returns a thin §2.5 manifest. Stamp idiom for
 new stamped artifacts: `conventions.md` §1.6(b) paired test-and-fallback,
 verbatim. The research log itself is created unstamped (D19).
+
+## Base commit
+
+2775833bc33bab3d8acc1f3dd34a219e8ebe5ea7
