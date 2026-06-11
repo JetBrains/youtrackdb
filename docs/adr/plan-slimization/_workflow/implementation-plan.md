@@ -508,6 +508,8 @@ flowchart TB
   > frozen-seed item for Phase 4.
   >
   > **Track file:** `plan/track-1.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1 landed as planned; the three carryover items (canonical `## Adversarial gate record` verdict carrier for the step-7 fold, D14 partial-harness effort pin for the step-6 3A spawn, two open §2.1 reconciliation items) sit within Track 2's existing scope, so no plan restructuring is needed.
 
 - [ ] Track 2: Execution-side tier consumption — carrier lifecycle, review selection, design-presence conditionals, Phase 4 audit trail
   > Teach the execution side to consume what Track 1 produces. Track files
