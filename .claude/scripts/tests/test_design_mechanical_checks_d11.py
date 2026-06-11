@@ -24,8 +24,8 @@ Invocation (from repo root):
 Exit code 0: every assertion passed. Exit code 1: one or more failed; each
 failure prints to stderr.
 
-The four cases pin both sides of the two-sided backward-compatibility
-contract:
+The five cases pin both sides of the two-sided backward-compatibility
+contract plus the top-level-only scoping of the citation scan:
 
 - `d11-footer-newname-pass.md` — new `### Decisions & invariants` footer; one
   bare `D1` backed by a full `**D1.**` record, one rationale-bearing `D2`.
@@ -38,6 +38,12 @@ contract:
   backed by a full `**D3.**` record. Expect: footer recognized, zero
   `decision-cited-without-rationale` findings (proves the legacy bare-code
   footer never trips the new check when the record exists).
+- `d11-footer-nested-code-pass.md` — new footer citing `D1 (see D2)`; `D1`
+  carries a full record, `D2` is nested inside `D1`'s parenthetical
+  immediately before `)` and is introduced nowhere. Expect: footer recognized,
+  zero `decision-cited-without-rationale` findings (proves a code nested in
+  another code's parenthetical is excluded from the citation scan rather than
+  surfaced as a bare dangling reference — the depth-aware top-level-only fix).
 - frozen `design.md` (legacy `### References` footers, all codes carrying
   inline parenthetical rationale). Expect: verdict PASS, zero
   `decision-cited-without-rationale` findings (the new check must not regress
@@ -59,6 +65,7 @@ FIXTURE_DIR = REPO_ROOT / ".claude" / "scripts" / "tests" / "fixtures"
 NEWNAME_PASS = FIXTURE_DIR / "d11-footer-newname-pass.md"
 BARE_FAIL = FIXTURE_DIR / "d11-decision-bare-fail.md"
 LEGACY_PASS = FIXTURE_DIR / "d11-footer-legacy-pass.md"
+NESTED_PASS = FIXTURE_DIR / "d11-footer-nested-code-pass.md"
 FROZEN_DESIGN = (REPO_ROOT / "docs" / "adr" / "plan-slimization"
                  / "_workflow" / "design.md")
 
@@ -173,7 +180,7 @@ def assert_dcr_fires_on(data: Dict, code: str, label: str) -> List[str]:
 def main() -> int:
     failures: List[str] = []
 
-    for path in (NEWNAME_PASS, BARE_FAIL, LEGACY_PASS, FROZEN_DESIGN):
+    for path in (NEWNAME_PASS, BARE_FAIL, LEGACY_PASS, NESTED_PASS, FROZEN_DESIGN):
         if not path.exists():
             print(f"FATAL: required input missing at {path}", file=sys.stderr)
             return 1
@@ -195,7 +202,15 @@ def main() -> int:
     failures.extend(assert_no_dcr(d, "legacy-pass"))
     failures.extend(assert_no_blockers(d, "legacy-pass"))
 
-    # Case 4: frozen design.md (legacy footers, inline-rationale codes) ->
+    # Case 4: nested code `D1 (see D2)`, D2 introduced nowhere -> the nested
+    # D2 is NOT a citation, so zero DCR findings (regression pin for the
+    # top-level-only depth-aware scan; pre-fix this fired a false positive on D2).
+    d = run_script(NESTED_PASS)
+    failures.extend(assert_footer_recognized(d, "nested-code-pass"))
+    failures.extend(assert_no_dcr(d, "nested-code-pass"))
+    failures.extend(assert_no_blockers(d, "nested-code-pass"))
+
+    # Case 5: frozen design.md (legacy footers, inline-rationale codes) ->
     # verdict PASS and no DCR. This is the no-regression contract on the seed.
     d = run_script(FROZEN_DESIGN)
     failures.extend(assert_no_dcr(d, "frozen-design"))
@@ -216,8 +231,8 @@ def main() -> int:
         "PASSED — D11 mechanical-check validation: footer rename accepts both "
         "spellings; decision-cited-without-rationale fires on a bare "
         "unintroduced code and stays silent on rationale-bearing citations, "
-        "records-elsewhere citations (both footer spellings), and the frozen "
-        "design.md seed."
+        "records-elsewhere citations (both footer spellings), codes nested in "
+        "another code's parenthetical, and the frozen design.md seed."
     )
     return 0
 

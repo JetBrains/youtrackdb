@@ -898,6 +898,16 @@ def _iter_footer_dcode_citations(
     but list punctuation after it, or a code directly followed by the next
     code. A bare code with no full record elsewhere is what the rule fires on.
 
+    Only TOP-LEVEL codes are citations. A `D<n>` nested inside another code's
+    parenthetical (`D1 (see D2)`, `D1 (supersedes D2, D3)`) is part of that
+    code's rationale, not a citation in its own right. Scanning every token
+    would let `_FOOTER_DCODE_RE.finditer` over the whole joined entry surface a
+    nested code as its own citation — its `rest` is `)` or `,`, so the
+    rationale heuristic judges it bare, a false positive when that nested code
+    has no full record elsewhere. The scan therefore tracks parenthetical depth
+    across the joined string and skips any code match whose start offset falls
+    inside an open `(`; only depth-0 codes are yielded.
+
     A `D-records:` list wraps freely across continuation lines (indented, no
     leading `- `), and a code's parenthetical rationale can begin on a line
     after the code itself (`… D12` / next line `(mid-flight tier upgrade), …`).
@@ -939,7 +949,26 @@ def _iter_footer_dcode_citations(
             offset_line.extend([line_no] * len(text))
         joined = "".join(joined_parts)
 
+        # Parenthetical depth at each character offset, so a code match can be
+        # tested for being inside an open `(`. Depth is the count of unclosed
+        # `(` strictly before the offset; a `(` raises the depth of the chars
+        # that follow it, a `)` lowers the depth of the chars that follow it.
+        # Depth is clamped at 0 so a stray `)` (unbalanced footer prose) cannot
+        # drive it negative and re-expose later nested codes as top-level.
+        depth_at: List[int] = []
+        depth = 0
+        for ch in joined:
+            depth_at.append(depth)
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth = max(0, depth - 1)
+
         for m in _FOOTER_DCODE_RE.finditer(joined):
+            # Skip codes nested inside another code's parenthetical — they are
+            # that code's rationale, not citations in their own right.
+            if m.start() < len(depth_at) and depth_at[m.start()] > 0:
+                continue
             num = int(m.group(1))
             code_line = offset_line[m.start()] if m.start() < len(offset_line) else entry[0][0]
             rest = joined[m.end():].lstrip()
