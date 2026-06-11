@@ -20,7 +20,7 @@ into the per-tier durable carrier.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-06-11T13:54Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-11T14:34Z [ctx=safe] Step 1 complete (commit 7db9da10d0)
@@ -28,6 +28,7 @@ into the per-tier durable carrier.
 - [x] 2026-06-11T14:46Z [ctx=safe] Step implementation complete (2/2 steps)
 - [x] 2026-06-11T15:20Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-11T15:23Z [ctx=info] Track-level code review complete (PASS at iteration 1: 5 reviewers, 16 findings, 0 blockers; all VERIFIED, 0 regressions)
+- [x] 2026-06-11T15:35Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -77,6 +78,22 @@ carve-out; left unfixed it would silently desync duplicated decisions); A6
 (`minimal` consistency drops the plan half too, not only the design half); A1
 (the "xhigh effort pin" overstated the harness, reconciled to D14's
 session-default degradation caveat). Review files under `reviews/`.
+
+Phase C (track-level code review) ran five workflow reviewers on the
+workflow-only cumulative diff with the baseline group skipped: 16 findings,
+0 blockers (1 consistency, 4 prompt-design, 3 instruction-completeness, 0
+context-budget, 8 writing-style), all resolved in one fix iteration. The
+gate-check re-run VERIFIED every finding across the four dimensions that
+carried findings, with 0 regressions. Load-bearing catch WI2: a mid-flight
+tier upgrade re-enters the tier-keyed Phase-2/3A selectors but nothing
+rewrote the D18 tier line on the upgrade path, so a re-entered selector would
+read the stale tier; the staged `inline-replanning.md` now names that writer
+and this file's Interfaces note carries the matching read-only carve-out. WP1:
+`create-final-design.md`'s `design.md` read is now guarded on design-presence
+so a `lite`/`minimal` final-designer does not hit a missing-file Read. The
+implementer applied the 14 staged-file findings; the orchestrator applied WS3,
+WS8 (track-file em-dashes) and the WI2 carve-out. Phase C review files under
+`reviews/` (`{consistency,prompt-design,instruction-completeness,context-budget,writing-style}-iter1.md`).
 ## Context and Orientation
 
 Current state of each mechanism this track retargets (live paths; all writes

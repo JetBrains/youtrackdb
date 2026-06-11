@@ -511,18 +511,51 @@ flowchart TB
   >
   > **Strategy refresh:** CONTINUE — Track 1 landed as planned; the three carryover items (canonical `## Adversarial gate record` verdict carrier for the step-7 fold, D14 partial-harness effort pin for the step-6 3A spawn, two open §2.1 reconciliation items) sit within Track 2's existing scope, so no plan restructuring is needed.
 
-- [ ] Track 2: Execution-side tier consumption — carrier lifecycle, review selection, design-presence conditionals, Phase 4 audit trail
+- [x] Track 2: Execution-side tier consumption — carrier lifecycle, review selection, design-presence conditionals, Phase 4 audit trail
   > Teach the execution side to consume what Track 1 produces. Track files
   > become the live decision carrier through Phase 3 (replan propagation
   > duty, implementer guard rewording, slim rendering, §2.1 lifecycle);
   > Phase 2 and 3A review selection keys off the tier with design-presence
   > conditionals and the repurposed duplication check; Phase 4 folds the
   > log's adversarial verdicts into the per-tier durable carrier.
-  > **Scope:** ~11 files covering the Phase 2/3A review docs and prompts,
-  > inline-replanning, implementer-rules, plan-slim-rendering,
-  > conventions-execution §2.1, workflow.md Final Artifacts, and
-  > create-final-design
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Wired the execution side to consume the tier machinery Track 1 staged,
+  > across two steps and eleven staged `.claude/workflow/**` files. Step 1
+  > (medium) staged the §2.1 `## Decision Log` plan-at-start lifecycle, the
+  > doc-only slim-track rendering with its frozen-design guard, the
+  > tier-keyed Phase-2 pass selection with design-presence guards, the
+  > structural duplication-check repurpose, the Phase-3A tier panel selector,
+  > and the Phase-4 per-tier artifacts with the verdict fold. Step 2 (high,
+  > isolated) added the cross-track replan propagation duty to
+  > `inline-replanning.md` and `conventions-execution.md` §2.1.
+  >
+  > Track-level review ran five workflow reviewers on the workflow-only diff
+  > (the baseline group skipped): 16 findings, 0 blockers, all cleared in one
+  > fix iteration with 0 regressions. Two carried cross-track weight. WI2
+  > found that a mid-flight tier upgrade (design.md §"Mid-flight tier
+  > upgrade", D12) re-enters the tier-keyed Phase-2/3A selectors while nothing
+  > rewrote the D18 tier line on the upgrade path, so a re-entered selector
+  > would read the stale pre-upgrade tier; the fix names the tier-line rewrite
+  > as the first artifact the ESCALATE upgrade lands and establishes the
+  > inline-replan upgrade as the one execution-time exception to "only
+  > create-plan writes the tier line" (the matching carve-out landed in this
+  > track file's Interfaces note). WP1 found that `create-final-design.md`
+  > read `design.md` before reading the tier, so a `lite` or `minimal`
+  > final-designer would hit a missing-file Read; the read is now guarded on
+  > design-presence.
+  >
+  > No findings were deferred to other tracks. Two §2.1 reconciliation items
+  > handed down from Track 1 stay out of this track's file scope and carry to
+  > Phase 4: the stale "four sections" framing in
+  > `prompts/adversarial-review.md`, and the third-scope review-file home in
+  > `conventions-execution.md` §2.5. Phase 4 also promotes both the
+  > inline-replanning case lists and the §2.1 mid-execution line, re-checks
+  > the `track-review` "Tier-driven review selection" rename, and folds the
+  > per-tier verdict by reading Track 1's `research.md`
+  > `## Adversarial gate record` section.
+  >
+  > **Track file:** `plan/track-2.md` (2 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed 2026-06-11; consistency at iteration 1, structural at iteration 2
