@@ -65,9 +65,27 @@ depends on the plan's confirmed tier (read the tier line in
 - **`minimal`** (no design, stub plan): additionally skip the
   **plan-content cross-check** — the `minimal` aggregator plan is a
   ~10-line stub with one checklist entry and no decision content to
-  verify. Compare track + code only (the **PLAN ↔ CODE** axis lightens to
-  a track-vs-code check; do not raise findings against the stub plan's
-  absent content).
+  verify. The **PLAN ↔ CODE** axis runs only its track-reference bullet;
+  see that axis below (§PLAN ↔ CODE CONSISTENCY) for exactly which
+  bullets drop. Do not raise findings against the stub plan's absent
+  content, **except** the tier-line-presence check below, which runs in
+  every tier.
+
+**Tier-line-presence check (runs in every tier).** Reading the tier line
+is the precondition for the tier selection above, so its absence is a
+finding, not stub-content drift. If `implementation-plan.md` has no D18
+tier line, emit a finding (the tier line is required in every tier per
+D18; the `minimal` stub template must include it) and treat the plan as
+malformed. This check is carved out of the `minimal` "do not raise
+findings against the stub plan's absent content" suppression: the
+suppression covers decision and ordering content, never the tier line.
+
+**Degenerate case — tier line unreadable.** If the tier line cannot be
+read, do not guess a tier. Fall back to the design-presence test alone
+for axis selection: compare against whatever artifacts exist on disk
+(`design.md` present or not), run the track-vs-code check, and raise the
+tier-line-presence finding above. This keeps the run deterministic while
+that finding stands, instead of proceeding in an unspecified shape.
 
 When `design.md` is absent, emit no finding that opens, cites, or routes a
 correction to a design file: there is no frozen seed to defer to, so every

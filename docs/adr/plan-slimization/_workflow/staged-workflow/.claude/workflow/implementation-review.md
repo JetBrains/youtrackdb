@@ -183,7 +183,7 @@ ignore (the audit-trail `git add` is path-scoped to the files above).
 
 Which Phase-2 passes run, and in what shape, is keyed off the **confirmed
 tier** (D9), not off a step-count axis. Before launching Step 1, read the
-**D18 tier line** from `implementation-plan.md` — the single change-level
+**D18 tier line** from `implementation-plan.md`, the single change-level
 line `create-plan` writes at confirmation, carrying the tier
 (`full` / `lite` / `minimal`) and its centrally-matched HIGH-risk
 categories. The tier line is always present (the aggregator plan is
@@ -680,7 +680,7 @@ the defer-to-Phase-4-design branch is unreachable and every correction is
 plan-or-track-scoped, applied via `Edit` directly. The live decision lives
 in the track in every tier (D7), so a no-design tier loses only the
 deferral target, not a place to route the fix. A design-destination bloat
-fix — one that would move live material into the frozen seed — re-routes
+fix (one that would move live material into the frozen seed) re-routes
 to the matching track section in **every** tier, including `full`, because
 the seed is non-canonical under the carrier flip (the structural review
 owns this re-route; see structural-review.md:orchestrator,reviewer-plan:2,3A,3C).

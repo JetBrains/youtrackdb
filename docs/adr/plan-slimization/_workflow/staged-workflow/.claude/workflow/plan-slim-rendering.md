@@ -275,9 +275,9 @@ never a silent script edit.
 | `## Artifacts and Notes` | keep when non-empty |
 | `## Base commit` | drop (orchestrator-only Phase B→C housekeeping) |
 
-The shape mirrors the slim plan's principle — keep what a sub-agent reads
+The shape mirrors the slim plan's principle (keep what a sub-agent reads
 for strategy and tactics, shed the high-cadence continuous logs that exist
-for resume and audit — with one carrier-specific addition: the inline
+for resume and audit) with one carrier-specific addition: the inline
 `## Decision Log` is **load-bearing and kept in full** in every tier,
 because under D7 it is where the live decision lives. In `full`, any
 `**Full design**` pointer inside a Decision Record stays path-only (it

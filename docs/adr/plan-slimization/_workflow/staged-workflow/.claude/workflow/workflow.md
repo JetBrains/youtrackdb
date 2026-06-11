@@ -83,7 +83,7 @@ The overall workflow has five phases:
   replanning. Full orchestration in `implementation-review.md` (loaded
   on-demand only when State 0 is active).
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce `design-final.md` and `adr.md` (follows `prompts/create-final-design.md`)
+- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce the per-tier durable artifacts (`full`: `design-final.md` + `adr.md`; `lite`: `adr.md`; `minimal`: a two-line PR-description fold) per `prompts/create-final-design.md`
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
@@ -643,7 +643,7 @@ Phase 4 therefore lands, per tier and modification class:
   fold goes in the PR description, no `docs/adr/` final-artifacts commit.
 - **`minimal`, workflow-modifying** — two commits (promote-staged-workflow,
   then cleanup); the shed removes the fold's `adr.md` home and the
-  final-artifacts commit, not the rest of Phase 4 — promotion still runs.
+  final-artifacts commit, not the rest of Phase 4. Promotion still runs.
 
 The directory-presence guard is `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/`
 per conventions.md:any:any `§1.7(c)` *Detection rule*: when
@@ -669,9 +669,9 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
 2. **Final-artifacts commit** (`full`/`lite` only; skipped under
    `minimal`). First **fold the resolved adversarial gate verdicts** from
    `research.md`'s `## Adversarial gate record` (latest dated heading,
-   verdict/status only) into `adr.md`. Then stage the tier's artifacts —
-   `design-final.md` + `design-mechanics-final.md` (if applicable) +
-   `adr.md` in `full`, `adr.md` only in `lite` — and commit with the
+   verdict/status only) into `adr.md`. Then stage the tier's artifacts
+   (`design-final.md` + `design-mechanics-final.md` if applicable +
+   `adr.md` in `full`; `adr.md` only in `lite`) and commit with the
    message defined in `prompts/create-final-design.md` § Step 5; push.
    The fold runs **before** the cleanup `git rm` below deletes the log,
    so the verdict trail is captured in the durable carrier first. Under

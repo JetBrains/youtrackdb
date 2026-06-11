@@ -597,14 +597,14 @@ review-mode rounds.
 ### Tier-driven review selection and which reviews to run
 <!-- roles=orchestrator,decomposer phases=3A summary="Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only." -->
 
-The **confirmed tier** (D9) — not step count — selects the Phase-3A panel
+The **confirmed tier** (D9), not step count, selects the Phase-3A panel
 at the change level. Read the tier line in `implementation-plan.md`. This
 replaces the former Simple / Moderate / Complex step-count axis as the
 change-level selector. The selection reads **no per-step risk signal**
 (S4): the tier is the change-level driver; the per-step `risk:` tag stays
 the Phase-3B gate and the Phase-C triage stays the Phase-3C gate, and the
 two never stack into one signal. The reviews still determine *which*
-pre-execution passes run, not user interaction level — all tracks execute
+pre-execution passes run, not user interaction level: all tracks execute
 autonomously after review, all tracks get track-level code review
 (Phase C) regardless of tier, and step-level dimensional review (Phase B
 sub-step 4) runs only for steps tagged `risk: high` per
@@ -755,7 +755,9 @@ episode is.)
 spawn: `full` → Fable 5, `lite` → Opus 4.x. Both are intended to run at
 xhigh effort; the Agent surface exposes no per-spawn effort field and
 there is no adversarial-reviewer agent file to carry it in frontmatter, so
-the xhigh-effort half rides the session default. That is D14's documented
+the xhigh-effort half rides the session default. Do not attempt to set a
+per-spawn effort field: none exists, and the spawn carries only the
+`model` field. That is D14's documented
 degradation caveat — neither the model pin landing via the `model` field
 nor the effort pin degrading to the session default reopens the decision.
 

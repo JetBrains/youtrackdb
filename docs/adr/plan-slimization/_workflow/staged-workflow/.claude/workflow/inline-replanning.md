@@ -147,6 +147,21 @@ an earlier session already skipped, and a downgrade is likewise not
 automatic — a completed review cannot be un-run. No dedicated
 tier-upgrade mechanism exists; the ESCALATE replan is the carrier.
 
+The first artifact an upgrade lands is the **D18 tier line rewrite**. The
+Phase-2/3A/4 selectors all read the tier line in `implementation-plan.md`
+to pick their per-tier shape, so the upgrade rewrites that line to the new
+tier before the next State-0 re-run (step 6 below resets `## Plan Review`,
+routing the next `/execute-tracks` session through Phase 2). Without the
+rewrite, every re-entered selector would read the stale pre-upgrade tier
+and keep running the lighter tier's passes, so the upgrade would be
+announced but never take effect downstream. The tier line is normally a
+`create-plan`-owned write (it is read-only for every execution-time
+consumer), and the upgrade is the one execution-time exception: the
+ESCALATE replan owns this single write to the line, the same way it owns
+the revised Decision Records it lands. A `lite`→`full` upgrade that also
+gains a `design.md` writes the new design seed alongside the tier-line
+rewrite.
+
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
 [§Updating plan and track files](#updating-plan-and-track-files) below

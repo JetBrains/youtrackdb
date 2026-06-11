@@ -34,7 +34,12 @@ name. Otherwise, default to the current git branch name
 
 Read:
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
-- `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify)
+- `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify).
+  **`full`-tier only — absent in `lite`/`minimal`.** A `design.md` exists
+  only when the plan's confirmed tier is `full` (Step 3's tier table keys
+  artifact production off this). Skip this read when the file does not
+  exist; read the D18 tier line in `implementation-plan.md` first if
+  unsure which tier you are in.
 - `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all track files with step
   episodes. Each track file carries the track's original description
   across its `## Purpose / Big Picture`, `## Context and Orientation`,
@@ -329,8 +334,18 @@ iteration count. Never copy decision content from the log — the fold is
 the **one** sanctioned non-decision-content read of the research log (S2);
 the design decisions themselves already live in the tracks (D7) and in the
 Decision Records section above. Do this fold **before** the Step 6
-cleanup deletes the log. The same fold runs in `lite`, where the
-`## Adversarial gate verdicts` section is part of the `lite` ADR too.
+cleanup deletes the log.
+
+**Tier disposition of the verdict fold.** Unlike the per-artifact
+sub-sections (each tagged inline `full`-tier-only or `full`/`lite`), the
+verdict fold runs in **`full` and `lite`** and lands in the `## Adversarial
+gate verdicts` section of `adr.md` in both. Under **`minimal`** there is no
+`adr.md`; the fold becomes the two-line summary in the PR description (see
+§"Minimal tier: PR-description verdict fold" below). So when Step 3's bridge
+sentence says the sub-sections are "written for `full`, apply the tier table
+to decide which run," this one resolves to: run in `full`/`lite`, re-route
+to the PR description in `minimal` — never skipped in any tier, because the
+research log dies at cleanup in every tier.
 
 **Telemetry section — run the script, paste its output.** After writing
 the rest of `adr.md` (through `## Adversarial gate verdicts`), populate the
