@@ -370,3 +370,7 @@ is no adversarial-reviewer agent file to carry it in frontmatter. That is
 D14's documented degradation caveat, and neither outcome reopens the decision.
 The D18 tier line is read-only for every consumer in this track; only
 `create-plan` writes it.
+
+## Base commit
+
+f34bc56f066a1ec90cf45ca1c4bb6ee4c26002ee
