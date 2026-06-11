@@ -694,7 +694,11 @@ mid-commit-window stranding routed to the storage-error/restart path; F71's Phas
 checkpoint resolved: operation-object half passes, tsMin/freezer/component-lock halves
 fail); F77 → D12/F66 (accepted 2026-06-11: tx-aware population skips tx-touched RIDs,
 re-derivation contributes final-state puts only, deletes never put so no committed-key
-source is needed; tx-bypassing committed read rejected). F78–F82 pending.
+source is needed; tx-bypassing committed read rejected); F78 → D7/D19 (accepted
+2026-06-11, reject-loudly: schema commits route through the freezer's throwing variant,
+DDL against an engaged freeze fails loudly and rolls back; check-and-back-off rejected
+as fragile; the freezer named in D7's ordering discussion as the fifth synchronization
+object). F79–F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2257,13 +2261,17 @@ sequenceDiagram
   R--xDDL: every stateLock.read parks behind the writer — outage until release(db)
 ```
 
-**Resolution (proposed):** gate schema commits on the freezer before the lock window via
-check-and-back-off: after acquiring the four locks, probe `freezeRequests`; if a freeze
-is pending or active, release all four, park on the freezer gate, retry the acquisition.
-(The naive freezer-first reorder deadlocks against `freeze`'s own `stateLock.read` →
-drain order.) Alternative: route schema commits through the `throwException` freeze
-semantics so DDL-during-freeze fails loudly. Either way, name the freezer in D7/D19's
-ordering discussion. Affected: D19, D7, F48, D12.
+**Resolution (accepted 2026-06-11, reject-loudly):** schema-carrying commits route
+through the freezer's throwing variant: DDL that reaches the freezer gate while a freeze
+is engaged fails with a loud storage-frozen error, the tx rolls back (releasing all four
+locks), and reads keep flowing for the whole freeze window; the operator or migration
+script retries after `release(db)`. The check-and-back-off alternative (probe
+`freezeRequests` after acquiring the four locks, release all four, park on the gate,
+retry the acquisition) was rejected as fragile — a release-and-reacquire loop in the
+commit path. A freeze that engages after the commit passed the gate waits for the
+in-flight commit to drain, as it does today. The freezer is named in D7's ordering
+discussion as the fifth synchronization object (a park gate outside the lock order).
+Affected: D19, D7, F48, D12.
 
 ### F79 — The D7 mutex's normal release must be a hard compare-owner-and-clear: an assert-guarded `Semaphore.release()` from a reaped-but-alive owner breaks D5 mutual exclusion [MINOR]
 Pass-7 report C19. `Semaphore.release()` increments unconditionally from any thread. A
@@ -2575,6 +2583,20 @@ context / storage — an owner-tracked, cross-thread-releasable mutex
   is timed with a diagnostic naming the holder and **re-waits in a loop** on
   timeout (never aborts; a healthy F48-scale holder is not contention to
   punish, D5); only an operator-level interrupt breaks the wait.
+- **Freezer gate (F78, reject-loudly).** The commit path's fifth
+  synchronization object, the `OperationsFreezer`
+  (`startToApplyOperations`'s first statement, `AtomicOperationsManager:107`),
+  is not part of the lock order — it is a park gate engaged lock-free by
+  `freeze(db)`. A schema-carrying commit that parked on it would hold all four
+  locks and convert the freeze window into a total read outage (today the same
+  interleaving parks a data commit holding only `stateLock.read`, and reads
+  keep flowing). Accepted semantics: the schema commit routes through the
+  freezer's throwing variant, so DDL against an engaged freeze fails with a
+  loud storage-frozen error, rolls back, and releases the locks; the caller
+  retries after `release(db)`. Check-and-back-off (release all four, park,
+  retry) was rejected as fragile. Data commits keep today's behavior; a freeze
+  that engages after the gate waits for the in-flight commit to drain, as
+  today.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
 - **Rejected:** holding `stateLock.writeLock` for the whole tx (blocks all
   commits, too coarse); reusing `SchemaShared.lock` for tx lifetime (conflates
