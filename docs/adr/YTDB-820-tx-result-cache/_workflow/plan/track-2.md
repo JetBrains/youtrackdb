@@ -26,6 +26,7 @@ tap would cache a structurally meaningless scalar.
 
 - [x] 2026-06-11T11:29Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-11T18:27Z [ctx=safe] Step 1 complete (commit 4a9c9d0ccf)
+- [x] 2026-06-11T19:00Z [ctx=safe] Step 2 complete (commit d66cd22d57)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -51,6 +52,12 @@ tap would cache a structurally meaningless scalar.
   ephemeral-identifier rule allows only `adr.md`-defined DR IDs, so Phase 4 must
   define these IDs in `adr.md` (or strip them branch-wide) before merge, otherwise
   every citation dangles once `_workflow/` is removed. See Episodes §Step 1.
+- **Step 2 (I5 guard):** the new `FunctionDeterminismEnumerationTest` walks all four
+  `SQLFunctionFactory` implementations and fails the build whenever a registered SQL
+  function is neither in its curated deterministic/non-deterministic sets nor matched
+  by the `math_` prefix rule. Any future track that registers a new SQL function or
+  factory will break this test until the new name is classified — intended behavior,
+  but a build-gating surprise for the unaware. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -75,6 +82,13 @@ tap would cache a structurally meaningless scalar.
   reads the new value from the mutated `RecordAbstract`; `boolean matchAfter`
   carries WHERE-membership only. The existing signature is sufficient (rejects
   A6.2).
+- **Hardwired COUNT(*) disposition split (Step 2).** Bare `COUNT(*) FROM C`
+  classifies K0_NONE (statically detectable from the AST, served by the K0 version
+  gate); the single-field-indexed `COUNT(*) ... WHERE indexedField = ?` rides the
+  Step 3 splice fallback, since the AST-only classifier cannot see index metadata,
+  so the splice detects the `CountFromClassStep` and increments `spliceFailures`.
+  Resolves Plan of Work step 5(b)'s "pick one explicitly and test it." See Episodes
+  §Step 2.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
@@ -257,7 +271,7 @@ collapse.
    four-factory enumeration completeness test, and a metric-increment assertion.
    *(parallel with Step 1)* — risk: medium — size: ~3 files; (a) no mergeable
    low/medium work fits (rest of track is high-tagged or its own integration
-   tests)  [ ]
+   tests)  [x] commit: d66cd22d57
 3. **Tap + splice + eager drive + fallback.** New `AggregateCacheTapStep extends
    AbstractExecutionStep`; in `DatabaseSessionEmbedded` the aggregate miss path
    builds the plan via `createExecutionPlan` (a per-execution copy), splices the
@@ -328,6 +342,47 @@ carries the `sumDirty` flag. Step 3's splice must build the state, call
 `CachedResultSetView.forAggregate(...)`, not the `TxDeltaCursor` constructor.
 `buildForAggregate` asserts a non-null `aggregateState`, so only AGGREGATE_* entries may
 route to it.
+
+### Step 2 — commit d66cd22d57, 2026-06-11T19:00Z [ctx=safe]
+
+**What was done:** Tightened `ShapeClassifier` so two untappable aggregate shapes stay
+out of the now-live aggregate cache path. An aggregate under arithmetic (`count(*) + 1`)
+previously matched AGGREGATE_COUNT through a pre-order function-call search; the descent
+now rejects the subtree as soon as it crosses a math node carrying an operator, so it
+classifies K0_NONE. Bare `COUNT(*) FROM C` (no WHERE), which the planner hardwires to an
+O(1) `CountFromClassStep` the side-tap can never reach, classifies K0_NONE via
+`SQLFunctionCall.isStar()` plus the absent WHERE; `COUNT(*)` with a non-indexed WHERE
+stays AGGREGATE_COUNT and tappable. Bridged the global `QUERY_CACHE_*_RATE` metrics from
+the per-tx counters: each `QueryCacheMetrics` increment now records into the matching
+global `TimeRate` sink (resolved once, NOOP when absent) through two package-visible
+constructors that also enable deterministic tests. Added the I5 enumeration-completeness
+test walking all four `SQLFunctionFactory` implementations. Verified the existing
+aggregate gates and the COUNT(DISTINCT) nested-`distinct(...)` parse without rebuilding
+them. 149 cache-package tests pass.
+
+**What was discovered:** The single-field-indexed `COUNT(*) ... WHERE indexedField = ?`
+residual cannot be detected without index metadata the AST-only classifier lacks, so it
+rides the Step 3 splice fallback rather than classifying K0_NONE; only the statically
+detectable bare `COUNT(*)` classifies K0_NONE. The I5 guard caught real allowlist drift
+on its first run: the average function registers as `avg`, not `average`. The reflective
+`math_*` family is JDK-version-dependent, so the test classifies it by the `math_` prefix
+rule (`math_random` non-deterministic, the rest pure) rather than an enumerated list.
+
+**What changed from the plan:** None. Scope held to the two tightenings, the metric
+bridge, and the I5 / classifier / metric-increment tests. `incrementSpliceFailures` is
+not wired here — it is Step 3's per-tx counter.
+
+**Key files:** `ShapeClassifier.java`, `QueryCacheMetrics.java` (metric bridge plus
+test-seam constructors), `ShapeClassifierTest.java`, `QueryCacheMetricsTest.java`,
+`FunctionDeterminismEnumerationTest.java` (new I5 test).
+
+**Critical context:** The bare-`COUNT(*)` → K0_NONE choice makes the Step 3 splice
+fallback the sole disposition for the single-field-indexed `COUNT(*)` shape, so Step 3's
+fallback branch and its `incrementSpliceFailures` call must handle a `CountFromClassStep`
+appearing where an `AggregateProjectionCalculationStep` was expected. The metric bridge
+lives inside `QueryCacheMetrics` (the increment sites in `QueryResultCache` are
+unchanged), so Step 3's `incrementSpliceFailures` call feeds the global splice-failure
+rate automatically.
 
 ## Validation and Acceptance
 
