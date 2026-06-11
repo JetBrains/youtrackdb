@@ -643,7 +643,8 @@ the mechanism itself (cross-thread reaping postponed to YTDB-1114) rather than
 hardening it; the remaining pass-8 findings (F86–F88, F90–F91) are independent
 of the reaper. F84's grep caveat was discharged during settlement (PSI/AST
 sweep, results on YTDB-1113); F87's caveat was discharged at its fold (PSI
-caller inventory complete at five sites); F88's caveat remains pending.
+caller inventory complete at five sites); F88's caveat was discharged at its
+fold (PSI registrar inventory complete) — no pass-8 caveats remain open.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -746,7 +747,10 @@ freezer-bullet rewrite: pre-lock probe plus freeze-aware bounded try-acquire,
 in-window gate demoted to backstop); F87 → D7/F78 (resolved 2026-06-11:
 accepted — signal half: freeze-kind taxonomy at registration, throw only
 against operator freezes, two wiring pins; PSI caveat discharged, caller set
-complete at five sites); F88, F90–F91 pending.
+complete at five sites); F88 → D3/F80 (resolved 2026-06-11: accepted — seed
+read pinned inside the `stateLock.write` window; PSI registrar inventory
+complete: `create:196` commit path, `rebuild:305` user API + recovery thread,
+`load:240` external engines); F90–F91 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2723,6 +2727,15 @@ non-commit registrars (`rebuild`, `loadExternalIndexEngine`, `recreateIndexes`) 
 states whether each survives under the design or routes through the schema-commit
 path. Affected: D3, F80, F53.
 
+**Resolved (2026-06-11): accepted as proposed.** D3's allocator sentence now pins
+the seed read inside the `stateLock.writeLock()` window, and the registrar
+enumeration clause is recorded in the F53/F80 audit scope there. The grep caveat is
+discharged — PSI inventory complete: `addIndexEngine`'s callers are
+`IndexAbstract#create:196` (the commit path F80 owns) and `IndexAbstract#rebuild:305`
+(user rebuild API plus the `RecreateIndexesTask` thread spawned at
+`IndexManagerEmbedded:489`–`:505`); `loadExternalIndexEngine`'s sole caller is
+`IndexAbstract#load:240`. No registrars beyond the entry's set.
+
 ### F89 — The tx's strong capture of the `TsMinHolder` defeats the weak-keyed self-heal for dead-thread leaks [MINOR]
 Pass-8 report C26. Today a dead thread's stranded holder becomes weakly reachable and
 the `tsMins` weak-key eviction drops it — the leak self-heals. F76's strong chain
@@ -2874,11 +2887,18 @@ live allocators stale — a new collection id is the first null slot of the shar
 `collections` array (`doAddCollection:4991`) and a new engine id is
 `indexEngines.size()` (`addIndexEngine:2786`), both reads of the deferred registries —
 so collection and engine ids are drawn from a commit-local allocator seeded from the
-shared registries at commit entry (safe: schema commits are serialized by the D7 mutex
-plus `stateLock.write`), unique across the commit, and published together with the
-registries on the success path; a failed commit leaks no durable trace, so its ids are
-reusable. F53's PSI audit of registry read sites includes allocation sites — allocation
-is a read. Regression test: one tx creates two classes (16 collections, 2+ engines),
+shared registries **after `stateLock.writeLock()` is acquired** (F88: the D7 mutex
+serializes only schema commits; the engine-id registrars that run under
+`stateLock.write` alone — `IndexAbstract.rebuild:305` → `addIndexEngine`, reachable
+from the user rebuild API and the `recreateIndexes` crash-recovery thread
+(`IndexManagerEmbedded:489`), and `loadExternalIndexEngine` via
+`IndexAbstract.load:240`; PSI-complete inventory — are excluded only by reading the
+seed inside the write-lock window), unique across the commit, and published together
+with the registries on the success path; a failed commit leaks no durable trace, so
+its ids are reusable. F53's PSI audit of registry read sites includes allocation
+sites — allocation is a read — and enumerates the non-commit registrars (`rebuild`,
+`loadExternalIndexEngine`, `recreateIndexes`), stating for each whether it survives
+under the design or routes through the schema-commit path (F88). Regression test: one tx creates two classes (16 collections, 2+ engines),
 commit succeeds, restart, all collections and engines resolve.
 
 ### D4 — Isolation is record-local, identical to data-record updates
