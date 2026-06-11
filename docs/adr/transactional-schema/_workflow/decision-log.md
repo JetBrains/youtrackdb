@@ -707,7 +707,8 @@ schema-carrying signal replaces the dead root-record dispatch check); F70 → D1
 (accepted 2026-06-10: accept-and-document the pre-existing enqueue-phase window; closure
 filed as YTDB-1101); F71 → D7/F61 (accepted 2026-06-10: timeout = re-wait loop with
 diagnostic; mutex = owner-tracked `Semaphore(1)` with `releaseStranded` reap API after
-full tx rollback; F38 assertion relocated into owner bookkeeping); F72 → D7 (accepted 2026-06-10: genesis
+full tx rollback; F38 assertion relocated into owner bookkeeping; arm (2) reversed
+2026-06-11 at the pass-9 settlement — thread-owned write lock, see the F71 correction); F72 → D7 (accepted 2026-06-10: genesis
 parenthetical fixed — genesis engages via its D18 transactions); F73 → F55/YTDB-1099
 (accepted 2026-06-10: three-step replay branch with internal-id matching; pins appended
 to YTDB-1099). F74 → D12/D7 (accepted 2026-06-10, option 1 with premise correction: the
@@ -2136,6 +2137,23 @@ flowchart LR
   DEAD["owner thread dies"] --> STR["ReentrantLock stranded — reaper cannot unlock"]
 ```
 
+**Correction (2026-06-11, pass-9 settlement): arm (2) reversed — the mutex
+returns to a thread-owned `ReentrantLock`-shaped write lock; arm (1)'s
+re-wait loop stands.** Both premises behind the semaphore choice dissolved.
+The reap that made cross-thread release a requirement was withdrawn at the
+pass-8 settlement (YTDB-1114 revokes registrations, never acquisitions),
+and the "routine event" premise failed PSI verification at F92: the
+vanished-client cleanup rolls back on the session's own single-thread
+executor (`YTDBGremlinSession:64`/`:185`), so the routine disconnect
+releases on the owner thread under any primitive. In the residual
+wedged/dead-owner cases the semaphore's cross-thread releasability had no
+remaining caller, so the primitive choice no longer changes any outcome —
+"stranded = DDL unavailable until restart" stopped being the rejected
+weaker arm and became the accepted pass-8 scope decision. The lock's
+ownership semantics enforce the relocated F38 assertion natively. See D7's
+teardown bullet for the two pins that ride the swap (foreign unlock
+warn-logged; different-session-same-thread loud rejection).
+
 ### F72 — D7 says genesis never engages the mutex; D18 says the genesis schema tx acquires it — the stale parenthetical breaks D18's seeding if followed [MINOR]
 The F56 fold wrote "(load/reload/genesis paths never engage)" into D7's engage bullet,
 but D18 requires the genesis schema tx to acquire the D7 mutex, seed the tx-local copy,
@@ -2450,10 +2468,10 @@ verification at F92: the graceful kill rolls back on the session's own
 single-thread executor (`YTDBGremlinSession:64`/`:185`) and the forced
 kill releases nothing. With no revoker anywhere, a stale release cannot
 exist, and same-thread double release is already once-only at the tx
-teardown layer. D7 now specifies a plain one-permit semaphore with a
-single owner-side release point, a volatile holder-diagnostic field for
-F61, and the F38 expectation as owner-path assert plus foreign-release
-warn. The token sketch above remains the recorded design for any future
+teardown layer. D7 now specifies a thread-owned exclusive write lock with
+a single owner-side release point (the F38 expectation enforced by lock
+ownership; the primitive swap is recorded in the F71 correction) and a
+volatile holder-diagnostic field for F61. The token sketch above remains the recorded design for any future
 mechanism that revokes acquisitions; it becomes load-bearing exactly
 then.
 
@@ -3181,11 +3199,11 @@ record-level property diff (F43). From the assignee, 2026-06-03.
 
 ### D7 — A dedicated, transaction-scoped metadata-write mutex
 Serialize schema/index-changing txns with a new exclusive lock on the shared
-context / storage — an owner-tracked mutex (`Semaphore(1)` + owner-token
-bookkeeping per F71/F79; the cross-thread `releaseStranded` arm is reserved
-for the postponed reaper, YTDB-1114; originally sketched as a
-`ReentrantLock`) — distinct from `stateLock`, `SchemaShared.lock`, and
-`IndexManager.lock`. From the assignee, 2026-06-03.
+context / storage — a thread-owned exclusive write lock (`ReentrantLock`-shaped,
+returning to the original sketch: the `Semaphore(1)` + owner-token form served
+the withdrawn cross-thread reaper; pass-9 corrections on F71/F79) — distinct
+from `stateLock`, `SchemaShared.lock`, and `IndexManager.lock`. From the
+assignee, 2026-06-03.
 
 - **One lock for schema and indexes both** — a class with a unique property
   creates a class and an index in the same tx, so a single metadata-write mutex
@@ -3255,8 +3273,8 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   class is pool-shutdown `close()` of abandoned sessions (the
   `FrontendTransactionImpl:130`–`:133` exemption), where the shipped
   thread-id gate covers the `tsMin` release (`close()` skips `resetTsMin`
-  for foreign threads, `:954`) and the mutex release is the desired
-  cleanup. A
+  for foreign threads, `:954`) and the foreign mutex unlock is caught and
+  warn-logged (the lock-swap pin below). A
   stranded tx (owner wedged, dead, or abandoned by a vanished client)
   therefore leaks its pin exactly as on `develop`: the YTDB-550 monitor
   detects and reports it, and reclamation is the postponed reaper's job —
@@ -3280,20 +3298,34 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   owner keeps the mutex and DDL stays loudly unavailable until restart
   (the documented scope decision; 1114 reclaims SI resources, not the
   mutex). With no revoker, a stale release cannot exist, and the CAS
-  protocol would guard against nothing reachable. The mutex is therefore
-  a plain one-permit semaphore with a single release point in the
-  owner's outermost teardown `finally`; the tx status machine already
-  makes teardown once-only at that layer, and the one legitimate
-  foreign-thread release (pool-shutdown `close()` of an abandoned
-  session) is the desired un-wedging and works on a bare semaphore. A
-  volatile holder-diagnostic field (owning session, acquire ordinal)
-  written at acquire and cleared at release feeds the F61 timed-acquire
-  diagnostic and carries the F38 same-thread expectation: an assert on
-  the owner path, a warn log when a release arrives from a foreign
-  thread (expected only from pool-shutdown cleanup). The token sketch
-  stays recorded in F79 as the design to resurrect if a future mechanism
-  (an operator-level force-release, a revived reaper) ever revokes
-  acquisitions; it becomes load-bearing exactly then. The acquire is timed with a
+  protocol would guard against nothing reachable — so the primitive
+  simplifies one more step (pass-9 settlement, correction on F71): the
+  mutex is a thread-owned exclusive write lock (`ReentrantLock`-shaped),
+  single release point in the owner's outermost teardown `finally`, with
+  the lock's ownership semantics enforcing the F38 same-thread rule
+  natively in production instead of an assert. Two pins ride the
+  primitive. (1) A foreign-thread unlock now throws: the cross-thread
+  `close()` path (pool shutdown of an abandoned session) catches and
+  warn-logs it, and the mutex stays held until restart, uniform with the
+  wedged-owner scope decision. Nothing real is lost: the routine
+  disconnect releases on the owner thread (the Gremlin kill path rolls
+  back on the session's own single-thread executor, F92 ground), and the
+  wedged/dead cases had no foreign-release caller under the semaphore
+  either. (2) Lock reentrancy counts threads, not transactions: the
+  engage path reads the holder field before acquiring and throws loudly
+  when the lock is held by a different session on the current thread —
+  legal embedded session alternation would otherwise be silently
+  admitted by the per-thread hold count (the semaphore variant would
+  have hung forever in the re-wait loop on the same shape, so the guard
+  is owed under either primitive). Same-transaction re-engagement stays
+  once-only via tx state. A volatile holder-diagnostic field (owning
+  session, acquire ordinal) written at acquire and cleared at release
+  feeds the F61 timed-acquire diagnostic and the different-session
+  rejection. The F79 token sketch stays recorded as the design to
+  resurrect if a future mechanism (an operator-level force-release, a
+  revived reaper) ever revokes acquisitions; revocation needs a release
+  that works without the owner's thread, so that world swaps back to a
+  semaphore-plus-token, and the token is load-bearing exactly then. The acquire is timed with a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
