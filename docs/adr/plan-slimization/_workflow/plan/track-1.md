@@ -29,6 +29,7 @@ the tier-aware Step 1c resume branch.
 - [x] 2026-06-11T09:10Z [ctx=info] Step 3 complete (commit bde2d550494)
 - [x] 2026-06-11T09:26Z [ctx=info] Step 4 complete (commit 1dd16f09ef)
 - [x] 2026-06-11T09:48Z [ctx=info] Step 5 complete (commit 6d9dbafc7f)
+- [x] 2026-06-11T09:56Z [ctx=info] Step 6 complete (commit 51d7df455a)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -73,6 +74,11 @@ at Phase 1. -->
   rule are not pinned. Phase C track-consistency action item (pin the contract,
   reconcile producer + consumer). Joins the §1.2 schematic lag (Step 2) and the
   route-naming item (Step 3) as the Phase-C consistency batch. See Episodes §Step 4.
+- 2026-06-11T09:56Z Step 6's new fixture pins the D1 `minimal` stub shape the resume
+  state machine reads. The stub template (staged `create-plan/SKILL.md`) and this
+  fixture are coupled per D1's Risks/Caveats: if Track 2's Phase-2 stub handling
+  changes which sections the resume machinery reads, the template and the fixture must
+  move together. See Episodes §Step 6.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -289,7 +295,7 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [x] commit: bde2d550494
 4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [x] commit: 1dd16f09ef
 5. Edit the LIVE .claude/scripts/design-mechanical-checks.py (D11) — accept both "### References" and "### Decisions & invariants" footers and add the decision-cited-without-rationale check, scoped so the legacy bare-D<N> References footer never trips it; the frozen design.md keeps passing; no existing test modified (S1) — risk: high (workflow machinery: a script that runs automatically; behavioral Python change)  [x] commit: 6d9dbafc7f
-6. Add a new LIVE fixture under .claude/scripts/tests/ — run workflow-startup-precheck.sh --mode full against a synthesized minimal stub plan dir, assert a readable state, and walk the post-review transitions (Plan Review flipped to done → State A/C; track plus Final Artifacts flipped → State D/Done), proving the unchanged precheck parses the D1 stub (S1's testable assertion) — risk: low (tests-only, new file) — size: ~1 file; (a) end-of-track tests-only unit validating the live precheck; all other work is HIGH-isolated  [ ]
+6. Add a new LIVE fixture under .claude/scripts/tests/ — run workflow-startup-precheck.sh --mode full against a synthesized minimal stub plan dir, assert a readable state, and walk the post-review transitions (Plan Review flipped to done → State A/C; track plus Final Artifacts flipped → State D/Done), proving the unchanged precheck parses the D1 stub (S1's testable assertion) — risk: low (tests-only, new file) — size: ~1 file; (a) end-of-track tests-only unit validating the live precheck; all other work is HIGH-isolated  [x] commit: 51d7df455a
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -511,6 +517,24 @@ inline rationale or be introduced once in full.
 - `.claude/scripts/tests/fixtures/d11-footer-newname-pass.md` (new, live)
 - `.claude/scripts/tests/fixtures/d11-decision-bare-fail.md` (new, live)
 - `.claude/scripts/tests/fixtures/d11-footer-nested-code-pass.md` (new, live)
+
+### Step 6 — commit 51d7df455a, 2026-06-11T09:56Z [ctx=info]
+**What was done:** Added `test_workflow_startup_precheck_stub.py` under
+`.claude/scripts/tests/` — a new LIVE file; S1 holds (the precheck script and its
+existing test stay byte-identical to develop). The test synthesizes the D1
+shape-complete `minimal` stub byte-faithful to the staged create-plan template (tier
+line, single-track `## Checklist`, `## Plan Review` and `## Final Artifacts` decision
+checkboxes), stands up a throwaway git repo with an in-sync upstream so the `--mode full`
+divergence half runs hermetically, stamps the stub's line-1 workflow-sha so the drift
+half is a clean no-drift read, runs the unchanged precheck, and walks five lifecycle
+cases: as-written → State 0; Plan Review `[x]` no track → State A; Plan Review `[x]` +
+track → State C; track + Final Artifacts `[x]` → Done; track `[x]` + Final Artifacts
+`[ ]` → State D. New test 5/5 and the existing `test_workflow_startup_precheck.py` 75/75
+both pass — the testable assertion that the unchanged precheck parses the new stub shape
+(S1).
+
+**Key files:**
+- `.claude/scripts/tests/test_workflow_startup_precheck_stub.py` (new, live)
 
 ## Validation and Acceptance
 
