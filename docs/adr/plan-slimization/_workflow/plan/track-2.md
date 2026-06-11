@@ -23,11 +23,25 @@ into the per-tier durable carrier.
 - [ ] Track completion
 
 - [x] 2026-06-11T13:54Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-11T14:34Z [ctx=safe] Step 1 complete (commit 7db9da10d0)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- 2026-06-11T14:34Z Step 1 discovered: renaming `track-review.md`
+  §"Complexity Assessment" → "Tier-driven review selection" needs
+  promotion-time reconciliation of any develop-side inbound reference. The
+  one in-branch reference (staged `conventions-execution.md` §2.5) is
+  already repaired; Phase 4 must re-check after the §1.7(f) rebase. See
+  Episodes §Step 1.
+- 2026-06-11T14:34Z Step 1 deferral: the new slim-track rendering rule
+  (`plan-slim-rendering.md`) defines the rendering but rewires no consumer —
+  the Phase-3A/3B spawn prompts still pass the full on-disk track file.
+  Rewiring those spawn prompts is a recorded follow-up, flagged in the doc
+  so a reviewer does not read the rendering as already in effect. See
+  Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -231,7 +245,7 @@ edits staged).
    order: the §2.1 lifecycle (item 1) lands first, the rest are independent doc
    edits. — risk: medium (behavioral-but-bounded workflow machinery; over 5
    files of one-phase dispatch logic, no load-bearing gate, auto-running
-   script, or shared schema)  [ ]
+   script, or shared schema)  [x] commit: 7db9da10d0
 2. Cross-track replan propagation duty (`inline-replanning.md`,
    `conventions-execution.md` §2.1) (Plan-of-Work item 3). Add `## Decision
    Log` to the cases 2-3 updatable-section lists and the matching §2.1
@@ -247,6 +261,57 @@ edits staged).
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 7db9da10d0, 2026-06-11T14:34Z [ctx=safe]
+**What was done:** Staged Plan-of-Work items 1, 2, 4, 5, 6, 7 across ten
+workflow docs under the §1.7 mirror — all behavioral edits, no live-path
+writes (I6 holds). The `conventions-execution.md` §2.1 `## Decision Log`
+became plan-at-start plus continuous: Phase 1 seeds full inline Decision
+Records as the live carrier, execution appends. `plan-slim-rendering.md`
+gained a doc-only slim-track rendering rule that keeps the inline Decision
+Log in full and needs no `render-slim-plan.py` change (S1 holds);
+`implementer-rules.md`'s frozen-design guard now names the track's Decision
+Records as the live authority during execution (D7). Phase-2 pass selection
+keys off the D18 tier line with per-tier consistency shape and
+design-presence guards (`implementation-review.md`,
+`prompts/consistency-review.md`). The structural duplication check inverts
+into the seed↔track fidelity verification, and the `DESIGN DOCUMENT` block
+is design-presence-guarded so it skips under `lite`/`minimal`
+(`structural-review.md` plus its prompt). The Phase-3A panel selector keys
+off the tier instead of the step-count axis, with the "or critical path /
+high-risk" clause excised so no per-step risk signal leaks into panel
+selection (S4); the adversarial pass narrows to track realization and pins
+the D14 model by tier (`track-review.md`). Phase 4 produces per-tier durable
+artifacts with the adversarial-verdict fold reading `research.md`'s
+`## Adversarial gate record` before the cleanup `git rm` (`workflow.md`,
+`prompts/create-final-design.md`).
+
+**What was discovered:** Renaming `track-review.md`'s §"Complexity
+Assessment" to "Tier-driven review selection" broke an inbound
+cross-reference from the Track-1-staged `conventions-execution.md` §2.5
+anchor; repaired in place, the only staged file carrying it.
+`workflow-reindex.py --check` runs against the staged mirror and caught 11
+§1.8 annotation/TOC/cross-ref drifts while editing (over-long summaries,
+missing `:roles:phases` suffixes, a missing section annotation, and a
+backtick span wrapping across a line boundary that mimicked an `adr.md`
+reference). All fixed; `--check` now exits 0.
+
+**Key files:**
+- `staged-workflow/.claude/workflow/conventions-execution.md` (modified — §2.1)
+- `staged-workflow/.claude/workflow/plan-slim-rendering.md` (new)
+- `staged-workflow/.claude/workflow/implementer-rules.md` (new)
+- `staged-workflow/.claude/workflow/implementation-review.md` (new)
+- `staged-workflow/.claude/workflow/prompts/consistency-review.md` (new)
+- `staged-workflow/.claude/workflow/structural-review.md` (new)
+- `staged-workflow/.claude/workflow/prompts/structural-review.md` (new)
+- `staged-workflow/.claude/workflow/track-review.md` (new)
+- `staged-workflow/.claude/workflow/workflow.md` (new)
+- `staged-workflow/.claude/workflow/prompts/create-final-design.md` (new)
+
+**Critical context:** Step 2's only dependency, the §2.1 `## Decision Log`
+plan-at-start lifecycle, is now staged, so Step 2 (cross-track replan
+propagation) can append `## Decision Log` to not-yet-completed tracks. Item
+3 was held for Step 2 by design.
 
 ## Validation and Acceptance
 
