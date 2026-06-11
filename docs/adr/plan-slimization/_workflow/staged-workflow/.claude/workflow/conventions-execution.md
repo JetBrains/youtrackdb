@@ -265,9 +265,12 @@ episode-format-reference.md:orchestrator:3B,3C
 sub-step 1) → Progress entry → optional Surprises promotion →
 optional Decision Log promotion. Inline replanning (see
 inline-replanning.md:orchestrator:3A,3C) may
-rewrite `## Concrete Steps`, `## Plan of Work`, and `## Validation and
-Acceptance` mid-execution; otherwise plan-at-start sections are stable
-after Phase A.
+rewrite `## Concrete Steps`, `## Plan of Work`, `## Validation and
+Acceptance`, and `## Decision Log` mid-execution (the last to carry the
+cross-track propagation duty's revised Decision Records — see
+inline-replanning.md:orchestrator:3A,3C §Process step 3 and §Updating
+plan and track files cases 2-4); otherwise plan-at-start sections are
+stable after Phase A.
 
 The Track Pre-Flight gate (see track-review.md:orchestrator:3A
 §Track Pre-Flight) may amend `## Purpose / Big Picture`,
