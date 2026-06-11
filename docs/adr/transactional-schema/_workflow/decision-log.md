@@ -706,7 +706,9 @@ at commit entry, ids published with the registries on success; allocation sites 
 F53's PSI read-site audit; `fileIdBTreeMap` joins the deferred-registry list); F81 →
 D20 (accepted 2026-06-11, options (c)+(b): JSON-close completeness check for every
 legacy dump plus an explicit unverified-import acknowledgment flag; backport option (a)
-rejected). F82 pending.
+rejected); F82 → D20 (accepted 2026-06-11: dump fsync ordered before manifest
+visibility with same-directory temp and directory fsync; stream variant requires a
+self-validating tail). **All pass-7 findings are resolved.**
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2438,10 +2440,11 @@ flowchart LR
   D2["fsync dump file(s)"] --> T["manifest → temp<br/>(same directory)"] --> F["fsync temp"] --> R["rename"] --> DF["fsync directory"]
 ```
 
-**Resolution (proposed):** extend D20's F75 bullet with the fsync ordering — dump
-durable before manifest visible, same-directory temp (same-filesystem rename
-guarantee), directory fsync after rename — and the stream variant's self-validating-tail
-requirement. One sentence each. Affected: F75, D20, F63.
+**Resolution (accepted 2026-06-11):** D20's F75 bullet extended with the fsync ordering
+(dump durable before manifest visible; same-directory temp for the same-filesystem
+rename guarantee; directory fsync after rename) and the stream variant's
+self-validating-tail requirement (length or checksum trailer, or the manifest as the
+closing keys of the single JSON document). Affected: F75, D20, F63.
 
 ---
 
@@ -3242,9 +3245,15 @@ recover.
   rename, or the final section of the dump stream); an interrupted export
   cannot leave a well-formed manifest. Import hard-fails on a missing or
   unparsable manifest for any manifest-era dump — legacy dumps are
-  distinguished by dump version, not manifest absence. Net-new behavior to
-  specify: the current exporter is a streaming JSON writer with no terminal
-  marker (`DatabaseExport.exportSchema:449` ff.).
+  distinguished by dump version, not manifest absence. Ordering (F82): the
+  dump file(s) are fsynced before the manifest becomes visible; the manifest
+  goes to a temp name in the same directory (same-filesystem rename
+  guarantee), is fsynced, renamed, and the directory is fsynced. Stream
+  variant (F82): the trailing manifest section carries a self-validating tail
+  (length or checksum trailer, or the manifest as the closing keys of the
+  single JSON document), so truncation is unparsable by construction, not by
+  accident. Net-new behavior to specify: the current exporter is a streaming
+  JSON writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.).
 - **Legacy-dump verification (F81, options (c) + (b)):** the D20 migration
   dump itself is produced by the old binaries (the D14 gate forces it), so it
   is always pre-manifest, and the F75 version gate alone would exempt the one
