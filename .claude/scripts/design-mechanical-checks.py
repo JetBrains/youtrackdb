@@ -8,6 +8,15 @@ regex-expressible subset of `house-style.md` AI-tell patterns. Invoked by
 the `edit-design` skill after each edit to `design.md` or
 `design-mechanics.md`.
 
+D11 (YTDB-1083 reconciliation) renamed the per-section trailing footer from
+`### References` to `### Decisions & invariants`. Footer detection is
+backward-compatible — both spellings are accepted (FOOTER_HEADING_RE), so a
+pre-rename design keeps passing. D11 also adds the
+`decision-cited-without-rationale` check: a `D<n>` cited bare under
+`D-records:` whose full record is introduced nowhere in design.md is a
+`should-fix`. Both are design.md-only — track files carry records in
+`## Decision Log` and have no footer.
+
 Usage:
     python3 .claude/scripts/design-mechanical-checks.py \
         --design-path docs/adr/<dir>/_workflow/design.md \
@@ -48,6 +57,8 @@ SHAPE_EXEMPT_SECTION_NAMES = {
 # Sub-heading names that are part of the per-section mandatory shape or the
 # consolidation form. Excluded from the same-shape sibling similarity
 # computation, since otherwise every well-formed section would look identical.
+# `references` and `decisions & invariants` are both listed because the D11
+# footer rename keeps both spellings valid (see FOOTER_HEADING_RE below).
 MANDATORY_OR_FORM_SUBHEADINGS = {
     "tl;dr",
     "edge cases / gotchas",
@@ -55,6 +66,7 @@ MANDATORY_OR_FORM_SUBHEADINGS = {
     "gotchas",
     "edge cases",
     "references",
+    "decisions & invariants",
     "comparison",
     "per-instance short bodies",
     "per-stat short bodies",
@@ -193,6 +205,41 @@ STOP_WORDS: frozenset = frozenset({
     "that", "this", "these", "those",
     "it", "its",
 })
+
+
+# ---------------------------------------------------------------------------
+# Decisions-and-invariants footer detection (D11 footer rename)
+#
+# The per-section trailing footer was renamed from `### References` to
+# `### Decisions & invariants` per design-document-rules.md § Decisions &
+# invariants (the D11 rename of the former references footer). The check that
+# enforces footer presence, the References-block toggle used by the
+# parenthetical-aside / AI-tell / paragraph scans, and the same-shape sibling
+# exclusion all accept BOTH spellings so designs authored before the rename —
+# this branch's own frozen design.md among them — keep passing without a
+# backfill. Both the `### ` heading form and the bold-prefix `**…**` form are
+# recognized. `&` is matched literally; `&amp;`-style HTML entities are not
+# expected in authored Markdown footers.
+#
+# Single source of truth: every site that detected the old `### References`
+# footer now references these two regexes so the two spellings never drift
+# apart across the four toggle sites in this module.
+# ---------------------------------------------------------------------------
+
+# Matches a footer HEADING line (line-anchored at the start). Used for the
+# section-end footer-presence check and the References-block toggle-on tests.
+FOOTER_HEADING_RE = re.compile(
+    r"^### (?:References|Decisions & invariants)\b"
+    r"|^\*\*(?:References|Decisions & invariants)\.\*\*"
+)
+
+# Same two spellings but un-anchored, for the `section_has_references`
+# tail-window search that joins body lines with newlines and matches at a
+# line boundary (`(^|\n)`).
+FOOTER_HEADING_SEARCH_RE = re.compile(
+    r"(^|\n)### (?:References|Decisions & invariants)\b"
+    r"|(^|\n)\*\*(?:References|Decisions & invariants)\.\*\*"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -664,16 +711,19 @@ def section_has_tldr(lines: List[str], section: Dict, head_window: int = 10) -> 
 
 
 def section_has_references(lines: List[str], section: Dict, tail_window: int = 30) -> bool:
-    """Return True if a References block appears in the last tail_window non-fence lines of the section."""
+    """Return True if a decisions-and-invariants footer appears in the last
+    tail_window non-fence lines of the section.
+
+    Accepts both the new `### Decisions & invariants` / `**Decisions &
+    invariants.**` spelling and the legacy `### References` /
+    `**References.**` spelling (D11 footer rename, backward-compatible — see
+    FOOTER_HEADING_SEARCH_RE).
+    """
     body = section_body_lines_outside_fences(lines, section)
     if len(body) > tail_window:
         body = body[-tail_window:]
     text = "\n".join(body)
-    if re.search(r"(^|\n)### References\b", text):
-        return True
-    if re.search(r"(^|\n)\*\*References\.\*\*", text):
-        return True
-    return False
+    return FOOTER_HEADING_SEARCH_RE.search(text) is not None
 
 
 def is_shape_exempt(section: Dict) -> bool:
@@ -733,10 +783,240 @@ def check_per_section_shape(
                 "blocker",
                 "per-section-shape:references-footer",
                 location,
-                f"Section `{section['title']}` is missing a References footer (no `### References` "
-                "or `**References.**` block in its last ~30 lines).",
-                ("Append a `### References` block at the end of the section listing D-records, "
-                 "Invariants, and (when applicable) `Mechanics:` cross-references."),
+                (f"Section `{section['title']}` is missing a decisions-and-invariants footer "
+                 "(no `### Decisions & invariants` / `**Decisions & invariants.**` block, and "
+                 "no legacy `### References` / `**References.**` block, in its last ~30 lines)."),
+                ("Append a `### Decisions & invariants` block at the end of the section listing "
+                 "D-records, Invariants, and (when applicable) `Mechanics:` cross-references. "
+                 "The legacy `### References` spelling is still accepted for pre-rename designs."),
+            ))
+    return findings
+
+
+# ---------------------------------------------------------------------------
+# Decision-cited-without-rationale (D11, design.md-only)
+# ---------------------------------------------------------------------------
+
+# A full D-record introduction anywhere in design.md. The canonical
+# introduce-once markup (used by every other ADR's design-final.md) is a
+# bold-prefix paragraph `**D<n>. <title>.** …` or `**D<n>: …**`; a `### D<n>`
+# / `#### D<n>` heading is the equally-valid heading form. Either satisfies
+# "the decision's full record is introduced once somewhere in design.md".
+# The `[.:]` terminator (not `\b`) is what delimits the code in the
+# bold-prefix form: `**D1.` ends in `. ` (space follows, no word boundary),
+# so a trailing `\b` would never match; `[.:]` already prevents `**D12.` from
+# matching as `D1`. The heading form keeps `\b` because `#### D7 ` is followed
+# by whitespace.
+_DRECORD_FULL_INTRO_RE = re.compile(
+    r"^\s*(?:#{2,6}\s+D(\d+)\b"          # heading form: ## … #### D7 …
+    r"|\*\*D(\d+)[.:])"                  # bold-prefix form: **D7.** / **D7:**
+)
+
+# A footer `D-records:` list entry: a `D<n>` code optionally followed by an
+# inline parenthetical rationale `(…)`. The capture groups are the code
+# number and the immediate next non-space character after the code, used to
+# decide whether the citation carries inline rationale or is bare.
+_FOOTER_DCODE_RE = re.compile(r"\bD(\d+)\b")
+
+
+def collect_full_drecord_intros(lines: List[str]) -> set:
+    """Return the set of D-record numbers whose full record is introduced
+    somewhere in design.md (bold-prefix `**D<n>.**`/`**D<n>:**` paragraph or
+    `### D<n>` / `#### D<n>` heading), ignoring fenced code blocks.
+
+    This is the "introduced once somewhere in design.md" half of the D11
+    introduce-once rule. A citation in any section's footer is satisfied when
+    its code appears here.
+    """
+    intros: set = set()
+    open_fence: Optional[Tuple[str, int]] = None
+    for line in lines:
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
+            continue
+        m = _DRECORD_FULL_INTRO_RE.match(line)
+        if m is not None:
+            num = m.group(1) or m.group(2)
+            if num is not None:
+                intros.add(int(num))
+    return intros
+
+
+def _footer_block_lines(lines: List[str], section: Dict) -> List[Tuple[int, str]]:
+    """Return `(line_no, text)` for every body line inside the section's
+    decisions-and-invariants footer (from the footer heading through the end
+    of the section / the next heading), excluding the footer-heading line
+    itself and fenced-code-block content.
+
+    Both footer spellings (D11) toggle the block on; any subsequent heading
+    (including a deeper `###`) closes it.
+    """
+    out: List[Tuple[int, str]] = []
+    in_footer = False
+    open_fence: Optional[Tuple[str, int]] = None
+    start = section["line_start"]
+    end = section["line_end"] or len(lines)
+    for i in range(start, end + 1):
+        line = lines[i - 1] if 0 <= i - 1 < len(lines) else ""
+        if open_fence is None:
+            parsed = parse_code_fence(line)
+            if parsed is not None:
+                open_fence = parsed
+                continue
+        else:
+            if fence_closes(open_fence, line):
+                open_fence = None
+            continue
+        if FOOTER_HEADING_RE.match(line):
+            in_footer = True
+            continue
+        # Any other heading ends the footer block.
+        if re.match(r"^#{1,6}\s", line):
+            in_footer = False
+            continue
+        if in_footer:
+            out.append((i, line))
+    return out
+
+
+def _iter_footer_dcode_citations(
+    footer_lines: List[Tuple[int, str]],
+) -> Iterator[Tuple[int, int, bool]]:
+    """Yield `(line_no, code_number, has_inline_rationale)` for each `D<n>`
+    citation appearing on a `D-records:` entry (and its continuation lines).
+
+    `has_inline_rationale` is True when the code is immediately followed by a
+    `(` parenthetical or by descriptive prose on the same logical entry — the
+    shape this branch's frozen design.md uses (`D2 (two-gate model …)`). It is
+    False only for a genuinely bare code: `D2`, or `D2,` / `D2)` with nothing
+    but list punctuation after it, or a code directly followed by the next
+    code. A bare code with no full record elsewhere is what the rule fires on.
+
+    A `D-records:` list wraps freely across continuation lines (indented, no
+    leading `- `), and a code's parenthetical rationale can begin on a line
+    after the code itself (`… D12` / next line `(mid-flight tier upgrade), …`).
+    To evaluate the rationale correctly, the whole `D-records:` entry is folded
+    into one joined string before scanning; the finding line number for each
+    code is recovered from a per-offset line map so the location still points
+    at the line the code physically appears on.
+    """
+    # Group footer lines into `D-records:` entries. An entry begins on a line
+    # containing `D-records:` and continues onto indented non-bullet, non-empty
+    # continuation lines until the next `- ` bullet (Invariants:, Mechanics:)
+    # or a blank line.
+    entries: List[List[Tuple[int, str]]] = []
+    current: Optional[List[Tuple[int, str]]] = None
+    for line_no, text in footer_lines:
+        stripped = text.strip()
+        if re.search(r"\bD-records:", text):
+            current = [(line_no, text)]
+            entries.append(current)
+        elif current is not None:
+            if (not stripped) or stripped.startswith("- "):
+                current = None
+            else:
+                current.append((line_no, text))
+
+    for entry in entries:
+        # Build the joined text plus a parallel list mapping each character
+        # offset in the joined string back to its source line number. Lines
+        # are joined with a single space (matching how the entry reads when
+        # unwrapped), and the joining space inherits the preceding line's
+        # number so a code at end-of-line maps to that line.
+        joined_parts: List[str] = []
+        offset_line: List[int] = []
+        for idx, (line_no, text) in enumerate(entry):
+            if idx > 0:
+                joined_parts.append(" ")
+                offset_line.append(entry[idx - 1][0])
+            joined_parts.append(text)
+            offset_line.extend([line_no] * len(text))
+        joined = "".join(joined_parts)
+
+        for m in _FOOTER_DCODE_RE.finditer(joined):
+            num = int(m.group(1))
+            code_line = offset_line[m.start()] if m.start() < len(offset_line) else entry[0][0]
+            rest = joined[m.end():].lstrip()
+            # Inline rationale: a `(` parenthetical, or descriptive words that
+            # are not just the next code / list punctuation. A bare code is
+            # followed by end-of-entry, a comma, a closing paren, or directly
+            # by the next `D<n>` code with nothing in between.
+            has_rationale = False
+            if rest.startswith("("):
+                has_rationale = True
+            elif rest and rest[0] not in ",)":
+                # Something other than list punctuation follows — but it must
+                # not be merely the next code. Strip a leading `&`.
+                lead = rest.lstrip("&").strip()
+                if lead and not _FOOTER_DCODE_RE.match(lead):
+                    has_rationale = True
+            yield code_line, num, has_rationale
+
+
+def check_decision_cited_without_rationale(
+    design_path: str,
+    lines: List[str],
+    sections: List[Dict],
+) -> List[Dict]:
+    """Within each section's decisions-and-invariants footer, every `D<n>`
+    cited under `D-records:` must either carry inline rationale in the footer
+    OR have its full record introduced once somewhere in design.md.
+
+    A bare `D<n>` citation (no inline rationale) whose full record appears in
+    no section is a `should-fix`: the seed references a decision it never
+    states. Per design-document-rules.md § Decisions & invariants
+    (introduce-once within the seed, D11).
+
+    The check is **design.md-only** by construction — the driver calls it only
+    inside `run_design_shape_checks` (target `design`/`both`), never against
+    track files (which carry records in `## Decision Log`, have no footer) or
+    mechanics.
+
+    Scoping: the legacy bare-`D<n>` `### References` footer of a pre-rename
+    design does not trip it whenever the cited record's full intro exists
+    elsewhere in the same design.md (regardless of footer spelling). This
+    branch's own frozen design.md passes because every footer code carries an
+    inline parenthetical rationale.
+    """
+    findings: List[Dict] = []
+    full_intros = collect_full_drecord_intros(lines)
+    for section in sections:
+        # Shape-exempt sections (Overview, Core Concepts, Class Design,
+        # Workflow, Part-level TL;DR) have no decisions-and-invariants footer
+        # and are skipped, mirroring the per-section shape check.
+        if is_shape_exempt(section):
+            continue
+        footer_lines = _footer_block_lines(lines, section)
+        if not footer_lines:
+            continue
+        # De-dup per (section, code): one finding per bare-and-unintroduced
+        # code in this section even if the code is mentioned more than once.
+        flagged: set = set()
+        for line_no, num, has_rationale in _iter_footer_dcode_citations(footer_lines):
+            if has_rationale or num in full_intros:
+                continue
+            if num in flagged:
+                continue
+            flagged.add(num)
+            findings.append(make_finding(
+                "should-fix",
+                "decision-cited-without-rationale",
+                f"{design_path}:{line_no}",
+                (f"`D{num}` is cited bare in the `{section['title']}` section's "
+                 "decisions-and-invariants footer (no inline rationale) and its full record is "
+                 "introduced in no section of design.md. Per design-document-rules.md "
+                 "§ Decisions & invariants (introduce-once within the seed, D11), the seed must "
+                 "introduce each decision once in full or carry its rationale inline in the "
+                 "footer; a footer that cites a decision it never states is a dangling reference."),
+                (f"Either add an inline rationale to the `D{num}` citation in the footer "
+                 f"(e.g. `D{num} (<one-line rationale>)`) or introduce `D{num}`'s full record "
+                 "once in the section that owns it."),
             ))
     return findings
 
@@ -919,9 +1199,10 @@ def check_dsc_parenthetical_asides(
                 open_fence = None
             continue
 
-        # References block toggles on `### References` or `**References.**`,
-        # ends on the next heading.
-        if re.match(r"^### References\b|^\*\*References\.\*\*", line):
+        # Footer block toggles on `### Decisions & invariants` /
+        # `**Decisions & invariants.**` or the legacy `### References` /
+        # `**References.**` (D11 footer rename), ends on the next heading.
+        if FOOTER_HEADING_RE.match(line):
             in_references = True
             continue
         if re.match(r"^#{1,6}\s", line):
@@ -1374,10 +1655,11 @@ def iter_paragraphs(
                 # Inside-fence lines never contribute to a paragraph.
                 continue
 
-        # References-block toggle. Switches on at the `### References` /
-        # `**References.**` line and back off at the next heading.
+        # Footer-block toggle. Switches on at the `### Decisions & invariants`
+        # / `**Decisions & invariants.**` line (or the legacy `### References`
+        # / `**References.**` spelling, D11) and back off at the next heading.
         if exclude_references:
-            if re.match(r"^### References\b|^\*\*References\.\*\*", line):
+            if FOOTER_HEADING_RE.match(line):
                 yield from flush()
                 in_references = True
                 continue
@@ -1517,9 +1799,10 @@ def check_dsc_ai_tell(
                 open_fence = None
             continue
 
-        # References-block toggle: on at `### References` / `**References.**`,
-        # off at the next heading.
-        if re.match(r"^### References\b|^\*\*References\.\*\*", line):
+        # Footer-block toggle: on at `### Decisions & invariants` /
+        # `**Decisions & invariants.**` or the legacy `### References` /
+        # `**References.**` (D11), off at the next heading.
+        if FOOTER_HEADING_RE.match(line):
             in_references = True
             continue
         is_heading = bool(re.match(r"^#{1,6}\s", line))
@@ -1891,6 +2174,8 @@ def main() -> int:
         findings.extend(check_core_concepts_when_parts(args.design_path, sections, parts))
         findings.extend(check_per_section_shape(
             args.design_path, design_lines, sections, args.changed_section, args.scope))
+        findings.extend(check_decision_cited_without_rationale(
+            args.design_path, design_lines, sections))
         findings.extend(check_top_level_cap(args.design_path, sections, parts))
         findings.extend(check_per_section_length(
             args.design_path, design_lines, sections, args.changed_section, args.scope))
