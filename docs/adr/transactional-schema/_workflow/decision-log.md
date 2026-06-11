@@ -731,7 +731,10 @@ self-validating tail). **All pass-7 findings are resolved.** **Amendment
 cross-thread reaping postponed to YTDB-1114** (see the F76 supersession note
 and D7's rewritten abnormal-termination bullet); F79's owner-token release is
 retained as the normal-release discipline, with `releaseStranded` parked as
-the postponed reaper's entry point, unused in v1.
+the postponed reaper's entry point, unused in v1. F81's option-(c) criterion
+was likewise replaced at the F90 fold (section presence instead of
+JSON-close; option (b) survives as a procedural acknowledgment — see the F81
+criterion-replaced note and D20).
 
 **Pass-8 resolutions (settling one by one):** F83 → F76/D7 (resolved
 2026-06-11: dissolved — cross-thread reaping postponed to YTDB-1114; no
@@ -750,7 +753,10 @@ against operator freezes, two wiring pins; PSI caveat discharged, caller set
 complete at five sites); F88 → D3/F80 (resolved 2026-06-11: accepted — seed
 read pinned inside the `stateLock.write` window; PSI registrar inventory
 complete: `create:196` commit path, `rebuild:305` user API + recovery thread,
-`load:240` external engines); F90–F91 pending.
+`load:240` external engines); F90 → D20/F81 (resolved 2026-06-11: accepted —
+cleanly-closed criterion replaced by section presence, ack flag reclassified
+as procedural acknowledgment for the final-section residue, exit-status
+procedure pin recorded); F91 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2482,6 +2488,12 @@ well-formed document) is a logged, deliberate choice. Option (a), backporting ma
 emission to a terminal old-format release, was rejected: it couples the migration story
 to shipping one more old-format release. Affected: D20, F63, F75, D14.
 
+**Criterion replaced (2026-06-11, F90 fold):** option (c)'s check is section
+presence, not JSON-close — the exporter's failure path finalizes and renames the
+document, so cleanly-closed passes exactly the failed exports; see F90 and D20's
+rewritten bullet. Option (b) survives, reclassified as a procedural
+acknowledgment covering the final-section residue only.
+
 ### F82 — F75's atomicity covers the manifest file, not the dump it vouches for; the stream variant's truncation-unparsability is assumed, not specified [MINOR]
 Pass-7 report U16. Temp + fsync + rename makes the *manifest* durable; nothing orders
 the *dump's* durability before manifest visibility. After a power loss the rename can be
@@ -2788,6 +2800,15 @@ the ack flag). Procedure pins: a dump file can exist at the final name after a F
 export, so the operator verifies the export's exit status before importing; the ack
 flag is a procedural acknowledgment, not a detection mechanism. Affected: D20, F81,
 F63, F75, D14.
+
+**Resolved (2026-06-11): accepted as proposed.** D20's F81 bullet rewritten: the
+completeness criterion is section presence (six expected sections, `indexes`
+written last), the ack flag is reclassified as a procedural acknowledgment
+covering only the final-section residue, and the exit-status procedure pin is
+recorded. Spot-checked at fold time: the `.tmp` write (`DatabaseExport:87`), the
+failure-path `finally { close(); }` (`:157`–`:158`), `writeEndObject` (`:277`),
+and the unconditional `atomicMoveWithFallback` promotion (`:291`) all hold on
+`develop`.
 
 ### F91 — F82's stream-trailer and rename pins under-specify scope and platform degradation [MINOR]
 Pass-8 report U20. Three one-sentence pins on D20's F82 bullet. (1) Stream variant:
@@ -3657,18 +3678,33 @@ recover.
   single JSON document), so truncation is unparsable by construction, not by
   accident. Net-new behavior to specify: the current exporter is a streaming
   JSON writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.).
-- **Legacy-dump verification (F81, options (c) + (b)):** the D20 migration
-  dump itself is produced by the old binaries (the D14 gate forces it), so it
-  is always pre-manifest, and the F75 version gate alone would exempt the one
-  dump the manifest was invented for. Closure: (c) the import runs a weak
-  completeness check on every legacy dump — the dump is a single JSON
-  document, so it must parse to a cleanly closed document, which detects
-  truncation without a manifest; and (b) the import additionally refuses a
-  legacy dump unless the operator passes an explicit unverified-import
-  acknowledgment flag, so the residual risk (content damage inside a
-  well-formed document) is a logged, deliberate choice. Backporting manifest
-  emission to a terminal old-format release (option (a)) was rejected: it
-  couples the migration story to shipping one more old-format release.
+- **Legacy-dump verification (F81 options (c) + (b); criterion replaced per
+  F90):** the D20 migration dump itself is produced by the old binaries (the
+  D14 gate forces it), so it is always pre-manifest, and the F75 version gate
+  alone would exempt the one dump the manifest was invented for. The original
+  cleanly-closed-JSON criterion is void in both directions (F90): truncations
+  never reach the final name — the exporter writes `<name>.json.gz.tmp` and
+  promotes only in `close()` (`DatabaseExport:87`/`:291`), and a truncated
+  gzip throws at import decompression (`DatabaseImport:138`) — while a
+  mid-records export failure produces a cleanly closed dump at the final name
+  by construction, because `exportDatabase`'s `finally` runs `close()` on the
+  failure path too (`:157`–`:158`), which writes `writeEndObject` (`:277`),
+  auto-closes every open scope, and renames into place. Closure: (c) the
+  import hard-fails a legacy dump missing any expected section — a complete
+  legacy dump always contains `info`, `collections` (or `clusters`),
+  `schema`, `records`, `brokenRids`, and `indexes`, the last section written
+  (`DatabaseExport:393`); the import's tag loop gains the presence check it
+  lacks today (`DatabaseImport:226`–`:242`); and (b) the import additionally
+  refuses a legacy dump unless the operator passes an explicit
+  unverified-import acknowledgment flag — a procedural acknowledgment, not a
+  detection mechanism (it is mandatory on the primary migration path), which
+  honestly covers the one residue section presence cannot see: damage inside
+  the final `indexes` section. Procedure pin: a dump file at the final name
+  proves nothing about export success (the failure path renames too), so the
+  operator verifies the export's exit status before importing. Backporting
+  manifest emission to a terminal old-format release (option (a)) was
+  rejected: it couples the migration story to shipping one more old-format
+  release.
 - **Scope effect on D14.** D14 loses the on-open migration sub-task and its
   crash-safety burden; it keeps the `toStream`/`fromStream` per-class-record
   rewrite and the version bump, which becomes a reject-and-redirect gate, not a
