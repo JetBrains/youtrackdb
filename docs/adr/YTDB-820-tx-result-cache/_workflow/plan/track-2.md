@@ -20,7 +20,7 @@ tap would cache a structurally meaningless scalar.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
