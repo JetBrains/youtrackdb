@@ -686,7 +686,13 @@ last and atomically, import hard-fails on a missing/unparsable manifest for
 manifest-era dumps, legacy distinguished by dump version). **All pass-6 findings are
 resolved.**
 
-**Pass-7 resolutions (settling one by one):** F76–F82 pending.
+**Pass-7 resolutions (settling one by one):** F76 → D7 (accepted 2026-06-11, RMW
+variant: operation-scoped `tsMin` release via the holder reference captured at
+`startStorageTx`, `activeTxCount` becomes an atomic RMW with the asymmetric owner-plain
+scheme as profile-triggered fallback; reap scoped to between-operations stranding,
+mid-commit-window stranding routed to the storage-error/restart path; F71's Phase-1
+checkpoint resolved: operation-object half passes, tsMin/freezer/component-lock halves
+fail). F77–F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2174,15 +2180,23 @@ flowchart LR
   FIX["pin: capture holder on the tx,<br/>release by reference cross-thread"] -.-> L
 ```
 
-**Resolution (proposed):** two pins in D7. (1) Operation-scoped pin release: the tx
-captures its owner's `TsMinHolder` at `startStorageTx` (it already captures
-`storageTxThreadId`), `activeTxCount` becomes cross-thread-safe, and both `close()` arms
-plus the reap release by captured holder — this also fixes the pre-existing
-pool-shutdown leak. (2) Scope the reap to between-operations stranding: a tx whose owner
-thread is inside the commit window belongs to the storage-error/restart path, and D7's
-parenthetical stops claiming the segment-pin release. F71's Phase-1 checkpoint is
-thereby resolved: the operation-object half passes, the tsMin/freezer/component-lock
-halves fail. Affected: D7, F71, F74, D12, F61, F38, D5.
+**Resolution (accepted 2026-06-11, RMW variant):** two pins in D7. (1) Operation-scoped
+pin release: the tx captures its owner's `TsMinHolder` at `startStorageTx` (it already
+captures `storageTxThreadId`), `activeTxCount` becomes a cross-thread-safe atomic RMW,
+and both `close()` arms plus the reap release by captured holder — this also fixes the
+pre-existing pool-shutdown leak. Memory-mode decision: the plain RMW is accepted over
+the fence-free asymmetric scheme (owner-plain count plus a reaper-side
+pending-decrement field, folded at the owner's next tx end). Begin-side cost is
+marginal because begin already pays the operations-table snapshot scan and a volatile
+`tsMin` write for every tx, read-only included (`snapshotAtomicOperationTableState` is
+the SI visibility mechanism, so readers are its primary consumer); the end-side RMW is
+the only new fence (where `setTsMinOpaque` deliberately avoided one, `TsMinHolder:121`)
+and fires per tx close, not per operation. The asymmetric scheme stays documented in D7
+as the profile-triggered fallback. (2) Scope the reap to between-operations stranding: a
+tx whose owner thread is inside the commit window belongs to the storage-error/restart
+path, and D7's parenthetical stops claiming the segment-pin release. F71's Phase-1
+checkpoint is thereby resolved: the operation-object half passes, the
+tsMin/freezer/component-lock halves fail. Affected: D7, F71, F74, D12, F61, F38, D5.
 
 ### F77 — F66's re-derivation has no key source for its delete leg: values are unloaded at the eager flush, tx reads refuse tx-deleted RIDs, and an in-window committed re-read is the F54 self-deadlock [MAJOR]
 Convergent: pass-7 reports C17 + U14. The accepted F66 text prescribes "deletes of
@@ -2536,18 +2550,29 @@ context / storage — an owner-tracked, cross-thread-releasable mutex
   indexLock.write → `stateLock.read`). Acquiring both metadata write locks
   before `stateLock` keeps the order acyclic; index-only txs take the same
   uniform sequence.
-- **Release on abnormal termination (F61, refined by F71).** Closing a session
-  with an active schema tx runs rollback's mutex release on the owning thread.
-  Server-side reaping of a vanished session runs from another thread: the reap
-  path runs the session's **full tx rollback** (ending the atomic operation —
-  releasing the F74 pins: the `tsMin` snapshot floor, plus the WAL segment pin
-  only if stranded mid-commit-window) and then `releaseStranded(session)`, the explicit
-  cross-thread release the owner-tracked primitive provides; the F38
-  same-thread assertion lives in the owner bookkeeping and guards only the
-  normal release path. The acquire is timed with a diagnostic naming the
-  holder and **re-waits in a loop** on timeout (never aborts — a healthy
-  F48-scale holder is not contention to punish, D5); only an operator-level
-  interrupt breaks the wait.
+- **Release on abnormal termination (F61, refined by F71, mechanics pinned by
+  F76).** Closing a session with an active schema tx runs rollback's mutex
+  release on the owning thread. Server-side reaping of a vanished session runs
+  from another thread and is **scoped to between-operations stranding**. The
+  reap runs the session's **full tx rollback** (ending the atomic operation)
+  and releases the `tsMin` snapshot floor through the holder reference the tx
+  captures at `startStorageTx`: `activeTxCount` becomes a cross-thread-safe
+  atomic RMW, and both `close()` arms plus the reap release by captured
+  holder, which also fixes the pre-existing pool-shutdown leak. Accepted cost
+  (F76): one RMW at tx begin (marginal: begin already pays the
+  operations-table snapshot scan and a volatile `tsMin` write for every tx,
+  read-only included) and one at tx end, the only new fence there; the
+  fence-free owner-plain/pending-decrement scheme is the documented fallback
+  if tx-end fences ever show in profiles. A tx stranded **mid-commit-window**
+  is outside the reap's scope (cross-thread ending races the live operation:
+  the freezer's per-thread depth throws, component-lock release skips
+  non-owners); that case belongs to the storage-error/restart path. After the
+  rollback, `releaseStranded(session)` is the explicit cross-thread release
+  the owner-tracked primitive provides; the F38 same-thread assertion lives in
+  the owner bookkeeping and guards only the normal release path. The acquire
+  is timed with a diagnostic naming the holder and **re-waits in a loop** on
+  timeout (never aborts; a healthy F48-scale holder is not contention to
+  punish, D5); only an operator-level interrupt breaks the wait.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
 - **Rejected:** holding `stateLock.writeLock` for the whole tx (blocks all
   commits, too coarse); reusing `SchemaShared.lock` for tx lifetime (conflates
