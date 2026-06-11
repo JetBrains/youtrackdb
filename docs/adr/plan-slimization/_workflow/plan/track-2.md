@@ -17,10 +17,12 @@ repurposed duplication check; Phase 4 folds the log's adversarial verdicts
 into the per-tier durable carrier.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-06-11T13:54Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -37,6 +39,22 @@ scope-downs, dependency reveals, gate-override reasons. -->
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
 
+- [x] Technical: PASS at iteration 2 (5 findings, 5 accepted; 0 blockers, 2 should-fix, 3 suggestion)
+- [x] Risk: PASS at iteration 2 (5 findings, 5 accepted; 0 blockers, 2 should-fix, 3 suggestion)
+- [x] Adversarial: PASS at iteration 2 (7 findings, 7 accepted; 0 blockers, 4 should-fix, 3 suggestion)
+
+Phase A reviews (Complex track → full Technical + Risk + Adversarial pipeline)
+found 17 findings, 0 blockers, all accepted and applied as track-file
+refinements. The gate verification ran once at iteration 2 as a single
+consolidated pass over all three review types (the findings overlapped
+heavily — T2≈R2, T5≈R5≈A2, T3≈R4 — and were all 0-blocker plan-of-work
+enumeration gaps), VERIFYING every finding with 0 regressions. Highest-value
+catches: R2/T2 (the propagation duty's primary `[ ]`-track write path needed
+`## Decision Log` in inline-replanning cases 2-3, not only the completed-track
+carve-out — left unfixed it would silently desync duplicated decisions); A6
+(`minimal` consistency drops the plan half too, not only the design half); A1
+(the "xhigh effort pin" overstated the harness — reconciled to D14's
+session-default degradation caveat). Review files under `reviews/`.
 ## Context and Orientation
 
 Current state of each mechanism this track retargets (live paths; all writes
@@ -65,11 +83,12 @@ go to the staged mirror per §1.7):
   `## Decision Log` entry today), the completed-track pause (no carve-out for
   documentation-only appends), and the ESCALATE path D12's tier upgrade rides.
 - **`implementer-rules.md`** §Loading discipline carries the frozen-design
-  guard (lines 75-81; line 103 only cross-references it from the inputs
-  contract). The guard's sentence couples two carriers ("The plan's Decision
-  Records and the track file are the authoritative source of truth during
-  execution"); the D7 rewording targets that whole sentence, naming the
-  track's DRs as the live authority.
+  guard: the coupled-carriers sentence naming "The plan's Decision Records and
+  the track file are the authoritative source of truth during execution", with
+  a separate cross-reference riding the `design_path` inputs bullet. The D7
+  rewording targets that whole sentence, naming the track's DRs as the live
+  authority. (Anchored on the section name and the target sentence, not a line
+  range, which drifts on the next edit above it.)
 - **`plan-slim-rendering.md`** defines the slim plan rendering sub-agents
   receive; track files are passed whole today (no track-side rendering
   exists anywhere in the live machinery). D7's consumption model needs a
@@ -91,54 +110,99 @@ selection, then Phase 4. The approach in order:
 
 1. **§2.1 lifecycle (`conventions-execution.md`).** `## Decision Log` becomes
    plan-at-start + continuous: Phase 1 writes the full inline DRs, execution
-   appends replan decisions and supersession notes; the lifecycle table rows
-   and the section descriptions update accordingly (D7).
+   appends replan decisions and supersession notes. The edit inventory is the
+   lifecycle table row, the numbered section description (bullet 4), and that
+   bullet's Move-1 reserved-slot note, which flips from "reserved for Move 1
+   (empty placeholder until that Move lands)" to the now-active plan-at-start
+   inline-DR home (the §2.1 track-side analog of the introduce-once Move-1
+   resolution Track 1 applied to the `design.md` seed). `conventions-execution.md`
+   is already staged by Track 1 (§2.5): edit the staged copy in place per
+   §1.7(e); do not re-copy from develop, or Track 1's §2.5 edits are lost (D7).
 2. **Carrier consumption (`plan-slim-rendering.md`,
    `implementer-rules.md`).** Define the slim-track rendering in
-   `plan-slim-rendering.md` (new — the live file covers slim plan rendering
-   only), keeping the track's inline DR section so D7's consumption model
-   holds; the frozen-design guard rewords "plan's DRs" to "track's DRs" and
-   keeps naming the live DR authoritative during execution; `design.md` stays
-   path-only on-demand context in `full` (D7).
-3. **Replan propagation (`inline-replanning.md`).** The cross-track
-   propagation duty: a replan revising a duplicated decision updates every
-   not-yet-completed track copy in the same replan and appends a supersession
-   note to completed tracks' `## Decision Log`; the copy-shape rule (any
-   post-seed copy of an ever-revised decision carries the inline-replan
-   revision format, seed decision pinned in `**Original decision**`); the
-   updatable-section lists gain `## Decision Log`; the completed-track pause
-   gains the documentation-only carve-out (D7). The D12 tier upgrade rides
-   the existing ESCALATE path: new tier's artifacts and 3A passes from the
-   upgrade point onward, no retroactive reviews, no automatic downgrade.
+   `plan-slim-rendering.md` (new; the live file covers slim plan rendering
+   only) as a **doc-only orchestrator prose rule**: the orchestrator renders
+   the slim track inline from the track file before passing it to sub-agents,
+   with no `render-slim-plan.py` change. Track files are small enough to render
+   inline, so the script-backed slim-plan rule stays untouched and S1 holds; a
+   proven script need is an ESCALATE, not a silent script edit. Keep the
+   track's inline DR section so D7's consumption model holds (slim plan + slim
+   track with full DRs inline, `design.md` path-only in `full`). Name the
+   consumer the rule feeds: `implementer-rules.md` controls the implementer's
+   `step_file_path`, and the Phase-3A/3B spawns that receive the whole track
+   today are the switch point; if no consumer is rewired in this track, record
+   it as a deliberate deferral so a reviewer does not read the new rendering as
+   already in effect. The frozen-design guard rewords "plan's DRs" to "track's
+   DRs", keeping the live DR authoritative during execution (D7).
+3. **Replan propagation (`inline-replanning.md`, `conventions-execution.md`
+   §2.1).** The cross-track propagation duty: a replan revising a duplicated
+   decision updates every not-yet-completed track copy in the same replan and
+   appends a supersession note to completed tracks' `## Decision Log`. Add
+   `## Decision Log` to the updatable-section lists of **cases 2 and 3**
+   (not-yet-started, mid-execution) so the duty's primary write path (every
+   `[ ]` track) is open, and give **case 4** (completed-track) the
+   documentation-only carve-out that relaxes its existing user-pause for the
+   supersession-note append. Mirror the same addition in the
+   `conventions-execution.md` §2.1 mid-execution-rewrite line, or the two
+   enumerations contradict after the edit. The copy-shape rule (any post-seed
+   copy of an ever-revised decision carries the inline-replan revision format,
+   seed decision pinned in `**Original decision**`) is decision-state-based,
+   not replan-event-based; carry that phrasing verbatim so the marker applies
+   to every post-seed copy, not only those the current replan touched (D7). The
+   D12 tier upgrade rides the existing ESCALATE path: new tier's artifacts and
+   3A passes from the upgrade point onward, no retroactive reviews, no
+   automatic downgrade.
 4. **Phase-2 conditionals (`implementation-review.md`,
-   `prompts/consistency-review.md`).** Pass selection reads the D18 tier
-   line: `minimal` drops the structural pass and lightens consistency to
-   track-vs-code; design-presence guards skip the design half when
+   `prompts/consistency-review.md`).** Pass selection reads the D18 tier line.
+   Split the consistency shape by tier: `full` is plan + tracks + design;
+   `lite` drops the design half (plan + tracks + code); `minimal` drops both
+   the design half and the plan-content cross-check (track + code only, since
+   the ~10-line stub plan has no content to cross-check). `minimal` also drops
+   the structural pass. Design-presence guards skip the design half when
    `design.md` is absent; the findings-routing rule collapses for no-design
    tiers (every correction plan- or track-scoped; the defer-to-Phase-4 branch
    unreachable) while frozen-seed findings in `full` still defer (D9/D10).
 5. **Structural repurpose (`structural-review.md`,
    `prompts/structural-review.md`).** The duplication check becomes the
-   seed↔track fidelity verification with Part 5's domain (iterate seed
-   records), provenance-only qualifier for revision-format DRs, and
-   authoring-time-only restoration; design-destination bloat-fix re-routes
-   point at the matching track sections in every tier; the `minimal` stub
-   skip (nothing to check) lands here and in step 4's selection (D10).
+   seed↔track fidelity verification: invert the live trigger (today it fires on
+   a DR body over 50 lines plus a title-matching `design.md` section via a
+   fuzzy 2+-shared-word match, exactly what a seed-derived track DR satisfies)
+   into a check whose domain iterates seed records only, with a provenance-only
+   qualifier for revision-format DRs and authoring-time-only restoration. Guard
+   the `DESIGN DOCUMENT` check block (the design-existence and diagram bullets)
+   behind a design-presence conditional: skipped under `lite` and `minimal`
+   (design absent) and run unchanged under `full`, not only the `minimal`
+   stub-skip, since structural still runs under `lite`. Design-destination
+   bloat-fix re-routes point at the matching track sections in every tier; the
+   `minimal` stub skip (nothing to check) lands here and in step 4's selection
+   (D10).
 6. **Phase-3A selection (`track-review.md`).** The tier replaces the
    step-count axis as the change-level panel selector (S4: the per-step risk
-   tag stays the 3B gate, triage stays the 3C gate); Risk stays
-   track-characteristic-gated in `lite`/`full` and drops in `minimal`; the
-   adversarial pass narrows to track realization (scope/sizing, cross-track-
-   episode reality, invariant violations) with the episode challenge dropped
-   on track 1 only; the 3A adversarial spawn pins the D14 model/effort by
-   tier (D9/D14).
+   tag stays the 3B gate, triage stays the 3C gate). When porting the panel
+   table to the tier axis, excise the live "or critical path / high-risk"
+   clause on the Complex row (`track-review.md` lines 611/621) so the
+   tier-keyed selector reads no per-step risk signal. Risk stays
+   track-characteristic-gated in `lite`/`full` and drops in `minimal`. The
+   adversarial pass narrows to track realization (scope/sizing,
+   cross-track-episode reality, invariant violations); only the
+   cross-track-episode challenge drops on track 1, while the scope/sizing and
+   invariant-violation challenges still run on track 1 (the foundational track
+   most constrains the downstream ones). The 3A adversarial spawn pins the D14
+   model/effort by tier (D9/D14).
 7. **Phase 4 (`workflow.md` § Final Artifacts,
    `prompts/create-final-design.md`).** Per-tier durable artifacts (D16):
    `full` = `design-final.md` + `adr.md` with the verdict fold, `lite` =
    `adr.md` with the fold, `minimal` = a two-line gate-verdict summary folded
-   into the PR description, no `docs/adr/` entry. The fold reads the log's
-   resolved gate records before the `_workflow/` cleanup deletes them; the
-   §1.7(f) promotion runs unchanged in every tier, `minimal` included when
+   into the PR description, no `docs/adr/` entry. The fold reads `research.md`'s
+   `## Adversarial gate record` resolved entries (Track 1's canonical verdict
+   carrier, matched by the latest dated heading per `research.md`'s gate-record
+   cadence; this is a cross-track read of a Track 1 file, verdict/status-only
+   per S2). Wire the fold into the final-artifacts (`adr.md`) commit so it runs
+   before `create-final-design.md`'s cleanup `git rm -r _workflow/` deletes the
+   log. The §1.7(f) promotion machinery has two homes (the `workflow.md`
+   § Final Artifacts narrative and the operative `create-final-design.md` step)
+   and is unchanged: the fold inserts around the existing promotion/cleanup
+   ordering, not into it. Promotion runs in every tier, `minimal` included when
    workflow-modifying (D10/D16).
 
 Ordering constraints: step 1 precedes steps 2-3 (they cite the new lifecycle);
@@ -151,14 +215,33 @@ resolved gate verdicts only, the sanctioned non-decision read), I6 (all
 edits staged).
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, an
-optional `size:` clause, and a `[ ]` status checkbox. The `size:`
-clause (`— size: ~N files; <reason>`) appears only on an under-filled
-`low`/`medium` step (rule in `track-review.md` §Step Decomposition).
-Per-step episodes do NOT live here; they live in `## Episodes` below.
-The roster is immutable after Phase A except for the status checkbox
-flip and the optional `commit:` annotation Phase B appends. -->
+
+1. Execution-side tier consumption — carrier lifecycle, consumption, review
+   selection, and Phase-4 audit (Plan-of-Work items 1, 2, 4, 5, 6, 7).
+   Stage: the §2.1 `## Decision Log` plan-at-start lifecycle
+   (`conventions-execution.md`); the doc-only slim-track rendering plus the
+   frozen-design-guard reword (`plan-slim-rendering.md`, `implementer-rules.md`);
+   the tier-keyed Phase-2 pass selection with design-presence guards
+   (`implementation-review.md`, `prompts/consistency-review.md`); the structural
+   duplication-check repurpose plus the design-presence guard
+   (`structural-review.md`, `prompts/structural-review.md`); the Phase-3A tier
+   panel selector with the S4 "or high-risk" excision (`track-review.md`); and
+   the Phase-4 per-tier artifacts plus the verdict fold (`workflow.md` § Final
+   Artifacts, `prompts/create-final-design.md`). ~10 staged files; intra-step
+   order: the §2.1 lifecycle (item 1) lands first, the rest are independent doc
+   edits. — risk: medium (behavioral-but-bounded workflow machinery; over 5
+   files of one-phase dispatch logic, no load-bearing gate, auto-running
+   script, or shared schema)  [ ]
+2. Cross-track replan propagation duty (`inline-replanning.md`,
+   `conventions-execution.md` §2.1) (Plan-of-Work item 3). Add `## Decision
+   Log` to the cases 2-3 updatable-section lists and the matching §2.1
+   mid-execution-rewrite line; give case 4 the documentation-only carve-out
+   that relaxes its user-pause; carry the decision-state-based copy-shape rule
+   (seed pinned in `**Original decision**`) verbatim. Depends on Step 1: the
+   §2.1 lifecycle must define `## Decision Log` as a plan-at-start section
+   first. — risk: high (workflow machinery: edits the inline-replan
+   control-flow protocol; a propagation defect silently desyncs duplicated
+   decisions across many sessions before a human notices)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -177,13 +260,22 @@ Track-level acceptance:
   carrier rewording.
 - No-design branches never dereference `design.md`: a dry-run read of the
   staged Phase-2 flow under `lite` and `minimal` reaches no instruction that
-  opens, cites, or routes findings to a design file.
+  opens, cites, or routes findings to a design file, and the structural
+  `DESIGN DOCUMENT` check block is design-presence-guarded (skipped under both
+  `lite` and `minimal`, run under `full`).
+- The `minimal` consistency pass cross-checks track-vs-code only: under
+  `minimal` the staged flow performs no plan-content cross-check against the
+  stub plan (the plan half is dropped, not only the design half).
 - The repurposed duplication check cannot fire on a mandated track DR: its
   domain iterates `design.md` seed records only, and a track DR with no seed
   counterpart is out of scope by construction.
 - The propagation duty is complete: revising a duplicated decision names an
   owner (the orchestrator), a scope (every not-yet-completed carrying track),
-  a completed-track mechanism (supersession note), and a copy-shape rule.
+  a completed-track mechanism (supersession note), and a copy-shape rule. The
+  primary write path is open: a replan revising a duplicated DR can write the
+  `## Decision Log` of a not-yet-completed (`[ ]`) track without an ESCALATE
+  pause, because `## Decision Log` appears in the cases 2-3 updatable-section
+  lists (and the matching `conventions-execution.md` §2.1 line).
 - Phase 4 under each tier produces exactly the D16 artifact set, and the
   §1.7(f) promotion text is byte-identical in intent across tiers.
 
@@ -193,8 +285,25 @@ Track-level acceptance:
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+Both steps are pure staged-prose edits, so each is idempotent by construction:
+re-applying a step's edits to the staged mirror produces the same file bytes,
+and a failed step reverts with `git reset --hard HEAD` to its base commit (no
+build or test state to unwind). First-touch of a staged file follows §1.7(e) —
+copy the live file verbatim only when no staged copy exists; `conventions-execution.md`
+already has a Track-1 staged copy, so both steps edit that copy in place per
+§1.7(d) and never re-copy from develop.
+
+- **Step 1** recovery: regenerate the affected staged copies (`conventions-execution.md`
+  edited in place; `plan-slim-rendering.md`, `implementer-rules.md`,
+  `implementation-review.md`, `prompts/consistency-review.md`,
+  `structural-review.md`, `prompts/structural-review.md`, `track-review.md`,
+  `workflow.md`, `prompts/create-final-design.md` first-touch-copied from
+  develop) and re-apply the Plan-of-Work item 1/2/4/5/6/7 edits.
+- **Step 2** recovery: re-apply the propagation-duty edits to the
+  already-staged `inline-replanning.md` (first-touch-copied from develop) and
+  `conventions-execution.md` §2.1 (edited in place). Step 2's correctness
+  depends on Step 1's §2.1 lifecycle already being committed.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
@@ -236,12 +345,28 @@ and the single shared file (`conventions-execution.md`) is split on disjoint
 sections with the reason recorded in both track files.
 
 **Dependencies.** Upstream: Track 1 — the tier vocabulary (glossary), the
-D18 tier-line shape the Phase-2/3A selectors read, the log's gate-verdict
-record shape the Phase-4 fold consumes, and the inline-DR track shape this
-track's lifecycle, rendering, and propagation rules govern. Downstream: none
-(Phase 4 of this branch consumes the result operationally).
+D18 tier-line shape the Phase-2/3A selectors read, the inline-DR track shape
+this track's lifecycle, rendering, and propagation rules govern, and the
+`research.md` `## Adversarial gate record` section the Phase-4 fold reads
+(a cross-track read of a Track 1 file: the fold dereferences a section Track 1
+defined, so step 7's correctness depends on that section having landed — it
+has, in Track 1's staged `research.md`). Downstream: none (Phase 4 of this
+branch consumes the result operationally).
+
+**Deferred carryover (out of Track 2's file scope).** Track 1 handed two open
+§2.1 reconciliation items whose target files Track 2 cannot edit: the stale
+"four sections" framing in `prompts/adversarial-review.md` (a Track 1 file)
+and the third-scope review-file home, a `conventions-execution.md` §2.5
+question (§2.5 belongs to Track 1). Both are recorded here as known-deferred
+to a Track 1 follow-up or the Phase-4 promotion reconciliation, so step 1's
+§2.1 edit is not misread as covering them.
 
 **Signatures and contracts.** The 3A adversarial spawn mirrors Track 1's
-gate spawn contract: Agent call with `model` per D14 and the xhigh effort
-pin. The D18 tier line is read-only for every consumer in this track; only
+gate spawn contract: an Agent call pinning `model` by tier on the Agent
+`model` field (`full` → Fable 5, `lite` → Opus 4.x; `minimal` drops the 3A
+adversarial pass). The xhigh-effort half of the D14 pin rides the session
+default, because the Agent surface exposes no per-spawn effort field and there
+is no adversarial-reviewer agent file to carry it in frontmatter. That is
+D14's documented degradation caveat, and neither outcome reopens the decision.
+The D18 tier line is read-only for every consumer in this track; only
 `create-plan` writes it.
