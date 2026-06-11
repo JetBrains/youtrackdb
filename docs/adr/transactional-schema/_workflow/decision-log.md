@@ -701,7 +701,10 @@ as fragile; the freezer named in D7's ordering discussion as the fifth synchroni
 object); F79 → D7 (accepted 2026-06-11: per-acquisition owner token, normal release is
 a hard CAS compare-owner-and-clear, stale release from a reaped-but-alive owner is a
 logged no-op, reap-vs-zombie race explicitly tolerated; Java sketch recorded in the
-entry). F80–F82 pending.
+entry); F80 → D3/F53 (accepted 2026-06-11: commit-local structural-id allocator seeded
+at commit entry, ids published with the registries on success; allocation sites join
+F53's PSI read-site audit; `fileIdBTreeMap` joins the deferred-registry list).
+F81–F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2378,15 +2381,15 @@ flowchart LR
   FIX["commit-local allocator<br/>seeded at commit entry"] -.-> C
 ```
 
-**Resolution (proposed):** state a commit-local structural-id allocator invariant in
-D3/F53: collection and engine ids are drawn from a commit-local allocator seeded from
-the shared registries at commit entry (safe — schema commits are serialized by D7 +
-`stateLock.write`), unique across the commit, and published together with the registries
-on the success path; a failed commit leaks no durable trace, so its ids are reusable.
-Extend F53's PSI-audit instruction: allocation sites are read sites too. Add
-`fileIdBTreeMap` to the deferred-registry list. Regression test: one tx creates two
-classes (16 collections, 2+ engines) → commit succeeds → restart → all collections and
-engines resolve. Affected: D3, F53, F39, D16/F67, F29, F48/F49.
+**Resolution (accepted 2026-06-11):** a commit-local structural-id allocator invariant
+in D3/F53: collection and engine ids are drawn from a commit-local allocator seeded
+from the shared registries at commit entry (safe — schema commits are serialized by D7
++ `stateLock.write`), unique across the commit, and published together with the
+registries on the success path; a failed commit leaks no durable trace, so its ids are
+reusable. F53's PSI-audit instruction extends to allocation sites (allocation is a
+read). `fileIdBTreeMap` joins the deferred-registry list. Regression test: one tx
+creates two classes (16 collections, 2+ engines) → commit succeeds → restart → all
+collections and engines resolve. Affected: D3, F53, F39, D16/F67, F29, F48/F49.
 
 ### F81 — The D20 migration dump is produced by the old binaries, so it is always a pre-manifest legacy dump: F75's version gate exempts exactly the migration path the manifest was designed for [MAJOR]
 Pass-7 report U13. D20's procedure exports with the old binaries (the D14 version gate
@@ -2510,10 +2513,21 @@ internal scan of the source collection feeding the engine's `doPut`, all on the
 commit's atomic operation — never the session read path or nested batch
 transactions, which re-enter `stateLock` under the held write lock. And
 reconciliation's **shared in-memory registry publication** (collections array,
-engine maps, config caches) is deferred to the post-`commitChanges` success path
-(F53, option (a)): the commit's own later steps resolve new structures through
-commit-local references, so a commit-apply failure (e.g., a D13 uniqueness
-violation) rolls back the WAL with no phantom registrations left behind.
+engine maps, config caches, and the link-bag `fileIdBTreeMap` — F80) is deferred to the
+post-`commitChanges` success path (F53, option (a)): the commit's own later steps
+resolve new structures through commit-local references, so a commit-apply failure
+(e.g., a D13 uniqueness violation) rolls back the WAL with no phantom registrations
+left behind. **Commit-local structural-id allocator (F80):** the deferral makes the
+live allocators stale — a new collection id is the first null slot of the shared
+`collections` array (`doAddCollection:4991`) and a new engine id is
+`indexEngines.size()` (`addIndexEngine:2786`), both reads of the deferred registries —
+so collection and engine ids are drawn from a commit-local allocator seeded from the
+shared registries at commit entry (safe: schema commits are serialized by the D7 mutex
+plus `stateLock.write`), unique across the commit, and published together with the
+registries on the success path; a failed commit leaks no durable trace, so its ids are
+reusable. F53's PSI audit of registry read sites includes allocation sites — allocation
+is a read. Regression test: one tx creates two classes (16 collections, 2+ engines),
+commit succeeds, restart, all collections and engines resolve.
 
 ### D4 — Isolation is record-local, identical to data-record updates
 Schema mutations during a tx change only the tx's copies of the metadata
