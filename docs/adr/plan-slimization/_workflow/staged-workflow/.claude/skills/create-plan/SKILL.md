@@ -235,13 +235,11 @@ the aim. Wait for the user's response before starting any research or
 planning work.
 
 Once the user provides the aim, write the **research log's `## Initial
-request`** — the verbatim aim — as the first durable Phase-0 action:
-
-```bash
-# directory already exists from Step 1b (mkdir -p .../plan)
-```
-
-Create `docs/adr/<dir-name>/_workflow/research-log.md` with the five
+request`** — the verbatim aim — as the first durable Phase-0 action. The
+`_workflow/plan/` directory already exists from Step 1b
+(`mkdir -p .../plan`), so write the log directly: create
+`docs/adr/<dir-name>/_workflow/research-log.md` (a `Write`, not a shell
+command) with the five
 sections `research.md` §The research log defines: `## Initial request`
 (the verbatim aim, written once), and the empty `## Decision Log`,
 `## Surprises & Discoveries`, `## Open Questions` continuous logs, plus
@@ -347,29 +345,43 @@ does not exist yet, so the Phase-0→1 gate writes to a plan-scoped directory
 mkdir -p docs/adr/<dir-name>/_workflow/reviews
 ```
 
-Spawn the reviewer with these inputs (the research-log Inputs block in
-`prompts/adversarial-review.md` §Research-log Inputs substitutes them):
+Spawn the adversarial sub-agent via the `Agent` tool (the same recipe the
+sibling `edit-design/SKILL.md` uses for the identical reviewer; the
+research-log Inputs block in `prompts/adversarial-review.md` §Research-log
+Inputs substitutes the inputs):
 
-- `research_log_path`: `docs/adr/<dir-name>/_workflow/research-log.md`
-- `matched_categories`: the centrally-matched HIGH-risk categories from the
-  confirmed tier's Gate 1, plus any user-added lens — or `(none)` for a
-  Gate-1-no change with no user lens
-- `output_path`:
-  `docs/adr/<dir-name>/_workflow/reviews/research-log-adversarial-iter<N>.md`
-  (one file per gate iteration, `<N>` starting at 1 — the `<type>-iter<N>.md`
-  naming `conventions-execution.md` `§2.5` §Third-scope review-file home fixes)
-- `codebase_path`: the repo root
+- `subagent_type`: `general-purpose`
+- `description`: `"Adversarial research-log gate (Phase 0→1)"`
+- `prompt`: the full content of
+  `.claude/workflow/prompts/adversarial-review.md`. The prompt's
+  TOC-protocol header resolves the reviewer's phase to 0→1, which routes it
+  to the § Research-log-scoped review (Phase 0→1) section. Substitute these
+  inputs into that section's `### Research-log Inputs` block:
 
-**Model and effort (D14).** Pin the spawn's model by the confirmed tier and
-always pin xhigh effort explicitly (inheritance is undocumented and
-drifts):
+  ```
+  - research_log_path: docs/adr/<dir-name>/_workflow/research-log.md
+  - matched_categories: the centrally-matched HIGH-risk categories from the
+    confirmed tier's Gate 1, plus any user-added lens — or (none) for a
+    Gate-1-no change with no user lens
+  - output_path: docs/adr/<dir-name>/_workflow/reviews/research-log-adversarial-iter<N>.md
+    (one file per gate iteration, <N> starting at 1 — the <type>-iter<N>.md
+    naming conventions-execution.md §2.5 §Third-scope review-file home fixes)
+  - codebase_path: the repo root
+  ```
 
-- `full` → Fable 5, effort xhigh
-- `lite` / `minimal` → Opus 4.x, effort xhigh
+**Model and effort (D14).** Pin the spawn's model on the `Agent` tool's
+`model` field by the confirmed tier:
 
-If no per-spawn model surface is available, the split lands via the
-reviewer agent's frontmatter and the effort half may degrade to the session
-default — neither outcome reopens the decision (D14).
+- `full` → `model: fable`
+- `lite` / `minimal` → `model: opus`
+
+The `Agent` tool has **no per-spawn effort field**, and there is no
+adversarial-reviewer agent file under `.claude/agents/` to carry effort in
+frontmatter — the adversarial reviewer is a prompt-file plus a
+`general-purpose` spawn. So the model half lands on the `model` field as
+above, and the xhigh-effort half rides the session default (it cannot be
+pinned per-spawn through this surface). D14 accepts the effort caveat: the
+effort half degrading to the session default does not reopen the decision.
 
 **Output handling (D17).** The reviewer's output mode is **file**: it
 persists the `conventions-execution.md` `§2.5` manifest-plus-sections review
@@ -614,18 +626,30 @@ Help the user develop the plan:
    load-bearing decisions and their rejected alternatives.
 9. **Run the write-time cold-read on the track sections (Step-4b
    cold-read, every tier).** After the track files are written and before
-   the Step 5 commit, spawn the existing cold-read sub-agent
-   (`prompts/design-review.md`) with `target=tracks` to assess whether a
+   the Step 5 commit, spawn the cold-read sub-agent via the `Agent` tool
+   (the same recipe the sibling `edit-design/SKILL.md` uses for its
+   `phase1-creation` cold-read) with `target=tracks` to assess whether a
    cold reader can build a working mental model of the plan-at-start track
-   sections, and to run the absorption-completeness cross-check (D8). Pass:
-   `target=tracks`, `research_log_path`
-   (`docs/adr/<dir-name>/_workflow/research-log.md`), `tier` (the confirmed
-   tier — selects whether the full-tier fidelity criterion applies),
-   `plan_dir` (`docs/adr/<dir-name>/_workflow/plan/`), `plan_path`
-   (`docs/adr/<dir-name>/_workflow/implementation-plan.md`), and — in
-   `full` only — `design_path`
-   (`docs/adr/<dir-name>/_workflow/design.md`) so the reviewer can run the
-   seed↔track fidelity check. Supply **no** `output_path`: the Step-4b
+   sections, and to run the absorption-completeness cross-check (D8):
+
+   - `subagent_type`: `general-purpose`
+   - `description`: `"Step-4b cold-read (target=tracks)"`
+   - `prompt`: the full content of
+     `.claude/workflow/prompts/design-review.md`, with the `## Inputs` block
+     at the top extended by these literal substitutions:
+
+     ```
+     - target: tracks
+     - research_log_path: docs/adr/<dir-name>/_workflow/research-log.md
+     - tier: <the confirmed tier — selects whether the full-tier fidelity criterion applies>
+     - plan_dir: docs/adr/<dir-name>/_workflow/plan/
+     - plan_path: docs/adr/<dir-name>/_workflow/implementation-plan.md
+     - design_path: docs/adr/<dir-name>/_workflow/design.md   # full only; omit this line in lite/minimal
+     ```
+
+   The `design_path` line is present in `full` only, so the reviewer can run
+   the seed↔track fidelity check; omit it in `lite`/`minimal`. Supply **no**
+   `output_path`: the Step-4b
    cold-read returns inline, exempt from the review-file rule the same way
    the Step-4a `phase1-creation` cold-read is (`prompts/design-review.md`
    § Output format). A `blocker` re-opens Step-4b derivation in the **same
