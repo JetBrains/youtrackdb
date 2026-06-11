@@ -2617,6 +2617,13 @@ real. Those are today-bugs independent of this design — filed as YTDB-1113
 (wrong-tx abort plus a torn-commit variant); the once-only-consume idea
 transfers there as the identity-token fix direction.
 
+**Correction (2026-06-11, F92 settlement):** the sweep's threading and sharing
+claims were wrong. The `afterTimeout` arms run on the eval worker thread
+(`GremlinExecutor:354` is the consumer's sole invocation site) and `tx()`
+resolves per-thread (`YTDBGraphImplAbstract:219`), so no cross-thread arm
+exists; YTDB-1113 was closed as invalid. The ten-site call list itself
+stands. See F92.
+
 ### F85 — The reap scope has no atomic discriminator, and `rollbackInternal`'s COMMITTING arm proceeds cross-thread: a reap racing a zombie's commit can durably commit torn tx state [MAJOR]
 Convergent: pass-8 reports C22 + U17. The scope test "is the owner inside the commit
 window?" rides plain fields: `status` is non-volatile (`FrontendTransactionImpl:81`),
@@ -2661,6 +2668,12 @@ recorded on YTDB-1113, whose owner-executor fix removes that entry and makes
 the tear structurally impossible. The status-handshake idea transfers to
 YTDB-1114 as the registry's REVOKED mark fenced at the storage boundary (the
 commit-entry check under `segmentLock` replaces the in-object CAS).
+
+**Correction (2026-06-11, F92 settlement):** the "exactly one foreign caller"
+claim was wrong. The Gremlin hooks run on the eval worker and resolve
+per-thread transactions, so no foreign `rollbackInternal` entry exists;
+YTDB-1113 was closed as invalid. "No second claimant" holds today without
+any prerequisite fix. See F92.
 
 ### F86 — The freezer gate sits below `stateLock.write`: a parked data commit holds `stateLock.read` for the freeze window and the C18 outage returns one lock up [MAJOR]
 Pass-8 report C23. A data commit that reaches its gate after the freeze engaged parks
@@ -2912,6 +2925,40 @@ names YTDB-1113's owner-executor fix a v1 prerequisite of D7 or gives
 `rollbackInternal` a real COMMITTING-window gate (foreign rollback rejected while
 the owner is inside the commit) in place of the exempted assert. Affected: D7,
 F79, F85, F38, D5, D12.
+
+**Resolved (2026-06-11): dissolved — both premises disproven against the tree
+(PSI-verified; the TinkerPop fork project was opened in the IDE for the
+audit).** (1) No scheduler-thread hook exists: the fork's `GremlinExecutor`
+invokes the `afterTimeout` consumer at exactly one site, inside the eval
+task's own interrupt-unwind on the worker thread (`GremlinExecutor:354`; the
+scheduled task at `:370`–`:377` only cancels the future). (2) No shared
+transaction exists: the generated DSL's `tx()` proxies to `graph.tx()`
+(`GraphTraversalSource:735`), which returns
+`threadLocalState.get().transaction` (`YTDBGraphImplAbstract:219`,
+`ThreadLocal.withInitial` at `:86`, per-thread `YTDBTransaction` at
+`:511`–`:517`); `activeSession` is a plain field, but each instance is
+thread-confined, so `isOpen()`/`rollback()` only ever see the calling
+thread's own transaction. All ten `rollback()` sites in `server/src/main`
+re-resolve `tx()` on their executing thread (hook arms; `handleIterator`
+managed-tx arms, which run in `withResult` on the eval thread per
+`GremlinExecutor:337`; bytecode-path arms; the session kill path submitted
+onto the session's single-thread executor, `YTDBGremlinSession:64`/`:185`),
+and the managed path opens with a defensive rollback that clears a leaked
+predecessor tx on the same pool thread (`YTDBAbstractOpProcessor:235`–`:239`).
+The registered interleaving cannot execute: a timed-out DDL unwinds and
+rolls back on its own thread. Facet (a)'s thread-carrying token is rejected
+as harmful: no live initiator needs it, it would turn pool-shutdown cleanup
+of an abandoned schema tx into a permanent mutex wedge, and it would forbid
+`releaseStranded`, the YTDB-1114 reaper's entry point. Facet (b)'s
+prerequisite is moot: YTDB-1113 was closed as invalid with a correcting
+comment (its two mechanism paragraphs are these same two premises; the
+pass-8 sweep that fed it ran grep-only against the pre-3.5 upstream hook
+contract and missed the graph-layer `ThreadLocal`). D7's
+abnormal-termination bullet is rewritten to the verified ground truth, and
+the one remaining cross-thread caller class (pool-shutdown `close()` of
+abandoned sessions, `FrontendTransactionImpl:130`–`:133`) stays the
+documented rare-event path under the YTDB-550 monitor and YTDB-1114. F84's
+and F85's resolution records carry matching correction notes.
 
 ### F93 — "Data commits keep today's uniform park everywhere" misstates the shipped gate: throw-mode freezes throw, and an implementer keeping the stated park turns `freeze(db, true)` into a write hang [MINOR]
 Pass-9 report C28. `OperationsFreezer.startOperation` runs
@@ -3176,9 +3223,21 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   resource: the D7 mutex, the freezer engagement, the D19 lock, the `tsMin`
   holder accounting, and the commit-local structural-id allocator state.
   Closing a session with an active schema tx runs rollback's mutex release
-  on the owning thread; cross-thread teardown attempts are rejected or
-  no-op, extending the thread-id-gate semantics that ship today (`close()`
-  skips `resetTsMin` for foreign threads, `FrontendTransactionImpl:954`). A
+  on the owning thread — and the owning thread is the only live entrant:
+  the Gremlin server has no cross-thread teardown initiator (F92,
+  PSI-verified). Every rollback site runs on the eval or session worker
+  that owns the transaction (the `afterTimeout`/`afterFailure` hooks fire
+  inside the eval thread's own interrupt-unwind, `GremlinExecutor:354` is
+  the consumer's sole invocation site; the session kill path submits its
+  rollback onto the session's single-thread executor,
+  `YTDBGremlinSession:64`/`:185`), and `tx()` resolves per-thread
+  (`YTDBGraphImplAbstract:219`, `ThreadLocalState` at `:86`), so no site
+  can reach another thread's transaction. The remaining cross-thread caller
+  class is pool-shutdown `close()` of abandoned sessions (the
+  `FrontendTransactionImpl:130`–`:133` exemption), where the shipped
+  thread-id gate covers the `tsMin` release (`close()` skips `resetTsMin`
+  for foreign threads, `:954`) and the mutex release is the desired
+  cleanup. A
   stranded tx (owner wedged, dead, or abandoned by a vanished client)
   therefore leaks its pin exactly as on `develop`: the YTDB-550 monitor
   detects and reports it, and reclamation is the postponed reaper's job —
@@ -3199,11 +3258,13 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   a hard CAS compare-owner-and-clear, never a bare `assert` plus
   unconditional `Semaphore.release()` (F79, sketch in the entry; the F38
   same-thread assertion folds into this bookkeeping). The token makes any
-  stale, duplicate, or foreign release a detected, logged no-op — cheap
-  (one CAS per schema-tx release; data txs never touch this lock) and
-  load-bearing today against the stray Gremlin-hook initiators recorded in
-  YTDB-1113. `releaseStranded(session)` remains in the primitive as the
-  postponed reaper's entry point, unused in v1. The acquire is timed with a
+  stale or duplicate release a detected, logged no-op — cheap (one CAS per
+  schema-tx release; data txs never touch this lock). It deliberately
+  carries no thread check (F92): a thread check would guard against an
+  initiator that does not exist, would turn pool-shutdown cleanup of an
+  abandoned schema tx into a permanent mutex wedge, and would forbid the
+  reaper's entry point. `releaseStranded(session)` remains in the
+  primitive as that entry point for YTDB-1114, unused in v1. The acquire is timed with a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
