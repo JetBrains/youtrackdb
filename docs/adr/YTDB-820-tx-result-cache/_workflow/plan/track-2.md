@@ -27,6 +27,7 @@ tap would cache a structurally meaningless scalar.
 - [x] 2026-06-11T11:29Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-11T18:27Z [ctx=safe] Step 1 complete (commit 4a9c9d0ccf)
 - [x] 2026-06-11T19:00Z [ctx=safe] Step 2 complete (commit d66cd22d57)
+- [x] 2026-06-11T20:32Z [ctx=info] Step 3 complete (commit 3c8849a70c)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -58,6 +59,18 @@ tap would cache a structurally meaningless scalar.
   by the `math_` prefix rule. Any future track that registers a new SQL function or
   factory will break this test until the new name is classified — intended behavior,
   but a build-gating surprise for the unaware. See Episodes §Step 2.
+- **Step 3 (engine semantics):** `count(distinct(prop))` returns a ROW count in this
+  engine, not a distinct count — `SQLFunctionCount` counts every non-null argument and
+  the nested `distinct(...)` does not dedup count's input (a true distinct count needs
+  the subquery form `count(*) FROM (SELECT distinct(prop) ...)`). Resolved by routing
+  `count(distinct(prop))` to K0_NONE so the version gate reproduces the engine result.
+  Phase 4 must reconcile design D20's AGGREGATE_COUNT_DISTINCT cacheable-shape listing.
+  See Episodes §Step 3.
+- **Step 3 (Track 3 forward note):** the `serveThroughCache` shape gate now routes
+  RECORD, K0_NONE, and all AGGREGATE_* through the cache via separate branches; only
+  MATCH_TUPLE_MULTI bypasses. Track 3's MATCH branch must follow the same separate-gate
+  pattern and transfer `viewOwnsGuard` when it builds a `CachedResultSetView`. See
+  Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -89,6 +102,14 @@ tap would cache a structurally meaningless scalar.
   so the splice detects the `CountFromClassStep` and increments `spliceFailures`.
   Resolves Plan of Work step 5(b)'s "pick one explicitly and test it." See Episodes
   §Step 2.
+- **`count(distinct(prop))` → K0_NONE (Step 3, user-resolved design decision).** This
+  engine computes `count(distinct(prop))` as a row count, not a distinct count, so
+  caching a true distinct-count (design D20 / AGGREGATE_COUNT_DISTINCT) would violate
+  I10. Resolved by classifying `count(distinct(prop))` K0_NONE: the version gate
+  re-executes on mutation and reproduces the engine's row-count result exactly. This
+  supersedes Step 2's AGGREGATE_COUNT_DISTINCT classification; Step 1's distinct-count
+  `AggregateState` machinery is retained but production-unreached. Phase 4 reconciles
+  design D20. See Episodes §Step 3.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
@@ -286,7 +307,7 @@ collapse.
    COUNT_DISTINCT) including the D21 collapse case, bare/indexed COUNT(*) takes the
    fallback, cap overflow routes the key non-cacheable, no exception leaks.
    Depends on Steps 1 and 2. — risk: high (architecture / cross-component
-   coordination)  [ ]
+   coordination)  [x] commit: 3c8849a70c
 
 ## Episodes
 <!-- Continuous-log. -->
@@ -383,6 +404,71 @@ appearing where an `AggregateProjectionCalculationStep` was expected. The metric
 lives inside `QueryCacheMetrics` (the increment sites in `QueryResultCache` are
 unchanged), so Step 3's `incrementSpliceFailures` call feeds the global splice-failure
 rate automatically.
+
+### Step 3 — commit 3c8849a70c, 2026-06-11T20:32Z [ctx=info]
+
+**What was done:** Wired the aggregate cache end to end. Added `AggregateCacheTapStep`,
+an observe-then-forward `ExecutionStream` wrapper (non-copyable, spliced
+post-construction). In `DatabaseSessionEmbedded` the aggregate miss path builds a
+per-execution plan copy via `createExecutionPlan`, finds the
+`AggregateProjectionCalculationStep`, splices the tap upstream of it (above a
+pre-aggregate `ProjectionCalculationStep` when present, since that projection strips
+record identity), eager-drives the plan to full drain, builds the entry with a null
+stream/plan/ctx (the scalar is fully computed at populate), and falls back to an
+uncached `LocalResultSet` plus `incrementSpliceFailures` on any unexpected shape. Added
+`QueryResultCache.incrementSpliceFailures()` and `installAggregateOverflowGuard()` (the
+cap is installed before the drive, so an over-cap populate routes the key non-cacheable
+and the later `put` is a no-op), and `ShapeClassifier.AggregateMetadata` +
+`aggregateMetadata()`. The aggregate branch is a separate gate in `serveThroughCache`
+preserving the two-guard `viewOwnsGuard` / `cacheCodeDepth` contract; `buildView` gained
+the aggregate branch (`DeltaBuilder.buildForAggregate` + `CachedResultSetView.forAggregate`).
+173 cache-package tests pass; 19 new end-to-end equivalence tests cover per-kind I4 over
+CREATE / DELETE / WHERE-break / value-UPDATE, the D21 collapse case, both hardwired and
+indexed COUNT(*) fallbacks, count(*)+1 and count(distinct) → K0_NONE, contributor-cap
+overflow, hit-on-repeat, and no-leak.
+
+**What was discovered:** This engine has no native distinct-count — `count(distinct(prop))`
+is computed as a plain row count (5 matching rows holding 2 distinct values returns 5,
+not 2; `SQLFunctionCount.execute` counts every non-null argument and the nested
+`distinct(...)` does not dedup count's input). Caching a true distinct-count would diverge
+from fresh execution, violating I10; the resolved design decision routes
+`count(distinct(prop))` to K0_NONE so the version gate reproduces the engine's row-count
+result exactly. The critical splice-point fix: `AggregateProjectionCalculationStep extends
+ProjectionCalculationStep`, so the pre-aggregate-projection detection excludes the
+aggregation step itself; splicing below the projection would observe null-RID rows and
+trip `AggregateState.observe`'s assert. Five suggestion-severity review findings defer (no
+correctness impact): BC1 (the spliced tap is absent from `SelectExecutionPlan.getSteps()`,
+so prettyPrint/reset/serialize skip it — unreachable: the plan is single-use and `close`
+reaches the tap via the prev-chain), BC2 (`SelectExecutionPlan.close()` derefs `lastStep`
+without a null guard — unreachable: a valid SELECT always chains at least one step), PF1
+(the splice-failure fallback builds the plan twice on the untappable-shape miss path), PF2
+(`aggregateMetadata` re-runs `classify` on an already-classified statement, a second AST
+walk per miss), and PF3 (contributor collections allocate at default capacity, carried
+from Step 1). Track 3 (MATCH) will add its own `serveThroughCache` branch alongside the
+aggregate branch and must transfer `viewOwnsGuard` when it builds a `CachedResultSetView`.
+
+**What changed from the plan:** Step 2's classifier mapping `count(distinct(prop))` →
+AGGREGATE_COUNT_DISTINCT is superseded by the resolved design decision — it now classifies
+K0_NONE, and the Step 2 `ShapeClassifierTest` assertion was updated to match. Step 1's
+COUNT_DISTINCT `AggregateState` machinery and its unit tests are retained but
+production-unreached in v1 (kept for a future engine with a true distinct-count); the I5
+enumeration test is unchanged. The cap-overflow equivalence test uses SUM over a
+high-cardinality value rather than COUNT(DISTINCT). Phase 4 must reconcile design D20
+(which lists AGGREGATE_COUNT_DISTINCT as a cacheable shape) against this routing. No effect
+on Track 3.
+
+**Key files:** `AggregateCacheTapStep.java` (new), `DatabaseSessionEmbedded.java`
+(aggregate miss path: splice + eager drive + fallback), `QueryResultCache.java`
+(`incrementSpliceFailures`, `installAggregateOverflowGuard`), `ShapeClassifier.java`
+(`AggregateMetadata` + `count(distinct)` → K0_NONE), `AggregateCacheEquivalenceTest.java`
+(new, 19 tests), `ShapeClassifierTest.java` (`count(distinct)` → K0_NONE).
+
+**Critical context:** A classify/derive divergence (`aggregateMetadata` returning null on a
+shape the gate accepted) is treated as a splice failure → uncached fallback, not a crash.
+Aggregate entries hold no live stream, so `CachedResultSetView` gets a null plan and the
+plan is closed in `populateAndBuildAggregateView`'s own finally. Track 3's MATCH branch
+must follow the same separate-gate + `viewOwnsGuard`-transfer pattern this step
+established for aggregates.
 
 ## Validation and Acceptance
 
