@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Node;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
@@ -30,9 +31,12 @@ import javax.annotation.Nonnull;
  *       no LET, no UNWIND, a class (not subquery) target, and no aggregate function anywhere in its
  *       projection. Its rows are individual records the delta builder reconciles one at a time.
  *   <li><b>Single-aggregate SELECT &rarr; {@code AGGREGATE_*}.</b> A SELECT whose single projection
- *       item is one of the recognised scalar aggregates over a plain property. The classifier returns
- *       the final {@code AGGREGATE_*} value, but the aggregate delta path lands in a later track, so
- *       the session bypasses these (uncached) for now.
+ *       item is exactly one of the recognised scalar aggregates over a plain property, with no
+ *       arithmetic applied. An aggregate buried under arithmetic ({@code count(*) + 1}) is not the bare
+ *       scalar the replay path produces and routes to {@code K0_NONE} instead. Bare {@code COUNT(*)
+ *       FROM C} (no WHERE) is hardwired in the planner to an O(1) {@code CountFromClassStep} that the
+ *       aggregate side-tap can never reach, so it also routes to {@code K0_NONE}; a {@code COUNT(*)}
+ *       with a (non-indexed) WHERE does build the aggregation step and stays {@code AGGREGATE_COUNT}.
  *   <li><b>MATCH &rarr; {@link CacheableShape#MATCH_TUPLE_MULTI}.</b> Returned for any MATCH
  *       statement here; the MATCH delta path and the single-alias RECORD-fold (Etap A) land in a
  *       later track, so the session bypasses these for now.
@@ -82,7 +86,7 @@ public final class ShapeClassifier {
       return CacheableShape.K0_NONE;
     }
 
-    var aggregate = singleAggregateShape(select.getProjection());
+    var aggregate = singleAggregateShape(select.getProjection(), select.getWhereClause() != null);
     if (aggregate != null) {
       return aggregate;
     }
@@ -112,8 +116,13 @@ public final class ShapeClassifier {
    * aggregate over a plain property (or {@code COUNT(*)}), otherwise {@code null}. A projection with
    * more than one item, or an aggregate wrapping an expression, is not a clean single-aggregate shape
    * and returns {@code null} so the caller can route it to RECORD or K0_NONE as appropriate.
+   *
+   * <p>{@code hasWhereClause} distinguishes the bare {@code COUNT(*) FROM C} shape (hardwired and
+   * untappable, routed to K0_NONE) from {@code COUNT(*) FROM C WHERE non-indexed-predicate} (which
+   * builds the aggregation step and is tappable, so it stays {@code AGGREGATE_COUNT}).
    */
-  private static CacheableShape singleAggregateShape(SQLProjection projection) {
+  private static CacheableShape singleAggregateShape(SQLProjection projection,
+      boolean hasWhereClause) {
     if (projection == null) {
       return null;
     }
@@ -121,26 +130,82 @@ public final class ShapeClassifier {
     if (items == null || items.size() != 1) {
       return null;
     }
-    var call = topLevelFunctionCall(items.getFirst());
+    var call = rootAggregateCall(items.getFirst());
     if (call == null) {
       return null;
     }
-    return aggregateShapeForCall(call);
+    var shape = aggregateShapeForCall(call);
+    if (shape == CacheableShape.AGGREGATE_COUNT && call.isStar() && !hasWhereClause) {
+      // Bare COUNT(*) FROM C (no WHERE) is hardwired in the planner to a CountFromClassStep before any
+      // AggregateProjectionCalculationStep is built, so the aggregate side-tap can never reach it.
+      // It is already O(1) and transaction-aware, so caching adds nothing. Route it to K0_NONE so the
+      // untappable shape never enters the aggregate replay path. The single-field-indexed
+      // COUNT(*) ... WHERE indexedField = ? shape is also hardwired, but its detection needs index
+      // metadata the AST-only classifier cannot see, so that shape rides the aggregate splice fallback
+      // (the splice finds a CountFromClassStep, not an aggregation step, and falls back uncached).
+      return CacheableShape.K0_NONE;
+    }
+    return shape;
   }
 
   /**
-   * Returns the outermost (closest-to-root in pre-order) {@link SQLFunctionCall} in the projection
-   * item's subtree, or {@code null} if the item carries no function call. For a clean single-aggregate
-   * item such as {@code count(*)} or {@code count(distinct(name))}, this is the aggregate call itself;
-   * the caller then maps its name to a shape and inspects its arguments for the DISTINCT form. A
-   * function call buried under arithmetic (e.g. {@code count(*) + 1}) is also returned, but such a
-   * shape is bypassed (uncached) in this foundation regardless, so the looser match is harmless here.
+   * Returns the aggregate {@link SQLFunctionCall} when the projection item's expression is exactly one
+   * function call with no arithmetic applied, otherwise {@code null}. For a clean single-aggregate item
+   * such as {@code count(*)} or {@code count(distinct(name))}, this is the aggregate call itself; the
+   * caller then maps its name to a shape and inspects its arguments for the DISTINCT form.
+   *
+   * <p>An aggregate buried under arithmetic — {@code count(*) + 1}, {@code sum(price) * 2} — returns
+   * {@code null}: the arithmetic result is not the bare aggregate scalar the side-tap and {@code
+   * AggregateState} replay produce, so caching it as an {@code AGGREGATE_*} shape would replay the wrong
+   * value. Routing it to {@code null} here lets the caller fall through to the {@code
+   * projectionContainsAggregate} branch, which classifies it K0_NONE (deterministically reproducible,
+   * served only under the mutation-version gate). The descent rejects the item the moment it crosses a
+   * math node that applies an operator, so the arithmetic is detected without reading the (package-
+   * private) function-call leaf.
    */
-  private static SQLFunctionCall topLevelFunctionCall(SQLProjectionItem item) {
+  private static SQLFunctionCall rootAggregateCall(SQLProjectionItem item) {
     if (item == null) {
       return null;
     }
-    return firstFunctionCall(item);
+    var expression = item.getExpression();
+    if (expression == null) {
+      return null;
+    }
+    var math = expression.getMathExpression();
+    if (math == null) {
+      return null;
+    }
+    return rootCallWithoutArithmetic(math);
+  }
+
+  /**
+   * Descends a {@link SQLMathExpression}, returning the root {@link SQLFunctionCall} only when no
+   * arithmetic operator is applied anywhere on the path down to it. Any math node carrying a non-empty
+   * operator list (an actual {@code +}/{@code -}/{@code *}/... arithmetic combination) means the item is
+   * an expression over the aggregate, not the aggregate itself, so the method returns {@code null}.
+   * Single-operand wrapper math nodes (grammar artefacts with no operator) are transparently descended.
+   * Once the descent reaches a base expression (a {@link SQLMathExpression} that holds no further child
+   * math expressions), the JJTree subtree is scanned for the function call.
+   */
+  private static SQLFunctionCall rootCallWithoutArithmetic(SQLMathExpression math) {
+    var operators = math.getOperators();
+    if (operators != null && !operators.isEmpty()) {
+      // Arithmetic is applied at this level (e.g. count(*) + 1); this is not a bare aggregate.
+      return null;
+    }
+    var children = math.getChildExpressions();
+    if (children != null && children.size() == 1) {
+      // A single-child math node with no operator is a transparent wrapper; descend into it.
+      return rootCallWithoutArithmetic(children.getFirst());
+    }
+    if (children != null && children.size() > 1) {
+      // More than one operand without an operator should not occur, but if it does it is not a clean
+      // single aggregate; treat it conservatively as non-aggregate.
+      return null;
+    }
+    // Leaf base expression: its subtree holds the function call (if any) directly, with no arithmetic
+    // above it. firstFunctionCall finds count/sum/... and, for COUNT(DISTINCT), the outer count call.
+    return firstFunctionCall(math);
   }
 
   /** Pre-order search for the first {@link SQLFunctionCall} in {@code node}'s subtree. */

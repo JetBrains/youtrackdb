@@ -89,12 +89,62 @@ public class ShapeClassifierTest extends DbTestBase {
         ShapeClassifier.classify(parse("select from (select from OUser)")));
   }
 
-  /** {@code COUNT(*)} is the count aggregate shape; the value is final though the delta lands later. */
+  /**
+   * Bare {@code COUNT(*) FROM C} (no WHERE) classifies K0_NONE, not AGGREGATE_COUNT. The planner
+   * hardwires this shape to an O(1) {@code CountFromClassStep} built before any aggregation step
+   * exists, so the aggregate side-tap can never reach it; routing it K0_NONE keeps the untappable shape
+   * out of the aggregate replay path entirely. (It is already O(1) and tx-aware, so caching adds
+   * nothing.)
+   */
   @Test
-  public void countStarClassifiesAsAggregateCount() {
+  public void bareCountStarClassifiesAsK0None() {
+    Assert.assertEquals(
+        "bare COUNT(*) FROM C is hardwired and untappable; it must classify K0_NONE, not"
+            + " AGGREGATE_COUNT",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select count(*) from OUser")));
+  }
+
+  /**
+   * {@code COUNT(*)} with a (non-indexed) WHERE predicate stays AGGREGATE_COUNT: unlike the bare and
+   * single-field-indexed forms, this shape builds a real {@code AggregateProjectionCalculationStep}, so
+   * the side-tap can observe its contributing records and the aggregate cache path applies. The
+   * classifier cannot see indexes (it runs on the AST alone), so it keeps every WHERE-carrying
+   * {@code COUNT(*)} tappable; the indexed-WHERE residual is caught at the splice fallback instead.
+   */
+  @Test
+  public void countStarWithWhereStaysAggregateCount() {
     Assert.assertEquals(
         CacheableShape.AGGREGATE_COUNT,
-        ShapeClassifier.classify(parse("select count(*) from OUser")));
+        ShapeClassifier.classify(parse("select count(*) from OUser where name = ?")));
+  }
+
+  /**
+   * An aggregate buried under arithmetic ({@code count(*) + 1}) classifies K0_NONE, not
+   * AGGREGATE_COUNT. The cached aggregate replay produces the bare scalar, so caching the arithmetic
+   * result as an AGGREGATE_* shape would replay the wrong value; the K0 version gate serves it safely
+   * instead. This is the tightening that matters now that aggregates actually cache — the earlier
+   * looser match (return the inner call regardless of surrounding arithmetic) was harmless only while
+   * aggregates were uncached.
+   */
+  @Test
+  public void aggregateUnderArithmeticClassifiesAsK0None() {
+    Assert.assertEquals(
+        "count(*) + 1 is an expression over an aggregate, not a bare aggregate; it must classify"
+            + " K0_NONE so the aggregate replay never returns the un-incremented scalar",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select count(*) + 1 from OUser")));
+  }
+
+  /**
+   * SUM under arithmetic ({@code sum(age) * 2}) likewise classifies K0_NONE, confirming the
+   * arithmetic-rejection rule is not specific to COUNT.
+   */
+  @Test
+  public void sumUnderArithmeticClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select sum(age) * 2 from OUser")));
   }
 
   /** {@code SUM(prop)} maps to the sum aggregate shape. */
