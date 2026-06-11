@@ -692,7 +692,9 @@ variant: operation-scoped `tsMin` release via the holder reference captured at
 scheme as profile-triggered fallback; reap scoped to between-operations stranding,
 mid-commit-window stranding routed to the storage-error/restart path; F71's Phase-1
 checkpoint resolved: operation-object half passes, tsMin/freezer/component-lock halves
-fail). F77–F82 pending.
+fail); F77 → D12/F66 (accepted 2026-06-11: tx-aware population skips tx-touched RIDs,
+re-derivation contributes final-state puts only, deletes never put so no committed-key
+source is needed; tx-bypassing committed read rejected). F78–F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2218,15 +2220,15 @@ flowchart LR
   FIX["population skips tx-touched RIDs;<br/>re-derivation = final-state puts only"] -.-> NK
 ```
 
-**Resolution (proposed):** remove the need for committed keys instead of finding them.
-The F54 population scan becomes tx-aware: it skips every RID present in the tx's
-record-operation set. Re-derivation contributes final-state puts only (tx-created and
-tx-updated rows; values in memory). Deletes need no remove at all — the row is simply
-never put. D12's completeness invariant rewords to: population covers committed rows the
-tx did not touch; re-derivation covers exactly the tx-touched rows. The tx-bypassing
-committed-read alternative is rejected (it re-creates the cross-layer entanglement
-F54/F66 removed). D12's regression-test pair stays as specified. Affected: F66, D12,
-F54, F32, D3.
+**Resolution (accepted 2026-06-11):** remove the need for committed keys instead of
+finding them. The F54 population scan becomes tx-aware: it skips every RID present in
+the tx's record-operation set. Re-derivation contributes final-state puts only
+(tx-created and tx-updated rows; values in memory). Deletes need no remove at all — the
+row is simply never put. D12's completeness invariant rewords to: population covers
+committed rows the tx did not touch; re-derivation covers exactly the tx-touched rows.
+The tx-bypassing committed-read alternative is rejected (it re-creates the cross-layer
+entanglement F54/F66 removed). D12's regression-test pair stays as specified. Affected:
+F66, D12, F54, F32, D3.
 
 ### F78 — DDL against a frozen storage parks the schema commit inside `OperationsFreezer` holding all four locks: the freeze window becomes a total read outage [MAJOR]
 Pass-7 report C18. The commit path contains a fifth synchronization object the D7/D19
@@ -2876,10 +2878,15 @@ atomic operation — no copied session, no nested batch transactions (both re-en
 non-reentrant `stateLock` under the held write lock, and separate batch units would make
 the build durable independently of the schema commit; F54). The F46 emptiness probes use
 an internal `isEmpty(atomicOperation)`. Invariant: population emits **zero additional WAL
-units**. **Completeness invariant (F66):** for every tx-created index, the commit
-accounts for all of the tx's record operations — the commit-time enqueue for tx-created
-indexes re-derives entries from the tx's complete record-operation set, never from the
-residual `operationsBetweenCallbacks` queue, because `deleteRecord`'s eager flush
+units**. **Completeness invariant (F66, mechanics corrected by F77):** for every tx-created
+index, the commit accounts for all of the tx's record operations through a tx-aware
+split: the population scan skips every RID present in the tx's record-operation set,
+and the commit-time re-derivation contributes final-state puts only (tx-created and
+tx-updated rows, whose values are in memory; a deleted row is simply never put, so no
+remove and no committed-key source is needed — F77 established that early-flushed
+deletes have no key values left at commit). Population covers committed rows the tx did
+not touch; re-derivation covers exactly the tx-touched rows. Re-derivation never reads
+the residual `operationsBetweenCallbacks` queue, because `deleteRecord`'s eager flush
 (`FrontendTransactionImpl:483`) drains that queue early against the pre-`createIndex`
 index set. **Residual window (F70, documented):** a concurrent pure-data commit whose
 session-layer enqueue ran before the schema commit published the new index still misses
