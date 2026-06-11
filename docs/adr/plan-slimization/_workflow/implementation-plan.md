@@ -52,6 +52,10 @@ revived YTDB-832 (write-time cold-read).
   §1.6 line-1 workflow-sha stamp, except artifacts §1.6(f) excludes.
 - House style (`conventions.md` §1.5) applies to every prose surface this
   plan touches.
+- Staged prose edits maintain the §1.8 per-section annotations and TOC
+  regions on every TOC-bearing doc they touch. Whether `workflow-reindex.py`
+  runs against the staged mirror or the TOC rows are hand-written and
+  reindexed at promotion is resolved at implementation time.
 
 ### Architecture Notes
 
@@ -66,6 +70,7 @@ flowchart TB
         COLD["prompts/design-review.md"]
         RULES["research.md / planning.md /<br/>design-document-rules.md"]
         CONV["conventions.md §1.1/§1.2/§1.6(f)<br/>conventions-execution.md §2.5"]
+        AUX["mid-phase-handoff.md /<br/>risk-tagging.md"]
         MECH["design-mechanical-checks.py<br/>(live path)"]
     end
     subgraph T2["Track 2 — execution-side consumption"]
@@ -101,6 +106,13 @@ flowchart TB
 - **conventions files** — glossary terms, §1.2 layout, §1.6(f) exclusion for
   the log (D19), §2.5 annotation-axes extension for the gate's review files
   (D17); §2.1 lifecycle changes belong to Track 2.
+- **mid-phase-handoff.md** — gains the D15 queue block so a held finding
+  batch survives multi-session holds.
+- **risk-tagging.md** — gains the D4 note naming the HIGH-risk category list
+  as Gate 1's shared source, read at change level.
+- **design-mechanical-checks.py** — D11's backward-compatible live-path edit
+  (accepts both footer spellings) plus the new stub-plan fixture under
+  `.claude/scripts/tests/`.
 - **Phase 2/3A review docs and prompts** (Track 2) — pass selection keys off
   the tier (D9); design-presence conditionals and the duplication-check
   repurpose land here (D10).
@@ -116,9 +128,12 @@ flowchart TB
   track presence when the plan is absent; a content-free stub.
 - **Rationale**: route (a) keeps the resume engine untouched (S1). The plan is
   already a thin checklist, so the `minimal` stub is ~10 lines yet
-  shape-complete: `## Plan Review` heading, glyph-valid `## Checklist` with
-  one track entry, `## Final Artifacts` heading, plus the D18 tier line. The
-  per-track completion episode is the one content block the stub accumulates.
+  shape-complete: a `## Plan Review` section carrying its decision checkbox,
+  a glyph-valid `## Checklist` with one track entry, a `## Final Artifacts`
+  section carrying its decision checkbox, plus the D18 tier line. The script
+  reads each section's first top-level checkbox, so bare headings would strand
+  the resume machine in State 0. The per-track completion episode is the one
+  content block the stub accumulates.
 - **Risks/Caveats**: the stub template is the spec the state machine depends
   on; any future change to what the script reads must update the template.
 - **Implemented in**: Track 1 (templates, Step 1c branch), Track 2 (Phase-2
@@ -374,11 +389,12 @@ flowchart TB
   implements — growing the prose without the script breaks the conformance
   fixture and S1 forbids the script edit); stamping it writer-side only (a
   decorative stamp no walk reads invites confusion).
-- **Rationale**: the log is an append-only ledger consumed at authoring and
-  never re-read by phase machinery, so it is replay-immune by construction —
-  the same exclusion rationale §1.6(f) already records for
-  `design-mutations.md`. No script change, no conformance break, no migration
-  coverage gap.
+- **Rationale**: the log is an append-only ledger that no §1.6(h) walk
+  enumerates and no phase machinery rewrites or re-derives (its
+  post-authoring reads, the S2 sites, consume content, never format), so it
+  is replay-immune by construction — the same exclusion rationale §1.6(f)
+  already records for `design-mutations.md`. No script change, no
+  conformance break, no migration coverage gap.
 - **Risks/Caveats**: this branch's own log carries a (harmless) stamp written
   before this rule; the presence check only fires on enumerated types.
 - **Implemented in**: Track 1
@@ -390,10 +406,12 @@ flowchart TB
   script reads unchanged. Testable: `git diff develop -- .claude/scripts/` shows
   only additive new files; the `minimal` stub template parses through the
   unchanged script (fixture test in Track 1).
-- **S2 — one-way log → carrier seed.** The log is read only at Step 4a/4b
-  authoring and by the Phase-2 consistency cross-check; after a track absorbs
-  a decision, the track is authoritative. Enforced by the absorption criterion
-  (D8) at authoring and the propagation duty (D7) after.
+- **S2 — one-way log → carrier seed.** The log is read for decision content
+  only at Step 4a/4b authoring and by the Phase-2 consistency cross-check;
+  the Phase-4 fold reads the log's resolved gate verdicts, never decision
+  content. After a track absorbs a decision, the track is authoritative.
+  Enforced by the absorption criterion (D8) at authoring and the propagation
+  duty (D7) after.
 - **S3 — freeze order preserved.** A `design.md` draft cannot reach cold-read
   while a log-adversarial entry is open; holds across the D15 batch loop-back.
   Testable as a reachability check on the staged `edit-design`/`create-plan`
@@ -467,7 +485,13 @@ flowchart TB
   > **Depends on:** Track 1
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed 2026-06-11; consistency at iteration 1, structural at iteration 2
+
+**Auto-fixed (mechanical)**: CR1 (D1 stub spec: decision checkboxes under `## Plan Review`/`## Final Artifacts`, not bare headings; fixture walks post-review transitions), CR2 (research log has four of five D5 sections), CR3 (today's 3A mapping: Risk = critical paths/perf, Adversarial = architectural decisions/non-obvious scope), CR4 (slim-track rendering is new, not an extension), CR5 (frozen-design guard anchored at implementer-rules.md:75-81, whole-sentence rewording), CR6 (Constraints bullet: §1.8 annotation/TOC duty for staged prose edits), CR7 (third-scope lifecycle clause lands in §2.5, §2.1 untouched), S2 (Component Map: AUX node + mid-phase-handoff/risk-tagging/mechanical-check bullets), S3 (D19 rationale reworded to match the resolved S2 read-site enumeration).
+
+**Escalated (design decisions)**: S1 — plan invariant S2 scoped to decision-content reads; the Phase-4 fold is the one sanctioned verdict-only read (user-approved; mirrored in track-1 acceptance, track-1 ordering constraints, track-2 step-7 invariants line).
+
+**Deferred to Phase 4 (frozen `design.md`)**: Part 4 stub sentence (CR1 echo), Part 6 "same characteristics that warrant it today" parenthetical (CR3 echo), Part 2 "read in exactly two places" sentence (S1 echo).
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

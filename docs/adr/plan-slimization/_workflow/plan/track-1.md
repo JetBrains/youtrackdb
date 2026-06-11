@@ -78,8 +78,10 @@ to the staged mirror per §1.7 except where marked live):
 - **`design-mechanical-checks.py`** (live path, outside the §1.7 stageable
   prefixes) implements `section_has_references`.
 - **Precedent on this branch**: `_workflow/research-log.md` already exists
-  with the five-section shape — the working prototype of the D5 artifact. Its
-  line-1 stamp predates D19 and is harmless (no walk enumerates the file).
+  with four of the five D5 sections (`## Baseline and re-validation` has not
+  been added; D5 fills it on workflow-modifying branches) — the working
+  prototype of the D5 artifact. Its line-1 stamp predates D19 and is harmless
+  (no walk enumerates the file).
 
 ```mermaid
 flowchart LR
@@ -126,7 +128,9 @@ SKILL wiring that cites both. The approach in order:
    phases with `1` and roles with `planner`; a third-scope location/lifecycle
    clause names the review-file home under `_workflow/` (e.g. the existing
    `reviews/` directory), `<type>-iter<N>.md` naming, commit-at-return
-   applicability, and the Phase-4 sweep (D17). The iteration≥2
+   applicability, and the Phase-4 sweep (D17). The clause lands inside §2.5
+   as a new sub-clause, restating nothing from §2.1 beyond a cross-reference
+   (§2.1 stays untouched by this track). The iteration≥2
    manifest-variant question is resolved here at implementation time.
 5. **Classifier and gate wiring (`create-plan/SKILL.md`).** Phase 0 log
    creation (Step 1b/2/3); the Step 4 two-gate classifier reading the log,
@@ -139,8 +143,9 @@ SKILL wiring that cites both. The approach in order:
    `design.md` by design" vs "fresh start" — S1's lone routing change).
 6. **Templates (`create-plan/SKILL.md`, same file).** Aggregator-plan
    template gains the D18 tier line; the `minimal` stub template (shape-
-   complete per D1: `## Plan Review`, glyph-valid `## Checklist` with one
-   entry, `## Final Artifacts`, tier line); the track template's
+   complete per D1: `## Plan Review` with its decision checkbox, glyph-valid
+   `## Checklist` with one entry, `## Final Artifacts` with its decision
+   checkbox, tier line); the track template's
    `## Decision Log` becomes the plan-at-start inline-DR home (full
    four-bullet records, no out-of-file references; the "Reserved for Move 1"
    placeholder retires).
@@ -180,7 +185,8 @@ Ordering constraints: step 1 (vocabulary) precedes everything that cites it;
 steps 3-4 (gate prompt + schema access) precede or accompany step 5 (the
 SKILL that spawns against them); steps 6-9 are order-flexible among
 themselves; step 12 is independent. Invariants to preserve throughout: S1 (no
-script/existing-test edits), S2 (log read points stay exactly two), S3
+script/existing-test edits), S2 (decision-content log reads stay exactly
+two; the Phase-4 verdict-only fold is sanctioned), S3
 (freeze order), I6 (every `.claude/**` edit goes to the staged mirror).
 
 ## Concrete Steps
@@ -208,7 +214,9 @@ Track-level acceptance:
   deliberately unchanged, in the live tree.
 - The `minimal` stub template parses through the unchanged
   `workflow-startup-precheck.sh` (the new fixture exercises `--mode full`
-  against a synthesized stub plan dir and asserts a readable state).
+  against a synthesized stub plan dir, asserts a readable state, and walks
+  the post-review transitions: Plan Review flipped to `[x]` yields State A/C,
+  track and Final Artifacts flipped yield State D/Done).
 - The staged third scope is reachable from the staged SKILL wiring with the
   D14 model/effort parameters and the D17 output path supplied at the spawn
   site.
@@ -217,8 +225,10 @@ Track-level acceptance:
   D15 batch loop-back.
 - The live `design-mechanical-checks.py` passes against this branch's frozen
   `design.md` (old footer) and against a synthetic doc using the new footer.
-- S2 read points: the staged docs name exactly two log read sites (Step 4a/4b
-  authoring; Phase-2 consistency cross-check) and no staged text adds a third.
+- S2 read points: the staged docs name exactly two decision-content log read
+  sites (Step 4a/4b authoring; Phase-2 consistency cross-check) and no staged
+  text adds a third decision-read site. The Phase-4 fold's verdict-only read
+  (Track 2) is the one sanctioned non-decision read.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 

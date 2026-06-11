@@ -44,9 +44,12 @@ go to the staged mirror per §1.7):
 
 - **`track-review.md`** selects the Phase-3A panel by the step-count
   complexity axis (Simple / Moderate / Complex); the adversarial pass
-  re-challenges track decisions without a log-vetted notion; the Risk pass is
-  gated by track characteristics (critical paths, performance constraints,
-  major architectural decisions).
+  re-challenges track decisions without a log-vetted notion. In today's
+  upgrade rows, critical paths or performance constraints add the Risk pass,
+  while major architectural decisions or non-obvious scope add the
+  Adversarial pass. The design's target Risk gate deliberately widens to
+  include architectural decisions, so step 6 implements the design's Part-6
+  enumeration rather than today's mapping.
 - **`implementation-review.md`** runs the Phase-2 consistency and structural
   passes unconditionally with a design half (design ↔ code ↔ plan); the
   design-frozen findings-routing rule defers frozen-design findings to
@@ -62,12 +65,16 @@ go to the staged mirror per §1.7):
   `## Decision Log` entry today), the completed-track pause (no carve-out for
   documentation-only appends), and the ESCALATE path D12's tier upgrade rides.
 - **`implementer-rules.md`** §Loading discipline carries the frozen-design
-  guard citing "plan's DRs" (around line 103) — reworded to "track's DRs"
-  under D7.
-- **`plan-slim-rendering.md`** defines the slim plan/track rendering
-  sub-agents receive; it must include the track's inline DR section so D7's
-  consumption model holds (slim plan + slim track with full DRs inline,
-  `design.md` path-only).
+  guard (lines 75-81; line 103 only cross-references it from the inputs
+  contract). The guard's sentence couples two carriers ("The plan's Decision
+  Records and the track file are the authoritative source of truth during
+  execution"); the D7 rewording targets that whole sentence, naming the
+  track's DRs as the live authority.
+- **`plan-slim-rendering.md`** defines the slim plan rendering sub-agents
+  receive; track files are passed whole today (no track-side rendering
+  exists anywhere in the live machinery). D7's consumption model needs a
+  new slim-track rendering that keeps the inline DR section (slim plan +
+  slim track with full DRs inline, `design.md` path-only).
 - **`conventions-execution.md` §2.1** tabulates the track-file section
   lifecycle; `## Decision Log` is execution-time-only there today and becomes
   a plan-at-start home written from Phase 1 (full inline DRs) that execution
@@ -87,8 +94,10 @@ selection, then Phase 4. The approach in order:
    appends replan decisions and supersession notes; the lifecycle table rows
    and the section descriptions update accordingly (D7).
 2. **Carrier consumption (`plan-slim-rendering.md`,
-   `implementer-rules.md`).** Slim-track rendering includes the inline DR
-   section; the frozen-design guard rewords "plan's DRs" to "track's DRs" and
+   `implementer-rules.md`).** Define the slim-track rendering in
+   `plan-slim-rendering.md` (new — the live file covers slim plan rendering
+   only), keeping the track's inline DR section so D7's consumption model
+   holds; the frozen-design guard rewords "plan's DRs" to "track's DRs" and
    keeps naming the live DR authoritative during execution; `design.md` stays
    path-only on-demand context in `full` (D7).
 3. **Replan propagation (`inline-replanning.md`).** The cross-track
@@ -137,7 +146,9 @@ steps 4-6 are order-flexible once steps 1-3 define the carrier they review;
 step 7 is last (it consumes the verdict records and the per-tier artifact
 matrix). Invariants to preserve: S4 (tier and risk tag never stack — verify
 no staged rule combines them), S2 (the Phase-2 consistency cross-check stays
-the log's only execution-side read point), I6 (all edits staged).
+the log's only execution-side decision-content read; the Phase-4 fold reads
+resolved gate verdicts only, the sanctioned non-decision read), I6 (all
+edits staged).
 
 ## Concrete Steps
 <!-- Phase A placeholder — decomposition writes a thin numbered
