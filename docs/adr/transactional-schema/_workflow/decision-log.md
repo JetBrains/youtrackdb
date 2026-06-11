@@ -756,7 +756,11 @@ complete: `create:196` commit path, `rebuild:305` user API + recovery thread,
 `load:240` external engines); F90 → D20/F81 (resolved 2026-06-11: accepted —
 cleanly-closed criterion replaced by section presence, ack flag reclassified
 as procedural acknowledgment for the final-section residue, exit-status
-procedure pin recorded); F91 pending.
+procedure pin recorded); F91 → D20/F82 (resolved 2026-06-11: accepted —
+whole-stream validation + pre-success fsync, best-effort directory fsync,
+warn-logged non-atomic move fallback stated). **All pass-8 findings are
+resolved** — F83/F84/F85/F89 dissolved by the reaping postponement
+(YTDB-1114), F86/F87/F88/F90/F91 accepted and folded.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2826,6 +2830,14 @@ for the manifest for the same fail-closed reason, but stated, not assumed.
 **Resolution (proposed):** extend D20's F82 bullet with the three pins. Affected: F82,
 F75, D20.
 
+**Resolved (2026-06-11): accepted as proposed, one precision correction.** D20's
+F82 bullet extended with all three pins (whole-stream validation + pre-success
+fsync with gzip-CRC32 as the cheapest form; best-effort directory fsync, safe
+fail-closed; non-atomic move fallback stated). Correction folded in: the
+`atomicMoveWithFallback` fallback is warn-logged
+(`LogManager.warn` at the fallback site), not silent — verified at fold time
+along with the `DiskStorage:2088`–`:2093` best-effort precedent.
+
 ---
 
 ## 3. Decisions
@@ -3673,11 +3685,24 @@ recover.
   dump file(s) are fsynced before the manifest becomes visible; the manifest
   goes to a temp name in the same directory (same-filesystem rename
   guarantee), is fsynced, renamed, and the directory is fsynced. Stream
-  variant (F82): the trailing manifest section carries a self-validating tail
-  (length or checksum trailer, or the manifest as the closing keys of the
-  single JSON document), so truncation is unparsable by construction, not by
-  accident. Net-new behavior to specify: the current exporter is a streaming
-  JSON writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.).
+  variant (F82, scope pinned per F91): the trailing manifest section carries
+  a self-validating tail (length or checksum trailer, or the manifest as the
+  closing keys of the single JSON document), so truncation is unparsable by
+  construction, not by accident — and the validation **covers the entire
+  stream, not the tail alone** (page-cache writeback is unordered: a durable
+  tail can sit over a zero-filled middle), with the file fsynced before the
+  export reports success; the dump's existing gzip envelope supplies a
+  whole-stream CRC32 for free, so "keep it gzip-framed and verify full
+  decompression" is the cheapest compliant form. Platform pins (F91): the
+  post-rename **directory fsync is best-effort**, per repo precedent
+  (`DiskStorage:2088`–`:2093`; `FileChannel.open(directory)` fails on
+  non-POSIX) — safe because every lost-rename outcome is fail-closed (missing
+  manifest → F75 hard-fail; missing dump → loud); and
+  `FileUtils.atomicMoveWithFallback` (`FileUtils:306`–`:319`) falls back to a
+  non-atomic `Files.move` with a warn log — acceptable for the manifest for
+  the same fail-closed reason, a stated property, not an assumed atomicity.
+  Net-new behavior to specify: the current exporter is a streaming JSON
+  writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.).
 - **Legacy-dump verification (F81 options (c) + (b); criterion replaced per
   F90):** the D20 migration dump itself is produced by the old binaries (the
   D14 gate forces it), so it is always pre-manifest, and the F75 version gate
