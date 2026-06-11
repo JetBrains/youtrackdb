@@ -25,6 +25,7 @@ tap would cache a structurally meaningless scalar.
 - [ ] Track completion
 
 - [x] 2026-06-11T11:29Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-11T18:27Z [ctx=safe] Step 1 complete (commit 4a9c9d0ccf)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -44,6 +45,12 @@ tap would cache a structurally meaningless scalar.
 - **Phase A review (iter 1):** the ServiceLoader manifest registers four
   `SQLFunctionFactory` implementations, not three (R5 — `DynamicSQLElementFactory`
   was omitted from the Phase 1 description).
+- **Step 1 (review):** the cache package cites design Decision-Record and invariant
+  IDs (D7/D8/D11/D18/D19/D20/D21, I1/I3/I6/I9/I10) in Javadoc throughout — a
+  Track-1-set, Phase-C-accepted convention, not a Step 1 regression. The
+  ephemeral-identifier rule allows only `adr.md`-defined DR IDs, so Phase 4 must
+  define these IDs in `adr.md` (or strip them branch-wide) before merge, otherwise
+  every citation dangles once `_workflow/` is removed. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -239,7 +246,7 @@ collapse.
    and the `CachedEntry` `aggregateState` field. Unit-tested in isolation:
    per-kind observe/applyMutation, mixed-input/overflow/precision SUM parity, AVG
    integer-truncation and BigDecimal `HALF_UP`, the collapse case, cap overflow.
-   *(parallel with Step 2)* — risk: high (performance hot path)  [ ]
+   *(parallel with Step 2)* — risk: high (performance hot path)  [x] commit: 4a9c9d0ccf
 2. **Classifier tightening + global metric bridge.** Tighten `ShapeClassifier` so
    an aggregate under arithmetic (`count(*) + 1`) classifies K0_NONE (not
    AGGREGATE_COUNT) and bare / single-field-indexed `COUNT(*)` rides the fallback
@@ -269,6 +276,58 @@ collapse.
 
 ## Episodes
 <!-- Continuous-log. -->
+
+### Step 1 — commit 4a9c9d0ccf, 2026-06-11T18:27Z [ctx=safe]
+
+**What was done:** Implemented the standalone `AggregateState` replay core for the
+aggregate cache shapes: `observe` / `applyMutation` / `copy` / `toResult` across COUNT,
+SUM, AVG, MIN, MAX, and COUNT(DISTINCT). SUM/AVG fold through
+`PropertyTypeInternal.increment` with a verbatim first-value seed; AVG finalizes through
+the storage type-dispatched division (integer truncation, BigDecimal `HALF_UP`); SUM over
+an empty set is `0`. MIN/MAX carry an `extremumRid` with the O(n) recompute fired only on
+the two extremum-leaving transitions; COUNT(DISTINCT) uses raw-`Object` buckets so
+`Long(5)` and `Integer(5)` stay distinct. Dispatch keys on the membership-derived
+(`was_contributing → now_contributing`) transition for D21 collapse safety. Added the
+aggregate-specific contributor cap (bounds the `AggregateState` collections, not
+`results`) with a one-shot overflow callback, plus `DeltaBuilder.buildForAggregate`, the
+`CachedEntry` `aggregateState` slot, and the `CachedResultSetView.forAggregate` view path.
+The step-level review drove one review-fix commit: the SUM/AVG fold now walks an
+insertion-ordered contributor map and runs once lazily (`sumDirty` + `ensureSumFolded`)
+rather than per mutation. 34 unit tests pass.
+
+**What was discovered:** `SQLFunctionAverage.computeAverage` is private, so its
+type-dispatched division is reproduced verbatim rather than called. A second equal-arity
+public `CachedResultSetView` constructor made the K0_NONE null-delta call sites
+ambiguous, so the aggregate view routes through a `forAggregate` static factory instead
+of a constructor overload. Two review suggestions defer to the track-level pass or later
+steps: BC2 — `observe` reads the projected `Result` while `applyMutation` reads the raw
+`Entity`, a value-source coupling the Step 2 classifier gate guards; BC3 — MIN/MAX over
+mixed non-Number `Comparable` values can throw `ClassCastException`, matching storage's
+behavior so cache-vs-fresh parity holds, but untested. PF2 (presize the contributor
+collections) folds into the Step 3 cap wiring. Branch-wide convention, not a Step 1
+regression: the cache package cites design Decision-Record and invariant IDs
+(D7/D8/D11/D18/D19/D20/D21, I1/I3/I6/I9/I10) in Javadoc throughout, set by Track 1 and
+accepted through its Phase C. Phase 4 must define these IDs in `adr.md` (or strip them
+branch-wide) so the citations resolve after `_workflow/` is removed; see Surprises &
+Discoveries.
+
+**What changed from the plan:** None. Scope held to the standalone replay core; the tap,
+splice, eager-drive, and end-to-end I4 equivalence tests stay in Step 3, and the
+classifier tightenings plus metric bridge stay in Step 2.
+
+**Key files:** `AggregateState.java` (new), `DeltaBuilder.java` (`buildForAggregate`),
+`CachedResultSetView.java` (`forAggregate` path), `CachedEntry.java` (`aggregateState`
+slot), `AggregateStateTest.java` (new, 34 tests). Commits `7b3af1d560` (initial) +
+`4a9c9d0ccf` (review fix).
+
+**Critical context:** SUM/AVG folding is now lazy. `getSumAccumulator()`, `getCount()`,
+and the SUM and AVG `scalar()` paths route through `ensureSumFolded()`, and `copy()`
+carries the `sumDirty` flag. Step 3's splice must build the state, call
+`setAggregateState`, install the cap via `setOverflowGuard(maxRecordsPerEntry,
+() -> overflowEntry(key))` mirroring the record-cap wiring, and construct the view via
+`CachedResultSetView.forAggregate(...)`, not the `TxDeltaCursor` constructor.
+`buildForAggregate` asserts a non-null `aggregateState`, so only AGGREGATE_* entries may
+route to it.
 
 ## Validation and Acceptance
 
