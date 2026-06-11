@@ -76,6 +76,14 @@ public final class CachedEntry {
   /** Mutation version captured before the populating execution started (D21 anchor). */
   private final long populateMutationVersion;
 
+  /**
+   * The aggregate replay state for an {@code AGGREGATE_*} entry, seeded by the side-tap at populate and
+   * copied-then-replayed per view by {@link DeltaBuilder#buildForAggregate}. {@code null} for every
+   * non-aggregate shape (RECORD / K0_NONE / MATCH), which reconcile through {@link #results} and a
+   * {@link TxDeltaCursor} instead. Set once at cache-put by the aggregate eager-drive path.
+   */
+  @Nullable private AggregateState aggregateState;
+
   // Lazy-populate machinery: the live stream + its plan/context, nulled on close/exhaustion.
   @Nullable private ExecutionStream stream;
 
@@ -174,6 +182,20 @@ public final class CachedEntry {
 
   public long getPopulateMutationVersion() {
     return populateMutationVersion;
+  }
+
+  /**
+   * The aggregate replay state for an {@code AGGREGATE_*} entry, or {@code null} for any other shape.
+   * {@link DeltaBuilder#buildForAggregate} copies it and replays the post-populate mutations onto the
+   * copy; {@link CachedResultSetView} returns the copy's {@link AggregateState#toResult}.
+   */
+  @Nullable public AggregateState getAggregateState() {
+    return aggregateState;
+  }
+
+  /** Sets the aggregate replay state at cache-put for an {@code AGGREGATE_*} entry. */
+  public void setAggregateState(@Nullable AggregateState aggregateState) {
+    this.aggregateState = aggregateState;
   }
 
   @Nullable public ExecutionStream getStream() {

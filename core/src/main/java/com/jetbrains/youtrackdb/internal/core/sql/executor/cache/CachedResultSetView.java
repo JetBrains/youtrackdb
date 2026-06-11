@@ -33,6 +33,12 @@ import javax.annotation.Nullable;
  * view replays {@link CachedEntry#getResults()} directly, lazy-pulling the stream tail with no skip-set
  * filtering, exactly as a non-cached re-run of that deterministic plan would.
  *
+ * <p><b>Aggregate path (single scalar row).</b> An {@code AGGREGATE_*} entry carries no cache cursor
+ * and no stream to pull: the side-tap already drove the populating plan to exhaustion at cache-put, so
+ * the per-RID material lives entirely in the entry's {@link AggregateState}. The view carries the
+ * replayed delta copy ({@link DeltaBuilder#buildForAggregate}) and emits exactly one row, {@link
+ * AggregateState#toResult}, then drains. {@code hasNext()} is true once.
+ *
  * <p><b>Stream-pull unification.</b> Both paths share one {@link #pullOneFromStream} helper. On the
  * RECORD path it drops any pulled row whose RID is in the delta skip-set (closing the lazy-pull gap:
  * a mutated RID living beyond the cached prefix must not surface from storage with stale state); on the
@@ -64,8 +70,17 @@ public final class CachedResultSetView implements ResultSet {
 
   private final CachedEntry entry;
 
-  /** Null for K0_NONE (direct replay); non-null for RECORD (sorted-merge). */
+  /** Null for K0_NONE (direct replay) and aggregate; non-null for RECORD (sorted-merge). */
   @Nullable private final TxDeltaCursor delta;
+
+  /**
+   * Non-null for an {@code AGGREGATE_*} view: the replayed {@link AggregateState} copy whose {@link
+   * AggregateState#toResult} is the view's single output row. Null for every other shape.
+   */
+  @Nullable private final AggregateState aggregateDelta;
+
+  /** True once the aggregate view has emitted its single scalar row; then the view is drained. */
+  private boolean aggregateEmitted;
 
   @Nullable private DatabaseSessionEmbedded session;
 
@@ -102,8 +117,38 @@ public final class CachedResultSetView implements ResultSet {
       @Nonnull FrontendTransactionImpl tx,
       @Nullable InternalExecutionPlan executionPlan,
       @Nonnull CommandContext ctx) {
+    this(entry, delta, null, session, tx, executionPlan, ctx);
+  }
+
+  /**
+   * Aggregate-shape factory: the view carries a replayed {@link AggregateState} copy instead of a
+   * {@link TxDeltaCursor} and emits its single {@link AggregateState#toResult} row. A static factory
+   * (rather than an overloaded constructor) keeps the {@code TxDeltaCursor}-arg constructor the only
+   * one of its arity, so a {@code null} delta on the record/K0 path stays unambiguous. The pin and the
+   * cache-code-guard lifetime are identical to the record/K0 path.
+   */
+  @Nonnull
+  public static CachedResultSetView forAggregate(
+      @Nonnull CachedEntry entry,
+      @Nonnull AggregateState aggregateDelta,
+      @Nullable DatabaseSessionEmbedded session,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nullable InternalExecutionPlan executionPlan,
+      @Nonnull CommandContext ctx) {
+    return new CachedResultSetView(entry, null, aggregateDelta, session, tx, executionPlan, ctx);
+  }
+
+  private CachedResultSetView(
+      @Nonnull CachedEntry entry,
+      @Nullable TxDeltaCursor delta,
+      @Nullable AggregateState aggregateDelta,
+      @Nullable DatabaseSessionEmbedded session,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nullable InternalExecutionPlan executionPlan,
+      @Nonnull CommandContext ctx) {
     this.entry = entry;
     this.delta = delta;
+    this.aggregateDelta = aggregateDelta;
     this.session = session;
     this.tx = tx;
     this.executionPlan = executionPlan;
@@ -143,14 +188,30 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * Produces the next merged row, or {@code null} when both the cache cursor and the delta cursor are
-   * exhausted. K0_NONE routes to a delta-free replay; RECORD runs the sorted-merge.
+   * Produces the next merged row, or {@code null} when the view is drained. Aggregate emits its single
+   * scalar row once; K0_NONE routes to a delta-free replay; RECORD runs the sorted-merge.
    */
   @Nullable private Result computeNext() {
+    if (aggregateDelta != null) {
+      return computeNextAggregate();
+    }
     if (delta == null) {
       return computeNextK0None();
     }
     return computeNextRecord();
+  }
+
+  /**
+   * Aggregate single-row emit: returns the replayed {@link AggregateState#toResult} the first time and
+   * {@code null} thereafter, so {@code hasNext()} is true exactly once. There is no stream to pull and
+   * no cache cursor; the scalar was fully computed at delta build.
+   */
+  @Nullable private Result computeNextAggregate() {
+    if (aggregateEmitted) {
+      return null;
+    }
+    aggregateEmitted = true;
+    return aggregateDelta.toResult(session);
   }
 
   /**

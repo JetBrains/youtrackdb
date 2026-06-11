@@ -196,4 +196,69 @@ public final class DeltaBuilder {
 
     return new TxDeltaCursor(sharedSkipSet, sharedInjectList);
   }
+
+  /**
+   * Builds the aggregate-shape replay state for {@code entry} against the transaction's current
+   * mutation state. Copies the entry's seeded {@link AggregateState} (so the entry's populate-time
+   * state is never disturbed) and replays every post-populate mutation onto the copy, then returns the
+   * copy for the view to finalise through {@link AggregateState#toResult}.
+   *
+   * <p><b>Populate-version filter (D21).</b> Like {@link #buildForRecord}, only operations whose
+   * {@link RecordOperation#version} exceeds {@link CachedEntry#getPopulateMutationVersion()} enter the
+   * replay: pre-populate mutations were already observed by the side-tap at populate and are baked into
+   * the seeded state, so replaying them would double-apply.
+   *
+   * <p><b>Class filter.</b> Non-Entity records and entities outside the query's class closure cannot
+   * contribute to this aggregate and are skipped, mirroring the record path.
+   *
+   * <p><b>Membership dispatch (D21 collapse safety).</b> {@link AggregateState#applyMutation} derives
+   * its transition from cache membership and {@code matchAfter}, not from the operation type, so a
+   * collapsed pre-populate CREATE that the version filter admits is reconciled correctly. {@code
+   * matchAfter} re-evaluates the entry's WHERE against the post-mutation record using the original
+   * query's context, so {@code :param} bindings resolve identically to the populating execution.
+   *
+   * <p>Unlike the record path, the aggregate state is not cross-view cached on the entry: a single
+   * call produces a fresh copy per view. Aggregate views are not consumer-paced (the scalar is fully
+   * computed at build), so there is no pause/resume to share.
+   *
+   * @param entry the cached {@code AGGREGATE_*} entry whose seeded state to reconcile
+   * @param tx    the active transaction whose {@code recordOperations} carry the post-populate deltas
+   * @param ctx   the original query's command context, reused so WHERE {@code :param} bindings resolve
+   *              identically to the populating execution
+   */
+  @Nonnull
+  public static AggregateState buildForAggregate(
+      @Nonnull CachedEntry entry,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull CommandContext ctx) {
+    final var seeded = entry.getAggregateState();
+    // An AGGREGATE_* entry always carries a seeded state from the eager-drive populate; a null here is
+    // a wiring bug (a non-aggregate entry routed to this builder). Assert it (no-op without -ea) so the
+    // contract violation fails loudly in tests rather than NPEing mid-replay.
+    assert seeded != null : "buildForAggregate on an entry with no aggregateState";
+    final var deltaState = seeded.copy();
+
+    final var effectiveFromClasses = entry.getEffectiveFromClasses();
+    final var whereClause = entry.getWhereClause();
+    for (final var op : tx.getRecordOperationsInternal()) {
+      if (op.version <= entry.getPopulateMutationVersion()) {
+        // Already observed by the populate-time side-tap and baked into the seeded state.
+        continue;
+      }
+      final var record = op.record;
+      if (!(record instanceof Entity entity)) {
+        continue;
+      }
+      final var className = entity.getSchemaClassName();
+      if (className == null || !effectiveFromClasses.contains(className)) {
+        continue;
+      }
+      // matchAfter carries WHERE-membership only; the new value for a still-contributing record is read
+      // from the mutated record inside applyMutation. A null WHERE matches every record.
+      final var matchAfter = whereClause == null || whereClause.matchesFilters(record, ctx);
+      deltaState.applyMutation(record, op.type, matchAfter);
+    }
+
+    return deltaState;
+  }
 }
