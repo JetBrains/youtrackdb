@@ -636,7 +636,13 @@ pass-8 common root: the F76/F78 folds each move a single-threaded compound onto 
 second thread or behind a different gate and fix only the field-level memory mode,
 leaving the surrounding check-then-act compounds non-atomic. mcp-steroid was
 unreachable for this pass, so new reference-accuracy claims carry grep-based caveats
-pending PSI re-verification.
+pending PSI re-verification. **Settlement note (2026-06-11):** the pass-8
+BLOCKER's subject was removed by scope decision, not survived by fix —
+F83/F84/F85/F89 attacked the F76 reap mechanism, and the settlement withdrew
+the mechanism itself (cross-thread reaping postponed to YTDB-1114) rather than
+hardening it; the remaining pass-8 findings (F86–F88, F90–F91) are independent
+of the reaper. F84's grep caveat was discharged during settlement (PSI/AST
+sweep, results on YTDB-1113); F87's and F88's caveats remain pending.
 
 **Pass-5 resolutions (settled 2026-06-10):** F52 → D7/D8/D19 (third lock in the ordering
 proof — D7 mutex → `SchemaShared.lock` → `stateLock`; the schema-carrying commit acquires
@@ -718,9 +724,23 @@ D20 (accepted 2026-06-11, options (c)+(b): JSON-close completeness check for eve
 legacy dump plus an explicit unverified-import acknowledgment flag; backport option (a)
 rejected); F82 → D20 (accepted 2026-06-11: dump fsync ordered before manifest
 visibility with same-directory temp and directory fsync; stream variant requires a
-self-validating tail). **All pass-7 findings are resolved.**
+self-validating tail). **All pass-7 findings are resolved.** **Amendment
+(2026-06-11, pass-8 settlement): F76's accepted mechanism is superseded —
+cross-thread reaping postponed to YTDB-1114** (see the F76 supersession note
+and D7's rewritten abnormal-termination bullet); F79's owner-token release is
+retained as the normal-release discipline, with `releaseStranded` parked as
+the postponed reaper's entry point, unused in v1.
 
-**Pass-8 resolutions (settling one by one):** F83–F91 pending.
+**Pass-8 resolutions (settling one by one):** F83 → F76/D7 (resolved
+2026-06-11: dissolved — cross-thread reaping postponed to YTDB-1114; no
+reaper-side release exists, shipped memory modes stand); F84 → F76/YTDB-1113
+(resolved 2026-06-11: dissolved by the same postponement; grep caveat
+discharged by PSI/AST sweep — initiator inventory and the two today-bugs
+recorded on YTDB-1113); F85 → F76/YTDB-1113 (resolved 2026-06-11: dissolved —
+no second claimant; today's hook-driven tear variant recorded on YTDB-1113);
+F89 → F76 (resolved 2026-06-11: dissolved — no strong capture, weak-keyed
+self-heal stands; no-strong-pin constraint transferred to YTDB-1114); F86–F88,
+F90–F91 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2226,6 +2246,22 @@ path, and D7's parenthetical stops claiming the segment-pin release. F71's Phase
 checkpoint is thereby resolved: the operation-object half passes, the
 tsMin/freezer/component-lock halves fail. Affected: D7, F71, F74, D12, F61, F38, D5.
 
+**Superseded (2026-06-11, pass-8 settlement): cross-thread reaping postponed →
+YTDB-1114.** The RMW variant above is withdrawn — the captured-holder release,
+the cross-thread `activeTxCount` RMW, and the scoped-reap arm leave the design,
+closing the F61 → F71 → F76 reap lineage. Teardown is owner-thread-only (D7's
+rewritten abnormal-termination bullet); a stranded pin returns to today's
+shipped semantics (the thread-id gate leaks it, the YTDB-550 monitor reports
+it), and reclamation moves to YTDB-1114's orthogonal design: an identity-keyed
+snapshot registry (removal by identity is idempotent, so exactly-once release
+holds by construction), lease-based stranding detection hosted by the monitor,
+and revocation fenced at the storage boundaries — no foreign thread ever
+touches tx-private state, and the normal path pays no new fences. This
+finding's diagnosis (the leak, the undefined mid-commit-window arm) stands and
+is exactly what YTDB-1114 fixes; only the in-design mechanism is withdrawn.
+The pass-8 attacks on that mechanism dissolve with it: F83 (compound race),
+F84 (double release), F85 (commit tear), F89 (weak-key defeat).
+
 ### F77 — F66's re-derivation has no key source for its delete leg: values are unloaded at the eager flush, tx reads refuse tx-deleted RIDs, and an in-window committed re-read is the F54 self-deadlock [MAJOR]
 Convergent: pass-7 reports C17 + U14. The accepted F66 text prescribes "deletes of
 committed rows contribute removes", but a remove needs the deleted row's key and every
@@ -2495,6 +2531,18 @@ and never resets — this requires re-deriving the fallback's TOCTOU argument
 the fallback. Either way D7's fold text states the compound invariant and who restores
 it. Affected: D7, F76, D12, D5.
 
+**Resolved (2026-06-11): dissolved — F76's mechanism withdrawn, cross-thread
+reaping postponed (YTDB-1114).** The racing decrement-then-reset existed only
+on the reaper's thread; with teardown owner-thread-only the begin/end compounds
+are single-writer again and the shipped memory modes stand (no packed word, no
+CAS). Settlement analysis recorded for YTDB-1114's benefit: packing
+`{activeTxCount, tsMin}` into one CAS'd 64-bit word is practically sound here —
+the timestamps are logical sequence ids from `AtomicOperationIdGen`, so a
+48-bit field carries centuries of headroom, and the fence cost versus the
+post-F76 baseline was zero — but the registry design was preferred because
+identity-keyed removal makes the compound disappear by construction instead of
+hardening it.
+
 ### F84 — The pin release is not once-only: concurrent rollback initiators double-decrement the captured holder [MAJOR]
 Pass-8 report C21. Three rollback initiators can target one tx: the D7 reaper, the
 zombie owner's own unwind (F79's premise), and the Gremlin evaluation-timeout hook
@@ -2513,6 +2561,20 @@ F79 solved this exact class for the mutex with the token CAS.
 tx's captured holder reference is consumed with `getAndSet(null)`; only the winning arm
 decrements; every other initiator's release is a logged no-op. F76's regression test
 gains a concurrent double-rollback variant. Affected: D7, F76, F79, F61.
+
+**Resolved (2026-06-11): dissolved — F76's mechanism withdrawn (YTDB-1114).**
+No captured-holder release, no cross-thread decrement arm: pin release is
+owner-only behind the thread-id gate, and same-thread double release stays
+guarded by the tx status machine plus the underflow throw
+(`AbstractStorage:4682`). The settlement discharged this entry's grep caveat
+(PSI/AST sweep, IDE reachable): ten `rollback()` call sites in
+`server/src/main`, two of them scheduler-thread `afterTimeout` arms
+(session-level `YTDBGremlinSession:222` and sessionless
+`YTDBAbstractOpProcessor:617`), all reaching the shared non-thread-local
+`YTDBTransaction` whose plain `activeSession` field makes the cross-thread arm
+real. Those are today-bugs independent of this design — filed as YTDB-1113
+(wrong-tx abort plus a torn-commit variant); the once-only-consume idea
+transfers there as the identity-token fix direction.
 
 ### F85 — The reap scope has no atomic discriminator, and `rollbackInternal`'s COMMITTING arm proceeds cross-thread: a reap racing a zombie's commit can durably commit torn tx state [MAJOR]
 Convergent: pass-8 reports C22 + U17. The scope test "is the owner inside the commit
@@ -2548,6 +2610,16 @@ cleared to COMPLETED at `:699` after promotion, overlay publication, and the tra
 discriminator. D7's tolerance sentence narrows to: the reap tolerates a zombie's stale
 mutex release (F79's token no-op); it never shares tx state with a live commit.
 Affected: D7, F76, F79, F71, D12, D5.
+
+**Resolved (2026-06-11): dissolved — F76's mechanism withdrawn (YTDB-1114).**
+No reaper, no second claimant: `status` stays a plain single-writer field and
+the `BEGUN, COMMITTING ->` arm again serves only the owner's own commit-failure
+unwind. The torn-commit shape survives today through exactly one foreign
+caller — the Gremlin timeout hook's cross-thread `rollbackInternal` entry —
+recorded on YTDB-1113, whose owner-executor fix removes that entry and makes
+the tear structurally impossible. The status-handshake idea transfers to
+YTDB-1114 as the registry's REVOKED mark fenced at the storage boundary (the
+commit-entry check under `segmentLock` replaces the in-object CAS).
 
 ### F86 — The freezer gate sits below `stateLock.write`: a parked data commit holds `stateLock.read` for the freeze window and the C18 outage returns one lock up [MAJOR]
 Pass-8 report C23. A data commit that reaches its gate after the freeze engaged parks
@@ -2636,6 +2708,12 @@ confined to embedded/no-reaper usage (the reap grounding is the Gremlin kill pat
 the strong chain to the tx's active life, and name the residual in D7: a leaked
 never-closed session in an embedded deployment loses the weak-eviction backstop F76
 trades away. Affected: D7, F76, D12.
+
+**Resolved (2026-06-11): dissolved — F76's mechanism withdrawn (YTDB-1114).**
+No captured holder, no strong chain: the weak-keyed self-heal keeps covering
+dead threads exactly as shipped. The property transfers to YTDB-1114 as a
+design constraint: registry entries must not strongly pin holder or session
+lifetimes, or the registry reintroduces this leak one structure over.
 
 ### F90 — The legacy exporter's failure path finalizes the JSON document and renames into place: F81's JSON-close check passes exactly the failed exports it was invented to reject [MAJOR]
 Pass-8 report U19. Both directions of the F81 premise fail. (1) The truncations the
@@ -2812,8 +2890,9 @@ record-level property diff (F43). From the assignee, 2026-06-03.
 
 ### D7 — A dedicated, transaction-scoped metadata-write mutex
 Serialize schema/index-changing txns with a new exclusive lock on the shared
-context / storage — an owner-tracked, cross-thread-releasable mutex
-(`Semaphore(1)` + owner bookkeeping per F71; originally sketched as a
+context / storage — an owner-tracked mutex (`Semaphore(1)` + owner-token
+bookkeeping per F71/F79; the cross-thread `releaseStranded` arm is reserved
+for the postponed reaper, YTDB-1114; originally sketched as a
 `ReentrantLock`) — distinct from `stateLock`, `SchemaShared.lock`, and
 `IndexManager.lock`. From the assignee, 2026-06-03.
 
@@ -2866,37 +2945,43 @@ context / storage — an owner-tracked, cross-thread-releasable mutex
   indexLock.write → `stateLock.read`). Acquiring both metadata write locks
   before `stateLock` keeps the order acyclic; index-only txs take the same
   uniform sequence.
-- **Release on abnormal termination (F61, refined by F71, mechanics pinned by
-  F76).** Closing a session with an active schema tx runs rollback's mutex
-  release on the owning thread. Server-side reaping of a vanished session runs
-  from another thread and is **scoped to between-operations stranding**. The
-  reap runs the session's **full tx rollback** (ending the atomic operation)
-  and releases the `tsMin` snapshot floor through the holder reference the tx
-  captures at `startStorageTx`: `activeTxCount` becomes a cross-thread-safe
-  atomic RMW, and both `close()` arms plus the reap release by captured
-  holder, which also fixes the pre-existing pool-shutdown leak. Accepted cost
-  (F76): one RMW at tx begin (marginal: begin already pays the
-  operations-table snapshot scan and a volatile `tsMin` write for every tx,
-  read-only included) and one at tx end, the only new fence there; the
-  fence-free owner-plain/pending-decrement scheme is the documented fallback
-  if tx-end fences ever show in profiles. A tx stranded **mid-commit-window**
-  is outside the reap's scope (cross-thread ending races the live operation:
-  the freezer's per-thread depth throws, component-lock release skips
-  non-owners); that case belongs to the storage-error/restart path. After the
-  rollback, `releaseStranded(session)` is the explicit cross-thread release
-  the owner-tracked primitive provides. Ownership is a per-acquisition token
-  (fresh object per acquire; reference identity is the ABA guard, the epoch
-  field is diagnostics): the normal release is a hard CAS
-  compare-owner-and-clear, never a bare `assert` plus unconditional
-  `Semaphore.release()`, so a stale release from a reaped-but-alive owner is a
-  detected, logged no-op (F79, sketch in the entry); the F38 same-thread
-  assertion folds into this token bookkeeping. Between reap and a zombie
-  owner's wake-up, two threads touch one session's tx state unsynchronized
-  (`assertOnOwningThread` exempts `close()`/`rollbackInternal`), so the reap
-  path tolerates the owner racing it. The acquire is timed with a diagnostic
-  naming the holder and **re-waits in a loop** on timeout (never aborts; a
-  healthy F48-scale holder is not contention to punish, D5); only an
-  operator-level interrupt breaks the wait.
+- **Release on abnormal termination (F61, refined by F71; cross-thread
+  reaping postponed per the pass-8 settlement → YTDB-1114).** Teardown is
+  **owner-thread-only** — the design's invariant for every tx-scoped
+  resource: the D7 mutex, the freezer engagement, the D19 lock, the `tsMin`
+  holder accounting, and the commit-local structural-id allocator state.
+  Closing a session with an active schema tx runs rollback's mutex release
+  on the owning thread; cross-thread teardown attempts are rejected or
+  no-op, extending the thread-id-gate semantics that ship today (`close()`
+  skips `resetTsMin` for foreign threads, `FrontendTransactionImpl:954`). A
+  stranded tx (owner wedged, dead, or abandoned by a vanished client)
+  therefore leaks its pin exactly as on `develop`: the YTDB-550 monitor
+  detects and reports it, and reclamation is the postponed reaper's job —
+  YTDB-1114 specifies it as an identity-keyed snapshot registry with
+  lease-based stranding detection and revocation fenced at the storage
+  boundaries, never touching tx-private state from a foreign thread. The
+  cross-thread reap protocol prototyped in passes 7–8 (captured-holder
+  release + cross-thread `activeTxCount` RMW + scoped reap, F76; once-only
+  holder consume, F84; status CAS handshake, F85) is withdrawn: each fix
+  surfaced the next thread-confinement compound and taxed every
+  transaction's normal path with fences for a rare event (the F83 BLOCKER
+  attacked the first fix's own mechanism). Normal-path memory modes
+  therefore stand as shipped — volatile `tsMin` write at begin, opaque
+  reset at end, plain `activeTxCount`, plain tx `status`. What survives of
+  the protocol is the mutex-release discipline: ownership is a
+  per-acquisition token (fresh object per acquire; reference identity is
+  the ABA guard, the epoch field is diagnostics), and the normal release is
+  a hard CAS compare-owner-and-clear, never a bare `assert` plus
+  unconditional `Semaphore.release()` (F79, sketch in the entry; the F38
+  same-thread assertion folds into this bookkeeping). The token makes any
+  stale, duplicate, or foreign release a detected, logged no-op — cheap
+  (one CAS per schema-tx release; data txs never touch this lock) and
+  load-bearing today against the stray Gremlin-hook initiators recorded in
+  YTDB-1113. `releaseStranded(session)` remains in the primitive as the
+  postponed reaper's entry point, unused in v1. The acquire is timed with a
+  diagnostic naming the holder and **re-waits in a loop** on timeout (never
+  aborts; a healthy F48-scale holder is not contention to punish, D5); only
+  an operator-level interrupt breaks the wait.
 - **Freezer gate (F78, reject-loudly).** The commit path's fifth
   synchronization object, the `OperationsFreezer`
   (`startToApplyOperations`'s first statement, `AtomicOperationsManager:107`),
