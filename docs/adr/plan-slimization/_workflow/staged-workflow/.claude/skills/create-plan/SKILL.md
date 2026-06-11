@@ -991,6 +991,82 @@ operations. Pair each diagram with prose explaining the flow.>
 <What the complex part is, why it is designed this way, gotchas/edge cases.>
 ```
 
+**Step 4 review-hold batching (D15).**
+
+This is the consumer of the Step 4 part 2 gate. Step 4 part 2 owns the
+first, pre-presentation gate run; once a frozen-ready Phase-1 artifact is
+presented for user review, every later finding flows through the batch below
+rather than re-running the gate one finding at a time. The forward pointer in
+the Step 4 part 2 §"Pre-presentation re-trigger vs post-presentation queue"
+paragraph lands here.
+
+**When the queue opens.** A frozen-ready artifact is presented for review at
+two points: `design.md` after the Step-4a cold-read passes (`full` only), and
+the plan plus track files at Step 4b's pre-persist confirmation (every tier).
+The window opens at the presentation the user reviews from — a presentation
+with a PASS outcome, or the user's acceptance of open risks on a presentation
+that still carries residual findings. D5's per-entry immediate gate
+re-trigger governs **pre-presentation authoring only**; every decision
+surfaced after that boundary joins the queue, whether the user raised it or an
+agent surfaced it.
+
+**The tagged queue.** Findings raised during the review collect into a queue,
+each tagged by shape:
+
+- `[clarification]` — wording only, no decision content (a confusing
+  sentence, a missing cross-reference, a stale framing). Applies in the
+  mutation step without a gate run.
+- `[decision]` — a new or changed decision (a rejected alternative revived, a
+  scope boundary moved, an invariant reworded). Must clear the gate before it
+  can apply.
+
+Do **not** process findings one by one. Hold them until the user declares the
+review done, then run the batch.
+
+**The three-step batch.** When the user declares the review done:
+
+1. **One gate run.** All `[decision]` items append to the research log's
+   Decision Log together, and one gate run (the Step 4 part 2 third-scope
+   adversarial spawn, same model/effort per D14, same `_workflow/reviews/`
+   output path and thin-manifest return per D17) validates them. **Each loop
+   iteration re-challenges every entry in the batch**, not just the changed
+   one, because a fix to one entry can invalidate a sibling's PASS; the gate
+   re-runs whole-batch until no blocker remains and every should-fix has been
+   addressed in the log. The iteration ≥2 runs use the verdict-producer
+   manifest variant (per `conventions-execution.md` `§2.5`), exactly as the
+   Step 4 part 2 gate loop does.
+2. **One mutation.** After the gate clears, the cleared `[decision]` items and
+   the `[clarification]` items apply to the artifact in **one** mutation
+   (through `edit-design` for `design.md`, through the Step-4b plan/track
+   authoring for the plan and tracks). A decision-shaped finding surfaced
+   **inside** the mutation exits to the log before any fix attempt; it is
+   never auto-fixed in place, so the gate always sees it first.
+3. **One cold-read, with loop-back.** One cold-read (the Step-4a or Step-4b
+   cold-read, whichever the presented artifact uses) covers all the batch's
+   changes. A decision-shaped cold-read finding **re-enters the gate step**
+   (step 1) and the batch cannot close — nor the artifact re-present — while a
+   log entry is open. S3 holds across the whole loop: no cold-read runs while a
+   log-adversarial entry is open.
+
+A budget-exhausted mutation escalates to the user as a failure, not as a
+re-presentation: the artifact does not move mid-review.
+
+**Escape hatch.** The queue is the default, not a hard gate. The user may ask
+for immediate processing of a single blocking finding; that finding runs the
+single-decision route (one gate run, one mutation, one cold-read for the lone
+finding) at its full per-finding cost, and ends with a one-line note of what
+moved: in chat, and in the handoff's queue block when the hold spans
+sessions.
+
+**Multi-session holds.** A queue that outlives the session carries in the
+mid-phase handoff. When the context-consumption gate fires a pause with a
+non-empty review-hold queue, the handoff author records the queue per the
+queue block in `mid-phase-handoff.md`:planner:1 § Review-hold queue block
+(D15), so the flush session re-loads the tagged entries instead of asking the
+user to re-raise them. A held batch flushes at cold context in that later
+session, which counts as the "same session" for the blocker loop above; a
+batch of one degenerates to the single-finding route.
+
 **Step 5 — Commit, push, and open the draft PR.**
 
 Step 5 commits whatever the session produced, and its commit cadence is
