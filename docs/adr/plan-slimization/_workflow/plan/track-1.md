@@ -26,6 +26,7 @@ the tier-aware Step 1c resume branch.
 - [x] 2026-06-11T06:17Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-11T08:26Z [ctx=safe] Step 1 complete (commit 5f1e63c92d)
 - [x] 2026-06-11T08:51Z [ctx=info] Step 2 complete (commit 4ad4335c03)
+- [x] 2026-06-11T09:10Z [ctx=info] Step 3 complete (commit bde2d550494)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -55,6 +56,14 @@ at Phase 1. -->
   schematic lag — no D18 tier line, unconditional `## Design Document` link —
   against the operative create-plan templates and §1.2 matrix. Candidate for
   Phase C track-level review or a Track 2 conventions touch. See Episodes §Step 2.
+- 2026-06-11T09:10Z Step 3 found a reindexer fence trap: `workflow-reindex.py`
+  honors only ≤3-space-indented fences, so a deeper-indented substitution block is
+  scanned as prose and rule_6 flags concrete `_workflow/<name>.md` path tokens
+  inside it (Step 2's gate machinery hit this; fixed by switching to role-named
+  placeholders). The durable fix lives in the live `workflow-reindex.py` (out of
+  this branch's scope) — a reflection/follow-up candidate. Any future workflow-doc
+  step writing indented fences with workflow paths should prefer placeholders. See
+  Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -268,7 +277,7 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 
 1. Stage the vocabulary + phase-rule + review-prompt prose every later step cites — conventions.md (§1.1 tier/gate/log/aggregator/track-decision glossary, §1.2 research-log + per-tier matrix, §1.6(f) log exclusion with the D19 glob-shared rationale), research.md (Phase 0 → durable log, D5), planning.md (per-tier Phase-1 flow + inline track DRs D7 + Gate-1 cross-ref), risk-tagging.md (HIGH list = Gate 1 change-level source D4, verbatim labels), prompts/adversarial-review.md (additive third research-log scope D6), prompts/design-review.md (write-time target + absorption/fidelity D8), conventions-execution.md §2.5 (add phase 1 + role planner; third-scope lifecycle sub-clause D17) — risk: medium (workflow machinery: bounded shared vocabulary + prompt prose) — size: ~7 files; (a) all remaining work is HIGH-isolated (steps 2-5) or the end-of-track tests-only fixture (step 6)  [x] commit: 5f1e63c92d
 2. Stage create-plan/SKILL.md Phase-0→1 gate machinery — Phase 0 log creation; Step 4 two-gate classifier (tier + matched categories, user-confirmed lens add/drop D2/D3/D4/D16); gate spawn (D14 model/effort pin, D17 output path + thin manifest + Findings partial-fetch); per-tier Step 4a/4b routing; Step 1c resume branch on implementation-plan.md presence + D18 tier line (S2-safe, no new log read); templates (D18 tier line, shape-complete minimal stub D1, inline-DR track template) — risk: high (workflow machinery: tier classifier, per-tier dispatch, Step 1c auto-resume routing)  [x] commit: 4ad4335c03
-3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [ ]
+3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [x] commit: bde2d550494
 4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [ ]
 5. Edit the LIVE .claude/scripts/design-mechanical-checks.py (D11) — accept both "### References" and "### Decisions & invariants" footers and add the decision-cited-without-rationale check, scoped so the legacy bare-D<N> References footer never trips it; the frozen design.md keeps passing; no existing test modified (S1) — risk: high (workflow machinery: a script that runs automatically; behavioral Python change)  [ ]
 6. Add a new LIVE fixture under .claude/scripts/tests/ — run workflow-startup-precheck.sh --mode full against a synthesized minimal stub plan dir, assert a readable state, and walk the post-review transitions (Plan Review flipped to done → State A/C; track plus Final Artifacts flipped → State D/Done), proving the unchanged precheck parses the D1 stub (S1's testable assertion) — risk: low (tests-only, new file) — size: ~1 file; (a) end-of-track tests-only unit validating the live precheck; all other work is HIGH-isolated  [ ]
@@ -379,6 +388,41 @@ conventions touch.
 
 **Key files:**
 - `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (new staged copy)
+
+### Step 3 — commit bde2d550494, 2026-06-11T09:10Z [ctx=info]
+**What was done:** Staged the D15 review-hold batching across two files, both to
+the staged mirror so I6 holds. `create-plan/SKILL.md` (already staged in Step 2)
+gained a "Step 4 review-hold batching (D15)" section between the Step-4b templates
+and Step 5, resolving the forward pointer Step 2 left: the queue-open boundary (D5
+governs pre-presentation authoring only), the tagged `[clarification]`/`[decision]`
+queue, the three-step batch (one whole-batch-re-challenge gate run → one mutation →
+one cold-read with loop-back), the single-decision escape hatch, and the
+multi-session-hold handoff. `mid-phase-handoff.md` is a fresh staged copy with a
+"Review-hold queue block (D15)" section (phases=1) carrying the tagged queue across
+a hold, plus a reindexed TOC row. The step-level prompt-design review raised WP1
+(should-fix: the escape-hatch left the in-session queue mutation implicit, so the
+review-done batch could re-process an escape-hatched finding) and WP2 (suggestion:
+"single-decision route" vs "single-finding route" naming); the orchestrator added
+RX1 (should-fix: the staged SKILL failed `reindex --check` at rc=1, a regression
+from Step 2's fix commit, while the live baseline passes). All three landed in one
+Review fix: commit `bde2d550494`; gate-check PASS at iteration 2, RX1 verified
+independently at reindex rc=0.
+
+**What was discovered:** The reindexer carries a latent fence trap. The
+`workflow-reindex.py` fence regex honors only ≤3-space indents (the CommonMark
+limit), so a 5-space-indented substitution block is scanned as live prose, and
+rule_6 then flags any concrete `_workflow/<name>.md` path token inside it as a
+suffixless cross-file ref. An angle-bracketed placeholder still trips it, so the
+`.md` token has to go entirely. The fix names each input by role with a bare
+trailing `_workflow/` directory token, matching how the live `edit-design` writes
+`<abs path>` placeholders. The durable fix — teach the reindexer to skip indented
+fences — lives in the live `workflow-reindex.py`, outside this branch's scope; until
+then any workflow-doc step writing an indented fence with workflow paths should
+prefer placeholders over concrete `_workflow/<name>.md` values.
+
+**Key files:**
+- `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (modified)
+- `…/staged-workflow/.claude/workflow/mid-phase-handoff.md` (new staged copy)
 
 ## Validation and Acceptance
 
