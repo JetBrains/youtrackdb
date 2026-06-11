@@ -27,6 +27,7 @@ the tier-aware Step 1c resume branch.
 - [x] 2026-06-11T08:26Z [ctx=safe] Step 1 complete (commit 5f1e63c92d)
 - [x] 2026-06-11T08:51Z [ctx=info] Step 2 complete (commit 4ad4335c03)
 - [x] 2026-06-11T09:10Z [ctx=info] Step 3 complete (commit bde2d550494)
+- [x] 2026-06-11T09:26Z [ctx=info] Step 4 complete (commit 1dd16f09ef)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -64,6 +65,13 @@ at Phase 1. -->
   this branch's scope) — a reflection/follow-up candidate. Any future workflow-doc
   step writing indented fences with workflow paths should prefer placeholders. See
   Episodes §Step 3.
+- 2026-06-11T09:26Z Step 4 (prompt-design WP1, accepted suggestion) flagged the S3
+  gate's adversarial-heading match contract as split and under-specified across
+  `edit-design` (consumer), `create-plan` (generic framing), and `research.md` (log
+  structure): the heading shape and the "match the latest dated entry when looped"
+  rule are not pinned. Phase C track-consistency action item (pin the contract,
+  reconcile producer + consumer). Joins the §1.2 schematic lag (Step 2) and the
+  route-naming item (Step 3) as the Phase-C consistency batch. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -278,7 +286,7 @@ log reads stay exactly two; the Phase-4 verdict-only fold is sanctioned), S3
 1. Stage the vocabulary + phase-rule + review-prompt prose every later step cites — conventions.md (§1.1 tier/gate/log/aggregator/track-decision glossary, §1.2 research-log + per-tier matrix, §1.6(f) log exclusion with the D19 glob-shared rationale), research.md (Phase 0 → durable log, D5), planning.md (per-tier Phase-1 flow + inline track DRs D7 + Gate-1 cross-ref), risk-tagging.md (HIGH list = Gate 1 change-level source D4, verbatim labels), prompts/adversarial-review.md (additive third research-log scope D6), prompts/design-review.md (write-time target + absorption/fidelity D8), conventions-execution.md §2.5 (add phase 1 + role planner; third-scope lifecycle sub-clause D17) — risk: medium (workflow machinery: bounded shared vocabulary + prompt prose) — size: ~7 files; (a) all remaining work is HIGH-isolated (steps 2-5) or the end-of-track tests-only fixture (step 6)  [x] commit: 5f1e63c92d
 2. Stage create-plan/SKILL.md Phase-0→1 gate machinery — Phase 0 log creation; Step 4 two-gate classifier (tier + matched categories, user-confirmed lens add/drop D2/D3/D4/D16); gate spawn (D14 model/effort pin, D17 output path + thin manifest + Findings partial-fetch); per-tier Step 4a/4b routing; Step 1c resume branch on implementation-plan.md presence + D18 tier line (S2-safe, no new log read); templates (D18 tier line, shape-complete minimal stub D1, inline-DR track template) — risk: high (workflow machinery: tier classifier, per-tier dispatch, Step 1c auto-resume routing)  [x] commit: 4ad4335c03
 3. Stage the D15 review-hold batching — create-plan/SKILL.md (tagged clarification/decision queue; three-step batch: one gate run with whole-batch re-challenge → one mutation → one cold-read loop-back; escape hatch; pre-presentation per-entry re-trigger boundary) plus mid-phase-handoff.md (handoff queue block for multi-session holds) — risk: high (workflow machinery: edits the load-bearing handoff/resume protocol and the gate's review-iteration dispatch)  [x] commit: bde2d550494
-4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [ ]
+4. Stage the design-side changes — edit-design/SKILL.md (remove Step 3.5 from phase1-creation; add the S3 gate blocking the Step 4a cold-read while the log's "Adversarial review of this log" section has an unresolved entry, incl. the D15 loop-back; add the absorption criterion) plus design-document-rules.md (D11: footer rename to "Decisions & invariants", introduce-once, acceptance #4 rewrite, mechanical-check scope note) — risk: high (workflow machinery: adds the S3 freeze-order gate, a control-flow block)  [x] commit: 1dd16f09ef
 5. Edit the LIVE .claude/scripts/design-mechanical-checks.py (D11) — accept both "### References" and "### Decisions & invariants" footers and add the decision-cited-without-rationale check, scoped so the legacy bare-D<N> References footer never trips it; the frozen design.md keeps passing; no existing test modified (S1) — risk: high (workflow machinery: a script that runs automatically; behavioral Python change)  [ ]
 6. Add a new LIVE fixture under .claude/scripts/tests/ — run workflow-startup-precheck.sh --mode full against a synthesized minimal stub plan dir, assert a readable state, and walk the post-review transitions (Plan Review flipped to done → State A/C; track plus Final Artifacts flipped → State D/Done), proving the unchanged precheck parses the D1 stub (S1's testable assertion) — risk: low (tests-only, new file) — size: ~1 file; (a) end-of-track tests-only unit validating the live precheck; all other work is HIGH-isolated  [ ]
 
@@ -423,6 +431,46 @@ prefer placeholders over concrete `_workflow/<name>.md` values.
 **Key files:**
 - `…/staged-workflow/.claude/skills/create-plan/SKILL.md` (modified)
 - `…/staged-workflow/.claude/workflow/mid-phase-handoff.md` (new staged copy)
+
+### Step 4 — commit 1dd16f09ef, 2026-06-11T09:26Z [ctx=info]
+**What was done:** Staged the design-side changes, both fresh staged copies so I6
+holds. `edit-design/SKILL.md`: removed the phase1-creation adversarial Step 3.5 (D6
+relocates the decision/assumption challenge onto the research log at the Phase-0→1
+gate), leaving the cold-read as the only phase1-creation review but gated behind the
+log-adversarial gate clearing — the S3 freeze-order invariant. The cold-read reads
+the log's `### Adversarial review of this log …` section and blocks while any
+NEEDS-REVISION entry with an open blocker/should-fix exists, holding across the D15
+batch loop-back; the spawn gains a research-log-path injection for the
+absorption-completeness cross-check (D8). `design-document-rules.md` (D11): renamed
+the design.md per-section footer `References` → `Decisions & invariants`
+(backward-compatible — the mechanical check accepts both, so the frozen `design.md`
+keeps passing), added the introduce-once-within-the-seed rule, a design.md-only
+"decision cited without rationale" mechanical-check table row (Step 5 implements the
+check), and rewrote YTDB-1083 acceptance #4 into the seed-versus-carrier seeding
+boundary (`full` seeds tracks from the design.md seed D-records; `lite`/`minimal`
+seed from the research log). The step-level prompt-design review returned one
+suggestion (WP1) and no blocker/should-fix, so the gate passed at iteration 1; WP1
+is recorded below as a Phase-C action item.
+
+**What was discovered:** WP1 (accepted suggestion, not fixed here): the S3 gate tells
+the cold-read reader what to conclude from the log's adversarial heading but
+under-specifies the lexical match. It does not pin the heading shape
+(`### Adversarial review of this log (<ISO>) — <PASS | NEEDS REVISION[: counts]>`) or
+state that a looped gate must match the latest dated entry, not any. The semantic
+test ("any open blocker or should-fix") still works without the exact string, so the
+gate is not broken, but the heading contract is split across the consumer
+(`edit-design`, this step's file) and the producers (`create-plan`'s generic "gate
+records" framing and `research.md`'s log structure, both outside this step's remit).
+Pinning the contract and reconciling producer plus consumer belongs to the Phase C
+track-level consistency touch, joining the §1.2 schematic lag (Step 2) and the
+route-naming item (Step 3). Separately, the D11 footer rename is design.md-only:
+track files carry decisions in `## Decision Log` with no per-section footer, so
+Track 2's slim-track / inline-DR work must not adopt the `Decisions & invariants`
+footer.
+
+**Key files:**
+- `…/staged-workflow/.claude/skills/edit-design/SKILL.md` (new staged copy)
+- `…/staged-workflow/.claude/workflow/design-document-rules.md` (new staged copy)
 
 ## Validation and Acceptance
 
