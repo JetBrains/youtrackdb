@@ -3264,7 +3264,11 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   initiator that does not exist, would turn pool-shutdown cleanup of an
   abandoned schema tx into a permanent mutex wedge, and would forbid the
   reaper's entry point. `releaseStranded(session)` remains in the
-  primitive as that entry point for YTDB-1114, unused in v1. The acquire is timed with a
+  primitive as that entry point for YTDB-1114, unused in v1. In v1 the
+  stale arm is therefore unreachable (no reaper means nothing ever revokes
+  an acquisition): the token serves as holder diagnostics (the F61 timed
+  acquire logs `owner.get()` on every timeout) plus double-release
+  hardening, and becomes load-bearing when YTDB-1114 activates revocation. The acquire is timed with a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
