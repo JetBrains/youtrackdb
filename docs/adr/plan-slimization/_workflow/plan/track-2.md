@@ -236,32 +236,8 @@ edits staged).
 
 ## Concrete Steps
 
-1. Execution-side tier consumption — carrier lifecycle, consumption, review
-   selection, and Phase-4 audit (Plan-of-Work items 1, 2, 4, 5, 6, 7).
-   Stage: the §2.1 `## Decision Log` plan-at-start lifecycle
-   (`conventions-execution.md`); the doc-only slim-track rendering plus the
-   frozen-design-guard reword (`plan-slim-rendering.md`, `implementer-rules.md`);
-   the tier-keyed Phase-2 pass selection with design-presence guards
-   (`implementation-review.md`, `prompts/consistency-review.md`); the structural
-   duplication-check repurpose plus the design-presence guard
-   (`structural-review.md`, `prompts/structural-review.md`); the Phase-3A tier
-   panel selector with the S4 "or high-risk" excision (`track-review.md`); and
-   the Phase-4 per-tier artifacts plus the verdict fold (`workflow.md` § Final
-   Artifacts, `prompts/create-final-design.md`). ~10 staged files; intra-step
-   order: the §2.1 lifecycle (item 1) lands first, the rest are independent doc
-   edits. — risk: medium (behavioral-but-bounded workflow machinery; over 5
-   files of one-phase dispatch logic, no load-bearing gate, auto-running
-   script, or shared schema)  [x] commit: 7db9da10d0
-2. Cross-track replan propagation duty (`inline-replanning.md`,
-   `conventions-execution.md` §2.1) (Plan-of-Work item 3). Add `## Decision
-   Log` to the cases 2-3 updatable-section lists and the matching §2.1
-   mid-execution-rewrite line; give case 4 the documentation-only carve-out
-   that relaxes its user-pause; carry the decision-state-based copy-shape rule
-   (seed pinned in `**Original decision**`) verbatim. Depends on Step 1: the
-   §2.1 lifecycle must define `## Decision Log` as a plan-at-start section
-   first. — risk: high (workflow machinery: edits the inline-replan
-   control-flow protocol; a propagation defect silently desyncs duplicated
-   decisions across many sessions before a human notices)  [x] commit: 83e003509c
+1. Execution-side tier consumption — carrier lifecycle, consumption, review selection, and Phase-4 audit (Plan-of-Work items 1, 2, 4, 5, 6, 7). Stage: the §2.1 `## Decision Log` plan-at-start lifecycle (`conventions-execution.md`); the doc-only slim-track rendering plus the frozen-design-guard reword (`plan-slim-rendering.md`, `implementer-rules.md`); the tier-keyed Phase-2 pass selection with design-presence guards (`implementation-review.md`, `prompts/consistency-review.md`); the structural duplication-check repurpose plus the design-presence guard (`structural-review.md`, `prompts/structural-review.md`); the Phase-3A tier panel selector with the S4 "or high-risk" excision (`track-review.md`); and the Phase-4 per-tier artifacts plus the verdict fold (`workflow.md` § Final Artifacts, `prompts/create-final-design.md`). ~10 staged files; intra-step order: the §2.1 lifecycle (item 1) lands first, the rest are independent doc edits. — risk: medium (behavioral-but-bounded workflow machinery; over 5 files of one-phase dispatch logic, no load-bearing gate, auto-running script, or shared schema)  [x] commit: 7db9da10d0
+2. Cross-track replan propagation duty (`inline-replanning.md`, `conventions-execution.md` §2.1) (Plan-of-Work item 3). Add `## Decision Log` to the cases 2-3 updatable-section lists and the matching §2.1 mid-execution-rewrite line; give case 4 the documentation-only carve-out that relaxes its user-pause; carry the decision-state-based copy-shape rule (seed pinned in `**Original decision**`) verbatim. Depends on Step 1: the §2.1 lifecycle must define `## Decision Log` as a plan-at-start section first. — risk: high (workflow machinery: edits the inline-replan control-flow protocol; a propagation defect silently desyncs duplicated decisions across many sessions before a human notices)  [x] commit: 83e003509c
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
