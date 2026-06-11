@@ -403,17 +403,21 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > aggregate branches, splice + fallback in `DatabaseSessionEmbedded`, and the
   > per-aggregate-kind I4 + I5-enumeration tests.
   > **Depends on:** Track 1
-  > **Carried from Track-1 Phase C review:** wire the global
-  > `QUERY_CACHE_*_RATE` metric increments — Track 1 defines and registers
-  > them in `CoreMetrics` but never increments them, and the
-  > "wiring lands in later steps" comment is now stale; finalize them where
-  > this track records cache hits/misses for aggregate shapes. Route every
-  > per-RID/row append through `CachedEntry.recordPulledRow` so the
-  > `maxRecordsPerEntry` cap (enforced only at that point) applies to
-  > aggregate material. If the aggregate splice calls `QueryResultCache.lookup`
-  > outside the `cacheCodeDepth` bracket, the lookup-level `inFlightLookup`
-  > guard becomes reachable and needs end-to-end coverage. Use
-  > `exitCacheCodeUnchecked` for any view-owned cross-thread guard release.
+  > **Carried from Track-1 Phase C review (corrected in Track 2 Phase A):** the
+  > per-tx hit/miss/k0/overflow counters already exist in Track 1's
+  > `QueryResultCache`; what remains is the new `incrementSpliceFailures` counter
+  > plus the global `CoreMetrics.QUERY_CACHE_*_RATE` bridge (registered in Track 1
+  > but never incremented) — finalize the global bridge where this track records
+  > aggregate cache hits/misses. The "route every per-RID append through
+  > `CachedEntry.recordPulledRow`" instruction does NOT apply to aggregates:
+  > `recordPulledRow` bounds the single-scalar `results`, whereas aggregate
+  > material lives in `AggregateState`; cap the `AggregateState` collections
+  > instead and route the key non-cacheable on overflow (see track-2.md Plan of
+  > Work step 1 and Decision Log). If the aggregate splice calls
+  > `QueryResultCache.lookup` outside the `cacheCodeDepth` bracket, the
+  > lookup-level `inFlightLookup` guard becomes reachable and needs end-to-end
+  > coverage. Use `exitCacheCodeUnchecked` for any view-owned cross-thread guard
+  > release.
 
 - [ ] Track 3: MATCH shapes — Etap A composition, partial Etap B, tombstone floor
   > Adds MATCH caching: Etap A (single-alias) folds to RECORD shape via a stored

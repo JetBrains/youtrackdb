@@ -19,21 +19,62 @@ eagerly drives the plan, unlike RECORD's lazy pull, because a partially-driven
 tap would cache a structurally meaningless scalar.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
+- [x] 2026-06-11T11:29Z [ctx=info] Review + decomposition complete
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+- **Phase A review (iter 1):** bare and single-field-indexed `COUNT(*)` are
+  hardwired in `SelectExecutionPlanner` to `CountFromClassStep` before any
+  `AggregateProjectionCalculationStep` exists, so the side-tap cannot reach them
+  (A1/R1). The Phase 1 headline validation example `SELECT COUNT(*) FROM C` would
+  have asserted the fallback path, not the cache.
+- **Phase A review (iter 1):** Track 1 over-delivered the `ShapeClassifier`
+  aggregate gates, including the COUNT(DISTINCT) nested-`distinct(...)` parse
+  (R6) — step 5 is verify-and-tighten, not build.
+- **Phase A review, rejected:** the adversarial "splice corrupts the shared
+  cached plan" finding (A2) is a false positive —
+  `YqlExecutionPlanCache.getInternal` returns `result.copy(ctx)`, so the caller
+  always holds a private plan copy.
+- **Phase A review (iter 1):** the ServiceLoader manifest registers four
+  `SQLFunctionFactory` implementations, not three (R5 — `DynamicSQLElementFactory`
+  was omitted from the Phase 1 description).
 
 ## Decision Log
 <!-- Continuous-log. -->
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
+- **Hardwired `COUNT(*)` → not cached (Phase A).** Bare and single-field-indexed
+  `COUNT(*)` are excluded from the aggregate cache (ride the splice fallback or
+  classify K0_NONE). They are already O(1) and tx-aware via `CountFromClassStep`,
+  so caching adds complexity for no benefit and the side-tap cannot tap them.
+  Refines design §AGGREGATE_* shape, which listed `COUNT(*)` as cacheable; flag
+  for Phase 4 design-doc reconciliation.
+- **Aggregate memory cap targets `AggregateState`, not `results` (Phase A).** The
+  carried-from-Track-1 "route per-RID append through `recordPulledRow`"
+  obligation is mis-applied to aggregates; the cap bounds the per-contributor
+  collections instead. Overflow routes the key non-cacheable via the L7 path.
+- **AVG finalizes via `computeAverage` (Phase A).** D19's `increment` covers the
+  SUM accumulation only; AVG needs the contributor `total` and
+  `SQLFunctionAverage.computeAverage`'s type-dispatched division for bit-for-bit
+  parity.
+- **`applyMutation` value-from-record (Phase A).** A T→T value-changing UPDATE
+  reads the new value from the mutated `RecordAbstract`; `boolean matchAfter`
+  carries WHERE-membership only. The existing signature is sufficient (rejects
+  A6.2).
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
+
+- [x] Technical: PASS at iteration 2 (6 findings, 6 accepted)
+- [x] Risk: PASS at iteration 2 (6 findings, 5 accepted; R6 was already implemented in Track 1)
+- [x] Adversarial: PASS at iteration 2 (6 findings, 5 accepted; A2 rejected as a false positive — the plan is copied, not shared)
 
 ## Context and Orientation
 
@@ -53,9 +94,20 @@ Track 1 has shipped the cache infra, `CachedEntry`, `DeltaBuilder` (record path)
 - **`SQLFunctionDistinct.getResult`** uses `LinkedHashSet<Object>` with raw
   `Object.equals`/`hashCode`, so `Long(5)` and `Integer(5)` are distinct;
   `distinctBuckets: Map<Object, Set<RID>>` mirrors that (D20).
-- **Three `SQLFunctionFactory` implementations** (`DefaultSQLFunctionFactory`,
-  `CustomSQLFunctionFactory` reflective `math_*`, `DatabaseFunctionFactory`
-  stored) are the enumeration surface for the I5 completeness test.
+- **Four `SQLFunctionFactory` implementations** (`DefaultSQLFunctionFactory`,
+  `DynamicSQLElementFactory`, `CustomSQLFunctionFactory` reflective `math_*`,
+  `DatabaseFunctionFactory` stored) are the enumeration surface for the I5
+  completeness test. The ServiceLoader manifest registers all four; the Phase 1
+  description named only three (it omitted `DynamicSQLElementFactory`).
+- **Bare and single-field-indexed `COUNT(*)` are hardwired and untappable.**
+  `SelectExecutionPlanner.handleHardwiredOptimizations` short-circuits
+  `SELECT count(*) FROM C` (via `handleHardwiredCountOnClass`) and
+  `SELECT count(*) FROM C WHERE indexedField = ?` (via
+  `handleHardwiredCountOnClassUsingIndex`) to `CountFromClassStep` *before* any
+  `AggregateProjectionCalculationStep` is built, so the side-tap finds nothing to
+  splice. These shapes are already O(1) and tx-aware. `COUNT(*)` over a
+  non-indexed WHERE, and SUM/AVG/MIN/MAX/COUNT(DISTINCT), do build the
+  aggregation step and ARE tappable. See Plan of Work step 5 and Decision Log.
 
 Non-obvious terminology: *side-tap* (a transparent `ExecutionStream` wrapper that
 observes-then-forwards), *eager drive* (forcing the plan to full drain at
@@ -67,7 +119,7 @@ for D21 collapse safety).
 flowchart LR
     Miss["aggregate cache-miss"] --> Plan["createExecutionPlan(ctx, false)"]
     Plan --> Splice["splice AggregateCacheTapStep\nupstream of AggregateProjectionCalculationStep"]
-    Splice --> Drive["plan.start(ctx).next(ctx)\n(blocking full drain)"]
+    Splice --> Drive["plan.start(ctx) + drain\n(blocking full drain)"]
     Drive --> Obs["tap.observe(result)\nper contributing record"]
     Obs --> State["AggregateState\ncontributingValues / Rids / buckets"]
     State --> Entry["CachedEntry (immutable scalar)"]
@@ -85,33 +137,87 @@ CREATE of the extremum holder + post-populate UPDATE breaking WHERE), the splice
 Approximate sequence (decomposer sets final boundaries):
 
 1. **`AggregateState`.** Fields and the `observe`/`applyMutation`/`copy`/`toResult`
-   methods for all six kinds. SUM/AVG via `PropertyTypeInternal.increment` with a
-   full re-fold on T→T/T→F/F→T (no symmetric subtract). MIN/MAX with
-   `extremumRid` RID-identity `was_extremum` and the O(n) recompute only on the
-   two extremum-leaves transitions. COUNT_DISTINCT with `distinctBuckets` +
-   bucket cleanup. All dispatch keys on the `(was_contributing → now_contributing)`
-   transition derived from membership, never `op.type` (D21 collapse safety).
+   methods for all six kinds.
+   - **SUM/AVG storage parity (D19).** `observe` seeds the first contributing
+     value verbatim, then folds each subsequent value via
+     `PropertyTypeInternal.increment` (the primitive `SQLFunctionSum.sum` /
+     `SQLFunctionAverage.sum` use); `applyMutation` does a full re-fold of
+     `contributingValues.values()` on T→T/T→F/F→T (no symmetric subtract). On a
+     T→T value-changing UPDATE the new value is read from the mutated
+     `RecordAbstract` and written into `contributingValues[rid]` before the
+     re-fold; the `boolean matchAfter` flag carries WHERE-membership only. SUM
+     over an empty set is `0`, not null.
+   - **AVG finalization.** AVG additionally tracks the contributor count
+     (`total`) and finalizes through `SQLFunctionAverage.computeAverage`'s
+     type-dispatched division (integer truncation for Integer/Long, BigDecimal
+     `HALF_UP`), not a plain `sum/total`, so the cached scalar matches fresh
+     execution bit-for-bit. `increment` alone (D19) covers only the SUM half.
+   - **MIN/MAX** with `extremumRid` RID-identity `was_extremum` and the O(n)
+     recompute only on the two extremum-leaves transitions.
+   - **COUNT_DISTINCT** with `distinctBuckets` + bucket cleanup.
+   - **Dispatch** keys on the `(was_contributing → now_contributing)` transition
+     derived from membership (`contributingValues.containsKey(rid)` /
+     `contributingRids.contains(rid)`); `status` is consulted only to fold
+     `DELETED` into `now_contributing = false`, never as a stand-in for the
+     before-state (D21 collapse safety — design.md's wording, not the looser
+     "never op.type").
+   - **Memory cap (aggregate-specific).** The carried-from-Track-1
+     `recordPulledRow` cap bounds `results` (one scalar row for an aggregate) and
+     does NOT bound the per-contributor material. Bound the `AggregateState`
+     collections (`contributingValues` / `contributingRids` / `distinctBuckets`)
+     against `maxRecordsPerEntry` instead; on overflow, route the key
+     non-cacheable (the L7 path: remove the entry, add the key to
+     `nonCacheableKeys`). High-cardinality COUNT(DISTINCT)/MIN/MAX is the real
+     OOM vector, not `results`.
 2. **`AggregateCacheTapStep`.** `extends AbstractExecutionStep`; `internalStart`
    calls `prev.start(ctx)` and wraps the stream so `next(ctx)` invokes
    `observe(result)` before forwarding unchanged.
 3. **Splice + fallback in `DatabaseSessionEmbedded`.** Miss path builds the plan
-   via `statement.createExecutionPlan(ctx, false)`, downcasts to
-   `SelectExecutionPlan`, walks `steps`, finds `AggregateProjectionCalculationStep`,
-   rewires its `prev` to the tap. On unexpected shape: close the plan, increment
-   `spliceFailures`, fall back to `statement.execute(...)` returning a plain
-   `LocalResultSet` (no cache), log the step types.
-4. **Eager drive on cache-put.** Force `plan.start(ctx).next(ctx)` so the tap
-   observes every record; hold the single-row scalar on the entry alongside the
-   now-complete `AggregateState`. Wrap in try / put-on-success-only.
-5. **`DeltaBuilder.buildForAggregate` + classify branch.** Copy + replay the
-   populate-version-filtered ops; wire `ShapeClassifier` aggregate gates
-   (single aggregate, no GROUP BY/HAVING, no expression arg, no SKIP/LIMIT;
-   `COUNT(DISTINCT prop)` → AGGREGATE_COUNT_DISTINCT, expression-DISTINCT →
-   K0_NONE). Wire the `CachedResultSetView` aggregate path (`toResult()`,
-   `hasNext` true once).
+   via `statement.createExecutionPlan(ctx, false)` (the returned plan is a
+   per-execution `copy(ctx)` from `YqlExecutionPlanCache.getInternal`, or a fresh
+   `SelectExecutionPlan` on a cache miss — never the shared cached instance, so
+   rewiring `prev` cannot corrupt other callers' plans), downcasts to
+   `SelectExecutionPlan`, walks `steps`, finds
+   `AggregateProjectionCalculationStep`, rewires its `prev` to the tap. The
+   aggregate miss path is a separate branch in the cache shape gate (the existing
+   `serveThroughCache` RECORD/K0 gate), not folded into it, and preserves Track
+   1's two-guard `viewOwnsGuard`/`cacheCodeDepth` contract. On unexpected shape
+   (no `AggregateProjectionCalculationStep` found — e.g. a hardwired
+   `CountFromClassStep`): close the plan, call `incrementSpliceFailures`, fall
+   back to a plain uncached `LocalResultSet` that reproduces the exact uncached
+   behavior, log the step types.
+4. **Eager drive on cache-put.** Drive the plan to full drain via
+   `plan.start(ctx)` then pull the resulting stream to exhaustion (the blocking
+   `AggregateProjectionCalculationStep` produces its single row only after every
+   contributor is observed) so the tap sees every record; hold the single-row
+   scalar on the entry alongside the now-complete `AggregateState`. This is a
+   parallel populate path that cannot reuse Track 1's `populateAndBuildView`, so
+   it independently re-mirrors the three Track-1 populate contracts: stamp
+   `populateMutationVersion` before driving, release the `cacheCodeDepth` guard on
+   every exit (a leaked depth silently disables caching), and close the plan
+   idempotently. Wrap in try / put-on-success-only.
+5. **`DeltaBuilder.buildForAggregate` + classifier tightening.** Copy + replay
+   the populate-version-filtered ops. The `ShapeClassifier` aggregate gates
+   already exist in Track 1 (single aggregate, no GROUP BY/HAVING/SKIP/LIMIT,
+   `count(distinct(prop))` → AGGREGATE_COUNT_DISTINCT, expression-DISTINCT →
+   K0_NONE, including the nested-`distinct(...)` parse) — verify, do not rebuild
+   them. Two tightenings ARE Track 2 work, because aggregates now actually cache:
+   (a) an aggregate buried under arithmetic (`count(*) + 1`) must classify
+   K0_NONE, not AGGREGATE_COUNT — Track 1's `topLevelFunctionCall` returns the
+   inner call and its Javadoc flags this looser match as "harmless here" only
+   while aggregates are uncached; (b) bare/indexed `COUNT(*)` (the hardwired
+   shapes from Context & Orientation) gain no benefit from caching and cannot be
+   tapped, so they either ride the splice fallback or classify K0_NONE — pick one
+   explicitly and test it. Wire the `CachedResultSetView` aggregate path
+   (`toResult()`, `hasNext` true once).
 6. **I4 per-kind + I5 enumeration tests.** Per aggregate kind, the four mutation
-   patterns plus the collapse case. The I5 test walks all three factories and
-   fails the build on an unclassified function.
+   patterns plus the collapse case. I4 cache-hit cases must use a *tappable*
+   shape — not bare `COUNT(*) FROM C` (hardwired, untappable; that test would
+   assert the fallback path and prove nothing). Add a case asserting the hardwired
+   `COUNT(*)` shapes take the fallback, and a memory-cap case that overflows
+   `AggregateState` on a high-cardinality COUNT(DISTINCT) and confirms the key
+   goes non-cacheable. The I5 test walks all four `SQLFunctionFactory`
+   implementations and fails the build on an unclassified function.
 
 Ordering: step 1 is standalone; steps 2-4 form the splice+drive path; step 5
 depends on 1; tests last. Invariants to preserve: aggregate replay matches
@@ -120,28 +226,82 @@ scalar (eager drive); membership dispatch must survive the `addRecordOperation`
 collapse.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. **AggregateState replay core.** New `AggregateState` (observe / applyMutation /
+   copy / toResult for all six kinds: SUM/AVG storage parity via
+   `PropertyTypeInternal.increment` with first-value seed and full re-fold; AVG
+   `total` + `SQLFunctionAverage.computeAverage` finalization; MIN/MAX
+   `extremumRid` transitions; COUNT_DISTINCT buckets; membership-derived dispatch
+   with D21 collapse safety; aggregate-specific cap on the `AggregateState`
+   collections that routes the key non-cacheable on overflow), plus
+   `DeltaBuilder.buildForAggregate` (copy + replay populate-version-filtered ops),
+   the `CachedResultSetView` aggregate path (`toResult()`, `hasNext` true once),
+   and the `CachedEntry` `aggregateState` field. Unit-tested in isolation:
+   per-kind observe/applyMutation, mixed-input/overflow/precision SUM parity, AVG
+   integer-truncation and BigDecimal `HALF_UP`, the collapse case, cap overflow.
+   *(parallel with Step 2)* — risk: high (performance hot path)  [ ]
+2. **Classifier tightening + global metric bridge.** Tighten `ShapeClassifier` so
+   an aggregate under arithmetic (`count(*) + 1`) classifies K0_NONE (not
+   AGGREGATE_COUNT) and bare / single-field-indexed `COUNT(*)` rides the fallback
+   or classifies K0_NONE (hardwired, untappable); the existing aggregate gates and
+   the COUNT(DISTINCT) nested-`distinct(...)` parse are verified, not rebuilt.
+   Wire the global `CoreMetrics.QUERY_CACHE_*_RATE` increments from the existing
+   per-tx counters. Tested: classifier unit cases for both tightenings, the I5
+   four-factory enumeration completeness test, and a metric-increment assertion.
+   *(parallel with Step 1)* — risk: medium — size: ~3 files; (a) no mergeable
+   low/medium work fits (rest of track is high-tagged or its own integration
+   tests)  [ ]
+3. **Tap + splice + eager drive + fallback.** New `AggregateCacheTapStep extends
+   AbstractExecutionStep`; in `DatabaseSessionEmbedded` the aggregate miss path
+   builds the plan via `createExecutionPlan` (a per-execution copy), splices the
+   tap upstream of `AggregateProjectionCalculationStep` as a separate branch in
+   the cache shape gate (preserving the two-guard `viewOwnsGuard` / `cacheCodeDepth`
+   contract), eager-drives via `plan.start(ctx)` + drain while re-mirroring the
+   three Track-1 populate contracts (stamp `populateMutationVersion` before
+   driving, release the guard on every exit, idempotent close), and falls back to
+   an uncached `LocalResultSet` + `incrementSpliceFailures` on any unexpected
+   shape (e.g. a hardwired `CountFromClassStep`). End-to-end tested: per-kind
+   cache-vs-fresh I4 equivalence over a tappable shape (COUNT/SUM/AVG/MIN/MAX/
+   COUNT_DISTINCT) including the D21 collapse case, bare/indexed COUNT(*) takes the
+   fallback, cap overflow routes the key non-cacheable, no exception leaks.
+   Depends on Steps 1 and 2. — risk: high (architecture / cross-component
+   coordination)  [ ]
 
 ## Episodes
 <!-- Continuous-log. -->
 
 ## Validation and Acceptance
 
-- `SELECT COUNT(*) FROM C` cached, then a matching CREATE / a WHERE-breaking
-  UPDATE / a DELETE between two `query()` calls → the second scalar matches a
-  parallel uncached `query()` (per kind: COUNT, SUM, AVG, MIN, MAX,
-  COUNT_DISTINCT).
+- A *tappable* aggregate (e.g. `SELECT SUM(price) FROM C WHERE active = true`, or
+  `COUNT(*)` over a non-indexed predicate) cached, then a matching CREATE / a
+  WHERE-breaking UPDATE / a DELETE between two `query()` calls → the second scalar
+  matches a parallel uncached `query()` (per kind: COUNT, SUM, AVG, MIN, MAX,
+  COUNT_DISTINCT). The per-kind cache-hit case must NOT use bare
+  `COUNT(*) FROM C`, which is hardwired to `CountFromClassStep` and never reaches
+  the side-tap.
+- Bare `SELECT COUNT(*) FROM C` and indexed `COUNT(*) ... WHERE indexedField = ?`
+  take the uncached fallback (or classify K0_NONE), `incrementSpliceFailures`
+  fires on the fallback branch, and the scalar still matches fresh — caching them
+  is neither attempted nor needed (already O(1)).
+- `count(*) + 1` (aggregate under arithmetic) classifies K0_NONE and is served
+  via the K0 version gate, not the aggregate cache.
 - The D21 collapse case (pre-populate CREATE of the MIN/MAX holder + post-populate
   UPDATE that breaks WHERE; and one that drops the holder's value below a
   non-holder) → cached scalar matches fresh, with no stale contributor.
 - SUM over mixed Long+Double input replays to the same Double fresh execution
-  returns; Long overflow and `2^53+1` precision loss match by construction.
+  returns; Long overflow and `2^53+1` precision loss match by construction. AVG
+  over Integer/Long input truncates exactly as `computeAverage` does (integer
+  division), and BigDecimal AVG rounds `HALF_UP`, matching fresh.
 - `COUNT(DISTINCT prop)` with cross-subtype values (`Long(5)`, `Integer(5)`)
   keeps distinct buckets matching storage; `COUNT(DISTINCT a+b)` routes to K0_NONE.
+- A high-cardinality COUNT(DISTINCT) / MIN / MAX that overflows the
+  `AggregateState` collection cap routes the key non-cacheable (no OOM, no stale
+  cache).
 - A planner shape with no `AggregateProjectionCalculationStep` falls back to an
-  uncached `LocalResultSet` and increments `spliceFailures`; no exception leaks.
+  uncached `LocalResultSet` and `incrementSpliceFailures` fires; no exception
+  leaks.
 - The I5 enumeration test fails the build if a new non-deterministic function in
-  any of the three factories lacks a denylist entry.
+  any of the four factories lacks a denylist entry.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -179,8 +339,14 @@ unexpected plan shape. Eager drive matches the uncached aggregate latency profil
 internals.
 
 **Key signatures:**
-- `AggregateState#observe(Result)`, `#applyMutation(RecordAbstract, byte status, boolean matchAfter)`,
-  `#copy(): AggregateState`, `#toResult(): Result`
+- `AggregateState#observe(Result)`, `#applyMutation(RecordAbstract, byte status, boolean matchAfter)`
+  (the new value for a T→T re-fold is read from the `RecordAbstract`; `matchAfter`
+  carries WHERE-membership only), `#copy(): AggregateState`, `#toResult(): Result`
+- AVG state carries a `total` contributor count and finalizes via
+  `SQLFunctionAverage#computeAverage` (type-dispatched division), not `sum/total`
 - `DeltaBuilder#buildForAggregate(CachedEntry, FrontendTransactionImpl, CommandContext): AggregateState`
 - `AggregateCacheTapStep extends AbstractExecutionStep` — `internalStart(ctx): ExecutionStream`
 - `PropertyTypeInternal#increment(Number current, Number value): Number` (existing, reused)
+- `SQLFunctionAverage#computeAverage(...)` (existing, reused for AVG finalization)
+- `QueryResultCache#incrementSpliceFailures()` (the only new per-tx metric;
+  hit/miss/k0/overflow increments already exist in Track 1)
