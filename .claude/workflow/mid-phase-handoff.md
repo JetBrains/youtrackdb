@@ -13,6 +13,7 @@
 | §Header (both templates) | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header fields: paused date, phase, context level, branch, HEAD, unpushed count. |
 | §Research-shaped body (Phase 0 / 1, ad-hoc interludes) | orchestrator,planner | 0,1,3A,3B | The research-shaped body: investigating, ruled-out, most-promising lead, open questions, raw notes, resume notes. |
 | §Decision-shaped body (State 0, Phase A / B / C / 4) | orchestrator | 2,3A,3B,3C,4 | The decision-shaped body: durable artifacts, pending decision, verbatim re-present text, resume notes. |
+| §Review-hold queue block (D15) | orchestrator,planner | 1 | An optional Phase-1 handoff block carrying a non-empty review-hold queue so a multi-session hold flushes the same batch. |
 | §Phase-specific "do NOT redo" defaults | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Per-phase starting points for the Do-NOT-redo line so resume does not repeat landed work. |
 | §Author protocol — writing the handoff at pause time | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The numbered author steps: ensure _workflow, pick filename, write, mark, memory-index, commit, push, reflect, tell user. |
 | §Resume protocol | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Stop, sort handoffs newest-first, verify artifacts, present each body, resolve, then run normal state evaluation. |
@@ -283,6 +284,45 @@ reasoning chain is not re-derived under high context pressure>
 - On fixes requested: <fallback path>
 ```
 
+### Review-hold queue block (D15)
+<!-- roles=orchestrator,planner phases=1 summary="An optional Phase-1 handoff block carrying a non-empty review-hold queue so a multi-session hold flushes the same batch." -->
+
+Append this block to a Phase 1 (`/create-plan`) handoff **only when** the
+pause happens with a non-empty review-hold queue — the D15 batching queue
+described in `.claude/skills/create-plan/SKILL.md`:planner:1 § Step 4
+review-hold batching. The queue collects findings raised after a frozen-ready
+Phase-1 artifact is presented for review; if the session pauses before the
+user declares the review done, the queued entries would otherwise be lost on
+`/clear` and the user would have to re-raise every one. The block carries them
+verbatim so the flush session re-loads the same batch and runs it through the
+three-step batch unchanged.
+
+The block attaches to either body template (research-shaped or
+decision-shaped) — pick the body by the pause's shape as usual, then add this
+block when a review-hold queue is live. Omit it entirely when the queue is
+empty (the common case).
+
+```markdown
+## Review-hold queue (D15)
+**Presented artifact:** <design.md | plan + tracks>
+**Presentation outcome:** <PASS | user accepted open risks>
+**Escape-hatch findings already processed this hold:** <list, or "none">
+
+Queued findings (process as one batch on resume — do NOT re-raise to the user):
+- [decision] <verbatim finding text> — <where it was raised>
+- [clarification] <verbatim finding text> — <where it was raised>
+- ...
+```
+
+The `Presented artifact` and `Presentation outcome` lines re-establish which
+review window the queue belongs to, so the flush session knows which cold-read
+(Step 4a vs Step 4b) the batch's loop-back targets. The escape-hatch line
+records any single-finding immediate processing already done before the pause,
+so the batch on resume does not re-process a finding that already moved. The
+queued findings keep their `[decision]` / `[clarification]` tags so the
+three-step batch routes each one correctly (`[decision]` items clear the gate;
+`[clarification]` items apply in the mutation without a gate run).
+
 ## Phase-specific "do NOT redo" defaults
 <!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Per-phase starting points for the Do-NOT-redo line so resume does not repeat landed work." -->
 
@@ -485,7 +525,9 @@ a Phase A pause and uses the Phase A row above.
   `implementation-review.md`, `prompts/create-final-design.md` —
   inline gates that hand off to this document
 - `.claude/skills/create-plan/SKILL.md` — creates `_workflow/` as
-  its first durable action and runs the same startup check
+  its first durable action and runs the same startup check; its
+  § Step 4 review-hold batching owns the D15 queue the
+  §Review-hold queue block carries across a multi-session hold
 - `step-implementation-recovery.md` — Phase B orphan-commit recovery
   referenced from the §Phase-specific "do NOT redo" table
 - `commit-conventions.md` § Commit type prefixes — commit category

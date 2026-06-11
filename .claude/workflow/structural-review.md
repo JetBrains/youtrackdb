@@ -6,7 +6,7 @@
 |---|---|---|---|
 | §Goal | reviewer-plan,orchestrator | 2 | Validate plan structure and completeness (cycles, missing descriptions, contradictions, bloat) without reading code. |
 | §Structural review prompt | reviewer-plan | 2 | Pointer to the structural-review sub-agent prompt file. |
-| §Bloat checks | reviewer-plan | 2 | The per-section bloat budgets (DR/invariant/integration/component length, superseded DRs, duplication) and fixes. |
+| §Bloat checks | reviewer-plan | 2 | The per-section bloat budgets (DR/invariant/integration/component length, superseded DRs, seed↔track fidelity) and fixes; bloat-fix destinations re-route to track sections. |
 | §Gate verification | reviewer-plan | 2 | After fixes, the structural review re-runs via the gate-verification prompt to confirm. |
 | §Review iteration | orchestrator,reviewer-plan | 2 | Up to 3 iterations: auto-apply mechanical fixes, escalate design-decision findings, gate-check until clean. |
 | §Review output | orchestrator,reviewer-plan | 2 | The review is not persisted; mechanical fixes apply to the plan, the durable trace is the gate-PASS audit entry. |
@@ -58,31 +58,57 @@ codebase read required — and the findings carry the severities below.
 Phase 2 orchestrator (see
 prompts/structural-review.md:reviewer-plan:2 §
 Classification rules). The fix follows the rule mechanically — trim
-to the four-bullet form, move long-form material to `design.md`,
-replace the duplicated body with a one-line link, delete the
-superseded DR — and the orchestrator applies it without asking the
-user. Findings escalate as `design-decision` only when the structural
-issue is ordering / sizing / contradiction / decision-traceability,
-not bloat.
+to the four-bullet form, move long-form material to its matching track
+section, delete the superseded DR — and the orchestrator applies it
+without asking the user. Findings escalate as `design-decision` only
+when the structural issue is ordering / sizing / contradiction /
+decision-traceability, not bloat.
+
+**Bloat-fix destination — track sections in every tier (D10).** The
+length-bloat fixes below move long-form material **to the matching track
+section**, not to `design.md`, in every tier including `full`. Under the
+carrier flip (D7) the track is the live decision carrier and `design.md`
+is at most a frozen, non-canonical provenance seed; routing live material
+into the frozen seed is wrong-direction (the seed cannot be edited after
+Step 4a freeze) and unmaintainable after the first replan. A finding whose
+natural destination is the design file therefore re-routes to the track's
+`## Decision Log` (decision records), `## Interfaces and Dependencies`
+(integration points / invariants), or `## Context and Orientation`
+(component-intent prose). In `full` the `**Full design**` pointer in a
+trimmed DR still names the frozen seed's mechanism section as on-demand
+provenance, but the live record stays in the track.
 
 | Category | Severity | Trigger | Fix |
 |---|---|---|---|
-| **DR-length** | should-fix | Decision Record body exceeds ~30 lines | Trim DR back to the four-bullet form; move long-form material to a `design.md` section and link from `**Full design**`. |
-| **Invariant-length** | should-fix | Invariant entry exceeds ~5 lines | State the rule in one short paragraph; move multi-paragraph derivations to a `design.md` complex-topic section. |
-| **Integration-point-length** | should-fix | Integration-point bullet exceeds ~3 lines | Name the connection point in one short bullet; move workflow walk-throughs to a `design.md` Workflow section. |
-| **Component-intent-length** | should-fix | A component's intent bullet (under the Component Map) exceeds ~5 lines | Keep the intent to one short paragraph; move design-level descriptions of that component's behavioral change to `design.md`. |
+| **DR-length** | should-fix | Decision Record body exceeds ~30 lines | Trim DR back to the four-bullet form; move long-form material to the matching track's `## Decision Log` record. In `full`, link the frozen-seed mechanism from `**Full design**` as on-demand provenance. |
+| **Invariant-length** | should-fix | Invariant entry exceeds ~5 lines | State the rule in one short paragraph; move multi-paragraph derivations to the matching track's `## Interfaces and Dependencies` (or `## Decision Log` when the derivation is decision rationale). |
+| **Integration-point-length** | should-fix | Integration-point bullet exceeds ~3 lines | Name the connection point in one short bullet; move workflow walk-throughs to the matching track's `## Interfaces and Dependencies` / `## Plan of Work`. |
+| **Component-intent-length** | should-fix | A component's intent bullet (under the Component Map) exceeds ~5 lines | Keep the intent to one short paragraph; move design-level descriptions of that component's behavioral change to the matching track's `## Context and Orientation`. |
 | **Superseded-DR retained** | blocker | A DR is explicitly marked `(SUPERSEDED ...)` or "see DN" but still occupies a `#### D<N>` block | Delete the superseded DR entirely; document the supersession in the replacing DR's rationale ("This replaces an earlier approach where..."). |
-| **Plan/design duplication** | should-fix | A DR body or Architecture Notes subsection is >50 lines **and** `design.md` has a section whose title matches the DR's topic | Replace the duplicated body in the plan with a one-line link to the matching `design.md` section. |
+| **Seed↔track fidelity** (`full` only, authoring-time only) | should-fix | At Step 4b authoring, a `design.md` **seed D-record** has a matching track `## Decision Log` DR whose content is **not** substantively equivalent to the seed | Restore the track DR to substantive equivalence with its seed record (authoring-time only — see notes). Provenance-only for revision-format DRs: a track DR in the inline-replan revision format is checked only against the seed pinned in its `**Original decision**` field, never against its revised text. |
 | **Plan-file budget exceeded** | should-fix | Plan file exceeds ~1,500 lines / ~30K tokens | Identify which sections are over their per-section budget and apply the per-section fixes above. |
 
 **Detection notes:**
 - Line counts include the section heading and bullet body but exclude
   trailing blank lines between sections.
-- For the **plan/design duplication** heuristic, the title-match check
-  is fuzzy: any section in `design.md` whose heading shares 2+
-  significant words with the DR title (after lowercasing and dropping
-  stop-words) is a hit. Borderline matches should be flagged for human
-  review, not auto-resolved.
+- The former **plan/design duplication** check is **repurposed** into the
+  **Seed↔track fidelity** check above (D10). The old check fired on a DR
+  body over 50 lines that had a title-matching `design.md` section — which
+  is now exactly the **mandated** shape of a seed-derived track DR (D7), so
+  the old check would fire backwards against compliant track DRs. The
+  inverted check iterates the **`design.md` seed records only** and, for
+  each, verifies its matching track DR is a faithful copy; a track DR with
+  no seed counterpart is out of scope by construction (it cannot fire on a
+  mandated track DR that has no seed). The fuzzy title-match heuristic (any
+  section whose heading shares 2+ significant words after lowercasing and
+  dropping stop-words) still identifies the seed↔track pairing; borderline
+  matches are flagged for human review, not auto-resolved.
+- The fidelity check is **`full`-tier only** (it needs a `design.md` seed)
+  and **authoring-time only**: it runs while the Step 4b author still holds
+  context, when the track DR is freshly copied from the seed. After
+  authoring, post-replan divergence is owned by the cross-track propagation
+  duty (inline-replanning.md:orchestrator:3A,3C), not this check — so the check never fires
+  during execution against a track DR the replan legitimately revised.
 - A single oversized section is enough to fire the per-section finding;
   the plan-file-budget finding is a roll-up that fires when *cumulative*
   bloat across many sections puts the whole file over budget even

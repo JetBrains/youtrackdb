@@ -10,10 +10,11 @@
 | §2.2 Episode Formats | orchestrator | 3A,3B,3C | The three episode types (step completion, step failed, track episode) and their field sets; full rules elsewhere. |
 | §2.3 Ephemeral identifier rule — pointer | implementer,final-designer | 3B,3C,4 | Quick recap of the ephemeral-identifier rule plus the pre-commit gate regex; full rule in the dedicated file. |
 | §2.4 Commit messages, code review, complexity, decomposition | orchestrator | 3A,3B,3C | On-demand pointers to commit conventions, the code-review protocol, complexity tiers, and decomposition rules. |
-| §2.5 Review-file schema, count validation, and coverage | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5). |
-| §Manifest-plus-sections file | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields. |
-| §Anchored addressing and count validation (S4/S6) | orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3B,3C,4 | Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback. |
-| §Verdict-producer manifest variant | orchestrator,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate. |
+| §2.5 Review-file schema, count validation, and coverage | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5). |
+| §Manifest-plus-sections file | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields. |
+| §Anchored addressing and count validation (S4/S6) | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback. |
+| §Verdict-producer manifest variant | orchestrator,planner,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3C | The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate. |
+| §Third-scope review-file home (Phase 0→1 gate) | planner,reviewer-adversarial | 1 | Where the Phase-0→1 gate's review files live before any track directory exists, and their commit/sweep lifecycle. |
 | §Coverage (S5) | decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection. |
 
 <!--Document index end-->
@@ -61,6 +62,10 @@ Surprises & Discoveries, Decision Log, Outcomes & Retrospective — come
 first so a restart-from-cold reader sees current state before static
 plan; Episodes sits adjacent to its plan-at-start partner (Concrete
 Steps) so per-step roster and per-step result are physically co-located.
+(`## Decision Log` is plan-at-start **and** continuous per D7 — Phase 1
+seeds it with the track's full inline Decision Records and execution
+appends to the same section; it sits with the continuous-log group so the
+cold reader still sees the live decision state before the static plan.)
 
 **Authoritative template:** the verbatim Markdown `/create-plan` writes
 at Phase 1 lives in `design.md` §"New per-track file shape". The block
@@ -96,11 +101,18 @@ is tabulated in the *Section lifecycle* subsection below.
    findings promoted by the orchestrator from per-step episodes when
    the finding affects future steps or other tracks. Empty at Phase 1.
 
-4. **`## Decision Log`** — continuous-log of execution-time decisions
-   (inline-replan choices, scope-downs, dependency reveals, gate
-   overrides). Move 1 (YTDB-814) will later land per-track inlined
-   Decision Records here. Slot below the running log is reserved for
-   Move 1 (empty placeholder until that Move lands).
+4. **`## Decision Log`** — plan-at-start **and** continuous (D7). Phase 1
+   writes the track's full inline Decision Records here: every decision
+   this track realizes, recorded in full inline (the track is the
+   live decision carrier in every tier; in `full` the records are seeded
+   from the frozen `design.md` D-records, in `lite`/`minimal` directly
+   from the research log). Execution then appends to the same section —
+   inline-replan choices, scope-downs, dependency reveals, gate
+   overrides, and supersession notes from the cross-track propagation
+   duty. This is the track-side analog of the design seed's introduce-once
+   inline-record home: the former "reserved for Move 1" placeholder is now
+   the active plan-at-start inline-DR slot, populated at Phase 1 rather
+   than left empty until a later Move.
 
 5. **`## Outcomes & Retrospective`** — continuous-log absorbing today's
    `## Reviews completed`. Each Phase A/B/C review iteration appends one
@@ -217,10 +229,12 @@ per D6 and D10:
   per-step lines in `## Validation and Acceptance`. Cleared when Phase
   A runs.
 - **Sibling Move placeholders** in `## Purpose / Big Picture` (Move 2
-  ADDED/MODIFIED/REMOVED triad slot), in `## Decision Log` (Move 1
-  per-track inlined Decision Records slot), and in `## Validation and
+  ADDED/MODIFIED/REMOVED triad slot) and in `## Validation and
   Acceptance` (Move 3 EARS/Gherkin acceptance slot). Cleared when the
-  corresponding Move lands.
+  corresponding Move lands. `## Decision Log` no longer carries a
+  sibling-Move placeholder: its inline-DR slot is now plan-at-start
+  populated at Phase 1 (D7), so a `full`-tier track's `## Decision Log`
+  holds real Decision Records before Phase A, not an empty placeholder.
 
 #### Section lifecycle
 <!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="Per-section writer/reader matrix across Phase 1/A/B/C for each of the 14 track-file sections." -->
@@ -230,7 +244,7 @@ per D6 and D10:
 | `## Purpose / Big Picture` | BLUF + intro paragraph + Move 2 placeholder | — | — | — | Phase 2 reviews; Phase A/B/C orchestration; Phase 4 aggregation |
 | `## Progress` | four pre-seeded phase-checkpoint entries (`- [ ] Review + decomposition`, `- [ ] Step implementation`, `- [ ] Track-level code review`, `- [ ] Track completion`) — State C resume reads these as phase markers | decomposition-complete entry **(D12 statusline read → `[ctx=<level>]`; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | per-step entry **(sub-step 7; same D12 read)** | per-iteration entry + track-completion entry **(same D12 read)** | resume-readers (most-recent entry = current phase); Phase 4 |
 | `## Surprises & Discoveries` | (empty) | (rare — Pre-Flight clarification surfaces a cross-cutting fact) | promotion from per-step episode at sub-step 7 (when cross-cutting) | promotion from review iteration findings (when cross-cutting) | Phase A Pre-Flight Panel 1; Phase 4 |
-| `## Decision Log` | Move 1 placeholder | — | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries | Phase A reviews; Phase 4 |
+| `## Decision Log` | full inline Decision Records (D7; seeded from `design.md` D-records in `full`, from the research log in `lite`/`minimal`) | — | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries + cross-track propagation supersession notes | Phase A reviews; Phase 2 consistency / structural; Phase 4 |
 | `## Outcomes & Retrospective` | (empty) | Phase A review iteration entries (prefix: `Technical:` / `Risk:` / `Adversarial:`) | (occasional — dimensional review iteration entries) | review iteration entries + track completion summary (prefix: `Track-level code review iteration N…` / `Track complete`) | Phase A reviews; Phase 4 |
 | `## Context and Orientation` | "what's there today" prose | Pre-Flight clarifications (appended as `### Clarifications` subsection) | — | — | Phase A/B/C orchestration; Phase 4 |
 | `## Plan of Work` | "what we'll change" prose | per-step sequencing summary referencing Concrete Steps | — | — | Phase A/B/C orchestration; Phase 4 |
@@ -251,9 +265,12 @@ episode-format-reference.md:orchestrator:3B,3C
 sub-step 1) → Progress entry → optional Surprises promotion →
 optional Decision Log promotion. Inline replanning (see
 inline-replanning.md:orchestrator:3A,3C) may
-rewrite `## Concrete Steps`, `## Plan of Work`, and `## Validation and
-Acceptance` mid-execution; otherwise plan-at-start sections are stable
-after Phase A.
+rewrite `## Concrete Steps`, `## Plan of Work`, `## Validation and
+Acceptance`, and `## Decision Log` mid-execution (the last to carry the
+cross-track propagation duty's revised Decision Records — see
+inline-replanning.md:orchestrator:3A,3C §Process step 3 and §Updating
+plan and track files cases 2-4); otherwise plan-at-start sections are
+stable after Phase A.
 
 The Track Pre-Flight gate (see track-review.md:orchestrator:3A
 §Track Pre-Flight) may amend `## Purpose / Big Picture`,
@@ -461,9 +478,9 @@ at session startup. Load on demand:
   The per-tier baseline selection differs — the step tier launches a
   subset (`review-bugs-concurrency` only), the track tier all four;
   see code-review-protocol.md:orchestrator:3B,3C.
-- **Complexity tiers** (which pre-execution reviews to run for Simple /
-  Moderate / Complex tracks): covered in
-  track-review.md:orchestrator:3A §Complexity Assessment.
+- **Tier-driven review selection** (which Phase-3A pre-execution reviews
+  to run, keyed off the confirmed tier rather than step count): covered in
+  track-review.md:orchestrator:3A §Tier-driven review selection.
 - **Checklist decomposition rules** (step sizing, cross-cutting concerns,
   parallel step annotation): covered in
   track-review.md:orchestrator,decomposer:3A §Step Decomposition.
@@ -471,7 +488,7 @@ at session startup. Load on demand:
 ---
 
 ## 2.5 Review-file schema, count validation, and coverage
-<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5)." -->
+<!-- roles=orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=1,2,3A,3B,3C,4 summary="Canonical review-file schema, count-validation grep (S4/S6), verdict-producer variant, and coverage rule (S5)." -->
 
 This subsection is the **single source of truth** for the review-file
 schema every bulk-producing sub-agent writes. Other documents (the
@@ -480,7 +497,7 @@ the implementer's anchor-read) cite this subsection rather than
 restating the schema.
 
 ### Manifest-plus-sections file
-<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields." -->
+<!-- roles=orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=1,2,3A,3B,3C,4 summary="The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields." -->
 
 A bulk-producing sub-agent persists its structured output to a file at a
 spawn-supplied path and returns only the manifest. The file opens with an
@@ -543,7 +560,7 @@ manifest-level (not per-finding): `evidence_base` summarises the
 and `flags` carries `CONTRACT_OK` or `CONTRACT_VIOLATION`.
 
 ### Anchored addressing and count validation (S4/S6)
-<!-- roles=orchestrator,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3B,3C,4 summary="Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback." -->
+<!-- roles=orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=1,2,3A,3B,3C,4 summary="Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback." -->
 
 Addressing keys on **stable heading anchors** (`^### BC1 `, `^#### C3 `),
 which survive minor format drift; a line offset, when present, is an
@@ -595,7 +612,7 @@ manifest; the count grep returns 0, validation passes, and the
 orchestrator routes on counts without spawning an implementer.
 
 ### Verdict-producer manifest variant
-<!-- roles=orchestrator,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate." -->
+<!-- roles=orchestrator,planner,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=1,2,3A,3C summary="The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate." -->
 
 A **gate-verifying** strategic reviewer (the plan/decomposition
 gate-verification prompts — `consistency-gate-verification.md`,
@@ -626,6 +643,44 @@ flags: [CONTRACT_OK]
 
 A pure-verdict pass with no new finding writes `findings: 0` and an empty
 `## Findings`; the count grep returns 0 and validation passes.
+
+The Phase-0→1 research-log adversarial gate (`prompts/adversarial-review.md`
+§Research-log-scoped review) is a verdict-producing gate of this shape: it
+loops on blockers, so its **iteration-1** run is a fresh finding set
+(finding-shaped manifest) and its **iteration≥2** re-challenges emit
+per-prior-finding verdicts plus any new finding (the verdict-producer
+variant above). This resolves D17's open implementation question: the
+gate's re-challenge runs use the verdict variant, not a fold of verdicts
+into the finding set. That is why the `planner`/`1` access this section
+grants covers both the gate writer (`reviewer-adversarial` at phase `1`)
+and the `create-plan` reader (`planner` at phase `1`) on the variant row.
+
+### Third-scope review-file home (Phase 0→1 gate)
+<!-- roles=planner,reviewer-adversarial phases=1 summary="Where the Phase-0→1 gate's review files live before any track directory exists, and their commit/sweep lifecycle." -->
+
+The research-log adversarial gate writes its review files **before Step
+4b**, so the canonical track-anchored home `plan/track-N/reviews/` (the
+`§2.1` *Review-file lifecycle* sub-section) does not exist yet — no track
+file has been authored. The gate's files therefore live in a
+plan-scoped review directory under `_workflow/` that does not depend on a
+track: `docs/adr/<dir-name>/_workflow/reviews/`. Naming follows
+`track-review.md`'s `<type>-iter<N>.md` practice — e.g.
+`research-log-adversarial-iter1.md` — so a multi-iteration gate loop keeps
+one file per iteration. `create-plan` `mkdir -p`s this directory before
+the first gate spawn (idempotent).
+
+Every other lifecycle rule is the `§2.1` *Review-file lifecycle*
+sub-section's, applied unchanged — this clause does not restate them:
+the file is written **and committed** at reviewer-return as a
+Workflow-update commit (the resume precondition), and the Phase 4 cleanup's
+blanket recursive `git rm -r _workflow/` sweeps `_workflow/reviews/` along
+with the rest, so no dedicated cleanup step is needed. The verdict carrier
+the Phase-4 consumers read is the research log's `## Adversarial gate record`
+section (the gate writes one verdict heading there per iteration; the heading
+shape and cadence are defined once in `research.md` §The research log under
+Gate-record cadence), not these review files; the review files die at cleanup
+without feeding either the `adr.md` fold or the `minimal` PR-description
+summary.
 
 ### Coverage (S5)
 <!-- roles=decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection." -->

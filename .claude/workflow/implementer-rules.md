@@ -76,13 +76,14 @@ implementer reads the track file, the slim plan snapshot, and
 (`design-document-rules.md` Rule 15). The implementer reads it for
 background (mechanism overviews, worked examples, diagrams that
 explain why a step is shaped the way it is) but **never resolves a
-decision from it**. The plan's Decision Records and the track file are
-the authoritative source of truth during execution; the frozen
-`design.md` may have diverged from a Decision Record the plan revised
-after planning. If the step needs a choice the plan and Decision
-Records do not settle, that is a design decision: return
-`DESIGN_DECISION_NEEDED` per §"Design decision detected" rather than
-reading the answer out of `design.md`.
+decision from it**. The track's Decision Records (the full inline DRs in
+the track file's `## Decision Log`, the live decision carrier under D7)
+are the authoritative source of truth during execution; the frozen
+`design.md` is at most a provenance seed and may have diverged from a
+Decision Record the track revised after planning. If the step needs a
+choice the track's Decision Records do not settle, that is a design
+decision: return `DESIGN_DECISION_NEEDED` per §"Design decision detected"
+rather than reading the answer out of `design.md`.
 
 ---
 

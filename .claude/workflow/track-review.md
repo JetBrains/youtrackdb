@@ -5,12 +5,12 @@
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §Overview | orchestrator,decomposer | 3A | Phase A reviews and decomposes the upcoming track, gated by the Track Pre-Flight strategy assessment. |
-| §Phase A: Review + Decomposition | orchestrator,decomposer | 3A | The Phase A flow: complexity assessment, sequential reviews, step decomposition, and the mandatory session boundary. |
+| §Phase A: Review + Decomposition | orchestrator,decomposer | 3A | The Phase A flow: tier selects reviews, sequential reviews, step decomposition, and the mandatory session boundary. |
 | §Tooling — PSI is required for symbol audits in Phase A | orchestrator,decomposer | 3A | Symbol audits during Phase A go through PSI via mcp-steroid, not grep; the preflight and fallback rules apply. |
 | §Pre-write rule — PSI-verify class names | decomposer | 3A | Verify every class/method name through PSI before it lands in a decomposed step or track-file claim. |
 | §Track Pre-Flight — Strategy Assessment + Track Summary | orchestrator | 3A | The two-panel Pre-Flight gate: a look-back strategy assessment and an upcoming-track summary with a review-mode loop. |
-| §What You Do | orchestrator,decomposer | 3A | The concrete Phase A actions: assess complexity, run the selected reviews, decompose into steps, write the track file. |
-| §Complexity Assessment and Which Reviews to Run | orchestrator,decomposer | 3A | Classify the track Simple/Moderate/Complex and select which pre-execution reviews to run. |
+| §What You Do | orchestrator,decomposer | 3A | The concrete Phase A actions: read the tier, run the selected reviews, decompose into steps, write the track file. |
+| §Tier-driven review selection and which reviews to run | orchestrator,decomposer | 3A | Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only. |
 | §Inputs passed to Phase A review sub-agents | orchestrator | 3A | The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope). |
 | §Track-scoped technical review | reviewer-technical | 3A | The track-scoped technical review and its prompt file. |
 | §Track-scoped risk review | reviewer-risk | 3A | The track-scoped risk review and its prompt file. |
@@ -41,7 +41,7 @@ Phase C includes both the track-level code review and track completion
 ---
 
 ## Phase A: Review + Decomposition
-<!-- roles=orchestrator,decomposer phases=3A summary="The Phase A flow: complexity assessment, sequential reviews, step decomposition, and the mandatory session boundary." -->
+<!-- roles=orchestrator,decomposer phases=3A summary="The Phase A flow: tier selects reviews, sequential reviews, step decomposition, and the mandatory session boundary." -->
 
 > **In this phase, you are a reviewer and planner, not an implementer. You
 > NEVER edit source code, test files, or build files. You explore the
@@ -465,7 +465,7 @@ review-mode rounds.
 **8. Continue.** Move to §What You Do sub-step 1 below.
 
 ### What You Do
-<!-- roles=orchestrator,decomposer phases=3A summary="The concrete Phase A actions: assess complexity, run the selected reviews, decompose into steps, write the track file." -->
+<!-- roles=orchestrator,decomposer phases=3A summary="The concrete Phase A actions: read the tier, run the selected reviews, decompose into steps, write the track file." -->
 
 > The Track Pre-Flight gate above must clear before sub-step 1 starts.
 > On State C resume the gate is skipped (see §Phase A Resume).
@@ -481,8 +481,9 @@ review-mode rounds.
    subsection committed by the gate above; both phases of consumption
    route through the same file.
 
-2. **Assess track complexity** to determine which reviews to run (see
-   §Complexity Assessment below).
+2. **Read the confirmed tier** (the tier line in
+   `implementation-plan.md`) to select which reviews to run (see
+   §Tier-driven review selection below).
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
@@ -593,32 +594,49 @@ review-mode rounds.
    working tree (e.g., scratch logs from prior debugging) don't get
    pulled in.
 
-### Complexity Assessment and Which Reviews to Run
-<!-- roles=orchestrator,decomposer phases=3A summary="Classify the track Simple/Moderate/Complex and select which pre-execution reviews to run." -->
+### Tier-driven review selection and which reviews to run
+<!-- roles=orchestrator,decomposer phases=3A summary="Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only." -->
 
-Complexity determines which pre-execution reviews to run, not user
-interaction level — all tracks execute autonomously after review.
-All tracks get track-level code review (Phase C) regardless of
-complexity. Step-level dimensional review (Phase B sub-step 4) runs
-only for steps tagged `risk: high` per
+The **confirmed tier** (D9), not step count, selects the Phase-3A panel
+at the change level. Read the tier line in `implementation-plan.md`. This
+replaces the former Simple / Moderate / Complex step-count axis as the
+change-level selector. The selection reads **no per-step risk signal**
+(S4): the tier is the change-level driver; the per-step `risk:` tag stays
+the Phase-3B gate and the Phase-C triage stays the Phase-3C gate, and the
+two never stack into one signal. The reviews still determine *which*
+pre-execution passes run, not user interaction level: all tracks execute
+autonomously after review, all tracks get track-level code review
+(Phase C) regardless of tier, and step-level dimensional review (Phase B
+sub-step 4) runs only for steps tagged `risk: high` per
 risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C; `medium` and `low` steps rely on
 tests plus track-level review.
 
-| Track complexity | Review pipeline |
+| Tier | Phase-3A review pipeline |
 |---|---|
-| Simple (1-2 steps) | Technical review only — even if track characteristics suggest Risk or Adversarial, skip them for 1-2 step tracks. |
-| Moderate (3-5 steps) | Technical review as baseline. Risk and/or Adversarial reviews are added when track characteristics warrant them (see table below). |
-| Complex (6-7 steps, or critical path / high-risk) | Full: Technical + Risk + Adversarial. |
+| `minimal` | Technical review only — Risk and Adversarial are dropped (a single track is the whole change the research-log gate already vetted). |
+| `lite` | Technical (always); Risk track-characteristic-gated (see below); Adversarial narrowed to track realization (see §Track-scoped adversarial review). |
+| `full` | Technical (always); Risk track-characteristic-gated (see below); Adversarial narrowed to track realization (see §Track-scoped adversarial review). |
 
-Specific characteristics that upgrade Moderate tracks:
+**Risk is track-characteristic-gated in `lite`/`full`.** The Phase-3A Risk
+review is a distinct sub-agent from the per-step `risk:` tag that gates
+Phase 3B. It runs when the track's characteristics warrant it:
 
-| Track characteristics | Reviews to run |
+| Tier + track characteristics | Reviews to run |
 |---|---|
-| Simple (1-2 steps) — any characteristics | Technical only (skip Risk/Adversarial) |
-| Moderate (3-5 steps) | Technical (always) |
-| Moderate + critical paths or performance constraints | Technical + Risk |
-| Moderate + major architectural decisions or non-obvious scope | Technical + Adversarial |
-| Complex (6-7 steps, or critical path / high-risk) | Technical + Risk + Adversarial |
+| `minimal` (any characteristics) | Technical only |
+| `lite`/`full`, no warranting characteristic | Technical + Adversarial (narrowed) |
+| `lite`/`full` + critical paths or performance constraints | Technical + Risk + Adversarial (narrowed) |
+| `lite`/`full` + major architectural decisions | Technical + Risk + Adversarial (narrowed) |
+
+The Risk-gating characteristics are critical paths, performance
+constraints, **or major architectural decisions** — the design's Part-6
+enumeration deliberately widens Risk to cover architectural decisions
+(which today's mapping routed to Adversarial), so the table above is the
+target enumeration, not today's mapping. The Adversarial pass runs in
+every `lite`/`full` track (narrowed to track realization), so the prior
+"major architectural decisions or non-obvious scope → add Adversarial"
+upgrade row is subsumed: Adversarial is no longer conditional in
+`lite`/`full`.
 
 ### Inputs passed to Phase A review sub-agents
 <!-- roles=orchestrator phases=3A summary="The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope)." -->
@@ -707,11 +725,41 @@ defined in §Inputs passed to Phase A review sub-agents above.
 **Prompt file:** prompts/risk-review.md:reviewer-risk:3A
 
 ### Track-scoped adversarial review
-<!-- roles=reviewer-adversarial phases=3A summary="The track-scoped adversarial review and its prompt file." -->
+<!-- roles=reviewer-adversarial phases=3A summary="The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the D14 tier model/effort pin." -->
 
 Spawn a sub-agent with the adversarial review prompt. Inputs: the
 shared set defined in §Inputs passed to Phase A review sub-agents
-above.
+above. Runs in `lite` and `full` only (`minimal` drops it).
+
+**Narrowed to track realization (D9).** A track's inline decisions are
+already vetted by the Phase-0→1 research-log adversarial gate, so this
+pass does **not** re-challenge those decisions. It focuses on track
+realization along three challenges:
+
+- **Scope and sizing** — is the track's file footprint and step
+  decomposition right?
+- **Cross-track-episode reality** — do the realized outputs earlier tracks
+  hand to this one actually exist as the track assumes?
+- **Invariant violation** — does any step's plan violate a plan invariant?
+
+**Track-1 exception.** On the first track of a multi-track plan, only the
+**cross-track-episode** challenge is dropped (there is no prior episode to
+challenge). The **scope/sizing** and **invariant-violation** challenges
+still run on track 1 — the foundational track's sizing and invariants
+most constrain every downstream track, so a whole-pass skip would exempt
+exactly the track most worth challenging. (This is why the pass is not
+dropped wholesale on track 1; only the one challenge that needs a prior
+episode is.)
+
+**Model and effort pin (D14).** Pin the Agent `model` field by tier on the
+spawn: `full` → Fable 5, `lite` → Opus 4.x. Both are intended to run at
+xhigh effort; the Agent surface exposes no per-spawn effort field and
+there is no adversarial-reviewer agent file to carry it in frontmatter, so
+the xhigh-effort half rides the session default. Do not attempt to set a
+per-spawn effort field: none exists, and the spawn carries only the
+`model` field. That is D14's documented
+degradation caveat — neither the model pin landing via the `model` field
+nor the effort pin degrading to the session default reopens the decision.
 
 **Prompt file:** prompts/adversarial-review.md:reviewer-adversarial:3A
 

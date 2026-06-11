@@ -20,6 +20,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
 | §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
+| §Track-scoped cold-read (Step 4b) | reviewer-design | 1 | The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
 | §Structural findings (always check) | reviewer-design | 1,4 | Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics. |
@@ -29,16 +30,49 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 
 <!--Document index end-->
 
-Fresh agent reading a design document cold. Assess whether a human
+Fresh agent reading a workflow artifact cold. Assess whether a human
 reviewer could build a working mental model **using only the
 document(s) provided**. Invoked by the design-mutation action
-(`design-document-rules.md § Mutation discipline`); verdict drives
+(`design-document-rules.md § Mutation discipline`) on `design.md`, and by
+`create-plan` Step 4b on the plan-at-start track sections; verdict drives
 iterate / warn / pass.
+
+This prompt has **two write-time targets** (D8, `planning.md` §Tier
+classification). The `target` input selects which:
+
+- `target=design` (the default; every mutation-kind invocation) — the
+  cold-read assesses `design.md`. This is everything in this file below
+  except §Track-scoped cold-read (Step 4b).
+- `target=tracks` — the Step-4b cold-read assesses the plan-at-start track
+  sections (and the root per-track BLUF/triad). See §Track-scoped cold-read
+  (Step 4b) for the target set, the absorption-completeness criterion, and
+  the full-tier fidelity criterion. The comprehension mechanics
+  (§Comprehension questions, §Output format, §Severity rubric, §Tone and
+  depth) are shared.
+
+Both targets carry the **absorption-completeness** cross-check against the
+research log; `target=design` adds it to the Step-4a `phase1-creation`
+cold-read (log → `design.md` D-records) and `target=tracks` adds it to the
+Step-4b cold-read (log → carrier inline records). See §Track-scoped
+cold-read (Step 4b) for the criterion (it is written once there and applies
+to both targets).
 
 ## Inputs
 <!-- roles=reviewer-design phases=1,4 summary="The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer." -->
 
-- `design_path` — `design.md`.
+- `target` (optional, default `design`) — `design` or `tracks`. Selects
+  the cold-read target per the two-target note above.
+- `research_log_path` (optional) — absolute path to
+  `_workflow/research-log.md`. Supplied by the Step-4a `phase1-creation`
+  and the Step-4b cold-read spawns so the reviewer runs the
+  absorption-completeness cross-check (§Track-scoped cold-read). Absent for
+  the interactive mutation kinds and for Phase 4.
+- `tier` (optional) — `full` / `lite` / `minimal`. Supplied with
+  `target=tracks` so the reviewer knows whether the full-tier fidelity
+  criterion applies.
+- `design_path` — `design.md` (for `target=design`; also passed with
+  `target=tracks` in `full` so the reviewer can run the seed↔track fidelity
+  check).
 - `design_mechanics_path` (optional) — `design-mechanics.md` when
   the design exceeded the length trigger.
 - `scope` — `bounded` or `whole-doc`.
@@ -58,25 +92,38 @@ iterate / warn / pass.
   `phase4-creation` cold-read; **absent** for every other invocation,
   including the Phase 1 `phase1-creation` cold-read. See § Output format
   for the path-conditional behavior.
+- `plan_dir` (with `target=tracks`) — directory of `plan/track-N.md` files;
+  the cold-read reads the plan-at-start track sections from these, not
+  only for link resolution.
+- `plan_path` (with `target=tracks`) — `implementation-plan.md`; the
+  cold-read reads the root per-track BLUF/triad (`## Purpose / Big
+  Picture`) and the checklist entries from it.
 
 ### Mutation-kind specific instructions
 <!-- roles=reviewer-design phases=1,4 summary="Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts." -->
 
 - **`phase1-creation`**: `design.md` and `design-mechanics.md`
-  were just seeded together. **You run after the adversarial pass.**
-  The `phase1-creation` loop runs adversarial review first
-  (`prompts/adversarial-review.md` § Design-scoped review (Phase 1)),
-  then this cold-read — the design you are reading has already
-  survived a decision/assumption challenge, so assess comprehension,
-  not whether the decisions hold. The `design.md` serves both human
-  readers (the user reviewing the plan, the architect during
-  structural review, the PR reviewer reading the draft) and
-  agent readers (the implementer executing the plan). Verify
-  (a) the `design.md` is internally coherent on its own (a fresh
-  reader can navigate it); (b) every
-  `Mechanics: design-mechanics.md §"…"` link resolves to a
-  matching section in mechanics. **Plus the Human-reader
-  cold-read additions (§ below).**
+  were just seeded together. **You run gated behind the cleared
+  log-adversarial gate (S3).** Under D6 the decision/assumption
+  challenge no longer runs as a local pass here; it ran once on the
+  **research log** at the Phase 0 → 1 boundary
+  (`prompts/adversarial-review.md` § Research-log-scoped review
+  (Phase 0→1)), and the `edit-design` § Step 4 S3 gate blocks this
+  cold-read until that log gate clears (`research.md` §The research
+  log, Gate-record cadence). So the design's decisions have already
+  survived challenge **on the log**: assess comprehension, not whether
+  the decisions hold. The `design.md` serves both human readers (the
+  user reviewing the plan, the architect during structural review,
+  the PR reviewer reading the draft) and agent readers (the
+  implementer executing the plan). Verify (a) the `design.md` is
+  internally coherent on its own (a fresh reader can navigate it);
+  (b) every `Mechanics: design-mechanics.md §"…"` link resolves to a
+  matching section in mechanics; (c) the **absorption-completeness
+  cross-check** this invocation owns — every load-bearing research-log
+  decision appears as a seed D-record in `design.md` (see
+  §Track-scoped cold-read, the `target=design` direction of the
+  criterion; run only when `research_log_path` is supplied). **Plus
+  the Human-reader cold-read additions (§ below).**
 - **`design-sync`**: this sync re-distilled `design.md` from the
   current state of `design-mechanics.md`. **In addition to the
   standard whole-doc cold-read**, verify that every TL;DR and
@@ -132,13 +179,98 @@ rule in § Tone and depth: quote the prose, list undefined terms, name the
 audience the prose fails, and (for navigability) the opaque section or
 (for explanatory register) the disconnected assertions.
 
+## Track-scoped cold-read (Step 4b)
+<!-- roles=reviewer-design phases=1 summary="The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity." -->
+
+This section applies **only when `target=tracks`** — the Step-4b cold-read
+`create-plan` spawns after the track files are written and before the Step
+5 commit (D8, `planning.md` §Tier classification). It reuses this same
+cold-read sub-agent on a second artifact; it is not a second reviewer.
+
+**Target set.** Read the plan-at-start sections of every track file under
+`plan_dir` — `## Purpose / Big Picture`, `## Context and Orientation`,
+`## Plan of Work`, and `## Interfaces and Dependencies` — plus the root
+per-track BLUF/triad (the `## Purpose / Big Picture` BLUF and the
+ADDED/MODIFIED/REMOVED triad) and the checklist entries in `plan_path`.
+Assess whether a cold reader could build a working mental model of what
+each track does and why, using only the track files and the plan. The
+seven §Comprehension questions apply, re-pointed from "the design" to "the
+track sections": question 1 becomes "what does this track add or change?",
+question 7 becomes "how would a reader find the full mechanism — the
+inline `## Decision Log` records, and in `full` the `**Full design**`
+reference into the frozen `design.md` seed?".
+
+**Absorption-completeness criterion (both targets).** "Carrier
+authoritative" (S2) is enforced at write-time by this criterion rather
+than a mechanical pass. Cross-check the research log against the carrier
+**both ways**: every load-bearing research-log decision in a track's scope
+must appear as an inline Decision Record in the appropriate carrier, and a
+log decision with no carrier home is a finding. The criterion is a
+checkable surface, not free judgment:
+
+- **Load-bearing** = a `## Decision Log` entry in the research log whose
+  `**Alternatives rejected:**` field names a **real fork**. The field's
+  presence is the mechanical surface; you still judge whether the named
+  alternative is a real fork rather than a vacuous "none", and a genuine
+  fork recorded under a different sub-field (a `**Scope note:**` or
+  `**Reconciliation:**`) is still in scope, so field placement cannot game
+  the trigger. An empty `Alternatives rejected` is not load-bearing and
+  does not force a carrier record.
+- **In-scope** = the decision constrains a file or interface the track
+  touches, bound to the track's `## Interfaces and Dependencies`. On a
+  workflow-modifying plan, "a file or interface the track touches"
+  includes the workflow-prose files and `§`-anchors listed there, so the
+  trigger binds to prose dependencies, not only Java symbols.
+- **Per-carrier** is uniform for the live record: a full inline record in
+  each relevant track's `## Decision Log`, in every tier. In `full`, the
+  criterion additionally requires the decision's seed D-record in
+  `design.md` and fidelity between the two (below).
+
+For `target=design` (the Step-4a `phase1-creation` cold-read), apply the
+same criterion in its log → `design.md` D-records direction: every
+load-bearing log decision must appear as a seed D-record in `design.md`.
+The reviewer reads `research_log_path` only for this cross-check; it is a
+verdict/absorption read at the sanctioned authoring point, not a new
+decision-content read site (S2).
+
+**Full-tier fidelity criterion (`tier=full`, `target=tracks`).** Fidelity
+is an **authoring-time** bar, not a standing equality constraint. Each
+`full`-tier track Decision Record must be **substantively equivalent** to
+the `design.md` seed record it was copied from; a paraphrase that shifts
+the meaning is a finding even though the presence check passes. The
+check's domain keeps it safe: iterate the `design.md` seed records and
+verify their track copies — a track DR with **no** seed counterpart is a
+post-seed live decision, out of scope by construction (it is not a
+fidelity miss). A track DR carrying the inline-replan revision format, or
+named by a supersession note, is compared **provenance-only**: its
+`**Original decision**` field (which stays seed-pinned across revisions)
+must semantically correspond to the seed (summary-correspondence, not
+verbatim inclusion). Seed→track restoration is an authoring-time-only fix;
+no reviewer or mechanical pass rewrites a track DR from the seed after
+authoring, because post-authoring divergence is legitimate (the track
+evolved; the frozen seed cannot).
+
+**Residual risk.** Absorption and fidelity rely on this semantic cold-read
+with no mechanical backstop (the `section_has_references` check is
+`design.md`-only). An authoring-time miss has no automated catch in any
+tier; the residual narrows to authoring time, because post-authoring
+divergence between duplicated track copies has a defined owner and
+mechanism (the cross-track propagation duty). This is accepted.
+
+**Iterate loop.** The Step-4b cold-read blocker re-opens Step-4b
+derivation in the **same session** — it does not defer to a later phase,
+because the author's context is the thing being spent. For a held review
+batch the flush session counts as that session.
+
 ## Reading rules
 <!-- roles=reviewer-design phases=1,4 summary="Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand." -->
 
-- **Only the files above** — no source code, prior conversation, or other workflow files.
-- **Bounded scope**: changed section + 1-2 surrounding + `## Overview` + (when present) `## Core Concepts`; open mechanics only for a specific `Mechanics:` link.
-- **Whole-doc scope**: entire `design.md`; mechanics for link targets.
-- **Plan / track-file reads**: grep-only for `**Full design**` link resolution.
+- **Only the files passed in §Inputs** — no source code, prior conversation, or other workflow files. For `target=design` that is the design file(s); for `target=tracks` that is the track files under `plan_dir`, `plan_path`, and (when supplied) `design_path` for the fidelity check.
+- **Bounded scope** (`target=design`): changed section + 1-2 surrounding + `## Overview` + (when present) `## Core Concepts`; open mechanics only for a specific `Mechanics:` link.
+- **Whole-doc scope** (`target=design`): entire `design.md`; mechanics for link targets.
+- **Track-scoped reads** (`target=tracks`): read the plan-at-start sections of each track file in full and the root per-track BLUF/triad + checklist from `plan_path` — this is the assessed artifact, not grep-only-for-links. For the full-tier fidelity check, read the `design.md` seed D-records the track copies derive from.
+- **Plan / track-file reads** (`target=design`): grep-only for `**Full design**` link resolution.
+- **`research_log_path` reads** (absorption cross-check): read the log's `## Decision Log` for the load-bearing-decision enumeration only — a verdict/absorption read, not a decision-content seeding read (S2). Do not import a log decision as if it were a carrier record; a log decision absent from the carrier is the finding.
 - **`house-style.md` reads**: read only the cited `§ <heading>` section using grep + targeted Read (offset/limit). Never load the file whole and never pre-load all cited sections; fetch a section only when a finding is forming.
 
 ## Comprehension questions
@@ -146,6 +278,10 @@ audience the prose fails, and (for navigability) the opaque section or
 
 Answer in order; **cite the paragraph(s) you relied on** (quoted
 phrase or section + anchor). Insufficient material is itself a finding.
+
+For `target=tracks`, re-point each question from "the design" to "the
+track sections" (§Track-scoped cold-read names the re-pointings for
+questions 1 and 7); answer per track when the plan has more than one.
 
 1. **What is this design replacing or adding?** State in one
    sentence. Use the Overview.
@@ -168,6 +304,14 @@ phrase or section + anchor). Insufficient material is itself a finding.
 
 ## Structural findings (always check)
 <!-- roles=reviewer-design phases=1,4 summary="Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics." -->
+
+The checks below are the `target=design` structural set. For
+`target=tracks`, the design-shape checks (References footer, `Mechanics:`
+link, Core Concepts, Overview-concept-first, the ≤2,000-line budget) are
+**N/A** — track files carry no References footer or mechanics split. The
+always-on checks for `target=tracks` are the absorption-completeness and
+full-tier fidelity criteria in §Track-scoped cold-read; report their
+findings in the same `## Structural findings` list.
 
 - Verify **Edge cases / Gotchas** per `.claude/output-styles/house-style.md § Edge cases sub-section required`.
 - Verify **References footer** per `.claude/output-styles/house-style.md § References footer shape`.

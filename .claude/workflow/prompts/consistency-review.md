@@ -43,12 +43,55 @@ code to find gaps and inconsistencies between the four artifacts:
 1. **Implementation plan** (`implementation-plan.md`)
 2. **Track files** (`plan/track-N.md`, one per pending track) — each
    track file holds that track's what/how/constraints/interactions
-   detail and any track-level Mermaid diagram across its
-   `## Purpose / Big Picture`, `## Context and Orientation`,
+   detail, its inline Decision Records (the live decision carrier under
+   D7, in `## Decision Log`), and any track-level Mermaid diagram across
+   its `## Purpose / Big Picture`, `## Context and Orientation`,
    `## Plan of Work`, and `## Interfaces and Dependencies` sections.
    Written by `create-plan` at Phase 1.
-3. **Design document** (`design.md`)
+3. **Design document** (`design.md`) — **present only in `full`-tier
+   plans.** In `lite` and `minimal` no design file exists.
 4. **Actual codebase**
+
+**Tier and the design-presence guard.** The set of artifacts you compare
+depends on the plan's confirmed tier (read the tier line in
+`implementation-plan.md`). Apply one mechanical test: **does
+`design.md` exist?**
+
+- **`full`** (design present): compare all four artifacts — the full
+  consistency review below runs unchanged.
+- **`lite`** (no design): skip every axis and gap that reads `design.md`
+  (the **DESIGN ↔ CODE** and **DESIGN ↔ PLAN** axes, and the design half
+  of **GAPS**). Compare plan + tracks + code.
+- **`minimal`** (no design, stub plan): additionally skip the
+  **plan-content cross-check** — the `minimal` aggregator plan is a
+  ~10-line stub with one checklist entry and no decision content to
+  verify. The **PLAN ↔ CODE** axis runs only its track-reference bullet;
+  see that axis below (§PLAN ↔ CODE CONSISTENCY) for exactly which
+  bullets drop. Do not raise findings against the stub plan's absent
+  content, **except** the tier-line-presence check below, which runs in
+  every tier.
+
+**Tier-line-presence check (runs in every tier).** Reading the tier line
+is the precondition for the tier selection above, so its absence is a
+finding, not stub-content drift. If `implementation-plan.md` has no D18
+tier line, emit a finding (the tier line is required in every tier per
+D18; the `minimal` stub template must include it) and treat the plan as
+malformed. This check is carved out of the `minimal` "do not raise
+findings against the stub plan's absent content" suppression: the
+suppression covers decision and ordering content, never the tier line.
+
+**Degenerate case — tier line unreadable.** If the tier line cannot be
+read, do not guess a tier. Fall back to the design-presence test alone
+for axis selection: compare against whatever artifacts exist on disk
+(`design.md` present or not), run the track-vs-code check, and raise the
+tier-line-presence finding above. This keeps the run deterministic while
+that finding stands, instead of proceeding in an unspecified shape.
+
+When `design.md` is absent, emit no finding that opens, cites, or routes a
+correction to a design file: there is no frozen seed to defer to, so every
+correction is plan-or-track-scoped. The track is the live decision carrier
+in every tier (D7), so its `## Decision Log` inline DRs are always in
+scope for the track-vs-code check.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
 
@@ -191,6 +234,10 @@ finding and the classification rules below will route it correctly.
 ### DESIGN ↔ CODE CONSISTENCY
 <!-- roles=reviewer-plan phases=2 summary="Do the design document's class and workflow diagrams match the actual classes and call flows in the code?" -->
 
+**Design half — skip entirely when `design.md` is absent** (`lite` /
+`minimal`). This axis reads the design document; with no design there is
+nothing to compare, so emit no findings here.
+
 - Do class diagrams in the design document match the actual classes in the
   codebase? Check: class names, interface names, inheritance/composition
   relationships, key method signatures.
@@ -205,6 +252,13 @@ finding and the classification rules below will route it correctly.
 
 ### PLAN ↔ CODE CONSISTENCY
 <!-- roles=reviewer-plan phases=2 summary="Do Architecture Notes, integration points, track references, and invariants in the plan reflect the real codebase?" -->
+
+**Under `minimal`, lightens to a track-vs-code check.** The `minimal`
+aggregator plan is a ~10-line stub with one checklist entry and no
+Architecture Notes, Component Map, Decision Records, or Integration Points
+to verify, so skip the plan-content bullets (the first, second, and fourth
+below) and run only the track-reference bullet (the third) against the
+single track file plus the code. Under `full`/`lite` all four bullets run.
 
 - Do the Architecture Notes (Component Map, Decision Records) accurately
   reflect the current codebase structure? Check that referenced components,
@@ -227,6 +281,10 @@ finding and the classification rules below will route it correctly.
 
 ### DESIGN ↔ PLAN CONSISTENCY
 <!-- roles=reviewer-plan phases=2 summary="Do the design document's diagrams, decisions, and complexity align with the plan's Component Map, DRs, and scope?" -->
+
+**Design half — skip entirely when `design.md` is absent** (`lite` /
+`minimal`). This axis reads the design document; with no design there is
+nothing to align against, so emit no findings here.
 
 - Are the classes/interfaces in the design document's class diagrams
   consistent with the Component Map and Decision Records in the plan?
@@ -266,6 +324,11 @@ design, which signals a genuine plan/design inconsistency.
 
 ### GAPS
 <!-- roles=reviewer-plan phases=2 summary="Plan parts with no design coverage, design parts no track covers, and codebase constructs the documents skip." -->
+
+The first two bullets are the **design half** — skip them when `design.md`
+is absent (`lite` / `minimal`), since "no design coverage" and "design
+part no track covers" are vacuous with no design. The third bullet
+(orphan codebase constructs) runs in every tier.
 
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior

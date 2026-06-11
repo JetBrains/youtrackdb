@@ -1,4 +1,4 @@
-# Slim Plan Rendering (for sub-agent contexts)
+# Slim Plan and Slim Track Rendering (for sub-agent contexts)
 
 <!--Document index start-->
 
@@ -14,6 +14,7 @@
 | §After (slim render) | orchestrator | 3B,3C | The same entry after the slim transform drops Scope, Depends on, and Track file lines. |
 | §How to identify the "intro paragraph" | orchestrator | 3B,3C | The intro paragraph is the blockquote content before the first **Keyword**: marker line. |
 | §Interaction with the on-disk collapse | orchestrator | 3B,3C | Track completion collapses the on-disk description to this same slim form; the rendering rule is then idempotent. |
+| §Slim-track rendering | orchestrator | 3A,3B,3C | Render a track inline for sub-agents: keep the inline Decision Log, drop high-cadence logs; consumer rewiring deferred. |
 
 <!--Document index end-->
 
@@ -36,6 +37,17 @@ Two reasons for this shape:
 
 The full plan file on disk is unchanged — the snapshot is a filtered
 copy.
+
+This file defines two renderings. The **slim plan** (the sections through
+§"Interaction with the on-disk collapse" below) is the aggregator-plan
+snapshot, produced by `render-slim-plan.py` and consumed today. The
+**slim track** (§"Slim-track rendering" at the end) is the track-file
+analog the carrier flip (D7) introduces: under D7 the track file is the
+live decision carrier in every tier, so sub-agents need a compact track
+view that keeps the full inline `## Decision Log` while shedding the
+high-cadence continuous logs. The slim-track rule is doc-only orchestrator
+prose with no script behind it; its consumer rewiring is a recorded
+deferral (see that section).
 
 ---
 
@@ -218,3 +230,73 @@ also collapses the description **on disk** to match this slim format
 when a track is marked `[x]`. Once a track is collapsed, the slim
 rendering above and the on-disk form match — the rendering rule is
 idempotent for those entries.
+
+---
+
+## Slim-track rendering
+<!-- roles=orchestrator phases=3A,3B,3C summary="Render a track inline for sub-agents: keep the inline Decision Log, drop high-cadence logs; consumer rewiring deferred." -->
+
+The carrier flip (D7) makes the track file the **live decision carrier**
+in every tier: each track's `## Decision Log` holds the full inline
+Decision Records the change realizes, and `design.md` is at most a frozen
+provenance seed (path-only, on-demand). A sub-agent that needs a track's
+tactical context must therefore see the inline `## Decision Log` in full —
+it is the authoritative decision source during execution, not the frozen
+seed. This section defines the **slim track**: the compact track view the
+orchestrator renders inline before passing a track to a sub-agent.
+
+**Doc-only, no script.** Unlike the slim plan, the slim track has no
+renderer behind it and no `render-slim-plan.py` change. A single track
+file is small enough to render inline as orchestrator prose, so this stays
+a doc-only orchestrator rule and S1 holds — `render-slim-plan.py` and its
+tests are untouched, and the §"How the main agent generates it" script
+invocation above is unchanged. If a future track were ever large enough to
+warrant a script-backed slim-track renderer, that is a proven script need
+and rides the ESCALATE path (an inline replan that surfaces the need),
+never a silent script edit.
+
+**What the slim track keeps and drops.** Rendering a track file at
+`docs/adr/<dir-name>/_workflow/plan/track-N.md` for a sub-agent:
+
+| Track-file section | Slim track |
+|---|---|
+| `## Purpose / Big Picture` | keep (BLUF + ADDED/MODIFIED/REMOVED triad) |
+| `## Decision Log` | **keep in full** — the inline DRs are the live decision carrier (D7); never drop or path-replace them |
+| `## Context and Orientation` | keep (current-state framing the step needs) |
+| `## Plan of Work` | keep (strategy + step sequencing) |
+| `## Concrete Steps` | keep (the per-step roster) |
+| `## Validation and Acceptance` | keep (acceptance the implementer/reviewer checks against) |
+| `## Interfaces and Dependencies` | keep (in-scope / out-of-scope, inter-track deps) |
+| `## Idempotence and Recovery` | keep |
+| `## Episodes` | keep the episode blocks for completed steps (prior-step intent and discoveries) |
+| `## Progress` | drop all but the most-recent entry — the high-cadence phase-transition log is orchestrator bookkeeping, not tactical context |
+| `## Surprises & Discoveries` | keep (cross-cutting findings that affect the work) |
+| `## Outcomes & Retrospective` | drop the per-iteration review entries; keep the track-completion summary if present |
+| `## Artifacts and Notes` | keep when non-empty |
+| `## Base commit` | drop (orchestrator-only Phase B→C housekeeping) |
+
+The shape mirrors the slim plan's principle (keep what a sub-agent reads
+for strategy and tactics, shed the high-cadence continuous logs that exist
+for resume and audit) with one carrier-specific addition: the inline
+`## Decision Log` is **load-bearing and kept in full** in every tier,
+because under D7 it is where the live decision lives. In `full`, any
+`**Full design**` pointer inside a Decision Record stays path-only (it
+points at the frozen `design.md` seed mechanism, never the live decision),
+matching the slim plan's "`design.md` stays path-only" treatment.
+
+**Consumer rewiring is deferred (not yet in effect).** The consumer this
+rule feeds is the track-file read in the sub-agent prompts:
+`implementer-rules.md` (and the §Inputs the orchestrator passes on each
+spawn it documents) controls the implementer's `step_file_path`, and the
+Phase-3A / Phase-3B review spawns that receive the whole track file today
+(`track-review.md` §"Inputs passed to Phase A review sub-agents" and the
+step-level review prompt in `step-implementation.md`) are the switch
+point. Those prompts currently tell the sub-agent to **Read the track file
+at its on-disk path** — they are not rewired to a slim-track snapshot by
+this rule. Rewiring them is out of this carrier-consumption track's file
+scope (the prompt files live in spawning docs this track does not edit),
+so the slim-track rendering is defined here as the authoritative rule but
+**is not yet wired into any consumer**. A reviewer reading this section
+must not assume sub-agents already receive the slim track; until the
+consumer rewiring lands (a follow-up that edits the spawn prompts), they
+read the full on-disk track file.
