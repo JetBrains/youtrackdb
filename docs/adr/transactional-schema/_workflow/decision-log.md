@@ -2438,6 +2438,25 @@ state with no synchronization (`assertOnOwningThread` exempts
 `close()`/`rollbackInternal`, `FrontendTransactionImpl:130`), so the reap path must
 tolerate the owner racing it. Affected: D7, F71, F38, D5.
 
+**Correction (2026-06-11, follow-on to the F92 settlement): the token is
+withdrawn from the design with its premises.** Both groundings dissolved.
+The cross-thread reap protocol left at the pass-8 settlement, and
+YTDB-1114-as-specified revokes *registrations*, never acquisitions: a
+revoked-but-alive owner self-unwinds holding its own current acquisition,
+and a wedged owner keeps the mutex as the documented restart-resolved
+outage, so `releaseStranded` has no planned caller. The "reaper role
+filled today by the Gremlin kill path" grounding above failed PSI
+verification at F92: the graceful kill rolls back on the session's own
+single-thread executor (`YTDBGremlinSession:64`/`:185`) and the forced
+kill releases nothing. With no revoker anywhere, a stale release cannot
+exist, and same-thread double release is already once-only at the tx
+teardown layer. D7 now specifies a plain one-permit semaphore with a
+single owner-side release point, a volatile holder-diagnostic field for
+F61, and the F38 expectation as owner-path assert plus foreign-release
+warn. The token sketch above remains the recorded design for any future
+mechanism that revokes acquisitions; it becomes load-bearing exactly
+then.
+
 ### F80 — Structural-id allocation reads the registries F53 defers: any commit creating two or more collections or engines allocates duplicate ids; `fileIdBTreeMap` is a fourth registry missing from F53's list [MAJOR]
 Pass-7 report U12. Both structural-id allocators are reads of the registries F53 defers,
 and they run early in reconciliation: a new collection id is the first null slot of the
@@ -3251,31 +3270,30 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   transaction's normal path with fences for a rare event (the F83 BLOCKER
   attacked the first fix's own mechanism). Normal-path memory modes
   therefore stand as shipped — volatile `tsMin` write at begin, opaque
-  reset at end, plain `activeTxCount`, plain tx `status`. What survives of
-  the protocol is the mutex-release discipline: ownership is a
-  per-acquisition token (fresh object per acquire; reference identity is
-  the ABA guard, the epoch field is diagnostics), and the normal release is
-  a hard CAS compare-owner-and-clear, never a bare `assert` plus
-  unconditional `Semaphore.release()` (F79, sketch in the entry; the F38
-  same-thread assertion folds into this bookkeeping). The token makes any
-  stale or duplicate release a detected, logged no-op — cheap (one CAS per
-  schema-tx release; data txs never touch this lock). It deliberately
-  carries no thread check (F92): a thread check would guard against an
-  initiator that does not exist, would turn pool-shutdown cleanup of an
-  abandoned schema tx into a permanent mutex wedge, and would forbid the
-  reaper's entry point. `releaseStranded(session)` stays in the F79 sketch
-  as an unused provision with no planned caller: YTDB-1114-as-specified
-  never calls it — its revocation marks *registrations* (identity-keyed
-  snapshot registry, lease-expiry REVOKED mark, boundary fences), so a
-  revoked-but-alive owner fails at the fence and unwinds on its own
-  thread presenting its own current token, while a wedged owner keeps the
-  mutex and DDL stays loudly unavailable until restart (the documented
-  scope decision; 1114 reclaims SI resources, not the mutex). The stale
-  arm is therefore unreachable in v1 and after YTDB-1114 alike; the
-  token's standing role is holder diagnostics (the F61 timed acquire logs
-  `owner.get()` on every timeout) plus double-release hardening, with the
-  CAS discipline ready if a future mechanism (e.g. an operator-level
-  force-release) ever revokes acquisitions. The acquire is timed with a
+  reset at end, plain `activeTxCount`, plain tx `status`. With the reap
+  protocol withdrawn and YTDB-1114 settled on registration revocation,
+  the F79 token goes with its premises (correction note on F79): no
+  component in the planned system ever revokes an acquisition — 1114
+  marks *registrations* REVOKED (identity-keyed snapshot registry, lease
+  expiry, boundary fences) and a revoked-but-alive owner self-unwinds on
+  its own thread holding its own current acquisition, while a wedged
+  owner keeps the mutex and DDL stays loudly unavailable until restart
+  (the documented scope decision; 1114 reclaims SI resources, not the
+  mutex). With no revoker, a stale release cannot exist, and the CAS
+  protocol would guard against nothing reachable. The mutex is therefore
+  a plain one-permit semaphore with a single release point in the
+  owner's outermost teardown `finally`; the tx status machine already
+  makes teardown once-only at that layer, and the one legitimate
+  foreign-thread release (pool-shutdown `close()` of an abandoned
+  session) is the desired un-wedging and works on a bare semaphore. A
+  volatile holder-diagnostic field (owning session, acquire ordinal)
+  written at acquire and cleared at release feeds the F61 timed-acquire
+  diagnostic and carries the F38 same-thread expectation: an assert on
+  the owner path, a warn log when a release arrives from a foreign
+  thread (expected only from pool-shutdown cleanup). The token sketch
+  stays recorded in F79 as the design to resurrect if a future mechanism
+  (an operator-level force-release, a revived reaper) ever revokes
+  acquisitions; it becomes load-bearing exactly then. The acquire is timed with a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
