@@ -703,8 +703,10 @@ a hard CAS compare-owner-and-clear, stale release from a reaped-but-alive owner 
 logged no-op, reap-vs-zombie race explicitly tolerated; Java sketch recorded in the
 entry); F80 → D3/F53 (accepted 2026-06-11: commit-local structural-id allocator seeded
 at commit entry, ids published with the registries on success; allocation sites join
-F53's PSI read-site audit; `fileIdBTreeMap` joins the deferred-registry list).
-F81–F82 pending.
+F53's PSI read-site audit; `fileIdBTreeMap` joins the deferred-registry list); F81 →
+D20 (accepted 2026-06-11, options (c)+(b): JSON-close completeness check for every
+legacy dump plus an explicit unverified-import acknowledgment flag; backport option (a)
+rejected). F82 pending.
 
 **Resolutions:** F33 → D19; F34 → D3 (ordering fixed); F35 → D15 (snapshot-rebuild
 invariant added); F36 → F31 (re-cited); F37 → D6 (link-set cross-ref added);
@@ -2410,14 +2412,15 @@ flowchart LR
   FIX["(c) JSON-close check<br/>+ (b) explicit ack flag"] -.-> IMP
 ```
 
-**Resolution (proposed):** pick and state in D20: (a) backport manifest emission to a
-terminal release of the old format and require exporting with it (the YTDB-1099
-backport precedent); (b) the new import refuses legacy dumps unless the operator passes
-an explicit unverified-import acknowledgment flag; (c) a weak completeness check for
-legacy dumps — the dump is a single JSON document, so "the document closes cleanly"
-detects truncation with no manifest. Direction: (c) plus (b) — (c) is cheap and catches
-the truncation case, (b) makes the residue a logged, deliberate choice. Affected: D20,
-F63, F75, D14.
+**Resolution (accepted 2026-06-11, options (c) + (b)):** D20 gains the legacy-dump
+verification bullet: (c) the import runs a weak completeness check on every legacy
+dump — the dump is a single JSON document, so it must parse to a cleanly closed
+document, which detects truncation with no manifest at all; and (b) the import
+additionally refuses a legacy dump unless the operator passes an explicit
+unverified-import acknowledgment flag, so the residual risk (content damage inside a
+well-formed document) is a logged, deliberate choice. Option (a), backporting manifest
+emission to a terminal old-format release, was rejected: it couples the migration story
+to shipping one more old-format release. Affected: D20, F63, F75, D14.
 
 ### F82 — F75's atomicity covers the manifest file, not the dump it vouches for; the stream variant's truncation-unparsability is assumed, not specified [MINOR]
 Pass-7 report U16. Temp + fsync + rename makes the *manifest* durable; nothing orders
@@ -3242,6 +3245,18 @@ recover.
   distinguished by dump version, not manifest absence. Net-new behavior to
   specify: the current exporter is a streaming JSON writer with no terminal
   marker (`DatabaseExport.exportSchema:449` ff.).
+- **Legacy-dump verification (F81, options (c) + (b)):** the D20 migration
+  dump itself is produced by the old binaries (the D14 gate forces it), so it
+  is always pre-manifest, and the F75 version gate alone would exempt the one
+  dump the manifest was invented for. Closure: (c) the import runs a weak
+  completeness check on every legacy dump — the dump is a single JSON
+  document, so it must parse to a cleanly closed document, which detects
+  truncation without a manifest; and (b) the import additionally refuses a
+  legacy dump unless the operator passes an explicit unverified-import
+  acknowledgment flag, so the residual risk (content damage inside a
+  well-formed document) is a logged, deliberate choice. Backporting manifest
+  emission to a terminal old-format release (option (a)) was rejected: it
+  couples the migration story to shipping one more old-format release.
 - **Scope effect on D14.** D14 loses the on-open migration sub-task and its
   crash-safety burden; it keeps the `toStream`/`fromStream` per-class-record
   rewrite and the version bump, which becomes a reject-and-redirect gate, not a
