@@ -3263,12 +3263,19 @@ for the postponed reaper, YTDB-1114; originally sketched as a
   carries no thread check (F92): a thread check would guard against an
   initiator that does not exist, would turn pool-shutdown cleanup of an
   abandoned schema tx into a permanent mutex wedge, and would forbid the
-  reaper's entry point. `releaseStranded(session)` remains in the
-  primitive as that entry point for YTDB-1114, unused in v1. In v1 the
-  stale arm is therefore unreachable (no reaper means nothing ever revokes
-  an acquisition): the token serves as holder diagnostics (the F61 timed
-  acquire logs `owner.get()` on every timeout) plus double-release
-  hardening, and becomes load-bearing when YTDB-1114 activates revocation. The acquire is timed with a
+  reaper's entry point. `releaseStranded(session)` stays in the F79 sketch
+  as an unused provision with no planned caller: YTDB-1114-as-specified
+  never calls it — its revocation marks *registrations* (identity-keyed
+  snapshot registry, lease-expiry REVOKED mark, boundary fences), so a
+  revoked-but-alive owner fails at the fence and unwinds on its own
+  thread presenting its own current token, while a wedged owner keeps the
+  mutex and DDL stays loudly unavailable until restart (the documented
+  scope decision; 1114 reclaims SI resources, not the mutex). The stale
+  arm is therefore unreachable in v1 and after YTDB-1114 alike; the
+  token's standing role is holder diagnostics (the F61 timed acquire logs
+  `owner.get()` on every timeout) plus double-release hardening, with the
+  CAS discipline ready if a future mechanism (e.g. an operator-level
+  force-release) ever revokes acquisitions. The acquire is timed with a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
