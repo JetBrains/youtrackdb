@@ -2550,6 +2550,12 @@ document, so cleanly-closed passes exactly the failed exports; see F90 and D20's
 rewritten bullet. Option (b) survives, reclassified as a procedural
 acknowledgment covering the final-section residue only.
 
+**Option (b) narrowed (2026-06-12, F94 fold):** after the F94 exporter
+hardening (YTDB-1115), the ack flag is required only for dumps with
+`exporter-version < 15` or the best-effort marker, and its coverage widens to
+"any source-side loss the exporter does not report"; see F94 and D20's
+rewritten bullet.
+
 ### F82 — F75's atomicity covers the manifest file, not the dump it vouches for; the stream variant's truncation-unparsability is assumed, not specified [MINOR]
 Pass-7 report U16. Temp + fsync + rename makes the *manifest* durable; nothing orders
 the *dump's* durability before manifest visibility. After a power loss the rename can be
@@ -2879,6 +2885,13 @@ failure-path `finally { close(); }` (`:157`–`:158`), `writeEndObject` (`:277`)
 and the unconditional `atomicMoveWithFallback` promotion (`:291`) all hold on
 `develop`.
 
+**Coverage corrected (2026-06-12, F94 fold):** "covering only the
+final-section residue" understated the residue: the exporter also swallows
+mid-collection scan failures into a success exit (F94). The ack flag's
+coverage is rephrased to "any source-side loss the exporter does not report",
+and the flag is conditional after the F94 exporter hardening (required only
+for pre-v15 or best-effort dumps).
+
 ### F91 — F82's stream-trailer and rename pins under-specify scope and platform degradation [MINOR]
 Pass-8 report U20. Three one-sentence pins on D20's F82 bullet. (1) Stream variant:
 page-cache writeback is unordered, so a durable self-validating tail can sit over a
@@ -3049,6 +3062,54 @@ counts read from the old binaries against the import's reported counts) or, at
 minimum, a review of the export listener output for per-collection counts and
 error lines. Option (a) — patching the old binaries — stays rejected. Affected:
 D20, F81, F90, F63.
+
+**Resolved (2026-06-12): prevention added on top of the proposed detection —
+fail-fast exporter (YTDB-1115), conditional ack flag.** The exporter stops
+converting scan failures into success, instead of the procedure detecting them
+afterwards. Three parts:
+
+(a) **Develop-side hardening, independent of this branch (YTDB-1115).** The
+`:221` catch rethrows by default; an explicit best-effort opt-out restores
+log-and-continue for deliberate salvage of a damaged database;
+`EXPORTER_VERSION` bumps 14 → 15 and the opt-out's use is recorded in the
+dump's `info` section. The `brokenRids` path is untouched (those losses are
+reported in the dump). The fix must ship in a release ahead of the format
+change, since the migration export runs on the old binaries; the procedure
+pins "export with a build at or above that release". This is not F81's
+rejected option (a): no dedicated terminal old-format release is needed, the
+hardening rides ordinary releases.
+
+(b) **Composition with the settled F90 machinery.** A fail-fast abort leaves
+exit ≠ 0, and the `finally` still promotes a cleanly closed dump missing every
+post-`records` section, which the section-presence check hard-fails at import.
+Two independent gates where today there are zero.
+
+(c) **This branch's import side.** The ack flag becomes conditional: required
+only for dumps with `exporter-version < 15` or the best-effort marker; a
+strict v15 dump imports without it, restoring the deliberate-choice signal F90
+noted was void on the primary path. The residue wording widens as proposed
+("any source-side loss the exporter does not report") and now applies only to
+pre-v15/best-effort dumps, whose fallback detector is the export-log review:
+per-collection `records=current/total` lines plus error lines, stated as a
+heuristic because the denominator is the storage's approximate counter
+(`PaginatedCollectionStateV2:104`) and a first-fetch failure logs nothing.
+F63's manifest verification is import-side and cannot see source-side loss; it
+is unchanged.
+
+Spot-checked at fold time: the catch ladder (`:212`–`:240`,
+`YTIOException`-only rethrow, silent when `rec == null`), `brokenRids`
+population only in `exportRecord` (`:601`), the "OK" listener line
+(`:243`–`:245`), and the importer's sole version branch (`< 14` selects the
+backwards-compat serializer, `DatabaseImport:415`–`:417`, so 15 is accepted
+unchanged).
+
+```mermaid
+flowchart LR
+  K["record k throws<br/>(fail-fast default)"] --> AB["export aborts, exit != 0"]
+  AB --> DUMP["finally promotes dump<br/>missing post-records sections"]
+  DUMP --> SEC["import section-presence<br/>check (F90): HARD-FAIL"]
+  OPT["best-effort opt-out<br/>or pre-v15 dump"] -.-> ACK["ack flag required +<br/>export-log review (heuristic)"]
+```
 
 ### F95 — "Whole-stream gzip CRC32 for free" is a per-member fact: the JDK decoder reads a malformed next-member header as clean EOF, so full decompression validates only a prefix under multi-member framing nothing pins away [MINOR]
 Pass-9 report U23. RFC 1952 puts CRC32/ISIZE in each member's trailer and a gzip
@@ -3972,7 +4033,7 @@ recover.
   Net-new behavior to specify: the current exporter is a streaming JSON
   writer with no terminal marker (`DatabaseExport.exportSchema:449` ff.).
 - **Legacy-dump verification (F81 options (c) + (b); criterion replaced per
-  F90):** the D20 migration dump itself is produced by the old binaries (the
+  F90; exporter fail-fast per F94):** the D20 migration dump itself is produced by the old binaries (the
   D14 gate forces it), so it is always pre-manifest, and the F75 version gate
   alone would exempt the one dump the manifest was invented for. The original
   cleanly-closed-JSON criterion is void in both directions (F90): truncations
@@ -3987,17 +4048,32 @@ recover.
   legacy dump always contains `info`, `collections` (or `clusters`),
   `schema`, `records`, `brokenRids`, and `indexes`, the last section written
   (`DatabaseExport:393`); the import's tag loop gains the presence check it
-  lacks today (`DatabaseImport:226`–`:242`); and (b) the import additionally
-  refuses a legacy dump unless the operator passes an explicit
-  unverified-import acknowledgment flag — a procedural acknowledgment, not a
-  detection mechanism (it is mandatory on the primary migration path), which
-  honestly covers the one residue section presence cannot see: damage inside
-  the final `indexes` section. Procedure pin: a dump file at the final name
-  proves nothing about export success (the failure path renames too), so the
-  operator verifies the export's exit status before importing. Backporting
-  manifest emission to a terminal old-format release (option (a)) was
-  rejected: it couples the migration story to shipping one more old-format
-  release.
+  lacks today (`DatabaseImport:226`–`:242`); (b) the import refuses a
+  pre-v15 or best-effort-marked legacy dump unless the operator passes an
+  explicit unverified-import acknowledgment flag — a procedural
+  acknowledgment, not a detection mechanism, covering any source-side loss
+  the exporter does not report (widened per F94: the old exporter converts a
+  mid-collection scan failure into a success exit, since only `YTIOException`
+  rethrows, `DatabaseExport:212`–`:240`, so exit status and section presence
+  both pass while the collection's tail is silently absent; the prior
+  "damage inside the final `indexes` section" wording understated this); and
+  (d, F94 / YTDB-1115) the exporter is hardened on develop independently of
+  this branch: record-scan failures rethrow by default, an explicit
+  best-effort opt-out restores log-and-continue and is recorded in the
+  dump's `info` section, and `EXPORTER_VERSION` bumps to 15. The migration
+  procedure pins exporting with a build at or above the release carrying
+  that fix; a fail-fast abort leaves exit ≠ 0 plus a dump missing every
+  post-`records` section, which (c) hard-fails, and a strict v15 dump
+  imports without the ack flag, restoring its deliberate-choice signal. For
+  pre-v15/best-effort dumps the procedure adds an export-log review:
+  per-collection `records=current/total` lines and error lines — a
+  heuristic, because the denominator is the storage's approximate counter
+  and a first-fetch failure logs nothing. Procedure pin: a dump file at the
+  final name proves nothing about export success (the failure path renames
+  too), so the operator verifies the export's exit status before importing.
+  Backporting manifest emission to a terminal old-format release (option
+  (a)) was rejected: it couples the migration story to shipping one more
+  old-format release; the F94 hardening rides ordinary releases instead.
 - **Scope effect on D14.** D14 loses the on-open migration sub-task and its
   crash-safety burden; it keeps the `toStream`/`fromStream` per-class-record
   rewrite and the version bump, which becomes a reject-and-redirect gate, not a
