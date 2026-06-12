@@ -298,7 +298,10 @@ state.
 `assertIfNotActive` (`DatabaseSessionEmbedded:3377`) gates session use on
 `activeSession.get()`, a `ThreadLocal<Boolean>`. A session must be activated on
 the current thread to be used, so an active transaction is single-threaded in
-practice. A thread-owned `ReentrantLock` held across the tx body (D7) is sound.
+practice. A thread-owned `ReentrantLock` held across the tx body is sound
+(D7's primitive at the time of this survey; the settled primitive is the
+F96 `Semaphore(1)` + session-keyed release guard, which this thread-binding
+fact still supports via the F105 engage predicate — bounded per F107).
 Caveat: a session detached and re-activated on a different thread mid-tx would
 strand the lock on the original thread; v1 assumes the same-thread
 begin→commit lifecycle the thread-local already enforces for active use.
@@ -708,7 +711,10 @@ schema-carrying signal replaces the dead root-record dispatch check); F70 → D1
 filed as YTDB-1101); F71 → D7/F61 (accepted 2026-06-10: timeout = re-wait loop with
 diagnostic; mutex = owner-tracked `Semaphore(1)` with `releaseStranded` reap API after
 full tx rollback; F38 assertion relocated into owner bookkeeping; arm (2) reversed
-2026-06-11 at the pass-9 settlement — thread-owned write lock, see the F71 correction); F72 → D7 (accepted 2026-06-10: genesis
+2026-06-11 at the pass-9 settlement — thread-owned write lock, see the F71 correction;
+re-reversed 2026-06-12 at the F96 settlement — `Semaphore(1)` + session-keyed
+compare-and-clear release guard, see the F71 re-correction; anchor refreshed per
+F107); F72 → D7 (accepted 2026-06-10: genesis
 parenthetical fixed — genesis engages via its D18 transactions); F73 → F55/YTDB-1099
 (accepted 2026-06-10: three-step replay branch with internal-id matching; pins appended
 to YTDB-1099). F74 → D12/D7 (accepted 2026-06-10, option 1 with premise correction: the
@@ -747,7 +753,12 @@ self-validating tail). **All pass-7 findings are resolved.** **Amendment
 cross-thread reaping postponed to YTDB-1114** (see the F76 supersession note
 and D7's rewritten abnormal-termination bullet); F79's owner-token release is
 retained as the normal-release discipline, with `releaseStranded` parked as
-the postponed reaper's entry point, unused in v1. F81's option-(c) criterion
+the postponed reaper's entry point, unused in v1 (superseded twice — see
+the F79 amendments, anchor refreshed per F107: the token was withdrawn
+entirely at the pass-9 settlement, since no revoker exists in the planned
+system; the CAS shape then returned session-keyed at the F96 re-swap,
+gaining the acquiring-thread member per F105, and `releaseStranded` stays
+withdrawn). F81's option-(c) criterion
 was likewise replaced at the F90 fold (section presence instead of
 JSON-close; option (b) survives as a procedural acknowledgment — see the F81
 criterion-replaced note and D20).
@@ -3711,10 +3722,30 @@ releasing thread equals the acquiring thread … `IllegalMonitorStateException`"
 end at superseded states; F13's "(D7)" sentence binds the dead primitive to
 the live design.
 
+```mermaid
+flowchart LR
+  A1["D7 Guard (F38): same-thread<br/>assert (dead semantics)"] --> CONTRA["contradicts the teardown bullet's<br/>thread-independent heal"]
+  A2["§2a map F71/F79 entries +<br/>F13 '(D7)' sentence"] --> STALE["route readers to the<br/>rejected primitives"]
+  FIX["fix: re-key Guard (F38) to session identity;<br/>append F96 state to both map entries;<br/>bound F13 to its survey date"] -.-> CONTRA
+```
+
 **Resolution (proposed):** rewrite the Guard (F38) bullet to the
 session-identity rule (or point at the teardown bullet); append the F96
 state to both map entries; bound F13's sentence to its survey date.
 Affected: D7, §2a map, F13.
+
+**Resolved (2026-06-12): accepted as proposed, all four anchors.** The
+Guard (F38) bullet is re-keyed to the session-identity rule with a pointer
+at the abnormal-termination bullet (the same-thread assert is revoked — it
+would fire `AssertionError` on the pool-teardown heal — and
+`IllegalMonitorStateException` removed as dead semantics). The §2a map's
+F71 entry gains the re-reversal (F96 `Semaphore(1)` + session-keyed
+compare-and-clear); the pass-7 amendment block's F79 sentence gains the
+two-settlement supersession (token withdrawn at pass 9, no revoker exists;
+CAS shape returned session-keyed at F96 with the F105 thread member;
+`releaseStranded` stays withdrawn); F13's conclusion is bounded to its
+survey date with a live-primitive pointer (the thread-binding fact stays
+load-bearing via the F105 engage predicate).
 
 ### F108 — Wiring pin (i) is satisfiable by a pre-call probe placement that re-opens F86's outage under a park-mode operator freeze [MINOR]
 Pass-11 report C37. A standalone probe before `startTxCommit` satisfies
@@ -3979,10 +4010,16 @@ assignee, 2026-06-03.
 - **Acquire** when a tx first mutates schema or indexes; **release** in the
   `finally` of the outermost `session.commit()` / `session.rollback()`
   (`DatabaseSessionEmbedded:3131` / `:3253`; nested txs counted via
-  `amountOfNestedTxs()`). Held across the whole tx body. **Guard (F38):** assert
-  the releasing thread equals the acquiring thread; a session migrated to
-  another thread mid-tx would make this `finally` release throw
-  `IllegalMonitorStateException`. v1 scopes mid-tx session migration out (F13).
+  `amountOfNestedTxs()`). Held across the whole tx body. **Guard (F38,
+  re-keyed per F96; residual assert revoked per F107):** release goes
+  through the session-keyed atomic compare-and-clear described in the
+  abnormal-termination bullet — only the owning session's teardown
+  releases, from any thread; a different-session presenter is rejected
+  loudly, and a stale same-session presenter loses the CAS and
+  warn-noops. The pass-9 same-thread release assert is revoked (it would
+  fire `AssertionError` on the pool-teardown heal), and no primitive in
+  the settled design can throw `IllegalMonitorStateException`. v1 scopes
+  mid-tx session migration out (F13).
   **Engage-point (F44, amended per F56):** the mutex engages at the
   `SchemaProxy` / index-routing layer, on a tx's first write-routed schema or
   index mutation, **strictly before** acquiring any shared metadata lock
