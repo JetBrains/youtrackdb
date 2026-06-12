@@ -3526,6 +3526,153 @@ the migration-path import rejects non-gzip input — consistent with the
 branch's fail-closed preference (F96, F100) — while the general import path
 keeps the fallback with the forfeited-validation consequence recorded.
 
+### F104 — The engage/teardown handshake is unspecified: a pool teardown racing a mid-flight acquire misses the engagement and the permit leaks with no remaining releaser [MAJOR]
+Pass-11 report C33 (full interleaving there). The one-shot `pool.close()`
+(`DatabasePoolImpl:125`–`:134`, no retry) racing an in-progress engage finds
+no engagement to release; the owner then completes the acquire on a session
+whose `STATUS.CLOSED` locks it out of the release point (`checkOpenness` at
+`DatabaseSessionEmbedded:3151`/`:3256` gates `commit`/`rollback` before the
+outermost `finally`). Permit held, no releaser: the exact wedge F96 rejected.
+The withdrawn F79 sketch's "next reap cycle" backstop covered this window;
+the fold dropped it without replacement. Second half: nothing pins the
+engagement record's survival across `rollbackInternal`'s `clear()`/`close()`
+wipes until the outermost `finally` consumes it — wiped early, the normal
+heal presents nothing and wedges. The acceptance pair tests neither.
+
+**Resolution (proposed):** pin the handshake — the teardown marks the session
+dead first and the engage path re-checks after acquiring (release the permit
+and throw on a closed session), or pin the engage order
+(record-then-acquire-then-holder) plus a teardown-side rule for the
+half-engaged state; pin that the engagement record survives
+`clear()`/`close()` until the outermost `finally` consumes it; add a third
+acceptance line — `pool.close()` racing the engage → either the tx aborts
+loudly with the permit released or the heal completes, never a held permit
+with no releaser. Affected: D7, F96, F61.
+
+### F105 — The holder record lacks the thread identity pin (2)'s engage guard requires; the pass-9 lock supplied it natively, and all three natural substitutes misfire [MAJOR]
+Pass-11 report C34. Pin (2)'s predicate is "different session **on the
+current thread**", but the holder is defined three times as exactly
+`(owning session, acquire ordinal)` — a semaphore supplies no owner thread,
+so the pin is unimplementable from the named state. Dropping the thread
+qualifier aborts healthy cross-thread contention (the D5 violation F71 arm
+(1) forbids); `activeSession`-based substitutes misfire on dual activation;
+a mutex-side ThreadLocal breaks on the heal itself. The F61 diagnostic has
+the same gap one severity lower (a wedge report naming no thread).
+
+**Resolution (proposed):** one field — the holder carries the acquiring
+thread, as guard/diagnostic input only, never compared by the release CAS
+(release stays thread-independent, the point of F96). Pin (2)'s predicate
+becomes `holder.thread == currentThread && holder.session !=
+engagingSession`. Affected: D7, F96, F61.
+
+### F106 — The heal's exclusion against a still-running commit-phase zombie rests on two unstated properties [MINOR]
+Pass-11 report C35. After a commit-phase teardown (the F99 checked-out
+reach), the next DDL acquires the healed mutex while the zombie's commit
+thread is still inside the four-lock window; exclusion holds only via F52's
+whole-commit `SchemaShared.lock` scope plus the `checkOpenness` gate —
+neither stated as load-bearing for the heal. A seed-path or gate refactor
+silently re-opens two-writer exposure.
+
+**Resolution (proposed):** one sentence in D7's teardown bullet naming both
+properties as what the heal's exclusion rests on. Affected: D7, F96, F99.
+
+### F107 — Residual thread-owned-lock language survives in four live anchors, including D7's own Guard (F38) bullet mandating the assert the teardown bullet revokes [MINOR]
+Pass-11 report C36. D7's acquire/release bullet still says "assert the
+releasing thread equals the acquiring thread … `IllegalMonitorStateException`"
+(dead semantics; contradicts the heal); the §2a map entries for F71 and F79
+end at superseded states; F13's "(D7)" sentence binds the dead primitive to
+the live design.
+
+**Resolution (proposed):** rewrite the Guard (F38) bullet to the
+session-identity rule (or point at the teardown bullet); append the F96
+state to both map entries; bound F13's sentence to its survey date.
+Affected: D7, §2a map, F13.
+
+### F108 — Wiring pin (i) is satisfiable by a pre-call probe placement that re-opens F86's outage under a park-mode operator freeze [MINOR]
+Pass-11 report C37. A standalone probe before `startTxCommit` satisfies
+"throws before the depth increment" yet leaves a probe-to-`startOperation`
+window: a park-mode operator freeze engaging there parks the schema commit
+at `OperationsFreezer:47` inside the four-lock window for the freeze's whole
+duration. The fused placement (the gate as the kind-aware check inside the
+freezer's own wake loop, re-evaluated per unpark, throwing where `:40`
+throws today) has no window and satisfies all three pins.
+
+**Resolution (proposed):** one clause pinning the gate as the kind-aware
+check inside the freezer's entrant protocol, not a separate pre-call probe.
+Affected: D7, F97, F87.
+
+### F109 — "No file at the final name" is not an invariant of the specified mechanisms: one swallowed broken record strands the generator at object context and the abort promotes [MAJOR]
+Pass-11 report U28. The fold dropped pass 10's own qualifier ("or after
+`exportRecord`'s internal swallow left a record object open"). `recordToJson`
+writes incrementally with no context repair (`JSONSerializerJackson:701`/
+`:721`), and the untouched `brokenRids` path returns with the generator
+stranded inside the half-written record object; from there a fail-fast
+rethrow or the `:250` `writeEndArray` unwinds to `close()`, whose
+`writeEndObject` now succeeds — and the failure path promotes a mangled dump
+to the final name (every endpoint stays fail-closed at import via section
+presence / F75, hence MAJOR not BLOCKER). The pinned property is exactly the
+F100 defect one layer down: an acceptance property the mechanisms cannot
+deliver.
+
+**Resolution (proposed):** state the mechanism — the new exporter promotes
+only on success (explicit completion flag set after the last section,
+checked before the rename); every failure path leaves or deletes the `.tmp`
+and never renames. This makes the no-file pin a real invariant and
+trivializes the primary-exception pin. If best-effort mode keeps
+log-and-continue, additionally pin per-record write isolation (render each
+record to a buffer) or generator-context repair after a swallowed record.
+Restore the dropped qualifier in F100's grounding and the F90/D20 bounding
+sentences. Affected: F100, F94, F90, D20.
+
+### F110 — "Between-section (object-context)" mislabels the promote class in both directions [MINOR]
+Pass-11 report U29. The promote class is a generator-context fact, not a
+section-boundary fact: between-entries faults in array sections
+(`collections`/`records`/`indexes`) never promote; mid-section faults inside
+object scopes (`info`, a schema class, an index entry) do.
+
+**Resolution (proposed):** reword both bounding sentences to "failures that
+leave the generator at object context (between sections, or inside any
+object scope a section opens)"; keep "array context" as the never-promotes
+label. Affected: D20, F90, F100.
+
+### F111 — The F103 "fixed 10-byte header" constant is the JDK writer's shape, not RFC 1952's: a re-gzipped dump falsely fails the arithmetic [MINOR]
+Pass-11 report U30. `gzip`/`pigz` store FNAME by default, so the
+inspect-and-re-gzip round trip produces a valid single-member dump whose
+header exceeds 10 bytes; the arithmetic reports the surplus as trailing
+bytes. False-failure only (never under-rejects, verified arithmetically);
+`getBytesRead()` itself verified correct on JDK 21, and the counter reset on
+a concatenated member accidentally enforces the F95 single-member pin.
+
+**Resolution (proposed):** the subclass parses the actual header length
+(walk the FLG optional fields, as `readHeader` does), or the constant is
+scoped to JDK-written dumps and D20's re-point-at-original instruction
+extends to re-compressed dumps. Affected: D20, F103, F95.
+
+### F112 — The best-effort ack gate binds no shipped importer: a truncated v15 salvage dump imports cleanly, flag-free, on every pre-branch binary [MINOR]
+Pass-11 report U31. The same no-upper-bound and scalar-skip facts F101
+records as bump-enabling mean older binaries discard the marker unread; a
+salvage manifest agrees with its truncated content, so F75 passes. The
+exposure is the downgrade/cross-version restore path; retrofitting shipped
+binaries is rejected option (a).
+
+**Resolution (proposed):** record the reach honestly where the gate is
+pinned (enforceable only by v15-aware importers); add one procedure line — a
+best-effort-marked dump is not a valid cross-version restore artifact;
+import it only with binaries that enforce the marker. Affected: F94, F101,
+D20.
+
+### F113 — The two-captures review fails on a missing capture, but the misrouted-channel failure mode produces a present-but-empty one [MINOR]
+Pass-11 report U32. A clean export writes zero error lines, so an empty
+error capture is indistinguishable from a capture wired to the wrong sink;
+the listener capture has intrinsic positive controls, the error capture has
+none, and the one-redirected-stream arm inherits the gap.
+
+**Resolution (proposed):** add a liveness control for the error capture —
+verify the logger destination is the captured artifact, or provoke one known
+line through the logger pre-export and confirm it appears; absent either,
+an empty error capture reads as unverified, not clean. Affected: D20, F94,
+F102.
+
 ---
 
 ## 3. Decisions
