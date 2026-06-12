@@ -259,7 +259,7 @@ lock_file="${state_dir}/house-style-reminder-${session_id}.lock"
 # text silently rots.
 tier_a_body='House style applies to this Markdown surface. See .claude/workflow/conventions.md §1.5 *Writing style for Markdown and prose artifacts* (canonical anchor) and the rule source at .claude/output-styles/house-style.md — BLUF lead, banned vocabulary, banned sentence patterns, banned analysis patterns, punctuation and typography, structural rules, document-shape rules.'
 
-tier_b_body='House style AI-tell subset applies to code comments and Javadoc on this Java/Kotlin surface. See .claude/workflow/conventions.md §1.5 and the five sections in .claude/output-styles/house-style.md: § Orientation, § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline (H3 nested under § Punctuation and typography). For § Orientation, a code comment must not assume context outside the file and must gloss the project-specific entity it turns on — it bans out-of-file assumptions, not in-file terseness.'
+tier_b_body='House style AI-tell subset applies to code comments and Javadoc on this Java/Kotlin surface. See .claude/workflow/conventions.md §1.5 and the five sections in .claude/output-styles/house-style.md: § Orientation, § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns, § Em-dash discipline (H3 nested under § Punctuation and typography). § Orientation bans out-of-file assumptions in code comments, not in-file terseness.'
 
 emit_reminder() {
   local fired_a="$1"

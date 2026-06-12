@@ -790,6 +790,61 @@ def test_17_jq_fallback() -> List[str]:
     return failures
 
 
+# Per-body and concatenated character caps the hook documents in its own
+# stage-7 comment ("Each ≤500 chars; concatenated ≤1500 chars … validated
+# by the test runner"). test_18 reads the bodies from the hook source and
+# enforces these so the comment's claim is true and a future body growth
+# that overruns the cap fails the runner instead of silently shipping.
+PER_BODY_CHAR_CAP = 500
+CONCAT_CHAR_CAP = 1500
+# Captures the single-quoted RHS of `tier_a_body='…'` / `tier_b_body='…'`.
+# The bodies contain no single quote, so a non-greedy match to the next
+# single quote is unambiguous; DOTALL is unused because the assignments
+# are single-line. Anchored to start-of-line to skip the prefix
+# constants (TIER_A_PREFIX / TIER_B_PREFIX) defined in this test file.
+_BODY_ASSIGN_RE = re.compile(r"^(tier_[ab]_body)='([^']*)'", re.MULTILINE)
+
+
+def _read_reminder_bodies() -> Dict[str, str]:
+    """Parse the tier_*_body assignments out of the hook source."""
+    src = HOOK.read_text(encoding="utf-8")
+    return {m.group(1): m.group(2) for m in _BODY_ASSIGN_RE.finditer(src)}
+
+
+def test_18_reminder_body_length_budget() -> List[str]:
+    """Each reminder body ≤500 chars; the two concatenated ≤1500 chars.
+
+    Makes the hook's stage-7 comment ("validated by the test runner")
+    true: without this assertion the documented per-body and concatenated
+    caps had no guard, and a body could grow past the cap unnoticed.
+    """
+    label = "test_18_reminder_body_length_budget"
+    failures: List[str] = []
+    bodies = _read_reminder_bodies()
+    expected = {"tier_a_body", "tier_b_body"}
+    if set(bodies) != expected:
+        failures.append(
+            f"{label}: expected to parse {sorted(expected)} from the hook "
+            f"source, parsed {sorted(bodies)} — the assignment shape the "
+            f"length guard relies on changed"
+        )
+        return failures
+    for name, body in bodies.items():
+        if len(body) > PER_BODY_CHAR_CAP:
+            failures.append(
+                f"{label}: {name} is {len(body)} chars, over the "
+                f"{PER_BODY_CHAR_CAP}-char per-body cap the hook comment "
+                f"documents; trim the body or revise the documented cap"
+            )
+    concat_len = sum(len(b) for b in bodies.values())
+    if concat_len > CONCAT_CHAR_CAP:
+        failures.append(
+            f"{label}: concatenated bodies are {concat_len} chars, over "
+            f"the {CONCAT_CHAR_CAP}-char cap the hook comment documents"
+        )
+    return failures
+
+
 # Registry of test cases. The order is the order they run in `main`.
 TESTS = [
     test_01_tier_a_markdown,
@@ -809,6 +864,7 @@ TESTS = [
     test_15_captured_fixture_replay,
     test_16_section_name_guard,
     test_17_jq_fallback,
+    test_18_reminder_body_length_budget,
 ]
 
 
