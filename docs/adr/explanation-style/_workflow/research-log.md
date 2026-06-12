@@ -352,6 +352,10 @@ reviewer-criteria switch).
   replace: `### Em-dash discipline`, and `## Orientation`
   ```
 
+  Match the find string **modulo line-wrap** (A17): at
+  `review-workflow-pr/SKILL.md:44-45` it is hard-wrapped across a line break, so
+  the byte-exact pair matches 10 of 11 sites and that one needs a hand-edit.
+
   No generator emits any of this — `workflow-reindex.py` only rebuilds TOC and
   stamps; only `house-style-write-reminder.sh` holds blurb text (the one
   `tier_b_body` Java/Kotlin string). So the sync is ~50 hand edits.
@@ -459,3 +463,16 @@ mechanics and Phase-C prose coverage is diff-keyed) plus one suggestion (A16:
 the pure append doubles "and"). D6 revised: roster corrected to three, the
 Constraints note re-points criteria in-plan from Phase A, the blurb edit is a
 find/replace pair. Loops on the should-fix.
+
+### Adversarial review of this log (2026-06-12) — PASS
+
+Iteration 4 (verdict-producer). Review file:
+`reviews/research-log-adversarial-iter4.md`. A14/A15/A16 all **VERIFIED**: the
+in-plan Constraints note reaches the Phase-A trio (`track-review.md:653` passes
+`plan_path` to all three prompts); exactly three Phase-3A criteria-switch blocks
+exist; Phase-C prose coverage confirmed diff-keyed via `review-agent-selection.md`;
+the find/replace pair composes a grammatical five-item list. One **suggestion**
+A17 (one chat-blurb site hard-wraps the find string across a line break — folded
+into S1 as a modulo-line-wrap note). Suggestions do not gate. **Gate clears.**
+The log is the durable verdict carrier; D1–D6 are challenged-and-settled and
+seed the design.
