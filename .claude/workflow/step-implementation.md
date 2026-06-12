@@ -1035,9 +1035,10 @@ applies to the episode prose this protocol writes — the four
 plan`, `Critical context`), merged with cross-track-impact
 observations, plus the Progress / Surprises & Discoveries /
 Decision Log entries the orchestrator emits during sub-step 7.
-The four banned-section heading slugs to apply are
+The five AI-tell subset section slugs to apply are
 `## Banned vocabulary`, `## Banned sentence patterns`,
-`## Banned analysis patterns`, and `### Em-dash discipline`.
+`## Banned analysis patterns`, `### Em-dash discipline`, and
+`## Orientation`.
 See conventions.md:any:any for the workflow-level pointer.
 
 Write the episode to the track file on disk. Detailed format and

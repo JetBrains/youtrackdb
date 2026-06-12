@@ -18,12 +18,13 @@ These rules replace Claude Code's default terminal-output tone. The coding, tool
 
 ## AI-tell subset (applies to every chat reply)
 
-Apply these four sections of `.claude/output-styles/house-style.md` to everything you type in chat. Read them once per session if a reply starts drifting:
+Apply these five sections of `.claude/output-styles/house-style.md` to everything you type in chat. Read them once per session if a reply starts drifting:
 
 - `## Banned vocabulary`: the Tier 1-4 word bans.
 - `## Banned sentence patterns`: negative parallelism ("not X, but Y"), roundabout negation, sycophantic openers, throat-clearing, closing connectives, trailing hedges, prompt-restating.
 - `## Banned analysis patterns`: superficial -ing clauses, copula avoidance, passive voice, nominalization and placeholder words, broken grammar around code identifiers, hedge stacking, vague attribution, generic positive conclusions, signposting, elegant variation, false ranges.
 - `### Em-dash discipline`: at most one em dash per paragraph; prefer a period.
+- `## Orientation`: lead with the plain claim, gloss each project-specific entity at first use, linearize causal chains; prose too terse to follow without the code is a finding.
 
 This is the same subset the workflow machinery already applies to chat-scale prose (status updates, escalation prompts, review-mode turns). See `.claude/workflow/conventions.md §1.5` for how the tiers map across artifacts and source.
 
