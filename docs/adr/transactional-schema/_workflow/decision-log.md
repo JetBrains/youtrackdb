@@ -2921,6 +2921,13 @@ report"; it stays mandatory for legacy dumps. The F94 fail-fast hardening
 lands in this branch's new exporter (YTDB-1115), protecting future exports,
 not this migration; a best-effort-marked v15 dump also requires the flag.
 
+**Promotion scope bounded (2026-06-12, F100 fold):** "a mid-records
+source-side failure yields a well-formed, valid-gzip dump at the final name"
+holds only for failures landing at object context (between sections); an
+array-context failure inside `records` makes `close()`'s `writeEndObject`
+throw before the promotion, so nothing reaches the final name. The
+section-presence closure stands on the between-section class.
+
 ### F91 — F82's stream-trailer and rename pins under-specify scope and platform degradation [MINOR]
 Pass-8 report U20. Three one-sentence pins on D20's F82 bullet. (1) Stream variant:
 page-cache writeback is unordered, so a durable self-validating tail can sit over a
@@ -3148,11 +3155,18 @@ rethrows by default; an explicit best-effort opt-out restores log-and-continue
 for deliberate salvage of a damaged database; `EXPORTER_VERSION` bumps 14 → 15
 and the opt-out's use is recorded in the dump's `info` section. The
 `brokenRids` path is untouched (those losses are reported in the dump). A
-fail-fast abort composes with the F90 machinery: exit ≠ 0, and the `finally`
-still promotes a cleanly closed dump missing every post-`records` section,
-which the section-presence check hard-fails. A best-effort-marked dump
-requires the ack flag at import even in the manifest era, because a salvage
-manifest agrees with its truncated dump.
+fail-fast abort leaves exit ≠ 0 and **no file at the final name** (corrected
+per F100: the rethrow strands the generator at array context, `close()`'s
+`writeEndObject` throws before the `:291` promotion, and the constructor
+pre-deleted the final name — the `.tmp` orphan is the only residue; section
+presence plays no role on this path). Two outcome pins ride the hardening:
+the no-file-at-final-name-after-failure property is a requirement the new
+exporter keeps whatever its close-path implementation, and the abort
+propagates the scan failure as the primary exception (`addSuppressed` for
+the close-path secondary, or log-then-rethrow-original), so the operator
+sees the unreadable record rather than the generator complaint. A
+best-effort-marked dump requires the ack flag at import even in the manifest
+era, because a salvage manifest agrees with its truncated dump.
 
 F63's manifest verification is import-side and cannot see source-side loss; it
 is unchanged.
@@ -3170,8 +3184,8 @@ flowchart LR
     SW["scan failure swallowed,<br/>exit 0 (F94)"] -.-> DET["pins: mandatory ack flag +<br/>export-log review (heuristic)"]
   end
   subgraph NEW["this branch — new exporter (YTDB-1115)"]
-    K["record k throws<br/>(fail-fast default)"] --> AB["export aborts, exit != 0,<br/>dump missing post-records sections"]
-    AB --> SEC["section-presence check:<br/>HARD-FAIL"]
+    K["record k throws<br/>(fail-fast default)"] --> AB["export aborts, exit != 0,<br/>NO file at final name (F100)"]
+    AB --> RES[".tmp orphan only;<br/>scan failure propagated as primary"]
     OPT["best-effort opt-out<br/>(marked in info, v15)"] -.-> ACK["ack flag required at import"]
   end
 ```
@@ -3399,6 +3413,19 @@ preservation for the new exporter (the abort path attaches the scan failure
 to the propagated exception — `addSuppressed` or log-then-rethrow-original —
 if the legacy `close()` shape is kept); redraw the F94 mermaid. Affected:
 F94, D20, F90.
+
+**Resolved (2026-06-12): accepted as proposed — outcomes pinned, not the
+accidental mechanism.** F94 (b) and D20's hardening clause now record the
+true composition (exit ≠ 0, no file at the final name, the `.tmp` orphan the
+only residue) plus two outcome pins: the new exporter keeps
+no-file-at-final-name-after-failure whatever its close-path implementation
+(an implementer must not soften `close()` to satisfy the old text's
+promoted-dump story), and the abort propagates the scan failure as the
+primary exception (`addSuppressed` or log-then-rethrow-original) instead of
+the close-path generator complaint. The F90 sentence is bounded to
+between-section (object-context) failures in both D20 and the F90 record,
+and the F94 mermaid is redrawn. The section-presence check stays necessary
+on the between-section class.
 
 ### F101 — "The importer's sole version branch is `< 14`" is false: nine `exporterVersion` branches exist; the v15 conclusion survives, the audit record does not [MINOR]
 Pass-10 report U25. PSI inventory: nine comparison branches (`:298`/`:313`
@@ -4410,7 +4437,9 @@ recover.
   never reach the final name — the exporter writes `<name>.json.gz.tmp` and
   promotes only in `close()` (`DatabaseExport:87`/`:291`), and a truncated
   gzip throws at import decompression (`DatabaseImport:138`) — while a
-  mid-records export failure produces a cleanly closed dump at the final name
+  between-section export failure (object context; bounded per F100 — the
+  array-context mid-records class never promotes, because `writeEndObject`
+  throws first) produces a cleanly closed dump at the final name
   by construction, because `exportDatabase`'s `finally` runs `close()` on the
   failure path too (`:157`–`:158`), which writes `writeEndObject` (`:277`),
   auto-closes every open scope, and renames into place. Closure: (c) the
@@ -4435,10 +4464,15 @@ recover.
   is hardened (F94 / YTDB-1115): record-scan failures rethrow by default, an
   explicit best-effort opt-out restores log-and-continue and is recorded in
   the dump's `info` section, and `EXPORTER_VERSION` bumps to 15 — a
-  fail-fast abort leaves exit ≠ 0 plus a dump missing every post-`records`
-  section, and a best-effort-marked dump requires the ack flag at import
-  even in the manifest era (a salvage manifest agrees with its truncated
-  dump). That hardening protects the next format migration, not this one.
+  fail-fast abort leaves exit ≠ 0 with no file at the final name (F100: the
+  array-context rethrow makes `close()`'s `writeEndObject` throw before the
+  promotion; the `.tmp` orphan is the only residue), two outcome pins ride
+  it (no-file-at-final-name-after-failure is kept whatever the close-path
+  implementation; the scan failure propagates as the primary exception, not
+  the close-path secondary), and a best-effort-marked dump requires the ack
+  flag at import even in the manifest era (a salvage manifest agrees with
+  its truncated dump). That hardening protects the next format migration,
+  not this one.
   Procedure pin: a dump file at the final name proves nothing about export
   success (the failure path renames too), so the operator verifies the
   export's exit status before importing. Backporting manifest emission to a
