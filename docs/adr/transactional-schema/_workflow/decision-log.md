@@ -2781,7 +2781,8 @@ double-masking cascade (`getCommitTs` throws on the -1 sentinel, then the depth 
 gains a freeze-kind taxonomy (operator/long-lived vs transient internal quiesce — a
 second counter or kind flag); the schema-commit gate throws only against operator
 freezes and parks (bounded, with the F61-style diagnostic) for transient ones; data
-commits keep the uniform park. Gate placement pinned to the frontend-commit path with
+commits keep today's gate semantics — park for park-mode freezes, throw for
+throw-mode freezes (wording corrected per F93). Gate placement pinned to the frontend-commit path with
 the clean-unwind property (throw before depth increment; `startTxCommit` outside the
 rollback/endTxCommit branch). Regression pair: schema commit vs engaged
 `freeze(db, false)` → loud error, locks released, reads flowing; schema commit vs
@@ -2798,6 +2799,17 @@ caller inventory of `freezeWriteOperations` is complete at five sites —
 `doSynch` (`AbstractStorage:3749`), both `freeze()` arms (`:3901` throw-mode,
 `:3905` park-mode), `copyWALToBackup` (`DiskStorage:356`),
 `storeBackupDataToStream` (`:1248`) — no callers beyond the entry's set.
+
+**Wording corrected (2026-06-12, F93 fold):** the fold's D7 rewrite stated
+"data commits keep today's uniform park everywhere", which contradicts the
+shipped gate (throw-mode freezes throw, `OperationsFreezer:40`/`:114`–`:118`).
+Both texts now read "park for park-mode freezes, throw for throw-mode
+freezes", and D7's wiring-pin parenthetical adopts this record's "masks the
+gate throw" rationale. Fold-time reading of `endOperation`
+(`OperationsFreezer:59`–`:69`) grounds both halves of the drift: at depth 0 it
+throws `IllegalStateException` before any decrement, so a misplaced gate throw
+is replaced by the finally-side exception (the mask, user-visible) and the
+orphaned count increment leaks (the corruption, its secondary effect).
 
 ### F88 — F80's allocator seed must be read inside the `stateLock.write` window [MINOR]
 Pass-8 report C25. The D7 mutex serializes only schema commits against each other;
@@ -3031,6 +3043,23 @@ same bullet, reconcile the wiring-pin rationale drift the dry list recorded:
 D7's parenthetical says the unguarded ordering "corrupts the freezer count" while
 F87's entry says it "masks" the gate throw; the pinned action is identical, the
 F87 wording is the accurate one. Affected: D7, F87.
+
+**Resolved (2026-06-12): accepted as proposed, plus an acceptance-pair
+extension.** D7's freezer bullet and F87's resolution record now state the
+split (park for park-mode freezes, throw for throw-mode freezes), and the
+wiring-pin parenthetical adopts F87's "masks the gate throw" wording.
+Fold-time reading of `endOperation` (`OperationsFreezer:59`–`:69`) grounds
+both rationale halves: at depth 0 it throws `IllegalStateException` before any
+decrement, so a misplaced gate throw is replaced by the finally-side exception
+(the mask, user-visible) while the orphaned count increment leaks (the
+corruption, secondary). D7's acceptance pair grows to a triple so the
+protected contract is test-pinned rather than prose-only, closing the
+ships-invisible hole this finding named: data write vs engaged
+`freeze(db, true)` → loud `ModificationOperationProhibitedException`, today's
+behavior unchanged. Spot-checked at fold time: the throw-before-park ordering
+(`startOperation`, `OperationsFreezer:35`–`:48`, throw at `:40` via
+`:114`–`:118`) and both freeze arms (`AbstractStorage:3901`–`:3903` throw-mode
+supplier, `:3905` park-mode null).
 
 ### F94 — F90's residue claim is contradicted: the legacy exporter turns a mid-collection iteration failure into a success exit with the collection's tail silently absent, passing exit status, section presence, and the ack flag [MAJOR]
 Pass-9 report U22. In `exportRecords` the per-collection `try` wraps the whole
@@ -3431,13 +3460,20 @@ assignee, 2026-06-03.
   the **in-window gate stays as the authoritative backstop** for a freeze
   engaging after the write lock is held, with two wiring pins: it throws
   strictly before the freezer depth increment (else `endAtomicOperation`'s
-  unconditional `endOperation()` corrupts the freezer count,
-  `AtomicOperationsManager:442`) and lands on the frontend-commit path only
+  unconditional `endOperation()` masks the gate throw,
+  `AtomicOperationsManager:442`; wording reconciled to F87's per F93) and
+  lands on the frontend-commit path only
   (the wrapper `calculateInsideAtomicOperation` carries a dormant
-  double-masking cascade). Data commits keep today's uniform park
-  everywhere. Acceptance pair: schema commit vs engaged `freeze(db,false)` →
-  loud error, locks released, reads flowing; schema commit vs in-flight
-  `doSynch`/backup segment cut → brief park, commit succeeds.
+  double-masking cascade). Data commits keep today's gate semantics: park
+  for park-mode freezes, throw for throw-mode freezes (F93;
+  `OperationsFreezer:40`/`:114`–`:118`, `freeze(db, true)` registers the
+  throw supplier, `AbstractStorage:3901`–`:3903`). Acceptance triple: schema
+  commit vs engaged `freeze(db,false)` → loud error, locks released, reads
+  flowing; schema commit vs in-flight `doSynch`/backup segment cut → brief
+  park, commit succeeds; data write vs engaged `freeze(db,true)` → loud
+  `ModificationOperationProhibitedException`, today's behavior unchanged
+  (F93: pins the contract an implementer reading "uniform park" would have
+  silently converted into a write hang).
   Check-and-back-off (release all four, park, retry) stays rejected as
   fragile.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
