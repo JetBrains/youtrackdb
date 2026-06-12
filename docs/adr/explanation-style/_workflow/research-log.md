@@ -231,12 +231,15 @@ This branch adds an explicit opt-out to `conventions.md §1.7` so live-editing i
 genuinely sanctioned. The marker's **two** roles must be separated (A10): the
 §1.7(b) workflow-modifying marker switches on **both** the staging mechanism
 (implementer write-routing, the pre-commit gate, staged-delta prep, the Phase-4
-promotion guard) **and** the reviewer-criteria re-pointing (the
-"Workflow-machinery criteria" blocks at `technical-review.md:113`,
-`risk-review.md:110`, `adversarial-review.md:282`, and the staging-aware path in
-`track-code-review.md:250-260`, which make Phase-3A/Phase-C reviews verify prose
-references as paths/anchors and supersede the Java lenses with the five prose
-criteria). The opt-out must disable the **first** and keep the **second**.
+promotion guard) **and** the reviewer-criteria re-pointing — the **three**
+Phase-3A "Workflow-machinery criteria" blocks at `technical-review.md:113`,
+`risk-review.md:110`, and `adversarial-review.md:282`, which make the Phase-3A
+strategic reviews verify prose references as paths/anchors and supersede the
+Java lenses with the five prose criteria (A15: `track-code-review.md:250-260` is
+staged-delta **prep** — staging mechanics, inert without the marker — not a
+criteria switch; Phase-C dimensional prose coverage is **diff-keyed** via
+`review-agent-selection.md`, so it needs no marker). The opt-out must disable
+the staging half and keep the three-block criteria re-pointing on.
 
 **Chosen marker shape (A10 shape ii — the lower-surface one).** The opt-out plan
 carries a **distinct opt-out marker** in `### Constraints`, **not** the
@@ -246,10 +249,10 @@ delta, promotion guard finds no `.claude/` staged subtree and skips) — so the
 staging half needs **no** consumer edits and there is **no bootstrap deadlock**
 (shape i's rider would route its own bootstrap commit into staging via the
 unamended `implementer-rules.md:256-300`). The only rewiring is the
-reviewer-criteria switch: extend the four criteria-switch blocks above to fire
-on the **workflow-modifying marker OR the opt-out marker**, so prose-criteria
-reviews stay on for this all-prose branch. Those four files are review prompts —
-judgment-layer, inside the opt-out's own class (below).
+reviewer-criteria switch: extend the **three** Phase-3A criteria-switch blocks
+above to fire on the **workflow-modifying marker OR the opt-out marker**, so
+prose-criteria reviews stay on for this all-prose branch. Those three files are
+review prompts — judgment-layer, inside the opt-out's own class (below).
 
 **Opt-out criteria (A12-tightened — consumer class, not intent).** A plan may
 take the opt-out when both hold: (1) it changes no `_workflow/**` artifact
@@ -261,7 +264,7 @@ blocks. Execution-procedure files (`implementer-rules.md` write-routing/gates,
 protocols) stay staged, or need a per-file justification naming which of the
 branch's own remaining phases consume the edit and why mixed-version execution
 is safe. Intent alone is always claimable; consumer class is checkable. This
-branch's edits are all judgment-layer (the four criteria-switch extensions are
+branch's edits are all judgment-layer (the three criteria-switch extensions are
 review prompts), so it qualifies.
 
 **Drift handling (A2).** The opt-out clause records a **mandatory** stamp-advance
@@ -270,19 +273,28 @@ replay over prose-only commits that reduces to advancing every artifact stamp to
 HEAD, §4.8), re-arming the drift gate for real develop drift. Suppress is the
 interim answer until then.
 
-**Landing order (A11).** The §1.7 amendment **and** the four criteria-switch
-extensions land in the branch's **first** workflow-editing commit (the
-conventions track ordered first), so no reviewer ever reads unamended §1.7
-against this plan. Until it lands, the `### Constraints` opt-out note is written
-**self-justifying** — citing D6 and naming the in-flight amendment — so a
-reviewer reading unamended §1.7 (or the Phase-2 consistency review resolving the
-opt-out-clause reference) sees an acknowledged deviation, not a phantom
-reference. Same window class as D1's atomic-sync constraint (A4).
+**Landing order + in-plan re-pointing (A11, A14).** The §1.7 amendment and the
+three criteria-switch extensions land in the branch's **first** workflow-editing
+commit (the conventions track ordered first). But that does not cover the
+conventions track's **own** Phase-A review trio, which runs **before** that
+track's Phase-B edits land — so for the branch's own largest prose track, the
+live review prompts still gate criteria on the (absent) workflow-modifying
+marker (A14). The fix puts the load-bearing instruction in the **plan**, which
+every reviewer reads: the `### Constraints` opt-out note does double duty from
+Phase A on — (1) it acknowledges the §1.7 staging deviation (citing D6 and the
+in-flight amendment, so a reviewer reading unamended §1.7, or the Phase-2
+consistency review resolving the opt-out-clause reference, sees an acknowledged
+deviation, not a phantom reference), and (2) it **re-points the review criteria
+in-plan**: reviewers treat this plan as workflow-modifying for criteria purposes
+(verify references as workflow paths/anchors, apply the five prose criteria, not
+the Java FQN / WAL / crash / hot-caller lenses). The prompt-file switch
+extensions then serve **future** opt-out branches; this branch is covered by the
+note from Phase A onward. Same window class as D1's atomic-sync constraint (A4).
 
 **Why:** Turns the A1 contradiction into a reusable rule and fits the branch
 theme. Under live-edit it self-applies once that first commit lands.
 **Implemented in:** the conventions track, ordered first (§1.5 sync + §1.7
-opt-out + the four criteria-switch extensions land together).
+opt-out + the three criteria-switch extensions land together).
 **Alternatives rejected:** shape (i) keep-marker-plus-rider (needs a bootstrap
 fix and edits to execution-procedure files — `implementer-rules.md`,
 `step-implementation.md` — which criterion (2) says must stay staged, so it is
@@ -329,12 +341,15 @@ reviewer-criteria switch).
   copy bytes not intent):** *"the five AI-tell subset section slugs to apply
   are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned
   analysis patterns`, `### Em-dash discipline`, and `## Orientation`."* The
-  11-site chat blurb does not say "banned-section," so it needs no rewording —
-  just append a fifth list item and bump the "four → five" count in
-  `house-conversation.md`. The append literal (A13 — copy bytes, not the glitch):
+  11-site chat blurb does not say "banned-section," so it needs no rewording,
+  but it is **not** a pure append (A16): its list ends "…, and
+  `### Em-dash discipline`", so tacking on another ", and …" doubles the "and."
+  Spec it as a find/replace pair (and bump the "four → five" count in
+  `house-conversation.md`):
 
   ```
-  , and `## Orientation`
+  find:    and `### Em-dash discipline`
+  replace: `### Em-dash discipline`, and `## Orientation`
   ```
 
   No generator emits any of this — `workflow-reindex.py` only rebuilds TOC and
@@ -430,3 +445,17 @@ one suggestion (A13 backtick collision in S1's append literal). D6 revised to
 adopt the lower-surface marker shape (distinct opt-out marker + four
 criteria-switch extensions), tightened criterion (2) to consumer class, pinned
 the conventions track first, and fixed the append literal. Loops on the should-fix.
+
+### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 0 blocker, 2 should-fix, 1 suggestion
+
+Iteration 3 (verdict-producer). Review file:
+`reviews/research-log-adversarial-iter3.md`. All four iteration-2 findings
+(A10–A13) **VERIFIED**; shape (ii)'s staging-default claim confirmed end-to-end.
+Two new should-fix on the D6 rewrite (A14: the conventions track's own Phase-A
+review trio runs before its switch-extension edits land, so the Constraints note
+must re-point criteria in-plan, not only acknowledge staging; A15: the roster is
+**three** Phase-3A prompts, not four — `track-code-review.md` is staging
+mechanics and Phase-C prose coverage is diff-keyed) plus one suggestion (A16:
+the pure append doubles "and"). D6 revised: roster corrected to three, the
+Constraints note re-points criteria in-plan from Phase A, the blurb edit is a
+find/replace pair. Loops on the should-fix.
