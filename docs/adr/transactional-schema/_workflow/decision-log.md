@@ -3208,7 +3208,10 @@ propagates the scan failure as the primary exception (`addSuppressed` for
 the close-path secondary, or log-then-rethrow-original), so the operator
 sees the unreadable record rather than the generator complaint. A
 best-effort-marked dump requires the ack flag at import even in the manifest
-era, because a salvage manifest agrees with its truncated dump.
+era, because a salvage manifest agrees with its truncated dump; the gate
+binds only v15-aware importers (pre-branch binaries skip the unknown scalar
+unread), so the procedure declares a best-effort-marked dump invalid as a
+cross-version restore artifact (F112).
 
 F63's manifest verification is import-side and cannot see source-side loss; it
 is unchanged.
@@ -3916,11 +3919,28 @@ salvage manifest agrees with its truncated content, so F75 passes. The
 exposure is the downgrade/cross-version restore path; retrofitting shipped
 binaries is rejected option (a).
 
+```mermaid
+flowchart LR
+  V15["v15 salvage dump:<br/>best-effort scalar marker"] --> OLD["pre-branch importer skips the<br/>unknown scalar unread (F101)"]
+  OLD --> CLEAN["truncated salvage imports cleanly,<br/>flag-free (manifest agrees, F75 passes)"]
+  FIX["fix: state the reach (v15-aware importers only) +<br/>procedure: not a cross-version restore artifact"] -.-> CLEAN
+```
+
 **Resolution (proposed):** record the reach honestly where the gate is
 pinned (enforceable only by v15-aware importers); add one procedure line — a
 best-effort-marked dump is not a valid cross-version restore artifact;
 import it only with binaries that enforce the marker. Affected: F94, F101,
 D20.
+
+**Resolved (2026-06-12): accepted as proposed.** The D20 ack-gate sentence
+and F94 (b) state the reach honestly: the gate binds only v15-aware
+importers, because pre-branch binaries skip the unknown scalar marker
+unread — the same F101 no-upper-bound and scalar-skip facts that make the
+version bump safe. The procedure gains one line: a best-effort-marked
+dump is not a valid cross-version restore artifact; import it only with
+binaries that enforce the marker. Retrofitting shipped binaries stays
+rejected (option (a)); F101's record stands unchanged — its facts are the
+mechanism of this gap, not an error.
 
 ### F113 — The two-captures review fails on a missing capture, but the misrouted-channel failure mode produces a present-but-empty one [MINOR]
 Pass-11 report U32. A clean export writes zero error lines, so an empty
@@ -5031,7 +5051,12 @@ recover.
   the generator stranded at object context and the abort promotes a
   mangled dump), and a best-effort-marked dump requires the ack
   flag at import even in the manifest era (a salvage manifest agrees with
-  its truncated dump). That hardening protects the next format migration,
+  its truncated dump) — a gate enforceable only by v15-aware importers:
+  pre-branch binaries skip the unknown scalar marker unread (the same
+  F101 facts that make the version bump safe), so the procedure adds one
+  line (F112): a best-effort-marked dump is not a valid cross-version
+  restore artifact; import it only with binaries that enforce the
+  marker. That hardening protects the next format migration,
   not this one.
   Procedure pin: a dump file at the final name proves nothing about export
   success (the failure path renames too), so the operator verifies the
