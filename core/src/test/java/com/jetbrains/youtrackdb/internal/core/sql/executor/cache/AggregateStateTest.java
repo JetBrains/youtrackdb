@@ -572,6 +572,233 @@ public class AggregateStateTest {
     db.rollback();
   }
 
+  // ===========================================================================
+  // Empty-set drain: the last contributor removed by replay, distinct from the
+  // never-seeded empty path. MIN/MAX/AVG must drain to null; COUNT/COUNT_DISTINCT
+  // to 0. Parity with a fresh aggregate over the emptied set (null/0).
+  // ===========================================================================
+
+  /**
+   * MIN drained to empty returns null: deleting the sole contributor leaves {@code recomputeExtremum}
+   * with no values, so {@code currentScalar} is null — the same result a fresh MIN over an empty set
+   * gives ({@code SQLFunctionMin.getResult} returns null). This pins the drain transition (holder
+   * dropped, rescan finds nothing), which is a distinct code path from the never-seeded empty MIN.
+   */
+  @Test
+  public void minDrainsToNullWhenLastContributorDropped() {
+    var only = committedRec(10);
+    var s = populate(CacheableShape.AGGREGATE_MIN, FIELD, List.of(only));
+    assertEquals(10, scalarOf(s));
+    s.applyMutation((RecordAbstract) only, RecordOperation.DELETED, true);
+    assertEquals("MIN over an emptied set is null, matching SQLFunctionMin", null, scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * MAX drained to empty returns null, symmetric with MIN: the extremum-holder drop triggers
+   * {@code recomputeExtremum} over an empty contributor set, leaving {@code currentScalar} null.
+   */
+  @Test
+  public void maxDrainsToNullWhenLastContributorDropped() {
+    var only = committedRec(10);
+    var s = populate(CacheableShape.AGGREGATE_MAX, FIELD, List.of(only));
+    assertEquals(10, scalarOf(s));
+    s.applyMutation((RecordAbstract) only, RecordOperation.DELETED, true);
+    assertEquals("MAX over an emptied set is null, matching SQLFunctionMax", null, scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * AVG drained to empty returns null, never a divide-by-zero: dropping the sole contributor leaves
+   * {@code count==0} with a null accumulator, so {@code computeAverage(null, 0)} returns null rather
+   * than dividing by zero. Pins that the empty drain stays null-not-zero, the contract that keeps the
+   * {@code total==0} integer-division guard load-bearing.
+   */
+  @Test
+  public void avgDrainsToNullNotDivideByZero() {
+    var only = committedRec(10);
+    var s = populate(CacheableShape.AGGREGATE_AVG, FIELD, List.of(only));
+    assertEquals(10, scalarOf(s));
+    s.applyMutation((RecordAbstract) only, RecordOperation.DELETED, true);
+    assertEquals("AVG over an emptied set is null, never a divide-by-zero", null, scalarOf(s));
+    db.rollback();
+  }
+
+  /** COUNT drained to empty is 0L: deleting the sole contributor drops the count to zero. */
+  @Test
+  public void countDrainsToZeroWhenLastContributorDropped() {
+    var only = committedRec(10);
+    var s = populate(CacheableShape.AGGREGATE_COUNT, null, List.of(only));
+    assertEquals(1L, scalarOf(s));
+    s.applyMutation((RecordAbstract) only, RecordOperation.DELETED, true);
+    assertEquals("COUNT over an emptied set is 0", 0L, scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * COUNT(DISTINCT) drained to empty is 0L: deleting the sole contributor empties its bucket, leaving
+   * no buckets, so the live bucket count is zero.
+   */
+  @Test
+  public void countDistinctDrainsToZeroWhenLastContributorDropped() {
+    var only = committedRec(10);
+    var s = populate(CacheableShape.AGGREGATE_COUNT_DISTINCT, FIELD, List.of(only));
+    assertEquals(1L, scalarOf(s));
+    s.applyMutation((RecordAbstract) only, RecordOperation.DELETED, true);
+    assertEquals("COUNT(DISTINCT) over an emptied set is 0", 0L, scalarOf(s));
+    db.rollback();
+  }
+
+  // ===========================================================================
+  // Null property value: a matching record whose aggregate property is null does
+  // not contribute. observe skips it; an UPDATE that nulls the value drops it.
+  // Mirrors storage, which skips null values for SUM/AVG/MIN/MAX/DISTINCT.
+  // ===========================================================================
+
+  /**
+   * SUM skips a null-valued matching record at observe: storage's SUM never folds a null, and the cache
+   * mirrors that early-return in {@code observe}, so {10, null, 20} sums to 30 — the null contributes
+   * nothing rather than NPEing the {@code (Number) v} cast in the re-fold.
+   */
+  @Test
+  public void sumSkipsNullPropertyOnObserve() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_SUM, FIELD,
+        List.of(newRec(10), newRec(null), newRec(20)));
+    assertEquals("a null-valued matching record does not contribute to SUM", 30, scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * AVG skips a null-valued matching record at observe: the null is not counted, so AVG over {10, null,
+   * 20} divides 30 by 2 (the two non-null contributors), not by 3. This pins that the null-skip excludes
+   * the record from both the sum and the divisor, matching {@code SQLFunctionAverage}.
+   */
+  @Test
+  public void avgSkipsNullPropertyOnObserve() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_AVG, FIELD,
+        List.of(newRec(10), newRec(null), newRec(20)));
+    assertEquals("a null-valued matching record is excluded from AVG sum and count", 15,
+        scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * SUM drops a contributor when a T&rarr;T UPDATE nulls its property: a record that still matches WHERE
+   * but whose new aggregate value is null flips to non-contributing in {@code applyMutation} (the
+   * null-new-value branch), so {10, 20} with 20 nulled re-folds to 10. A regression here would leave a
+   * stale contributor and a silently wrong scalar.
+   */
+  @Test
+  public void sumDropsContributorWhenUpdateNullsTheProperty() {
+    var a = committedRec(10);
+    var b = committedRec(20);
+    var s = populate(CacheableShape.AGGREGATE_SUM, FIELD, List.of(a, b));
+    assertEquals(30, scalarOf(s));
+    b.setProperty(FIELD, null);
+    // Matches WHERE (matchAfter=true) but its new value is null: the null-new-value branch drops it.
+    s.applyMutation((RecordAbstract) b, RecordOperation.UPDATED, true);
+    assertEquals("a matching record whose value becomes null drops out of SUM", 10, scalarOf(s));
+    db.rollback();
+  }
+
+  // ===========================================================================
+  // MIN/MAX comparison across Number subtypes and over non-Number Comparable
+  // values: beatsExtremum runs castComparableNumber only when both operands are
+  // Number, else a raw Comparable.compareTo. Homogeneous Integer input exercises
+  // neither branch, so the cast and the non-Number fallback are unguarded without
+  // the cases below.
+  // ===========================================================================
+
+  /**
+   * MAX compares Integer/Long/Double numerically, not by boxed type: with {5, 10L, 7.5}, the numeric
+   * max is 10L, which {@code beatsExtremum} reaches through {@code castComparableNumber} (the both-
+   * operands-Number branch). A comparison by {@code Number.equals}/hashCode or boxed-reference order
+   * would pick the wrong extremum. Pins the cross-subtype comparison the increment-promotion world
+   * these aggregates live in produces (a MAX over a column mixing Integer and Long).
+   */
+  @Test
+  public void maxComparesAcrossNumberSubtypesNumerically() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_MAX, FIELD,
+        List.of(newRec(5), newRec(10L), newRec(7.5d)));
+    assertEquals("MAX compares Integer/Long/Double numerically, not by boxed type", 10L,
+        scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * MIN compares Integer/Long/Double numerically: with {5, 10L, 7.5}, the numeric min is 5 (Integer),
+   * the cross-subtype mirror of the MAX case, exercising the {@code castComparableNumber} branch in the
+   * MIN direction.
+   */
+  @Test
+  public void minComparesAcrossNumberSubtypesNumerically() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_MIN, FIELD,
+        List.of(newRec(5), newRec(10L), newRec(7.5d)));
+    assertEquals("MIN compares Integer/Long/Double numerically, not by boxed type", 5, scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * MIN over non-Number Comparable values (Strings) takes the raw {@code Comparable.compareTo}
+   * fallback, never {@code castComparableNumber}: lexicographic min of {banana, apple, cherry} is
+   * "apple". A {@code MIN(name)} over String ids is a routine shape, and this pins that the non-Number
+   * fallback compares by natural order.
+   */
+  @Test
+  public void minOverStringComparableValues() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_MIN, FIELD,
+        List.of(newRec("banana"), newRec("apple"), newRec("cherry")));
+    assertEquals("apple", scalarOf(s)); // non-Number Comparable path
+    db.rollback();
+  }
+
+  /**
+   * MAX over non-Number Comparable values (Strings) takes the raw {@code Comparable.compareTo}
+   * fallback in the MAX direction: lexicographic max of {banana, apple, cherry} is "cherry".
+   */
+  @Test
+  public void maxOverStringComparableValues() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_MAX, FIELD,
+        List.of(newRec("banana"), newRec("apple"), newRec("cherry")));
+    assertEquals("cherry", scalarOf(s)); // non-Number Comparable path
+    db.rollback();
+  }
+
+  /**
+   * AVG over negative integers truncates toward zero, not floor: Java integer division gives
+   * {@code -35 / 3 == -11}, not -12. The existing positive cases pass under both floor and truncate-
+   * toward-zero (35/3 == 11 either way); a negative input is what distinguishes the implemented rule.
+   */
+  @Test
+  public void avgNegativeIntegerTruncatesTowardZero() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_AVG, FIELD,
+        List.of(newRec(-10), newRec(-20), newRec(-5))); // -35 / 3
+    assertEquals("integer AVG truncates toward zero, not floor", -11, scalarOf(s));
+    db.rollback();
+  }
+
+  /**
+   * AVG over BigDecimal sitting exactly on the HALF_UP round-half boundary rounds up: 5 over 2 is 2.5,
+   * which HALF_UP at scale 0 rounds to 3 (HALF_EVEN would round to 2). The existing 35/3 case rounds to
+   * 12 under both HALF_UP and HALF_EVEN, so only an exact .5 input distinguishes the implemented rule.
+   */
+  @Test
+  public void avgBigDecimalOnExactHalfBoundaryRoundsHalfUp() {
+    db.begin();
+    var s = populate(CacheableShape.AGGREGATE_AVG, FIELD,
+        List.of(newRec(new BigDecimal("5")), newRec(new BigDecimal("0"))));
+    // (5 + 0) / 2 = 2.5; HALF_UP at scale 0 is 3, HALF_EVEN would be 2.
+    assertEquals(new BigDecimal("3"), scalarOf(s));
+    db.rollback();
+  }
+
   /** F&rarr;F: a non-contributor that still does not match is a no-op for every kind (SUM here). */
   @Test
   public void applyMutationFtoFIsNoOp() {

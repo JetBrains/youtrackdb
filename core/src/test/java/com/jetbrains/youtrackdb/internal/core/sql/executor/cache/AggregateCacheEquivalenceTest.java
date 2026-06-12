@@ -260,6 +260,34 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
   }
 
   @Test
+  public void minEquivalence_valueUpdateAfterPopulate() {
+    var fresh = runWithTarget(false, "min(" + VALUE + ")", rid -> changeValue(rid, 999));
+    var cached = runWithTarget(true, "min(" + VALUE + ")", rid -> changeValue(rid, 999));
+    assertEquals("MIN after a value UPDATE must match fresh", fresh, cached);
+  }
+
+  @Test
+  public void minEquivalence_whereBreakUpdateAfterPopulate() {
+    var fresh = runWithTarget(false, "min(" + VALUE + ")", this::breakWhere);
+    var cached = runWithTarget(true, "min(" + VALUE + ")", this::breakWhere);
+    assertEquals("MIN after a WHERE-breaking UPDATE must drop the contributor", fresh, cached);
+  }
+
+  /**
+   * MIN F&rarr;T where a CREATE introduces a value below the current minimum drives the O(1) beats-
+   * extremum branch through the live splice path. The seeded set's min is 10; creating a matching 1
+   * after populate must replay to a new min of 1, matching a fresh execution. Mirrors the MAX collapse/
+   * create coverage so MIN has a live splice-path case beyond DELETE.
+   */
+  @Test
+  public void minEquivalence_createBelowExtremumAfterPopulate() {
+    var fresh = runScenario(false, "min(" + VALUE + ")", new int[] {10, 20, 30}, createMatching(1));
+    var cached = runScenario(true, "min(" + VALUE + ")", new int[] {10, 20, 30}, createMatching(1));
+    assertEquals("MIN after a below-extremum CREATE must replay to the new min, matching fresh",
+        fresh, cached);
+  }
+
+  @Test
   public void maxEquivalence_valueUpdateBelowExtremumAfterPopulate() {
     // The MAX holder's value drops below a non-holder, forcing the O(n) recompute branch.
     var fresh = runWithTarget(false, "max(" + VALUE + ")", rid -> changeValue(rid, 1));
@@ -307,6 +335,44 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
     var cached = runCollapse(true);
     assertEquals("a collapsed CREATE+UPDATE must reconcile by membership, matching fresh", fresh,
         cached);
+  }
+
+  /**
+   * The SUM analogue of the collapse case driven end-to-end: a record created BEFORE the populating
+   * query (so its op stays typed CREATED) whose value then changes in the same tx must re-fold by
+   * membership, not double-add. Keying on op type would read the collapsed CREATED as a brand-new
+   * contributor and add the changed value on top of the populate-time value, over-counting the sum.
+   * SUM's collapse path is unit-tested in {@code AggregateStateTest} but had no live splice-path
+   * coverage; this drives it through the splice/build/view pipeline and compares against fresh.
+   */
+  @Test
+  public void collapseCase_prePopulateCreateThenValueChangeSum() {
+    var fresh = runCollapseSumValueChange(false);
+    var cached = runCollapseSumValueChange(true);
+    assertEquals(
+        "a collapsed CREATE+value-UPDATE for SUM must re-fold by membership, matching fresh",
+        fresh, cached);
+  }
+
+  private Object runCollapseSumValueChange(boolean cacheEnabled) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    commitMatching(10); // a surviving matching record
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+    var sql = aggSql("sum(" + VALUE + ")");
+
+    session.begin();
+    // CREATE a new matching record BEFORE the populating query, so the populate observes it (sum = 60).
+    var created = session.newEntity(CLASS_NAME);
+    created.setProperty(VALUE, 50);
+    created.setProperty(FLAG, true);
+    scalar(session.query(sql)); // populate; the created row contributes 50
+    // Change its value in the same tx: the collapsed op stays CREATED but the record is already a
+    // contributor, so the new value must replace the old (re-fold to 10 + 5), not double-add.
+    created.setProperty(VALUE, 5);
+    var result = scalar(session.query(sql)); // must re-fold; sum = 15, not 65
+    session.rollback();
+    return result;
   }
 
   private Object runCollapse(boolean cacheEnabled) {
