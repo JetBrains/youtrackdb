@@ -51,29 +51,64 @@ as a closed set (~50 files: agent blurbs, prompt blurbs, chat-scale-prose
 blurbs, the 4 workflow-doc enumerations, the 3 canonical sites, the hook, and
 the 2 tests).
 
+Exact inventory and the canonical reworded blurb are pinned in S1.
+
 **Why:** Matches the project's "the canonical subset must move together" sync
 discipline. The drift risk that made the issue defer is gone — plan-slimization
 merged at `26f990ed82` and this branch sits on top with nothing in flight, so a
 large diff carries low rebase-conflict cost.
+**Atomic-sync constraint (A4 — planner must inherit this):** the ~50-site
+enumeration sync lands as **one commit** (or, at minimum, every blurb plus the
+canonical sites land inside a single track with the four-vs-five window closed
+before that track's Phase C). Under live-edit (D5), any split that commits the
+canonical sites at five while blurbs still read four leaves a window where the
+branch's own `review-workflow-consistency` (which reads cross-file, beyond the
+diff) flags the inconsistency — the same four-of-five state the option-C
+rejection names. The edits are one-line prose changes, so one atomic commit is
+feasible.
 **Alternatives rejected:** (B) centralize-then-add — fixes the duplication
 root-cause but is scope expansion beyond the two issues, deferred to a possible
-follow-up; (C) issue-literal ~10 sites — leaves ~40 blurbs at four-of-five,
-which `review-workflow-consistency` and the `grep -rn` sync command flag as
-drift.
+follow-up. The real reason the ~50 inline enumerations exist (A8) is **per-spawn
+self-containedness**: a sub-agent reads its prompt blurb and knows the
+applicable sections without opening another file; a pointer-only blurb either
+adds a file read to every spawn (a real per-spawn context-budget cost across the
+~30 agent/prompt files, cf. the YTDB-1094 boot-cost work) or drops the inline
+names and weakens compliance. A B follow-up must start from that fork, not just
+"out of scope." (C) issue-literal ~10 sites — leaves ~40 blurbs at four-of-five,
+which `review-workflow-consistency` and the governance grep flag as drift.
 
 ### [2026-06-12] [ctx=safe] D2 — Orientation joins both subset tiers (OQ3 = yes)
 
-The new `## Orientation` rule joins the always-on AI-tell subset for **both**
-tiers conventions.md §1.5 defines it on: chat-scale prose **and** `*.java` /
-`*.kt` code comments (Javadoc rationale).
+The new `## Orientation` rule joins the always-on AI-tell subset on **both**
+surfaces the subset governs: chat-scale prose **and** `*.java` / `*.kt` code
+comments (Javadoc rationale).
 
-**Why:** The issue scopes it to "chat and every prose surface." Javadoc
-rationale is prose a reader must follow without leaving it; the orientation
-floor applies there too. Joining only chat would leave the code-comment tier
-enumerating four while chat enumerates five — the exact inconsistency D1 is
-avoiding.
-**Alternatives rejected:** chat-only (leaves the Tier-B code-comment row and the
-`house-style-write-reminder.sh` hook at four, inconsistent with chat).
+**Evidence (corrected per A5).** `conventions.md §1.5` has **no chat-scale
+table row**; its two tiers are full-style Markdown (+ PR/commit/YouTrack) and
+the `*.java`/`*.kt` AI-tell subset. The **chat** subset lives in the per-file
+blurbs and `house-conversation.md`, not in §1.5. The **code-comment** subset is
+the §1.5 Tier-B table row plus `house-style-write-reminder.sh`'s `tier_b_body`
+(its Tier A is Markdown-full, Tier B the four names). So Orientation joins the
+chat carriers (the 11 chat blurbs + `house-conversation.md`) and the
+code-comment carriers (§1.5 Tier-B row + the hook).
+**Why:** The issue scopes it to "chat and every prose surface." A Javadoc
+reader, though, has the code open by definition, so YTDB-1106's literal
+criterion ("too terse to follow without opening the code") does not transfer
+verbatim. The design **commits to a code-comment-scale restatement** of the
+orientation criterion for the Tier-B row and `tier_b_body`: rationale comments
+must not assume context **outside the file** — distant call-site behavior, issue
+history, reviewer-thread knowledge — and must gloss the project-specific entity
+the rationale turns on. Without that restatement the rule's test would be
+incoherent on the code-comment surface.
+**Not enumeration drift.** A deliberate tier difference recorded once in the
+§1.5 table is a documented scope split, not the four-vs-five enumeration drift
+D1 forbids (D1 binds sites enumerating the *same* subset). Leaving Javadoc out
+would be a defensible scope choice, not a D1 violation; we include it because
+CLAUDE.md's "Comment non-obvious code" already points the same way for rationale
+comments.
+**Alternatives rejected:** chat-only (the orientation floor is just as real for
+rationale comments that assume out-of-file context; CLAUDE.md already asks for
+context there).
 
 ### [2026-06-12] [ctx=safe] D3 — Generalize § Explanatory register into ## Orientation (OQ4 = generalize)
 
@@ -88,6 +123,23 @@ general rule.
 **Why:** Avoid two near-duplicate statements of the same principle. One general
 rule + one specialization that points at it is maintainable; two parallel
 statements drift.
+**Reconciliation set (A6 — the design must name all three, or generalizing
+leaves the file self-contradictory):**
+1. **Rewrite `house-style.md:379`.** Today it scopes the document-shape family:
+   "[these rules] are not enforced on issue bodies, PR descriptions, or status
+   prose, which use the BLUF rule alone." Once `## Orientation` is top-level and
+   always-on, those surfaces are governed by BLUF **plus** Orientation **plus**
+   the always-on tells — so line 379 must carve Orientation out of the
+   document-shape exclusion or it reads as stale on its face.
+2. **Give `## Orientation` its own finding category.** The current
+   `### Explanatory register` calls too-terse prose "a finding under
+   § Why-before-what" — a document-shape rule. The generalized always-on rule
+   cannot cite a design-only section for a finding on a non-`docs/adr/**`
+   surface; it needs its own severity/finding framing.
+3. **Move the Self-check entry.** Item 8 lists explanatory register under
+   "Document shape (design/ADR only)"; Orientation needs an entry in an
+   always-on self-check item instead (it is item 5's family — analysis
+   patterns — or a new always-on item, decided at design time).
 **Alternatives rejected:** leave both (duplication the issue explicitly flags);
 cross-link only without generalizing (still two full statements).
 
@@ -98,64 +150,156 @@ cold-read targets — `target=design` (phase1-creation / phase4-creation /
 design-sync) and `target=tracks` (the Step-4b track cold-read) — at creation and
 review.
 
-**Why:** Track prose carries the same over-dense / too-terse failure as design
-prose, and the YTDB-1106 exemplar surface (terse decision-log findings) lives in
-the track files. Scanning only `design.md` would leave the track-prose surface
-unenforced.
-**Alternatives rejected:** design-only (leaves track creation/review prose
+**Why (scoped per A7).** Track prose carries the same over-dense / too-terse
+failure as design prose at **creation time**, so scanning only `design.md`
+leaves the plan-at-start track sections unchecked. The claim is bounded to that
+creation-time surface: the `target=tracks` cold-read runs **once**, at Step 4b
+before the plan commit, so it does **not** cover the YTDB-1106 exemplar surface
+(live `## Decision Log` entries, episodes, review findings) that accrues during
+Phase 3 — nothing re-runs a cold-read there. The Phase-3 surface is enforced by
+the **always-on blurb wiring** (D1/D2) on the writers, not by this reviewer
+block. So D4 buys creation-time track-prose coverage; D1/D2 buy the rest.
+**Applies-to asymmetry (the design must spell this out).** The sibling
+`### Human-reader cold-read additions` applies only to the three design-target
+mutation kinds (phase1-creation / phase4-creation / design-sync), so the new
+block **cannot copy its applies-to line** — it needs its own statement covering
+`target=design` (those three kinds) **and** `target=tracks`. Sync sites for the
+block: the new TOC row, the § Tone-and-depth "five Human-reader rules" count
+(line 406), and the `readability-feedback` Rule sync map's design-review row
+(which today lists only the Human-reader bullets).
+**Alternatives rejected:** design-only (leaves creation-time track prose
 unchecked for the same tells).
 
 ### [2026-06-12] [ctx=safe] D5 — No staging; live-edit all surfaces, no workflow-modifying marker (OQ1)
 
-The plan does **not** declare itself workflow-modifying: the `### Constraints`
-marker is omitted, the §1.7 implementer staging gate stays inactive, and every
-edit (`.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`,
-`.claude/output-styles/**`, `.claude/scripts/**`) lands on live paths and
-self-applies during the branch.
+The plan does **not** stage: every edit (`.claude/workflow/**`,
+`.claude/skills/**`, `.claude/agents/**`, `.claude/output-styles/**`,
+`.claude/scripts/**`) lands on live paths and self-applies during the branch.
+The legitimacy comes from **D6** (a §1.7 opt-out amendment this branch carries),
+not from the current §1.7 — which, as written, **binds** this branch to stage.
 
-**Why:** This change alters prose rules, prompt text, one judgment-layer
-reviewer block, and one contained regex — it changes **no `_workflow/**`
-artifact schema** (no track-file sections, resume-state fields, or drift-gate
-format), so the destabilize-the-branch's-own-machinery hazard §1.7 guards
-against does not exist. The largest surfaces (`house-style.md`,
-`house-conversation.md`, `design-mechanical-checks.py`) sit outside §1.7's
-covered prefixes already, so staging only the workflow/skills/agents blurbs
-would be a split that buys neither isolation nor self-application.
-Self-application is the goal for a style-rule change: the branch's own
-`design.md`, track files, and chat are held to the new rules during the branch.
-§1.7(b) documents marker-omission as a sanctioned path.
-**Cost (accepted):** committing live `.claude/workflow|skills|agents` edits
-trips the startup drift gate each subsequent session (the branch flags its own
-authoring). It is a false positive — the commits change workflow *prose*, not
-the `_workflow/**` artifact *schema*, so no migration is needed. Resolution:
-**Suppress** each session; safe because the branch sits on current develop with
-nothing in flight, so there is no real develop drift to mask. Re-evaluate if a
-mid-branch rebase of develop ever happens.
+**Why live-edit (substance).** This change alters prose rules, prompt text, one
+judgment-layer reviewer block, and one contained regex — it changes **no
+`_workflow/**` artifact schema** (no track-file sections, resume-state fields,
+or drift-gate format), so the destabilize-the-branch's-own-machinery hazard
+§1.7 guards against does not exist (assumption-test C8: HOLDS). The largest
+surfaces (`house-style.md`, `house-conversation.md`,
+`design-mechanical-checks.py`) sit outside §1.7's covered prefixes already
+(§1.7(a): "No other prefixes participate"), so staging only the
+workflow/skills/agents blurbs buys neither clean isolation nor clean
+self-application. Self-application is the **goal** for a style-rule change: the
+branch's own `design.md`, track files, and chat are held to the new rules during
+the branch.
+**Why not the current §1.7 (A1 correction).** The earlier claim that "§1.7(b)
+documents marker-omission as a sanctioned path" was **false**. §1.7(b) calls
+omission *forfeiture* and assigns a planner duty to add the marker plus a
+reviewer duty to verify it; §1.7(h) binds every workflow-modifying branch opened
+after the convention landed to the full convention. So omission today is a
+convention violation, not an opt-out. The fix is to **make** the opt-out real
+(D6), not to assert one that does not exist.
+**Drift handling (A2 — stamp-advance, not habituated Suppress).** Committing
+live `.claude/workflow|skills|agents` edits advances HEAD past the artifacts'
+stamp base, so the startup drift gate fires every subsequent session. Picking
+**Suppress** each time habituates the user and would mask a *real* develop-side
+drift if develop is ever rebased in mid-branch. The principled resolution is
+**stamp-advance**: after the last workflow-editing commit, run
+`/migrate-workflow`; the per-commit replay is a no-op (the commits change prose,
+not artifact schema), so the run reduces to advancing every artifact's line-1
+stamp to HEAD (`/migrate-workflow` §4.8). The gate then goes silent for
+subsequent sessions and **re-arms** for any later genuine drift. Until that
+run, Suppress is the interim answer, and the D6 opt-out clause records the
+stamp-advance duty so it is not lost. This is folded into D6.
+**New-regex severity (A9).** The two `dsc-ai-tell` additions (inflated-abstraction
+labels; the "X, not Y" faux-symmetry, which risks firing on legitimate
+contrastive "A, not B" prose) ship at the **demotable** severity discipline the
+rule already documents ("Demote-to-`suggestion` is the documented fallback"),
+calibrated against the false-positive count observed on the branch's own Phase-4
+`design-final.md` authoring (where the live regexes self-apply through
+`edit-design`; a blocker-severity false positive there would exit 1 and block
+the loop).
 **Alternatives rejected:** full staging (defers all self-application to
 post-merge, so the rule-adding branch is the one branch never checked against
 its rules; odd split given output-styles/scripts are live regardless); hybrid
-stage-covered-only (neither clean isolation nor clean self-application).
+stage-covered-only (neither clean isolation nor clean self-application);
+user-waiver-only without amending §1.7 (leaves the convention saying the branch
+forfeited the mechanism — a one-off exception rather than a reusable rule; the
+user chose D6's amendment over this).
+
+### [2026-06-12] [ctx=safe] D6 — Amend §1.7 with a prose-rule self-application opt-out (A1 resolution)
+
+This branch adds an explicit opt-out clause to `conventions.md §1.7` so that
+live-editing is genuinely sanctioned rather than a forfeiture. The clause: a
+workflow-modifying plan **may** skip staging when both hold — (1) it changes no
+`_workflow/**` artifact *schema* (no track-file section set, resume-state-machine
+field, drift-gate format, or stamp format) and (2) self-application of the edits
+during the branch is the intent (the prose-rule / prompt-text case). A plan
+taking the opt-out records it in `### Constraints` (a named opt-out marker, the
+inverse of today's workflow-modifying marker) and **must** advance its artifact
+stamps to HEAD via `/migrate-workflow` after its last workflow-editing commit
+(the A2 drift handling), keeping the drift gate armed for real develop drift.
+
+**Why:** It turns the A1 contradiction into a reusable rule and fits the
+branch's theme (it is already rewriting workflow rules). Under live-edit (D5)
+the clause **self-applies immediately**: once committed, this branch's own later
+phases read a §1.7 that authorizes its choice, so no reviewer or gate flags the
+plan for violating a convention it has amended.
+**Risks/Caveats:** The opt-out criteria must stay tight — the schema-change
+exclusion is load-bearing (a branch that does touch artifact schema must still
+stage), and the stamp-advance duty must be mandatory, or the opt-out reintroduces
+the masked-drift hazard A2 names. This is itself a workflow-machinery change to
+§1.7, so it is in the §1.5 / workflow-prose review scope like the rest of the
+branch.
+**Implemented in:** the track that edits `conventions.md` (§1.5 sync + §1.7
+opt-out land together).
+**Alternatives rejected:** user-waiver-only (D5 alternatives — one-off, not
+reusable); leaving §1.7 unchanged and omitting the marker (the A1 violation).
 
 ## Surprises & Discoveries
 
-- [2026-06-12] [ctx=safe] S1 — Blast radius is ~5× the issue's estimate, and
-  it is hand-maintained. YTDB-1106 lists ~10 sync sites. The actual count of
-  files that enumerate the four-name AI-tell subset as a closed set is ~50:
-  ~19 `.claude/agents/*.md` (the line-20 "four banned-section heading slugs"
-  blurb), ~10 `.claude/workflow/prompts/*.md` (same blurb), ~10 chat-scale-prose
-  blurbs in skills + workflow docs (`create-plan`, `execute-tracks`,
-  `review-plan`, `review-workflow-pr`, `design-decision-escalation`,
-  `inline-replanning`, `mid-phase-handoff`, `review-iteration`, `review-mode`,
-  `workflow.md`), 4 workflow-doc enumerations (`step-implementation`,
-  `implementer-rules`, `commit-conventions`, `episode-format-reference`), the 3
-  canonical sites (`house-style.md` line-20 count + self-check,
-  `house-conversation.md`, `conventions.md §1.5`), the hook
-  (`house-style-write-reminder.sh`), and 2 tests (`test_house_style_hook.py`
-  pins the section-name list; `test_dsc_ai_tell.py`). No generator emits these
-  blurbs — `workflow-reindex.py` only rebuilds TOC/stamps. So a faithful
-  "subset becomes five" is ~50 hand edits, not ~10. The issue itself
-  under-counted because the enumeration is duplicated ~50× — the same
-  duplication this change is forced to confront.
+- [2026-06-12] [ctx=safe] S1 — Blast radius is ~5× the issue's estimate, hand-maintained,
+  and the count bump is **not** a literal "four → five." Pinned grep output (run
+  on the branch tip, excluding `docs/adr/`):
+  - `grep -rln 'Banned analysis patterns' .claude/ CLAUDE.md` = **50 files** —
+    the universe that enumerates the subset section names.
+  - `grep -rln 'banned-section heading slugs' .claude/ CLAUDE.md` = **30 files** —
+    the `.claude/agents/*.md` + `.claude/workflow/prompts/*.md` +
+    workflow-doc blurb that reads "the four banned-section heading slugs to
+    apply are …".
+  - `grep -rln 'follows the AI-tell subset of' .claude/ CLAUDE.md` = **11 files** —
+    the chat-scale-prose blurb in skills + workflow docs.
+  - Remaining sites in the 50: the 3 canonical (`house-style.md` line-20
+    count + self-check, `house-conversation.md` "four sections" + bullets,
+    `conventions.md §1.5` table row + "four Tier-B" + governance grep), the
+    hook (`house-style-write-reminder.sh` `tier_b_body`), 2 tests
+    (`test_house_style_hook.py:694-697` pins the section strings;
+    `test_dsc_ai_tell.py`).
+
+  Three sites the first roster missed (A3), all in-scope:
+  1. `readability-feedback/SKILL.md` — the `## Rule sync map` (line 41) is the
+     codified add-a-rule procedure, and its governance grep (line 54) plus the
+     **twin** at `conventions.md:570` search for the four names; both must gain
+     `Orientation` or every future rename/sync audit silently skips the fifth
+     section.
+  2. `ai-tells/SKILL.md` — the `## Catalogue lookups` routing table (lines
+     19-27), walked during Pass 1, needs an Orientation row.
+  3. (folded into #1) the second governance grep at `conventions.md:570`.
+
+  **The count bump is semantic, not numeric.** The 30-site blurb says "the
+  **four banned-section** heading slugs"; `## Orientation` is a positive
+  **floor**, not a ban, so "five banned-section slugs" would be false. The
+  blurb must be **reworded** once, canonically, and pasted byte-identically, or
+  ~30 hand edits produce ~30 slightly different sentences — exactly what
+  `review-workflow-consistency` flags. **Canonical replacement (record once,
+  copy bytes not intent):** *"the five AI-tell subset section slugs to apply
+  are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned
+  analysis patterns`, `### Em-dash discipline`, and `## Orientation`."* The
+  11-site chat blurb appends `, and `## Orientation`` to its existing list (it
+  does not say "banned-section," so no rewording, just the append + the
+  "four → five" count in `house-conversation.md`).
+
+  No generator emits any of this — `workflow-reindex.py` only rebuilds TOC and
+  stamps; only `house-style-write-reminder.sh` holds blurb text (the one
+  `tier_b_body` Java/Kotlin string). So the sync is ~50 hand edits.
 
 - [2026-06-12] [ctx=safe] S2 — The issues' line/section citations are stale.
   Both issues were written before #1140 (Complexity-Adaptive Workflow Tiering)
