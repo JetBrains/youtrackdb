@@ -180,9 +180,20 @@ NEGATIVE_PARALLELISM_TRAILING_RE = re.compile(
 # subject is an inflated label used AS the thing being described — the
 # placeholder-noun / vague-attribution tell from
 # `house-style.md § Banned analysis patterns` — e.g. "The enabling primitive
-# is …", "The key abstraction here …", "The underlying mechanism …", and the
-# participle-plus-category-noun shape ("The driving force is …", "The defining
-# characteristic is …").
+# is …", "The key abstraction here …", "The underlying mechanism …", "The
+# driving force is …", "The defining characteristic is …".
+#
+# The inflation-adjective slot is a CURATED CLOSED SET, not an open
+# participle wildcard. A bare `[a-z]+ing` / `[a-z]+ed` arm crossed with the
+# concrete label-nouns below ("mechanism", "property", "concept", "factor",
+# "force") fires on ordinary concrete-mechanism prose a storage-engine design
+# routinely carries — "The locking mechanism is held by the writer.", "The
+# hashing mechanism provides O(1)." — none of which is the inflation tell. So
+# only the words that actually signal inflation are listed: the participles
+# (`enabling`, `driving`, `defining`, `unifying`, `guiding`, `governing`,
+# `underpinning`, `animating`) plus the inflated adjectives (`key`, `core`,
+# `central`, `underlying`, …). A concrete participle like `locking` / `hashing`
+# / `polling` is deliberately absent and therefore passes.
 #
 # Two discriminators keep it off the design-doc Overview's sanctioned use.
 # `design-document-rules.md § Overview` prescribes naming "the enabling
@@ -198,9 +209,10 @@ NEGATIVE_PARALLELISM_TRAILING_RE = re.compile(
 INFLATED_ABSTRACTION_LABEL_RE = re.compile(
     r"(?:^|(?<=[.!?]\s)|(?<=[.!?]))\s*"
     r"The\s+"
-    r"(?:[a-z]+ing|[a-z]+ed|key|core|central|underlying|essential|"
-    r"fundamental|crucial|critical|defining|unifying|guiding|"
-    r"governing|decisive|pivotal|main|primary)\s+"
+    r"(?:enabling|driving|defining|unifying|guiding|governing|"
+    r"underpinning|animating|"
+    r"key|core|central|underlying|essential|fundamental|crucial|"
+    r"critical|decisive|pivotal|main|primary|overarching)\s+"
     r"(?:primitive|abstraction|mechanism|insight|idea|concept|"
     r"principle|notion|force|factor|characteristic|property|"
     r"observation|realization|realisation)s?\s+"

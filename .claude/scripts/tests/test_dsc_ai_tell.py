@@ -10,8 +10,10 @@ calibration ADRs, parses each JSON output, and asserts:
    `PATTERN_SIGNATURES` below has at least one `dsc-ai-tell` finding.
 2. The fixture's negative-case paragraphs (hyphenated technical
    compounds, single em-dash, the eight genuine subject-led contrasts
-   the trailing-negation "X, not Y" rule must not fire on, and the H1
-   Title Case heading) emit zero `dsc-ai-tell` findings.
+   the trailing-negation "X, not just Y" rule must not fire on, the
+   concrete named mechanisms the inflated-abstraction-label rule must
+   not fire on, and the H1 Title Case heading) emit zero `dsc-ai-tell`
+   findings.
 3. The Overview enabling-primitive sentence (line 25) emits zero
    inflated-abstraction-label findings — the `## Overview` section is
    skipped because naming "the enabling primitive(s)" is the prescribed
@@ -99,25 +101,30 @@ PATTERN_SIGNATURES: List[Tuple[str, str]] = [
 ]
 
 # Negative-case line ranges in the fixture. The H1 at line 1 is the
-# Title-Case negative case (the rule must skip `# ` lines). Three
+# Title-Case negative case (the rule must skip `# ` lines). Four
 # `### *negative` H3 blocks carry zero-finding bodies: hyphenated
-# technical compounds (123-128), single em-dash (132-137), and the
-# eight genuine subject-led contrasts (141-153, which the
-# trailing-negation "X, not just Y" rule must leave alone because none
-# carries the emphatic intensifier). The Overview enabling-primitive
-# sentence at line 25 is a fourth negative case, exercised by its own
-# assertion below (the inflated-abstraction-label rule skips the
-# `## Overview` section). The runner enforces zero `dsc-ai-tell`
-# findings whose location line falls inside any of these ranges or
-# equals 1. The trailing `## Banned-pattern regressions` section
-# (line 155+) is positive-case territory and must not be folded into
-# a negative range.
+# technical compounds (123-128), single em-dash (132-137), the eight
+# genuine subject-led contrasts (141-153, which the trailing-negation
+# "X, not just Y" rule must leave alone because none carries the
+# emphatic intensifier), and concrete named mechanisms (157-166, which
+# the inflated-abstraction-label rule must leave alone because its
+# adjective slot is a curated closed set of inflation words, not an
+# open participle wildcard — "The locking mechanism is held …" / "The
+# hashing mechanism provides …" do not fire). The Overview
+# enabling-primitive sentence at line 25 is a fifth negative case,
+# exercised by its own assertion below (the inflated-abstraction-label
+# rule skips the `## Overview` section). The runner enforces zero
+# `dsc-ai-tell` findings whose location line falls inside any of these
+# ranges or equals 1. The trailing `## Banned-pattern regressions`
+# section (line 168+) is positive-case territory and must not be
+# folded into a negative range.
 H1_TITLE_CASE_LINE = 1
 OVERVIEW_INFLATED_LABEL_LINE = 25
 NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
     (123, 128, "Hyphenated technical compounds negative"),
     (132, 137, "Single em-dash negative"),
     (141, 153, "Genuine subject-led contrast negative (X, not just Y must not fire)"),
+    (157, 166, "Concrete named mechanism negative (inflated-label rule must not fire)"),
 ]
 
 # Anchored regression cases. Each pair `(line, description_prefix)` must
@@ -126,9 +133,9 @@ NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
 # catch (a regression could remove one anchored finding while leaving
 # the per-pattern count at >= 1 elsewhere in the fixture).
 #
-# Line 157: heading-scan regression — Tier-1 vocab inside an H3 was
+# Line 170: heading-scan regression — Tier-1 vocab inside an H3 was
 # previously skipped by an `if is_heading: continue` short-circuit.
-# Line 165: fragmented-header continuation regression — a one-line
+# Line 178: fragmented-header continuation regression — a one-line
 # paragraph immediately followed by another heading (no blank line)
 # was previously misclassified as paragraph continuation, suppressing
 # the rule.
@@ -140,9 +147,9 @@ NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
 # "The underlying mechanism is …" outside the `## Overview` section
 # must fire.
 ANCHORED_REGRESSION_CASES: List[Tuple[int, str, str]] = [
-    (157, "Tier-1 banned vocabulary",
+    (170, "Tier-1 banned vocabulary",
      "heading-scan regression: Tier-1 vocab inside an H3 must fire"),
-    (165, "Fragmented header",
+    (178, "Fragmented header",
      "fragmented-header continuation regression: one-liner followed "
      "by a heading with no intervening blank line must fire"),
     (100, "Negative parallelism, trailing 'X, not Y' frame",

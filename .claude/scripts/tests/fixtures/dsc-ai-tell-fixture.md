@@ -152,6 +152,19 @@ the eight a `, not <lowercase>` probe surfaces on this branch's own
 `not simply` intensifier, so the trailing-negation rule must leave
 every one of them alone.
 
+### Concrete mechanism negative
+
+The locking mechanism is held by the writer until the page is
+flushed. The hashing mechanism provides O(1) bucket lookup. The
+polling mechanism is the heartbeat that re-arms the lease. The
+indexing property holds across the rebuild. These describe concrete
+named mechanisms with a present-participle qualifier; the participle
+("locking", "hashing", "polling", "indexing") names a real thing
+rather than inflating an abstraction, so the inflated-abstraction-
+label rule — whose adjective slot is a curated closed set of
+inflation words, not an open participle wildcard — must leave every
+one of them alone.
+
 ## Banned-pattern regressions
 
 ### Delve into the holistic foster pattern
