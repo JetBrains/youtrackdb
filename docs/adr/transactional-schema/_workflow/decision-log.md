@@ -3979,6 +3979,160 @@ capture reads as unverified, not clean. The listener capture needs no
 control — its per-collection count lines are an intrinsic positive
 signal.
 
+### F114 — "Per-unpark re-evaluation covers the layered case" is false: `releaseOperations` unparks only at `freezeRequests == 0`, so the schema commit stays parked inside the four-lock window for a layered operator freeze's whole duration [MAJOR]
+Pass-12 report C38 (PSI: `releaseOperations` is the sole unpark path —
+`cutWaitingList`'s only caller `OperationsFreezer:105`,
+`addThreadInWaitingList`'s only caller `:44`, sole production caller
+`AtomicOperationsManager:252`). `releaseOperations` unparks only when the
+decrement reaches zero (`:88`–`:112`); `freezeOperations` never unparks.
+Layered interleaving: the schema commit parks behind a transient quiesce
+(WAL copy, `DiskStorage:356` — its `stateLock.read` window coexists with the
+commit's, so the pass-9 enclosure property does not exclude the state); an
+operator freeze engages (1→2); the transient releases (2→1 ≠ 0, no wake).
+The promised "wake → throw" never happens; the commit holds the D7 mutex,
+both metadata locks, and `stateLock.read` for the operator freeze's full
+duration — the C18/F86 outage on the path the placement clause keeps loud.
+The direct case stays closed; this is the backstop's only gap, and backup
+tooling is where transients and operator freezes co-occur. The acceptance
+triple cannot see it.
+
+**Resolution (proposed):** companion pin on the placement clause — the wake
+protocol delivers a re-evaluation when an operator-kind freeze engages, not
+only when all freezes release (cheapest: the operator-kind arm of
+`freezeOperations` cuts-and-unparks the waiting list after incrementing;
+woken data entrants re-check and re-park, the woken schema entrant throws;
+alternative: the schema entrant parks timed). Acceptance triple gains a
+fourth line: commit parked behind a transient + operator freeze layers in →
+loud abort within the bound, never parked for the freeze's duration.
+Affected: F108, D7, F86.
+
+### F115 — The F104 handshake pins holder-vs-mark but not the session-side ordinal record's write position: written after the mark re-check, the teardown warn-noops and the wedge returns [MAJOR]
+Pass-12 report C39. The release site presents the acquire-time ordinal read
+from session/tx-side state (the record whose survival F104 pinned) — a third
+handshake participant whose write position is unconstrained: the specified
+engage order is acquire → holder → mark re-check, record placement free
+(shape (b)'s rejection bounded record-then-acquire only). In the
+engage-misses-mark arm the synchronization-order chain delivers the
+**holder** to the teardown's release pass, not the record: a record stored
+after the mark re-check (plain write, no happens-before edge to the foreign
+read, possibly not yet executed) leaves the release pass with no ordinal to
+present — mismatch arm, warn-noop, no permit touched; the engage proceeds on
+a session whose one release pass is spent. Acceptance triple line 3 fails by
+exactly the wedge it pins away.
+
+**Resolution (proposed):** one ordering sentence, zero new fences — the
+engagement record is written **before** the holder store, so the holder's
+volatile write publishes it (acquire → record → holder → mark re-check);
+alternative: the teardown's release pass derives the presented ordinal from
+the holder value it just read. Affected: F104, D7, F96.
+
+### F116 — F106's `checkOpenness` cap is a plain-field read with no JMM edge from the foreign teardown: "never a fresh one" is best-effort, not structural [MINOR]
+Pass-12 report C40. `checkOpenness` reads `status`, a plain field
+(`DatabaseSessionEmbedded:223`); the foreign teardown writes CLOSED at
+`internalClose:2234` with no synchronization edge to the owner's read (the
+F104 mark is written before the status write and never read by the commit
+path). Under the JMM the owner can pass the gate arbitrarily late and start
+the "fresh" zombie commit the sentence excludes. Contained: the straggler
+serializes behind F52's lock (the property doing the actual exclusion work)
+and operates on a cleared tx (the F85/C32 ground) — but the fresh sentence
+promoted the gate to a named load-bearing property at the fold's own rigor
+standard.
+
+**Resolution (proposed):** one clause — state the cap as best-effort
+(visibility-lagged) with F52's lock scope as the exclusion authority, or
+pin the visibility edge (volatile `status`, or `commitImpl` re-checks the
+already-volatile F104 mark). Affected: F106, D7.
+
+### F117 — The re-keyed Guard (F38) bullet splits mismatch outcomes ("rejected loudly" vs "warn-noops"), contradicting the single warn-log outcome the mechanism specifies [MINOR]
+Pass-12 report C41. The teardown bullet specifies one outcome for all three
+mismatch arms (warn-log, permit untouched); the re-keyed Guard bullet's
+explicit loud-vs-warn contrast implies two. A throw reading is wrong twice
+(the release site is the teardown `finally` — the F97 mask shape; a
+different-session presenter reaches that same site); a warn reading makes
+the contrast empty. The teardown bullet's own pre-existing "rejected
+loudly" sentence carries the same ambiguity, now sharpened at the anchor
+F107 existed to clean.
+
+**Resolution (proposed):** one wording pass — all release-site mismatches
+warn-log and leave the permit untouched; "loud" belongs only to the
+engage-side throw (the F105 predicate). Align both sentences. Affected:
+D7, F107, F97.
+
+### F118 — The F110 relabel is still not context-exact: a pending-field-name state promotes a malformed dump, and the swallow arm's "record object open" proxy does not entail object context [MINOR]
+Pass-12 report U33 (jackson 2.21.4 artifact-verified: `writeEndObject`
+checks only `inObject()`, no dangling-name guard). (1) A failure between
+`writeFieldName` and its value (`DatabaseExport:430`–`:431`, `:437`–`:438`;
+every per-property pair in `recordToJson`) leaves object context with a
+pending name: `close()` succeeds, promotion runs, the dump contains
+`"name":}` — parse-rejected at import (fail-closed) but "holds exactly …
+well-formed" is false for the sub-state. (2) The swallow arm classifies by
+the scope stack, not the innermost context: a swallow mid-embedded-array
+(raw arrays at `JSONSerializerJackson:944`/`:951`/`:958`/`:974`/`:981`)
+strands at array context with a record object open — an abort then does NOT
+promote, while a completing run promotes at exit 0 with later sections
+nested inside the broken record. (3) The array gloss reads as a definition;
+the class is any array scope.
+
+**Resolution (proposed):** the head clause becomes the only classifier,
+proxies demoted to illustrations: object context promotes (including
+pending-field-name, in which case the promoted dump is malformed and
+parse-rejected, not well-formed); the swallow arm conditions on the
+stranded context; the array gloss is marked illustrative. Affected: D20,
+F90, F100, F110.
+
+### F119 — "Two mechanism pins deliver those outcomes" overclaims: the primary-exception outcome is delivered by the suppression discipline, and "trivializes" reads as license to drop it [MINOR]
+Pass-12 report U34. The F109 mechanisms deliver the no-file outcome only;
+the discard path still performs cleanup I/O (generator + gzip/file close,
+`.tmp` delete), and a `finally`-resident cleanup throw replaces the
+in-flight scan failure exactly as the legacy shape does — the live case is
+correlated disk-full. The secondary class narrows to cleanup-I/O failures;
+it does not vanish, and the `addSuppressed` / log-then-rethrow discipline
+(F94 (b)) stays load-bearing.
+
+**Resolution (proposed):** one clause in D20 and the F109 record — the
+mechanism pins deliver the no-file outcome; the primary-exception outcome
+stays delivered by its own suppression discipline (the pin narrows the
+secondary class, it does not trivialize it away). Affected: D20, F109,
+F94.
+
+### F120 — The per-record buffer is unbounded: best-effort reclassifies too-big-to-buffer records as broken, and the OOME class cannot honor "discarded whole" [MINOR]
+Pass-12 report U35. "Record-sized" is unbounded (embedded recursion at
+`JSONSerializerJackson:936`, embedded collections nest, base64 inflates
+4:3); the legacy path streams in O(16 KB), isolation makes the exporter
+O(rendered record) plus a copy. A streamable but unbufferable record fails
+its render: best-effort discards a healthy record as broken (reported, but
+the salvage sheds it); fail-fast aborts every attempt — the next
+migration's exporter cannot export a database the storage handles fine.
+And an `OutOfMemoryError` is an `Error` the per-record catch shape does not
+catch: "discarded whole into `brokenRids`" is undeliverable for that class
+(the run dies with the `.tmp` orphan; fail-closed via
+promote-only-on-success).
+
+**Resolution (proposed):** one sentence on the isolation pin — bound the
+buffer with a stated overflow consequence (spill to a temp file beyond a
+threshold, or oversized-distinct-from-corrupted reporting in best-effort /
+loud abort in fail-fast), and state the O(rendered-record) memory cost as
+accepted. Affected: D20, F109, F94.
+
+### F121 — The F113 sentinel treats "the logger" as one sink, but `LogManager` routes per requester-class category: a sentinel through any other category false-passes [MINOR]
+Pass-12 report U36. `SLF4JLogManager.log` resolves and caches a logger per
+requester class (`:49`–`:64`); every export error line travels the
+`…db.tool.DatabaseExport` category (requester `this` at
+`:152`/`:213`/`:225`/`:281`/`:293`/`:606`); JUL, logback, and log4j2 filter
+and route per category. A sentinel provoked through the embedding tool's
+own class lands in the capture while the `DatabaseExport` category is
+filtered or routed elsewhere — the control passes, the export-time error
+lines vanish, and the empty capture reads as clean: the misrouted-channel
+failure mode one level down. Level direction is safe (a threshold-dropped
+sentinel fails the control); the destination-verification arm inherits the
+same gap.
+
+**Resolution (proposed):** one clause — the sentinel is provoked at error
+level through the export tool's own category
+(`LogManager.error(DatabaseExport.class, …)`), and destination
+verification checks that category's effective destination, not the root's.
+Affected: D20, F94, F102, F113.
+
 ---
 
 ## 3. Decisions
