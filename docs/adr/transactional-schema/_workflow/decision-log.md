@@ -3184,6 +3184,198 @@ single `GZIPOutputStream` over one `FileOutputStream`
 (`DatabaseExport:91`–`:98`), and the importer opens a single
 `GZIPInputStream` (`DatabaseImport:139`).
 
+### F96 — D7's "nothing real is lost" is false on the path pin (1) names: pool shutdown of a held schema tx self-healed under the withdrawn semaphore+token but wedges DDL until restart under the lock, and F92/F79/D7 now disagree on exactly this case [MAJOR]
+Pass-10 report C29. The lock-swap pin's no-loss argument enumerates {routine
+disconnect, wedged owner, dead owner}; the pin's own subject is a fourth case:
+pool shutdown tearing down an abandoned (or any checked-out) session — owner
+thread alive, teardown completed by a live foreign thread.
+`DatabasePoolImpl.close()` → `realClose()` → `internalClose` → `rollback()`
+(`DatabasePoolImpl:125`–`:134`, `DatabaseSessionEmbeddedPooled:58`–`:61`,
+`DatabaseSessionEmbedded:2227`) runs the full rollback and then the outermost
+release on the closing thread. Under the withdrawn F79 design that release
+presents the current token and wins the CAS (F92's own facet-(a) analysis):
+the permit frees, DDL recovers. Under the thread-owned lock the unlock throws,
+is warn-logged, and DDL is down until restart. The primitive choice changes
+the outcome on the one cross-thread teardown class the design keeps. The
+ledger also contradicts itself: F92's resolution rejects the thread-token
+because it "would turn pool-shutdown cleanup … into a permanent mutex wedge"
+and "would forbid `releaseStranded`, the YTDB-1114 reaper's entry point"; two
+commits later D7 adopted a primitive with both properties, and F92 carries no
+correction note (F84/F85 received them in the same settlement).
+
+```mermaid
+flowchart LR
+  PS["pool.close(): foreign thread<br/>completes rollback"] --> REL["outermost release point"]
+  REL -->|"withdrawn semaphore+token"| OK["CAS wins: permit freed,<br/>DDL recovers"]
+  REL -->|"thread-owned lock"| WEDGE["unlock throws: warn-log,<br/>DDL down until restart"]
+```
+
+**Resolution (proposed):** scope the claim honestly rather than re-swap the
+primitive: D7 pin (1) names the downgrade (pool-shutdown teardown of a held
+schema tx trades the semaphore's self-healing release for wedge-until-restart)
+and carries its acceptance rationale (pool shutdown normally precedes process
+exit; explicit YTDB-550 escalation on the warn-log path), F92's resolution
+gains the matching correction note, and F71's "the primitive choice no longer
+changes any outcome" is bounded to the wedged/dead-owner cases. Alternative
+kept available: the pool-shutdown path skips the unlock attempt entirely and
+escalates, making the wedge intentional rather than incidental. Affected: D7,
+F92, F79, F71.
+
+### F97 — The reconciled wiring-pin rationale is backwards: violating throw-before-increment leaks the freezer count permanently (the consequence the fold deleted), and the mask belongs to F87's clean-unwind clause, which D7 never received [MAJOR]
+Pass-10 report C30. `endOperation` has exactly one production caller,
+`endAtomicOperation`'s `finally` (`AtomicOperationsManager:441`–`:443`,
+PSI-verified), and on the frontend-commit path that `finally` guards a try
+entered only after `startTxCommit` (`AbstractStorage:2293`) returned with
+freezer depth already 1. A gate throw after the increment from inside the try
+unwinds through `endOperation()` at depth 1: clean decrement, the gate throw
+propagates unmasked. A throw after the increment but inside `startTxCommit`
+itself (e.g. a probe after `AtomicOperationsManager:107`) never reaches any
+`endOperation` caller: `operationDepth`/`operationsCount` leak permanently,
+every later `startOperation` on that thread takes the depth≠0 fast path
+(`OperationsFreezer:32`) bypassing all gates, and every later
+`freezeOperations` spins forever in the drain loop (`:81`) — `freeze(db)`,
+`doSynch`, and both backup freezes hang storage-wide. That is the "corrupts
+the freezer count" consequence the F93 fold deleted as inaccurate. The mask
+(`IllegalStateException("Invalid operation depth")` replacing the gate throw)
+is reachable only when the gate sits inside the rollback/`endTxCommit`-paired
+try — the placement F87's clean-unwind clause ("`startTxCommit` outside the
+rollback/endTxCommit branch") forbids, and that second clause never made it
+into D7's bullet. The F93/F87 grounding paragraphs describe a
+depth-0-mask-plus-orphaned-increment compound no single misplacement
+produces.
+
+```mermaid
+flowchart LR
+  V1["throw after increment,<br/>inside startTxCommit"] --> LEAK["depth/count leak: gates bypassed<br/>on thread, freezes hang forever"]
+  V2["gate inside rollback/endTxCommit-<br/>paired try (F87 clause violated)"] --> MASK["finally endOperation at depth 0:<br/>IllegalStateException replaces gate throw"]
+```
+
+**Resolution (proposed):** three edits: (1) the increment-ordering pin's
+consequence reverts to "corrupts the freezer count and disables the gate on
+that thread (storage-wide freeze hang)"; (2) D7 gains the missing second
+clause explicitly — `startTxCommit` outside the rollback/`endTxCommit`-paired
+try — with the mask as its consequence; (3) the F93/F87 grounding paragraphs
+are corrected. Acceptance hardening: the triple's first line asserts the
+specific exception (`ModificationOperationProhibitedException`), not just
+"loud error", so a mask cannot pass it. Affected: D7, F87, F93.
+
+### F98 — "Cleared at release" is unconditional while the release can fail: the failed foreign unlock anonymizes the wedged lock and feeds null to the different-session guard [MINOR]
+Pass-10 report C31. D7's holder-diagnostic lifecycle ("written at acquire and
+cleared at release") collides with pin (1)'s failure path: the natural
+implementation clears the field and then fails the unlock, so the F61 re-wait
+diagnostic names nobody for precisely the wedge the operator must diagnose
+until restart, and pin (2)'s engage guard later reads
+`isHeldByCurrentThread() == true` with a null holder when the abandoned tx's
+owner thread starts a new session's schema tx — NPE, or silent admit through
+the reentrant hold count, the exact admit pin (2) exists to reject.
+
+**Resolution (proposed):** one sentence in D7: the holder clear is conditional
+on the unlock succeeding (the foreign path skips both clear and unlock and
+only warn-logs), mirroring the `:954` thread-id gate the same bullet cites;
+the acceptance set gains engage-after-failed-foreign-release. Affected: D7.
+
+### F99 — "No foreign `rollbackInternal` entry exists" overstates the Gremlin-scoped result: the pool-shutdown entry remains, and it closes checked-out sessions, not only abandoned ones [MINOR]
+Pass-10 report C32. F85's fresh correction note states a structural
+impossibility the tree contradicts: the F92 PSI sweep covered `server/src/main`
+Gremlin sites, while core retains the pool-shutdown foreign entry
+(`DatabasePoolImpl:125`–`:134` → the `BEGUN, COMMITTING ->` arm,
+`FrontendTransactionImpl:368`), and `getAllResources()` includes checked-out
+sessions (`ResourcePool:191`–`:195`), so `pool.close()` racing a borrowed
+in-flight commit enters the F85 tear shape with no abandonment involved. The
+scope decision is unaffected (the race ships on `develop` today, rare-event
+class under YTDB-550); the record's wording is the defect.
+
+**Resolution (proposed):** scope F85's sentence to the Gremlin inventory ("no
+Gremlin-side second claimant; the core-side pool-shutdown entry remains the
+documented rare-event path") and widen D7's caller-class wording from
+"abandoned sessions" to "any checked-out session at pool close". Affected:
+F85, D7.
+
+### F100 — The F94 fail-fast abort never promotes a dump: `close()`'s `writeEndObject` throws at records-array context before the rename, so the pinned "promoted dump missing post-`records` sections, hard-failed by section presence" composition does not exist [MAJOR]
+Pass-10 report U24. The fail-fast rethrow lands at the `:221` catch inside the
+open `records` array (`writeEndArray` at `:250` is skipped). The `finally`'s
+`close()` runs `writeEndObject()` first (`DatabaseExport:277`); Jackson's
+writer-based generator rejects end-object at array context ("Current context
+not Object but Array", verified by disassembling the pinned jackson-core
+2.21.4), the `:280` catch rethrows as `DatabaseExportException` (`:284`), and
+the `atomicMoveWithFallback` promotion (`:291`) never runs. The constructor
+pre-deleted the final-name file (`FileUtils:285`), so the abort leaves nothing
+at the final name and the partial data orphaned at `.tmp` — strictly stronger
+fail-closed than the spec's story, but the spec pins an unsatisfiable
+acceptance test whose natural "fix" (soften `close()` to auto-close) would
+ship a weaker exporter. Secondary: the `finally`-thrown close exception
+replaces the root-cause scan failure, which survives only in the `:152` log
+line. Also bounds D20's settled F90 sentence: "a mid-records export failure
+produces a cleanly closed dump at the final name by construction" is true
+only for object-context failures (between sections); for the array-context
+scan-failure class it is false.
+
+```mermaid
+flowchart LR
+  K["record k throws<br/>(fail-fast rethrow at :221)"] --> CL["finally close(): writeEndObject<br/>THROWS at array context (:277)"]
+  CL --> NOFILE["no promotion (:291 unreached):<br/>exit != 0, nothing at final name,<br/>.tmp orphan only"]
+```
+
+**Resolution (proposed):** record the true composition in F94 (b) and D20's
+bullet: a fail-fast abort leaves exit ≠ 0 and no file at the final name (the
+`.tmp` orphan the only residue), with no section-presence involvement; bound
+the F90 sentence to between-section/object-context failures; pin root-cause
+preservation for the new exporter (the abort path attaches the scan failure
+to the propagated exception — `addSuppressed` or log-then-rethrow-original —
+if the legacy `close()` shape is kept); redraw the F94 mermaid. Affected:
+F94, D20, F90.
+
+### F101 — "The importer's sole version branch is `< 14`" is false: nine `exporterVersion` branches exist; the v15 conclusion survives, the audit record does not [MINOR]
+Pass-10 report U25. PSI inventory: nine comparison branches (`:298`/`:313`
+`>= 12`, `:415` `< 14`, `:574` `>= 14`, `:736` `< 11`, `:847` `<= 4`,
+`:866`/`:1001` `<= 13`, `:875` `< 9`). Every branch evaluates identically for
+15 and 14, no branch uses `EXPORTER_VERSION` as an upper bound, and unknown
+`info` fields are skipped (`:418`–`:420`), so the bump stands. The "sole
+branch" record misleads the next bump (15 → 16), and the skip-path evidence
+covers only scalar fields.
+
+**Resolution (proposed):** correct the F94 spot-check paragraph to the full
+inventory; pin the best-effort marker as a scalar `info` field. Affected:
+F94.
+
+### F102 — The export-log review's two signals land in two sinks: count lines on the listener, error lines on the logger — the natural console capture lacks every error line [MINOR]
+Pass-10 report U26. Count lines are `listener.onMessage` output
+(`DatabaseExport:191`–`:196`, `:243`–`:245`); every error line is
+`LogManager.error` output (`:213`, `:225`, `:606`). Where each channel lands
+is decided by the embedding tool, and no operator-facing export CLI exists
+in-tree (PSI: the only production constructor caller is the LDBC benchmark
+helper). An operator reviewing the natural console capture sees
+`OK (records=9990/10000)` against an approximate denominator while the
+disambiguating error line went to the logger channel and is absent from the
+reviewed artifact — the review re-creates in the procedure the single-channel
+blindness F94 found in the exit status.
+
+**Resolution (proposed):** the D20 pin states the review as two captures —
+the tool's listener output and its error log (or one redirected stream) —
+and the review fails when either capture is missing; the migration procedure
+names how the chosen tool captures both. Affected: D20, F94.
+
+### F103 — The fully-consumed gzip check is defeated by the wired decoder stack: the JDK trailer probe eats trailing residue into a dead buffer, and the plain-JSON fallback makes "unconditional" conditional [MINOR]
+Pass-10 report U27. JDK 21's `readTrailer` probes for a concatenated member
+through a `SequenceInputStream` over the inflater's leftover buffer plus the
+stream, swallowing the probe's `IOException`; with `BufferedInputStream`
+under `GZIPInputStream(in, 16384)` (`DatabaseImport:134`–`:143`), trailing
+residue smaller than the final 16 KB fill sits already consumed in the dead
+decoder buffer at end-of-stream, so the natural implementations of the pin
+(stream returns -1 after gzip EOF; raw byte count below the decoder) never
+fire in the pinned window. A sound check needs the inflater arithmetic
+(`getBytesRead()` plus the fixed 10-byte header and 8-byte trailer compared
+against file size, via a `GZIPInputStream` subclass) or a direct framing
+parse. Separately, the constructor's silent plain-JSON fallback
+(`:140`–`:143`) admits an uncompressed dump with the entire gzip validation
+layer absent while the contract text claims whole-stream validation is in
+force.
+
+**Resolution (proposed):** the D20 pin names the measurement
+(inflater-arithmetic subclass or framing parse); the fallback is stated, and
+the migration-path import either rejects non-gzip input or records the
+validation consequence of accepting it. Affected: D20, F95.
+
 ---
 
 ## 3. Decisions
