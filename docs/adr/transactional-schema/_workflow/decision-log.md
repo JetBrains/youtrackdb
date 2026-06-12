@@ -2154,6 +2154,17 @@ ownership semantics enforce the relocated F38 assertion natively. See D7's
 teardown bullet for the two pins that ride the swap (foreign unlock
 warn-logged; different-session-same-thread loud rejection).
 
+**Re-correction (2026-06-12, F96 fold): the pass-9 reversal is itself
+reversed — the mutex is a `Semaphore(1)` with a session-keyed atomic release
+guard; arm (1)'s re-wait loop still stands.** The pass-9 "no remaining
+caller" premise missed the fourth case its own pin named: pool shutdown
+completing a held schema tx's teardown on a foreign thread, where the
+thread-owned lock wedges DDL until restart — and the assignee rejected the
+wedge. Cross-thread releasability has a caller after all: the owning
+session's own teardown executed by the pool-closing thread. F38 enforcement
+moves from lock ownership to the guard's session-identity check. See D7's
+teardown bullet for the full guard semantics.
+
 ### F72 — D7 says genesis never engages the mutex; D18 says the genesis schema tx acquires it — the stale parenthetical breaks D18's seeding if followed [MINOR]
 The F56 fold wrote "(load/reload/genesis paths never engage)" into D7's engage bullet,
 but D18 requires the genesis schema tx to acquire the D7 mutex, seed the tx-local copy,
@@ -2468,12 +2479,15 @@ verification at F92: the graceful kill rolls back on the session's own
 single-thread executor (`YTDBGremlinSession:64`/`:185`) and the forced
 kill releases nothing. With no revoker anywhere, a stale release cannot
 exist, and same-thread double release is already once-only at the tx
-teardown layer. D7 now specifies a thread-owned exclusive write lock with
-a single owner-side release point (the F38 expectation enforced by lock
-ownership; the primitive swap is recorded in the F71 correction) and a
-volatile holder-diagnostic field for F61. The token sketch above remains the recorded design for any future
-mechanism that revokes acquisitions; it becomes load-bearing exactly
-then.
+teardown layer. **Amended per F96 (2026-06-12):** D7 specifies a
+`Semaphore(1)` whose release is a session-keyed atomic compare-and-clear on
+the holder record `(owning session, acquire ordinal)` — the sketch's CAS
+shape above returns with the session as the key, motivated by the
+pool-close double-release race rather than revocation (the pass-9
+thread-owned lock was rejected for wedging `pool.close()`, F96). The
+revocation arm (`releaseStranded`, the epoch-against-reaper semantics)
+stays withdrawn; it becomes load-bearing again only if a future mechanism
+revokes acquisitions.
 
 ### F80 — Structural-id allocation reads the registries F53 defers: any commit creating two or more collections or engines allocates duplicate ids; `fileIdBTreeMap` is a fourth registry missing from F53's list [MAJOR]
 Pass-7 report U12. Both structural-id allocators are reads of the registries F53 defers,
@@ -3030,6 +3044,13 @@ abandoned sessions, `FrontendTransactionImpl:130`–`:133`) stays the
 documented rare-event path under the YTDB-550 monitor and YTDB-1114. F84's
 and F85's resolution records carry matching correction notes.
 
+**Correction (2026-06-12, F96 fold):** the pass-9 lock swap briefly adopted
+exactly the wedge this rejection names — pass 10 caught the contradiction
+(F96), and the assignee rejected the wedge: the mutex is a `Semaphore(1)`
+with a session-keyed atomic release guard, so pool-shutdown cleanup heals
+the mutex and this record's facet-(a) objection is honored by the settled
+design.
+
 ### F93 — "Data commits keep today's uniform park everywhere" misstates the shipped gate: throw-mode freezes throw, and an implementer keeping the stated park turns `freeze(db, true)` into a write hang [MINOR]
 Pass-9 report C28. `OperationsFreezer.startOperation` runs
 `throwFreezeExceptionIfNeeded()` before parking (`OperationsFreezer:35`–`:48`,
@@ -3225,6 +3246,34 @@ kept available: the pool-shutdown path skips the unlock attempt entirely and
 escalates, making the wedge intentional rather than incidental. Affected: D7,
 F92, F79, F71.
 
+**Resolved (2026-06-12): wedge rejected by the assignee — primitive
+re-swapped to `Semaphore(1)` with a session-keyed atomic release guard.**
+Neither registered arm was taken: "we can not tolerate issues with
+`pool.close()`", so the scope-honestly options fell with the wedge itself.
+The settled mechanism: the holder record `(owning session, acquire ordinal)`
+is the authoritative ownership state; release is an atomic
+compare-and-clear presenting the teardown's own session and the
+acquire-time ordinal — only the teardown of the transaction that acquired
+the mutex may release it, from any thread. Pool shutdown executing the
+owning session's teardown therefore heals the mutex (DDL recovers without
+restart); the owner's racing late release loses the CAS and warn-logs (no
+throw — the F97 finally-masking shape — and no over-release: the bare
+semaphore would have admitted two schema txs or freed a successor's hold);
+a different-session release is rejected loudly, carrying F38 as a
+session-identity rule. The CAS atomicity is load-bearing, settled in
+discussion: a check-then-act guard would double-release when the owner's
+`finally` races the pool teardown on the same session. Fold scope: D7
+header and primitive paragraph rewritten with an acceptance pair
+(pool-close heal; race → exactly one release), F71 re-correction, F79
+amendment (the token's CAS shape returns with the session as key; the
+revocation arm stays withdrawn), F92 correction note (its facet-(a) wedge
+objection is honored), F98 dissolved by construction (the holder is cleared
+only by the winning CAS, so no clear-then-fail path exists), and the F99 D7
+wording half ("checked-out", not "abandoned" sessions) rode the teardown
+bullet edit. The wedged/dead-owner scope decision is untouched — absent a
+pool teardown, a stranded holder still means DDL waits and the YTDB-550
+monitor reports.
+
 ### F97 — The reconciled wiring-pin rationale is backwards: violating throw-before-increment leaks the freezer count permanently (the consequence the fold deleted), and the mask belongs to F87's clean-unwind clause, which D7 never received [MAJOR]
 Pass-10 report C30. `endOperation` has exactly one production caller,
 `endAtomicOperation`'s `finally` (`AtomicOperationsManager:441`–`:443`,
@@ -3292,6 +3341,13 @@ the reentrant hold count, the exact admit pin (2) exists to reject.
 on the unlock succeeding (the foreign path skips both clear and unlock and
 only warn-logs), mirroring the `:954` thread-id gate the same bullet cites;
 the acceptance set gains engage-after-failed-foreign-release. Affected: D7.
+
+**Dissolved (2026-06-12, F96 fold):** the re-swap replaces "cleared at
+release" with a session-keyed atomic compare-and-clear — the holder is
+cleared only by the winning CAS that also releases the permit, so a failed
+release can never anonymize a held mutex, and the formerly-failing release
+(pool shutdown) now succeeds by design. No clear-then-fail path remains; the
+F61 diagnostic keeps its holder through every rejected release.
 
 ### F99 — "No foreign `rollbackInternal` entry exists" overstates the Gremlin-scoped result: the pool-shutdown entry remains, and it closes checked-out sessions, not only abandoned ones [MINOR]
 Pass-10 report C32. F85's fresh correction note states a structural
@@ -3526,9 +3582,10 @@ record-level property diff (F43). From the assignee, 2026-06-03.
 
 ### D7 — A dedicated, transaction-scoped metadata-write mutex
 Serialize schema/index-changing txns with a new exclusive lock on the shared
-context / storage — a thread-owned exclusive write lock (`ReentrantLock`-shaped,
-returning to the original sketch: the `Semaphore(1)` + owner-token form served
-the withdrawn cross-thread reaper; pass-9 corrections on F71/F79) — distinct
+context / storage — a `Semaphore(1)` with a session-keyed atomic release guard
+(pass-10 F96: the pass-9 thread-owned lock turned `pool.close()` of a held
+schema tx into a DDL wedge until restart, rejected by the assignee; the F79
+owner-token form served the withdrawn cross-thread reaper) — distinct
 from `stateLock`, `SchemaShared.lock`, and `IndexManager.lock`. From the
 assignee, 2026-06-03.
 
@@ -3597,11 +3654,15 @@ assignee, 2026-06-03.
   `YTDBGremlinSession:64`/`:185`), and `tx()` resolves per-thread
   (`YTDBGraphImplAbstract:219`, `ThreadLocalState` at `:86`), so no site
   can reach another thread's transaction. The remaining cross-thread caller
-  class is pool-shutdown `close()` of abandoned sessions (the
-  `FrontendTransactionImpl:130`–`:133` exemption), where the shipped
+  class is pool-shutdown `close()` of checked-out sessions (the
+  `FrontendTransactionImpl:130`–`:133` exemption; "checked-out", not only
+  "abandoned" — `getAllResources()` includes borrowed sessions,
+  `ResourcePool:191`–`:195`, the F99 widening), where the shipped
   thread-id gate covers the `tsMin` release (`close()` skips `resetTsMin`
-  for foreign threads, `:954`) and the foreign mutex unlock is caught and
-  warn-logged (the lock-swap pin below). A
+  for foreign threads, `:954`) and the mutex release is legitimate under
+  the session-keyed guard (the F96 re-swap below): the closing thread
+  executes the owning session's own teardown, so the guard matches and
+  the mutex heals. A
   stranded tx (owner wedged, dead, or abandoned by a vanished client)
   therefore leaks its pin exactly as on `develop`: the YTDB-550 monitor
   detects and reports it, and reclamation is the postponed reaper's job —
@@ -3624,35 +3685,49 @@ assignee, 2026-06-03.
   its own thread holding its own current acquisition, while a wedged
   owner keeps the mutex and DDL stays loudly unavailable until restart
   (the documented scope decision; 1114 reclaims SI resources, not the
-  mutex). With no revoker, a stale release cannot exist, and the CAS
-  protocol would guard against nothing reachable — so the primitive
-  simplifies one more step (pass-9 settlement, correction on F71): the
-  mutex is a thread-owned exclusive write lock (`ReentrantLock`-shaped),
-  single release point in the owner's outermost teardown `finally`, with
-  the lock's ownership semantics enforcing the F38 same-thread rule
-  natively in production instead of an assert. Two pins ride the
-  primitive. (1) A foreign-thread unlock now throws: the cross-thread
-  `close()` path (pool shutdown of an abandoned session) catches and
-  warn-logs it, and the mutex stays held until restart, uniform with the
-  wedged-owner scope decision. Nothing real is lost: the routine
-  disconnect releases on the owner thread (the Gremlin kill path rolls
-  back on the session's own single-thread executor, F92 ground), and the
-  wedged/dead cases had no foreign-release caller under the semaphore
-  either. (2) Lock reentrancy counts threads, not transactions: the
-  engage path reads the holder field before acquiring and throws loudly
-  when the lock is held by a different session on the current thread —
-  legal embedded session alternation would otherwise be silently
-  admitted by the per-thread hold count (the semaphore variant would
-  have hung forever in the re-wait loop on the same shape, so the guard
-  is owed under either primitive). Same-transaction re-engagement stays
-  once-only via tx state. A volatile holder-diagnostic field (owning
-  session, acquire ordinal) written at acquire and cleared at release
-  feeds the F61 timed-acquire diagnostic and the different-session
-  rejection. The F79 token sketch stays recorded as the design to
-  resurrect if a future mechanism (an operator-level force-release, a
-  revived reaper) ever revokes acquisitions; revocation needs a release
-  that works without the owner's thread, so that world swaps back to a
-  semaphore-plus-token, and the token is load-bearing exactly then. The acquire is timed with a
+  mutex). With no revoker, a stale *revocation-induced* release cannot
+  exist, so the token's revocation arm stays withdrawn — but the CAS form
+  returns with a different key and a different motivation (F96, user
+  decision: a DDL wedge on `pool.close()` is unacceptable). The mutex is
+  a `Semaphore(1)` whose authoritative ownership record is an atomic
+  holder reference `(owning session, acquire ordinal)` written at
+  acquire; the single release point in the outermost teardown `finally`
+  of the owning session's `commit()`/`rollback()` runs a **session-keyed
+  atomic compare-and-clear**: the release site presents its own session
+  (the `this` of the teardown) and the acquire-time ordinal, and only a
+  winning CAS releases the permit — on mismatch (different session,
+  stale ordinal, holder already null) the guard warn-logs and leaves the
+  permit untouched. The guard is thread-independent by construction,
+  which is the point. (1) Pool shutdown executing the owning session's
+  teardown on a foreign thread matches and heals: DDL recovers without a
+  restart. The owner's own late release (it can race the pool teardown
+  on the same session) loses the CAS and no-ops with a warn instead of
+  throwing (a throw from the teardown `finally` would mask the owner's
+  real exception, the F97 shape) or over-releasing (a bare
+  `semaphore.release()` would admit two schema txs or free a successor's
+  hold; the ordinal rejects every stale presenter in every
+  interleaving). The torn-down owner's loud signal stays what it is on
+  develop: its next operation on the closed session throws (the F85/C32
+  pre-existing rare-event ground). A buggy different-session release is
+  rejected loudly — F38's same-thread rule becomes this session-identity
+  rule, enforced by the explicit guard rather than lock ownership
+  (mid-tx thread migration stays scoped out, F13). (2) The engage path
+  reads the holder before acquiring and throws loudly when the mutex is
+  held by a different session on the current thread — otherwise legal
+  embedded session alternation would park the thread on its own hold in
+  the re-wait loop, a self-deadlock. Same-transaction re-engagement
+  stays once-only via tx state. The holder feeds the F61 timed-acquire
+  diagnostic, the engage-side rejection, and the release guard; it is
+  cleared only by a winning CAS, so a failed release can never anonymize
+  a held mutex (F98, dissolved by this construction). Acceptance pair
+  for the re-swap: `pool.close()` over a borrowed session holding an
+  open schema tx → mutex released, next DDL proceeds without restart;
+  owner `finally` racing the pool teardown on the same session → exactly
+  one permit release, the loser warn-logs. The F79 token sketch stays
+  recorded for any future mechanism that revokes acquisitions (an
+  operator-level force-release, a revived reaper): revocation re-creates
+  stale releases from a revoked-but-alive owner, and the epoch-CAS arm
+  is load-bearing exactly then. The acquire is timed with a
   diagnostic naming the holder and **re-waits in a loop** on timeout (never
   aborts; a healthy F48-scale holder is not contention to punish, D5); only
   an operator-level interrupt breaks the wait.
