@@ -390,7 +390,7 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > inFlightLookup liveness, exitCacheCodeUnchecked) are already folded into the
   > Track 2 and Track 3 entries; no new downstream impact.
 
-- [ ] Track 2: Aggregate shapes — side-tap, storage-parity replay, COUNT_DISTINCT
+- [x] Track 2: Aggregate shapes — side-tap, storage-parity replay, COUNT_DISTINCT
   > Adds the `AGGREGATE_*` family on top of Track 1's foundation: the
   > `AggregateCacheTapStep` spliced upstream of aggregation to seed per-RID
   > material, the `AggregateState` with `observe`/`applyMutation`/`copy`/`toResult`,
@@ -398,26 +398,61 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > (SUM/AVG via `PropertyTypeInternal.increment` for storage parity), D20
   > (`COUNT(DISTINCT prop)` via per-value RID buckets), and the D21-collapse
   > membership-based dispatch. Aggregate cache-miss eagerly drives the plan.
-  > **Scope:** ~8 files covering `AggregateState`, `AggregateCacheTapStep`,
-  > `DeltaBuilder` (aggregate path), `ShapeClassifier`/`CachedResultSetView`
-  > aggregate branches, splice + fallback in `DatabaseSessionEmbedded`, and the
-  > per-aggregate-kind I4 + I5-enumeration tests.
-  > **Depends on:** Track 1
-  > **Carried from Track-1 Phase C review (corrected in Track 2 Phase A):** the
-  > per-tx hit/miss/k0/overflow counters already exist in Track 1's
-  > `QueryResultCache`; what remains is the new `incrementSpliceFailures` counter
-  > plus the global `CoreMetrics.QUERY_CACHE_*_RATE` bridge (registered in Track 1
-  > but never incremented) — finalize the global bridge where this track records
-  > aggregate cache hits/misses. The "route every per-RID append through
-  > `CachedEntry.recordPulledRow`" instruction does NOT apply to aggregates:
-  > `recordPulledRow` bounds the single-scalar `results`, whereas aggregate
-  > material lives in `AggregateState`; cap the `AggregateState` collections
-  > instead and route the key non-cacheable on overflow (see track-2.md Plan of
-  > Work step 1 and Decision Log). If the aggregate splice calls
-  > `QueryResultCache.lookup` outside the `cacheCodeDepth` bracket, the
-  > lookup-level `inFlightLookup` guard becomes reachable and needs end-to-end
-  > coverage. Use `exitCacheCodeUnchecked` for any view-owned cross-thread guard
-  > release.
+  >
+  > **Track episode:**
+  > Built the AGGREGATE_* cache path on Track 1's foundation: `AggregateState`
+  > (observe/applyMutation/copy/toResult for all six kinds — SUM/AVG storage
+  > parity via `PropertyTypeInternal.increment`, AVG finalization through
+  > `SQLFunctionAverage.computeAverage`, MIN/MAX extremum-RID transitions,
+  > COUNT_DISTINCT buckets, and a per-state collection cap that routes the key
+  > non-cacheable on overflow), `DeltaBuilder.buildForAggregate`, the
+  > `CachedResultSetView` aggregate path, the `AggregateCacheTapStep` spliced
+  > upstream of `AggregateProjectionCalculationStep`, and the eager-drive plus
+  > uncached fallback in `DatabaseSessionEmbedded`.
+  >
+  > Discoveries with downstream impact:
+  > - `count(distinct(prop))` returns a ROW count in this engine, not a distinct
+  >   count (`SQLFunctionCount` counts every non-null argument; the nested
+  >   `distinct(...)` does not dedup). Routed to K0_NONE so the version gate
+  >   reproduces the engine result exactly; Step 1's distinct-count machinery is
+  >   retained but production-unreached. Phase 4 must reconcile design D20, which
+  >   listed AGGREGATE_COUNT_DISTINCT cacheable.
+  > - Bare and single-field-indexed `COUNT(*)` are hardwired to
+  >   `CountFromClassStep` before any projection step exists: bare `COUNT(*)`
+  >   classifies K0_NONE, indexed `COUNT(*)` rides the splice fallback
+  >   (`incrementSpliceFailures`). Phase 4 must reconcile the design's
+  >   COUNT(*)-cacheable listing.
+  > - The cache package cites design DR/invariant IDs (D7/D8/D11/D18–21,
+  >   I1/I3/I6/I9/I10) in Javadoc, a Track-1 convention. Phase 4 must define these
+  >   in `adr.md` or strip them branch-wide before `_workflow/` is removed.
+  > - `FunctionDeterminismEnumerationTest` walks all four `SQLFunctionFactory`
+  >   implementations and build-fails on any unclassified registered function — a
+  >   build gate any future SQL-function addition trips until the name is
+  >   classified.
+  >
+  > Cross-track impact for Track 3 (MATCH): the `serveThroughCache` gate now
+  > routes RECORD, K0_NONE, and all AGGREGATE_* through separate branches; only
+  > MATCH_TUPLE_MULTI bypasses. Track 3's MATCH branch must follow the same
+  > separate-gate pattern and transfer `viewOwnsGuard` when it builds a
+  > `CachedResultSetView`. The Track-1 cautions carried in correctly: the
+  > `recordPulledRow` cap does not apply to aggregates (the cap targets the
+  > `AggregateState` collections instead), and cross-thread guard release uses
+  > `exitCacheCodeUnchecked`.
+  >
+  > Phase C track-level review (10 dimensional reviewers, one iteration): 19
+  > findings, zero blockers. Six in-scope test-completeness gaps fixed and
+  > verified (Review fix `2a369b1731`): empty-set drain to null/0 across all
+  > kinds, null-property observe/applyMutation skip, MIN/MAX cross-subtype and
+  > non-Number-Comparable comparison, AVG negative-truncation and HALF_UP
+  > boundary, and an evened-out cache-vs-fresh equivalence matrix. One
+  > test-structure finding (an alleged `DbTestBase` double-database setup) was
+  > rejected as a misread — the test extends `Object`. Eleven suggestion-severity
+  > findings were deferred without correctness impact (code-quality polish, two
+  > unreachable null-guard/plan-shape notes, perf micro-optimizations already
+  > logged in the Step 1/3 episodes, test-readability). Two writing-style findings
+  > against immutable episode prose are won't-fix.
+  >
+  > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
 
 - [ ] Track 3: MATCH shapes — Etap A composition, partial Etap B, tombstone floor
   > Adds MATCH caching: Etap A (single-alias) folds to RECORD shape via a stored
