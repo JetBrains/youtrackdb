@@ -14,11 +14,14 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-12T13:30Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-12T14:10Z [ctx=safe] Step 1 complete (commit 0f2834a245)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- `workflow-reindex.py` invocation and `§`-ref gotchas surfaced while adding the `§1.7(k)/(l)` headings: invoke as `--write --files <path>`, keep every `§X.Y` ref inside backticks (rule_8 fails an unresolved bare ref), and keep section-annotation `summary=` fields under 120 chars (rule_5c). Steps that add headings or `§`-refs to a TOC-bearing file (chiefly the step-3 `§1.5` edit and the step-4/5 enumeration flip) should heed these. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Full inline Decision
@@ -66,6 +69,7 @@ summary at Phase C. -->
 - [x] Technical: PASS at iteration 2 (3 findings: T1 should-fix + T2/T3 suggestions; all applied, gate-verified VERIFIED). Load-bearing inventory (54/30/11) and every Interfaces anchor confirmed against the live tree.
 - [x] Risk: PASS at iteration 2 (4 findings: R1/R2 should-fix + R3/R4 suggestions; all applied, gate-verified VERIFIED). Stamp-advance resolution and atomic-flip window confirmed safe; the pinned opt-out marker does not collide with the workflow-modifying prefix.
 - [x] Adversarial: PASS at iteration 2 (4 findings: A1/A2 should-fix + A3/A4 suggestions; all applied, gate-verified VERIFIED). Five-site line-wrap partition confirmed; 28+10+5 arithmetic consistent across Plan-of-Work, Interfaces, D1, and Acceptance.
+- [x] Step 1 dimensional review (prompt-design, `risk: high`): PASS at iteration 1. One Minor finding (WP1: the criteria-switch trigger names the opt-out marker by `§1.7(k)` anchor, not its inlined literal prefix). Declined — inlining the prefix in the three prompts would create a second copy of the pinned string that can drift from `§1.7(k)`, the single-source-of-truth design D6/R2 chose; the blocks correctly parallel the existing anchor-only `§1.7(b)`/`§1.7(d)` references. No blocker/should-fix findings; no fix-respawn.
 
 ## Context and Orientation
 
@@ -100,7 +104,7 @@ Ordering constraints: step 1 before everything else (sanctions live-edit, lands 
 
 ## Concrete Steps
 
-1. Land the `§1.7` opt-out clause + canonical opt-out marker definition (pinned stable prefix `This plan uses the §1.7 prose-rule self-application opt-out:`, matched case-sensitively on the prefix alone) in `conventions.md §1.7`, and extend the three criteria-switch blocks (`technical-review.md:113`, `risk-review.md:110`, `adversarial-review.md:282`) to fire on the workflow-modifying marker prefix OR the opt-out marker prefix — the separate Staged-read blocks stay gated on the workflow-modifying marker only (under the opt-out there is no staging, so live-read is already the default). D6; the branch's first workflow-editing commit; sanctions every later live edit. — risk: high (workflow machinery: edits the `§1.7` staging convention and the reviewer-criteria dispatch)  [ ]
+1. Land the `§1.7` opt-out clause + canonical opt-out marker definition (pinned stable prefix `This plan uses the §1.7 prose-rule self-application opt-out:`, matched case-sensitively on the prefix alone) in `conventions.md §1.7`, and extend the three criteria-switch blocks (`technical-review.md:113`, `risk-review.md:110`, `adversarial-review.md:282`) to fire on the workflow-modifying marker prefix OR the opt-out marker prefix — the separate Staged-read blocks stay gated on the workflow-modifying marker only (under the opt-out there is no staging, so live-read is already the default). D6; the branch's first workflow-editing commit; sanctions every later live edit. — risk: high (workflow machinery: edits the `§1.7` staging convention and the reviewer-criteria dispatch)  [x] commit: 0f2834a245
 2. Add the always-on `## Orientation` section to `house-style.md` (the three moves + the anti-padding clause + the YTDB-1106 F84 passage as positive exemplar), reduce `### Explanatory register` to a design-specific specialization that cross-links up, and land the three reconciliations together: rewrite the `:379` document-shape scoping sentence keyed off its text (not the bare line number, since inserting `## Orientation` shifts every line below it), give `## Orientation` its own finding category, and move the Self-check entry out of item 8's design/ADR bracket to an always-on item. D3; must precede steps 3–5 (the rule must exist before the `§1.5` cell and the ~46 enumerations name it). — risk: medium (workflow machinery: adds a section the `§1.5` row and the enumeration sites cross-reference, and generalizes a cross-linked rule) — size: ~1 file; (a) no mergeable low/medium work fits — steps 1 and 3 are `high` (never merged) and the step-4/5 flip must follow this step, so merging would trip the `~14` overblown line  [ ]
 3. Reconcile `conventions.md §1.5` for the code-comment tier — add `§ Orientation` to the Tier-B table cell, flip the "four Tier-B section names" count sentence (`:568`) to five, place the multi-sentence code-comment restatement (no out-of-file assumptions; gloss the project-specific entity) in `§1.5` prose adjacent to the table rather than the cell, and keep the `:570` rename-enumeration grep four-string (add `## Orientation` only in the anchored form, never bare) — and add `## Orientation` to the hook `tier_b_body` with the same restatement, updating `test_house_style_hook.py`'s pinned section list (`:694-697`) in the same commit so the step stays green. D2; must follow step 2. — risk: high (workflow machinery: edits `house-style-write-reminder.sh`, a hook that runs automatically)  [ ]
 4. Flip the AI-tell subset four→five at the 28 single-line "banned-section heading slugs" blurb sites, pasting the canonical reworded sentence byte-identically. D1; must follow step 2. — risk: low (prose-only workflow edit) — size: ~28 files; over the `~14` line by deliberate decomposer choice — one coherent, mechanical, byte-identical paste, so the overblown line's iteration-cost rationale (iteration count, not file count, is the context driver) does not apply; grouped by edit mechanism so the implementer instruction stays uniform  [ ]
@@ -109,6 +113,21 @@ Ordering constraints: step 1 before everything else (sanctions live-edit, lands 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
 step. Empty at Phase 1. -->
+
+### Step 1 — commit 0f2834a245, 2026-06-12T14:10Z [ctx=safe]
+**What was done:** Added two sub-sections to `conventions.md §1.7`. `(k)` defines the prose-rule self-application opt-out: the consumer-class criteria (no `_workflow/**` schema change; every edited file's consumer is judgment-layer), the canonical opt-out marker with its pinned case-sensitive stable prefix `This plan uses the §1.7 prose-rule self-application opt-out:`, the mutual exclusivity with the workflow-modifying marker, and the mandatory stamp-advance. `(l)` defines the criteria-switch extension. Extended the "Workflow-machinery criteria" block in `technical-review.md`, `risk-review.md`, and `adversarial-review.md` to fire on the `§1.7(b)` workflow-modifying marker prefix OR the `§1.7(k)` opt-out marker prefix; left the three "Staged-read precedence" blocks gated on the workflow-modifying marker only. The TOC gained rows for `(k)` and `(l)` via `workflow-reindex.py`, and the marker spelling landed byte-identical to the plan's own `### Constraints` marker. Step-level prompt-design review passed at iteration 1 (one Minor finding, declined; see `reviews/prompt-design-iter1.md` and `## Outcomes & Retrospective`).
+
+**What was discovered:** The Interfaces parenthetical "(§1.7 + §1.1 glossary land in step 1)" is stale. No authoritative source (D6, design §"The §1.7 opt-out", or the step description) names a §1.1 glossary edit, and §1.1 defines no entry for the workflow-modifying marker or staging — the marker definitions live in §1.7(b)/(k), so there is no symmetry requirement for an opt-out glossary term. The edit was scoped to §1.7 plus the three criteria-switch blocks exactly. The plan's `### Constraints` marker (implementation-plan.md:21) was already byte-identical to the canonical definition, satisfying that acceptance criterion without editing the plan file (the implementer must not).
+
+**What changed from the plan:** none
+
+**Key files:**
+- `.claude/workflow/conventions.md` (modified — §1.7(k)/(l) + TOC rows)
+- `.claude/workflow/prompts/technical-review.md` (modified)
+- `.claude/workflow/prompts/risk-review.md` (modified)
+- `.claude/workflow/prompts/adversarial-review.md` (modified)
+
+**Critical context:** `workflow-reindex.py` traps for later steps that add headings or `§`-refs to a TOC-bearing file. Invoke it as `--write --files <path>`, not positionally; rule_8 fails any bare `§X.Y` token that does not resolve in-file, so keep every `§`-ref inside an inline-backtick span; rule_5c caps section-annotation `summary=` fields at 120 chars. The IDE `applyPatch` DSL can add a leading indent to an inserted multi-line block, so verify column-0 alignment after a block insert.
 
 ## Validation and Acceptance
 
