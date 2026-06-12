@@ -3151,7 +3151,9 @@ exporter does not report" and stays mandatory on every legacy dump (all
 migration dumps are pre-v15 by definition, so F90's observation that the
 deliberate-choice signal is void on the primary path stands). The procedure
 adds an export-log review: per-collection `records=current/total` lines plus
-error lines, stated as a heuristic because the denominator is the storage's
+error lines, captured as two artifacts per F102 (count lines are listener
+output, error lines are logger output; the review fails when either capture
+is missing), stated as a heuristic because the denominator is the storage's
 approximate counter (`PaginatedCollectionStateV2:104`) and a first-fetch
 failure logs nothing. The exit-status pin stays.
 
@@ -3480,6 +3482,13 @@ blindness F94 found in the exit status.
 the tool's listener output and its error log (or one redirected stream) —
 and the review fails when either capture is missing; the migration procedure
 names how the chosen tool captures both. Affected: D20, F94.
+
+**Resolved (2026-06-12): accepted as proposed.** D20's review pin and F94 (a)
+now state the two captures (listener output for the count lines, the error
+log for every error line, or one redirected stream), with the review failing
+when either capture is missing. The no-operator-CLI observation stands
+recorded here: the tool embedding `DatabaseExport` decides the channels, so
+the procedure binds to captures, not to a tool.
 
 ### F103 — The fully-consumed gzip check is defeated by the wired decoder stack: the JDK trailer probe eats trailing residue into a dead buffer, and the plain-JSON fallback makes "unconditional" conditional [MINOR]
 Pass-10 report U27. JDK 21's `readTrailer` probes for a concatenated member
@@ -4482,7 +4491,13 @@ recover.
   while the collection's tail is silently absent; the prior "damage inside
   the final `indexes` section" wording understated this). For legacy dumps
   the procedure adds an export-log review (F94): per-collection
-  `records=current/total` lines and error lines — a heuristic, because the
+  `records=current/total` lines and error lines, captured as two artifacts
+  (F102) — the count lines are listener output (`DatabaseExport:243`–`:245`)
+  while every error line goes to the logger (`:213`/`:225`/`:606`), and the
+  embedding tool decides where each channel lands, so the procedure names
+  both captures (the tool's listener output and its error log, or one
+  redirected stream) and the review fails when either is missing. The
+  review stays a heuristic, because the
   denominator is the storage's approximate counter and a first-fetch failure
   logs nothing. The old code stays as is; instead this branch's new exporter
   is hardened (F94 / YTDB-1115): record-scan failures rethrow by default, an
