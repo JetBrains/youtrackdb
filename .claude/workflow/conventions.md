@@ -1202,7 +1202,8 @@ opt out of the staging machinery and edit `.claude/workflow/**`,
 changes the writing rules, review criteria, or prompt blurbs is held to
 its own changed rules while it runs. The opt-out disables only the
 staging mechanism (write-routing, the pre-commit live-path gate,
-staged-delta prep, the Phase 4 promotion guard); it keeps the
+the Phase C Startup staged-delta prep in track-code-review.md:orchestrator,reviewer-dim-track:3C
+step 8, the Phase 4 promotion guard); it keeps the
 reviewer-criteria re-pointing in (l) on.
 
 **Why an opt-out exists.** Staging keeps live workflow at develop's
@@ -1278,7 +1279,11 @@ after the last commit touching the §1.6(b):orchestrator,planner,migrator:1,3A,3
 (`.claude/workflow`, `.claude/skills`, or `.claude/agents` — live edits
 to files outside that pathspec, for example `house-style.md` or a hook,
 do not advance the stamp base and so do not by themselves gate the
-trigger), run `/migrate-workflow`. On a prose-only opt-out branch the
+trigger), run `/migrate-workflow`. On a multi-track opt-out branch "the
+last commit" is the branch's final pathspec-touching commit across all
+tracks, which may fall in a later track than the one that lands a given
+track's last such commit; Suppress the gate on every intervening session
+and migrate once, after that branch-final commit. On a prose-only opt-out branch the
 replay is a no-op over the artifacts' content and reduces to advancing
 every artifact's stamp to HEAD per the migrate skill's final
 stamp-to-HEAD batch (`migrate-workflow/SKILL.md §4.8`), re-arming the
@@ -1288,9 +1293,9 @@ stamp-advance lands.
 ### (l) Opt-out criteria-switch extension
 <!-- roles=reviewer-technical,reviewer-risk,reviewer-adversarial,orchestrator phases=3A summary="Phase-3A criteria-switch blocks also fire on the opt-out marker; staged-read blocks stay workflow-modifying-only." -->
 
-The three Phase-3A criteria-switch blocks — the "Workflow-machinery
+The three Phase-3A criteria-switch blocks (the "Workflow-machinery
 criteria" block in `technical-review.md`, `risk-review.md`, and
-`adversarial-review.md` — fire when the plan's `### Constraints` carries
+`adversarial-review.md`) fire when the plan's `### Constraints` carries
 **either** the (b) workflow-modifying marker prefix **or** the (k)
 opt-out marker prefix. Both markers signal that the track edits workflow
 prose, so both re-point the review onto the prose criteria (path/anchor
