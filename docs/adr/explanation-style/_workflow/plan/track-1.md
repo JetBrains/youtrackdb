@@ -159,3 +159,7 @@ Window invariant: steps 4–5 land before this track's Phase C, so `review-workf
 **Inter-track dependency**: Track 2 depends on this track — its cold-read block scans the too-terse direction (the `## Orientation` rule must exist) and its live edits rely on the `§1.7` opt-out.
 
 **Sizing justification (argumentation gate, over-ceiling).** This track is ~54 in-scope files, over the ~20-25 split-candidate ceiling. It cannot split further without reopening the four-vs-five window D1 forbids: the subset enumeration must flip atomically, and the `§1.7` opt-out + criteria-switch must land first (D6). The one independently-mergeable seam — the YTDB-1084 over-dense enforcement, which names no subset enumeration — is split off as Track 2.
+
+## Base commit
+
+a743adad35394a48982440b9cf015e32b3b6f1ac
