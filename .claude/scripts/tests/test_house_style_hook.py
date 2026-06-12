@@ -691,6 +691,7 @@ def test_15_captured_fixture_replay() -> List[str]:
 # these slugs silently rots the Tier-B reminder text; the test reads the
 # actual file and asserts each line is present as exact heading text.
 TIER_B_HEADINGS = [
+    "## Orientation",
     "## Banned vocabulary",
     "## Banned sentence patterns",
     "## Banned analysis patterns",

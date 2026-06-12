@@ -564,12 +564,21 @@ scale. Other extensions stay silent.
 |---|---|---|
 | All `*.md` files (design docs, ADRs, plans, track files, reviews, issue and PR bodies, status updates) | Full house-style | Every section of `house-style.md` |
 | PR titles and descriptions, commit message bodies, YouTrack issue bodies | Full house-style | Every section of `house-style.md` |
-| `*.java`, `*.kt` source (code comments, Javadoc rationale) | AI-tell subset | `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` (H3 nested under `§ Punctuation and typography`) |
+| `*.java`, `*.kt` source (code comments, Javadoc rationale) | AI-tell subset | `§ Orientation`, `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` (H3 nested under `§ Punctuation and typography`) |
 | Other extensions | Silent | n/a |
 
-The four Tier-B section names are stable headings after YTDB-836; a
+The five Tier-B section names are stable headings after YTDB-836; a
 future rename in `house-style.md` requires updating every pointer in
 the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
+
+For the `*.java` / `*.kt` Tier-B surface, the `§ Orientation` floor is
+restated: a code-comment reader has the file open by definition, so the
+literal "too terse to follow without opening the code" test does not
+transfer. Instead, rationale comments must not assume context **outside the
+file**: distant call-site behavior, issue history, reviewer-thread knowledge.
+They must gloss the project-specific entity the rationale turns on (a class
+role, an invariant, a RID-layout fact). This bans out-of-file assumptions, not
+in-file terseness; it is not a license to add tutorial comments.
 
 ---
 
