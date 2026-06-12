@@ -138,9 +138,17 @@ graph TD
 
 ## Checklist
 
-- [ ] Track 1: Conventions opt-out, Orientation rule, and the atomic subset sync
+- [x] Track 1: Conventions opt-out, Orientation rule, and the atomic subset sync
   > Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch extensions first (so the branch's own live edits are sanctioned), adds the always-on `## Orientation` rule to `house-style.md` and generalizes `### Explanatory register`, then flips the AI-tell subset four→five across the ~54 sites that name it as a closed set. The subset flip is atomic — the four-vs-five window closes before this track's Phase C (D1).
-  > **Scope:** ~54 files covering the `§1.7` opt-out amendment + three criteria-switch prompts, the `## Orientation` rule + generalization + three reconciliation edits in `house-style.md`, `house-conversation.md` + `conventions.md §1.5` + the hook code-comment restatement, and the ~54-site four→five enumeration flip (30 blurbs, 11 chat blurbs, two closed-set enumerations the narrow grep misses (`commit-conventions.md`, `implementer-rules.md`), two governance greps, two tests, the `ai-tells` catalogue, the `readability-feedback` grep).
+  >
+  > **Track episode:**
+  > Built three layers in order. The `§1.7(k)` opt-out clause and `§1.7(l)` criteria-switch extension in `conventions.md` sanction this branch editing workflow prose live, and the three Phase-3A review prompts now fire their workflow-machinery criteria on the opt-out marker as well as the workflow-modifying marker. `house-style.md` gained an always-on `## Orientation` rule (the too-terse floor) with `### Explanatory register` reduced to a design-specific specialization that links up; the code-comment tier picked up Orientation in `conventions.md §1.5`, the hook `tier_b_body`, and the hook test. The AI-tell subset then moved four→five across all 54 closed-set enumeration sites in one atomic sweep, the four-vs-five window closed before Phase C.
+  >
+  > Discoveries worth carrying forward: `house-style.md:20`'s "four AI-tell sections" count was an unrostered flip site (caught at step 2, flipped at step 5); the hook `tier_b_body` had overrun the documented 500-char cap with no test guarding it (step-3 WH1 fixed it and added a length-budget test); `workflow-reindex.py` invocation plus the `§`-ref-in-backticks and 120-char-summary traps were recorded for later steps touching a TOC-bearing file. Phase C ran one review iteration, zero blockers, and confirmed no four-of-five enumeration survives.
+  >
+  > Cross-track impact: Track 2 depends on this track because the `## Orientation` rule it cold-reads now exists and the `§1.7` opt-out sanctions its live edits. Phase C finding WC1 (the `readability-feedback` audit prompt does not yet name `## Orientation`, so too-terse passages misroute as GAP) was folded into Track 2 as a new step 4, since Track 2 already edits that file. Stamp-advance stays pending: every commit touching `.claude/workflow|skills|agents` advances HEAD past the artifacts' stamp base, so the drift gate fires each session; Suppress is the interim answer until `/migrate-workflow` runs after the branch's last drift-gate-pathspec commit (after Track 2).
+  >
+  > **Track file:** `plan/track-1.md` (5 steps, 0 failed)
 
 - [ ] Track 2: Over-dense prose enforcement (cold-read block + dsc-ai-tell regexes)
   > Adds the YTDB-1084 over-dense enforcement that does not enumerate the subset: a judgment-layer `### Prose AI-tell additions` block in the `design-review.md` cold-read running for both `target=design` and `target=tracks`, plus two `dsc-ai-tell` regexes (inflated-abstraction labels and the "X, not Y" faux-symmetry) with tests. Ships demotable, calibrated against this branch's own authoring.

@@ -12,7 +12,7 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review (PASS at iteration 1)
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-12T13:30Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-12T14:10Z [ctx=safe] Step 1 complete (commit 0f2834a245)
 - [x] 2026-06-12T14:23Z [ctx=safe] Step 2 complete (commit 7829f411cd)
@@ -22,6 +22,7 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 - [x] 2026-06-12T14:53Z [ctx=info] Step implementation complete (all 5 steps [x])
 - [x] 2026-06-12T16:01Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-12T16:05Z [ctx=info] Track-level code review complete (PASS, 1 iteration; all gate-checks VERIFIED)
+- [x] 2026-06-12T16:13Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
