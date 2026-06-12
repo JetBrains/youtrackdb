@@ -2952,13 +2952,15 @@ lands in this branch's new exporter (YTDB-1115), protecting future exports,
 not this migration; a best-effort-marked v15 dump also requires the flag.
 
 **Promotion scope bounded (2026-06-12, F100 fold; qualifier restored per
-F109):** "a mid-records source-side failure yields a well-formed,
-valid-gzip dump at the final name" holds only for failures landing at
-object context — between sections, or after `exportRecord`'s internal
-swallow left a record object open (the arm the F100 fold dropped, restored
-per F109); an array-context failure inside `records` makes `close()`'s
-`writeEndObject` throw before the promotion, so nothing reaches the final
-name. The section-presence closure stands on the object-context class.
+F109; relabeled per F110):** "a mid-records source-side failure yields a
+well-formed, valid-gzip dump at the final name" holds exactly for failures
+that leave the generator at object context — between sections, inside any
+object scope a section opens (`info`, a schema class, an index entry), or
+after `exportRecord`'s internal swallow left a record object open (F109);
+a failure at array context (between entries in
+`collections`/`records`/`indexes`) makes `close()`'s `writeEndObject`
+throw before the promotion, so nothing reaches the final name. The
+section-presence closure stands on the object-context class.
 
 ### F91 — F82's stream-trailer and rename pins under-specify scope and platform degradation [MINOR]
 Pass-8 report U20. Three one-sentence pins on D20's F82 bullet. (1) Stream variant:
@@ -3507,6 +3509,10 @@ generator at object context, after which the abort promotes despite the
 array-context story (F109). The no-file outcome therefore got a mechanism
 instead of an accident: promote-only-on-success plus unconditional
 per-record write isolation, both pinned in D20 at the F109 settlement.
+Relabel (F110): the class is stated generator-context-first — object
+context (between sections, or inside any object scope a section opens)
+promotes; array context (between entries) never does. This record's
+"between-section (object-context)" phrasing reads through that relabel.
 
 ### F101 — "The importer's sole version branch is `< 14`" is false: nine `exporterVersion` branches exist; the v15 conclusion survives, the audit record does not [MINOR]
 Pass-10 report U25. PSI inventory: nine comparison branches (`:298`/`:313`
@@ -3849,10 +3855,27 @@ section-boundary fact: between-entries faults in array sections
 (`collections`/`records`/`indexes`) never promote; mid-section faults inside
 object scopes (`info`, a schema class, an index entry) do.
 
+```mermaid
+flowchart LR
+  LBL["label: 'between-section<br/>(object-context)'"] --> M1["misses: mid-section faults in object<br/>scopes (info, schema class, index entry)<br/>DO promote"]
+  LBL --> M2["overclaims: between-entries faults<br/>in array sections NEVER promote"]
+  FIX["fix: state the class generator-context-first;<br/>array context = the never-promotes label"] -.-> LBL
+```
+
 **Resolution (proposed):** reword both bounding sentences to "failures that
 leave the generator at object context (between sections, or inside any
 object scope a section opens)"; keep "array context" as the never-promotes
 label. Affected: D20, F90, F100.
+
+**Resolved (2026-06-12): accepted as proposed.** Both bounding sentences
+(D20's legacy-dump parenthetical and the F90 record's promotion-scope
+paragraph) now state the class generator-context-first: failures that
+leave the generator at object context — between sections, or inside any
+object scope a section opens (`info`, a schema class, an index entry) —
+promote; array context (between entries in
+`collections`/`records`/`indexes`) is the never-promotes label. F100's
+"between-section (object-context)" phrasing carries a relabel line rather
+than a rewrite.
 
 ### F111 — The F103 "fixed 10-byte header" constant is the JDK writer's shape, not RFC 1952's: a re-gzipped dump falsely fails the arithmetic [MINOR]
 Pass-11 report U30. `gzip`/`pigz` store FNAME by default, so the
@@ -4932,12 +4955,14 @@ recover.
   cleanly-closed-JSON criterion is void in both directions (F90): truncations
   never reach the final name — the exporter writes `<name>.json.gz.tmp` and
   promotes only in `close()` (`DatabaseExport:87`/`:291`), and a truncated
-  gzip throws at import decompression (`DatabaseImport:138`) — while a
-  between-section export failure (object context; bounded per F100 — the
-  array-context mid-records class never promotes, because `writeEndObject`
-  throws first — and re-widened per F109: an `exportRecord` swallow that
-  left a record object open also lands the generator at object context,
-  so that class promotes too) produces a cleanly closed dump at the final name
+  gzip throws at import decompression (`DatabaseImport:138`) — while an
+  export failure that leaves the generator at object context (relabeled
+  per F110: between sections, or inside any object scope a section opens
+  — `info`, a schema class, an index entry — with the F109 `exportRecord`
+  swallow that leaves a record object open landing here too; bounded per
+  F100: the array-context class, between entries in
+  `collections`/`records`/`indexes`, never promotes, because
+  `writeEndObject` throws first) produces a cleanly closed dump at the final name
   by construction, because `exportDatabase`'s `finally` runs `close()` on the
   failure path too (`:157`–`:158`), which writes `writeEndObject` (`:277`),
   auto-closes every open scope, and renames into place. Closure: (c) the
