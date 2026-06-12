@@ -3579,8 +3579,10 @@ validation consequence of accepting it. Affected: D20, F95.
 
 **Resolved (2026-06-12): accepted as proposed; the reject arm chosen for the
 migration path.** D20's pin names the measurement (a `GZIPInputStream`
-subclass comparing `Inflater.getBytesRead()` plus the fixed 10-byte header
-and 8-byte trailer against file size, or a direct framing parse) and forbids
+subclass comparing `Inflater.getBytesRead()` plus the actual parsed header
+length — corrected per F111, the 10-byte form being the JDK writer's
+shape, not RFC 1952's — and the 8-byte trailer against file size, or a
+direct framing parse) and forbids
 stream-exhaustion probes with the reason recorded. The fallback is stated:
 the migration-path import rejects non-gzip input — consistent with the
 branch's fail-closed preference (F96, F100) — while the general import path
@@ -3885,10 +3887,27 @@ bytes. False-failure only (never under-rejects, verified arithmetically);
 `getBytesRead()` itself verified correct on JDK 21, and the counter reset on
 a concatenated member accidentally enforces the F95 single-member pin.
 
+```mermaid
+flowchart LR
+  REGZ["inspect + re-gzip: gzip/pigz<br/>store FNAME (header > 10 bytes)"] --> FALSE["arithmetic counts the surplus as<br/>trailing bytes: valid dump rejected"]
+  FALSE --> ONLY["false-failure only:<br/>never under-rejects"]
+  FIX["fix: parse the actual header length<br/>(walk FLG fields as readHeader does)"] -.-> FALSE
+```
+
 **Resolution (proposed):** the subclass parses the actual header length
 (walk the FLG optional fields, as `readHeader` does), or the constant is
 scoped to JDK-written dumps and D20's re-point-at-original instruction
 extends to re-compressed dumps. Affected: D20, F103, F95.
+
+**Resolved (2026-06-12): arm (a) — parse the actual header length.** The
+F103 subclass walks the FLG optional fields (the same walk `readHeader`
+performs) instead of assuming the JDK writer's 10-byte minimum, so the
+arithmetic still proves exact full consumption while a legitimately
+re-compressed single-member dump no longer false-fails. Arm (b) (scope
+the constant to JDK dumps and procedurally reject re-compressed ones) was
+rejected: it pushes a solvable measurement problem onto the operator. The
+F95 framing pin is untouched — the counter reset on a concatenated member
+keeps enforcing single-member framing.
 
 ### F112 — The best-effort ack gate binds no shipped importer: a truncated v15 salvage dump imports cleanly, flag-free, on every pre-branch binary [MINOR]
 Pass-11 report U31. The same no-upper-bound and scalar-skip facts F101
@@ -4924,8 +4943,12 @@ recover.
   decompression end-of-stream and fails loudly on trailing bytes (an
   unconditional check, not a disabled-by-default `assert`), measured per
   F103 via inflater arithmetic — a `GZIPInputStream` subclass comparing
-  `Inflater.getBytesRead()` plus the fixed 10-byte header and 8-byte
-  trailer against the physical file size — or a direct framing parse,
+  `Inflater.getBytesRead()` plus the actual parsed header length and the
+  8-byte trailer against the physical file size; the header length is
+  parsed by walking the FLG optional fields as `readHeader` does, because
+  the 10-byte form is the JDK writer's shape, not RFC 1952's, and a
+  re-gzipped dump storing FNAME would falsely fail a fixed constant
+  (F111) — or a direct framing parse,
   never via stream-exhaustion probes (the JDK trailer probe consumes
   trailing residue smaller than the final buffer fill into the dead
   decoder buffer, so an exhaustion check passes exactly the window the
