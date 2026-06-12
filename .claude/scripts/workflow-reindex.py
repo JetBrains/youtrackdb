@@ -405,12 +405,19 @@ class ParsedFile:
     lines: List[str]  # newline-stripped
     headings: List[Heading] = field(default_factory=list)
     toc: Optional[TocRegion] = None
-    # Per-line "in fenced code" / "in inline backtick span" flags. True iff
-    # the line (or position within the line) sits inside a fenced or inline
-    # code context — the cross-file and in-file ref validation rules
-    # exclude such ref positions; the `--write` auto-stamp pass skips
-    # them when rewriting.
+    # Per-line "in fenced code" flag. True iff the line sits inside a fenced
+    # code block — the cross-file and in-file ref validation rules exclude
+    # such ref positions; the `--write` auto-stamp pass skips them when
+    # rewriting.
     fenced_lines: List[bool] = field(default_factory=list)
+    # Per-line inline-code-span column ranges, computed across non-fenced
+    # line boundaries by `compute_inline_spans` so a code span that opens on
+    # one line and closes on a later line is detected as one span. Rules 6/8
+    # and the `--write` ref-rewrite pass consult this (via the two scanners)
+    # to exclude refs that sit inside a code span; the per-line
+    # `inline_backtick_spans` primitive alone cannot see cross-line spans —
+    # see `compute_inline_spans` for the line-local failure mode it fixes.
+    inline_spans: List[List[Tuple[int, int]]] = field(default_factory=list)
 
 
 @dataclass
@@ -578,6 +585,98 @@ def position_in_inline_span(spans: Sequence[Tuple[int, int]], pos: int) -> bool:
         if start <= pos < end:
             return True
     return False
+
+
+def compute_inline_spans(
+    lines: Sequence[str], reset_lines: Sequence[bool]
+) -> List[List[Tuple[int, int]]]:
+    r"""Per-line inline-code-span column ranges, with spans that cross line breaks.
+
+    `inline_backtick_spans` is line-local: it matches an opening backtick run
+    against a closing run *on the same line* and leaves an unclosed run as
+    literal text. But a CommonMark code span can span line breaks — a backtick
+    run opens a span that the next equal-length run closes wherever it falls,
+    including on a later line, with interior line breaks treated as ordinary
+    characters. A line-local scan miscounts when a span straddles a newline: on
+    the line carrying the *closer*, the closing run reads as an *opener*,
+    flipping backtick parity for the rest of that line and pushing
+    genuinely-backticked refs outside any detected span. That is the rule-6 /
+    rule-8 false positive (a backticked ref wrongly flagged), and symmetrically
+    a false negative (a real un-backticked violation wrongly skipped when the
+    flip pulls it "inside" a phantom span).
+
+    The fix processes each maximal run of consecutive non-reset lines as one
+    block: concatenate the block with its `\n` separators (so column offsets
+    line up), run the existing `inline_backtick_spans` primitive over the whole
+    block text, then map each resulting span back onto the lines it overlaps.
+
+    `reset_lines[i]` marks a line that interrupts inline parsing and so resets
+    the span carry (the line itself gets an empty span list). The caller passes
+    the block-level structures an inline code span cannot sit inside: fenced
+    code blocks always, plus the TOC table region when `parse_file` builds the
+    mask (`_span_reset_mask`). Resetting at the TOC region stops a stray
+    backtick in a Summary cell from pairing with one in the prose below and
+    swallowing a real ref. An opening run with no equal-length closer anywhere
+    in the block produces no span — the primitive already leaves it literal —
+    so a stray unbalanced backtick cannot swallow the rest of the block.
+
+    Returns a list aligned 1:1 with `lines`; entry `i` holds the `(start, end)`
+    column ranges (0-based, end exclusive, delimiter backticks included) of the
+    code spans overlapping line `i`.
+    """
+    n = len(lines)
+    result: List[List[Tuple[int, int]]] = [[] for _ in range(n)]
+    i = 0
+    while i < n:
+        if reset_lines[i]:
+            i += 1
+            continue
+        # Maximal block of consecutive non-reset lines: [i, k).
+        k = i
+        while k < n and not reset_lines[k]:
+            k += 1
+        # Record each block line's start offset inside the concatenated text
+        # (the same `\n`-joined text fed to the primitive) so spans map back.
+        offsets: List[int] = []
+        pos = 0
+        for bidx in range(i, k):
+            offsets.append(pos)
+            pos += len(lines[bidx])
+            if bidx < k - 1:
+                pos += 1  # the '\n' separator restored by "\n".join below
+        text = "\n".join(lines[i:k])
+        for span_start, span_end in inline_backtick_spans(text):
+            # Distribute the span across every block line it overlaps.
+            for bidx in range(i, k):
+                line_start = offsets[bidx - i]
+                line_end = line_start + len(lines[bidx])  # excludes the '\n'
+                ov_start = max(span_start, line_start)
+                ov_end = min(span_end, line_end)
+                if ov_start < ov_end:
+                    result[bidx].append((ov_start - line_start, ov_end - line_start))
+        i = k
+    return result
+
+
+def _span_reset_mask(
+    lines: Sequence[str],
+    fenced_lines: Sequence[bool],
+    toc: "Optional[TocRegion]",
+) -> List[bool]:
+    """Lines that reset the inline-code-span carry: fenced blocks ∪ the TOC region.
+
+    Both are block-level structures an inline code span cannot cross, so
+    `compute_inline_spans` must not carry an open span across either. The
+    fence mask is the base; the TOC region's `[start_line, end_line]` band
+    (1-based inclusive, matching `_iter_non_fenced_lines`) is layered on top.
+    """
+    mask = list(fenced_lines)
+    if toc is not None:
+        for line_no in range(toc.start_line, toc.end_line + 1):
+            idx = line_no - 1
+            if 0 <= idx < len(mask):
+                mask[idx] = True
+    return mask
 
 
 # ---------------------------------------------------------------------------
@@ -830,6 +929,12 @@ def parse_file(path: Path, repo_root: Path) -> ParsedFile:
     fenced = compute_fenced_lines(lines)
     headings = parse_headings(lines, fenced)
     toc = parse_toc_region(lines, fenced)
+    # Inline-code spans are computed across non-reset line boundaries so a code
+    # span wrapping a newline is detected as one span (see
+    # `compute_inline_spans`). The reset boundaries are fenced blocks plus the
+    # TOC region (both block-level), so the fence mask and TOC region must be
+    # computed first.
+    inline_spans = compute_inline_spans(lines, _span_reset_mask(lines, fenced, toc))
     return ParsedFile(
         path=rel,
         abs_path=path,
@@ -837,6 +942,7 @@ def parse_file(path: Path, repo_root: Path) -> ParsedFile:
         headings=headings,
         toc=toc,
         fenced_lines=fenced,
+        inline_spans=inline_spans,
     )
 
 
@@ -1514,17 +1620,6 @@ def _iter_non_fenced_lines(parsed: ParsedFile) -> Iterable[Tuple[int, str]]:
         yield (line_no, line)
 
 
-def _ref_in_inline_backticks(line: str, col: int, span_end: int) -> bool:
-    """Return True iff `[col, span_end)` overlaps any inline-backtick span."""
-    spans = inline_backtick_spans(line)
-    # A ref is excluded when its starting position OR any character
-    # inside it sits in a backtick span. We use position_in_inline_span
-    # at the start position — every regex match starts past the opening
-    # backtick run of any wrapping span (the regex's own characters
-    # cannot include backticks).
-    return position_in_inline_span(spans, col)
-
-
 def scan_in_file_refs(parsed: ParsedFile) -> List[Tuple[int, int, re.Match]]:
     """Return every in-file `§X.Y(z)` ref outside fenced + inline backtick spans.
 
@@ -1532,12 +1627,22 @@ def scan_in_file_refs(parsed: ParsedFile) -> List[Tuple[int, int, re.Match]]:
     `re.Match` object with named groups `major`, `minor`, `sub` (optional),
     `roles` (optional), and `phases` (optional). `line_no` is 1-based;
     `col` is the 0-based starting column inside the line.
+
+    A ref is excluded when its starting column sits inside a code span. The
+    span set comes from `parsed.inline_spans` (cross-line aware), not a
+    per-line recompute, so a ref backticked by a span that opened on an
+    earlier line is correctly excluded. A regex match never starts on a
+    backtick, so testing the start column is sufficient.
     """
+    assert len(parsed.inline_spans) == len(parsed.lines), (
+        "inline_spans must be computed for every line (build via parse_file)"
+    )
     results: List[Tuple[int, int, re.Match]] = []
     for line_no, line in _iter_non_fenced_lines(parsed):
+        spans = parsed.inline_spans[line_no - 1]
         for m in _IN_FILE_REF_RE.finditer(line):
             col = m.start()
-            if _ref_in_inline_backticks(line, col, m.end()):
+            if position_in_inline_span(spans, col):
                 continue
             results.append((line_no, col, m))
     return results
@@ -1557,17 +1662,21 @@ def scan_cross_file_refs(
     lookahead `(?!:)`. Refs inside fenced + inline-backtick spans are
     excluded; the scanner's caller does not need to re-check.
     """
+    assert len(parsed.inline_spans) == len(parsed.lines), (
+        "inline_spans must be computed for every line (build via parse_file)"
+    )
     stamped: List[Tuple[int, int, re.Match]] = []
     bare: List[Tuple[int, int, re.Match]] = []
     for line_no, line in _iter_non_fenced_lines(parsed):
+        spans = parsed.inline_spans[line_no - 1]
         for m in _CROSS_FILE_REF_RE.finditer(line):
             col = m.start()
-            if _ref_in_inline_backticks(line, col, m.end()):
+            if position_in_inline_span(spans, col):
                 continue
             stamped.append((line_no, col, m))
         for m in _CROSS_FILE_REF_BARE_RE.finditer(line):
             col = m.start()
-            if _ref_in_inline_backticks(line, col, m.end()):
+            if position_in_inline_span(spans, col):
                 continue
             bare.append((line_no, col, m))
     return stamped, bare

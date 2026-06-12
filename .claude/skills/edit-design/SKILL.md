@@ -30,7 +30,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Step 1.5: Distillation (only for `design-sync`) | orchestrator,planner,final-designer | 1,4 | For design-sync only, re-distill the polished design from the current mechanics companion before the cold read. |
 | §Step 2: Determine cold-read scope | orchestrator,planner,final-designer | 1,4 | Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table. |
 | §Step 3: Run mechanical checks | orchestrator,planner,final-designer | 1,4 | Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read. |
-| §Step 4: Run the cold-read sub-agent | orchestrator,planner,final-designer | 1,4 | Spawn the cold-read reviewer over the scoped sections; for phase1-creation it is gated by the S3 log-adversarial freeze order and runs the absorption check. |
+| §Step 4: Run the cold-read sub-agent | orchestrator,planner,final-designer | 1,4 | Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects. |
 | §Step 5: Merge findings | orchestrator,planner,final-designer | 1,4 | Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step. |
 | §Step 6: Iterate | orchestrator,planner,final-designer | 1,4 | Apply fixes and re-run the cold read until findings clear or the iteration cap is reached. |
 | §Step 7: Append to the review log | orchestrator,planner,final-designer | 1,4 | Append the mutation's record to the design-mutations log, which is itself exempt from stamping. |
@@ -592,7 +592,7 @@ the top-level `<dir>/`.
   (`docs/adr/<dir>/_workflow/`) and the log lives at
   `docs/adr/<dir>/_workflow/design-mutations.md`.
 - **For `phase4-creation`** (special case): `design_path =
-  docs/adr/<dir>/`design-final.md` (top-level, intentionally
+  docs/adr/<dir>/design-final.md` (top-level, intentionally
   outside `_workflow/` because `design-final.md` itself is a
   durable artifact). The log path is **not** derived from
   `design_path`'s parent — instead, it is forced to
