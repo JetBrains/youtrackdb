@@ -19,7 +19,7 @@ Close the two prose-quality gaps in the house style (`.claude/output-styles/hous
 ### Constraints
 
 - **Workflow-modifying branch on the `§1.7` opt-out (D6).** Every edit (`.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/output-styles/**`, `.claude/scripts/**`) lands on live paths and self-applies; nothing is staged. The change alters prose rules, prompt text, one reviewer block, and one regex set — it changes no `_workflow/**` artifact schema — so the destabilize-the-branch's-own-machinery hazard `§1.7` staging guards against does not arise.
-- **Atomic subset flip (D1).** The ~50 sites that enumerate the AI-tell subset as a closed set move four→five in one commit, or at minimum inside Track 1 with the four-vs-five window closed before Track 1's Phase C — otherwise `review-workflow-consistency` (which reads cross-file, beyond the diff) flags the inconsistency the branch creates deliberately.
+- **Atomic subset flip (D1).** The ~54 sites that enumerate the AI-tell subset as a closed set move four→five in one commit, or at minimum inside Track 1 with the four-vs-five window closed before Track 1's Phase C — otherwise `review-workflow-consistency` (which reads cross-file, beyond the diff) flags the inconsistency the branch creates deliberately.
 - **Demotable new regexes (D5/A9).** The two `dsc-ai-tell` additions ship at the rule's documented demotable severity, calibrated against the false-positive count observed on this branch's own Phase-4 `design-final.md` authoring (where the live regexes self-apply).
 - **Mandatory stamp-advance (D5/D6).** Committing live `.claude/workflow|skills|agents` edits advances HEAD past the artifacts' stamp base, so the startup drift gate fires every subsequent session. Suppress is the interim answer; after the last workflow-editing commit, run `/migrate-workflow` (a no-op replay over prose-only commits that advances every artifact stamp to HEAD), re-arming the gate for real develop-side drift.
 
@@ -47,7 +47,7 @@ Close the two prose-quality gaps in the house style (`.claude/output-styles/hous
 
 #### Component Map
 
-`house-style.md` is the one rule source. Four readers consume it without restating the rules; ~50 files restate the AI-tell subset's section names inline for per-spawn self-containedness. This change touches the rule source, every reader, and every site that names the subset as a closed set, split across two tracks.
+`house-style.md` is the one rule source. Four readers consume it without restating the rules; ~54 files restate the AI-tell subset's section names inline for per-spawn self-containedness. This change touches the rule source, every reader, and every site that names the subset as a closed set, split across two tracks.
 
 ```mermaid
 graph TD
@@ -56,7 +56,7 @@ graph TD
     HS -->|Track 1| AT["ai-tells skill<br/>(catalogue row)"]
     HS -->|Track 1| HC["house-conversation.md<br/>(chat register four→five)"]
     HS -->|Track 1| HK["house-style-write-reminder.sh<br/>(tier_b_body + code-comment restatement)"]
-    HS -. "subset named inline<br/>Track 1 atomic flip" .-> B50["~50 blurb copies<br/>(agents, prompts, workflow docs,<br/>hook, tests, governance greps)"]
+    HS -. "subset named inline<br/>Track 1 atomic flip" .-> B50["~54 blurb copies<br/>(agents, prompts, workflow docs,<br/>hook, tests, governance greps)"]
     CV -->|Track 1| RP["technical/risk/adversarial-review.md<br/>(criteria-switch + opt-out marker)"]
     HS -->|Track 2| CR["design-review.md cold-read<br/>(+ ### Prose AI-tell additions block)"]
     HS -->|Track 2| DM["dsc-ai-tell in<br/>design-mechanical-checks.py<br/>(+ 2 regexes + tests)"]
@@ -66,13 +66,13 @@ graph TD
 - **`conventions.md` (Track 1).** `§1.5` Tier-B row joins the atomic flip + gains the code-comment restatement; `§1.7` gains the opt-out clause and the distinct opt-out marker.
 - **The four readers (Track 1 + Track 2).** `ai-tells` skill, `house-conversation.md`, and `house-style-write-reminder.sh` adopt the fifth subset member (Track 1); the `design-review.md` cold-read gains the new judgment block and `dsc-ai-tell` gains the regexes (Track 2).
 - **The three Phase-3A criteria-switch prompts (Track 1).** `technical-review.md`, `risk-review.md`, `adversarial-review.md` gain an opt-out-marker trigger so prose-criteria reviews stay on for this all-prose branch.
-- **The ~50 inline copies (Track 1, atomic).** 30 "banned-section heading slugs" blurbs, 11 chat blurbs, two governance greps, the hook, two tests, the `ai-tells` catalogue, the `readability-feedback` grep — all flip four→five together.
+- **The ~54 inline copies (Track 1, atomic).** 30 "banned-section heading slugs" blurbs, 11 chat blurbs, two closed-set enumerations the narrow grep misses (`commit-conventions.md`, `implementer-rules.md`), two governance greps, the hook, two tests, the `ai-tells` catalogue, the `readability-feedback` grep — all flip four→five together.
 
-#### D1: Faithful full sync of the ~50-site subset enumeration
+#### D1: Faithful full sync of the ~54-site subset enumeration
 
-- **Alternatives considered**: (A) faithful full sync — every site becomes five (chosen); (B) centralize-then-add — replace the ~50 duplicated enumerations with one pointer; (C) issue-literal — update only the ~10 sites the issues named.
-- **Rationale**: matches the project's "the canonical subset must move together" discipline. The count bump is **semantic, not numeric** — `## Orientation` is a positive floor, not a ban, so the 30-site "four banned-section slugs" blurb is reworded once canonically and pasted byte-identically. (B) is scope expansion that trades the ~50 inline copies' per-spawn self-containedness for a per-spawn file read; (C) leaves ~40 sites at four-of-five, which `review-workflow-consistency` and the governance greps flag as drift.
-- **Risks/Caveats**: ~50 hand edits, no generator. One chat-blurb site hard-wraps the find string across a line break (`review-workflow-pr/SKILL.md`) and needs a hand-edit. `test_house_style_hook.py` gates the hook's subset list.
+- **Alternatives considered**: (A) faithful full sync — every site becomes five (chosen); (B) centralize-then-add — replace the ~54 duplicated enumerations with one pointer; (C) issue-literal — update only the ~10 sites the issues named.
+- **Rationale**: matches the project's "the canonical subset must move together" discipline. The count bump is **semantic, not numeric** — `## Orientation` is a positive floor, not a ban, so the 30-site "four banned-section slugs" blurb is reworded once canonically and pasted byte-identically. (B) is scope expansion that trades the ~54 inline copies' per-spawn self-containedness for a per-spawn file read; (C) leaves ~40 sites at four-of-five, which `review-workflow-consistency` and the governance greps flag as drift.
+- **Risks/Caveats**: ~54 hand edits, no generator. Three sites escape the narrow `banned-section heading slugs` grep and need hand-edits: `review-workflow-pr/SKILL.md` hard-wraps the find string across a line break, and `commit-conventions.md` and `implementer-rules.md` are closed-set enumerations in differing surrounding sentences. `test_house_style_hook.py` gates the hook's subset list.
 - **Implemented in**: Track 1 (atomic flip)
 - **Full design**: design.md §"Subset sync across ~50 sites"
 
@@ -130,15 +130,15 @@ graph TD
 
 #### Non-Goals
 
-- **Centralizing the ~50-site enumeration** (D1 alternative B) — fixes the duplication root cause but is scope expansion beyond the two issues; a possible follow-up that must start from the per-spawn-self-containedness fork, not just "out of scope."
+- **Centralizing the ~54-site enumeration** (D1 alternative B) — fixes the duplication root cause but is scope expansion beyond the two issues; a possible follow-up that must start from the per-spawn-self-containedness fork, not just "out of scope."
 - **Any `_workflow/**` artifact schema change** — no track-file section, resume-state field, drift-gate format, or stamp format moves (the opt-out's criterion (1)).
 - **Re-running a cold-read on Phase-3 live prose** — the `target=tracks` block is creation-time only; live decision-log / episode prose is held by the always-on subset wiring, not a re-run reviewer.
 
 ## Checklist
 
 - [ ] Track 1: Conventions opt-out, Orientation rule, and the atomic subset sync
-  > Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch extensions first (so the branch's own live edits are sanctioned), adds the always-on `## Orientation` rule to `house-style.md` and generalizes `### Explanatory register`, then flips the AI-tell subset four→five across the ~50 sites that name it as a closed set. The subset flip is atomic — the four-vs-five window closes before this track's Phase C (D1).
-  > **Scope:** ~50 files covering the `§1.7` opt-out amendment + three criteria-switch prompts, the `## Orientation` rule + generalization + three reconciliation edits in `house-style.md`, `house-conversation.md` + `conventions.md §1.5` + the hook code-comment restatement, and the ~50-site four→five enumeration flip (30 blurbs, 11 chat blurbs, two governance greps, two tests, the `ai-tells` catalogue, the `readability-feedback` grep).
+  > Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch extensions first (so the branch's own live edits are sanctioned), adds the always-on `## Orientation` rule to `house-style.md` and generalizes `### Explanatory register`, then flips the AI-tell subset four→five across the ~54 sites that name it as a closed set. The subset flip is atomic — the four-vs-five window closes before this track's Phase C (D1).
+  > **Scope:** ~54 files covering the `§1.7` opt-out amendment + three criteria-switch prompts, the `## Orientation` rule + generalization + three reconciliation edits in `house-style.md`, `house-conversation.md` + `conventions.md §1.5` + the hook code-comment restatement, and the ~54-site four→five enumeration flip (30 blurbs, 11 chat blurbs, two closed-set enumerations the narrow grep misses (`commit-conventions.md`, `implementer-rules.md`), two governance greps, two tests, the `ai-tells` catalogue, the `readability-feedback` grep).
 
 - [ ] Track 2: Over-dense prose enforcement (cold-read block + dsc-ai-tell regexes)
   > Adds the YTDB-1084 over-dense enforcement that does not enumerate the subset: a judgment-layer `### Prose AI-tell additions` block in the `design-review.md` cold-read running for both `target=design` and `target=tracks`, plus two `dsc-ai-tell` regexes (inflated-abstraction labels and the "X, not Y" faux-symmetry) with tests. Ships demotable, calibrated against this branch's own authoring.
@@ -146,7 +146,13 @@ graph TD
   > **Depends on:** Track 1
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: CR1 — corrected the subset-naming-site inventory undercount (governance grep returns 54, not ~50) across `implementation-plan.md` and `plan/track-1.md`, and named the two four-name closed-set flip sites the narrow `banned-section heading slugs` grep misses (`commit-conventions.md:191-194`, line-wrapped; `implementer-rules.md:1102-1105`, variant phrasing) in Track 1's in-scope roster, `## Context and Orientation` inventory, `## Plan of Work` step 4, and D1 risks. Broadened Track 1's acceptance check from the narrow grep (returns 30, silently misses both) to the governance grep + an Orientation-presence check on every closed-set enumeration.
+
+**Escalated (design decisions)**: none.
+
+**Recorded for Phase 4 (`design.md` frozen — not mutated)**: the inventory count reaches `design.md §"Subset sync across ~50 sites"`, which still reads `~50`. Surfaced by both CR1 (consistency, design-side half) and S1 (structural, suggestion). The Phase-4 `design-final.md` reconciliation updates the as-built inventory to 54. The two `**Full design**: design.md §"Subset sync across ~50 sites"` anchors in the plan and `track-1.md` are left verbatim so they keep matching the frozen section title.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
