@@ -10,7 +10,7 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-12T13:30Z [ctx=safe] Review + decomposition complete
@@ -18,6 +18,8 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 - [x] 2026-06-12T14:23Z [ctx=safe] Step 2 complete (commit 7829f411cd)
 - [x] 2026-06-12T14:38Z [ctx=info] Step 3 complete (commit fa26c0fe26; review fix 7cd8fbf97c)
 - [x] 2026-06-12T14:43Z [ctx=info] Step 4 complete (commit e83adc97c6)
+- [x] 2026-06-12T14:53Z [ctx=info] Step 5 complete (commit f713d25385)
+- [x] 2026-06-12T14:53Z [ctx=info] Step implementation complete (all 5 steps [x])
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -113,7 +115,7 @@ Ordering constraints: step 1 before everything else (sanctions live-edit, lands 
 2. Add the always-on `## Orientation` section to `house-style.md` (the three moves + the anti-padding clause + the YTDB-1106 F84 passage as positive exemplar), reduce `### Explanatory register` to a design-specific specialization that cross-links up, and land the three reconciliations together: rewrite the `:379` document-shape scoping sentence keyed off its text (not the bare line number, since inserting `## Orientation` shifts every line below it), give `## Orientation` its own finding category, and move the Self-check entry out of item 8's design/ADR bracket to an always-on item. D3; must precede steps 3–5 (the rule must exist before the `§1.5` cell and the ~46 enumerations name it). — risk: medium (workflow machinery: adds a section the `§1.5` row and the enumeration sites cross-reference, and generalizes a cross-linked rule) — size: ~1 file; (a) no mergeable low/medium work fits — steps 1 and 3 are `high` (never merged) and the step-4/5 flip must follow this step, so merging would trip the `~14` overblown line  [x] commit: 7829f411cd
 3. Reconcile `conventions.md §1.5` for the code-comment tier — add `§ Orientation` to the Tier-B table cell, flip the "four Tier-B section names" count sentence (`:568`) to five, place the multi-sentence code-comment restatement (no out-of-file assumptions; gloss the project-specific entity) in `§1.5` prose adjacent to the table rather than the cell, and keep the `:570` rename-enumeration grep four-string (add `## Orientation` only in the anchored form, never bare) — and add `## Orientation` to the hook `tier_b_body` with the same restatement, updating `test_house_style_hook.py`'s pinned section list (`:694-697`) in the same commit so the step stays green. D2; must follow step 2. — risk: high (workflow machinery: edits `house-style-write-reminder.sh`, a hook that runs automatically)  [x] commit: fa26c0fe26
 4. Flip the AI-tell subset four→five at the 28 single-line "banned-section heading slugs" blurb sites, pasting the canonical reworded sentence byte-identically. D1; must follow step 2. — risk: low (prose-only workflow edit) — size: ~28 files; over the `~14` line by deliberate decomposer choice — one coherent, mechanical, byte-identical paste, so the overblown line's iteration-cost rationale (iteration count, not file count, is the context driver) does not apply; grouped by edit mechanism so the implementer instruction stays uniform  [x] commit: e83adc97c6
-5. Flip the remaining ~18 sites and close the four-vs-five window before Phase C: the 10 single-line chat "AI-tell subset of" blurbs (find/replace pair) + `house-conversation.md` (chat register four→five + the "four → five" count) + the five hand-edit sites (`commit-conventions.md:191-194`, `implementer-rules.md:1102-1105`, `review-workflow-pr/SKILL.md:44-45`, `episode-format-reference.md:42-47`, `step-implementation.md:1036-1040` — each taking the reworded sentence adapted to its surrounding context, not the byte-identical paste) + the `ai-tells` catalogue's new too-terse-fingerprint → `§ Orientation` row + the `readability-feedback/SKILL.md:54` rename-enumeration grep (anchored `## Orientation` only). D1; must follow step 2. — risk: low (prose-only workflow edit) — size: ~18 files; over the `~14` line by deliberate decomposer choice — the heterogeneous but mechanical tail of the same D1 sync, non-iterative, kept in one commit so the window closes atomically  [ ]
+5. Flip the remaining ~18 sites and close the four-vs-five window before Phase C: the 10 single-line chat "AI-tell subset of" blurbs (find/replace pair) + `house-conversation.md` (chat register four→five + the "four → five" count) + the five hand-edit sites (`commit-conventions.md:191-194`, `implementer-rules.md:1102-1105`, `review-workflow-pr/SKILL.md:44-45`, `episode-format-reference.md:42-47`, `step-implementation.md:1036-1040` — each taking the reworded sentence adapted to its surrounding context, not the byte-identical paste) + the `ai-tells` catalogue's new too-terse-fingerprint → `§ Orientation` row + the `readability-feedback/SKILL.md:54` rename-enumeration grep (anchored `## Orientation` only). D1; must follow step 2. — risk: low (prose-only workflow edit) — size: ~18 files; over the `~14` line by deliberate decomposer choice — the heterogeneous but mechanical tail of the same D1 sync, non-iterative, kept in one commit so the window closes atomically  [x] commit: f713d25385
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -171,6 +173,17 @@ step. Empty at Phase 1. -->
 **Key files:** 28 files, byte-identical reworded blurb — 18 review agents under `.claude/agents/` (the `review-*`, `code-reviewer`, `pr-reviewer`, `test-quality-reviewer` set) and 10 workflow prompts under `.claude/workflow/prompts/` (the review and gate-verification prompts). Full list in the commit `e83adc97c6`.
 
 **Critical context:** none
+
+### Step 5 — commit f713d25385, 2026-06-12T14:53Z [ctx=info]
+**What was done:** Flipped the heterogeneous tail of the D1 atomic sync in one commit, closing the four-vs-five window before Phase C. Six parts: (A) the 10 single-line chat "AI-tell subset of" blurbs via a find/replace pair (Orientation appended, "and" not doubled); (B) `house-conversation.md` count four→five plus a fifth `## Orientation` bullet; (C) the five line-wrapped / variant-phrased hand-edit sites (`commit-conventions.md`, `implementer-rules.md`, `review-workflow-pr/SKILL.md`, `episode-format-reference.md`, `step-implementation.md`), each reworded to context and naming `## Orientation`; (D) `house-style.md:20` "reuses the four AI-tell sections" → "five" (the count only; "Four readers" left untouched); (E) a new too-terse fingerprint row in the `ai-tells` catalogue map (a row, not a four→five flip, T2/A4); (F) both governance greps confirmed unchanged and byte-identical (four-string, R1). Verified: the chat FIND string and the literal "banned-section heading slugs" are both gone tree-wide, the governance grep still returns 54 files, and every closed-set enumeration now names `## Orientation`.
+
+**What was discovered:** The plan's verification check cited `conventions.md:570` for the governance grep, but step 3's count-sentence edit shifted it down — the grep command now sits at `:572`. The command is intact and byte-identical to the `readability-feedback/SKILL.md:54` copy, so Part F's "greps unchanged, byte-identical" intent holds; only the line-number anchor drifted.
+
+**What changed from the plan:** none (the `house-style.md:20` flip was the orchestrator-added flip-set item recorded in Surprises at Step 2, not a plan deviation).
+
+**Key files:** 18 files — `house-style.md`, `house-conversation.md`, `ai-tells/SKILL.md`, the 10 single-line chat-blurb files (`dr-audit.md`, four `SKILL.md`, `design-decision-escalation.md`, `inline-replanning.md`, `mid-phase-handoff.md`, `review-iteration.md`, `review-mode.md`, `workflow.md`), and the five hand-edit sites. Full list in commit `f713d25385`.
+
+**Critical context:** This commit advanced HEAD past the `.claude/workflow|skills|agents` stamp base, so the startup drift gate fires next session (expected, D5). Suppress is the interim answer; the principled re-arm is `/migrate-workflow` (a no-op replay reducing to a stamp-to-HEAD advance) after the **last** drift-gate-pathspec commit on the branch — which is after Track 2, not now. The Phase C session should Suppress the drift gate, not migrate yet.
 
 ## Validation and Acceptance
 
