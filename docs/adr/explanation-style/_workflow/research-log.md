@@ -227,32 +227,68 @@ user chose D6's amendment over this).
 
 ### [2026-06-12] [ctx=safe] D6 — Amend §1.7 with a prose-rule self-application opt-out (A1 resolution)
 
-This branch adds an explicit opt-out clause to `conventions.md §1.7` so that
-live-editing is genuinely sanctioned rather than a forfeiture. The clause: a
-workflow-modifying plan **may** skip staging when both hold — (1) it changes no
-`_workflow/**` artifact *schema* (no track-file section set, resume-state-machine
-field, drift-gate format, or stamp format) and (2) self-application of the edits
-during the branch is the intent (the prose-rule / prompt-text case). A plan
-taking the opt-out records it in `### Constraints` (a named opt-out marker, the
-inverse of today's workflow-modifying marker) and **must** advance its artifact
-stamps to HEAD via `/migrate-workflow` after its last workflow-editing commit
-(the A2 drift handling), keeping the drift gate armed for real develop drift.
+This branch adds an explicit opt-out to `conventions.md §1.7` so live-editing is
+genuinely sanctioned. The marker's **two** roles must be separated (A10): the
+§1.7(b) workflow-modifying marker switches on **both** the staging mechanism
+(implementer write-routing, the pre-commit gate, staged-delta prep, the Phase-4
+promotion guard) **and** the reviewer-criteria re-pointing (the
+"Workflow-machinery criteria" blocks at `technical-review.md:113`,
+`risk-review.md:110`, `adversarial-review.md:282`, and the staging-aware path in
+`track-code-review.md:250-260`, which make Phase-3A/Phase-C reviews verify prose
+references as paths/anchors and supersede the Java lenses with the five prose
+criteria). The opt-out must disable the **first** and keep the **second**.
 
-**Why:** It turns the A1 contradiction into a reusable rule and fits the
-branch's theme (it is already rewriting workflow rules). Under live-edit (D5)
-the clause **self-applies immediately**: once committed, this branch's own later
-phases read a §1.7 that authorizes its choice, so no reviewer or gate flags the
-plan for violating a convention it has amended.
-**Risks/Caveats:** The opt-out criteria must stay tight — the schema-change
-exclusion is load-bearing (a branch that does touch artifact schema must still
-stage), and the stamp-advance duty must be mandatory, or the opt-out reintroduces
-the masked-drift hazard A2 names. This is itself a workflow-machinery change to
-§1.7, so it is in the §1.5 / workflow-prose review scope like the rest of the
-branch.
-**Implemented in:** the track that edits `conventions.md` (§1.5 sync + §1.7
-opt-out land together).
-**Alternatives rejected:** user-waiver-only (D5 alternatives — one-off, not
-reusable); leaving §1.7 unchanged and omitting the marker (the A1 violation).
+**Chosen marker shape (A10 shape ii — the lower-surface one).** The opt-out plan
+carries a **distinct opt-out marker** in `### Constraints`, **not** the
+workflow-modifying marker. With the workflow-modifying marker absent, every
+staging-mechanism consumer already defaults to live (write live, no staged
+delta, promotion guard finds no `.claude/` staged subtree and skips) — so the
+staging half needs **no** consumer edits and there is **no bootstrap deadlock**
+(shape i's rider would route its own bootstrap commit into staging via the
+unamended `implementer-rules.md:256-300`). The only rewiring is the
+reviewer-criteria switch: extend the four criteria-switch blocks above to fire
+on the **workflow-modifying marker OR the opt-out marker**, so prose-criteria
+reviews stay on for this all-prose branch. Those four files are review prompts —
+judgment-layer, inside the opt-out's own class (below).
+
+**Opt-out criteria (A12-tightened — consumer class, not intent).** A plan may
+take the opt-out when both hold: (1) it changes no `_workflow/**` artifact
+*schema* (track-file section set, resume-state field, drift-gate format, stamp
+format); **and** (2) every edited file's in-branch consumer is
+**judgment-layer** — style rules, review criteria, prompt blurbs, reviewer
+blocks. Execution-procedure files (`implementer-rules.md` write-routing/gates,
+`step-implementation.md`'s procedure, phase state machines, resume/gate
+protocols) stay staged, or need a per-file justification naming which of the
+branch's own remaining phases consume the edit and why mixed-version execution
+is safe. Intent alone is always claimable; consumer class is checkable. This
+branch's edits are all judgment-layer (the four criteria-switch extensions are
+review prompts), so it qualifies.
+
+**Drift handling (A2).** The opt-out clause records a **mandatory** stamp-advance
+duty: after the last workflow-editing commit, run `/migrate-workflow` (a no-op
+replay over prose-only commits that reduces to advancing every artifact stamp to
+HEAD, §4.8), re-arming the drift gate for real develop drift. Suppress is the
+interim answer until then.
+
+**Landing order (A11).** The §1.7 amendment **and** the four criteria-switch
+extensions land in the branch's **first** workflow-editing commit (the
+conventions track ordered first), so no reviewer ever reads unamended §1.7
+against this plan. Until it lands, the `### Constraints` opt-out note is written
+**self-justifying** — citing D6 and naming the in-flight amendment — so a
+reviewer reading unamended §1.7 (or the Phase-2 consistency review resolving the
+opt-out-clause reference) sees an acknowledged deviation, not a phantom
+reference. Same window class as D1's atomic-sync constraint (A4).
+
+**Why:** Turns the A1 contradiction into a reusable rule and fits the branch
+theme. Under live-edit it self-applies once that first commit lands.
+**Implemented in:** the conventions track, ordered first (§1.5 sync + §1.7
+opt-out + the four criteria-switch extensions land together).
+**Alternatives rejected:** shape (i) keep-marker-plus-rider (needs a bootstrap
+fix and edits to execution-procedure files — `implementer-rules.md`,
+`step-implementation.md` — which criterion (2) says must stay staged, so it is
+self-defeating here); user-waiver-only (one-off, not reusable); leaving §1.7
+unchanged and omitting the marker (the A1 violation, and it silently disables the
+reviewer-criteria switch).
 
 ## Surprises & Discoveries
 
@@ -293,9 +329,13 @@ reusable); leaving §1.7 unchanged and omitting the marker (the A1 violation).
   copy bytes not intent):** *"the five AI-tell subset section slugs to apply
   are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned
   analysis patterns`, `### Em-dash discipline`, and `## Orientation`."* The
-  11-site chat blurb appends `, and `## Orientation`` to its existing list (it
-  does not say "banned-section," so no rewording, just the append + the
-  "four → five" count in `house-conversation.md`).
+  11-site chat blurb does not say "banned-section," so it needs no rewording —
+  just append a fifth list item and bump the "four → five" count in
+  `house-conversation.md`. The append literal (A13 — copy bytes, not the glitch):
+
+  ```
+  , and `## Orientation`
+  ```
 
   No generator emits any of this — `workflow-reindex.py` only rebuilds TOC and
   stamps; only `house-style-write-reminder.sh` holds blurb text (the one
@@ -376,3 +416,17 @@ A1 vs D5 (the "§1.7(b) sanctions marker omission" justification is false — re
 the legitimacy mechanism). Should-fix A2–A6 strengthen/correct D5/D1/D2/D3 rationale
 and record the atomic-sync and code-comment-restatement constraints. Suggestions
 A7–A9. Loops on A1.
+
+### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 0 blocker, 3 should-fix, 1 suggestion
+
+Iteration 2 (verdict-producer). Review file:
+`reviews/research-log-adversarial-iter2.md`. All nine iteration-1 findings
+**VERIFIED** against the files (counts 50/30/11 reproduced; §1.7, migrate-workflow,
+§1.5, house-style.md, design-review.md re-checked). No blocker. Three new
+should-fix on D6's opt-out mechanics (A10 marker drives staging **and**
+reviewer-criteria, so the opt-out must split them; A11 amendment landing order
+unpinned; A12 criterion (2) too broad — admits execution-procedure edits) plus
+one suggestion (A13 backtick collision in S1's append literal). D6 revised to
+adopt the lower-surface marker shape (distinct opt-out marker + four
+criteria-switch extensions), tightened criterion (2) to consumer class, pinned
+the conventions track first, and fixed the append literal. Loops on the should-fix.
