@@ -3756,9 +3756,35 @@ duration. The fused placement (the gate as the kind-aware check inside the
 freezer's own wake loop, re-evaluated per unpark, throwing where `:40`
 throws today) has no window and satisfies all three pins.
 
+```mermaid
+flowchart LR
+  PROBE["compliant pre-call probe<br/>before startTxCommit"] --> WIN["probe-to-startOperation window:<br/>park-mode operator freeze engages"]
+  WIN --> OUT["commit parks at :47 inside the<br/>four-lock window, whole freeze<br/>duration (F86 outage)"]
+  FIX["fix: gate = kind-aware check inside the<br/>wake loop (:35-:50), re-evaluated per<br/>unpark — inside the entrant handshake"] -.-> WIN
+```
+
 **Resolution (proposed):** one clause pinning the gate as the kind-aware
 check inside the freezer's entrant protocol, not a separate pre-call probe.
 Affected: D7, F97, F87.
+
+**Resolved (2026-06-12): accepted as proposed.** D7's freezer bullet gains
+the placement clause: the step-(4) gate is the kind-aware variant of
+`startOperation`'s own check inside the freezer's wake loop, armed only
+for the schema-commit entrant, re-evaluated on every unpark, throwing
+where `:40` throws today — count-balanced by the `:38` decrement and
+before the `:56` depth increment, so all three F97 pins hold by position
+rather than by discipline. The no-window argument is the freezer's own
+Dekker-shaped handshake (the entrant publishes `operationsCount` before
+reading `freezeRequests`; the freezer publishes `freezeRequests` before
+draining the count): either the entrant sees the freeze and throws, or
+the freeze waits for the commit to finish — never a commit parked inside
+the four-lock window. Per-unpark re-evaluation covers the layered case
+(park behind a transient quiesce, operator freeze engages meanwhile,
+wake → throw). A pre-call probe is structurally outside that handshake,
+so no tightening fixes it; the step-(2) zero-lock probe and step-(3)
+timeout re-probes stay best-effort early exits, not the backstop. The
+F97 and F87 records stand unchanged (their pins were correct; the
+placement clause closes the reading they left open).
 
 ### F109 — "No file at the final name" is not an invariant of the specified mechanisms: one swallowed broken record strands the generator at object context and the abort promotes [MAJOR]
 Pass-11 report U28. The fold dropped pass 10's own qualifier ("or after
@@ -4248,7 +4274,22 @@ assignee, 2026-06-03.
   depth-0 `IllegalStateException` replaces the operator-facing gate throw;
   and it lands on the frontend-commit path only
   (the wrapper `calculateInsideAtomicOperation` carries a dormant
-  double-masking cascade). Data commits keep today's gate semantics: park
+  double-masking cascade). Placement (F108): the gate is the kind-aware
+  variant of `startOperation`'s own check inside the freezer's wake loop
+  (`OperationsFreezer:35`–`:50`) — armed only for the schema-commit
+  entrant, re-evaluated on every unpark, throwing where `:40` throws
+  today, count-balanced by the `:38` decrement and still before the
+  `:56` depth increment, so all three pins hold by position. A separate
+  pre-call probe before `startTxCommit` does NOT satisfy the pins: it
+  sits outside the freezer's entrant/freezer handshake (the entrant
+  publishes `operationsCount` before reading `freezeRequests`; the
+  freezer publishes `freezeRequests` before draining the count), so a
+  park-mode operator freeze engaging in the probe-to-`startOperation`
+  window parks the commit at `:47` inside the four-lock window for the
+  freeze's whole duration — the F86 outage the gate exists to prevent.
+  The step-(2) zero-lock entry probe and the step-(3) timeout re-probes
+  stay best-effort early exits, not the backstop. Data commits keep
+  today's gate semantics: park
   for park-mode freezes, throw for throw-mode freezes (F93;
   `OperationsFreezer:40`/`:114`–`:118`, `freeze(db, true)` registers the
   throw supplier, `AbstractStorage:3901`–`:3903`). Acceptance triple: schema
