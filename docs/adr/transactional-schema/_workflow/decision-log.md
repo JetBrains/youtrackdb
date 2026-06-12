@@ -3182,7 +3182,10 @@ deliberate-choice signal is void on the primary path stands). The procedure
 adds an export-log review: per-collection `records=current/total` lines plus
 error lines, captured as two artifacts per F102 (count lines are listener
 output, error lines are logger output; the review fails when either capture
-is missing), stated as a heuristic because the denominator is the storage's
+is missing, and the error capture carries the F113 liveness control — one
+known line provoked through the logger pre-export and confirmed in the
+capture, else an empty capture reads as unverified, not clean), stated as
+a heuristic because the denominator is the storage's
 approximate counter (`PaginatedCollectionStateV2:104`) and a first-fetch
 failure logs nothing. The exit-status pin stays.
 
@@ -3558,6 +3561,12 @@ log for every error line, or one redirected stream), with the review failing
 when either capture is missing. The no-operator-CLI observation stands
 recorded here: the tool embedding `DatabaseExport` decides the channels, so
 the procedure binds to captures, not to a tool.
+
+**Liveness control added (2026-06-12, F113):** an empty error capture is
+indistinguishable from one wired to the wrong sink (a clean export writes
+zero error lines), so the review provokes one known line through the
+logger pre-export and confirms it in the capture; absent the control, an
+empty error capture reads as unverified, not clean.
 
 ### F103 — The fully-consumed gzip check is defeated by the wired decoder stack: the JDK trailer probe eats trailing residue into a dead buffer, and the plain-JSON fallback makes "unconditional" conditional [MINOR]
 Pass-10 report U27. JDK 21's `readTrailer` probes for a concatenated member
@@ -3948,11 +3957,27 @@ error capture is indistinguishable from a capture wired to the wrong sink;
 the listener capture has intrinsic positive controls, the error capture has
 none, and the one-redirected-stream arm inherits the gap.
 
+```mermaid
+flowchart LR
+  EMPTY["error capture is empty"] --> AMB["clean export? or capture wired<br/>to the wrong sink? identical"]
+  AMB --> GAP["listener capture has count lines as<br/>positive control; error capture has none"]
+  FIX["fix: provoke one known logger line pre-export,<br/>confirm in capture; else empty = unverified"] -.-> AMB
+```
+
 **Resolution (proposed):** add a liveness control for the error capture —
 verify the logger destination is the captured artifact, or provoke one known
 line through the logger pre-export and confirm it appears; absent either,
 an empty error capture reads as unverified, not clean. Affected: D20, F94,
 F102.
+
+**Resolved (2026-06-12): accepted as proposed, provoke-sentinel as the
+default arm.** D20's review pin, F94 (a), and F102 carry the liveness
+control: one known line provoked through the logger before the export and
+confirmed in the capture (destination verification allowed where the
+embedding tool supports introspection); absent either, an empty error
+capture reads as unverified, not clean. The listener capture needs no
+control — its per-collection count lines are an intrinsic positive
+signal.
 
 ---
 
@@ -5029,7 +5054,14 @@ recover.
   while every error line goes to the logger (`:213`/`:225`/`:606`), and the
   embedding tool decides where each channel lands, so the procedure names
   both captures (the tool's listener output and its error log, or one
-  redirected stream) and the review fails when either is missing. The
+  redirected stream) and the review fails when either is missing, with a
+  liveness control on the error capture (F113): provoke one known line
+  through the logger before the export and confirm it appears in the
+  capture (or verify the logger destination where the tool supports
+  introspection) — a clean export writes zero error lines, so an empty
+  error capture without the control reads as unverified, not clean; the
+  listener capture needs no control, its count lines being an intrinsic
+  positive signal. The
   review stays a heuristic, because the
   denominator is the storage's approximate counter and a first-fetch failure
   logs nothing. The old code stays as is; instead this branch's new exporter
