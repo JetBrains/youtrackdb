@@ -3158,7 +3158,9 @@ failure logs nothing. The exit-status pin stays.
 (b) **New-exporter hardening (this branch, YTDB-1115).** The `:221` catch
 rethrows by default; an explicit best-effort opt-out restores log-and-continue
 for deliberate salvage of a damaged database; `EXPORTER_VERSION` bumps 14 → 15
-and the opt-out's use is recorded in the dump's `info` section. The
+and the opt-out's use is recorded in the dump's `info` section as a scalar
+field (F101: the importer's unknown-field skip is verified for scalars only,
+`DatabaseImport:418`–`:420`). The
 `brokenRids` path is untouched (those losses are reported in the dump). A
 fail-fast abort leaves exit ≠ 0 and **no file at the final name** (corrected
 per F100: the rethrow strands the generator at array context, `close()`'s
@@ -3179,9 +3181,12 @@ is unchanged.
 Spot-checked at fold time: the catch ladder (`:212`–`:240`,
 `YTIOException`-only rethrow, silent when `rec == null`), `brokenRids`
 population only in `exportRecord` (`:601`), the "OK" listener line
-(`:243`–`:245`), and the importer's sole version branch (`< 14` selects the
-backwards-compat serializer, `DatabaseImport:415`–`:417`, so 15 is accepted
-unchanged).
+(`:243`–`:245`), and the importer's `exporterVersion` branch inventory
+(corrected per F101 — nine comparison branches, not one: `:298`/`:313`
+`>= 12`, `:415` `< 14` backwards-compat serializer, `:574` `>= 14`, `:736`
+`< 11`, `:847` `<= 4`, `:866`/`:1001` `<= 13`, `:875` `< 9`; every branch
+evaluates identically for 15 and 14 and none uses `EXPORTER_VERSION` as an
+upper bound, so 15 is accepted unchanged).
 
 ```mermaid
 flowchart LR
@@ -3453,6 +3458,11 @@ covers only scalar fields.
 **Resolution (proposed):** correct the F94 spot-check paragraph to the full
 inventory; pin the best-effort marker as a scalar `info` field. Affected:
 F94.
+
+**Resolved (2026-06-12): accepted as proposed.** The F94 spot-check paragraph
+records the nine-branch inventory with the no-upper-bound observation, and
+F94 (b) pins the best-effort marker as a scalar `info` field (the
+`:418`–`:420` skip path is verified for scalars only).
 
 ### F102 — The export-log review's two signals land in two sinks: count lines on the listener, error lines on the logger — the natural console capture lacks every error line [MINOR]
 Pass-10 report U26. Count lines are `listener.onMessage` output
