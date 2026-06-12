@@ -11,7 +11,7 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review (PASS at iteration 1)
 - [ ] Track completion
 - [x] 2026-06-12T13:30Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-12T14:10Z [ctx=safe] Step 1 complete (commit 0f2834a245)
@@ -21,6 +21,7 @@ Lands the `§1.7` prose-rule opt-out and the three Phase-3A criteria-switch exte
 - [x] 2026-06-12T14:53Z [ctx=info] Step 5 complete (commit f713d25385)
 - [x] 2026-06-12T14:53Z [ctx=info] Step implementation complete (all 5 steps [x])
 - [x] 2026-06-12T16:01Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-12T16:05Z [ctx=info] Track-level code review complete (PASS, 1 iteration; all gate-checks VERIFIED)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -78,6 +79,7 @@ summary at Phase C. -->
 - [x] Adversarial: PASS at iteration 2 (4 findings: A1/A2 should-fix + A3/A4 suggestions; all applied, gate-verified VERIFIED). Five-site line-wrap partition confirmed; 28+10+5 arithmetic consistent across Plan-of-Work, Interfaces, D1, and Acceptance.
 - [x] Step 1 dimensional review (prompt-design, `risk: high`): PASS at iteration 1. One Minor finding (WP1: the criteria-switch trigger names the opt-out marker by `§1.7(k)` anchor, not its inlined literal prefix). Declined — inlining the prefix in the three prompts would create a second copy of the pinned string that can drift from `§1.7(k)`, the single-source-of-truth design D6/R2 chose; the blocks correctly parallel the existing anchor-only `§1.7(b)`/`§1.7(d)` references. No blocker/should-fix findings; no fix-respawn.
 - [x] Step 3 dimensional review (hook-safety, `risk: high`): PASS at iteration 2. One should-fix finding (WH1: the hook `tier_b_body` grew to 545 chars over the 500-char per-body cap the hook's comment documents as "validated by the test runner," while no test asserted any length budget). Fixed: trimmed `tier_b_body` to 441 chars and added `test_18_reminder_body_length_budget` asserting each body ≤500 and concatenated ≤1500. Gate-verified VERIFIED (suite 18/18).
+- [x] Track-level code review (Phase C): PASS at iteration 1. Workflow-only diff, so the four code-correctness baselines skipped; all six workflow reviewers ran. Two clean (context-budget `NO_BUDGET_IMPACT`; hook-safety 0). Five findings, 0 blockers. **The D1 atomic flip is clean** — `review-workflow-consistency` found no surviving four-of-five enumeration (acceptance grep holds: 54 governance files, 0 `banned-section heading slugs` literal). WS1 (should-fix: two em-dashes in the new §1.7(l) paragraph, over the one-per-paragraph cap — a self-application catch) plus WI1/WI2 (suggestions: §1.7(k) durable-rule precision — the phantom `staged-delta prep` consumer name and the cross-track stamp-advance clause) were fixed in `5a297a0a96`; both gate-checks returned VERIFIED. WC1 (should-fix: the `readability-feedback` audit prompt does not know the new `## Orientation` rule, so too-terse passages misroute as GAP) was deferred to Track 2 as a plan correction — the fix location sits on the Track 1 / Track 2 readability-feedback seam and the reviewer endorsed folding it into Track 2's commit. WP1 (suggestion) was dropped: identical to the step-level WP1 already adjudicated and declined (inlining the marker prefix would create a drift-prone second copy of the pinned string).
 
 ## Context and Orientation
 
