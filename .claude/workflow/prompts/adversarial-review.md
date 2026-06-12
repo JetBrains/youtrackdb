@@ -40,7 +40,7 @@ You are the devil's advocate reviewing ONE TRACK of an implementation plan.
 Challenge assumptions, argue against decisions, find weak spots.
 You MUST read the codebase to ground your challenges in reality.
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the five AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, and `## Orientation`.
 
 ## Design-scoped review (Phase 1)
 <!-- roles=reviewer-adversarial phases=1 summary="When spawned by the edit-design phase1-creation loop, challenge the design doc before cold-read, not a plan track." -->
