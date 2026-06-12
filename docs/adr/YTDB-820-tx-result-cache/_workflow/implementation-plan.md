@@ -453,6 +453,18 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > against immutable episode prose are won't-fix.
   >
   > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1's MATCH-path cautions
+  > (recordPulledRow cap-routing, inFlightLookup liveness,
+  > exitCacheCodeUnchecked) are already folded into Track 3's plan entry.
+  > Track 2 surfaced one new tactical carry-forward not yet in Track 3's
+  > plan: the MATCH branch must follow the `serveThroughCache` separate-gate
+  > pattern and transfer `viewOwnsGuard` when it builds a
+  > `CachedResultSetView`. Folded into Phase A decomposition (Plan-of-Work
+  > steps 5-6), not a replan. Track 2's aggregate-classify discoveries
+  > (count(distinct) row-count semantics, COUNT(*) routing, the
+  > FunctionDeterminismEnumerationTest build gate) are confined to the
+  > aggregate path and do not touch MATCH.
 
 - [ ] Track 3: MATCH shapes — Etap A composition, partial Etap B, tombstone floor
   > Adds MATCH caching: Etap A (single-alias) folds to RECORD shape via a stored
