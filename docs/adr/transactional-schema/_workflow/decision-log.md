@@ -1825,6 +1825,11 @@ racing the engage between permit acquire and holder write) was covered only
 by the withdrawn F79 reap backstop. The F104 engage/teardown handshake in
 D7's teardown bullet closes it structurally.
 
+**Note (2026-06-12, F105):** the timed-acquire diagnostic names the
+holder's acquiring thread (the holder's third member, added by F105),
+giving the operator the thread fact the wedged-vs-dead-owner call acts
+on.
+
 ### F62 — D8 and D15 publish in two steps with two `forceSnapshot`s; the mid-window rebuild can cache a torn class-set/index-set snapshot [MINOR]
 D8 says "promote then forceSnapshot"; D15 says "publish the overlay … then forceSnapshot."
 Implemented as two publish+invalidate pairs, a concurrent `makeSnapshot` (legal mid-commit
@@ -2493,7 +2498,10 @@ pool-close double-release race rather than revocation (the pass-9
 thread-owned lock was rejected for wedging `pool.close()`, F96). The
 revocation arm (`releaseStranded`, the epoch-against-reaper semantics)
 stays withdrawn; it becomes load-bearing again only if a future mechanism
-revokes acquisitions.
+revokes acquisitions. **Amended per F105 (2026-06-12):** the holder
+record is a triple `(owning session, acquire ordinal, acquiring thread)`;
+the thread member feeds the engage guard and the F61 diagnostic only and
+is never compared by the release CAS.
 
 ### F80 — Structural-id allocation reads the registries F53 defers: any commit creating two or more collections or engines allocates duplicate ids; `fileIdBTreeMap` is a fourth registry missing from F53's list [MAJOR]
 Pass-7 report U12. Both structural-id allocators are reads of the registries F53 defers,
@@ -3320,6 +3328,12 @@ window, and the engagement record's survival across `rollbackInternal`'s
 (dead-mark-first teardown, post-acquire re-check, record survival until
 the outermost `finally`); the acceptance pair becomes a triple.
 
+**Extension (2026-06-12, F105):** the holder record gains a third member,
+the acquiring thread — engage-guard and diagnostic input only, never part
+of the release CAS key, so the heal's thread-independence is untouched.
+The two-field shape named in the resolution above is superseded by the
+triple.
+
 ### F97 — The reconciled wiring-pin rationale is backwards: violating throw-before-increment leaks the freezer count permanently (the consequence the fold deleted), and the mask belongs to F87's clean-unwind clause, which D7 never received [MAJOR]
 Pass-10 report C30. `endOperation` has exactly one production caller,
 `endAtomicOperation`'s `finally` (`AtomicOperationsManager:441`–`:443`,
@@ -3607,11 +3621,42 @@ qualifier aborts healthy cross-thread contention (the D5 violation F71 arm
 a mutex-side ThreadLocal breaks on the heal itself. The F61 diagnostic has
 the same gap one severity lower (a wedge report naming no thread).
 
+```mermaid
+flowchart LR
+  PRED["pin (2): throw iff different session<br/>on the CURRENT THREAD"] --> GAP["holder (session, ordinal) carries<br/>no thread: pin unimplementable"]
+  GAP --> SUBS["substitutes misfire: no-qualifier aborts<br/>healthy contention; activeSession dual-<br/>activates; mutex ThreadLocal survives the heal"]
+  FIX["fix: holder gains acquiring thread —<br/>guard+diagnostic input only,<br/>never in the release CAS"] -.-> GAP
+```
+
 **Resolution (proposed):** one field — the holder carries the acquiring
 thread, as guard/diagnostic input only, never compared by the release CAS
 (release stays thread-independent, the point of F96). Pin (2)'s predicate
 becomes `holder.thread == currentThread && holder.session !=
 engagingSession`. Affected: D7, F96, F61.
+
+**Resolved (2026-06-12): accepted as proposed — the holder gains the
+acquiring-thread field.** The holder record is `(owning session, acquire
+ordinal, acquiring thread)`; the thread is engage-guard and diagnostic
+input only, never part of the release CAS key — release stays
+thread-independent, which is what makes the F96 heal work. Pin (2)'s
+predicate is concrete: `holder.thread == currentThread && holder.session
+!= engagingSession` → throw loudly; a different-thread holder parks in
+the re-wait loop (healthy contention, D5); a null holder acquires. The
+accepted consequence, settled in discussion: one thread cannot hold two
+simultaneously open schema-mutating txs over two sessions — parking would
+be a self-deadlock (the release runs in that same thread's outermost
+`finally`), and granting re-entrantly would put two open schema txs into
+the D8 seed/promote machinery built on the one-schema-tx-at-a-time
+invariant. Sequential schema txs on one thread, and data txs alongside a
+held mutex, stay legal; develop's per-operation auto-committed schema ops
+happened to admit the interleaved pattern, so this is a deliberate
+behavior change with a loud, early signal at the second engage. Barrier
+bill: zero new fences — the field rides the existing atomic holder write
+as a member of the immutable record. The F61 timed-acquire diagnostic
+names the acquiring thread (the fact the operator acts on in the
+wedged-vs-dead-owner call). Folds: D7 (holder triple + concrete
+predicate + accepted consequence), F96 and F79 extension notes at their
+holder-definition sites, F61 note.
 
 ### F106 — The heal's exclusion against a still-running commit-phase zombie rests on two unstated properties [MINOR]
 Pass-11 report C35. After a commit-phase teardown (the F99 checked-out
@@ -3960,8 +4005,10 @@ assignee, 2026-06-03.
   returns with a different key and a different motivation (F96, user
   decision: a DDL wedge on `pool.close()` is unacceptable). The mutex is
   a `Semaphore(1)` whose authoritative ownership record is an atomic
-  holder reference `(owning session, acquire ordinal)` written at
-  acquire; the single release point in the outermost teardown `finally`
+  holder reference `(owning session, acquire ordinal, acquiring
+  thread)` written at acquire — the thread member is engage-guard and
+  diagnostic input only, never part of the release CAS key (F105); the
+  single release point in the outermost teardown `finally`
   of the owning session's `commit()`/`rollback()` runs a **session-keyed
   atomic compare-and-clear**: the release site presents its own session
   (the `this` of the teardown) and the acquire-time ordinal, and only a
@@ -3988,10 +4035,17 @@ assignee, 2026-06-03.
   rule, enforced by the explicit guard rather than lock ownership
   (mid-tx thread migration stays scoped out, F13). (2) The engage path
   reads the holder before acquiring and throws loudly when the mutex is
-  held by a different session on the current thread — otherwise legal
-  embedded session alternation would park the thread on its own hold in
-  the re-wait loop, a self-deadlock. Same-transaction re-engagement
-  stays once-only via tx state. (3) The engage/teardown handshake
+  held by a different session on the current thread — the concrete
+  predicate is `holder.thread == currentThread && holder.session !=
+  engagingSession`, reading the holder's thread member (F105) — because
+  otherwise legal embedded session alternation would park the thread on
+  its own hold in the re-wait loop, a self-deadlock. A different-thread
+  holder parks normally in the re-wait loop (healthy contention, D5).
+  The accepted F105 consequence: one thread cannot hold two
+  simultaneously open schema txs over two sessions; sequential schema
+  txs and data txs alongside a held mutex stay legal (develop's
+  per-operation locks happened to admit the interleaved pattern).
+  Same-transaction re-engagement stays once-only via tx state. (3) The engage/teardown handshake
   (F104) closes the mid-flight window: the teardown publishes a
   dedicated volatile teardown-intent mark at `realClose()` entry,
   strictly before its release pass (a separate flag, not a hoisted
