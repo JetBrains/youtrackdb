@@ -3235,6 +3235,12 @@ single `GZIPOutputStream` over one `FileOutputStream`
 (`DatabaseExport:91`–`:98`), and the importer opens a single
 `GZIPInputStream` (`DatabaseImport:139`).
 
+**Measurement named (2026-06-12, F103 fold):** the fully-consumed check is
+pinned to inflater arithmetic or a framing parse — stream-exhaustion probes
+are defeated by the JDK trailer probe — and the plain-JSON fallback is
+stated: rejected on the migration path, recorded as forfeiting the gzip
+layer elsewhere.
+
 ### F96 — D7's "nothing real is lost" is false on the path pin (1) names: pool shutdown of a held schema tx self-healed under the withdrawn semaphore+token but wedges DDL until restart under the lock, and F92/F79/D7 now disagree on exactly this case [MAJOR]
 Pass-10 report C29. The lock-swap pin's no-loss argument enumerates {routine
 disconnect, wedged owner, dead owner}; the pin's own subject is a fourth case:
@@ -3510,6 +3516,15 @@ force.
 (inflater-arithmetic subclass or framing parse); the fallback is stated, and
 the migration-path import either rejects non-gzip input or records the
 validation consequence of accepting it. Affected: D20, F95.
+
+**Resolved (2026-06-12): accepted as proposed; the reject arm chosen for the
+migration path.** D20's pin names the measurement (a `GZIPInputStream`
+subclass comparing `Inflater.getBytesRead()` plus the fixed 10-byte header
+and 8-byte trailer against file size, or a direct framing parse) and forbids
+stream-exhaustion probes with the reason recorded. The fallback is stated:
+the migration-path import rejects non-gzip input — consistent with the
+branch's fail-closed preference (F96, F100) — while the general import path
+keeps the fallback with the forfeited-validation consequence recorded.
 
 ---
 
@@ -4449,7 +4464,20 @@ recover.
   one gzip member (today's writer already is, `DatabaseExport:90`–`:98`),
   the importer verifies the compressed file is fully consumed at
   decompression end-of-stream and fails loudly on trailing bytes (an
-  unconditional check, not a disabled-by-default `assert`), and any future
+  unconditional check, not a disabled-by-default `assert`), measured per
+  F103 via inflater arithmetic — a `GZIPInputStream` subclass comparing
+  `Inflater.getBytesRead()` plus the fixed 10-byte header and 8-byte
+  trailer against the physical file size — or a direct framing parse,
+  never via stream-exhaustion probes (the JDK trailer probe consumes
+  trailing residue smaller than the final buffer fill into the dead
+  decoder buffer, so an exhaustion check passes exactly the window the
+  pin targets). The importer's silent plain-JSON fallback
+  (`DatabaseImport:140`–`:143`) is stated, not assumed away: the
+  migration-path import rejects non-gzip input (an uncompressed dump
+  forfeits the entire gzip validation layer, voiding the contract this
+  pin states; an operator who gunzipped a dump to inspect it re-points
+  at the original), while the general import path keeps the fallback
+  with that consequence recorded. Any future
   flush-per-section or chunked/parallel compression must replace the
   whole-stream validation it invalidates. The manifest and section-presence
   checks remain the independent authority either way. Platform pins (F91): the
