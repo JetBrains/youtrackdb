@@ -3681,8 +3681,28 @@ whole-commit `SchemaShared.lock` scope plus the `checkOpenness` gate —
 neither stated as load-bearing for the heal. A seed-path or gate refactor
 silently re-opens two-writer exposure.
 
+```mermaid
+flowchart LR
+  TD["pool.close() mid-commit:<br/>CAS heals the mutex"] --> NXT["next DDL acquires while the zombie's<br/>commit runs in the four-lock window"]
+  NXT --> EX["exclusion holds via two unstated props:<br/>F52 whole-commit SchemaShared.lock +<br/>checkOpenness caps fresh zombie commits"]
+  FIX["fix: name both as load-bearing<br/>in D7's teardown bullet"] -.-> EX
+```
+
 **Resolution (proposed):** one sentence in D7's teardown bullet naming both
 properties as what the heal's exclusion rests on. Affected: D7, F96, F99.
+
+**Resolved (2026-06-12): accepted as proposed.** D7's teardown bullet now
+names both properties as what the heal's exclusion rests on: the
+successor's seed and commit serialize behind the torn owner's
+still-running commit at F52's whole-commit `SchemaShared.lock` scope (the
+F88 allocator-seed pin inside `stateLock.write` keeping F80 id
+uniqueness), and the `checkOpenness` gate (`commitImpl:3151`) caps the
+overlap at the one zombie commit already in flight. Relaxing either — a
+seed reading outside the schema lock is the named example — re-opens
+two-writer exposure on the heal path. No acceptance change (the triple
+pins permit accounting; the exclusion half is what the new sentence
+protects), and the F96/F99 records stand unchanged (permit accounting and
+reach widening, both untouched by this pin).
 
 ### F107 — Residual thread-owned-lock language survives in four live anchors, including D7's own Guard (F38) bullet mandating the assert the teardown bullet revokes [MINOR]
 Pass-11 report C36. D7's acquire/release bullet still says "assert the
@@ -4079,7 +4099,18 @@ assignee, 2026-06-03.
   hold; the ordinal rejects every stale presenter in every
   interleaving). The torn-down owner's loud signal stays what it is on
   develop: its next operation on the closed session throws (the F85/C32
-  pre-existing rare-event ground). A buggy different-session release is
+  pre-existing rare-event ground). The heal's exclusion against a
+  commit-phase zombie — `pool.close()` tearing down a borrowed session
+  whose owner thread is mid-commit, so the next DDL acquires the healed
+  mutex while that commit still runs inside the four-lock window — rests
+  on two load-bearing properties (F106): the successor's seed and commit
+  serialize behind the zombie's remaining commit at F52's whole-commit
+  `SchemaShared.lock` scope (the F88 allocator-seed pin inside
+  `stateLock.write` keeps F80 id uniqueness), and the `checkOpenness`
+  gate (`commitImpl:3151`) caps the overlap at the one zombie commit
+  already in flight, never a fresh one. Relaxing either — e.g. a future
+  seed that reads outside the schema lock — re-opens two-writer exposure
+  on the heal path. A buggy different-session release is
   rejected loudly — F38's same-thread rule becomes this session-identity
   rule, enforced by the explicit guard rather than lock ownership
   (mid-tx thread migration stays scoped out, F13). (2) The engage path
