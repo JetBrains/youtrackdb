@@ -18,10 +18,12 @@ Close the two prose-quality gaps in the house style (`.claude/output-styles/hous
 
 ### Constraints
 
+This plan uses the §1.7 prose-rule self-application opt-out: it edits judgment-layer workflow prose live instead of staging.
+
 - **Workflow-modifying branch on the `§1.7` opt-out (D6).** Every edit (`.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, `.claude/output-styles/**`, `.claude/scripts/**`) lands on live paths and self-applies; nothing is staged. The change alters prose rules, prompt text, one reviewer block, and one regex set — it changes no `_workflow/**` artifact schema — so the destabilize-the-branch's-own-machinery hazard `§1.7` staging guards against does not arise.
 - **Atomic subset flip (D1).** The ~54 sites that enumerate the AI-tell subset as a closed set move four→five in one commit, or at minimum inside Track 1 with the four-vs-five window closed before Track 1's Phase C — otherwise `review-workflow-consistency` (which reads cross-file, beyond the diff) flags the inconsistency the branch creates deliberately.
 - **Demotable new regexes (D5/A9).** The two `dsc-ai-tell` additions ship at the rule's documented demotable severity, calibrated against the false-positive count observed on this branch's own Phase-4 `design-final.md` authoring (where the live regexes self-apply).
-- **Mandatory stamp-advance (D5/D6).** Committing live `.claude/workflow|skills|agents` edits advances HEAD past the artifacts' stamp base, so the startup drift gate fires every subsequent session. Suppress is the interim answer; after the last workflow-editing commit, run `/migrate-workflow` (a no-op replay over prose-only commits that advances every artifact stamp to HEAD), re-arming the gate for real develop-side drift.
+- **Mandatory stamp-advance (D5/D6).** Committing live `.claude/workflow|skills|agents` edits advances HEAD past the artifacts' stamp base, so the startup drift gate fires every subsequent session. Suppress is the interim answer; after the last commit touching the drift-gate pathspec (`.claude/workflow`, `.claude/skills`, or `.claude/agents` — out-of-pathspec edits to `house-style.md`, the hook, or the test do not advance the stamp base, R4), run `/migrate-workflow` (a no-op replay over prose-only commits that advances every artifact stamp to HEAD), re-arming the gate for real develop-side drift.
 
 > **`§1.7` opt-out note — load-bearing for every reviewer of this plan (D6, A14).**
 > This plan takes the `§1.7` prose-rule self-application opt-out instead of the
