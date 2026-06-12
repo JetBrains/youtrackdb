@@ -1819,6 +1819,12 @@ flowchart LR
   FIX["fix: release on session-close/reap + timed acquire"] -.-> HELD
 ```
 
+**Note (2026-06-12, F104):** the session-close release pinned here assumed
+the teardown always finds the engagement; the mid-flight window (teardown
+racing the engage between permit acquire and holder write) was covered only
+by the withdrawn F79 reap backstop. The F104 engage/teardown handshake in
+D7's teardown bullet closes it structurally.
+
 ### F62 — D8 and D15 publish in two steps with two `forceSnapshot`s; the mid-window rebuild can cache a torn class-set/index-set snapshot [MINOR]
 D8 says "promote then forceSnapshot"; D15 says "publish the overlay … then forceSnapshot."
 Implemented as two publish+invalidate pairs, a concurrent `makeSnapshot` (legal mid-commit
@@ -3306,6 +3312,14 @@ bullet edit. The wedged/dead-owner scope decision is untouched — absent a
 pool teardown, a stranded holder still means DDL waits and the YTDB-550
 monitor reports.
 
+**Extension (2026-06-12, F104):** the heal above is keyed on the release
+pass finding a fully recorded engagement; pass 11 showed the unspecified
+engage/teardown ordering re-creates the rejected wedge in the mid-flight
+window, and the engagement record's survival across `rollbackInternal`'s
+`clear()` was never pinned. Both are closed by the F104 handshake
+(dead-mark-first teardown, post-acquire re-check, record survival until
+the outermost `finally`); the acceptance pair becomes a triple.
+
 ### F97 — The reconciled wiring-pin rationale is backwards: violating throw-before-increment leaks the freezer count permanently (the consequence the fold deleted), and the mask belongs to F87's clean-unwind clause, which D7 never received [MAJOR]
 Pass-10 report C30. `endOperation` has exactly one production caller,
 `endAtomicOperation`'s `finally` (`AtomicOperationsManager:441`–`:443`,
@@ -3539,6 +3553,13 @@ engagement record's survival across `rollbackInternal`'s `clear()`/`close()`
 wipes until the outermost `finally` consumes it — wiped early, the normal
 heal presents nothing and wedges. The acceptance pair tests neither.
 
+```mermaid
+flowchart LR
+  MID["engage mid-flight: permit acquired,<br/>holder not yet written"] --> MISS["one-shot pool.close() release<br/>pass finds no engagement"]
+  MISS --> WEDGE["owner completes acquire on closed<br/>session: checkOpenness locks out the<br/>release point; permit leaked"]
+  FIX["fix: teardown dead-mark before release pass +<br/>engage post-acquire re-check (store/load pair)"] -.-> WEDGE
+```
+
 **Resolution (proposed):** pin the handshake — the teardown marks the session
 dead first and the engage path re-checks after acquiring (release the permit
 and throw on a closed session), or pin the engage order
@@ -3548,6 +3569,33 @@ half-engaged state; pin that the engagement record survives
 acceptance line — `pool.close()` racing the engage → either the tx aborts
 loudly with the permit released or the heal completes, never a held permit
 with no releaser. Affected: D7, F96, F61.
+
+**Resolved (2026-06-12): shape (a) accepted — dead-mark-first teardown plus
+post-acquire re-check, a store/load (Dekker) pair.** The teardown publishes
+a dedicated volatile teardown-intent mark at `realClose()` entry, before its
+release pass. A separate flag, not a hoisted `STATUS.CLOSED`: `realClose()`
+runs `rollbackInternal` before `internalClose` sets CLOSED, and an early
+CLOSED would trip `checkOpenness` inside the teardown's own rollback. The
+engage path writes the holder after the permit acquire, then re-checks the
+mark; on a marked session it self-releases through the session-keyed CAS
+and throws. Store-then-load on both sides guarantees at least one side sees
+the other: a teardown that misses the half-written engagement is seen by
+the engage's re-check (self-release + throw); an engage that misses the
+mark is seen by the release pass (normal heal); both seeing is benign, the
+second release loses the CAS and warn-noops. Shape (b)
+(record-then-acquire-then-holder plus a teardown-side rule) was rejected:
+its "record exists, permit not yet acquired" phantom state re-derives the
+same handshake with more states. Both riders pinned: the engagement record
+(the presented acquire-time ordinal) survives `rollbackInternal`'s
+`clear()`/`close()` wipes until the outermost `finally` consumes it, and
+the acceptance pair becomes a triple (third line: `pool.close()` racing the
+engage → either the tx aborts loudly with the permit released or the heal
+completes, never a held permit with no releaser). Barrier bill recorded in
+D7: one volatile read per DDL engage (the holder write exists already per
+F96), one volatile write per session teardown, data paths untouched. Folds:
+D7 teardown bullet (handshake clause, record-survival sentence, acceptance
+triple), F96 extension note, F61 note (the withdrawn F79 reap backstop that
+covered this window is replaced structurally by the handshake).
 
 ### F105 — The holder record lacks the thread identity pin (2)'s engage guard requires; the pass-9 lock supplied it natively, and all three natural substitutes misfire [MAJOR]
 Pass-11 report C34. Pin (2)'s predicate is "different session **on the
@@ -3919,7 +3967,12 @@ assignee, 2026-06-03.
   (the `this` of the teardown) and the acquire-time ordinal, and only a
   winning CAS releases the permit — on mismatch (different session,
   stale ordinal, holder already null) the guard warn-logs and leaves the
-  permit untouched. The guard is thread-independent by construction,
+  permit untouched. The session/tx-side engagement state carrying the
+  presented acquire-time ordinal survives `rollbackInternal`'s `clear()`
+  and `close()`'s field wipes until the outermost `finally` consumes it
+  (F104): wiped early, the heal would present nothing, warn-noop, and
+  wedge the mutex on the very path the guard exists to heal. The guard
+  is thread-independent by construction,
   which is the point. (1) Pool shutdown executing the owning session's
   teardown on a foreign thread matches and heals: DDL recovers without a
   restart. The owner's own late release (it can race the pool teardown
@@ -3938,14 +3991,37 @@ assignee, 2026-06-03.
   held by a different session on the current thread — otherwise legal
   embedded session alternation would park the thread on its own hold in
   the re-wait loop, a self-deadlock. Same-transaction re-engagement
-  stays once-only via tx state. The holder feeds the F61 timed-acquire
+  stays once-only via tx state. (3) The engage/teardown handshake
+  (F104) closes the mid-flight window: the teardown publishes a
+  dedicated volatile teardown-intent mark at `realClose()` entry,
+  strictly before its release pass (a separate flag, not a hoisted
+  `STATUS.CLOSED` — `realClose()` runs `rollbackInternal` before
+  `internalClose` sets CLOSED, and an early CLOSED would trip
+  `checkOpenness` inside the teardown's own rollback); the engage path,
+  after acquiring the permit and writing the holder, re-checks the
+  mark, and on a marked session self-releases through the same
+  session-keyed CAS and throws. Both sides are store-then-load, so at
+  least one sees the other: a teardown that misses a half-written
+  engagement is seen by the engage's re-check (self-release + throw),
+  an engage that misses the mark is seen by the release pass (normal
+  heal), and both seeing is benign because the second release loses
+  the CAS and warn-noops. Without the handshake, the one-shot
+  `pool.close()` (`DatabasePoolImpl:125`–`:134`, no retry) racing a
+  mid-flight acquire finds nothing to release while the owner
+  completes the acquire on a closed session and is locked out of the
+  release point by `checkOpenness` (`:3151`/`:3256`): a held permit
+  with no releaser. Barrier bill: one volatile read per DDL engage,
+  one volatile write per session teardown, data paths untouched. The
+  holder feeds the F61 timed-acquire
   diagnostic, the engage-side rejection, and the release guard; it is
   cleared only by a winning CAS, so a failed release can never anonymize
-  a held mutex (F98, dissolved by this construction). Acceptance pair
+  a held mutex (F98, dissolved by this construction). Acceptance triple
   for the re-swap: `pool.close()` over a borrowed session holding an
   open schema tx → mutex released, next DDL proceeds without restart;
   owner `finally` racing the pool teardown on the same session → exactly
-  one permit release, the loser warn-logs. The F79 token sketch stays
+  one permit release, the loser warn-logs; `pool.close()` racing the
+  engage itself → either the tx aborts loudly with the permit released
+  or the heal completes, never a held permit with no releaser (F104). The F79 token sketch stays
   recorded for any future mechanism that revokes acquisitions (an
   operator-level force-release, a revived reaper): revocation re-creates
   stale releases from a revoked-but-alive owner, and the epoch-CAS arm
