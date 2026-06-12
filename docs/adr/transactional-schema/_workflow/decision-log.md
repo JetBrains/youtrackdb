@@ -2940,12 +2940,14 @@ report"; it stays mandatory for legacy dumps. The F94 fail-fast hardening
 lands in this branch's new exporter (YTDB-1115), protecting future exports,
 not this migration; a best-effort-marked v15 dump also requires the flag.
 
-**Promotion scope bounded (2026-06-12, F100 fold):** "a mid-records
-source-side failure yields a well-formed, valid-gzip dump at the final name"
-holds only for failures landing at object context (between sections); an
-array-context failure inside `records` makes `close()`'s `writeEndObject`
-throw before the promotion, so nothing reaches the final name. The
-section-presence closure stands on the between-section class.
+**Promotion scope bounded (2026-06-12, F100 fold; qualifier restored per
+F109):** "a mid-records source-side failure yields a well-formed,
+valid-gzip dump at the final name" holds only for failures landing at
+object context — between sections, or after `exportRecord`'s internal
+swallow left a record object open (the arm the F100 fold dropped, restored
+per F109); an array-context failure inside `records` makes `close()`'s
+`writeEndObject` throw before the promotion, so nothing reaches the final
+name. The section-presence closure stands on the object-context class.
 
 ### F91 — F82's stream-trailer and rename pins under-specify scope and platform degradation [MINOR]
 Pass-8 report U20. Three one-sentence pins on D20's F82 bullet. (1) Stream variant:
@@ -3177,7 +3179,11 @@ for deliberate salvage of a damaged database; `EXPORTER_VERSION` bumps 14 → 15
 and the opt-out's use is recorded in the dump's `info` section as a scalar
 field (F101: the importer's unknown-field skip is verified for scalars only,
 `DatabaseImport:418`–`:420`). The
-`brokenRids` path is untouched (those losses are reported in the dump). A
+`brokenRids` path keeps its behavior — per-record losses are logged and
+reported in the dump — but gains per-record write isolation (F109: each
+record renders to a buffer and is written whole or discarded whole, in
+both modes), so a swallowed record can no longer strand the shared
+generator at object context. A
 fail-fast abort leaves exit ≠ 0 and **no file at the final name** (corrected
 per F100: the rethrow strands the generator at array context, `close()`'s
 `writeEndObject` throws before the `:291` promotion, and the constructor
@@ -3482,6 +3488,15 @@ between-section (object-context) failures in both D20 and the F90 record,
 and the F94 mermaid is redrawn. The section-presence check stays necessary
 on the between-section class.
 
+**Qualifier restored (2026-06-12, F109):** the object-context promote class
+above is wider than "between sections" — pass 10's own bounding included
+"or after `exportRecord`'s internal swallow left a record object open",
+and this fold dropped that arm. One swallowed broken record strands the
+generator at object context, after which the abort promotes despite the
+array-context story (F109). The no-file outcome therefore got a mechanism
+instead of an accident: promote-only-on-success plus unconditional
+per-record write isolation, both pinned in D20 at the F109 settlement.
+
 ### F101 — "The importer's sole version branch is `< 14`" is false: nine `exporterVersion` branches exist; the v15 conclusion survives, the audit record does not [MINOR]
 Pass-10 report U25. PSI inventory: nine comparison branches (`:298`/`:313`
 `>= 12`, `:415` `< 14`, `:574` `>= 14`, `:736` `< 11`, `:847` `<= 4`,
@@ -3707,6 +3722,13 @@ presence / F75, hence MAJOR not BLOCKER). The pinned property is exactly the
 F100 defect one layer down: an acceptance property the mechanisms cannot
 deliver.
 
+```mermaid
+flowchart LR
+  SW["exportRecord swallow (:597):<br/>brokenRids, no context repair"] --> STR["generator stranded inside<br/>half-written record object"]
+  STR --> PROM["unwind to close(): writeEndObject<br/>SUCCEEDS, rename (:291) promotes a<br/>mangled dump, exit != 0 (or even 0)"]
+  FIX["fix: promote-only-on-success flag +<br/>per-record buffer isolation"] -.-> STR
+```
+
 **Resolution (proposed):** state the mechanism — the new exporter promotes
 only on success (explicit completion flag set after the last section,
 checked before the rename); every failure path leaves or deletes the `.tmp`
@@ -3716,6 +3738,33 @@ log-and-continue, additionally pin per-record write isolation (render each
 record to a buffer) or generator-context repair after a swallowed record.
 Restore the dropped qualifier in F100's grounding and the F90/D20 bounding
 sentences. Affected: F100, F94, F90, D20.
+
+**Resolved (2026-06-12): accepted, with isolation made unconditional.** Two
+mechanism pins on the new exporter (D20): (1) promote-only-on-success — an
+explicit completion flag set after the last section is written, checked
+before the rename; every failure path leaves (or deletes) the `.tmp` and
+never renames. The no-file pin becomes a real invariant independent of
+generator context, and the primary-exception pin trivializes (nothing
+needs `writeEndObject` on the discard path). (2) Per-record write
+isolation in both modes, not only best-effort: each record renders to a
+buffer and is written whole or discarded whole into `brokenRids`, so a
+swallowed broken record can never strand the shared generator. Isolation
+is unconditional because promote-only-on-success alone still admits the
+exit-0 variant in fail-fast mode (nested-array stranding completes
+"successfully" over a structurally broken records section with the
+completion flag legitimately set), and because best-effort mode without
+isolation degrades every record after the first broken one, defeating the
+salvage purpose. Generator-context repair was rejected: Jackson has no
+legal repair from every stranded state (a dangling field name cannot be
+closed), so repair re-derives the fragility this finding removes. Cost:
+one record-sized buffer and a copy per record, on an offline migration
+tool. The dropped qualifier is restored in F100's grounding and the
+F90/D20 bounding sentences — the swallow-stranding arm becomes
+unreachable in the new exporter once isolation lands, but the ledger's
+description of legacy generator behavior stays accurate (the F110
+relabel of the promote class settles separately). Folds: D20 (two
+mechanism pins + re-widened bounding parenthetical), F100 qualifier
+note, F94 (b) isolation note, F90 bounding-paragraph restoration.
 
 ### F110 — "Between-section (object-context)" mislabels the promote class in both directions [MINOR]
 Pass-11 report U29. The promote class is a generator-context fact, not a
@@ -4777,7 +4826,9 @@ recover.
   gzip throws at import decompression (`DatabaseImport:138`) — while a
   between-section export failure (object context; bounded per F100 — the
   array-context mid-records class never promotes, because `writeEndObject`
-  throws first) produces a cleanly closed dump at the final name
+  throws first — and re-widened per F109: an `exportRecord` swallow that
+  left a record object open also lands the generator at object context,
+  so that class promotes too) produces a cleanly closed dump at the final name
   by construction, because `exportDatabase`'s `finally` runs `close()` on the
   failure path too (`:157`–`:158`), which writes `writeEndObject` (`:277`),
   auto-closes every open scope, and renames into place. Closure: (c) the
@@ -4813,7 +4864,15 @@ recover.
   promotion; the `.tmp` orphan is the only residue), two outcome pins ride
   it (no-file-at-final-name-after-failure is kept whatever the close-path
   implementation; the scan failure propagates as the primary exception, not
-  the close-path secondary), and a best-effort-marked dump requires the ack
+  the close-path secondary), two mechanism pins deliver those outcomes
+  (F109: the exporter promotes only on success — an explicit completion
+  flag set after the last section is written, checked before the rename,
+  with every failure path leaving or deleting the `.tmp` and never
+  renaming — and per-record write isolation in both modes — each record
+  renders to a buffer and is written whole or discarded whole into
+  `brokenRids` — because without them an `exportRecord` swallow leaves
+  the generator stranded at object context and the abort promotes a
+  mangled dump), and a best-effort-marked dump requires the ack
   flag at import even in the manifest era (a salvage manifest agrees with
   its truncated dump). That hardening protects the next format migration,
   not this one.
