@@ -22,6 +22,13 @@ overlaps. Inside `## Banned patterns` the demo H3 names are
 sentence case so they do not themselves register as Title Case
 violations.
 
+The enabling primitive is the regex set seeded below. That sentence
+is the inflated-abstraction-label negative case: it sits inside the
+`## Overview` section, where `design-document-rules.md § Overview`
+prescribes naming the enabling primitive(s), so the subject-slot
+inflated-abstraction rule must skip it even though its shape would
+otherwise fire.
+
 ### References
 
 - House style file: `.claude/output-styles/house-style.md`.
@@ -88,6 +95,25 @@ storage layer. The comma-separated cluster above is exactly the
 canonical AI-tell shape; three distinct hyphenated pairs in one
 cluster trips the rule.
 
+### Trailing negative parallelism
+
+This design is a fundamental rethinking, not just a patch. The
+sentence above is the trailing-negation "X, not just Y" inversion of
+negative parallelism: the emphatic intensifier dismisses the modest
+reading to perform depth, which is the shape the rule flags as
+distinct from the leading-negation form the canonical
+negative-parallelism rule already catches. A plain trailing contrast
+without the intensifier is ordinary prose and does not fire.
+
+### Inflated abstraction label
+
+The underlying mechanism is a write-ahead log replayed on
+recovery. The sentence above names an abstract category as the
+subject instead of leading with the concrete thing, which is the
+inflated-abstraction-label tell. This block sits outside the
+`## Overview` section, so the Overview skip does not apply and the
+rule fires here.
+
 ### Fragmented header trigger
 
 The fragmented header trigger header is fragmented header text.
@@ -109,6 +135,22 @@ serve the new value without going through the disk. The block
 above runs six lines with exactly one em dash, which must not
 trip the density rule. The paragraph also avoids any banned
 vocabulary so the runner sees zero findings on this block.
+
+### Genuine contrast negative
+
+The fix bans out-of-file assumptions, not in-file terseness. The
+contract is held by the subset wiring on the writers, not by this
+block. The regex targets the subject-slot inflated label, not the
+Overview's sanctioned enumeration element. The count bump is
+semantic, not numeric, and it must land atomically. Orientation is
+a positive floor, not a ban. The choice is to live-edit, not stage.
+The legitimacy comes from amending the rule, not from claiming an
+opt-out it does not grant. The note reads as an acknowledged
+deviation, not a phantom reference. These eight plain contrasts mirror
+the eight a `, not <lowercase>` probe surfaces on this branch's own
+`design.md`; none carries the emphatic `not just` / `not merely` /
+`not simply` intensifier, so the trailing-negation rule must leave
+every one of them alone.
 
 ## Banned-pattern regressions
 

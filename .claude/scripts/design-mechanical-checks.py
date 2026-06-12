@@ -152,6 +152,62 @@ NEGATIVE_PARALLELISM_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Trailing-negation rhetorical elevation: the "X, not just Y" inversion
+# of negative parallelism from `house-style.md § Banned sentence patterns`
+# ("Not just A, but B."). This is a DISTINCT pattern from
+# NEGATIVE_PARALLELISM_RE above, which matches the leading-negation copula
+# frame ("it's not X ... it's Y"); this one matches the trailing-negation
+# emphatic frame ("X, not just Y").
+#
+# The emphatic intensifier (`just` / `merely` / `simply`) after the comma
+# is the load-bearing discriminator. A plain trailing contrast ("the count
+# bump is semantic, not numeric"; "a positive floor, not a ban"; "a
+# defensive guard, not dead code") is ordinary informative prose and must
+# NOT fire — a `, not <lowercase>` probe over this branch's own design.md
+# surfaces eight such legitimate contrasts, all plain, and the calibration
+# ADRs carry more (e.g. index-gc's "This is a defensive guard, not dead
+# code"). Only the intensified form performs depth: it asserts the grand
+# reading by dismissing the modest one. The `(just|merely|simply)`
+# requirement is exactly the "not just A" half of the house-style canonical
+# "Not just A, but B." `not only … but also …` is the legitimate
+# correlative conjunction and is deliberately excluded.
+NEGATIVE_PARALLELISM_TRAILING_RE = re.compile(
+    r",\s+not\s+(?:just|merely|simply)\s+[a-z]",
+    re.IGNORECASE,
+)
+
+# Inflated-abstraction label in the SUBJECT slot. Fires on a sentence whose
+# subject is an inflated label used AS the thing being described — the
+# placeholder-noun / vague-attribution tell from
+# `house-style.md § Banned analysis patterns` — e.g. "The enabling primitive
+# is …", "The key abstraction here …", "The underlying mechanism …", and the
+# participle-plus-category-noun shape ("The driving force is …", "The defining
+# characteristic is …").
+#
+# Two discriminators keep it off the design-doc Overview's sanctioned use.
+# `design-document-rules.md § Overview` prescribes naming "the enabling
+# primitive(s)" as Overview element 3 — so the caller SKIPS the `## Overview`
+# section for this pattern (the only on-branch match, design.md:23 "The
+# enabling primitives are the `## Orientation` rule text …", is exactly that
+# sanctioned enumeration prose). Beyond that, the capital `The` at a
+# sentence/clause start spares lowercase quoted mentions of the labels (a
+# rule that quotes "the enabling primitive" as an example is not itself
+# using it as a subject), and requiring a finite verb after the label spares
+# the bolded enumeration form `**The enabling primitive(s)** —` (em dash, no
+# verb).
+INFLATED_ABSTRACTION_LABEL_RE = re.compile(
+    r"(?:^|(?<=[.!?]\s)|(?<=[.!?]))\s*"
+    r"The\s+"
+    r"(?:[a-z]+ing|[a-z]+ed|key|core|central|underlying|essential|"
+    r"fundamental|crucial|critical|defining|unifying|guiding|"
+    r"governing|decisive|pivotal|main|primary)\s+"
+    r"(?:primitive|abstraction|mechanism|insight|idea|concept|"
+    r"principle|notion|force|factor|characteristic|property|"
+    r"observation|realization|realisation)s?\s+"
+    r"(?:is|are|lies|comes|here|becomes|provides|enables|makes|"
+    r"underpins|drives|governs|holds|sits|stems|rests)\b",
+)
+
 # Signposting openers from `house-style.md § Signposting`.
 SIGNPOSTING_OPENERS_RE = re.compile(
     r"\b(let'?s dive|let'?s break|here'?s what you need)\b",
@@ -1768,11 +1824,11 @@ def check_dsc_ai_tell(
 ) -> List[Dict]:
     """Detect the subset of `house-style.md` AI-tell patterns expressible as regex.
 
-    Nine patterns fire (each finding cites `house-style.md § <Section>` in
-    its description):
+    Eleven patterns fire (each finding cites `house-style.md § <Section>`
+    in its description):
 
     1. Tier-1 banned vocabulary scan (`§ Tier 1 — hard ban`).
-    2. Negative parallelism (`§ Banned sentence patterns`).
+    2. Negative parallelism, leading-negation frame (`§ Banned sentence patterns`).
     3. Em-dash density >1 per paragraph (`§ Em-dash discipline`).
     4. Title Case heading on H2+ (`§ Title Case headings forbidden`).
     5. Signposting openers (`§ Signposting`).
@@ -1780,6 +1836,10 @@ def check_dsc_ai_tell(
     7. Persuasive authority tropes (`§ Persuasive authority tropes`).
     8. Hyphenated-pair comma cluster (`§ Hyphenated word-pair overuse`).
     9. Fragmented header (`§ Fragmented headers`).
+    10. Negative parallelism, trailing-negation "X, not just Y" frame
+        (`§ Banned sentence patterns`).
+    11. Inflated-abstraction label in the subject slot
+        (`§ Banned analysis patterns`).
 
     Signature matches the bounded-aware sibling `check_dsc_parenthetical_asides`:
     when `scope == "bounded"` and `changed_section` is supplied, findings are
@@ -1811,6 +1871,29 @@ def check_dsc_ai_tell(
     in_range = (
         lambda line_no: bounded_range is None
         or bounded_range[0] <= line_no <= bounded_range[1]
+    )
+
+    # Resolve the `## Overview` section's line range, if a section list was
+    # supplied. The inflated-abstraction-label scan below skips this range:
+    # `design-document-rules.md § Overview` prescribes naming
+    # "the enabling primitive(s)" as Overview element 3, so a subject-slot
+    # "The enabling primitive is …" there is the sanctioned enumeration prose,
+    # not the AI-tell. Track files and the mechanics file pass `sections=None`
+    # (no Overview section), so the range stays None and nothing is skipped.
+    overview_range: Optional[Tuple[int, int]] = None
+    if sections is not None:
+        overview_section = next(
+            (s for s in sections if normalize_heading(s["title"]) == "overview"),
+            None,
+        )
+        if overview_section is not None:
+            overview_range = (
+                overview_section["line_start"],
+                overview_section["line_end"] or len(lines),
+            )
+    in_overview = (
+        lambda line_no: overview_range is not None
+        and overview_range[0] <= line_no <= overview_range[1]
     )
 
     # --- Per-line scans (fence/References/table exclusion replicated here so
@@ -1912,6 +1995,24 @@ def check_dsc_ai_tell(
                 f"Cut '{m.group(0)}' at line {i}; name the mechanism directly.",
             ))
 
+        # Inflated-abstraction label in the subject slot. Skipped inside the
+        # `## Overview` section, where naming "the enabling primitive(s)" is
+        # the prescribed Overview element rather than the AI-tell.
+        if not in_overview(i):
+            for m in INFLATED_ABSTRACTION_LABEL_RE.finditer(line):
+                label = m.group(0).strip()
+                findings.append(make_finding(
+                    "should-fix",
+                    "dsc-ai-tell",
+                    f"{file_path}:{i}",
+                    (f"Inflated-abstraction label per house-style.md § Banned "
+                     f"analysis patterns: '{label[:80]}'. Naming an abstract "
+                     "category ('the enabling primitive', 'the key abstraction') "
+                     "as the subject hides the concrete thing."),
+                    f"Rewrite the sentence at line {i} to lead with the concrete "
+                    "thing the label stands for, not the category noun.",
+                ))
+
     # --- Per-paragraph scans (em-dash density, hyphenated-pair cluster,
     #     negative parallelism).
     for start_line, para_lines in iter_paragraphs(
@@ -1996,6 +2097,25 @@ def check_dsc_ai_tell(
                  "information; rewrite as a positive statement."),
                 f"Rewrite the 'it's not X, it's Y' construct at line {start_line} "
                 "as a positive statement.",
+            ))
+
+        # Negative parallelism, trailing-negation "X, not just Y" frame. The
+        # emphatic intensifier (`not just` / `not merely` / `not simply`) is
+        # the discriminator that separates the performative inversion from a
+        # genuine plain contrast ("the count bump is semantic, not numeric"),
+        # which passes.
+        m_neg_trailing = NEGATIVE_PARALLELISM_TRAILING_RE.search(para_text)
+        if m_neg_trailing is not None:
+            findings.append(make_finding(
+                "should-fix",
+                "dsc-ai-tell",
+                f"{file_path}:{start_line}",
+                (f"Negative parallelism, trailing 'X, not Y' frame, per "
+                 f"house-style.md § Banned sentence patterns: "
+                 f"'{m_neg_trailing.group(0)[:80]}'. The inversion performs "
+                 "depth; rewrite as a positive statement."),
+                f"Rewrite the 'X, not Y' construct at line {start_line} as a "
+                "positive statement.",
             ))
 
     # --- Fragmented-header check: heading followed by a one-line paragraph
