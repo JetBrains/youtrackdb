@@ -17,7 +17,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Workflow Context | reviewer-plan | 2 | Phase 2 structural review: plan-quality check (no code read) across plan file, track files, and design document. |
 | §Classification rules | reviewer-plan | 2 | Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity. |
-| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, duplication, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
+| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, seed↔track fidelity, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
 | §`design-decision` — orchestrator escalates to the user | reviewer-plan | 2 | Track ordering, sizing, contradiction, missing-DR, and implausible-scope findings the user must resolve. |
 
 <!--Document index end-->
@@ -257,6 +257,14 @@ bullet's "track descriptions" half is sourced from the track file
 `## Plan of Work` + `## Interfaces and Dependencies` sections for
 pending tracks, from the plan-file entry for completed/skipped
 tracks.)*
+
+**Design-presence guard — skip this entire check block when `design.md`
+is absent (`lite` / `minimal`).** This block reads the design file; with
+no design there is nothing to check, so emit no DESIGN DOCUMENT findings.
+The structural review still runs under `lite` (only `minimal` drops the
+structural pass altogether), so this guard is a within-pass conditional,
+not the `minimal` pass-skip. Run the whole block unchanged under `full`.
+
 - Does the design document exist at `docs/adr/<dir-name>/_workflow/design.md`?
 - Does it include an Overview section summarizing the design approach?
 - Does it include class diagrams (Mermaid `classDiagram`) when the plan
@@ -297,13 +305,23 @@ CONSISTENCY
   `## Interfaces and Dependencies` sections for pending, plan-file
   for completed/skipped.)*
 
-BLOAT *(plan-file only for the per-section checks; plan/design
-duplication is cross-file between the plan and `design.md`)* — these
-checks are mechanical line-count and pattern-match. The plan file is
-loaded at every `/execute-tracks` session startup, so each
-budget-exceedance is paid by every Phase A/B/C session for the rest
-of the plan's life. Bloat is a first-class structural defect, not a
-stylistic concern.
+BLOAT *(plan-file only for the per-section length checks; the
+seed↔track fidelity check is cross-file between `design.md` and the
+track files, `full`-tier only)* — these checks are mechanical
+line-count and pattern-match. The plan file is loaded at every
+`/execute-tracks` session startup, so each budget-exceedance is paid
+by every Phase A/B/C session for the rest of the plan's life. Bloat is
+a first-class structural defect, not a stylistic concern.
+
+**Bloat-fix destination — track sections in every tier (D10).** The four
+length-bloat fixes below move long-form material **to the matching track
+section**, not into `design.md`, in every tier including `full`. Under the
+carrier flip (D7) the track is the live decision carrier and `design.md`
+is a frozen, non-canonical provenance seed that cannot be edited after the
+Step-4a freeze; routing live material into it is wrong-direction and
+unmaintainable after the first replan. In `full`, a trimmed DR's
+`**Full design**` line still points at the frozen seed's mechanism section
+as on-demand provenance, but the live record stays in the track.
 
 - **DR length:** does any Decision Record body exceed ~30 lines? Count
   from `#### D<N>: <title>` through the final bullet line of that DR
@@ -314,38 +332,49 @@ stylistic concern.
   material that belongs elsewhere. **Severity: should-fix.** **Fix:**
   trim the DR back to the four-bullet form and move the long-form
   material (worked examples, audit findings, layered diagrams,
-  edit-by-edit guidance, crash-scenario walk-throughs) to a new or
-  existing `design.md` section, linked from the DR's `**Full design**`
-  line.
+  edit-by-edit guidance, crash-scenario walk-throughs) to the matching
+  track's `## Decision Log` record. In `full`, link the frozen seed's
+  mechanism section from the DR's `**Full design**` line as on-demand
+  provenance.
 - **Invariant length:** does any invariant entry exceed ~5 lines?
   Count from the bullet's `-` through its final continuation line.
   **Severity: should-fix.** **Fix:** state the rule as a one-paragraph
   bullet; move multi-paragraph derivations of invariant semantics to
-  a `design.md` complex-topic section.
+  the matching track's `## Interfaces and Dependencies` (or
+  `## Decision Log` when the derivation is decision rationale).
 - **Integration-point length:** does any integration-point bullet
   exceed ~3 lines? **Severity: should-fix.** **Fix:** name the
   connection point in one short bullet; move multi-step workflow
-  walk-throughs ("Step 1 / Step 2 / Step 3 ...") to a `design.md`
-  Workflow section.
+  walk-throughs ("Step 1 / Step 2 / Step 3 ...") to the matching
+  track's `## Interfaces and Dependencies` / `## Plan of Work`.
 - **Component-intent length:** does any component's intent bullet (in
   the Component Map's annotated bullet list) exceed ~5 lines?
   **Severity: should-fix.** **Fix:** keep the intent to one short
   paragraph; move design-level descriptions of that component's
-  behavioral change to a `design.md` section.
+  behavioral change to the matching track's `## Context and
+  Orientation`.
 - **Superseded DR retained:** is any DR explicitly marked
   `(SUPERSEDED ...)` or "see DN" still present as a `#### D<N>` block?
   **Severity: blocker.** The plan must reflect the *current* decision
   set, not the history. **Fix:** delete the superseded DR entirely;
   document the supersession in the replacing DR's rationale ("This
   replaces an earlier approach where...").
-- **Plan/design duplication:** does any DR body or Architecture Notes
-  subsection exceed ~50 lines **and** does `design.md` have a section
-  whose title matches the DR/subsection topic (fuzzy match: 2+
-  significant words shared after lowercasing and dropping stop-words)?
-  **Severity: should-fix.** **Fix:** replace the duplicated body in
-  the plan with a one-line link to the matching `design.md` section.
-  Borderline title matches should be flagged for human review, not
-  auto-resolved.
+- **Seed↔track fidelity** *(`full`-tier only, authoring-time only —
+  replaces the former plan/design duplication check)*: at Step 4b
+  authoring, iterate the **`design.md` seed D-records only**; for each,
+  does it have a matching track `## Decision Log` DR (fuzzy title match:
+  2+ significant words shared after lowercasing and dropping stop-words)
+  whose content is **not** substantively equivalent to the seed?
+  **Severity: should-fix.** **Fix:** restore the track DR to substantive
+  equivalence with its seed record. **Provenance-only for revision-format
+  DRs:** a track DR written in the inline-replan revision format is
+  checked only against the seed pinned in its `**Original decision**`
+  field, never against its revised text. A track DR with **no** seed
+  counterpart is **out of scope** — it is the mandated D7 shape, not bloat,
+  so this check never fires backwards against it. The check does **not**
+  run during execution: post-authoring divergence is owned by the
+  cross-track propagation duty (inline-replanning.md:orchestrator:3A,3C).
+  Borderline title matches are flagged for human review, not auto-resolved.
 - **Plan-file total length:** does the plan file exceed ~1,500 lines
   or ~30K tokens? **Severity: should-fix.** **Fix:** identify which
   sections are over their per-section budget (the findings above will
@@ -392,8 +421,8 @@ Severity guide:
   superseded Decision Record)
 - should-fix: Plan can be executed but quality/clarity suffers (implausible
   scope indicator, missing decision record for a key choice, **section
-  exceeds its per-section budget, plan/design duplication, plan file
-  exceeds the overall budget**)
+  exceeds its per-section budget, seed↔track fidelity gap (`full`-tier,
+  authoring-time), plan file exceeds the overall budget**)
 - suggestion: Improvement that isn't strictly necessary (better wording,
   optional diagram that would help)
 
@@ -412,13 +441,16 @@ user. The two axes are orthogonal.
 
 **All BLOAT findings are `mechanical` by construction.** The fix
 follows the rule mechanically — trim back to the four-bullet form,
-move long-form material to `design.md`, replace duplicated body with
-a one-line link, delete the superseded DR, etc.
+move long-form material to the matching track section (not `design.md`,
+per D10), delete the superseded DR, restore a track DR to seed-fidelity,
+etc.
 
 Specifically:
 - DR length, invariant length, integration-point length,
-  component-intent length — `mechanical`.
-- Plan/design duplication — `mechanical` (replace with link).
+  component-intent length — `mechanical` (long-form material moves to the
+  matching track section).
+- Seed↔track fidelity (`full`-tier, authoring-time) — `mechanical`
+  (restore the track DR to substantive equivalence with its seed).
 - Superseded DR retained — `mechanical` (delete).
 - Plan-file budget exceeded — `mechanical` (apply per-section trims).
 - Missing track-reference annotation on a Decision Record where the
@@ -461,11 +493,12 @@ ANY of these triggers `design-decision`:
   Invariants, missing Integration Points, missing Non-Goals where
   the scope boundary is ambiguous. Filling these requires the user's
   rationale.
-- **Design document gaps** — missing Overview, missing class diagram
-  when 2+ new classes are introduced, missing workflow diagram when
-  a new flow is introduced, missing dedicated section for
-  concurrency / crash recovery / performance. The content of those
-  sections is a design call.
+- **Design document gaps** (`full`-tier only — skipped when `design.md`
+  is absent per the DESIGN DOCUMENT block's design-presence guard) —
+  missing Overview, missing class diagram when 2+ new classes are
+  introduced, missing workflow diagram when a new flow is introduced,
+  missing dedicated section for concurrency / crash recovery /
+  performance. The content of those sections is a design call.
 - **Decision-traceability gaps** — a track implements a non-obvious
   choice but no DR exists. The user must articulate the alternatives
   and rationale.

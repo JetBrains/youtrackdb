@@ -64,8 +64,8 @@ design document.
 | File | What it carries |
 |---|---|
 | `implementation-plan.md` | Goals, constraints, the **decisions themselves** (alternatives / rationale / risks / where-implemented / link-to-design), the Component Map (topology + short intent bullets), short invariant statements, short integration-point bullets, the track checklist. **Strategic, scannable, loaded every session.** |
-| `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; references footer. **Loaded only when referenced; serves both human reviewers and execution agents.** |
-| `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in `design.md`'s mechanism overview. **Created only when `design.md` exceeds the length trigger; cross-referenced from `design.md`'s References footer.** |
+| `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; decisions-and-invariants footer (the D11 rename of the former references footer). **In `full`-tier plans only; the frozen seed for the carriers. Loaded only when referenced; serves both human reviewers and execution agents.** |
+| `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in `design.md`'s mechanism overview. **Created only when `design.md` exceeds the length trigger; cross-referenced from `design.md`'s decisions-and-invariants footer (the `Mechanics:` line).** |
 | `plan/track-N.md` `## Purpose / Big Picture` | Per-track intro paragraph that names the track, its BLUF outcome, and the ADDED/MODIFIED/REMOVED triad (sibling Move 2 reserved slot). Track-level concrete deliverables and edit detail belong here together with the three sections below. |
 | `plan/track-N.md` `## Context and Orientation` | Per-track static context: the files, classes, methods, and subsystems the track touches; ordering constraints relative to other tracks; pre-existing invariants the track must respect. |
 | `plan/track-N.md` `## Plan of Work` | Per-track approach prose: how the track delivers its outcome at a step-shape level (not per-step detail — that lives under `## Concrete Steps`). Any track-level Mermaid diagram lives here. |
@@ -90,6 +90,23 @@ line in the Decision Record template (see `planning.md` § Decision
 Records). When a DR has long-form support, the DR itself stays at the
 four-bullet form and the long-form material lives in `design.md` under
 a section the DR links to.
+
+**The seed-vs-carrier boundary (D11, YTDB-1083 acceptance #4
+rewrite).** In `full`, `design.md` is the **frozen seed**: it holds
+each decision's full record once (the introduce-once rule, § Per-section
+mandatory shape), and Step 4b seeds the **track-canonical live records**
+(each relevant track's `## Decision Log`, D7 / YTDB-814) from those seed
+D-records. The seed is provenance, never the live authority — once a
+track absorbs a record it is authoritative, and the frozen seed cannot
+follow a Phase-3 replan. In `lite`/`minimal` there is no `design.md`;
+Step 4b authoring reads the **research log** directly as the seed for
+the track records (S2: the log is read for decision content only at
+Step 4a/4b authoring and the Phase-2 consistency cross-check). This
+rewrites YTDB-1083's original acceptance #4 — which framed the log as a
+transient bridge folded into the design and deleted before freeze: under
+D5 the log is a durable Phase-0/1 ledger removed only at Phase 4
+cleanup, and it is a Phase-2 cross-check input, never a Step-4b seeding
+input in `full` (where the frozen seed is the seeding source).
 
 **What this looks like in practice:**
 
@@ -165,17 +182,18 @@ Each mutation invocation receives:
 The action runs:
 
 1. **Apply edit.** Write the change to disk.
-2. **Auto-review.** Mechanical checks, then (for `phase1-creation`)
-   an adversarial pass, then cold-read:
+2. **Auto-review.** Mechanical checks, then cold-read:
    - **Mechanical checks** — cheap, always run. See checks
      table below.
-   - **Adversarial** (`phase1-creation` only) — sub-agent
-     challenges the design's decisions and assumptions against
-     the real code, before cold-read. See § Working / sync for
-     the adversarial-then-cold-read ordering.
    - **Cold-read** — sub-agent reads the doc fresh, no prior
      context. Scope depends on mutation kind (see scope table
-     below).
+     below). For `phase1-creation` the cold-read is **gated**
+     behind the relocated log-adversarial gate (D6): the
+     decision/assumption challenge runs once on the research log
+     at the Phase 0 → 1 boundary, and the cold-read may not run
+     while a log-adversarial entry is open (the S3 freeze-order
+     invariant). See § Working / sync for the gated-cold-read
+     ordering. No mutation kind runs a local adversarial pass.
 3. **Iterate.** If review finds blockers, attempt to fix and
    re-review. Bounded by the iteration budget. If the budget
    exhausts with blockers remaining, present findings + diff
@@ -258,14 +276,15 @@ context to disambiguate.
 |---|---|
 | Overview first | First `## ` heading must be `## Overview` (concept-first ordering — meta-navigation is folded into Overview's tail, not given its own header). Body must be ≥ 5 non-empty lines (covers all five required elements: baseline / change / enabling primitive / restructured / roadmap) and ≤ 40 lines total (past 40 the Overview has stopped being an elevator pitch). Both severity `should-fix`. |
 | Core Concepts when applicable | If the doc has `# Part N` headings, a `## Core Concepts` section must exist at the top level (not nested inside a Part) between Overview and Class Design (`should-fix` if absent). When present, position is also checked: Core Concepts must come AFTER Overview, BEFORE Class Design, and BEFORE the first `# Part N` heading — concepts must be defined before the deep dives that use them. |
-| Per-section shape compliance | Per `^## ` section (excluding shape-exempt: Overview, Core Concepts, Class Design, Workflow, Part-level TL;DR): TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); References footer present (`### References` or `\*\*References\.\*\*` near section end) |
+| Per-section shape compliance | Per `^## ` section (excluding shape-exempt: Overview, Core Concepts, Class Design, Workflow, Part-level TL;DR): TL;DR present (`\*\*TL;DR\.\*\*` or similar bold-prefix paragraph in the first ~10 lines); decisions-and-invariants footer present near section end. The footer name accepts **both** spellings (`### Decisions & invariants` or `### References`, and the bold-prefix `\*\*Decisions & invariants\.\*\*` / `\*\*References\.\*\*` forms) so the rename (D11) is backward-compatible — legacy designs carrying `### References` still pass (see § Per-section mandatory shape). |
 | Top-level cap | Flat count of `^## ` ≤ 15 always; when `# Part N` headings exist, an additional per-Part cap of ≤ 8 sections (warn at > 6) applies on top of the flat 15 |
 | Per-section length cap | Each `^## ` section ≤ 300 lines, three-tier severity: 201-300 lines is a `suggestion` (warn — long-form material is creeping in); 301-400 is `should-fix` (over the soft cap); >400 is a `blocker` (sections over 400 lines almost always have long-form material that must move to `design-mechanics.md`). Honors `--scope=bounded`: when bounded, only the changed section is checked — pre-existing legacy oversize sections are not backfilled. |
-| D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside `### References` / `**References.**` blocks and table rows. Honors `--scope=bounded` on the `design.md` side: only asides whose line falls within the changed section's range are flagged. (Mechanics-side asides, when `--target=mechanics` or `--target=both`, always run whole-doc — `--changed-section` describes a `design.md` section, not a mechanics section.) |
+| D/S parenthetical asides | Regex set: `(per D…)`, `(per S…)`, `(see D…)`, `(see S…)`, each with optional comma- or slash-separated additional codes (`(per D1, D2)`, `(see S5/S6)`). Rejected inside prose; allowed inside the decisions-and-invariants footer (`### Decisions & invariants` / `**Decisions & invariants.**` or the legacy `### References` / `**References.**`) blocks and table rows. Honors `--scope=bounded` on the `design.md` side: only asides whose line falls within the changed section's range are flagged. (Mechanics-side asides, when `--target=mechanics` or `--target=both`, always run whole-doc — `--changed-section` describes a `design.md` section, not a mechanics section.) |
+| Decision cited without rationale (D11, `design.md`-only) | Within each `^## ` section's decisions-and-invariants footer, a `D<n>` listed under `D-records:` must have its full record introduced **once** somewhere in `design.md` (the introduce-once rule, § Per-section mandatory shape). A footer that cites `D<n>` whose full record appears in no section is a `should-fix`: the seed references a decision it never states. The check is **`design.md`-only** — it never runs against track files (they carry records in `## Decision Log`, have no footer) or mechanics. Scoped so the legacy bare-`D<n>` `### References` footer of a pre-rename design does not trip it (a citation whose record exists elsewhere in the same `design.md` passes regardless of footer spelling). |
 | `dsc-ai-tell` AI-tell detection | Detects nine `house-style.md` patterns whose textual fingerprint is reliable enough to flag mechanically: Tier-1 vocabulary base words (`§ Tier 1`), negative parallelism `not X, but Y` constructions (`§ Banned sentence patterns`), em-dash density at 3+ per paragraph or 2 unpaired em dashes carrying a sentence terminator in the middle segment (`§ Em-dash discipline`), Title Case H2+ headings (`§ Title Case headings forbidden` — `# `-level headings are skipped because they are document titles), signposting openers (`§ Signposting`), copula-led sentences in the documented shape (`§ Copula avoidance`), persuasive authority tropes (`§ Persuasive authority tropes`), hyphenated-pair clusters at 3+ within a paragraph (`§ Hyphenated word-pair overuse`), and fragmented-header chains (`§ Fragmented headers`). Each finding cites `house-style.md § <Section>` in its description so the reader can trace the rule back to its prose. The check is `auto_applicable: false` — every finding requires a human rewrite. Honors `--scope=bounded` on the `design.md` side in parallel with the D/S parenthetical asides row above: only paragraphs whose line falls within the changed section's range are flagged. |
 | Length trigger compliance | If file > 2,000 lines and `design-mechanics.md` doesn't exist, blocker |
 | Same-shape sibling detection | Cluster of 3+ sibling `## ` sections with ≥80% Jaccard overlap on custom sub-headings → flag for consolidation. Pairs above the threshold are merged via union-find so a near-duplicate cluster (e.g. 5 sections sharing `### Inputs / ### Algorithm / ### Outputs` plus one with an extra `### Edge Cases`) flags as a single same-shape group. |
-| `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the References footer, but the script flags any unresolved reference regardless of how the line is prefixed. |
+| `Mechanics:` / mechanics-link resolution | Every `design-mechanics.md §"<name>"` reference appearing in `design.md` resolves to a real heading in `design-mechanics.md`. The check is applied to all such references — the canonical home for these is the per-section `Mechanics:` line in the decisions-and-invariants footer (either footer spelling), but the script flags any unresolved reference regardless of how the line is prefixed. |
 | `**Full design**` link resolution | Every `**Full design**: design.md §"<name>"` in `implementation-plan.md` and in every track file under `plan/` resolves to a real section in `design.md` (and any chained `design-mechanics.md §"<name>"` resolves in mechanics). This is also the check that catches stale references after a rename — when a `section-rename` (or rename inside `structural-rewrite`) has not propagated, the un-updated `**Full design**` and `Mechanics:` lines simply fail to resolve here, blocking the mutation. |
 
 ### Findings and severities
@@ -387,21 +406,29 @@ mechanics evolve freely under cheap mechanical checks; sync
 batches the distillation into one expensive review pass at a
 deliberate publish point.
 
-**`phase1-creation` review order — adversarial, then cold-read.**
-The Phase 1.1 `phase1-creation` review runs **adversarial first,
-then cold-read**, not cold-read alone. The adversarial pass
-(`prompts/adversarial-review.md` § Design-scoped review (Phase 1),
-invoked by `edit-design` Step 3.5) challenges the design's decisions
-and hidden assumptions against the real code; the cold-read pass
-(`prompts/design-review.md`, Step 4) then assesses whether a fresh
-reader can build a working mental model. The order is load-bearing:
-cold-read must not assess the readability of a design the adversarial
-pass may still force to change, so the adversarial blockers are
-iterated to resolution before cold-read runs. This pairs with the
-design-first authoring flow: `design.md` is authored and reviewed in
-its own `create-plan` session (Step 4a) before the plan derives from
-it. Only `phase1-creation` runs the adversarial pass; the direct
-mutation kinds and `design-sync` run cold-read alone.
+**`phase1-creation` review order — gated cold-read after the relocated
+log-adversarial gate.** Under D6 the decision/assumption challenge no
+longer runs as a local `edit-design` step; it runs once on the research
+log at the Phase 0 → 1 boundary (`prompts/adversarial-review.md`
+§Research-log-scoped review (Phase 0→1), spawned by `create-plan` Step 4).
+So the Phase 1.1 `phase1-creation` review is **cold-read only**, but the
+cold-read is **gated** behind that log-adversarial gate clearing: a
+`design.md` draft cannot reach the cold-read while a log-adversarial entry
+is open (the S3 freeze-order invariant). The ordering is load-bearing for
+the same reason it always was — the cold-read must not assess the
+readability of a design whose decisions have not yet survived challenge —
+but the challenge now happens on the log, ahead of authoring, rather than
+in a local pass the cold-read waits on. A load-bearing decision surfaced
+while authoring the design is appended to the log and re-challenged at the
+gate before the cold-read runs (`edit-design/SKILL.md` § Step 4 states the
+gate-read mechanics). The `phase1-creation` cold-read additionally runs the
+**absorption-completeness** cross-check (log → `design.md` seed D-records;
+D8 / `prompts/design-review.md` §Track-scoped cold-read). This pairs with
+the design-first authoring flow: `design.md` is authored and reviewed in
+its own `create-plan` session (Step 4a) before the plan derives from it.
+No mutation kind runs a local adversarial pass; every kind runs cold-read
+alone, and only `phase1-creation` is gated by the S3 log-adversarial
+freeze order.
 
 **Stable reference for review.** Between syncs, `design.md` stays
 **frozen** relative to mechanics. The user reads `design.md` to
@@ -425,7 +452,7 @@ current state of `design-mechanics.md`:
 - Each section's TL;DR + mechanism overview is re-written to
   reflect the current mechanics.
 - Edge cases / Gotchas bullets are added/removed/edited.
-- References footers updated for new D/S codes and any
+- Decisions-and-invariants footers updated for new D/S codes and any
   `Mechanics:` link changes.
 - Sections **added** in mechanics get a corresponding new section
   in `design.md`.
@@ -494,8 +521,8 @@ The Overview does **not** carry meta-navigation (audience block,
 journey table). Those — when needed at all — go either into Core
 Concepts' inline `→ Part X` pointers or are absorbed by the
 Overview's structure roadmap. The doc's shape (TL;DRs at section
-tops, References footers) makes the audience model self-evident
-without an explicit block.
+tops, decisions-and-invariants footers) makes the audience model
+self-evident without an explicit block.
 
 Absence of `## Overview` as the first `##` heading is a blocker.
 
@@ -552,8 +579,8 @@ baseline.
   TL;DR-equivalent — it states how many concepts are below and
   the meta-pattern (one paragraph each, definition + role +
   delta + pointer). Don't add a separate `**TL;DR.**` block.
-- No References footer required. The `→` pointers act as the
-  References for each concept.
+- No decisions-and-invariants footer required. The `→` pointers act
+  as the references for each concept.
 
 **Conditions for omitting:**
 
@@ -585,13 +612,13 @@ sentence ("D27 makes histograms volatile").>
 <Mechanism overview — diagrams + prose. Aim for ≤300 lines per
 section (warn at 200). When a worked example or layered
 derivation pushes past that, move it to `design-mechanics.md`
-and link from the References footer.>
+and link from the footer.>
 
 ### Edge cases / Gotchas
 
 - <bullets, one per gotcha>
 
-### References
+### Decisions & invariants
 
 - D-records: D<n>, D<n>, …
 - Invariants: S<n>, S<n>, …
@@ -601,8 +628,31 @@ and link from the References footer.>
 
 The mechanism block can have nested `###` subsections when the
 content is structured (e.g., comparison tables, step-by-step
-mechanism). Edge cases / Gotchas and References are sticky
+mechanism). Edge cases / Gotchas and the footer are sticky
 trailing blocks.
+
+**Footer name (D11).** The trailing footer is named
+`### Decisions & invariants` (formerly `### References`). The rename
+adopts YTDB-1083's per-section footer naming so the footer reads as
+what it carries — the section's load-bearing D-records and invariants,
+not a generic bibliography. The mechanical check that enforces footer
+presence accepts **both** spellings (`### Decisions & invariants` and
+the legacy `### References`), so designs authored before this rename —
+this branch's own frozen `design.md` among them — keep passing without
+a backfill. New `design.md` seeds use the new name. The rename is
+**`design.md`-only**: track files carry their decision records in
+`## Decision Log`, have no per-section footer, and never adopt either
+spelling (D11; see § Boundary with the implementation plan).
+
+**Introduce-once within the seed (D11).** Within a single `design.md`,
+introduce each decision **once** in full — its full record lives in the
+one section that owns it (typically the section whose subject the
+decision is), and every other section that depends on it references it
+by code (`D<n>`) in its `### Decisions & invariants` footer rather than
+restating the record. This keeps the seed free of duplicated
+decision prose; the duplication that D7 sanctions is the
+**track-side** copy (each relevant track's `## Decision Log` carries
+the full record), not a second copy inside `design.md`.
 
 ## Top-level structure caps
 <!-- roles=planner,final-designer phases=1,4 summary="Caps on section count and depth at the top level." -->
@@ -719,10 +769,11 @@ Three rules:
 2. **Allowed in mechanism prose when the code IS the subject of
    the sentence.** "D27 makes histograms volatile in steady
    state" is fine. "Histograms are volatile (D27)" is not.
-3. **Collected in the References footer.** Every section ends
-   with a References block listing every D and S code the
-   section relates to. This is the load-bearing list for the
-   execution agent.
+3. **Collected in the decisions-and-invariants footer.** Every
+   section ends with a `### Decisions & invariants` block (the
+   D11 rename of the former `### References` footer) listing every
+   D and S code the section relates to. This is the load-bearing
+   list for the execution agent.
 
 **TL;DR exception.** When the section topic IS the consolidated
 set of decisions (e.g., a Part titled "Volatile Statistics"
@@ -879,7 +930,8 @@ that warrant dedicated sections:
     lines / ~50,000 tokens, agent-targeted long-form moves to
     `design-mechanics.md`. Section names match between files.
 12. **D/S codes follow the discipline** — no parenthetical
-    asides; allowed when subject; collected in References footer.
+    asides; allowed when subject; collected in the
+    decisions-and-invariants footer.
 13. **Section renames update all `**Full design**` refs in the plan
     and in every track file under `plan/` in the same commit.**
 14. **Complex parts are mandatory** — if any part of the design involves concurrency,
@@ -927,7 +979,7 @@ Replaces "<baseline>". → Part X §"<section>".
 
 ## Class Design
 <Mermaid classDiagram(s) — each in a sub-section with TL;DR +
-diagram + condensed prose + References footer>
+diagram + condensed prose + decisions-and-invariants footer>
 
 ## Workflow
 <Mermaid sequenceDiagram(s) and/or flowchart(s) — same shape>

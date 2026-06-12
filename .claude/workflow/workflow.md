@@ -19,7 +19,7 @@
 | §Inline Replanning (ESCALATE) | orchestrator | 3A,3C | The ESCALATE back-edge that re-opens planning mid-execution. |
 | §Track Skip (`[~]`) | orchestrator | 3A | Marking a track skipped and the conditions that justify it. |
 | §Track Completion Protocol | orchestrator | 3C | Steps to close a track: episode, marks, progress update. |
-| §Final Artifacts (Phase 4) | orchestrator,final-designer | 4 | Producing design-final and adr; the promotion and cleanup commits. |
+| §Final Artifacts (Phase 4) | orchestrator,final-designer | 4 | Producing the per-tier durable artifacts with the adversarial-verdict fold; the promotion and cleanup commits. |
 | §Conventions | orchestrator | any | Pointer to the shared conventions this workflow relies on. |
 
 <!--Document index end-->
@@ -83,7 +83,7 @@ The overall workflow has five phases:
   replanning. Full orchestration in `implementation-review.md` (loaded
   on-demand only when State 0 is active).
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce `design-final.md` and `adr.md` (follows `prompts/create-final-design.md`)
+- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce the per-tier durable artifacts (`full`: `design-final.md` + `adr.md`; `lite`: `adr.md`; `minimal`: a two-line PR-description fold) per `prompts/create-final-design.md`
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
@@ -602,19 +602,53 @@ Completion.
 ---
 
 ## Final Artifacts (Phase 4)
-<!-- roles=orchestrator,final-designer phases=4 summary="Producing design-final and adr; the promotion and cleanup commits." -->
+<!-- roles=orchestrator,final-designer phases=4 summary="Producing the per-tier durable artifacts with the adversarial-verdict fold; the promotion and cleanup commits." -->
 
-Phase 4 lands two commits on non-workflow-modifying plans and three
-commits on workflow-modifying plans; the extra commit promotes the
-staged subtree onto the live tree before the final-artifacts commit.
-After all tracks are complete, a separate session produces
-`design-final.md` and `adr.md` — the two artifacts that survive
-merge into `develop`.
+After all tracks are complete, a separate session produces the per-tier
+durable artifacts that survive merge into `develop`. **Which artifacts
+Phase 4 produces is keyed off the confirmed tier (D16):**
+
+| Tier | Durable artifacts | Verdict fold | `docs/adr/<dir>/` entry |
+|---|---|---|---|
+| `full` | `design-final.md` + `adr.md` | folded into `adr.md` | yes |
+| `lite` | `adr.md` only (no design to carry forward) | folded into `adr.md` | yes |
+| `minimal` | none — a two-line gate-verdict summary folded into the PR description | folded into the PR description | **no** |
+
+Gate 2 (multi-track) is the durable-ADR boundary: a multi-track change
+earns post-merge archaeology under `docs/adr/`, a single-track `minimal`
+change documents itself the way any small PR does (its full certificate
+trail survives only in the PR's commit history on GitHub). In `lite`/
+`minimal` no `design.md` exists, so there is no `design-final.md` to
+write; `adr.md` (in `lite`) carries the architecture decisions and the
+adversarial verdict fold alone.
+
+**The verdict fold (D10/D16).** The Phase 4 cleanup deletes the research
+log in every tier, so before the cleanup `git rm` runs, Phase 4 folds the
+log's **resolved adversarial gate verdicts** into the tier's durable
+carrier. The fold reads `research.md`'s `## Adversarial gate record`
+section (Track 1's canonical verdict carrier), matching the latest dated
+heading per that section's gate-record cadence, and copies the
+**verdict / status only** — never decision content (S2: the Phase-4 fold
+is the one sanctioned non-decision-content read of the log). In
+`full`/`lite` the fold lands in `adr.md`; in `minimal` it lands as a
+two-line summary in the PR description.
+
+Phase 4 therefore lands, per tier and modification class:
+
+- **`full`/`lite`, non-workflow-modifying** — two commits (final-artifacts
+  with the fold, then cleanup).
+- **`full`/`lite`, workflow-modifying** — three commits (promote-staged-
+  workflow, then final-artifacts with the fold, then cleanup).
+- **`minimal`, non-workflow-modifying** — one commit (cleanup only); the
+  fold goes in the PR description, no `docs/adr/` final-artifacts commit.
+- **`minimal`, workflow-modifying** — two commits (promote-staged-workflow,
+  then cleanup); the shed removes the fold's `adr.md` home and the
+  final-artifacts commit, not the rest of Phase 4. Promotion still runs.
 
 The directory-presence guard is `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/`
 per conventions.md:any:any `§1.7(c)` *Detection rule*: when
 the staged subtree exists, the promotion commit fires; when it is
-absent (the default), Phase 4 keeps the two-commit shape. The promotion
+absent (the default), Phase 4 skips the promotion commit. The promotion
 bash itself, the divergence sanity check, and the exact commit
 message prefix live in `prompts/create-final-design.md` § Step 4.
 
@@ -632,19 +666,29 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    `conventions.md` `§1.7(f)` *Rebase-precedes-promotion*. When the
    guard fails, the step is a silent no-op and Phase 4 stays in the
    two-commit shape.
-2. **Final-artifacts commit.** Stage `design-final.md`,
-   `design-mechanics-final.md` (if applicable), and `adr.md`; commit
-   with the message defined in `prompts/create-final-design.md`
-   § Step 5; push.
+2. **Final-artifacts commit** (`full`/`lite` only; skipped under
+   `minimal`). First **fold the resolved adversarial gate verdicts** from
+   `research.md`'s `## Adversarial gate record` (latest dated heading,
+   verdict/status only) into `adr.md`. Then stage the tier's artifacts
+   (`design-final.md` + `design-mechanics-final.md` if applicable +
+   `adr.md` in `full`; `adr.md` only in `lite`) and commit with the
+   message defined in `prompts/create-final-design.md` § Step 5; push.
+   The fold runs **before** the cleanup `git rm` below deletes the log,
+   so the verdict trail is captured in the durable carrier first. Under
+   `minimal` there is no `adr.md` and no final-artifacts commit: the fold
+   is a two-line gate-verdict summary written into the PR description (the
+   squash-merge carries it into `develop`'s `git log`), authored before
+   the cleanup commit.
 3. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
-   (plan, `design.md`, `design-mechanics.md`, track files, per-track
-   review files under `plan/track-N/reviews/`, design-mutations log,
-   and the staged subtree if present). The blanket recursive `git rm`
-   sweeps the review-file directories automatically; no `plan/*`-globbing
-   removal is needed (and would risk catching the `plan/track-N.md`
-   files). Commit with a message such as `Remove workflow scaffolding`.
-   Push.
+   (plan, `design.md` if present, `design-mechanics.md`, the research log,
+   track files, per-track review files under `plan/track-N/reviews/`,
+   design-mutations log, and the staged subtree if present). The blanket
+   recursive `git rm` sweeps the review-file directories automatically; no
+   `plan/*`-globbing removal is needed (and would risk catching the
+   `plan/track-N.md` files). Commit with a message such as `Remove
+   workflow scaffolding`. Push. This commit runs in **every** tier,
+   `minimal` included.
 
 The end-of-session self-improvement reflection runs after the final
 Phase 4 commit lands — it creates any approved proposals as YouTrack

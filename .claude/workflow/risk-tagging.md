@@ -13,7 +13,8 @@
 | §Security | decomposer | 3A | Security-sensitive changes that trigger high risk. |
 | §Architecture / cross-component coordination | decomposer | 3A | Architectural or cross-component changes that trigger high risk. |
 | §Performance hot path | decomposer | 3A | Hot-path performance changes that trigger high risk. |
-| §Workflow machinery | decomposer | 3A | Workflow-machinery edits (`.claude/**`, root `CLAUDE.md`) that trigger high risk. |
+| §Workflow machinery | decomposer | 3A | Workflow-machinery edits (.claude/**, root CLAUDE.md) that trigger high risk. |
+| §Gate 1 reuse (change-level) | planner | 1 | The seven HIGH categories above are also tier Gate 1's source, read at the change level (central, not merely touched). |
 | §MEDIUM-risk triggers | decomposer | 3A | Conditions that put a step at medium risk. |
 | §LOW-risk default | decomposer | 3A | The default low-risk classification for routine steps. |
 | §Tests-only steps | decomposer | 3A | Risk handling for steps that add only tests. |
@@ -176,6 +177,33 @@ human notices.
   content reaches every session of every project regardless of which
   workflow path runs. Always-loaded content has every-session blast
   radius, so it is HIGH and not MEDIUM.
+
+### Gate 1 reuse (change-level)
+<!-- roles=planner phases=1 summary="The seven HIGH categories above are also tier Gate 1's source, read at the change level (central, not merely touched)." -->
+
+The seven HIGH-risk categories above — `Concurrency`,
+`Crash-safety / Durability`, `Public API`, `Security`,
+`Architecture / cross-component coordination`, `Performance hot path`,
+and `Workflow machinery` — are also the source for the change-tier
+**Gate 1** ("does the change need a `design.md`?", `planning.md` §Tier
+classification). The same list drives two decisions from one source of
+truth: the **per-step** tagging above (a step matches a category) and the
+**change-level** Gate 1 (a category is central to the whole change). The
+two readings differ in granularity, not in vocabulary.
+
+Change-level is not "contains one high-risk step." A mostly-mechanical
+change with a single risky line does not flip Gate 1 to yes. Gate 1 is
+yes only when a category is **central to the change's purpose**, not
+merely touched by one incidental edit; that judgment is the planner's and
+the user ratifies it at tier confirmation. The set of *centrally-matched*
+categories is recorded at confirmation because those same categories
+prime the relocated adversarial review's lenses (a touched-but-not-central
+category generates no lens). When a downstream doc surfaces these
+category names for Gate 1, it quotes the headings above **verbatim** —
+`Crash-safety / Durability`, not "durability"; `Architecture /
+cross-component coordination`, not "load-bearing architecture" — so a
+paraphrase never drifts the Gate-1 vocabulary from the live per-step
+labels.
 
 ## MEDIUM-risk triggers
 <!-- roles=decomposer phases=3A summary="Conditions that put a step at medium risk." -->

@@ -25,12 +25,11 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Two operational modes | orchestrator,planner,final-designer | 1,4 | Working mode edits the polished design; sync mode re-distills it from the mechanics companion. |
 | §Skill inputs | orchestrator,planner,final-designer | 1,4 | The mutation kind, target file(s), and edit payload the skill consumes on each invocation. |
 | §Cold-read scope and check-set by mutation kind | orchestrator,planner,final-designer | 1,4 | The per-mutation-kind table mapping each kind to its target files, cold-read scope, and mechanical check set. |
-| §Workflow | orchestrator,planner,final-designer | 1,4 | The mutation loop: apply, distill, scope, check, adversarial (phase1-creation), cold-read, merge, iterate, log, present. |
+| §Workflow | orchestrator,planner,final-designer | 1,4 | The mutation loop: apply, distill, scope, check, cold-read (S3-gated for phase1-creation), merge, iterate, log, present. |
 | §Step 1: Apply the edit | orchestrator,planner,final-designer | 1,4 | Apply the requested mutation to the target design file(s), stamping only on the creation kinds. |
 | §Step 1.5: Distillation (only for `design-sync`) | orchestrator,planner,final-designer | 1,4 | For design-sync only, re-distill the polished design from the current mechanics companion before the cold read. |
 | §Step 2: Determine cold-read scope | orchestrator,planner,final-designer | 1,4 | Pick the cold-read scope (bounded or whole-doc) for this mutation kind from the check-set table. |
 | §Step 3: Run mechanical checks | orchestrator,planner,final-designer | 1,4 | Run the mutation kind's mechanical checks (link resolution, stamp position, section presence) before the cold read. |
-| §Step 3.5: Run the adversarial sub-agent (`phase1-creation` only) | orchestrator,planner | 1 | For phase1-creation, challenge the design's decisions and assumptions before the cold-read assesses comprehension. |
 | §Step 4: Run the cold-read sub-agent | orchestrator,planner,final-designer | 1,4 | Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects. |
 | §Step 5: Merge findings | orchestrator,planner,final-designer | 1,4 | Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step. |
 | §Step 6: Iterate | orchestrator,planner,final-designer | 1,4 | Apply fixes and re-run the cold read until findings clear or the iteration cap is reached. |
@@ -152,14 +151,18 @@ things and trigger different actions; do not collapse them mentally:
 See design-document-rules.md:planner,final-designer:1,4 `§ Mutation discipline § Cold-read scope by mutation kind` for the canonical statement of both counters.
 
 ## Workflow
-<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The mutation loop: apply, distill, scope, check, adversarial (phase1-creation), cold-read, merge, iterate, log, present." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The mutation loop: apply, distill, scope, check, cold-read (S3-gated for phase1-creation), merge, iterate, log, present." -->
 
 The high-level steps are the same across all mutation kinds; the differences
-are in which checks fire and whether the adversarial and cold-read passes run.
-One step is kind-conditional: Step 3.5 (adversarial) runs **only** for
-`phase1-creation`, where it precedes the cold read so a fresh reader is not
-asked to assess a design the adversarial pass may still change. Every other
-kind goes straight from Step 3 (mechanical checks) to Step 4 (cold-read).
+are in which checks fire and how the cold-read pass is gated. Every kind goes
+straight from Step 3 (mechanical checks) to Step 4 (cold-read); there is no
+in-skill adversarial pass. The decision/assumption challenge for
+`phase1-creation` was relocated onto the research log at the Phase 0 → 1 gate
+(D6, `prompts/adversarial-review.md` §Research-log-scoped review (Phase 0→1)),
+so for `phase1-creation` the Step 4 cold-read is **gated** behind that
+log-adversarial gate clearing (the S3 freeze-order gate; see Step 4) rather
+than preceded by a local adversarial step. Every other mutation kind runs the
+cold-read with no gate.
 
 ### Step 1: Apply the edit
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Apply the requested mutation to the target design file(s), stamping only on the creation kinds." -->
@@ -395,54 +398,6 @@ The script prints JSON to stdout. Exit code `0` ⇒ no blockers; `1` ⇒ NEEDS
 REVISION. Capture and parse the JSON; do not act on the exit code alone —
 the findings list is what drives iteration.
 
-### Step 3.5: Run the adversarial sub-agent (`phase1-creation` only)
-<!-- roles=orchestrator,planner phases=1 summary="For phase1-creation, challenge the design's decisions and assumptions before the cold-read assesses comprehension." -->
-
-**Run this step only for `phase1-creation`.** Every other mutation kind
-skips it and goes straight to Step 4 (cold-read). For `phase1-creation` the
-adversarial pass runs **before** cold-read: it challenges the design's
-decisions and hidden assumptions against the real code while the design can
-still move cheaply, so the cold-read in Step 4 is not asked to assess the
-comprehension of a design the adversarial pass may still force to change
-(the design-first ordering, D7 / `design-document-rules.md` § Working / sync).
-
-**Skip when mechanical checks have any `blocker` finding** — same rule as
-cold-read below. Fix the structure first, then challenge the design once it
-is structurally sound.
-
-When mechanical has zero blockers, spawn the adversarial sub-agent via the
-`Agent` tool:
-
-- `subagent_type`: `general-purpose`
-- `description`: `"Adversarial design review (phase1-creation)"`
-- `prompt`: the full content of
-  `.claude/workflow/prompts/adversarial-review.md`. The prompt's
-  TOC-protocol header resolves the reviewer's phase to 1, which routes it
-  to the § Design-scoped review (Phase 1) section, so the reviewer
-  challenges `design.md` (and `design-mechanics.md` when present) rather
-  than a plan track. Substitute the design paths into that section's
-  `### Inputs` block:
-
-```
-- design_path: <abs path>
-- design_mechanics_path: <abs path or "(none)">
-- mutation_kind: phase1-creation
-```
-
-The sub-agent returns the two-part adversarial output (Part 1 challenge
-certificates, Part 2 `Finding A<N>` entries). Map its findings into the same
-severity schema as the mechanical and cold-read findings: an adversarial
-`blocker` forces a design revision in the Step 6 iterate loop before
-cold-read runs; `should-fix` and `suggestion` carry into the merged list in
-Step 5. There is no `skip` severity in design scope — a design is not a
-track that can be dropped. The adversarial template is shared with the
-Phase-3A track review, which carries a track-shaped `skip` severity; if the
-shared template emits a would-be `skip` against a design, **treat it as a
-`blocker`** — a design that should be abandoned is a blocking design revision
-(rethink it before the plan derives from it), not a track drop. This keeps
-the severity mapping fully deterministic for every value the template can
-produce.
-
 ### Step 4: Run the cold-read sub-agent
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Spawn the cold-read reviewer over the scoped sections to catch coherence and self-consistency defects." -->
 
@@ -456,14 +411,39 @@ point asking a sub-agent to assess comprehension if the structure is broken
 — iterate on mechanical first, then cold-read once the doc is structurally
 sound.
 
-For `phase1-creation`, the adversarial pass (Step 3.5) has already run and
-its blockers were cleared in the Step 6 iterate loop before control reaches
-here — cold-read assesses the comprehension of a design whose decisions have
-already survived challenge. For all other kinds, cold-read is the first
-review pass.
+**Block the cold-read for `phase1-creation` while a log-adversarial entry is
+open (the S3 freeze-order gate).** Under D6 the decision/assumption challenge
+runs as a gate on the research log at the Phase 0 → 1 boundary, not as a local
+adversarial pass here. So for `phase1-creation` — before spawning the
+cold-read — read the research log's `## Adversarial gate record` section (the
+gate's durable verdict carrier; the heading shape and the open/resolved and
+latest-dated-entry rules are defined once in `research.md` §The research log
+under Gate-record cadence). The gate's own review files under
+`_workflow/reviews/` are ephemeral and not the carrier. The gate's verdict is
+encoded in the section's headings: when the gate has looped, **match the
+latest dated heading**, and a `NEEDS REVISION` heading with any open blocker
+or should-fix is an **open** entry. The cold-read **must not run while the
+latest log-adversarial entry is open**: that is the S3 invariant — a `design.md`
+draft cannot reach cold-read while a log-adversarial entry is open, so a
+load-bearing decision surfaced while authoring the design is appended to the
+log, re-challenged at the gate, and cleared before the cold-read assesses
+comprehension (the same ordering the relocated adversarial pass preserves; see
+`design-document-rules.md` § Working / sync). When the gate is clear (every
+log-adversarial entry resolved), proceed to the cold-read; the comprehension
+pass then assesses a design whose decisions have already survived challenge.
 
-For all other kinds, when mechanical has zero blockers, spawn the cold-read
-sub-agent via the `Agent` tool:
+**The S3 gate holds across the D15 batch loop-back.** Once `design.md` is
+presented for review, post-presentation findings queue and batch through the
+D15 review-iteration loop (`create-plan/SKILL.md` § Step 4 review-hold
+batching). A decision-shaped cold-read finding re-enters the gate step — it is
+appended to the log and re-challenged — so the gate re-opens and this Step-4
+cold-read does not re-run until the log entry is resolved again. There is no
+path where the cold-read runs with an open log entry, on the first pass or on
+any batch loop-back iteration.
+
+For all other kinds, cold-read is the first and only review pass — there is no
+gate. When mechanical has zero blockers (and, for `phase1-creation`, the S3
+gate is clear), spawn the cold-read sub-agent via the `Agent` tool:
 
 - `subagent_type`: `general-purpose`
 - `description`: `"Cold-read design review (<mutation_kind>)"`
@@ -495,6 +475,27 @@ For every other kind — including `phase1-creation` — omit the
 inline byte-for-byte today's verdict, so the `phase1-creation` invocation
 stays exempt.
 
+**Inject `research_log_path` for `phase1-creation` (the absorption
+criterion).** When `mutation_kind == phase1-creation`, append the research
+log's absolute path so the cold-read runs the absorption-completeness
+cross-check the relocated review needs (D8; the S3 gate has just confirmed the
+log's decisions cleared their challenge):
+
+```
+- research_log_path: <abs path to _workflow/research-log.md>
+```
+
+This is the `target=design` form of the absorption check
+(`prompts/design-review.md` §Track-scoped cold-read, the absorption-completeness
+criterion that both targets carry): the reviewer confirms that every
+load-bearing research-log decision in the design's scope — each
+`## Decision Log` entry whose `**Alternatives rejected:**` field names a real
+fork — appears as a seed D-record in `design.md`, and that no seed D-record
+invents a decision the log never recorded. A missing seed D-record is a
+should-fix the Step 6 iterate loop must resolve before the cold-read passes.
+Omit `research_log_path` for every other kind (the interactive mutation kinds
+and Phase 4 do not run the absorption check).
+
 For `design-sync`, also include in the prompt body: *"This sync re-distills
 `design.md` from the current state of `design-mechanics.md`. Verify that every
 TL;DR and mechanism overview in `design.md` accurately summarizes the current
@@ -519,19 +520,18 @@ Map cold-read findings into the same severity schema as mechanical findings.
 ### Step 5: Merge findings
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Merge the mechanical-check and cold-read findings into one deduplicated list for the iterate step." -->
 
-Combine mechanical + cold-read findings into a single list (plus the Step 3.5
-adversarial findings for `phase1-creation`). The cold-read findings are
-whichever source Step 4 produced: the inline list for the no-path case, or
-the `## Structural findings` partial-fetched from the written file for the
-`phase4-creation` file-write path. Sort by severity: `blocker` →
+Combine mechanical + cold-read findings into a single list. The cold-read
+findings are whichever source Step 4 produced: the inline list for the no-path
+case, or the `## Structural findings` partial-fetched from the written file
+for the `phase4-creation` file-write path. Sort by severity: `blocker` →
 `should-fix` → `suggestion`. Mechanical findings carry a structured `rule`
-field; cold-read and adversarial findings are free-form bullets and won't
-usually duplicate the mechanical set, but if a cold-read or adversarial bullet
-plainly restates a mechanical finding (same severity, same location, same
-shape rule), drop the duplicate. For `phase1-creation`, the adversarial pass
-ran first (Step 3.5) and its blockers were already iterated to resolution
-before cold-read; any adversarial `should-fix` / `suggestion` that carried
-forward is merged here alongside the cold-read findings.
+field; cold-read findings are free-form bullets and won't usually duplicate
+the mechanical set, but if a cold-read bullet plainly restates a mechanical
+finding (same severity, same location, same shape rule), drop the duplicate.
+There is no in-skill adversarial finding source to merge: for `phase1-creation`
+the decision/assumption challenge ran as the relocated log-adversarial gate
+(D6), which Step 4's S3 gate confirmed clear before the cold-read ran, so the
+challenge findings were already resolved on the log and never enter this merge.
 
 ### Step 6: Iterate
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Apply fixes and re-run the cold read until findings clear or the iteration cap is reached." -->
@@ -552,16 +552,15 @@ or no findings remain:
 2. **Then address `should-fix` findings** in the same iteration, using
    the same auto-vs-manual flow. `suggestion` findings are not retried —
    they are recorded in the review log only.
-3. **Re-run mechanical checks; then, for `phase1-creation`, if an
-   adversarial finding was addressed this iteration, re-run Step 3.5
-   (the adversarial sub-agent); then, if mechanical (and, when
-   applicable, adversarial) now pass and cold-read was applicable for
-   this kind, re-run cold-read. Replace the prior findings list with the
-   new one.** The adversarial re-run is `phase1-creation`-scoped (no
-   other mutation kind has a Step 3.5), so for every other kind this
-   reduces to "re-run mechanical, then re-run cold-read if applicable",
-   the prior behavior. The loop's exit conditions below (all blocker +
-   should-fix cleared, or budget exhausted) are unchanged.
+3. **Re-run mechanical checks; then, if mechanical now passes and
+   cold-read was applicable for this kind, re-run cold-read. Replace the
+   prior findings list with the new one.** For `phase1-creation`, the S3
+   gate still guards the cold-read re-run: a decision-shaped cold-read
+   finding addressed this iteration is a log decision (it re-entered the
+   gate per Step 4's batch loop-back), so the re-run cold-read only fires
+   once the log-adversarial gate is clear again. No mutation kind runs an
+   in-skill adversarial sub-agent. The loop's exit conditions below (all
+   blocker + should-fix cleared, or budget exhausted) are unchanged.
 4. **Decrement the iteration budget.** Stop when the budget reaches
    zero or all blocker + should-fix findings are gone.
 
@@ -593,7 +592,7 @@ the top-level `<dir>/`.
   (`docs/adr/<dir>/_workflow/`) and the log lives at
   `docs/adr/<dir>/_workflow/design-mutations.md`.
 - **For `phase4-creation`** (special case): `design_path =
-  docs/adr/<dir>/`design-final.md` (top-level, intentionally
+  docs/adr/<dir>/design-final.md` (top-level, intentionally
   outside `_workflow/` because `design-final.md` itself is a
   durable artifact). The log path is **not** derived from
   `design_path`'s parent — instead, it is forced to

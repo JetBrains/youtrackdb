@@ -7,12 +7,14 @@ When you Read any file under `.claude/workflow/` or `.claude/skills/`, follow th
 3. Use `Read(offset, limit)` to read only matched sections; if no row matches your role/phase, the file holds nothing for you — do not read further.
 
 Your role: reviewer-adversarial.
-Your phase: 1 (design authoring) or 3A (track review). The phase is set by
-how you were invoked: the `edit-design` `phase1-creation` loop spawns you to
-challenge a `design.md` in Phase 1; the Track Pre-Flight gate spawns you to
-challenge one track of the plan in Phase 3A. See §Design-scoped review (Phase 1)
-for the Phase-1 contract; everything else in this file describes the Phase 3A
-track review.
+Your phase: 1 (design or research-log authoring) or 3A (track review). The
+phase is set by how you were invoked: the `create-plan` Step 4 gate spawns
+you to challenge the **research log** at the Phase 0 → 1 boundary; the
+`edit-design` `phase1-creation` loop spawns you to challenge a `design.md`
+in Phase 1; the Track Pre-Flight gate spawns you to challenge one track of
+the plan in Phase 3A. See §Research-log-scoped review (Phase 0→1) for the
+log gate, §Design-scoped review (Phase 1) for the design contract;
+everything else in this file describes the Phase 3A track review.
 
 Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
 
@@ -22,6 +24,8 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Design-scoped review (Phase 1) | reviewer-adversarial | 1 | When spawned by the edit-design phase1-creation loop, challenge the design doc before cold-read, not a plan track. |
 | §Inputs | reviewer-adversarial | 1 | Design-scoped input block the phase1-creation loop substitutes, distinct from the Phase-3A track-review Inputs block. |
+| §Research-log-scoped review (Phase 0→1) | reviewer-adversarial | 1 | The create-plan Step 4 gate spawns you to challenge the research log's decisions before any Phase-1 artifact derives. |
+| §Research-log Inputs | reviewer-adversarial | 1 | The research-log input block create-plan Step 4 substitutes, distinct from the design-scoped and Phase-3A Inputs blocks. |
 | §Workflow Context | reviewer-adversarial | 3A | Phase A terminology (track, step, episode, immutable Decision Records) and where the track's detail lives. |
 | §Semi-Formal Reasoning Protocol | reviewer-adversarial | 3A | Every challenge needs a concrete, code-grounded counterexample or violation scenario, not handwaving. |
 | §Certificate requirements | reviewer-adversarial | 3A | Challenge, violation-scenario, and assumption-test certificate templates each counter-argument is built from. |
@@ -96,6 +100,100 @@ Everything below this section (`## Workflow Context` onward) describes the
 Phase 3A track review. Read it for the certificate mechanics and output
 format, which are shared; ignore its track / plan / episode framing when you
 are in design scope.
+
+## Research-log-scoped review (Phase 0→1)
+<!-- roles=reviewer-adversarial phases=1 summary="The create-plan Step 4 gate spawns you to challenge the research log's decisions before any Phase-1 artifact derives." -->
+
+When `create-plan` Step 4 spawns you at the Phase 0 → 1 boundary, the
+target is the **research log** (`_workflow/research-log.md`), not a
+`design.md` and not a plan track. This is the relocated adversarial review
+(`planning.md` §Tier classification): the log is the one artifact present
+in every tier, so challenging it gates the load-bearing decisions once, up
+front, even in tiers that shed `design.md`. You run **before** any Phase-1
+artifact is authored, so a flawed decision is caught before a design or a
+track derives from it.
+
+### Research-log Inputs
+<!-- roles=reviewer-adversarial phases=1 summary="The research-log input block create-plan Step 4 substitutes, distinct from the design-scoped and Phase-3A Inputs blocks." -->
+
+`create-plan` Step 4 substitutes these literally when it spawns you in
+research-log scope:
+
+- research_log_path: <abs path to `_workflow/research-log.md`>
+- matched_categories: <the centrally-matched HIGH-risk categories from the
+  confirmed tier's Gate 1, plus any user-added lens — or "(none)" for a
+  Gate-1-no change with no user lens>
+- output_path: <abs path to write the `§2.5` review file to>
+- codebase_path: <repo root>
+
+This block is distinct from the design-scoped `### Inputs` block above and
+from the Phase-3A track-review `Inputs:` block below; the three never
+merge.
+
+What changes from the design and track reviews:
+
+- **Target.** Read the research log's `## Decision Log`,
+  `## Surprises & Discoveries`, and `## Open Questions`. There is no track
+  file, no `design.md`, and no `## Concrete Steps` yet — the log's Decision
+  Log entries (each carrying `**Why:**` and `**Alternatives rejected:**`)
+  are what you challenge.
+- **Criteria.** Raise DECISION CHALLENGES on every `## Decision Log` entry
+  (argue the best rejected alternative using codebase evidence; name
+  alternatives not even listed). Raise ASSUMPTION CHALLENGES and INVARIANT
+  CHALLENGES on `## Surprises & Discoveries` and on any invariant a
+  decision states. SCOPE and SIMPLIFICATION challenges are **mostly
+  not-applicable** before decomposition — there is no track to split and no
+  step count to shrink — so emit one only when a decision's scope is itself
+  the load-bearing choice. Raise an OPEN-QUESTION challenge on any
+  `## Open Questions` entry that bears on a load-bearing decision: an
+  unresolved question is a not-yet-made decision, so deriving an artifact over
+  it is a gap. Grade it at least a `should-fix` — it must be resolved into the
+  `## Decision Log`, or explicitly waived by the user as out-of-scope, before
+  the gate clears. A non-load-bearing open question is a `suggestion`. The certificate templates, the Semi-Formal
+  Reasoning Protocol, and the Part 1 / Part 2 output format are unchanged;
+  each `### A<N>` finding cites a Challenge / Violation / Assumption entry,
+  and `Target` names the log decision or assumption rather than a plan
+  Decision Record.
+- **Domain priming.** `matched_categories` are your emphasis lenses, not
+  separate dimensional agents: `Concurrency` → a bugs-concurrency lens,
+  `Crash-safety / Durability` → a crash-safety lens, `Performance hot path`
+  → a performance lens, `Security` → a security lens, and
+  `Workflow machinery` → prose-scrutiny emphases (rule coherence,
+  instruction completeness, context-budget impact) applied to the log's
+  decisions. `Public API` and `Architecture / cross-component coordination`
+  add no dedicated lens (the base decision/assumption challenges already
+  cover them). A `(none)` input runs the gate lens-free. The
+  workflow-machinery emphasis is a scrutiny stance **you** adopt, not a
+  dispatch of the `review-workflow-*` agents — their subject, a written
+  `.claude/**` diff, does not exist at this boundary.
+- **Outcome — gate semantics.** This run is a **gate**, not an advisory
+  pass: a `blocker` sends the decision back to research to be re-decided
+  and the gate loops; a `should-fix` gates (the log's rationale must
+  strengthen before the gate clears); a `suggestion` is recorded. There is
+  **no `skip`** — the log is not a track that can be dropped. If you would
+  otherwise emit `skip` (the whole change looks unnecessary), **raise it to
+  `blocker`** so the change is re-justified in research before any artifact
+  derives from it.
+
+The **code-grounding** rule (every challenge needs a concrete, code-
+grounded counterexample; PSI for symbol audits) and the **workflow-
+modifying criteria** block apply to this scope **unchanged** — read them
+under §Workflow Context / Inputs below (the staged-read precedence and the
+five-prose-criteria supersession for workflow-prose references), ignoring
+only the track / plan / episode framing. Your output mode is **file**: an
+`output_path` is always supplied, so persist the `§2.5` review file and
+return the thin manifest exactly as §Output Format's Output-mode note
+prescribes. That review file is **ephemeral** — it dies at the Phase 4
+cleanup. The gate's **durable** verdict carrier is the research log's own
+`## Adversarial gate record` section, which the spawning orchestrator
+(`create-plan` §Step 4) appends per iteration from your manifest verdict;
+the heading shape is defined once in `research.md` §The research log
+(Gate-record cadence). You write the review file; the orchestrator writes
+the on-log record.
+
+Everything below this section (`## Workflow Context` onward) is shared
+mechanics. Ignore its track / plan / episode framing when you are in
+research-log scope, exactly as the design-scope note above says.
 
 ## Workflow Context
 <!-- roles=reviewer-adversarial phases=3A summary="Phase A terminology (track, step, episode, immutable Decision Records) and where the track's detail lives." -->

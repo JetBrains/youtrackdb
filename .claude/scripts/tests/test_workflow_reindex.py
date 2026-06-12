@@ -451,6 +451,157 @@ def test_inline_backtick_spans_unclosed_no_span() -> None:
     assert spans == [], f"expected no spans, got {spans}"
 
 
+def test_compute_inline_spans_carry_across_lines() -> None:
+    """A code span opening on one line and closing on the next is one span.
+
+    Reproduces the structural shape of the rule-6 false positive: the span
+    ``## Adversarial gate verdicts`` opens on line 0 and closes on line 1, so
+    a backticked ``adr.md`` after the closer on line 1 sits inside its own
+    code span. A line-local scan would read the closing backtick on line 1 as
+    an opener, flip parity, and push ``adr.md`` outside any span. The
+    carry-aware computation must keep it inside.
+    """
+    lines = [
+        "lands in the `## Adversarial",
+        "gate verdicts` section of `adr.md` in both.",
+    ]
+    spans = MODULE.compute_inline_spans(lines, [False, False])
+    assert len(spans) == 2, f"one entry per line, got {spans}"
+    # Line 0: the span opens at the backtick and runs to end of line. Derive
+    # the column from the fixture so it can't drift if the literal is edited.
+    backtick_col = lines[0].index("`")
+    assert spans[0] == [(backtick_col, len(lines[0]))], f"got {spans[0]}"
+    # Line 1: the carried span closes after "verdicts", then a second span
+    # wraps `adr.md`.
+    adr_col = lines[1].index("adr.md")
+    assert MODULE.position_in_inline_span(spans[1], adr_col), (
+        f"`adr.md` at col {adr_col} must be inside a code span; got {spans[1]}"
+    )
+    # The prose word "section" sits in the gap between the two spans and must
+    # be outside — the carry does not swallow the whole line.
+    section_col = lines[1].index("section")
+    assert not MODULE.position_in_inline_span(spans[1], section_col), (
+        f"`section` at col {section_col} must be outside a span; got {spans[1]}"
+    )
+
+
+def test_compute_inline_spans_resets_at_fence() -> None:
+    """A fence interrupts inline parsing: a code span cannot cross it.
+
+    An unclosed backtick run on a line before a fenced block stays literal
+    (no closer in its non-fenced block), so it must not open a span that
+    swallows the fence or the lines after it. Fenced lines themselves carry
+    no inline spans.
+    """
+    lines = [
+        "stray ` backtick before a fence",
+        "```",
+        "code body",
+        "```",
+        "after the fence `closed` span",
+    ]
+    fenced = MODULE.compute_fenced_lines(lines)
+    spans = MODULE.compute_inline_spans(lines, fenced)
+    # The lone backtick on line 0 never closes within its block, so no span.
+    assert spans[0] == [], f"unclosed pre-fence backtick must be literal; got {spans[0]}"
+    # The post-fence `closed` span is detected on its own line, unaffected by
+    # the stray backtick three lines up.
+    closed_col = lines[4].index("closed")
+    assert MODULE.position_in_inline_span(spans[4], closed_col), (
+        f"`closed` must be inside a code span; got {spans[4]}"
+    )
+
+
+def test_compute_inline_spans_cascade_after_carried_closer() -> None:
+    """A carried-in closer followed by several more spans on one line stays consistent.
+
+    The motivating failure (edit-design/SKILL.md) had a chain of refs whose
+    backtick parity cascaded after a single wrapping span's closer. With only
+    one span after the closer the parity flips just once; this exercises the
+    multi-span cascade and the span-distribution loop appending several ranges
+    to one line's entry.
+    """
+    lines = [
+        "carry `open",
+        "close` `a` mid `b` end `c` tail target.md",
+    ]
+    spans = MODULE.compute_inline_spans(lines, [False, False])
+    # Line 1 holds four spans: the carried closer (cols 0..6) plus `a`/`b`/`c`.
+    assert len(spans[1]) == 4, f"expected 4 spans on the cascade line, got {spans[1]}"
+    # Each of a/b/c sits inside its own span (parity stays correct downstream).
+    for word in ("`a`", "`b`", "`c`"):
+        inner_col = lines[1].index(word) + 1  # the letter between the backticks
+        assert MODULE.position_in_inline_span(spans[1], inner_col), (
+            f"{word} must be inside a span; got {spans[1]}"
+        )
+    # target.md follows the last closer in prose, so it is outside every span.
+    tgt_col = lines[1].index("target.md")
+    assert not MODULE.position_in_inline_span(spans[1], tgt_col), (
+        f"`target.md` must be outside a span; got {spans[1]}"
+    )
+
+
+def test_compute_inline_spans_double_backtick_carry() -> None:
+    """A length-2 backtick run carried across a line break closes on a length-2 run.
+
+    Exercises the run-length matching path across a newline together with the
+    offset mapping — a single-backtick fixture would not catch a `run_len`
+    off-by-one in the start/end offsets.
+    """
+    lines = [
+        "open ``span starts",
+        "and ``closes then `inline` then target.md",
+    ]
+    spans = MODULE.compute_inline_spans(lines, [False, False])
+    # Line 0: the ``-run opens and runs to end of line.
+    run_col = lines[0].index("``")
+    assert spans[0] == [(run_col, len(lines[0]))], f"got {spans[0]}"
+    # Line 1: the carried ``-span closes on the second ``-run; `inline` is its
+    # own span; target.md is bare prose, outside every span.
+    assert MODULE.position_in_inline_span(spans[1], lines[1].index("inline")), (
+        f"`inline` must be inside a span; got {spans[1]}"
+    )
+    assert not MODULE.position_in_inline_span(spans[1], lines[1].index("target.md")), (
+        f"`target.md` must be outside a span; got {spans[1]}"
+    )
+
+
+def test_compute_inline_spans_toc_region_resets_carry() -> None:
+    """The TOC region resets the span carry, exactly like a fenced block.
+
+    `parse_file` marks the TOC region as a span-reset boundary
+    (`_span_reset_mask`) because it is a block-level table an inline code span
+    cannot cross. Without that reset, a stray backtick in a Summary cell pairs
+    with one in the prose below the TOC end-marker and the phantom span
+    swallows a real cross-file ref (the false-negative direction). The control
+    assertion below proves the reset is load-bearing.
+    """
+    lines = [
+        "<!--Document index start-->",
+        "| Section | Roles | Phases | Summary |",
+        "|---|---|---|---|",
+        "| §A | any | any | a note with a stray ` tick |",
+        "<!--Document index end-->",
+        "Prose names target.md then a stray ` tick.",
+    ]
+    fenced = MODULE.compute_fenced_lines(lines)
+    toc = MODULE.parse_toc_region(lines, fenced)
+    assert toc is not None, "fixture must have a recognized TOC region"
+    reset = MODULE._span_reset_mask(lines, fenced, toc)
+    spans = MODULE.compute_inline_spans(lines, reset)
+    tgt_col = lines[5].index("target.md")
+    assert not MODULE.position_in_inline_span(spans[5], tgt_col), (
+        f"the TOC reset must stop a phantom span covering the ref; got {spans[5]}"
+    )
+    # Control: with the fence mask alone (no TOC reset) the two stray backticks
+    # pair into one span that DOES cover target.md — the reset is load-bearing.
+    leaked = MODULE.compute_inline_spans(lines, fenced)
+    assert MODULE.position_in_inline_span(leaked[5], tgt_col), (
+        f"control: without the TOC reset the phantom span should cover the ref; "
+        f"got {leaked[5]}"
+    )
+
+
 def test_discover_in_scope_files_smoke() -> None:
     """The repo's in-scope file set is non-empty and contains known files."""
     files = MODULE.discover_in_scope_files(REPO_ROOT)
@@ -1722,6 +1873,97 @@ def test_rule_6_ref_in_inline_backticks_excluded() -> None:
             [f for f in findings if f.rule == "rule_6"], "/citer.md"
         )
         assert not rule6, f"inline-backtick refs should be excluded, got {rule6}"
+
+
+def test_rule_6_backticked_ref_after_wrapping_code_span_not_flagged() -> None:
+    """A backticked cross-file ref after a code span that wrapped a newline is excluded.
+
+    Regression for the rule-6 false positive: a code span (``## Adversarial
+    gate verdicts``) opens on one line and closes on the next, then a
+    correctly-backticked ``adr.md`` follows the closer on the same line. The
+    line-local scan read the closing backtick as an opener, flipped backtick
+    parity, and reported ``adr.md`` as a bare ref missing its suffix. The
+    cross-line span computation keeps ``adr.md`` inside its own span, so no
+    rule_6 finding fires.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            The verdict fold lands in the `## Adversarial
+            gate verdicts` section of `adr.md` in both tiers.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/citer.md", body)
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        assert not rule6, (
+            f"a backticked ref after a wrapping code span must be excluded, got {rule6}"
+        )
+
+
+def test_rule_6_bare_ref_after_wrapping_code_span_still_flagged() -> None:
+    """The symmetric guard: a genuinely bare ref after a wrapping span is still caught.
+
+    The cross-line carry must not over-extend a span and silently swallow a
+    real un-backticked cross-file ref (the false-negative direction of the
+    same parity bug). Here the span ``## Section heading`` wraps a newline and
+    closes, after which ``target.md`` appears in plain prose with no backticks
+    — rule_6 must still flag it as missing the suffix.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        body = textwrap.dedent(
+            """\
+            # Citer
+
+            <!--Document index start-->
+
+            | Section | Roles | Phases | Summary |
+            |---|---|---|---|
+            | §A | orchestrator | 3B | A. |
+
+            <!--Document index end-->
+
+            ## A
+            <!-- roles=orchestrator phases=3B summary="A." -->
+
+            The note in the `## Section
+            heading` then names target.md without a suffix.
+            """
+        )
+        _write_in_scope_file(root, ".claude/workflow/citer.md", body)
+        findings = MODULE.validate(root)
+        rule6 = _findings_for_path(
+            [f for f in findings if f.rule == "rule_6"], "/citer.md"
+        )
+        # Pin the missing-suffix path specifically (rule_6 has other
+        # file-naming explanations), so the test keeps guarding the
+        # false-negative direction the docstring claims.
+        assert any(
+            "target.md" in f.explanation and "missing" in f.explanation
+            for f in rule6
+        ), (
+            f"a bare ref after a wrapping span must still fire rule_6 "
+            f"(missing suffix), got {rule6}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -5077,6 +5319,26 @@ def main() -> int:
             test_inline_backtick_spans_double_with_inner_backtick,
         ),
         ("inline_backtick_spans unclosed", test_inline_backtick_spans_unclosed_no_span),
+        (
+            "compute_inline_spans carry across lines",
+            test_compute_inline_spans_carry_across_lines,
+        ),
+        (
+            "compute_inline_spans resets at fence",
+            test_compute_inline_spans_resets_at_fence,
+        ),
+        (
+            "compute_inline_spans cascade after carried closer",
+            test_compute_inline_spans_cascade_after_carried_closer,
+        ),
+        (
+            "compute_inline_spans double-backtick carry",
+            test_compute_inline_spans_double_backtick_carry,
+        ),
+        (
+            "compute_inline_spans TOC region resets carry",
+            test_compute_inline_spans_toc_region_resets_carry,
+        ),
         ("discover_in_scope_files smoke", test_discover_in_scope_files_smoke),
         (
             "discover_in_scope_files picks up staged paths",
@@ -5159,6 +5421,14 @@ def main() -> int:
         (
             "rule_6 ref in inline backticks excluded",
             test_rule_6_ref_in_inline_backticks_excluded,
+        ),
+        (
+            "rule_6 backticked ref after wrapping code span not flagged",
+            test_rule_6_backticked_ref_after_wrapping_code_span_not_flagged,
+        ),
+        (
+            "rule_6 bare ref after wrapping code span still flagged",
+            test_rule_6_bare_ref_after_wrapping_code_span_still_flagged,
         ),
         (
             "build_file_lookup prefers staged over live",

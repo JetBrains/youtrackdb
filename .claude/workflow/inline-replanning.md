@@ -104,6 +104,64 @@ Decision Record revisions follow this format:
 - **Implemented in**: Track M (revised), Track P (new)
 ```
 
+**Cross-track propagation duty.** A decision whose full inline Decision
+Record is duplicated across several track files stays one logical live
+record. When a replan revises such a decision, you (the orchestrator)
+carry the revision to every track that holds a copy, in this same
+replan — there is no separate later pass:
+
+- **Not-yet-completed tracks (status `[ ]`).** Update the revised
+  Decision Record in the `## Decision Log` of every not-yet-completed
+  track that carries it. This is the duty's primary write path; it is
+  open without a separate pause because `## Decision Log` is in the
+  cases 2 and 3 updatable-section lists in
+  [§Updating plan and track files](#updating-plan-and-track-files)
+  below (and in the mid-execution-rewrite line of
+  conventions-execution.md:orchestrator,decomposer:3A,3B,3C `§2.1`).
+- **Completed tracks (status `[x]`).** Append a supersession note
+  (naming the superseded record) to the `## Decision Log` of any
+  completed track that carried the decision. This append rides the
+  case 4 documentation-only carve-out (it touches no merged code and
+  changes no `[x]` status), so it does not trigger the completed-track
+  user-pause.
+
+The copy-shape rule is decision-state-based, not replan-event-based:
+any post-seed copy of a decision that has ever been revised is written
+in the inline-replan revision format above (the seed decision stays in
+its `**Original decision**` field), never as clean revised text, so
+every post-seed copy carries the marker that routes it to the fidelity
+check's provenance-only path (the write-time cold-read fidelity
+criterion in `prompts/design-review.md`). State-based means the marker
+attaches to every post-seed copy of an ever-revised decision, not only
+the copies the current replan happens to touch: a copy written into a
+new track during a later replan still carries the revision format
+because the decision's state is "ever revised," even though this later
+replan did not itself revise it.
+
+**Tier upgrade rides this same path (D12).** A mid-flight tier upgrade
+(a `minimal` change that grows a second track, or a `lite` change that
+turns out to need a design) is an inline replan like any other: it adds
+the new tier's artifacts and runs that tier's Phase-3A passes from the
+upgrade point onward. It does not retroactively insert a Phase-2 pass
+an earlier session already skipped, and a downgrade is likewise not
+automatic — a completed review cannot be un-run. No dedicated
+tier-upgrade mechanism exists; the ESCALATE replan is the carrier.
+
+The first artifact an upgrade lands is the **D18 tier line rewrite**. The
+Phase-2/3A/4 selectors all read the tier line in `implementation-plan.md`
+to pick their per-tier shape, so the upgrade rewrites that line to the new
+tier before the next State-0 re-run (step 6 below resets `## Plan Review`,
+routing the next `/execute-tracks` session through Phase 2). Without the
+rewrite, every re-entered selector would read the stale pre-upgrade tier
+and keep running the lighter tier's passes, so the upgrade would be
+announced but never take effect downstream. The tier line is normally a
+`create-plan`-owned write (it is read-only for every execution-time
+consumer), and the upgrade is the one execution-time exception: the
+ESCALATE replan owns this single write to the line, the same way it owns
+the revised Decision Records it lands. A `lite`→`full` upgrade that also
+gains a `design.md` writes the new design seed alongside the tier-line
+rewrite.
+
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
 [§Updating plan and track files](#updating-plan-and-track-files) below
@@ -239,11 +297,15 @@ revision and the file(s) that carry the new description:
    state and pre-revision baseline, plus any track-level Mermaid
    diagram), `## Plan of Work` (step sequencing, constraints,
    ordering rationale), `## Interfaces and Dependencies`
-   (interactions with other tracks and files), and `## Validation and
+   (interactions with other tracks and files), `## Validation and
    Acceptance` (track-level acceptance criteria; per-step EARS/Gherkin
-   lines remain Phase A placeholders). The plan-file checklist entry
-   keeps its intro paragraph, `**Scope:**`, and `**Depends on:**`
-   unchanged unless the intro itself is being revised.
+   lines remain Phase A placeholders), and `## Decision Log` (the
+   track's full inline Decision Records — when the replan revises a
+   decision this track carries, update the copy here per the
+   cross-track propagation duty in step 3 of [§Process](#process)).
+   The plan-file checklist entry keeps its intro paragraph,
+   `**Scope:**`, and `**Depends on:**` unchanged unless the intro
+   itself is being revised.
 
 3. **Revising a mid-execution track** (status `[ ]` with Phase A
    reviews recorded and/or steps decomposed in the track file; the
@@ -252,9 +314,13 @@ revision and the file(s) that carry the new description:
    and Orientation` (current state and pre-revision baseline, plus
    any track-level Mermaid diagram), `## Plan of Work` (step
    sequencing, constraints, ordering rationale), `## Interfaces and
-   Dependencies` (interactions with other tracks and files), and
+   Dependencies` (interactions with other tracks and files),
    `## Validation and Acceptance` (track-level acceptance criteria;
-   per-step EARS/Gherkin lines remain Phase A placeholders).
+   per-step EARS/Gherkin lines remain Phase A placeholders), and
+   `## Decision Log` (the track's full inline Decision Records — when
+   the replan revises a decision this track carries, update the copy
+   here per the cross-track propagation duty in step 3 of
+   [§Process](#process)).
    If the revision changes the intro paragraph, update the plan-file
    checklist entry's intro paragraph to match.
 
@@ -265,6 +331,20 @@ revision and the file(s) that carry the new description:
    paragraph or Track episode. **Pause and ask the user** before
    proceeding. The existing `[x]` status does not change; any new
    scope becomes a new track (case 1).
+
+   **Documentation-only carve-out: the cross-track supersession note.**
+   The user-pause does not apply to one specific append. When the
+   current replan revises a decision whose full Decision Record was
+   duplicated into this completed track's `## Decision Log`, the
+   propagation duty (step 3 of [§Process](#process)) appends a
+   supersession note naming the superseded record to that
+   `## Decision Log`. The append touches no merged code, changes no
+   `[x]` status, and adds no scope — it only keeps the completed
+   track's audit trail consistent with the live decision the replan
+   just revised in the not-yet-completed tracks. Append it as part of
+   the same replan, without a separate pause. Any revision that is not
+   this documentation-only supersession-note append still pauses and
+   asks per the rule above.
 
 5. **Revising a skipped track** (status `[~]`). Update the plan entry.
    Skipped tracks never retain a track file after the skip (see

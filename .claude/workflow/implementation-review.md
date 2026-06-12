@@ -7,6 +7,7 @@
 | §Overview | orchestrator,reviewer-plan | 2 | What Phase 2 plan review covers and when it runs. |
 | §How to run | orchestrator | 2 | Entry points and preconditions for launching the review. |
 | §Precondition (both entry points) | orchestrator | 2 | State that must hold before either entry point starts. |
+| §Tier-driven pass selection (D9/D10) | orchestrator | 2 | Phase-2 passes key off the tier line: per-tier consistency shape, `minimal` drops structural, design-presence guards. |
 | §Step 1: Consistency Review | orchestrator,reviewer-plan | 2 | The consistency pass: contradictions, missing links, mismatched counts. |
 | §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
 | §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
@@ -177,6 +178,66 @@ ignore (the audit-trail `git add` is path-scoped to the files above).
 
 ---
 
+## Tier-driven pass selection (D9/D10)
+<!-- roles=orchestrator phases=2 summary="Phase-2 passes key off the tier line: per-tier consistency shape, minimal drops structural, design-presence guards." -->
+
+Which Phase-2 passes run, and in what shape, is keyed off the **confirmed
+tier** (D9), not off a step-count axis. Before launching Step 1, read the
+**D18 tier line** from `implementation-plan.md`, the single change-level
+line `create-plan` writes at confirmation, carrying the tier
+(`full` / `lite` / `minimal`) and its centrally-matched HIGH-risk
+categories. The tier line is always present (the aggregator plan is
+shape-complete in every tier, D1), and the Phase-2 consistency review
+flags a plan that lacks it. The same line is read on every entry — a
+fresh `/execute-tracks` State-0 session and a manual `/review-plan` re-run
+both read it from the always-present plan.
+
+**Per-tier pass selection.** Each Phase-2 pass either runs as today,
+narrows, or drops (the change-level half of the design's Part-6 review
+matrix):
+
+| Pass | `full` | `lite` | `minimal` |
+|---|---|---|---|
+| Step 1 consistency | full (design + plan + tracks + code) | drops the design half (plan + tracks + code) | drops the design half **and** the plan-content cross-check (track + code only) |
+| Step 2 structural | runs | runs | **dropped** (the stub plan has nothing to check) |
+
+The two narrowings are independent. The **design half** of the
+consistency review is dropped whenever no `design.md` exists — that is, in
+`lite` and `minimal`. The **plan-content cross-check** is additionally
+dropped in `minimal` only, because the `minimal` stub plan is ~10 lines
+with one checklist entry and no decision content to cross-check; the
+`minimal` consistency pass cross-checks track-vs-code only. `minimal` also
+**drops the Step 2 structural pass** entirely: a stub plan has one
+checklist entry, no decision records, and no ordering, so a structural
+pass has nothing to validate.
+
+**Design-presence guard.** The two narrowings reduce to one mechanical
+test the orchestrator and the sub-agent both apply: **does
+`docs/adr/<dir-name>/_workflow/design.md` exist?** When it is absent
+(every `lite`/`minimal` plan), every clause that opens, reads, cites, or
+routes a finding to a design file is skipped. The passes are not rewritten
+per tier — the same Step 1 / Step 2 flow runs with the design-reading
+clauses guarded behind the design-presence test. A no-design dry-run of
+the Step 1 flow must reach no instruction that dereferences `design.md`;
+this is the track's no-design acceptance check.
+
+**Findings-routing under no design.** With a `design.md` present, a
+Phase-2 finding that touches frozen seed text defers to Phase 4 (see
+§"`design.md` is frozen — Phase 2 does not mutate it" below). With no
+design, every correction is plan-or-track-scoped: the defer-to-Phase-4
+branch is **unreachable**, and all findings route to the plan or the track
+files directly. The live decision always lives in the track regardless
+(D7), so the only thing the no-design tiers lose is the deferral target,
+not a routing destination.
+
+**Mid-flight upgrade.** A `lite`/`minimal` plan that upgrades to `full`
+mid-flight (the D12 ESCALATE path) gains a `design.md` and re-enters the
+design-present branches from the upgrade point onward; findings already
+routed as plan/track corrections before the upgrade are not retroactively
+moved.
+
+---
+
 ## Step 1: Consistency Review
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="The consistency pass: contradictions, missing links, mismatched counts." -->
 
@@ -199,15 +260,29 @@ findings.
 ### What it checks
 <!-- roles=reviewer-plan phases=2 summary="Consistency dimensions the reviewer inspects." -->
 
-- **Design ↔ Code**: class diagrams match real classes, workflow diagrams
-  match real call flows, complex-part sections describe actual behavior
+- **Design ↔ Code** (design half — `full` only): class diagrams match
+  real classes, workflow diagrams match real call flows, complex-part
+  sections describe actual behavior
 - **Plan ↔ Code**: Component Map and Decision Records reference real
   constructs, Integration Points exist, track descriptions don't reference
   phantom code
-- **Design ↔ Plan**: diagrams align with track descriptions and Decision
-  Records, scope indicators are consistent with design complexity
-- **Gaps**: plan elements without design coverage, design elements no track
-  covers, codebase constructs the documents should reference but don't
+- **Design ↔ Plan** (design half — `full` only): diagrams align with track
+  descriptions and Decision Records, scope indicators are consistent with
+  design complexity
+- **Track ↔ Code**: each track's inline Decision Records and its
+  in-scope/out-of-scope file lists reference real constructs (the track is
+  the live decision carrier in every tier, D7)
+- **Gaps**: plan elements without design coverage (design half — `full`
+  only), design elements no track covers (design half — `full` only),
+  codebase constructs the documents should reference but don't
+
+The bullets tagged **design half** run only when `design.md` exists, i.e.
+in `full`. In `lite`/`minimal` the design-presence guard (see
+§"Tier-driven pass selection") skips them, and the review reads plan +
+tracks + code (`lite`) or track + code (`minimal`). The **Plan ↔ Code**
+and **Track ↔ Code** bullets are the plan-content and track-content
+cross-checks: `minimal` also drops the plan-content cross-check (the stub
+plan has no content to verify), running **Track ↔ Code** only.
 
 Each pending track's detailed description lives in that track's
 track file (`plan/track-N.md`, written by `create-plan` at Phase 1)
@@ -216,7 +291,8 @@ track-level sections (`## Purpose / Big Picture`, `## Context and
 Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`),
 with any track-level Mermaid diagram landing under `## Context and
 Orientation`. The consistency review reads the track files alongside
-the plan.
+the plan, and reads each track's `## Decision Log` inline DRs as the
+live decision content (D7).
 
 ### Sub-agent prompt
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="Prompt template for the consistency review sub-agent." -->
@@ -349,7 +425,11 @@ orchestrator/planner owns the strategic fallback per `§2.5`).
 ## Step 2: Structural Review
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="The structural pass: section shape, budgets, bloat." -->
 
-Runs **automatically** after the consistency review passes. Validates
+Runs **automatically** after the consistency review passes, **except under
+`minimal`** — the `minimal` tier drops the structural pass entirely (see
+§"Tier-driven pass selection"), because a stub plan has one checklist
+entry, no decision records, and no ordering for a structural pass to
+validate. Under `full` and `lite` the structural pass runs. Validates
 plan-internal structure without reading the codebase.
 
 ### What it checks
@@ -592,6 +672,18 @@ applied via `Edit`; the `design.md` correction itself is deferred to
 the Phase-4 `design-final.md` reconciliation against the real code,
 where the final-designer reconciles the design's narrative with what
 was actually built.
+
+**This whole deferral mechanism applies only when a `design.md` exists,
+i.e. in `full`.** In `lite`/`minimal` no design file exists (see
+§"Tier-driven pass selection"), so no finding can touch frozen seed text:
+the defer-to-Phase-4-design branch is unreachable and every correction is
+plan-or-track-scoped, applied via `Edit` directly. The live decision lives
+in the track in every tier (D7), so a no-design tier loses only the
+deferral target, not a place to route the fix. A design-destination bloat
+fix (one that would move live material into the frozen seed) re-routes
+to the matching track section in **every** tier, including `full`, because
+the seed is non-canonical under the carrier flip (the structural review
+owns this re-route; see structural-review.md:orchestrator,reviewer-plan:2,3A,3C).
 
 Plan-file and track-file edits use `Edit` directly (unchanged) — no
 mutation discipline applies to those files.
