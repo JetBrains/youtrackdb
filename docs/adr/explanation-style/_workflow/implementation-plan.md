@@ -144,7 +144,7 @@ graph TD
 
 - [ ] Track 2: Over-dense prose enforcement (cold-read block + dsc-ai-tell regexes)
   > Adds the YTDB-1084 over-dense enforcement that does not enumerate the subset: a judgment-layer `### Prose AI-tell additions` block in the `design-review.md` cold-read running for both `target=design` and `target=tracks`, plus two `dsc-ai-tell` regexes (inflated-abstraction labels and the "X, not Y" faux-symmetry) with tests. Ships demotable, calibrated against this branch's own authoring.
-  > **Scope:** ~4 files covering the `design-review.md` cold-read block + TOC/count sync, the `readability-feedback` Rule sync map design-review row, two regexes in `design-mechanical-checks.py`, and `test_dsc_ai_tell.py`.
+  > **Scope:** ~4 files covering the `design-review.md` cold-read block + TOC/count sync, the `readability-feedback` Rule sync map design-review row (plus its audit-prompt `## Orientation` references, WC1 plan correction from Track 1 review), two regexes in `design-mechanical-checks.py`, and `test_dsc_ai_tell.py`.
   > **Depends on:** Track 1
 
 ## Plan Review
