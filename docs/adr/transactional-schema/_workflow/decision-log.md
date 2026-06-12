@@ -2727,11 +2727,16 @@ the tear structurally impossible. The status-handshake idea transfers to
 YTDB-1114 as the registry's REVOKED mark fenced at the storage boundary (the
 commit-entry check under `segmentLock` replaces the in-object CAS).
 
-**Correction (2026-06-11, F92 settlement):** the "exactly one foreign caller"
-claim was wrong. The Gremlin hooks run on the eval worker and resolve
-per-thread transactions, so no foreign `rollbackInternal` entry exists;
-YTDB-1113 was closed as invalid. "No second claimant" holds today without
-any prerequisite fix. See F92.
+**Correction (2026-06-11, F92 settlement; scoped per F99):** the "exactly one
+foreign caller" claim was wrong about the Gremlin side. The Gremlin hooks run
+on the eval worker and resolve per-thread transactions, so no Gremlin-side
+second claimant exists; YTDB-1113 was closed as invalid. The core-side
+pool-shutdown entry remains (`DatabasePoolImpl:125`–`:134` →
+`rollbackInternal`'s `BEGUN, COMMITTING ->` arm,
+`FrontendTransactionImpl:368`), and it reaches checked-out sessions, not only
+abandoned ones (`getAllResources()` concatenates `resources` and
+`resourcesOut`, `ResourcePool:191`–`:195`) — the documented rare-event path
+under the YTDB-550 monitor, pre-existing on develop. See F92 and F99.
 
 ### F86 — The freezer gate sits below `stateLock.write`: a parked data commit holds `stateLock.read` for the freeze window and the C18 outage returns one lock up [MAJOR]
 Pass-8 report C23. A data commit that reaches its gate after the freeze engaged parks
@@ -3379,6 +3384,15 @@ Gremlin-side second claimant; the core-side pool-shutdown entry remains the
 documented rare-event path") and widen D7's caller-class wording from
 "abandoned sessions" to "any checked-out session at pool close". Affected:
 F85, D7.
+
+**Resolved (2026-06-12): accepted as proposed; the D7 half landed in the F96
+fold.** F85's correction note is scoped to the Gremlin inventory and names
+the core-side pool-shutdown entry with its checked-out reach; D7's teardown
+bullet already carries the "checked-out, not only abandoned" widening (it
+rode the F96 re-swap edit). Under the F96 session-keyed guard the
+pool-shutdown entry's mutex release is the legitimate healing path, so the
+caller-class precision now matters twice: it defines both the F85 tear
+exposure and the guard's primary foreign-thread customer.
 
 ### F100 — The F94 fail-fast abort never promotes a dump: `close()`'s `writeEndObject` throws at records-array context before the rename, so the pinned "promoted dump missing post-`records` sections, hard-failed by section presence" composition does not exist [MAJOR]
 Pass-10 report U24. The fail-fast rethrow lands at the `:221` catch inside the
