@@ -149,6 +149,8 @@ graph TD
   > Cross-track impact: Track 2 depends on this track because the `## Orientation` rule it cold-reads now exists and the `§1.7` opt-out sanctions its live edits. Phase C finding WC1 (the `readability-feedback` audit prompt does not yet name `## Orientation`, so too-terse passages misroute as GAP) was folded into Track 2 as a new step 4, since Track 2 already edits that file. Stamp-advance stays pending: every commit touching `.claude/workflow|skills|agents` advances HEAD past the artifacts' stamp base, so the drift gate fires each session; Suppress is the interim answer until `/migrate-workflow` runs after the branch's last drift-gate-pathspec commit (after Track 2).
   >
   > **Track file:** `plan/track-1.md` (5 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact. Track 1's only cross-track discovery (WC1) was already folded into Track 2 as step 4 (`ad73d83c0b`); Track 2's design prerequisites (the `## Orientation` rule, the `§1.7` opt-out) are now satisfied on disk.
 
 - [ ] Track 2: Over-dense prose enforcement (cold-read block + dsc-ai-tell regexes)
   > Adds the YTDB-1084 over-dense enforcement that does not enumerate the subset: a judgment-layer `### Prose AI-tell additions` block in the `design-review.md` cold-read running for both `target=design` and `target=tracks`, plus two `dsc-ai-tell` regexes (inflated-abstraction labels and the "X, not Y" faux-symmetry) with tests. Ships demotable, calibrated against this branch's own authoring.
