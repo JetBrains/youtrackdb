@@ -269,45 +269,9 @@ collapse.
 
 ## Concrete Steps
 
-1. **AggregateState replay core.** New `AggregateState` (observe / applyMutation /
-   copy / toResult for all six kinds: SUM/AVG storage parity via
-   `PropertyTypeInternal.increment` with first-value seed and full re-fold; AVG
-   `total` + `SQLFunctionAverage.computeAverage` finalization; MIN/MAX
-   `extremumRid` transitions; COUNT_DISTINCT buckets; membership-derived dispatch
-   with D21 collapse safety; aggregate-specific cap on the `AggregateState`
-   collections that routes the key non-cacheable on overflow), plus
-   `DeltaBuilder.buildForAggregate` (copy + replay populate-version-filtered ops),
-   the `CachedResultSetView` aggregate path (`toResult()`, `hasNext` true once),
-   and the `CachedEntry` `aggregateState` field. Unit-tested in isolation:
-   per-kind observe/applyMutation, mixed-input/overflow/precision SUM parity, AVG
-   integer-truncation and BigDecimal `HALF_UP`, the collapse case, cap overflow.
-   *(parallel with Step 2)* — risk: high (performance hot path)  [x] commit: 4a9c9d0ccf
-2. **Classifier tightening + global metric bridge.** Tighten `ShapeClassifier` so
-   an aggregate under arithmetic (`count(*) + 1`) classifies K0_NONE (not
-   AGGREGATE_COUNT) and bare / single-field-indexed `COUNT(*)` rides the fallback
-   or classifies K0_NONE (hardwired, untappable); the existing aggregate gates and
-   the COUNT(DISTINCT) nested-`distinct(...)` parse are verified, not rebuilt.
-   Wire the global `CoreMetrics.QUERY_CACHE_*_RATE` increments from the existing
-   per-tx counters. Tested: classifier unit cases for both tightenings, the I5
-   four-factory enumeration completeness test, and a metric-increment assertion.
-   *(parallel with Step 1)* — risk: medium — size: ~3 files; (a) no mergeable
-   low/medium work fits (rest of track is high-tagged or its own integration
-   tests)  [x] commit: d66cd22d57
-3. **Tap + splice + eager drive + fallback.** New `AggregateCacheTapStep extends
-   AbstractExecutionStep`; in `DatabaseSessionEmbedded` the aggregate miss path
-   builds the plan via `createExecutionPlan` (a per-execution copy), splices the
-   tap upstream of `AggregateProjectionCalculationStep` as a separate branch in
-   the cache shape gate (preserving the two-guard `viewOwnsGuard` / `cacheCodeDepth`
-   contract), eager-drives via `plan.start(ctx)` + drain while re-mirroring the
-   three Track-1 populate contracts (stamp `populateMutationVersion` before
-   driving, release the guard on every exit, idempotent close), and falls back to
-   an uncached `LocalResultSet` + `incrementSpliceFailures` on any unexpected
-   shape (e.g. a hardwired `CountFromClassStep`). End-to-end tested: per-kind
-   cache-vs-fresh I4 equivalence over a tappable shape (COUNT/SUM/AVG/MIN/MAX/
-   COUNT_DISTINCT) including the D21 collapse case, bare/indexed COUNT(*) takes the
-   fallback, cap overflow routes the key non-cacheable, no exception leaks.
-   Depends on Steps 1 and 2. — risk: high (architecture / cross-component
-   coordination)  [x] commit: 3c8849a70c
+1. **AggregateState replay core.** New `AggregateState` (observe / applyMutation / copy / toResult for all six kinds: SUM/AVG storage parity via `PropertyTypeInternal.increment` with first-value seed and full re-fold; AVG `total` + `SQLFunctionAverage.computeAverage` finalization; MIN/MAX `extremumRid` transitions; COUNT_DISTINCT buckets; membership-derived dispatch with D21 collapse safety; aggregate-specific cap on the `AggregateState` collections that routes the key non-cacheable on overflow), plus `DeltaBuilder.buildForAggregate` (copy + replay populate-version-filtered ops), the `CachedResultSetView` aggregate path (`toResult()`, `hasNext` true once), and the `CachedEntry` `aggregateState` field. Unit-tested in isolation: per-kind observe/applyMutation, mixed-input/overflow/precision SUM parity, AVG integer-truncation and BigDecimal `HALF_UP`, the collapse case, cap overflow. *(parallel with Step 2)* — risk: high (performance hot path)  [x] commit: 4a9c9d0ccf
+2. **Classifier tightening + global metric bridge.** Tighten `ShapeClassifier` so an aggregate under arithmetic (`count(*) + 1`) classifies K0_NONE (not AGGREGATE_COUNT) and bare / single-field-indexed `COUNT(*)` rides the fallback or classifies K0_NONE (hardwired, untappable); the existing aggregate gates and the COUNT(DISTINCT) nested-`distinct(...)` parse are verified, not rebuilt. Wire the global `CoreMetrics.QUERY_CACHE_*_RATE` increments from the existing per-tx counters. Tested: classifier unit cases for both tightenings, the I5 four-factory enumeration completeness test, and a metric-increment assertion. *(parallel with Step 1)* — risk: medium — size: ~3 files; (a) no mergeable low/medium work fits (rest of track is high-tagged or its own integration tests)  [x] commit: d66cd22d57
+3. **Tap + splice + eager drive + fallback.** New `AggregateCacheTapStep extends AbstractExecutionStep`; in `DatabaseSessionEmbedded` the aggregate miss path builds the plan via `createExecutionPlan` (a per-execution copy), splices the tap upstream of `AggregateProjectionCalculationStep` as a separate branch in the cache shape gate (preserving the two-guard `viewOwnsGuard` / `cacheCodeDepth` contract), eager-drives via `plan.start(ctx)` + drain while re-mirroring the three Track-1 populate contracts (stamp `populateMutationVersion` before driving, release the guard on every exit, idempotent close), and falls back to an uncached `LocalResultSet` + `incrementSpliceFailures` on any unexpected shape (e.g. a hardwired `CountFromClassStep`). End-to-end tested: per-kind cache-vs-fresh I4 equivalence over a tappable shape (COUNT/SUM/AVG/MIN/MAX/COUNT_DISTINCT) including the D21 collapse case, bare/indexed COUNT(*) takes the fallback, cap overflow routes the key non-cacheable, no exception leaks. Depends on Steps 1 and 2. — risk: high (architecture / cross-component coordination)  [x] commit: 3c8849a70c
 
 ## Episodes
 <!-- Continuous-log. -->
