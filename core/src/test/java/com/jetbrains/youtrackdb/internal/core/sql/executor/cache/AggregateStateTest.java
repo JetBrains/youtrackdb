@@ -31,9 +31,9 @@ import org.junit.Test;
 
 /**
  * Verifies {@link AggregateState} in isolation: per-kind {@code observe}/{@code applyMutation}
- * transitions, the SUM/AVG storage-parity fold (D19), AVG integer-truncation and BigDecimal HALF_UP
+ * transitions, the SUM/AVG storage-parity fold, AVG integer-truncation and BigDecimal HALF_UP
  * finalisation, MIN/MAX extremum transitions including the O(n) recompute, COUNT_DISTINCT bucket
- * lifecycle (D20), the D21 collapse case (a {@code CREATED}-typed op already a contributor dispatched
+ * lifecycle, the collapse case (a {@code CREATED}-typed op already a contributor dispatched
  * by membership, not op type), {@code copy} isolation, and the contributor cap overflow callback.
  *
  * <p>The replay path it exercises is the same {@link DeltaBuilder#buildForAggregate} drives: seed the
@@ -811,11 +811,11 @@ public class AggregateStateTest {
   }
 
   // ===========================================================================
-  // D21 collapse safety: membership, not op type
+  // Collapse safety: membership, not op type
   // ===========================================================================
 
   /**
-   * The D21 collapse case: a pre-populate CREATE of a contributor whose post-populate UPDATE drives it
+   * The collapse case: a pre-populate CREATE of a contributor whose post-populate UPDATE drives it
    * out of WHERE collapses to a {@code CREATED}-typed op. Because the record was already observed at
    * populate (it is in {@code contributingValues}), {@code was_contributing=true}; with {@code
    * matchAfter=false} it is a T&rarr;F drop. Keying on op type would misread {@code CREATED} as a new

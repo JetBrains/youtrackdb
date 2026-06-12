@@ -49,7 +49,7 @@ import org.junit.experimental.categories.Category;
  * clear, I7 view-snapshot isolation, I8 schema-stable class filter, I9 LRU-pressure pinning) and the
  * load-bearing {@code ORDER BY} + {@code LIMIT} classify-ordering guard.
  *
- * <p>Run with {@code -ea}: I2 (owner-thread) rests on {@code assertOnOwningThread} and the D3
+ * <p>Run with {@code -ea}: I2 (owner-thread) rests on {@code assertOnOwningThread} and the
  * schema-DDL canary is a Java {@code assert}; both are disabled without assertions, so they protect
  * tests, not production.
  */

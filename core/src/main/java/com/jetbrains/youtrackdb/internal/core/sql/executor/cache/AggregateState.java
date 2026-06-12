@@ -27,7 +27,7 @@ import javax.annotation.Nullable;
  * #toResult} returns exactly the scalar a fresh uncached execution would compute at that moment
  * (invariant I4).
  *
- * <p><b>Storage parity (D19).</b> SUM and AVG fold their values through the same {@link
+ * <p><b>Storage parity.</b> SUM and AVG fold their values through the same {@link
  * PropertyTypeInternal#increment} call storage's {@code SQLFunctionSum.sum} / {@code
  * SQLFunctionAverage.sum} make: the first contributing value is seeded verbatim, every later value is
  * {@code increment}ed onto the running {@link #sumAccumulator}. Because {@code PropertyTypeInternal}
@@ -47,13 +47,13 @@ import javax.annotation.Nullable;
  * identity ({@code rid.equals(extremumRid)}), never by {@code Number.equals}, to sidestep the
  * cross-{@code Number}-subtype equality hazard.
  *
- * <p><b>COUNT(DISTINCT) (D20).</b> {@link #distinctBuckets} maps each distinct value to the set of
+ * <p><b>COUNT(DISTINCT).</b> {@link #distinctBuckets} maps each distinct value to the set of
  * RIDs currently contributing it; the scalar is the live bucket count, recomputed at {@link
  * #toResult}. Bucket keys use raw {@code Object.equals}/{@code hashCode}, mirroring {@code
  * SQLFunctionDistinct}'s {@code LinkedHashSet<Object>}, so {@code Long(5)} and {@code Integer(5)} are
  * distinct buckets exactly as in storage.
  *
- * <p><b>Membership-derived dispatch (D21 collapse safety).</b> Every {@link #applyMutation} derives
+ * <p><b>Membership-derived dispatch (collapse safety).</b> Every {@link #applyMutation} derives
  * its transition from two facts rather than from the operation type: {@code was_contributing} from
  * cache membership ({@link #contributingValues}{@code .containsKey(rid)}, or {@link #contributingRids}
  * for COUNT), and {@code now_contributing = (status == DELETED) ? false : matchAfter}. {@code status}
@@ -107,7 +107,7 @@ public final class AggregateState {
   private final Map<RID, Object> contributingValues = new LinkedHashMap<>();
 
   // ---- SUM / AVG ----
-  /** Running SUM/AVG total, folded through {@link PropertyTypeInternal#increment} (D19). Seeded null. */
+  /** Running SUM/AVG total, folded through {@link PropertyTypeInternal#increment}. Seeded null. */
   @Nullable private Number sumAccumulator;
 
   /** Contributor count, the AVG divisor; recomputed alongside {@link #sumAccumulator} on every re-fold. */
@@ -132,7 +132,7 @@ public final class AggregateState {
   @Nullable private RID extremumRid;
 
   // ---- COUNT_DISTINCT ----
-  /** Distinct value &rarr; contributing RIDs (D20). The scalar is the live bucket count. */
+  /** Distinct value &rarr; contributing RIDs. The scalar is the live bucket count. */
   private final Map<Object, Set<RID>> distinctBuckets = new HashMap<>();
 
   // ---- Memory cap (installed by the cache at put time) ----
@@ -211,7 +211,7 @@ public final class AggregateState {
    * Replays one post-populate mutation onto this (copied) state during delta build. {@code status} is
    * the {@link RecordOperation} type; {@code matchAfter} is whether the post-mutation record still
    * satisfies the query's WHERE (membership only). The transition is derived from cache membership and
-   * {@code now_contributing}, never from {@code status} alone (D21). For a record that still
+   * {@code now_contributing}, never from {@code status} alone. For a record that still
    * contributes, the post-state value is read from the mutated record.
    */
   public void applyMutation(@Nonnull RecordAbstract record, byte status, boolean matchAfter) {
@@ -267,7 +267,7 @@ public final class AggregateState {
     updateContributor(rid, newValue);
   }
 
-  /** Whether {@code rid} currently contributes, by cache membership (D21), not by op type. */
+  /** Whether {@code rid} currently contributes, by cache membership, not by op type. */
   private boolean isContributing(@Nonnull RID rid) {
     if (kind == CacheableShape.AGGREGATE_COUNT) {
       return contributingRids.contains(rid);
@@ -387,7 +387,7 @@ public final class AggregateState {
   /**
    * Re-folds the entire {@link #contributingValues} through {@link PropertyTypeInternal#increment}
    * from a verbatim first-value seed, exactly as storage's SUM/AVG accumulate. A full re-fold (rather
-   * than an incremental add/subtract) is mandated by D19: {@code PropertyTypeInternal} exposes no
+   * than an incremental add/subtract) is required because {@code PropertyTypeInternal} exposes no
    * symmetric subtract, and only re-folding from scratch reproduces storage's numeric-promotion and
    * overflow behaviour bit-for-bit. The fold walks {@link #contributingValues} in insertion (==
    * observe == scan) order so the result matches storage's scan-order fold bit-for-bit. Also recomputes

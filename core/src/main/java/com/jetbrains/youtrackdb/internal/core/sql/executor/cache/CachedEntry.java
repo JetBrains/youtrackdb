@@ -61,8 +61,8 @@ public final class CachedEntry {
   private final Set<RID> cachedRids = new HashSet<>();
 
   /**
-   * The full subclass closure of every class the query reads from, computed once at construction
-   * (D11). Stable for the entry's lifetime because schema is immutable within a transaction. The
+   * The full subclass closure of every class the query reads from, computed once at construction.
+   * Stable for the entry's lifetime because schema is immutable within a transaction. The
    * delta builder uses it as the O(1) class filter on every mutation.
    */
   private final Set<String> effectiveFromClasses;
@@ -73,7 +73,7 @@ public final class CachedEntry {
   /** The query's ORDER BY, used to position injected rows in the merged view. May be {@code null}. */
   @Nullable private final SQLOrderBy orderBy;
 
-  /** Mutation version captured before the populating execution started (D21 anchor). */
+  /** Mutation version captured before the populating execution started. */
   private final long populateMutationVersion;
 
   /**
@@ -139,7 +139,7 @@ public final class CachedEntry {
   }
 
   /**
-   * Computes the {@link #effectiveFromClasses} closure (D11): the named class plus every subclass,
+   * Computes the {@link #effectiveFromClasses} closure: the named class plus every subclass,
    * each by name. Returns an unmodifiable set. A {@code null} class yields the empty set so a target
    * whose schema class cannot be resolved produces an entry whose delta filter matches nothing rather
    * than throwing.

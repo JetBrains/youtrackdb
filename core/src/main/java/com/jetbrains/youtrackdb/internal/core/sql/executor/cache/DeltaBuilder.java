@@ -203,7 +203,7 @@ public final class DeltaBuilder {
    * state is never disturbed) and replays every post-populate mutation onto the copy, then returns the
    * copy for the view to finalise through {@link AggregateState#toResult}.
    *
-   * <p><b>Populate-version filter (D21).</b> Like {@link #buildForRecord}, only operations whose
+   * <p><b>Populate-version filter.</b> Like {@link #buildForRecord}, only operations whose
    * {@link RecordOperation#version} exceeds {@link CachedEntry#getPopulateMutationVersion()} enter the
    * replay: pre-populate mutations were already observed by the side-tap at populate and are baked into
    * the seeded state, so replaying them would double-apply.
@@ -211,7 +211,7 @@ public final class DeltaBuilder {
    * <p><b>Class filter.</b> Non-Entity records and entities outside the query's class closure cannot
    * contribute to this aggregate and are skipped, mirroring the record path.
    *
-   * <p><b>Membership dispatch (D21 collapse safety).</b> {@link AggregateState#applyMutation} derives
+   * <p><b>Membership dispatch (collapse safety).</b> {@link AggregateState#applyMutation} derives
    * its transition from cache membership and {@code matchAfter}, not from the operation type, so a
    * collapsed pre-populate CREATE that the version filter admits is reconciled correctly. {@code
    * matchAfter} re-evaluates the entry's WHERE against the post-mutation record using the original

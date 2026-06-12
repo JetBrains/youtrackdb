@@ -31,7 +31,7 @@ import org.junit.experimental.categories.Category;
  * <p>The tappable shape is {@code SELECT <agg>(price) FROM C WHERE active = true}: a non-indexed WHERE
  * forces the planner to build a real {@code AggregateProjectionCalculationStep} the side-tap can splice
  * above, unlike the hardwired bare/indexed {@code COUNT(*)} forms. Per-kind cases (COUNT / SUM / AVG /
- * MIN / MAX) cross the four mutation patterns and the D21 collapse case; separate cases pin the
+ * MIN / MAX) cross the four mutation patterns and the collapse case; separate cases pin the
  * hardwired-COUNT(*) fallback, the {@code count(*) + 1} and {@code count(distinct(prop))} K0_NONE
  * routings, the contributor-cap overflow, a cache hit on repeat, and the no-exception-leak fallback.
  *
@@ -319,7 +319,7 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // D21 collapse case — pre-populate CREATE of the holder + post-populate WHERE-break
+  // Collapse case — pre-populate CREATE of the holder + post-populate WHERE-break
   // ===========================================================================
 
   /**

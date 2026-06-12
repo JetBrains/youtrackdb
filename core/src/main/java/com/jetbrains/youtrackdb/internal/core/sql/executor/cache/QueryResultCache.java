@@ -22,7 +22,7 @@ import javax.annotation.Nullable;
  * exempt so a view never loses rows under cache pressure (I9); the map therefore grows transiently
  * above the bound while every eldest candidate is pinned. Eviction closes the entry's paused stream
  * (I3), routes the evicted key to {@link #nonCacheableKeys} so the same query does not immediately
- * re-populate and churn the LRU (D8), and counts an overflow.
+ * re-populate and churn the LRU, and counts an overflow.
  *
  * <p><b>Re-entrancy.</b> Two guards keep a query issued from inside the cache's own lookup-and-view
  * scope from recursively consulting the cache. The transaction-level {@code cacheCodeDepth}
@@ -34,7 +34,7 @@ import javax.annotation.Nullable;
  *
  * <p><b>K0_NONE version gate.</b> A {@link CacheableShape#K0_NONE} entry is reproducible from storage
  * plus the AST but cannot be reconciled record by record, so it serves a cached read only while no
- * mutation has happened since it was populated (D7/D18). {@link #lookup} compares the supplied current
+ * mutation has happened since it was populated. {@link #lookup} compares the supplied current
  * mutation version against the entry's populate version: equal is a hit, diverged invalidates the
  * entry, counts a K0 invalidation, and — once a key has been invalidated {@code
  * k0NoneInvalidationThreshold} times — routes the key to {@link #nonCacheableKeys} to bound repopulate
@@ -64,8 +64,8 @@ public final class QueryResultCache {
       new LinkedHashMap<>(16, 0.75f, true);
 
   /**
-   * Keys that must bypass the cache for the rest of the transaction: overflowed entries (D8) and
-   * K0_NONE keys that crossed the invalidation-strike threshold (D7). Uncapped per transaction.
+   * Keys that must bypass the cache for the rest of the transaction: overflowed entries and
+   * K0_NONE keys that crossed the invalidation-strike threshold. Uncapped per transaction.
    */
   private final Set<CacheKey> nonCacheableKeys = new HashSet<>();
 
@@ -185,7 +185,7 @@ public final class QueryResultCache {
    * Mirrors the {@code LinkedHashMap.removeEldestEntry} decision: inspects only the eldest
    * (least-recently-used) entry. When it is unpinned ({@code liveViewCount == 0}) it is evicted — its
    * paused stream is closed (I3), its key is routed to {@link #nonCacheableKeys} so the same query
-   * does not immediately re-populate and churn the LRU (D8), and an overflow is counted. When the
+   * does not immediately re-populate and churn the LRU, and an overflow is counted. When the
    * eldest is pinned by a live view the map is left transiently over the bound rather than truncating
    * that view (I9); a deeper hot entry is never evicted in its place, because doing so would discard a
    * fresher, more useful result to spare the cold pinned one.

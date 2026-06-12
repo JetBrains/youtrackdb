@@ -11,7 +11,7 @@ import javax.annotation.Nonnull;
 /**
  * A transparent observe-then-forward execution step the tx-result cache splices upstream of a query's
  * aggregation step so it can seed an {@link AggregateState} from every contributing record before the
- * aggregation collapses them into a single scalar (D10). The step forwards every row downstream
+ * aggregation collapses them into a single scalar. The step forwards every row downstream
  * unchanged; its only effect is the side {@link AggregateState#observe} call, so the aggregation result
  * is identical to the un-spliced plan's.
  *

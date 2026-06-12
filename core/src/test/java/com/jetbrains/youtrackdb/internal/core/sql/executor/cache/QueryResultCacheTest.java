@@ -20,7 +20,7 @@ import org.junit.experimental.categories.Category;
 /**
  * Verifies the lookup/eviction/invalidation contract of {@link QueryResultCache}: the access-order
  * LRU bound with live-view pinning (I9), the K0_NONE mutation-version gate with strike-based routing
- * to the non-cacheable set (D7/D18), the two re-entrancy guards' lookup-level boolean, the
+ * to the non-cacheable set, the two re-entrancy guards' lookup-level boolean, the
  * snapshot-before-iterate close paths, and the idempotent transaction-end {@code clear()} (I6) that
  * closes every entry's paused stream (I3).
  *
@@ -112,7 +112,7 @@ public class QueryResultCacheTest extends DbTestBase {
   /**
    * With {@code maxEntries == 1}, putting a second unpinned entry must evict the least-recently-used
    * one: its stream is closed (I3), an overflow is counted, and its key is routed to the
-   * non-cacheable set so it does not immediately re-populate (D8). The surviving entry stays
+   * non-cacheable set so it does not immediately re-populate. The surviving entry stays
    * reachable.
    */
   @Test
@@ -164,7 +164,7 @@ public class QueryResultCacheTest extends DbTestBase {
   }
 
   /**
-   * D7/D18: a K0_NONE entry hits only while the transaction's mutation version still equals its
+   * A K0_NONE entry hits only while the transaction's mutation version still equals its
    * populate version. A lookup at the populate version is a hit; a lookup at a diverged version
    * invalidates the entry (removing it and closing its stream) and counts a K0 invalidation.
    */
@@ -189,7 +189,7 @@ public class QueryResultCacheTest extends DbTestBase {
   }
 
   /**
-   * D7: once a K0_NONE key has been invalidated as many times as {@code k0NoneInvalidationThreshold},
+   * Once a K0_NONE key has been invalidated as many times as {@code k0NoneInvalidationThreshold},
    * it is routed to the non-cacheable set and every later put for that key is a no-op (the entry's
    * stream is closed immediately), bounding repopulate churn in a write-heavy fragment.
    */
