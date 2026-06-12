@@ -2930,6 +2930,11 @@ fail-closed; non-atomic move fallback stated). Correction folded in: the
 (`LogManager.warn` at the fallback site), not silent — verified at fold time
 along with the `DiskStorage:2088`–`:2093` best-effort precedent.
 
+**Framing pinned (2026-06-12, F95 fold):** the "whole-stream CRC32 for free"
+claim is per-member (RFC 1952), so it equals whole-stream validation only
+under single-gzip-member framing. D20's bullet now pins exactly one gzip
+member plus an unconditional fully-consumed check at the importer; see F95.
+
 ### F92 — D7's owner-thread-only invariant is unenforced at the teardown entry points: the owner token discriminates acquisitions, not threads, and the exempted cross-thread `rollbackInternal` reaches a live commit [MAJOR]
 Convergent: pass-9 reports C27 + U21. The rewritten abnormal-termination bullet
 claims "cross-thread teardown attempts are rejected or no-op, extending the
@@ -3163,6 +3168,21 @@ design's two independent validation layers into one.
 stays a single gzip member, or decompression success is stated as necessary and
 never sufficient, with the manifest and section-presence checks remaining the
 authority. Affected: D20, F82, F91, F75.
+
+**Resolved (2026-06-12): arm 1 accepted, plus a fully-consumed check.** D20's
+F82 bullet pins single-gzip-member framing as part of the validation contract:
+the dump is exactly one gzip member, and any future flush-per-section or
+chunked/parallel compression must replace the whole-stream validation it
+invalidates. The pin is mechanical, not prose-only: the new importer verifies
+the compressed file is fully consumed at decompression end-of-stream and fails
+loudly on trailing bytes — an unconditional check rather than a
+disabled-by-default Java `assert`, since it guards the operator-facing
+migration path. The manifest and section-presence layers stay the independent
+authority, per this finding's own observation that manifest-last already
+catches every silent prefix-stop. Spot-checked at fold time: the writer is a
+single `GZIPOutputStream` over one `FileOutputStream`
+(`DatabaseExport:91`–`:98`), and the importer opens a single
+`GZIPInputStream` (`DatabaseImport:139`).
 
 ---
 
@@ -4064,7 +4084,17 @@ recover.
   tail can sit over a zero-filled middle), with the file fsynced before the
   export reports success; the dump's existing gzip envelope supplies a
   whole-stream CRC32 for free, so "keep it gzip-framed and verify full
-  decompression" is the cheapest compliant form. Platform pins (F91): the
+  decompression" is the cheapest compliant form. Framing pin (F95): that
+  equivalence is per-member (RFC 1952), and the JDK decoder reads a
+  malformed next-member header as clean end-of-stream, so it holds only
+  under single-gzip-member framing — pinned: the dump is written as exactly
+  one gzip member (today's writer already is, `DatabaseExport:90`–`:98`),
+  the importer verifies the compressed file is fully consumed at
+  decompression end-of-stream and fails loudly on trailing bytes (an
+  unconditional check, not a disabled-by-default `assert`), and any future
+  flush-per-section or chunked/parallel compression must replace the
+  whole-stream validation it invalidates. The manifest and section-presence
+  checks remain the independent authority either way. Platform pins (F91): the
   post-rename **directory fsync is best-effort**, per repo precedent
   (`DiskStorage:2088`–`:2093`; `FileChannel.open(directory)` fails on
   non-POSIX) — safe because every lost-rename outcome is fail-closed (missing
