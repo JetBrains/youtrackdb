@@ -9,13 +9,23 @@ After this track lands, the house style has a `## Plain language` rule and every
 This track adds the new `## Plain language` section to `house-style.md` (right after `## Orientation`) with its boundary clause and a self-check item, then updates each canonical home and core-doc enumeration: the `house-conversation.md` chat subset, the `conventions.md §1.5` tier table plus its Tier-B code-comment restatement, the 11 core workflow docs, the hook reminder and its pin test (five→six), and the `CLAUDE.md` de-enumeration. It defines the rule that Tracks 2 and 3 propagate, so it lands first.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
+- [x] 2026-06-13T17:03Z [ctx=info] Review + decomposition complete
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+
+**SD1 (Phase A review, A1/T1) — the hook `tier_b_body` has a hard 500-char cap.** `test_house_style_hook.py` `test_18_reminder_body_length_budget` enforces `PER_BODY_CHAR_CAP = 500` per body and `CONCAT_CHAR_CAP = 1500` for both bodies. The live `tier_b_body` is 441 chars. Adding the sixth slug plus the D3 plain-language carve note as a second sentence overshoots (~535). Resolution: keep the cap at 500 (no threshold change — D2 syncs existing checks, it does not re-tune them) and fit the body by combining the Orientation and Plain-language carves into one clause and dropping the secondary "(H3 nested under § Punctuation and typography)" parenthetical from the Em-dash slug. A measured candidate at 479 chars proves a faithful ≤500 body exists. The test's own failure message sanctions raising the cap as a fallback ("trim the body or revise the documented cap"); not needed here.
+
+**SD2 (Phase A review, A2/A3) — `implementer-rules.md:1102` carries a count, not just an enumeration.** The sentence at `:1100`–`:1104` reads "the **five** section slugs that make up the Tier-B AI-tell subset are …". It is both an enumeration (the five slugs) and a numeric count ("five"). The narrow reconciliation grep pattern `five AI-tell|five Tier-B|five sections` does **not** match "five section slugs", so the count site would be missed if the grep were the only mechanism. The file is already in the in-scope set (it matches on `Banned analysis patterns`), so no file is missed — but the inline "five"→"six" flip at `:1102` must be called out as a count site so the implementer does not flip the enumeration and leave the count at "five".
+
+**SD3 (Phase A review, A3) — two coincidental "five" sites must NOT be touched.** A broad `five (section|slug|AI-tell|Tier-B|subset)` grep surfaces two matches unrelated to the AI-tell subset: `workflow-startup-precheck.sh:1348` ("one of the five slug" — the State-C substate slugs) and `conventions.md:86` ("Five sections" — the research-log's five sections). Neither is a subset count. The reconciliation must exclude them by hand; a wider grep raises false positives, so the in-scope set stays the explicit list reconciled against the grep, not the raw grep output.
+
+**SD4 (Phase A review, T2) — `design-mechanical-checks.py` is a considered exclusion, like `design-document-rules.md`.** The reconciliation grep surfaces `design-mechanical-checks.py` because its `dsc-ai-tell` rule names `## Banned analysis patterns`. Under D2 (judgment-only) the `dsc-ai-tell` regex gains no pattern from `## Plain language`, so the file has nothing to flip — the same reasoning that excludes `design-document-rules.md` per CR2. Both are out of scope and recorded as such so a later reader does not read the exclusion as an oversight.
 
 ## Decision Log
 <!-- Track-canonical live decisions (D7). Phase 1 seeds the full inline records this track owns. -->
@@ -64,6 +74,8 @@ Plus the boundary clause: plain language governs general English only. It never 
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review outcomes and the track-completion summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (2 findings — T1 should-fix, T2 suggestion; both accepted and applied: SD1 hook char-cap + SD4 design-mechanical-checks.py exclusion, with Plan-of-Work / Validation / Interfaces edits). Gate-check VERIFIED both.
+- [x] Adversarial: PASS at iteration 2 (3 findings — A1 blocker, A2 should-fix, A3 suggestion; all accepted and applied: SD1/SD2/SD3 + Plan-of-Work step 4–5 / Validation / Interfaces edits). Gate-check VERIFIED A1/A2/A3 and surfaced one new suggestion A4 (the reconciliation grep does not match `CLAUDE.md`), applied to the In-scope reconciliation paragraph.
 
 ## Context and Orientation
 The AI-tell subset is the part of the house style that applies to every prose surface — chat, durable Markdown, and `*.java`/`*.kt` code comments — as opposed to the full rule set, which applies only to durable Markdown. Today the subset is five sections. The merged #1142 flip (PR `f74ef47e94`) added `## Orientation` as a four→five flip and is the direct precedent for this work, including its §1.7(k) opt-out.
@@ -88,22 +100,26 @@ The approach, in order:
 1. Author `## Plain language` in `house-style.md` right after `## Orientation`: the five moves (a)–(e), the boundary clause, the `## Banned vocabulary` and `## Voice and tone` reconciliations, and a one-line Tier-B code-comment carve. Write the section itself in plain language (self-application). Add a self-check item (item 8a or a new item) and flip the `:20` count to "six".
 2. Update `house-conversation.md`: add a sixth bullet for `## Plain language` and flip "these five sections" → "six".
 3. Update `conventions.md §1.5`: add `## Plain language` to the Tier-B "Sections that apply" cell (`:567`), flip "five Tier-B" → "six" (`:570`), and add a parallel plain-language paragraph to the Tier-B restatement (`:574`–`:581`) stating which moves apply at comment scale and which do not.
-4. Update the 11 core workflow docs: add the sixth slug to each enumeration and flip any numeric "five" → "six" (the count sites are `commit-conventions.md:191`, `step-implementation.md:1038`).
-5. Sync the hook and test: add `§ Plain language` to `tier_b_body` with a carve note, flip "five" → "six" at `:256`/`:262`; add `## Plain language` to `TIER_B_HEADINGS` in the test.
+4. Update the 11 core workflow docs: add the sixth slug to each enumeration and flip any numeric "five" → "six". The known count sites are `commit-conventions.md:191` ("five AI-tell subset"), `step-implementation.md:1038` ("five AI-tell subset section slugs"), `conventions.md:570` ("five Tier-B section names"), `house-style.md:20` ("five AI-tell sections"), `house-conversation.md:21` ("these five sections"), and `implementer-rules.md:1102` ("five section slugs" — SD2; this one the narrow grep misses, so flip it explicitly). Do **not** flip the two coincidental "five" sites at `workflow-startup-precheck.sh:1348` and `conventions.md:86` (SD3) — neither names the subset.
+5. Sync the hook and test: add `§ Plain language` to `tier_b_body` and flip "five" → "six" at `:256`/`:262`. The body has a hard 500-char cap (`test_18`, SD1), so fold the Orientation and Plain-language carve notes into one clause and drop the "(H3 nested under …)" parenthetical from the Em-dash slug to stay ≤500 — keep the cap unchanged. Add `## Plain language` to `TIER_B_HEADINGS` in the test (`test_16_section_name_guard` then asserts all six headings exist in `house-style.md`).
 6. De-enumerate `CLAUDE.md:104`: replace the four-item parenthetical with a pointer to the canonical subset list.
 
 Ordering constraint: step 1 (the section exists) must precede step 5 (the test asserts the section exists). Invariant to preserve: every subset enumeration in this track ends at exactly six slugs and every numeric count reads "six".
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the numbered roster here. -->
+
+1. Author the `## Plain language` section in `house-style.md` right after `## Orientation` — the five moves, the boundary clause, the `## Banned vocabulary` and `## Voice and tone` reconciliations, and the one-line Tier-B code-comment carve — plus the `:20` count flip ("five"→"six") and a `## Self-check` item; then update the two other canonical homes: `house-conversation.md` (sixth bullet + `:21` count) and `conventions.md §1.5` (the Tier-B "Sections that apply" cell, the `:570` count, and a parallel Tier-B code-comment restatement paragraph naming which plain-language moves apply at comment scale). Write all new prose in plain language (self-application, D5). — risk: medium (bounded behavioral workflow edit: adds a cross-referenced house-style section that changes agent-observable prose behavior) — size: ~3 files; reason (a): the only remaining low work is the coherent core-doc propagation (Step 2, ~11 files), and merging it in would total ~14 and trip the overblown line  [ ]
+2. Propagate the sixth slug `## Plain language` into the 10 remaining core-doc enumerations and flip every numeric "five"→"six": `commit-conventions.md` (:191 count), `step-implementation.md` (:1038 count), `implementer-rules.md` (:1100 enum **and** :1102 count, SD2), `workflow.md`, `review-iteration.md`, `design-decision-escalation.md`, `inline-replanning.md`, `mid-phase-handoff.md`, `review-mode.md`, `episode-format-reference.md`; then de-enumerate `CLAUDE.md` (:104/:106) to a pointer at the canonical list (D6). Leave the two coincidental "five" sites untouched: `workflow-startup-precheck.sh:1348` and `conventions.md:86` (SD3). — risk: low (prose-only workflow edit: meaning-preserving cross-reference sync and the CLAUDE.md pointer swap; no hook/gate/schema change)  [ ]
+3. Sync the hook reminder and its pin test (depends on Step 1 — the section and §1.5 must already exist): add `§ Plain language` to `tier_b_body` in `house-style-write-reminder.sh` with the Orientation and Plain-language carves folded into one clause and the "(H3 nested under § Punctuation and typography)" parenthetical dropped so the body stays ≤ 500 chars (`test_18`, SD1), flip "five"→"six" at `:256`/`:262`, and add `## Plain language` to `TIER_B_HEADINGS` in `test_house_style_hook.py`. Run `python3 .claude/scripts/tests/test_house_style_hook.py` to green (`test_16_section_name_guard` finds all six headings; `test_18_reminder_body_length_budget` confirms `tier_b_body` ≤ 500 and the concat ≤ 1500). — risk: high (workflow machinery: edits an auto-running PreToolUse hook)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B appends one block per completed step. Empty at Phase 1. -->
 
 ## Validation and Acceptance
 - The `## Plain language` section exists in `house-style.md` immediately after `## Orientation`, states the five moves, the boundary clause, the two reconciliations, and the Tier-B carve.
-- `test_house_style_hook.py` passes with `## Plain language` added to `TIER_B_HEADINGS` (the section-name guard finds all six headings).
-- Every subset enumeration and numeric count this track touches reads six / "six".
+- `test_house_style_hook.py` passes in full: `test_16_section_name_guard` finds all six headings (with `## Plain language` added to `TIER_B_HEADINGS`), and `test_18_reminder_body_length_budget` still passes (`tier_b_body` ≤ 500 chars, both bodies concatenated ≤ 1500) after the six-slug + carve edit (SD1).
+- Every subset enumeration and numeric count this track touches reads six / "six", including the `implementer-rules.md:1102` count (SD2).
+- The two coincidental "five" sites — `workflow-startup-precheck.sh:1348` and `conventions.md:86` — are left unchanged (SD3).
 - `CLAUDE.md:104` no longer enumerates the subset; it points to the canonical list.
 - The new section and every edited prose surface read in plain language (self-application).
 
@@ -125,7 +141,7 @@ Ordering constraint: step 1 (the section exists) must precede step 5 (the test a
 - `.claude/workflow/conventions.md` — §1.5 Tier-B cell (`:567`); `:570` count; Tier-B restatement paragraph (`:574`–`:581`).
 - `.claude/workflow/commit-conventions.md` — enumeration + `:191` count.
 - `.claude/workflow/step-implementation.md` — enumeration + `:1038` count.
-- `.claude/workflow/implementer-rules.md` — enumeration (`:1100`).
+- `.claude/workflow/implementer-rules.md` — enumeration (`:1100`) **and** the "five section slugs" count in the same sentence (`:1102`, SD2).
 - `.claude/workflow/workflow.md` — house-style declaration (`:53`).
 - `.claude/workflow/review-iteration.md` — house-style declaration (`:30`).
 - `.claude/workflow/design-decision-escalation.md` — house-style declaration (`:19`).
@@ -139,6 +155,11 @@ Ordering constraint: step 1 (the section exists) must precede step 5 (the test a
 
 **Out of scope (other tracks):** the 11 workflow prompts and 6 skills (Track 2); the 20 review agents (Track 3).
 
+**Considered exclusions (in scope of the grep, deliberately not edited):**
+- `.claude/workflow/design-document-rules.md` — only touchpoint is the `dsc-ai-tell` regex-rule row, which gains no pattern under judgment-only D2 (CR2).
+- `.claude/scripts/design-mechanical-checks.py` — the `dsc-ai-tell` regex names `## Banned analysis patterns` but gains no new pattern under D2; nothing to flip (SD4).
+- `.claude/scripts/workflow-startup-precheck.sh:1348` and `.claude/workflow/conventions.md:86` — coincidental "five" matches (State-C substate slugs; research-log sections), not subset counts (SD3).
+
 **Dependencies:** none upstream. Tracks 2 and 3 depend on this track (the canonical rule and §1.5 must exist before their enumerations name it).
 
-**Exact in-scope set is derived by `grep -rln 'Banned analysis patterns\|five AI-tell\|five Tier-B\|five sections' .claude/ CLAUDE.md` at Phase A and reconciled against this list (lite-tier requirement; figure ~16 is approximate).**
+**In-scope set reconciliation (DONE at Phase A).** The set above was reconciled against `grep -rln 'Banned analysis patterns\|five AI-tell\|five Tier-B\|five sections' .claude/ CLAUDE.md`, restricted to non-`prompts/`, non-`skills/`, non-`agents/` paths (those belong to Tracks 2 and 3). The grep returns 15 of the 16 in-scope files plus the four considered exclusions above. The 16th in-scope file, `CLAUDE.md`, does **not** match the grep: its subset enumeration is a lowercase four-item parenthetical ("banned vocabulary, banned sentence patterns, banned analysis patterns, em-dash discipline") that omits Orientation, so the case-sensitive six-literal pattern skips it — that lowercase, Orientation-omitting lag is exactly what D6 removes by de-enumerating to a pointer. `CLAUDE.md` is therefore reached from D6, not the grep; the union of (grep ∪ D6) misses no in-scope file. The grep pattern is also enumeration-oriented (`Banned analysis patterns` is in every other enumeration) and so catches every in-scope file *except* `CLAUDE.md`, but it misses the `implementer-rules.md:1102` *count* ("five section slugs"), which is why SD2 flags that count explicitly. The figure "~16 files" is now exact: 16.
