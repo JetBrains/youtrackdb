@@ -34,14 +34,14 @@ The other 16 files in this track are mechanical slug additions that execute plan
 ## Context and Orientation
 The 11 workflow prompts under `.claude/workflow/prompts/` each carry a house-style preamble naming the five subset slugs (the "five AI-tell subset section slugs to apply are …" sentence, e.g. `adversarial-review.md:43`, `technical-review.md:31`, `consistency-review.md:96`). `design-review.md` is the exception in kind: besides the preamble, it holds the cold-read Human-reader rules that the rule must join (`design-review.md:458` references "the five Human-reader rules" / "the § Prose AI-tell additions").
 
-The 6 skills under `.claude/skills/` cite the subset in their startup read-lists or house-style notes (`create-plan/SKILL.md:23`, `execute-tracks/SKILL.md:23`, `review-plan/SKILL.md:31`, `review-workflow-pr/SKILL.md:45`, `readability-feedback/SKILL.md`, `ai-tells/SKILL.md:23` — the last cites only "Banned vocabulary" by name, so it may need no slug edit; confirm at Phase A).
+The 6 skills under `.claude/skills/` cite the subset in their startup read-lists or house-style notes (`create-plan/SKILL.md:23`, `execute-tracks/SKILL.md:23`, `review-plan/SKILL.md:31`, `review-workflow-pr/SKILL.md:45`, `readability-feedback/SKILL.md`, `ai-tells/SKILL.md:20`–`:28` — the last cites the subset sections as a fingerprint→section catalogue (`## Catalogue lookups`, six sections, two outside the subset), not the five-slug preamble, so it has no five-slug enumeration to extend; confirm at Phase A whether the catalogue should gain a `## Plain language` row).
 
 This track depends on Track 1: the `## Plain language` section and the §1.5 mapping must exist before these enumerations name the slug.
 
 ## Plan of Work
 1. Add `## Plain language` to the five-slug enumeration in each of the 11 prompts (after `### Em-dash discipline` / `## Orientation`, matching the existing slug order). Flip any numeric "five" → "six" in the same sentence.
 2. In `design-review.md`, also add the rule to the cold-read Human-reader rules / Prose AI-tell additions list, so the cold-read checks plain language, not just lists it (D2-1).
-3. Add `## Plain language` to the subset enumeration in each of the 6 skills. Confirm at Phase A whether `ai-tells/SKILL.md` needs an edit (it may name only "Banned vocabulary").
+3. Add `## Plain language` to the subset enumeration in each of the 6 skills. Confirm at Phase A whether `ai-tells/SKILL.md`'s `## Catalogue lookups` (a fingerprint→section catalogue, not a five-slug enumeration) should gain a `## Plain language` row.
 
 Invariant to preserve: every prompt and skill enumeration this track touches ends at exactly six slugs in the canonical order, and any numeric count reads "six".
 

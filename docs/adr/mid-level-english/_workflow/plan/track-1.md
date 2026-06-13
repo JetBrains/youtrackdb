@@ -6,7 +6,7 @@ After this track lands, the house style has a `## Plain language` rule and every
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
-This track adds the new `## Plain language` section to `house-style.md` (right after `## Orientation`) with its boundary clause and a self-check item, then updates each canonical home and core-doc enumeration: the `house-conversation.md` chat subset, the `conventions.md §1.5` tier table plus its Tier-B code-comment restatement, the 12 core workflow docs, the hook reminder and its pin test (five→six), and the `CLAUDE.md` de-enumeration. It defines the rule that Tracks 2 and 3 propagate, so it lands first.
+This track adds the new `## Plain language` section to `house-style.md` (right after `## Orientation`) with its boundary clause and a self-check item, then updates each canonical home and core-doc enumeration: the `house-conversation.md` chat subset, the `conventions.md §1.5` tier table plus its Tier-B code-comment restatement, the 11 core workflow docs, the hook reminder and its pin test (five→six), and the `CLAUDE.md` de-enumeration. It defines the rule that Tracks 2 and 3 propagate, so it lands first.
 
 ## Progress
 - [ ] Review + decomposition
@@ -74,7 +74,7 @@ The AI-tell subset is the part of the house style that applies to every prose su
 
 `conventions.md §1.5` (`:547`–`:582`) is the tier mapping. The table at `:567` has the Java/Kotlin Tier-B row whose "Sections that apply" cell lists the five slugs; `:570` says "The five Tier-B section names"; `:574`–`:581` is the Orientation code-comment restatement ("bans out-of-file assumptions, not in-file terseness").
 
-The 12 core workflow docs each cite the subset, some by full enumeration (`commit-conventions.md:191`, `step-implementation.md:1038`, `implementer-rules.md:1100`, `episode-format-reference.md:47`, `conventions.md`), some by a house-style declaration line (`workflow.md:53`, `review-iteration.md:30`, `design-decision-escalation.md:19`, `inline-replanning.md:18`, `mid-phase-handoff.md:34`, `review-mode.md:41`, `design-document-rules.md:284`).
+The 11 core workflow docs each cite the subset, some by full enumeration (`commit-conventions.md:191`, `step-implementation.md:1038`, `implementer-rules.md:1100`, `episode-format-reference.md:47`, `conventions.md`), some by a house-style declaration line (`workflow.md:53`, `review-iteration.md:30`, `design-decision-escalation.md:19`, `inline-replanning.md:18`, `mid-phase-handoff.md:34`, `review-mode.md:41`). `design-document-rules.md` is not in this set: its only house-style touchpoint is the `dsc-ai-tell` regex-rule row, which gains no pattern from `## Plain language` (D2 is judgment-only), so it has nothing to flip (CR2).
 
 `house-style-write-reminder.sh` is a PreToolUse hook that prints a house-style reminder on Write/Edit. Its `tier_b_body` string (`:262`) enumerates the five `§ ` slugs plus the numeric "five" and the Orientation code-comment carve; the comment at `:256` also says "five Tier-B". `test_house_style_hook.py` pins the slug list in `TIER_B_HEADINGS` (five `## ` slugs) and asserts each exists in `house-style.md` (`test_16_section_name_guard`), with a docstring telling the author to update the hook and the test together.
 
@@ -88,7 +88,7 @@ The approach, in order:
 1. Author `## Plain language` in `house-style.md` right after `## Orientation`: the five moves (a)–(e), the boundary clause, the `## Banned vocabulary` and `## Voice and tone` reconciliations, and a one-line Tier-B code-comment carve. Write the section itself in plain language (self-application). Add a self-check item (item 8a or a new item) and flip the `:20` count to "six".
 2. Update `house-conversation.md`: add a sixth bullet for `## Plain language` and flip "these five sections" → "six".
 3. Update `conventions.md §1.5`: add `## Plain language` to the Tier-B "Sections that apply" cell (`:567`), flip "five Tier-B" → "six" (`:570`), and add a parallel plain-language paragraph to the Tier-B restatement (`:574`–`:581`) stating which moves apply at comment scale and which do not.
-4. Update the 12 core workflow docs: add the sixth slug to each enumeration and flip any numeric "five" → "six" (the count sites are `commit-conventions.md:191`, `step-implementation.md:1038`).
+4. Update the 11 core workflow docs: add the sixth slug to each enumeration and flip any numeric "five" → "six" (the count sites are `commit-conventions.md:191`, `step-implementation.md:1038`).
 5. Sync the hook and test: add `§ Plain language` to `tier_b_body` with a carve note, flip "five" → "six" at `:256`/`:262`; add `## Plain language` to `TIER_B_HEADINGS` in the test.
 6. De-enumerate `CLAUDE.md:104`: replace the four-item parenthetical with a pointer to the canonical subset list.
 
@@ -133,7 +133,6 @@ Ordering constraint: step 1 (the section exists) must precede step 5 (the test a
 - `.claude/workflow/mid-phase-handoff.md` — house-style declaration (`:34`).
 - `.claude/workflow/review-mode.md` — house-style declaration (`:41`).
 - `.claude/workflow/episode-format-reference.md` — enumeration (`:47`).
-- `.claude/workflow/design-document-rules.md` — house-style reference (`:284`).
 - `CLAUDE.md` — de-enumerate `:104` (D6).
 - `.claude/hooks/house-style-write-reminder.sh` — `tier_b_body` + `:256`/`:262` count + carve note.
 - `.claude/scripts/tests/test_house_style_hook.py` — `TIER_B_HEADINGS` slug add.
@@ -142,4 +141,4 @@ Ordering constraint: step 1 (the section exists) must precede step 5 (the test a
 
 **Dependencies:** none upstream. Tracks 2 and 3 depend on this track (the canonical rule and §1.5 must exist before their enumerations name it).
 
-**Exact in-scope set is derived by `grep -rln 'Banned analysis patterns\|five AI-tell\|five Tier-B\|five sections' .claude/ CLAUDE.md` at Phase A and reconciled against this list (lite-tier requirement; figure ~17 is approximate).**
+**Exact in-scope set is derived by `grep -rln 'Banned analysis patterns\|five AI-tell\|five Tier-B\|five sections' .claude/ CLAUDE.md` at Phase A and reconciled against this list (lite-tier requirement; figure ~16 is approximate).**

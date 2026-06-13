@@ -29,7 +29,7 @@ flowchart TD
     HS["house-style.md — NEW ## Plain language section (the source rule)"]
     HC["house-conversation.md — chat subset, 5→6 bullets"]
     C15["conventions.md §1.5 — tier table + Tier-B restatement"]
-    CD["12 core workflow docs — subset enumeration / count"]
+    CD["11 core workflow docs — subset enumeration / count"]
     PR["11 workflow prompts — subset enumeration"]
     SK["6 skills — subset enumeration"]
     AG["20 review agents — subset enumeration + 1 prose-lens edit"]
@@ -50,7 +50,7 @@ flowchart TD
 
 - **`house-style.md`** (Track 1): gains the new `## Plain language` section after `## Orientation`, plus the line-20 count flip and a self-check item. The single source of the rule.
 - **`house-conversation.md`, `conventions.md §1.5`** (Track 1): the canonical subset homes. House-conversation gains a sixth bullet; §1.5 gains the section in the Tier-B "Sections that apply" cell, the five→six count flip, and a Tier-B code-comment restatement paragraph parallel to the Orientation one.
-- **12 core workflow docs, the hook, its test, `CLAUDE.md`** (Track 1): core-doc enumerations gain the sixth slug; the hook reminder and its pin test flip five→six; `CLAUDE.md` is de-enumerated to a pointer (D6).
+- **11 core workflow docs, the hook, its test, `CLAUDE.md`** (Track 1): core-doc enumerations gain the sixth slug; the hook reminder and its pin test flip five→six; `CLAUDE.md` is de-enumerated to a pointer (D6).
 - **11 prompts, 6 skills** (Track 2): each enumeration gains the sixth slug. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit).
 - **20 review agents** (Track 3): 19 enumerations gain the sixth slug; `review-workflow-writing-style.md` gains a Plain-language enforcement check (a content edit).
 
@@ -110,8 +110,8 @@ flowchart TD
 
 ## Checklist
 - [ ] Track 1: Author the rule and update the canonical homes, core docs, hook, and `CLAUDE.md`
-  > Adds the `## Plain language` section to `house-style.md` (after `## Orientation`) with its boundary clause and a self-check item, then updates every canonical home and core-doc enumeration: the `house-conversation.md` chat subset, the `conventions.md §1.5` tier table plus its Tier-B code-comment restatement, the 12 core workflow docs, the hook reminder and its pin test (five→six), and the `CLAUDE.md` de-enumeration. This track defines the rule the other two propagate.
-  > **Scope:** ~17 files covering house-style.md, house-conversation.md, conventions.md §1.5, 11 other core workflow docs, CLAUDE.md, the house-style write-reminder hook, and its pin test.
+  > Adds the `## Plain language` section to `house-style.md` (after `## Orientation`) with its boundary clause and a self-check item, then updates every canonical home and core-doc enumeration: the `house-conversation.md` chat subset, the `conventions.md §1.5` tier table plus its Tier-B code-comment restatement, the 11 core workflow docs, the hook reminder and its pin test (five→six), and the `CLAUDE.md` de-enumeration. This track defines the rule the other two propagate.
+  > **Scope:** ~16 files covering house-style.md, house-conversation.md, conventions.md §1.5, 10 other core workflow docs, CLAUDE.md, the house-style write-reminder hook, and its pin test.
 
 - [ ] Track 2: Propagate the slug to the workflow prompts and skills
   > Adds the sixth section slug to the 11 `.claude/workflow/prompts/*.md` enumerations and the 6 `.claude/skills/*/SKILL.md` enumerations. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit, not just a slug add).
@@ -124,7 +124,11 @@ flowchart TD
   > **Depends on:** Track 1
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed; consistency at iteration 2 (gate), structural at iteration 1 (0 findings)
+
+**Auto-fixed (mechanical)**: CR1 — corrected Track 2's characterization of `ai-tells/SKILL.md`. It cites a `## Catalogue lookups` fingerprint→section catalogue (six sections, two outside the subset), not the five-slug preamble, so it has no enumeration to extend; the Phase-A question is now whether that catalogue should gain a `## Plain language` row.
+
+**Escalated (design decisions)**: CR2 — `design-document-rules.md` was listed among Track 1's "12 core docs — subset enumeration/count", but its only house-style touchpoint is the `dsc-ai-tell` regex-rule row, which gains no pattern from `## Plain language` (judgment-only, D2). With nothing to flip there, the user chose to drop it: Track 1 now names **11 core workflow docs / ~16 files** (was 12 / ~17), updated at every count site, and `track-1.md` records why the file is excluded. Structural review found no issues.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`adr.md`)
