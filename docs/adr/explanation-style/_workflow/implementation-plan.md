@@ -152,10 +152,17 @@ graph TD
   >
   > **Strategy refresh:** CONTINUE — no downstream impact. Track 1's only cross-track discovery (WC1) was already folded into Track 2 as step 4 (`ad73d83c0b`); Track 2's design prerequisites (the `## Orientation` rule, the `§1.7` opt-out) are now satisfied on disk.
 
-- [ ] Track 2: Over-dense prose enforcement (cold-read block + dsc-ai-tell regexes)
-  > Adds the YTDB-1084 over-dense enforcement that does not enumerate the subset: a judgment-layer `### Prose AI-tell additions` block in the `design-review.md` cold-read running for both `target=design` and `target=tracks`, plus two `dsc-ai-tell` regexes (inflated-abstraction labels and the "X, not Y" faux-symmetry) with tests. Ships demotable, calibrated against this branch's own authoring.
-  > **Scope:** ~4 files covering the `design-review.md` cold-read block + TOC/count sync, the `readability-feedback` Rule sync map design-review row (plus its audit-prompt `## Orientation` references, WC1 plan correction from Track 1 review), two regexes in `design-mechanical-checks.py`, and `test_dsc_ai_tell.py`.
-  > **Depends on:** Track 1
+- [x] Track 2: Over-dense prose enforcement (cold-read block + dsc-ai-tell regexes)
+  > Adds the YTDB-1084 over-dense enforcement that does not enumerate the subset: a judgment-layer `### Prose AI-tell additions` block in the `design-review.md` cold-read running for both `target=design` and `target=tracks`, plus two `dsc-ai-tell` regexes (inflated-abstraction labels and the "X, not Y" negative-parallelism variant) with tests. Ships demotable, calibrated against this branch's own authoring.
+  >
+  > **Track episode:**
+  > Added the two YTDB-1084 over-dense enforcers that do not enumerate the AI-tell subset: a `### Prose AI-tell additions` cold-read block in `design-review.md` (runs for both `target=design` and `target=tracks`), and two `dsc-ai-tell` regexes in `design-mechanical-checks.py` — a subject-slot inflated-abstraction-label pattern and an emphatic "X, not just/merely/simply Y" variant — with tests and false-positive guards. Both regexes ship at `should-fix` demotable severity. The calibration contract (zero findings from the two patterns on this branch's own design docs) holds via a curated closed inflation set rather than an open participle wildcard (the step-level WH1 fix) plus the emphatic-intensifier-only form of the contrast pattern, so the regexes will not self-flag the branch's Phase-4 authoring.
+  >
+  > Phase C ran on a workflow-only diff, so the four code-correctness baselines skipped and all six workflow reviewers ran; it passed at iteration 1 with 0 blockers. WP1/WI1 (one issue from two angles: the cold-read block told the reviewer to scan for over-dense/too-terse prose but the output template had no slot to emit those findings and was silent for `target=tracks`) closed by one edit adding an emit slot covering both targets; WP2 (a stale "the regex cannot catch" claim, untrue once Step 2 made the subject-slot label regex-detectable) reworded; the T4 "five Human-reader rules" count held. Three suggestions were left unaddressed by design: WH1 (the per-line scan misses a subject-slot label split across a soft-wrap break — accepted under the closed-set "a missed tell is foregone noise" trade-off, since touching the calibration-locked script for a suggestion risks the Phase-4 zero-findings contract), and WS1/WS2 (em-dash nits, one fence-excluded and one in a swept `_workflow/` artifact).
+  >
+  > Cross-track: this track absorbed Track 1's WC1 plan correction (the `readability-feedback` audit prompt now names `## Orientation`, so too-terse passages route there instead of misclassifying as GAP) as step 4, landed in Step 1. No downstream tracks remain. Next is Phase 4, after the deferred `/migrate-workflow` — the branch's live `.claude/**` edits advanced HEAD past the artifacts' stamp base, so the drift gate fires each session until migration re-arms it.
+  >
+  > **Track file:** `plan/track-2.md` (2 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
