@@ -1,4 +1,4 @@
-<!-- workflow-sha: 26f990ed824d113fdb5fcb930361e69378f0f12a -->
+<!-- workflow-sha: 872c8336f7c7c16c66da548efab2540b3c2a296d -->
 # Explanation-style enforcement — Design
 
 ## Overview
