@@ -10,13 +10,14 @@ This track adds the new `## Plain language` section to `house-style.md` (right a
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-13T17:03Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-13T19:01Z [ctx=safe] Step 1 complete (commit 9c968cc81f)
 - [x] 2026-06-13T19:08Z [ctx=safe] Step 2 complete (commit 0365429691)
+- [x] 2026-06-13T19:16Z [ctx=safe] Step 3 complete (commit 870b9e7846)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -114,7 +115,7 @@ Ordering constraint: step 1 (the section exists) must precede step 5 (the test a
 
 1. Author the `## Plain language` section in `house-style.md` right after `## Orientation` — the five moves, the boundary clause, the `## Banned vocabulary` and `## Voice and tone` reconciliations, and the one-line Tier-B code-comment carve — plus the `:20` count flip ("five"→"six") and a `## Self-check` item; then update the two other canonical homes: `house-conversation.md` (sixth bullet + `:21` count) and `conventions.md §1.5` (the Tier-B "Sections that apply" cell, the `:570` count, and a parallel Tier-B code-comment restatement paragraph naming which plain-language moves apply at comment scale). Write all new prose in plain language (self-application, D5). — risk: medium (bounded behavioral workflow edit: adds a cross-referenced house-style section that changes agent-observable prose behavior) — size: ~3 files; reason (a): the only remaining low work is the coherent core-doc propagation (Step 2, ~11 files), and merging it in would total ~14 and trip the overblown line  [x] commit: 9c968cc81f
 2. Propagate the sixth slug `## Plain language` into the 10 remaining core-doc enumerations and flip every numeric "five"→"six": `commit-conventions.md` (:191 count), `step-implementation.md` (:1038 count), `implementer-rules.md` (:1100 enum **and** :1102 count, SD2), `workflow.md`, `review-iteration.md`, `design-decision-escalation.md`, `inline-replanning.md`, `mid-phase-handoff.md`, `review-mode.md`, `episode-format-reference.md`; then de-enumerate `CLAUDE.md` (:104/:106) to a pointer at the canonical list (D6). Leave the two coincidental "five" sites untouched: `workflow-startup-precheck.sh:1348` and `conventions.md:86` (SD3). — risk: low (prose-only workflow edit: meaning-preserving cross-reference sync and the CLAUDE.md pointer swap; no hook/gate/schema change)  [x] commit: 0365429691
-3. Sync the hook reminder and its pin test (depends on Step 1 — the section and §1.5 must already exist): add `§ Plain language` to `tier_b_body` in `house-style-write-reminder.sh` with the Orientation and Plain-language carves folded into one clause and the "(H3 nested under § Punctuation and typography)" parenthetical dropped so the body stays ≤ 500 chars (`test_18`, SD1), flip "five"→"six" at `:256`/`:262`, and add `## Plain language` to `TIER_B_HEADINGS` in `test_house_style_hook.py`. Run `python3 .claude/scripts/tests/test_house_style_hook.py` to green (`test_16_section_name_guard` finds all six headings; `test_18_reminder_body_length_budget` confirms `tier_b_body` ≤ 500 and the concat ≤ 1500). — risk: high (workflow machinery: edits an auto-running PreToolUse hook)  [ ]
+3. Sync the hook reminder and its pin test (depends on Step 1 — the section and §1.5 must already exist): add `§ Plain language` to `tier_b_body` in `house-style-write-reminder.sh` with the Orientation and Plain-language carves folded into one clause and the "(H3 nested under § Punctuation and typography)" parenthetical dropped so the body stays ≤ 500 chars (`test_18`, SD1), flip "five"→"six" at `:256`/`:262`, and add `## Plain language` to `TIER_B_HEADINGS` in `test_house_style_hook.py`. Run `python3 .claude/scripts/tests/test_house_style_hook.py` to green (`test_16_section_name_guard` finds all six headings; `test_18_reminder_body_length_budget` confirms `tier_b_body` ≤ 500 and the concat ≤ 1500). — risk: high (workflow machinery: edits an auto-running PreToolUse hook)  [x] commit: 870b9e7846
 
 ## Episodes
 <!-- Continuous-log. Phase B appends one block per completed step. Empty at Phase 1. -->
@@ -146,6 +147,15 @@ Ordering constraint: step 1 (the section exists) must precede step 5 (the test a
 - `.claude/workflow/mid-phase-handoff.md` (modified)
 - `.claude/workflow/review-mode.md` (modified)
 - `CLAUDE.md` (modified)
+
+### Step 3 — commit 870b9e7846, 2026-06-13T19:16Z [ctx=safe]
+**What was done:** Synced the house-style hook reminder and its pin test to the six-section AI-tell subset. In `house-style-write-reminder.sh`: added `§ Plain language` to `tier_b_body` after `§ Orientation`, flipped the comment and body counts five→six, dropped the "(H3 nested under § Punctuation and typography)" parenthetical, and folded the Orientation and Plain-language carves into one clause. The carve reads "§ Plain language is word-choice only (common word, expand acronyms, no idioms)", which matches the `conventions.md §1.5` Tier-B restatement from Step 1, so producer and consumer agree. In `test_house_style_hook.py`: added `## Plain language` to `TIER_B_HEADINGS` after `## Orientation`. Ran the full test file: 18/18 pass. The step-level hook-safety dimensional review ran with 0 findings.
+
+**What was discovered:** The final `tier_b_body` is 491 chars, under the 500 cap (SD1 proved a 479-char candidate; 491 keeps the original lead text intact while naming the three carrying moves). The concatenated bodies are 857 chars, under 1500. The cap constants (`PER_BODY_CHAR_CAP = 500`, `CONCAT_CHAR_CAP = 1500`) stay unchanged per D2. SD5 (the `conventions.md §1.5` rename grep at `:572` lists only four headings) is untouched here and stays an open track-level consistency call for Phase C.
+
+**Key files:**
+- `.claude/hooks/house-style-write-reminder.sh` (modified)
+- `.claude/scripts/tests/test_house_style_hook.py` (modified)
 
 ## Validation and Acceptance
 - The `## Plain language` section exists in `house-style.md` immediately after `## Orientation`, states the five moves, the boundary clause, the two reconciliations, and the Tier-B carve.
