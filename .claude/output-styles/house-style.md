@@ -17,7 +17,7 @@ This file is the single declarative source for project writing rules. Every auth
 - Inline code comments and Javadoc when they describe rationale or trade-offs.
 - Status updates and chat messages that the user will paste into durable artifacts.
 
-Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the five AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
+Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the six AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
 
 ## BLUF lead
 
@@ -74,6 +74,26 @@ Worked exemplar, the same fact written in both registers (from a YTDB-1106 decis
 The before form packs three facts into one clause and names `F76` and "the cross-thread arm" without a gloss; a reader who is not already inside the decision cannot follow it. The after form leads with the plain claim (the release is owner-only), glosses the gate's effect at first use, and linearizes the chain one link per sentence.
 
 **Finding category.** A passage too terse for the § Voice and tone reader to follow without opening the code is a finding under § Orientation. Severity matches the rule it mirrors: **blocker** if the reader cannot follow the load-bearing claim, **should-fix** if a supporting clause is opaque but the main claim survives.
+
+## Plain language
+
+Write the general-English part of your prose in plain words. § Orientation handles structure: it asks you to lead with the claim, gloss each entity, and split a causal chain into one link per sentence. Plain language handles word and sentence choice inside that structure. The two rules pair the same way as a structural rule and a lexical one. `## Plain language` is part of the always-on AI-tell subset, so it applies to every prose surface, not only design documents.
+
+Five moves carry it:
+
+- **Prefer the common general-English word** where it means the same. Pick "use" over "utilize", "show" over "demonstrate", "about" over "regarding".
+- **Keep sentences short, one idea each.** Prefer a period over a stacked subordinate clause. A reader holds one clause at a time.
+- **Avoid idioms, metaphors, and ambiguous phrasal verbs.** Use the literal verb. "Remove" beats "knock out"; "start" beats "kick off".
+- **Expand a non-floor acronym or abbreviation on first use.** A reader who does not know it gets the words once, then the short form. Terms in the § Voice and tone floor (WAL, MVCC, RID) need no expansion.
+- **Keep grammar explicit.** Use the active subject-verb-object form the § Passive voice rule already favors. Name the actor, the action, and the object in that order.
+
+**Boundary clause.** Plain language governs general English only. It never simplifies technical content. It never re-teaches the mid-level Java and database floor the reader already has (§ Voice and tone). A precise term of art stays; a plain word never replaces a load-bearing technical one.
+
+**Reconciliation with § Banned vocabulary.** Move (a) (prefer the common word) overlaps the banned-word list, so the two split the work. § Banned vocabulary owns the closed AI-tell list: `leverage → use`, the Tier 1-4 bans. `## Plain language` owns general-English word choice outside that list, and it never re-bans a tier word. A word the banned list allows (for example "utilize", which is not on any tier) is a plain-language call, not a banned-vocabulary one.
+
+**Reconciliation with § Voice and tone.** The "bias toward less text" rule and plain language pull the same way. Short common words and short sentences reduce the word count, which is the anti-padding stance § Orientation already states. Plain language never licenses tutorial text: a simpler word is not an excuse to add an explanation the reader does not need.
+
+**Tier-B code-comment carve.** At code-comment scale (the `*.java` / `*.kt` Tier-B surface in `conventions.md §1.5`), the common-word, acronym-expansion, and no-idiom moves apply; the short-sentence and clause-nesting move does not, because a one-line rationale comment carries no room to split a chain.
 
 ## Banned vocabulary
 
@@ -464,6 +484,7 @@ Before handing the output back, scan it for:
 6. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
 7. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap); no run-on mechanism sentences or mid-clause file:line citations (present a multi-step sequence as a numbered list, fenced trace, or sequence diagram per § Mechanism traces and inline citations).
 8. **Orientation.** Every prose surface, not only design docs: lead with the plain claim, gloss each project-specific entity at first use, linearize causal chains one link per sentence. A passage the § Voice and tone reader cannot follow without opening the code is a finding under § Orientation. The added words must be a definition or a causal link, never a hedge or restatement.
+8a. **Plain language.** Every prose surface: prefer the common word, keep sentences short with one idea each, avoid idioms and ambiguous phrasal verbs, expand a non-floor acronym on first use, keep the grammar explicit (active subject-verb-object). Plain language governs general English only; it never simplifies technical content or re-teaches the § Voice and tone floor.
 9. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
 10. **BLUF.** The first paragraph states the decision or symptom directly. Section openers don't restate the section heading.
 11. **Paragraphs that don't add information beyond the previous one.** Delete.
