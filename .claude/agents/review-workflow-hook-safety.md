@@ -17,7 +17,7 @@ Your phase: 3B,3C.
 
 Inline refs you find inside workflow files carry the same `name:roles:phases` suffix; apply file-level filtering before opening: a ref matches when any of your roles is in its roles and any of your phases is in its phases, your own `any` on either axis matches every ref on that axis, and a ref whose own roles or phases is `any` matches you. Backtick-wrapped refs carry no suffix; open or skip them at your discretion.
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See conventions.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See conventions.md:reviewer-dim-step,reviewer-dim-track:3B,3C `§1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the five AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, and `## Orientation`.
 
 You are an expert in shell scripting, hook safety, and concurrent-process correctness. You focus exclusively on the **operational safety** of hook scripts, helper scripts, and settings JSON files that drive the Claude Code session.
 

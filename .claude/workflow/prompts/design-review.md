@@ -20,6 +20,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
 | §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
+| §Prose AI-tell additions | reviewer-design | 1,4 | Over-dense / too-terse scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation; creation-time. |
 | §Track-scoped cold-read (Step 4b) | reviewer-design | 1 | The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
@@ -123,7 +124,8 @@ to both targets).
   decision appears as a seed D-record in `design.md` (see
   §Track-scoped cold-read, the `target=design` direction of the
   criterion; run only when `research_log_path` is supplied). **Plus
-  the Human-reader cold-read additions (§ below).**
+  the Human-reader cold-read additions AND the Prose AI-tell additions
+  (both §§ below).**
 - **`design-sync`**: this sync re-distilled `design.md` from the
   current state of `design-mechanics.md`. **In addition to the
   standard whole-doc cold-read**, verify that every TL;DR and
@@ -132,7 +134,8 @@ to both targets).
   the `design.md` TL;DR contradicts the mechanics, or names a
   mechanism that mechanics doesn't describe, flag it as a blocker
   — that's exactly what the sync was supposed to fix. **Plus the
-  Human-reader cold-read additions (§ below).**
+  Human-reader cold-read additions AND the Prose AI-tell additions
+  (both §§ below).**
 - **`phase4-creation`**: `design-final.md` (and optionally
   `design-mechanics-final.md`) was just produced as a Phase 4
   committed artifact reflecting what was actually built. The
@@ -144,8 +147,9 @@ to both targets).
   files), since those live under `_workflow/` and are removed
   by the Phase 4 cleanup commit before merge.
 
-  **In addition to the standard whole-doc cold-read AND the
-  Human-reader cold-read additions (§ below)**, verify:
+  **In addition to the standard whole-doc cold-read, the
+  Human-reader cold-read additions, AND the Prose AI-tell additions
+  (both §§ below)**, verify:
 
   (a) **Plan-deviation surfacing** — the Overview names what
       was built and any high-level deviations from the original
@@ -179,6 +183,39 @@ rule in § Tone and depth: quote the prose, list undefined terms, name the
 audience the prose fails, and (for navigability) the opaque section or
 (for explanatory register) the disconnected assertions.
 
+### Prose AI-tell additions
+<!-- roles=reviewer-design phases=1,4 summary="Over-dense / too-terse scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation; creation-time." -->
+
+Applies to `phase1-creation`, `phase4-creation`, `design-sync` (the three
+`target=design` kinds) **and** `target=tracks`. This block has its own
+applies-to set: unlike the Human-reader additions above (design kinds
+only), it also runs on the Step-4b track cold-read, because plan-at-start
+track prose carries the same over-dense / too-terse failures as design
+prose. Scan the changed sections (for `target=tracks`, the plan-at-start
+track sections) on **both axes**:
+
+- **Over-dense** — the judgment cases the `dsc-ai-tell` regex set cannot
+  catch. Check against `.claude/output-styles/house-style.md § Banned analysis patterns`
+  and `.claude/output-styles/house-style.md § Mechanism traces and inline citations`;
+  also flag lists spliced into one sentence (a `(1)…(2)…(3)…` or
+  comma-chained enumeration presented as prose rather than a list) and
+  inflated-abstraction labels the closed-set regex misses (a subject-slot
+  "the enabling primitive", "the key abstraction", "the underlying
+  mechanism" that names nothing concrete — built from an inflation word
+  outside the regex's curated set, or sitting in a non-subject slot the
+  regex does not scan).
+- **Too-terse** — check against `.claude/output-styles/house-style.md § Orientation`,
+  the floor the cut-rules cut to: prose a reader cannot follow without
+  opening the code, or a one-line assertion dropped with no motivation, is
+  a finding the same as padding.
+
+**Bound to creation-time prose.** This block runs at design-mutation time
+(`target=design`) and once at Step 4b before the plan commit
+(`target=tracks`). It does **not** cover live Phase-3 prose — `## Decision
+Log` entries, episodes, and review findings that accrue after the Step-4b
+cold-read have no re-run here; that surface is held by the always-on
+AI-tell subset wiring on the writers, not by this block.
+
 ## Track-scoped cold-read (Step 4b)
 <!-- roles=reviewer-design phases=1 summary="The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity." -->
 
@@ -199,6 +236,12 @@ track sections": question 1 becomes "what does this track add or change?",
 question 7 becomes "how would a reader find the full mechanism — the
 inline `## Decision Log` records, and in `full` the `**Full design**`
 reference into the frozen `design.md` seed?".
+
+**Plus the Prose AI-tell additions (§ above).** Run that block's over-dense
+and too-terse scan on the plan-at-start track sections, the same as on a
+`target=design` cold-read; its applies-to set names `target=tracks`
+explicitly. The Human-reader additions do **not** run here — they are
+design-kind only.
 
 **Absorption-completeness criterion (both targets).** "Carrier
 authoritative" (S2) is enforced at write-time by this criterion rather
@@ -375,6 +418,15 @@ multi-line bullets to fit the evidence required by the Tone
 exception — e.g. `[blocker] audience-fit: <quoted prose +
 named audience + why it breaks down>`.)
 
+(Findings under the § Prose AI-tell additions go in the same
+list with the same multi-line shape, prefixed `over-dense:` or
+`too-terse:` — e.g. `[should-fix] over-dense: <quoted sentence +
+the house-style § it breaks>`. This holds for all three
+`target=design` kinds **and** for `target=tracks` — the Prose
+AI-tell block runs on the Step-4b track cold-read even though the
+Human-reader additions do not, so its findings are rendered the
+same way there.)
+
 ## Verdict
 
 [PASS / NEEDS REVISION]
@@ -403,7 +455,7 @@ attempt the fix automatically.>
 ## Tone and depth
 <!-- roles=reviewer-design phases=1,4 summary="One-sentence answers, cite don't paraphrase, flag insufficiency, no intent-speculation; human-reader rules excepted." -->
 
-- One-sentence answers where one suffices. **Exception**: the five Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions).
+- One-sentence answers where one suffices. **Exception**: the five Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions). **A second exception**: the § Prose AI-tell additions checks require evidence too — quote the over-dense sentence (or the too-terse assertion) and name the house-style rule it breaks (§ Banned analysis patterns, § Mechanism traces and inline citations, or § Orientation), rather than a one-word verdict.
 - Cite, don't paraphrase.
 - If unanswerable, say "Insufficient — see finding below" and add the structural finding.
 - Don't speculate about intent the doc doesn't state.

@@ -41,6 +41,8 @@
 | §(h) Forward-applicable to future workflow-modifying branches | orchestrator,planner | 1,3A,3B,3C,4 | The staging convention generalizes to every future workflow-modifying plan. |
 | §(i) Worked example — on-disk shape | implementer,orchestrator | 3A,3B,3C,4 | A concrete on-disk layout of staged vs live paths. |
 | §(j) Aborted-promotion resume semantics | orchestrator,final-designer | 4 | How to resume a promotion that was interrupted mid-commit. |
+| §(k) Prose-rule self-application opt-out | orchestrator,implementer,planner,final-designer,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,3A,3B,3C,4 | Judgment-layer plans opt out of staging via a marker and edit workflow prose live; criteria re-pointing stays on. |
+| §(l) Opt-out criteria-switch extension | reviewer-technical,reviewer-risk,reviewer-adversarial,orchestrator | 3A | Phase-3A criteria-switch blocks also fire on the opt-out marker; staged-read blocks stay workflow-modifying-only. |
 | §1.8 Per-section role/phase annotations and TOC region | any | any | Canonical schema for per-section annotations, the role/phase enums, the TOC region, and cross-refs. |
 | §(a) Role enum | any | any | The closed 15-value role token set used in annotations and cross-reference suffixes. |
 | §(b) Phase enum | any | any | The closed 8-value phase token set used in annotations and cross-reference suffixes. |
@@ -562,12 +564,21 @@ scale. Other extensions stay silent.
 |---|---|---|
 | All `*.md` files (design docs, ADRs, plans, track files, reviews, issue and PR bodies, status updates) | Full house-style | Every section of `house-style.md` |
 | PR titles and descriptions, commit message bodies, YouTrack issue bodies | Full house-style | Every section of `house-style.md` |
-| `*.java`, `*.kt` source (code comments, Javadoc rationale) | AI-tell subset | `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` (H3 nested under `§ Punctuation and typography`) |
+| `*.java`, `*.kt` source (code comments, Javadoc rationale) | AI-tell subset | `§ Orientation`, `§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline` (H3 nested under `§ Punctuation and typography`) |
 | Other extensions | Silent | n/a |
 
-The four Tier-B section names are stable headings after YTDB-836; a
+The five Tier-B section names are stable headings after YTDB-836; a
 future rename in `house-style.md` requires updating every pointer in
 the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
+
+For the `*.java` / `*.kt` Tier-B surface, the `§ Orientation` floor is
+restated: a code-comment reader has the file open by definition, so the
+literal "too terse to follow without opening the code" test does not
+transfer. Instead, rationale comments must not assume context **outside the
+file**: distant call-site behavior, issue history, reviewer-thread knowledge.
+They must gloss the project-specific entity the rationale turns on (a class
+role, an invariant, a RID-layout fact). This bans out-of-file assumptions, not
+in-file terseness; it is not a license to add tutorial comments.
 
 ---
 
@@ -1181,6 +1192,129 @@ For plans without the staged subtree, the directory-presence guard
 evaluates false and the existing State D resume from `workflow.md`
 § *Startup Protocol* covers the path; this sub-anchor governs
 workflow-modifying plans only.
+
+### (k) Prose-rule self-application opt-out
+<!-- roles=orchestrator,implementer,planner,final-designer,reviewer-technical,reviewer-risk,reviewer-adversarial phases=1,3A,3B,3C,4 summary="Judgment-layer plans opt out of staging via a marker and edit workflow prose live; criteria re-pointing stays on." -->
+
+A plan whose edits are confined to judgment-layer workflow prose may
+opt out of the staging machinery and edit `.claude/workflow/**`,
+`.claude/skills/**`, and `.claude/agents/**` live, so a branch that
+changes the writing rules, review criteria, or prompt blurbs is held to
+its own changed rules while it runs. The opt-out disables only the
+staging mechanism (write-routing, the pre-commit live-path gate,
+the Phase C Startup staged-delta prep in track-code-review.md:orchestrator,reviewer-dim-track:3C
+step 8, the Phase 4 promotion guard); it keeps the
+reviewer-criteria re-pointing in (l) on.
+
+**Why an opt-out exists.** Staging keeps live workflow at develop's
+state so a workflow-modifying branch never destabilizes the machinery it
+is still running on. That hazard is real only when the branch changes an
+artifact schema a running phase reads — a track-file section, a
+resume-state field, the drift-gate format, the stamp format. A branch
+that edits only judgment-layer prose (style rules, review criteria,
+prompt blurbs, reviewer blocks) changes no schema any phase parses, so
+the hazard does not arise, and staging buys nothing: it forfeits
+self-application, leaving the one branch that rewrites the rules as the
+single branch never checked against them. The opt-out trades that
+forfeited isolation, which the prose-only branch never needed, for
+self-application, which is the point of authoring the rules on a branch
+that can exercise them.
+
+**Opt-out criteria — consumer class, not author intent.** A plan
+qualifies when both hold:
+
+1. It changes **no `_workflow/**` artifact schema** — no track-file
+   section, resume-state field, drift-gate format, or stamp format
+   moves.
+2. Every edited file's in-branch consumer is **judgment-layer**: style
+   rules, review criteria, prompt blurbs, reviewer blocks. Files a
+   running phase reads as executable procedure (the implementer
+   rulebook's gate sequence, the step-implementation orchestration loop,
+   the migrate replay) stay staged even on an otherwise-qualifying plan.
+
+Both criteria are about what consumes the edited file, not what the
+planner meant to do. A plan that satisfies (1) but edits an
+execution-procedure file fails (2) and must stage that file.
+
+**Canonical opt-out marker.** A plan takes the opt-out through a fixed
+sentence in the `### Constraints` section of `implementation-plan.md`,
+distinct from the workflow-modifying marker in (b):
+
+```
+This plan uses the §1.7 prose-rule self-application opt-out: it edits judgment-layer workflow prose live instead of staging.
+```
+
+Consumers match on the **stable prefix** `This plan uses the §1.7
+prose-rule self-application opt-out:` alone; everything after the colon
+is descriptive and is not part of the match. The prefix match is
+case-sensitive, parallel to the workflow-modifying marker in (b). The
+spelling is pinned so the trigger a future opt-out branch's
+`### Constraints` carries and the trigger the (l) criteria-switch blocks
+match never drift apart: a mismatch would surface only on that later
+branch, as a silent failure to re-point review criteria, the failure
+mode the criteria switch exists to prevent.
+
+The two markers are mutually exclusive on one plan. A plan carries the
+workflow-modifying marker (it stages) or the opt-out marker (it edits
+live), never both: the opt-out's whole purpose is to default the staging
+consumers to live, which is exactly the workflow-modifying marker's
+absence.
+
+**What stays on under the opt-out.** With the opt-out marker present and
+the workflow-modifying marker absent, every staging consumer already
+defaults to live — writes land live, there is no staged subtree, the
+Phase 4 promotion guard's directory-presence check in (c) finds no
+`.claude/` subtree and skips. So the staging half needs no consumer
+edits. The reviewer-criteria re-pointing is the one behavior that must
+survive the opt-out, because a prose-only branch needs the prose review
+lenses, not the Java FQN / WAL / crash-safety lenses. (l) extends the
+three Phase-3A criteria-switch blocks to fire on this marker too.
+
+**Mandatory stamp-advance.** Committing live `.claude/workflow`,
+`.claude/skills`, or `.claude/agents` edits advances HEAD past the
+artifacts' stamp base, so the §1.6(b):orchestrator,planner,migrator:1,3A,3B,3C,4 drift gate fires every subsequent
+session on the branch's own authoring. The principled resolution is to
+**advance the stamps**, not to habituate the per-session Suppress:
+after the last commit touching the §1.6(b):orchestrator,planner,migrator:1,3A,3B,3C,4 SHA-computation pathspec
+(`.claude/workflow`, `.claude/skills`, or `.claude/agents` — live edits
+to files outside that pathspec, for example `house-style.md` or a hook,
+do not advance the stamp base and so do not by themselves gate the
+trigger), run `/migrate-workflow`. On a multi-track opt-out branch "the
+last commit" is the branch's final pathspec-touching commit across all
+tracks, which may fall in a later track than the one that lands a given
+track's last such commit; Suppress the gate on every intervening session
+and migrate once, after that branch-final commit. On a prose-only opt-out branch the
+replay is a no-op over the artifacts' content and reduces to advancing
+every artifact's stamp to HEAD per the migrate skill's final
+stamp-to-HEAD batch (`migrate-workflow/SKILL.md §4.8`), re-arming the
+gate for real develop-side drift. Suppress is the interim answer only until that
+stamp-advance lands.
+
+### (l) Opt-out criteria-switch extension
+<!-- roles=reviewer-technical,reviewer-risk,reviewer-adversarial,orchestrator phases=3A summary="Phase-3A criteria-switch blocks also fire on the opt-out marker; staged-read blocks stay workflow-modifying-only." -->
+
+The three Phase-3A criteria-switch blocks (the "Workflow-machinery
+criteria" block in `technical-review.md`, `risk-review.md`, and
+`adversarial-review.md`) fire when the plan's `### Constraints` carries
+**either** the (b) workflow-modifying marker prefix **or** the (k)
+opt-out marker prefix. Both markers signal that the track edits workflow
+prose, so both re-point the review onto the prose criteria (path/anchor
+reference checks plus the five prose lenses) and away from the
+Java-oriented lenses.
+
+The separate "Staged-read precedence" block in each of the three prompts
+stays gated on the workflow-modifying marker **only**. Under the opt-out
+there is no staged subtree, so the live file is already the correct read
+and the staging-aware precedence check in (d) would find nothing staged;
+gating that block on the opt-out marker would add a check that can never
+fire.
+
+A future opt-out branch's review trio is the first to exercise (l)
+end-to-end. The branch that introduces this section cannot: its own
+conventions track's Phase-A review runs before this section's first
+commit lands, so that track re-points its reviewers through an in-plan
+`### Constraints` note instead. The note is a one-branch bootstrap; (l)
+is the durable wiring for every opt-out branch after.
 
 ## 1.8 Per-section role/phase annotations and TOC region
 <!-- roles=any phases=any summary="Canonical schema for per-section annotations, the role/phase enums, the TOC region, and cross-refs." -->

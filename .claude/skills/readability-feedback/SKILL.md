@@ -44,7 +44,7 @@ When a rule is added or renamed, update every file its scope touches:
 
 - `.claude/output-styles/house-style.md` — the rule prose **and** the matching `## Self-check` item (1-10). Always.
 - `.claude/output-styles/house-conversation.md` — the matching AI-tell enumeration line, only if the rule is general (it then applies to chat too). Skip for design-only rules.
-- `.claude/workflow/prompts/design-review.md` — a `### Human-reader cold-read additions` bullet, the `§ Tone and depth` count, and the TOC-row summary, only if the rule is a design-doc-shape rule the cold-read reviewer must verify.
+- `.claude/workflow/prompts/design-review.md` — a `### Human-reader cold-read additions` bullet, the `§ Tone and depth` count, and the TOC-row summary, only if the rule is a design-doc-shape rule the cold-read reviewer must verify. A rule on prose density or terseness (the kind `## Orientation` and the over-dense AI-tells cover) instead joins the `### Prose AI-tell additions` block, which scans both `target=design` and `target=tracks` and carries its own `§ Tone and depth` evidence clause.
 - `.claude/workflow/design-document-rules.md` — the `## Mechanical checks` table and/or the `design-sync` Human-reader enumeration, only if the rule is design-doc-scoped.
 - `.claude/scripts/design-mechanical-checks.py` — a regex constant wired into `check_dsc_ai_tell`, only if the pattern is cleanly regex-detectable. Most readability tells are judgment-only; say so and skip the script.
 
@@ -67,13 +67,13 @@ Dispatch this to each range agent, substituting the three placeholders:
 ```text
 Audit a YouTrackDB design document for hard-to-read prose and classify each finding against the house-style ruleset.
 
-STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-style.md`. Note especially § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns (and its subsections), § Punctuation and typography, § Structural rules (and its subsections), and § Document-shape rules.
+STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-style.md`. Note especially § Orientation, § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns (and its subsections), § Punctuation and typography, § Structural rules (and its subsections), and § Document-shape rules.
 
 STEP 2 — Read `{TARGET_PATH}`, lines {START}-{END} only.
 
 STEP 3 — Find every obscure passage in that range: run-on multi-clause sentences; dense identifier soup with no connective tissue; nominalizations and placeholder words (nouns or pro-verbs); file:line, signature, or code-literal asides wedged into a sentence; inline (1)(2)(3) enumerations; broken or telegraphic grammar (a signature or runtime expression in the subject slot, a missing copula, a dropped relative pronoun, a split predicate); disconnected one-line assertions with no motivation. Audit prose and bullets only — skip Mermaid bodies, D/S codes, References footers, and headings.
 
-STEP 4 — Classify each finding as `CAUGHT by § <exact section>` or `GAP`. Mark GAP only after checking every relevant section; for a GAP, name in one sentence the dimension of unreadability no current rule addresses.
+STEP 4 — Classify each finding as `CAUGHT by § <exact section>` or `GAP`. A too-terse passage — prose that cannot be followed without opening the code, or a one-line assertion dropped with no motivation — is `CAUGHT by § Orientation`, not a GAP. Mark GAP only after checking every relevant section; for a GAP, name in one sentence the dimension of unreadability no current rule addresses.
 
 Do NOT propose rewrites. Return EXACTLY this Markdown, no preamble:
 

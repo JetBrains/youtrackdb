@@ -9,9 +9,16 @@ calibration ADRs, parses each JSON output, and asserts:
 1. The fixture exercises every banned pattern — each pattern in
    `PATTERN_SIGNATURES` below has at least one `dsc-ai-tell` finding.
 2. The fixture's negative-case paragraphs (hyphenated technical
-   compounds, single em-dash, the H1 Title Case heading) emit zero
-   `dsc-ai-tell` findings.
-3. The three calibration ADRs (`persist-visible-count`, `index-gc`,
+   compounds, single em-dash, the eight genuine subject-led contrasts
+   the trailing-negation "X, not just Y" rule must not fire on, the
+   concrete named mechanisms the inflated-abstraction-label rule must
+   not fire on, and the H1 Title Case heading) emit zero `dsc-ai-tell`
+   findings.
+3. The Overview enabling-primitive sentence (line 25) emits zero
+   inflated-abstraction-label findings — the `## Overview` section is
+   skipped because naming "the enabling primitive(s)" is the prescribed
+   Overview element there.
+4. The three calibration ADRs (`persist-visible-count`, `index-gc`,
    `non-durable-wow`) each emit zero `dsc-ai-tell` findings — the
    zero-false-positive contract the rule was calibrated against.
 
@@ -83,19 +90,41 @@ PATTERN_SIGNATURES: List[Tuple[str, str]] = [
      "Hyphenated-pair cluster per house-style.md § Hyphenated"),
     ("fragmented-header",
      "Fragmented header per house-style.md § Fragmented headers"),
+    # The trailing-negation "X, not Y" frame carries a distinct
+    # description prefix ("Negative parallelism, trailing 'X, not Y'
+    # frame") so it does not collide with the leading-negation pattern
+    # above, which both cite `§ Banned sentence patterns`.
+    ("negative-parallelism-trailing",
+     "Negative parallelism, trailing 'X, not Y' frame, per house-style.md"),
+    ("inflated-abstraction-label",
+     "Inflated-abstraction label per house-style.md § Banned analysis"),
 ]
 
 # Negative-case line ranges in the fixture. The H1 at line 1 is the
-# Title-Case negative case (the rule must skip `# ` lines); the two
-# `### *negative` H3 blocks start at lines 94 and 103. The runner
-# enforces zero `dsc-ai-tell` findings whose location line falls inside
-# either of these ranges or equals 1. The trailing `## Banned-pattern
-# regressions` section (line 113+) is positive-case territory and must
-# not be folded into a negative range.
+# Title-Case negative case (the rule must skip `# ` lines). Four
+# `### *negative` H3 blocks carry zero-finding bodies: hyphenated
+# technical compounds (123-128), single em-dash (132-137), the eight
+# genuine subject-led contrasts (141-153, which the trailing-negation
+# "X, not just Y" rule must leave alone because none carries the
+# emphatic intensifier), and concrete named mechanisms (157-166, which
+# the inflated-abstraction-label rule must leave alone because its
+# adjective slot is a curated closed set of inflation words, not an
+# open participle wildcard — "The locking mechanism is held …" / "The
+# hashing mechanism provides …" do not fire). The Overview
+# enabling-primitive sentence at line 25 is a fifth negative case,
+# exercised by its own assertion below (the inflated-abstraction-label
+# rule skips the `## Overview` section). The runner enforces zero
+# `dsc-ai-tell` findings whose location line falls inside any of these
+# ranges or equals 1. The trailing `## Banned-pattern regressions`
+# section (line 168+) is positive-case territory and must not be
+# folded into a negative range.
 H1_TITLE_CASE_LINE = 1
+OVERVIEW_INFLATED_LABEL_LINE = 25
 NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
-    (94, 102, "Hyphenated technical compounds negative"),
-    (103, 111, "Single em-dash negative"),
+    (123, 128, "Hyphenated technical compounds negative"),
+    (132, 137, "Single em-dash negative"),
+    (141, 153, "Genuine subject-led contrast negative (X, not just Y must not fire)"),
+    (157, 166, "Concrete named mechanism negative (inflated-label rule must not fire)"),
 ]
 
 # Anchored regression cases. Each pair `(line, description_prefix)` must
@@ -104,18 +133,31 @@ NEGATIVE_RANGES: List[Tuple[int, int, str]] = [
 # catch (a regression could remove one anchored finding while leaving
 # the per-pattern count at >= 1 elsewhere in the fixture).
 #
-# Line 115: heading-scan regression — Tier-1 vocab inside an H3 was
+# Line 170: heading-scan regression — Tier-1 vocab inside an H3 was
 # previously skipped by an `if is_heading: continue` short-circuit.
-# Line 123: fragmented-header continuation regression — a one-line
+# Line 178: fragmented-header continuation regression — a one-line
 # paragraph immediately followed by another heading (no blank line)
 # was previously misclassified as paragraph continuation, suppressing
 # the rule.
+# Line 100: trailing-negation "X, not just Y" positive anchor — the
+# emphatic intensifier frame must fire and must carry the distinct
+# "trailing 'X, not Y' frame" prefix so it is not confused with the
+# leading-negation pattern.
+# Line 110: inflated-abstraction-label positive anchor — a subject-slot
+# "The underlying mechanism is …" outside the `## Overview` section
+# must fire.
 ANCHORED_REGRESSION_CASES: List[Tuple[int, str, str]] = [
-    (115, "Tier-1 banned vocabulary",
+    (170, "Tier-1 banned vocabulary",
      "heading-scan regression: Tier-1 vocab inside an H3 must fire"),
-    (123, "Fragmented header",
+    (178, "Fragmented header",
      "fragmented-header continuation regression: one-liner followed "
      "by a heading with no intervening blank line must fire"),
+    (100, "Negative parallelism, trailing 'X, not Y' frame",
+     "trailing-negation positive anchor: an emphatic 'X, not just Y' "
+     "must fire with the distinct trailing-frame prefix"),
+    (110, "Inflated-abstraction label",
+     "inflated-abstraction positive anchor: a subject-slot 'The "
+     "underlying mechanism is …' outside ## Overview must fire"),
 ]
 
 
@@ -221,6 +263,31 @@ def assert_fixture_negative(findings: List[Dict]) -> List[str]:
     return failures
 
 
+def assert_overview_inflated_label_skipped(findings: List[Dict]) -> List[str]:
+    """The Overview enabling-primitive sentence must emit no inflated-label finding.
+
+    The fixture's `## Overview` section (line 25) carries
+    "The enabling primitive is the regex set seeded below." — a
+    subject-slot inflated-abstraction label whose shape would fire the
+    rule anywhere else. Because `design-document-rules.md § Overview`
+    prescribes naming "the enabling primitive(s)" as the Overview's
+    element 3, the rule skips the `## Overview` section. This asserts the
+    skip holds: zero inflated-abstraction-label findings at line 25.
+    """
+    failures: List[str] = []
+    for f in findings:
+        if parse_location_line(f.get("location", "")) != OVERVIEW_INFLATED_LABEL_LINE:
+            continue
+        if "Inflated-abstraction label" in f.get("description", ""):
+            failures.append(
+                f"OVERVIEW skip failed: inflated-abstraction-label fired at "
+                f"line {OVERVIEW_INFLATED_LABEL_LINE} inside `## Overview`, where "
+                f"naming the enabling primitive is the prescribed element: "
+                f"{f.get('description', '')[:100]}"
+            )
+    return failures
+
+
 def assert_calibration_adrs() -> List[str]:
     """Every calibration ADR must report zero dsc-ai-tell findings.
 
@@ -264,6 +331,7 @@ def main() -> int:
     failures.extend(assert_fixture_positive(fixture_findings))
     failures.extend(assert_fixture_anchored(fixture_findings))
     failures.extend(assert_fixture_negative(fixture_findings))
+    failures.extend(assert_overview_inflated_label_skipped(fixture_findings))
 
     # Calibration ADRs must hold at zero `dsc-ai-tell` findings each.
     failures.extend(assert_calibration_adrs())

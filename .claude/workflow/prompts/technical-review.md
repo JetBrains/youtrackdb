@@ -28,7 +28,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 You are reviewing ONE TRACK of an implementation plan for technical soundness.
 You MUST read the codebase to validate this track's assumptions.
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four banned-section heading slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, and `### Em-dash discipline`.
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the five AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, and `## Orientation`.
 
 ## Workflow Context
 <!-- roles=reviewer-technical phases=3A summary="Phase A terminology (track, step, episode, Decision Record) and where the track's detail lives during decomposition." -->
@@ -110,7 +110,7 @@ Inputs:
 
 **Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
-**Workflow-machinery criteria (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, this track may edit workflow prose, so the criteria below re-point for any reference the track makes to a workflow file:
+**Workflow-machinery criteria (workflow-modifying or `§1.7` opt-out plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence **or** the `§1.7(k)` prose-rule self-application opt-out marker sentence, this track may edit workflow prose, so the criteria below re-point for any reference the track makes to a workflow file:
 
 - Verify every named reference as a workflow file path or `§`-anchor via grep and Read, not as a Java FQN via `findClass`. A named reference that does not resolve to an existing workflow path or anchor is the finding; a named Java symbol that does not resolve is not a blocker when it appears on a prose reference. A track that mixes prose and code keeps both lenses: apply the path/anchor check to its prose references and the `findClass` check to its Java references.
 - Five prose criteria supersede, not merely append to, the Java criteria for this review on any part of the track that is workflow prose. They are rule coherence and non-contradiction, instruction completeness, prompt-design soundness, context-budget impact, and breakage of dependent prompts or agents. They replace this prompt's Java-oriented criteria, including any WAL, crash, migration, and hot-caller concerns, for that prose.

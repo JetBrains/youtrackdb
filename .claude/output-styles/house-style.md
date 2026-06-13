@@ -17,7 +17,7 @@ This file is the single declarative source for project writing rules. Every auth
 - Inline code comments and Javadoc when they describe rationale or trade-offs.
 - Status updates and chat messages that the user will paste into durable artifacts.
 
-Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the four AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
+Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the five AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
 
 ## BLUF lead
 
@@ -50,6 +50,30 @@ Concrete over abstract. Always prefer:
 If you cannot name a class, file, or number, you are too vague. Go read the code first.
 
 When in doubt, bias toward **less text**. A 200-word Summary that's correct beats an 800-word one that hedges. A 4-sentence issue body with one repro step beats a 15-bullet template fill-in. If you have nothing concrete to say in a section, omit the section.
+
+## Orientation
+
+A reader meets your prose cold. The floor: prose a reader cannot follow without opening the code is too terse, a finding the same as padding. The § Voice and tone reader is assumed (general Java and database internals as background, everything YouTrackDB-specific glossed), so the test is whether that reader follows the claim from the text alone. `## Orientation` is part of the always-on AI-tell subset; it applies to every prose surface, not only design documents.
+
+Three moves carry the orientation:
+
+- **Lead with the plain claim.** State what is true before the mechanism that makes it true. The reader needs the conclusion to know what the detail is for.
+- **Gloss each project-specific entity once, at first use.** A class role, an invariant, a RID-layout fact, a named decision: define it the first time the prose leans on it, then use the term. General Java and database theory need no gloss; YouTrackDB-specific terms always do.
+- **Linearize a causal chain, one link per sentence.** When B follows from A and C from B, write three sentences in that order. A single sentence that folds the whole chain forces the reader to unfold it.
+
+**Anti-padding clause.** Every added word must be a definition the reader needs or a causal link they would otherwise reconstruct from the code. It is never a hedge, a restatement, or a synonym cycle. The bias toward less text in § Voice and tone still holds: orientation buys clarity with words the reader uses, not with words that perform thoroughness. A sentence that adds neither a definition nor a link is padding under § Padding-based finding criterion.
+
+The rule turns on a register distinction. **Orientation register** is for cold-read surfaces: a human reads them without prior context, so each entity is glossed and each causal chain is linearized in the text. **Registry-terse** is for decision logs and research logs, which define their recurring entities once in a shared vocabulary block and then stay terse, because the reader of a log has that block open. The Orientation rule governs the first; it does not push logs toward the verbose register.
+
+Worked exemplar, the same fact written in both registers (from a YTDB-1106 decision-log re-explanation):
+
+> **Before (log register):** "Today's thread-id gate (`close():954`) makes the cross-thread arm harmless; F76 removes it deliberately and adds no once-only replacement."
+>
+> **After (orientation register):** "Today the release is owner-only: `close()` has a thread-id gate, so a rollback arriving from another thread skips the holder accounting entirely. That gate is also the leak F76 fixed by removing it. The gate was, accidentally, the only thing preventing two releases of the same pin, and F76 added nothing in its place."
+
+The before form packs three facts into one clause and names `F76` and "the cross-thread arm" without a gloss; a reader who is not already inside the decision cannot follow it. The after form leads with the plain claim (the release is owner-only), glosses the gate's effect at first use, and linearizes the chain one link per sentence.
+
+**Finding category.** A passage too terse for the § Voice and tone reader to follow without opening the code is a finding under § Orientation. Severity matches the rule it mirrors: **blocker** if the reader cannot follow the load-bearing claim, **should-fix** if a supporting clause is opaque but the main claim survives.
 
 ## Banned vocabulary
 
@@ -376,7 +400,7 @@ This expansion adds lines, and the per-section line cap counts them. Never compr
 
 ## Document-shape rules (design / ADR-specific)
 
-These rules apply when the surface is a design document, ADR draft, or cold-read-reviewed artifact under `docs/adr/**`. They are not enforced on issue bodies, PR descriptions, or status prose, which use the BLUF rule alone.
+These rules apply when the surface is a design document, ADR draft, or cold-read-reviewed artifact under `docs/adr/**`. They are not enforced on issue bodies, PR descriptions, or status prose, which use the BLUF rule alone. The always-on rules above, including § Orientation, still apply to every prose surface; only this document-shape family is design/ADR-only.
 
 ### Overview concept-first
 
@@ -426,9 +450,7 @@ If three or more sibling sections share the same internal heading sequence, cons
 
 ### Explanatory register
 
-Mechanism-overview prose under `##` and `###` mechanism sections (including `design-mechanics.md` Notes) carries the explanation. Lead each mechanism with its motivation, walk it in connected sentences whose transitions carry one step to the next, and close with the consequence. Compression here means cutting hedges, filler, and restatement, never the explanatory step that lets a reader follow the reasoning. The completeness bar is the mid-level reader of § Voice and tone. Every YouTrackDB-specific step is explained fully enough for that reader to follow why it follows from the last, never compressed to an assertion that only someone who already knows the internals could unpack.
-
-The "bias toward less text" rule in § Voice and tone governs openers, summaries, and TL;DRs. It does not license a mechanism section built from disconnected one-line assertions. A reader who cannot reconstruct why each step follows from the last is reading prose that is too terse: a finding under § Why-before-what, the same way padding is a finding under § Padding-based finding criterion.
+This is the design-doc specialization of § Orientation: the always-on linearize-the-chain move, applied to mechanism-overview prose under `##` and `###` mechanism sections (including `design-mechanics.md` Notes). One nuance is design-specific. A mechanism overview holds its completeness bar at the mid-level reader of § Voice and tone: every YouTrackDB-specific step is explained fully enough for that reader to follow why it follows from the last, never compressed to an assertion that only someone who already knows the internals could unpack. A mechanism section built from disconnected one-line assertions is too terse, a finding under § Orientation, the same way padding is a finding under § Padding-based finding criterion.
 
 ## Self-check
 
@@ -441,8 +463,9 @@ Before handing the output back, scan it for:
 5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, nominalization and placeholder words, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
 6. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
 7. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap); no run-on mechanism sentences or mid-clause file:line citations (present a multi-step sequence as a numbered list, fenced trace, or sequence diagram per § Mechanism traces and inline citations).
-8. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
-9. **BLUF.** The first paragraph states the decision or symptom directly. Section openers don't restate the section heading.
-10. **Paragraphs that don't add information beyond the previous one.** Delete.
+8. **Orientation.** Every prose surface, not only design docs: lead with the plain claim, gloss each project-specific entity at first use, linearize causal chains one link per sentence. A passage the § Voice and tone reader cannot follow without opening the code is a finding under § Orientation. The added words must be a definition or a causal link, never a hedge or restatement.
+9. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
+10. **BLUF.** The first paragraph states the decision or symptom directly. Section openers don't restate the section heading.
+11. **Paragraphs that don't add information beyond the previous one.** Delete.
 
 Only return the draft once every check passes. For the regex-detectable subset, the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` is the mechanical pre-flight; this self-check is the judgment layer that catches what regex cannot.

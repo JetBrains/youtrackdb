@@ -25,6 +25,7 @@ All section references below live in `.claude/output-styles/house-style.md`. Wal
 - Tone fingerprints → sub-bullets in `house-style.md § Banned sentence patterns` (sycophantic openers, throat-clearing, closing phrases)
 - Punctuation fingerprints → `house-style.md § Punctuation and typography`
 - Content and analysis tells → `house-style.md § Banned analysis patterns` (includes the 12 humanizer gap patterns)
+- Too-terse / under-orientation fingerprints (a claim stated without its mechanism, an unglossed project-specific entity, a causal chain folded into one clause) → `house-style.md § Orientation`
 
 ## Workflow
 
