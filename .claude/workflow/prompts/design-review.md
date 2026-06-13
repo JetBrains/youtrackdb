@@ -199,9 +199,11 @@ track sections) on **both axes**:
   and `.claude/output-styles/house-style.md § Mechanism traces and inline citations`;
   also flag lists spliced into one sentence (a `(1)…(2)…(3)…` or
   comma-chained enumeration presented as prose rather than a list) and
-  inflated-abstraction labels (a subject-slot "the enabling primitive",
-  "the key abstraction", "the underlying mechanism" that names nothing
-  concrete).
+  inflated-abstraction labels the closed-set regex misses (a subject-slot
+  "the enabling primitive", "the key abstraction", "the underlying
+  mechanism" that names nothing concrete — built from an inflation word
+  outside the regex's curated set, or sitting in a non-subject slot the
+  regex does not scan).
 - **Too-terse** — check against `.claude/output-styles/house-style.md § Orientation`,
   the floor the cut-rules cut to: prose a reader cannot follow without
   opening the code, or a one-line assertion dropped with no motivation, is
@@ -415,6 +417,15 @@ same list but prefix each with the dimension label and use
 multi-line bullets to fit the evidence required by the Tone
 exception — e.g. `[blocker] audience-fit: <quoted prose +
 named audience + why it breaks down>`.)
+
+(Findings under the § Prose AI-tell additions go in the same
+list with the same multi-line shape, prefixed `over-dense:` or
+`too-terse:` — e.g. `[should-fix] over-dense: <quoted sentence +
+the house-style § it breaks>`. This holds for all three
+`target=design` kinds **and** for `target=tracks` — the Prose
+AI-tell block runs on the Step-4b track cold-read even though the
+Human-reader additions do not, so its findings are rendered the
+same way there.)
 
 ## Verdict
 
