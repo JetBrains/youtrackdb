@@ -51,8 +51,10 @@ When a rule is added or renamed, update every file its scope touches:
 On a rename, run the governance grep from `conventions.md §1.5` to find every pointer and update them in the same commit:
 
 ```bash
-grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md
+grep -rnE '## Orientation|## Plain language|§ Orientation|§ Plain language|Banned vocabulary|Banned sentence patterns|Banned analysis patterns|Em-dash discipline' .claude/ CLAUDE.md
 ```
+
+`Orientation` and `Plain language` are common words, so the scan matches them only in their `##` or `§` heading-pointer form to stay precise; the other four names are distinctive enough to match bare.
 
 ## Validation
 
@@ -67,13 +69,13 @@ Dispatch this to each range agent, substituting the three placeholders:
 ```text
 Audit a YouTrackDB design document for hard-to-read prose and classify each finding against the house-style ruleset.
 
-STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-style.md`. Note especially § Orientation, § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns (and its subsections), § Punctuation and typography, § Structural rules (and its subsections), and § Document-shape rules.
+STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-style.md`. Note especially § Orientation, § Plain language, § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns (and its subsections), § Punctuation and typography, § Structural rules (and its subsections), and § Document-shape rules.
 
 STEP 2 — Read `{TARGET_PATH}`, lines {START}-{END} only.
 
 STEP 3 — Find every obscure passage in that range: run-on multi-clause sentences; dense identifier soup with no connective tissue; nominalizations and placeholder words (nouns or pro-verbs); file:line, signature, or code-literal asides wedged into a sentence; inline (1)(2)(3) enumerations; broken or telegraphic grammar (a signature or runtime expression in the subject slot, a missing copula, a dropped relative pronoun, a split predicate); disconnected one-line assertions with no motivation. Audit prose and bullets only — skip Mermaid bodies, D/S codes, References footers, and headings.
 
-STEP 4 — Classify each finding as `CAUGHT by § <exact section>` or `GAP`. A too-terse passage — prose that cannot be followed without opening the code, or a one-line assertion dropped with no motivation — is `CAUGHT by § Orientation`, not a GAP. Mark GAP only after checking every relevant section; for a GAP, name in one sentence the dimension of unreadability no current rule addresses.
+STEP 4 — Classify each finding as `CAUGHT by § <exact section>` or `GAP`. A too-terse passage — prose that cannot be followed without opening the code, or a one-line assertion dropped with no motivation — is `CAUGHT by § Orientation`, not a GAP. A passage that is hard to read for uncommon words, long sentences, or idioms is `CAUGHT by § Plain language`, not a GAP. Mark GAP only after checking every relevant section; for a GAP, name in one sentence the dimension of unreadability no current rule addresses.
 
 Do NOT propose rewrites. Return EXACTLY this Markdown, no preamble:
 

@@ -28,6 +28,7 @@ Read `.claude/output-styles/house-style.md` once at the start of the review to g
 - **BLUF lead** — first sentence states the conclusion, not background.
 - **Banned vocabulary** — apply the Tier 1-4 lists in `.claude/output-styles/house-style.md § Banned vocabulary` (read once at the start of the review per the Process below).
 - **Em-dash cap** — at most one em dash per paragraph; flag paragraphs with two or more.
+- **Plain language** — general English stays readable: a common word over an uncommon one when both fit, sentences short enough to follow in one pass, no idioms or ambiguous phrasal verbs, every non-floor acronym expanded on first use. See § Review criteria → Plain language below; report as a finding, no score.
 - **Section length** — soft cap with template-bound exemptions; see § Review criteria → Section length below.
 - **Repo-anchored voice** — concrete file paths, line numbers, identifiers; avoid abstractions when a path will do.
 - **No knowledge-cutoff disclaimers** ("as of my training", "I cannot verify").
@@ -70,6 +71,11 @@ Skip user-facing docs under `docs/` (excluding `docs/adr/`) — `review-docs` ha
 - Apply the Tier 1-4 banned-vocabulary lists in `.claude/output-styles/house-style.md § Banned vocabulary` as the canonical grep target set. Re-read the section if a finding is in doubt; the file is the source of truth.
 - Each hit is a finding unless used literally (e.g., "navigate to file X" as a verb of motion is fine).
 - Flag formulaic phrasings: "It's not X — it's Y", "In conclusion", "Great question!", "I'd be happy to help", "As an AI", "I hope this helps".
+
+### Plain language
+- Read each unit for general-English clarity and flag the spots a mid-level reader would stumble over. Report each as a finding; do not count hits, run a regex, or attach a numeric score — this is a judgment call, the same way the banned-vocabulary sweep reports a hit rather than a tally.
+- What to look for: an uncommon word where a common one fits, a sentence too long or too deeply nested to follow in one read, an idiom or an ambiguous phrasal verb (a verb-plus-particle that could be read two ways), and a non-floor acronym left unexpanded on first use.
+- Scope guard: this lens governs general English only. It never simplifies technical content and never re-teaches the mid-level Java and database floor the reader is assumed to know — a domain term that sits on that floor is not a finding. It also never re-bans a `## Banned vocabulary` tier word; that closed list belongs to the banned-vocabulary sweep above, and a tier word is reported there, not here.
 
 ### Em-dash overuse
 - Count em dashes (`—`) per paragraph. The house-style rule is one per paragraph; flag any paragraph with two or more. Triple-em-dash cadence ("X — Y — Z") is always a finding. (Use grep with `—` to spot them quickly.)
@@ -166,7 +172,9 @@ do not restate the schema here. Concretely:
   this survived-one-line / refuted-in-full body rendering, so this paragraph is
   the authoritative spec for it.) The cert material is each finding's style check from the `## Process` steps: the
   section-length three-step decision (size threshold → exempt-category → padding-pattern)
-  or the banned-vocabulary sweep result that confirms the violation.
+  or the banned-vocabulary sweep result that confirms the violation, or, for a
+  plain-language finding, the one-line judgment that the flagged unit reads harder
+  than its plain rewrite (no count, no score, matching the criterion at `### Plain language`).
 
 **Otherwise (no output path)** — use the Output format below, unchanged.
 
@@ -196,7 +204,7 @@ do not restate the schema here. Concretely:
 Render each finding as a single bullet under its matched H4 in the format:
 
 ```markdown
-**WS<N>** — File: `path/to/file.md` (line X-Y), Axis: <banned vocabulary | em-dash overuse | BLUF lead | section length | heading style | repo-anchored voice | knowledge-cutoff disclaimer | bullet-vs-prose | conciseness | adjective triads>, Cost: <one-clause description of the style impact, e.g., "banned vocabulary in always-loaded skill description", "three em dashes in one paragraph", "section over soft cap with padding pattern present">, Issue: <which rule is violated and where>, Suggestion: <rewrite — provide the exact replacement text when possible>
+**WS<N>** — File: `path/to/file.md` (line X-Y), Axis: <banned vocabulary | plain language | em-dash overuse | BLUF lead | section length | heading style | repo-anchored voice | knowledge-cutoff disclaimer | bullet-vs-prose | conciseness | adjective triads>, Cost: <one-clause description of the style impact, e.g., "banned vocabulary in always-loaded skill description", "three em dashes in one paragraph", "section over soft cap with padding pattern present">, Issue: <which rule is violated and where>, Suggestion: <rewrite — provide the exact replacement text when possible>
 ```
 
 Numbering: `WS<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WS1 + WS2 under Critical, WS3 + WS4 + WS5 under Recommended, WS6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.

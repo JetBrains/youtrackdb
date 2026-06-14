@@ -26,6 +26,7 @@ All section references below live in `.claude/output-styles/house-style.md`. Wal
 - Punctuation fingerprints → `house-style.md § Punctuation and typography`
 - Content and analysis tells → `house-style.md § Banned analysis patterns` (includes the 12 humanizer gap patterns)
 - Too-terse / under-orientation fingerprints (a claim stated without its mechanism, an unglossed project-specific entity, a causal chain folded into one clause) → `house-style.md § Orientation`
+- Plain-language fingerprints (an uncommon word where a common one fits, a long tangled sentence, an idiom or an ambiguous phrasal verb) → `house-style.md § Plain language`. This covers general-English clarity outside the closed AI-tell word list, so it stays distinct from `§ Banned vocabulary`.
 
 ## Workflow
 

@@ -188,10 +188,10 @@ BLUF lead, banned vocabulary, em-dash discipline, soft section
 length cap with template-bound exemptions, structural rules)
 applies to commit message bodies — the
 long-form `why` block beneath the imperative subject line. It also
-applies to the `reason:` slug body lines. The five AI-tell subset
+applies to the `reason:` slug body lines. The six AI-tell subset
 section slugs to apply are `## Banned vocabulary`,
 `## Banned sentence patterns`, `## Banned analysis patterns`,
-`### Em-dash discipline`, and `## Orientation`.
+`### Em-dash discipline`, `## Orientation`, and `## Plain language`.
 See conventions.md:any:any `§1.5` Writing style for Markdown and prose artifacts for the workflow-level pointer.
 
 **Branch-only commit messages may cite workflow-internal identifiers.**

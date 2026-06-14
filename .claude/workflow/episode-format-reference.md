@@ -41,10 +41,10 @@ track-file Markdown and survive into the eventual ADR aggregation.
 Apply the full rule set in `house-style.md`
 when drafting them: BLUF lead, banned vocabulary, em-dash
 discipline, soft section length cap with template-bound exemptions,
-structural rules. The five
+structural rules. The six
 AI-tell subset section slugs to apply are `## Banned vocabulary`,
 `## Banned sentence patterns`, `## Banned analysis patterns`,
-`### Em-dash discipline`, and `## Orientation`.
+`### Em-dash discipline`, `## Orientation`, and `## Plain language`.
 See conventions.md:any:any `§1.5` Writing style for Markdown and prose artifacts for the workflow-level pointer.
 
 ---
