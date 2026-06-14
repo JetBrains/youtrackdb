@@ -121,10 +121,15 @@ flowchart TD
   >
   > **Strategy refresh:** CONTINUE — Track 1's one cross-track effect (syncing the §1.5 grep copy at `readability-feedback/SKILL.md:54`) was already added to Track 2's scope by correction `ea8f1152c8`. No other track is affected.
 
-- [ ] Track 2: Propagate the slug to the workflow prompts and skills
+- [x] Track 2: Propagate the slug to the workflow prompts and skills
   > Adds the sixth section slug to the 11 `.claude/workflow/prompts/*.md` enumerations and the 6 `.claude/skills/*/SKILL.md` enumerations. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit, not just a slug add). `readability-feedback/SKILL.md:54` also carries a verbatim copy of the `conventions.md §1.5` rename-detection grep; sync it to the now-six-heading form Track 1 landed (a grep edit, not just a slug add — Track 1 Phase C correction).
-  > **Scope:** ~17 files covering 11 workflow prompts and 6 skills.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Propagated the sixth AI-tell subset slug, `## Plain language`, to the 11 workflow prompts and 6 skills. Ten prompt preambles and four skill blockquotes gained the slug with their count word flipped from five to six. Three files took real content edits: the `design-review.md` cold-read gained a third "hard-to-read" scan axis in its Prose AI-tell block (D2-1; the verbatim intro above names the Human-reader list, but the decomposition placed it in the Prose AI-tell block), `ai-tells` gained a `## Plain language` catalogue row (D2-2), and `readability-feedback` gained a STEP-1 read-list entry, a STEP-4 classification line, and the `:54` grep sync that Track 1's Phase C correction folded into this track (D2-3).
+  > Track-level review skipped the baseline group (workflow-only diff) and ran five workflow reviewers; it passed at one iteration. Consistency and context-budget found four findings, all in `design-review.md` from one root cause: Step 1 raised the cold-read block from two scan axes to three but left three downstream restatement and routing sites naming two, and the expanded block summary overran the §1.8 120-char cap, which failed `workflow-reindex.py --check`. `Review fix:` b47ad98135 fixed all four and the gate-check verified them. The other three reviewers were clean; writing-style confirmed the new prose meets the branch's own Plain-language rule.
+  > One out-of-track discovery: `workflow-reindex.py --write` reflows every workflow file it scans, so it also repaired pre-existing TOC drift in five unrelated files. The implementer reverted those to keep the fix scoped. That drift predates this branch and is a separate cleanup, not Track 2 work.
+  >
+  > **Track file:** `plan/track-2.md` (2 steps, 0 failed)
 
 - [ ] Track 3: Propagate the slug to the review agents
   > Adds the sixth section slug to the 19 `.claude/agents/*.md` enumerations, and adds a Plain-language enforcement check to `review-workflow-writing-style.md` (the workflow-markdown writing-style reviewer, which actively checks prose and so needs a real lens, not just a slug add).
