@@ -10,11 +10,13 @@ The file footprint is ~17 (11 prompts + 6 skills), but the edits are not uniform
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-14T04:56Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-14T07:24Z [ctx=safe] Step 1 complete (commit 308dd68bd4)
+- [x] 2026-06-14T07:30Z [ctx=safe] Step 2 complete (commit 1256d0d555)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -77,7 +79,7 @@ Invariant to preserve: every prompt and skill enumeration this track touches end
 ## Concrete Steps
 
 1. Edit the 11 prompt files under `.claude/workflow/prompts/`. In the 10 that carry the five-slug preamble (every prompt except `design-review.md`), append `## Plain language` after `## Orientation` and change the count word in that one sentence from "five" to "six". In `design-review.md` (which has no preamble), add a one-line `§ Plain language` lens to the `### Prose AI-tell additions` block, name the rule in that block's TOC summary at `:23`, and add it to the `:458` "second exception" evidence clause — leaving the `### Human-reader cold-read additions` block and its "five Human-reader rules" count untouched (D2-1). Write any new prose in plain language (self-application). — risk: medium (workflow machinery: the design-review cold-read lens is a bounded behavioral edit that changes agent-observable review behavior; the 10 preamble flips are prose-only)  [x] commit: 308dd68bd4
-2. Edit the 6 skill files under `.claude/skills/`. Add `## Plain language` to the five-slug "House style for chat-scale prose" blockquote in the 4 that carry it (`create-plan`, `execute-tracks`, `review-plan`, `review-workflow-pr`) — a per-site edit, since the wrapping differs across the four. Add a `## Plain language` row to `ai-tells/SKILL.md`'s `## Catalogue lookups` block (D2-2). In `readability-feedback/SKILL.md` (D2-3), add `§ Plain language` to the STEP-1 "Note especially …" read-list, add a one-line STEP-4 classification sentence parallel to the Orientation one, and sync the `:54` grep copy to the byte-identical six-alternative `grep -rnE` form (BRE→ERE, four names→eight) with the anchoring caveat as prose after the fence. — risk: medium (workflow machinery: the ai-tells catalogue row and the readability classification lens are bounded behavioral edits; the 4 blockquote flips are prose-only) — size: ~6 files; reason (a): end of track — the only other low/medium work is Step 1's 11 prompt files, and merging it would total ~17 and trip the ~14 overblown line  [ ]
+2. Edit the 6 skill files under `.claude/skills/`. Add `## Plain language` to the five-slug "House style for chat-scale prose" blockquote in the 4 that carry it (`create-plan`, `execute-tracks`, `review-plan`, `review-workflow-pr`) — a per-site edit, since the wrapping differs across the four. Add a `## Plain language` row to `ai-tells/SKILL.md`'s `## Catalogue lookups` block (D2-2). In `readability-feedback/SKILL.md` (D2-3), add `§ Plain language` to the STEP-1 "Note especially …" read-list, add a one-line STEP-4 classification sentence parallel to the Orientation one, and sync the `:54` grep copy to the byte-identical six-alternative `grep -rnE` form (BRE→ERE, four names→eight) with the anchoring caveat as prose after the fence. — risk: medium (workflow machinery: the ai-tells catalogue row and the readability classification lens are bounded behavioral edits; the 4 blockquote flips are prose-only) — size: ~6 files; reason (a): end of track — the only other low/medium work is Step 1's 11 prompt files, and merging it would total ~17 and trip the ~14 overblown line  [x] commit: 1256d0d555
 
 ## Episodes
 <!-- Continuous-log. Phase B appends one block per completed step. Empty at Phase 1. -->
@@ -99,6 +101,19 @@ Invariant to preserve: every prompt and skill enumeration this track touches end
 - `.claude/workflow/prompts/dimensional-review-gate-check.md` (modified)
 - `.claude/workflow/prompts/create-final-design.md` (modified)
 - `.claude/workflow/prompts/design-review.md` (modified)
+
+### Step 2 — commit 1256d0d555d0bab55c32ab6069cf2cb7206097d9, 2026-06-14T07:30Z [ctx=safe]
+**What was done:** Added the `## Plain language` slug to the six skills that name the AI-tell subset. The four skills with the five-slug "House style for chat-scale prose" blockquote (`create-plan`, `execute-tracks`, `review-plan`, `review-workflow-pr`) gained `## Plain language` after `## Orientation`, done as four per-site edits because the blockquote wrapping differs across them. `ai-tells/SKILL.md` gained a `## Plain language` row in its `## Catalogue lookups` block (D2-2), naming a plain-language fingerprint and pointing at `§ Plain language`, kept distinct from the `§ Banned vocabulary` row by covering general-English clarity outside the closed word list. `readability-feedback/SKILL.md` got three edits (D2-3): `§ Plain language` added to the STEP-1 read-list, a parallel STEP-4 classification line (a passage hard to read for uncommon words, long sentences, or idioms is `CAUGHT by § Plain language`), and the rename-detection grep copy synced byte-identical to the `conventions.md:572` helper.
+
+**What was discovered:** The grep target uses the U+00A7 section sign `§`, not an ASCII stand-in. A byte comparison confirmed the synced command equals `conventions.md:572` exactly, including the `§` characters and the BRE-to-ERE switch (`grep -rn` to `grep -rnE`, four bare names to eight anchored-or-bare alternatives).
+
+**Key files:**
+- `.claude/skills/create-plan/SKILL.md` (modified)
+- `.claude/skills/execute-tracks/SKILL.md` (modified)
+- `.claude/skills/review-plan/SKILL.md` (modified)
+- `.claude/skills/review-workflow-pr/SKILL.md` (modified)
+- `.claude/skills/ai-tells/SKILL.md` (modified)
+- `.claude/skills/readability-feedback/SKILL.md` (modified)
 
 ## Validation and Acceptance
 - Each of the 10 preamble-carrying prompts lists `## Plain language` in its five-slug preamble (now six slugs); that sentence's count word reads "six".
