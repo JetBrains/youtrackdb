@@ -76,11 +76,29 @@ Invariant to preserve: every prompt and skill enumeration this track touches end
 
 ## Concrete Steps
 
-1. Edit the 11 prompt files under `.claude/workflow/prompts/`. In the 10 that carry the five-slug preamble (every prompt except `design-review.md`), append `## Plain language` after `## Orientation` and change the count word in that one sentence from "five" to "six". In `design-review.md` (which has no preamble), add a one-line `§ Plain language` lens to the `### Prose AI-tell additions` block, name the rule in that block's TOC summary at `:23`, and add it to the `:458` "second exception" evidence clause — leaving the `### Human-reader cold-read additions` block and its "five Human-reader rules" count untouched (D2-1). Write any new prose in plain language (self-application). — risk: medium (workflow machinery: the design-review cold-read lens is a bounded behavioral edit that changes agent-observable review behavior; the 10 preamble flips are prose-only)  [ ]
+1. Edit the 11 prompt files under `.claude/workflow/prompts/`. In the 10 that carry the five-slug preamble (every prompt except `design-review.md`), append `## Plain language` after `## Orientation` and change the count word in that one sentence from "five" to "six". In `design-review.md` (which has no preamble), add a one-line `§ Plain language` lens to the `### Prose AI-tell additions` block, name the rule in that block's TOC summary at `:23`, and add it to the `:458` "second exception" evidence clause — leaving the `### Human-reader cold-read additions` block and its "five Human-reader rules" count untouched (D2-1). Write any new prose in plain language (self-application). — risk: medium (workflow machinery: the design-review cold-read lens is a bounded behavioral edit that changes agent-observable review behavior; the 10 preamble flips are prose-only)  [x] commit: 308dd68bd4
 2. Edit the 6 skill files under `.claude/skills/`. Add `## Plain language` to the five-slug "House style for chat-scale prose" blockquote in the 4 that carry it (`create-plan`, `execute-tracks`, `review-plan`, `review-workflow-pr`) — a per-site edit, since the wrapping differs across the four. Add a `## Plain language` row to `ai-tells/SKILL.md`'s `## Catalogue lookups` block (D2-2). In `readability-feedback/SKILL.md` (D2-3), add `§ Plain language` to the STEP-1 "Note especially …" read-list, add a one-line STEP-4 classification sentence parallel to the Orientation one, and sync the `:54` grep copy to the byte-identical six-alternative `grep -rnE` form (BRE→ERE, four names→eight) with the anchoring caveat as prose after the fence. — risk: medium (workflow machinery: the ai-tells catalogue row and the readability classification lens are bounded behavioral edits; the 4 blockquote flips are prose-only) — size: ~6 files; reason (a): end of track — the only other low/medium work is Step 1's 11 prompt files, and merging it would total ~17 and trip the ~14 overblown line  [ ]
 
 ## Episodes
-<!-- Continuous-log. Empty at Phase 1. -->
+<!-- Continuous-log. Phase B appends one block per completed step. Empty at Phase 1. -->
+
+### Step 1 — commit 308dd68bd415f202e1943152146bdfdb9e72d2f6, 2026-06-14T07:24Z [ctx=safe]
+**What was done:** Added `## Plain language` after `## Orientation` in the six-slug AI-tell subset preamble of the 10 workflow prompts that carry it, and changed that sentence's count word from "five" to "six". In `design-review.md`, which has no preamble, applied the D2-1 cold-read edit: a `§ Plain language` lens in the `### Prose AI-tell additions` block, the matching block summary and `:23` TOC row, and the rule named in the `§ Tone and depth` "second exception" evidence clause. The `### Human-reader cold-read additions` block and its "five Human-reader rules" count were left as they were.
+
+**What was discovered:** The `### Prose AI-tell additions` block lists its scan targets on two named axes (over-dense, too-terse), so the natural home for the new lens was a third "hard-to-read" axis. That made three sync points, not the two the step named: the axis bullet, the "both axes" to "three axes" lead-in, and the block's own `<!-- summary= -->` comment, all kept in step with the `:23` TOC row. The result still reads as one short lens, as D2-1 intended.
+
+**Key files:**
+- `.claude/workflow/prompts/adversarial-review.md` (modified)
+- `.claude/workflow/prompts/consistency-review.md` (modified)
+- `.claude/workflow/prompts/consistency-gate-verification.md` (modified)
+- `.claude/workflow/prompts/structural-review.md` (modified)
+- `.claude/workflow/prompts/structural-gate-verification.md` (modified)
+- `.claude/workflow/prompts/technical-review.md` (modified)
+- `.claude/workflow/prompts/risk-review.md` (modified)
+- `.claude/workflow/prompts/review-gate-verification.md` (modified)
+- `.claude/workflow/prompts/dimensional-review-gate-check.md` (modified)
+- `.claude/workflow/prompts/create-final-design.md` (modified)
+- `.claude/workflow/prompts/design-review.md` (modified)
 
 ## Validation and Acceptance
 - Each of the 10 preamble-carrying prompts lists `## Plain language` in its five-slug preamble (now six slugs); that sentence's count word reads "six".
