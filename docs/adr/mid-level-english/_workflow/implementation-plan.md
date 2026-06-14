@@ -133,10 +133,15 @@ flowchart TD
   >
   > **Strategy refresh:** CONTINUE — Track 2's discoveries (the `design-review.md` cold-read cap overrun, the `workflow-reindex.py --write` reflow) stayed within the workflow-doc files Track 2 owns; neither touches `.claude/agents/*.md`. Track 3 depends only on Track 1, whose `## Plain language` section exists. No downstream impact.
 
-- [ ] Track 3: Propagate the slug to the review agents
+- [x] Track 3: Propagate the slug to the review agents
   > Adds the sixth section slug to the 19 `.claude/agents/*.md` enumerations, and adds a Plain-language enforcement check to `review-workflow-writing-style.md` (the workflow-markdown writing-style reviewer, which actively checks prose and so needs a real lens, not just a slug add).
-  > **Scope:** ~20 files covering 20 review agents.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Propagated the sixth AI-tell subset slug, `## Plain language`, to all 19 enumerating `.claude/agents/*.md` files (count word five→six) and added the Plain-language enforcement lens to `review-workflow-writing-style.md`. Step 1 covered the 12 byte-identical preambles in one guarded replace; Step 2 took the remaining 7 agents plus the lens. `dr-audit.md` is the lone odd shape, a blockquote slug list with no count word, so its slug landed mid-sentence before the period, leaving the trailing "Structural rules" clause intact. The full-coverage invariant holds: 0 agents still read "five", 19 carry the slug, and `review-workflow-writing-style.md` stays the sole enforcer with no enumerating preamble.
+  > Track-level review skipped the baseline group (workflow-only diff) and ran five workflow reviewers; it passed at one iteration. consistency, context-budget, and writing-style were clean (writing-style confirmed the new lens prose meets the branch's own Plain-language rule). prompt-design and instruction-completeness found one root cause: adding a finding-producing criterion to the writing-style agent left that file's own output contract unaware of it. `Review fix:` `1e164f99` added `plain language` to the `Axis:` enum (so a plain-language finding is not mislabeled `banned vocabulary`, which its scope guard forbids) and named the plain-language cert shape in the `## Evidence base` description; gate-check verified both.
+  > One Minor finding was declined: the writing-style agent's `## Process` walk-through has no plain-language step. It is a pre-existing pattern (six other criteria are also unstepped), and the criterion stays reachable from the "Key rules" pointer and `## Review criteria`, so the lens is not stranded. No cross-track impact and no plan corrections; Track 3 is the rollout's last leg.
+  >
+  > **Track file:** `plan/track-3.md` (2 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed; consistency at iteration 2 (gate), structural at iteration 1 (0 findings)
