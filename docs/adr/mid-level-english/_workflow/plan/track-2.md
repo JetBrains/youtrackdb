@@ -111,3 +111,6 @@ Invariant to preserve: every prompt and skill enumeration this track touches end
 **Dependencies:** depends on Track 1 (the `## Plain language` section and §1.5 mapping must exist first). Independent of Track 3.
 
 **Exact in-scope set, reconciled at Phase A** via `grep -rln 'Banned analysis patterns' .claude/workflow/prompts/ .claude/skills/`: exactly 11 prompt files and 6 skill files (17 total), matching the lists above. Edit-kind breakdown: 14 slug adds (10 prompt preambles + 4 skill blockquotes) and 3 content edits (`design-review.md`, `ai-tells/SKILL.md`, `readability-feedback/SKILL.md`). The `ai-tells/SKILL.md` catalogue question (plan CR1) is resolved in D2-2.
+
+## Base commit
+eccdad91dfa09d35b15732a5fe2811b6b6da1f63
