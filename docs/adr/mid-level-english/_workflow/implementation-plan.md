@@ -130,6 +130,8 @@ flowchart TD
   > One out-of-track discovery: `workflow-reindex.py --write` reflows every workflow file it scans, so it also repaired pre-existing TOC drift in five unrelated files. The implementer reverted those to keep the fix scoped. That drift predates this branch and is a separate cleanup, not Track 2 work.
   >
   > **Track file:** `plan/track-2.md` (2 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 2's discoveries (the `design-review.md` cold-read cap overrun, the `workflow-reindex.py --write` reflow) stayed within the workflow-doc files Track 2 owns; neither touches `.claude/agents/*.md`. Track 3 depends only on Track 1, whose `## Plain language` section exists. No downstream impact.
 
 - [ ] Track 3: Propagate the slug to the review agents
   > Adds the sixth section slug to the 19 `.claude/agents/*.md` enumerations, and adds a Plain-language enforcement check to `review-workflow-writing-style.md` (the workflow-markdown writing-style reviewer, which actively checks prose and so needs a real lens, not just a slug add).
