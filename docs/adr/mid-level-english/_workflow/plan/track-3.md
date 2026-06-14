@@ -83,3 +83,6 @@ Invariant to preserve: every agent preamble this track touches ends at exactly s
 **Dependencies:** depends on Track 1 (the `## Plain language` section must exist first). Independent of Track 2.
 
 **Exact in-scope set is derived by `grep -rln 'Banned analysis patterns' .claude/agents/` (the 19 enumerating agents) plus `review-workflow-writing-style.md` at Phase A and reconciled against this list (lite-tier requirement; figure ~20 is approximate).**
+
+## Base commit
+156e5aaec54037ca0c317b998da84b09dd65e575
