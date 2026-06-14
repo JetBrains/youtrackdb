@@ -172,7 +172,9 @@ do not restate the schema here. Concretely:
   this survived-one-line / refuted-in-full body rendering, so this paragraph is
   the authoritative spec for it.) The cert material is each finding's style check from the `## Process` steps: the
   section-length three-step decision (size threshold → exempt-category → padding-pattern)
-  or the banned-vocabulary sweep result that confirms the violation.
+  or the banned-vocabulary sweep result that confirms the violation, or, for a
+  plain-language finding, the one-line judgment that the flagged unit reads harder
+  than its plain rewrite (no count, no score, matching the criterion at `### Plain language`).
 
 **Otherwise (no output path)** — use the Output format below, unchanged.
 
@@ -202,7 +204,7 @@ do not restate the schema here. Concretely:
 Render each finding as a single bullet under its matched H4 in the format:
 
 ```markdown
-**WS<N>** — File: `path/to/file.md` (line X-Y), Axis: <banned vocabulary | em-dash overuse | BLUF lead | section length | heading style | repo-anchored voice | knowledge-cutoff disclaimer | bullet-vs-prose | conciseness | adjective triads>, Cost: <one-clause description of the style impact, e.g., "banned vocabulary in always-loaded skill description", "three em dashes in one paragraph", "section over soft cap with padding pattern present">, Issue: <which rule is violated and where>, Suggestion: <rewrite — provide the exact replacement text when possible>
+**WS<N>** — File: `path/to/file.md` (line X-Y), Axis: <banned vocabulary | plain language | em-dash overuse | BLUF lead | section length | heading style | repo-anchored voice | knowledge-cutoff disclaimer | bullet-vs-prose | conciseness | adjective triads>, Cost: <one-clause description of the style impact, e.g., "banned vocabulary in always-loaded skill description", "three em dashes in one paragraph", "section over soft cap with padding pattern present">, Issue: <which rule is violated and where>, Suggestion: <rewrite — provide the exact replacement text when possible>
 ```
 
 Numbering: `WS<N>` is a single consecutive sequence across severities. Critical findings come first, then Recommended, then Minor — but the numeric IDs do not reset at each H4. Example: WS1 + WS2 under Critical, WS3 + WS4 + WS5 under Recommended, WS6 under Minor. The rule mirrors the prefix family in `.claude/workflow/review-iteration.md` § Finding ID prefixes. Within a single H4 bucket, sort findings first by source (script findings first, then judgment findings, when both are present), then by File (POSIX-sorted), then by line number ascending.
