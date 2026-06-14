@@ -42,7 +42,7 @@ PR.
 > stub message) follows the AI-tell subset of
 > `house-style.md`: `## Banned vocabulary`,
 > `## Banned sentence patterns`, `## Banned analysis patterns`,
-> `### Em-dash discipline`, and `## Orientation`. Structural rules (`§ BLUF lead`, the ≤200-word
+> `### Em-dash discipline`, `## Orientation`, and `## Plain language`. Structural rules (`§ BLUF lead`, the ≤200-word
 > section cap, `§ Document-shape rules`) do not apply to chat-scale prose.
 > See conventions.md:pr-reviewer:any `§1.5`
 > for the workflow-level anchor and tier mapping.
