@@ -118,6 +118,8 @@ flowchart TD
   > Cross-track: the same grep has a verbatim copy at `readability-feedback/SKILL.md:54`, already in Track 2's scope. A plan correction (`ea8f1152c8`) folds the grep-sync into Track 2. Track 3 unaffected.
   >
   > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — Track 1's one cross-track effect (syncing the §1.5 grep copy at `readability-feedback/SKILL.md:54`) was already added to Track 2's scope by correction `ea8f1152c8`. No other track is affected.
 
 - [ ] Track 2: Propagate the slug to the workflow prompts and skills
   > Adds the sixth section slug to the 11 `.claude/workflow/prompts/*.md` enumerations and the 6 `.claude/skills/*/SKILL.md` enumerations. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit, not just a slug add). `readability-feedback/SKILL.md:54` also carries a verbatim copy of the `conventions.md §1.5` rename-detection grep; sync it to the now-six-heading form Track 1 landed (a grep edit, not just a slug add — Track 1 Phase C correction).
