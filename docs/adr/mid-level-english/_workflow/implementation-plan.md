@@ -51,7 +51,7 @@ flowchart TD
 - **`house-style.md`** (Track 1): gains the new `## Plain language` section after `## Orientation`, plus the line-20 count flip and a self-check item. The single source of the rule.
 - **`house-conversation.md`, `conventions.md §1.5`** (Track 1): the canonical subset homes. House-conversation gains a sixth bullet; §1.5 gains the section in the Tier-B "Sections that apply" cell, the five→six count flip, and a Tier-B code-comment restatement paragraph parallel to the Orientation one.
 - **11 core workflow docs, the hook, its test, `CLAUDE.md`** (Track 1): core-doc enumerations gain the sixth slug; the hook reminder and its pin test flip five→six; `CLAUDE.md` is de-enumerated to a pointer (D6).
-- **11 prompts, 6 skills** (Track 2): each enumeration gains the sixth slug. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit).
+- **11 prompts, 6 skills** (Track 2): the subset enumerations gain the sixth slug — 10 prompt preambles and 4 skill blockquotes. `design-review.md` gains the rule in the cold-read `### Prose AI-tell additions` block (a content edit); `ai-tells` gains a catalogue row and `readability-feedback` gains read-list / classification / grep edits.
 - **20 review agents** (Track 3): 19 enumerations gain the sixth slug; `review-workflow-writing-style.md` gains a Plain-language enforcement check (a content edit).
 
 #### D1: Plain-language target, not a graded band
