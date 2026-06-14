@@ -9,13 +9,16 @@ After this track lands, every review agent that names the AI-tell subset lists t
 This track adds the sixth section slug to the 19 `.claude/agents/*.md` enumerations, and adds a Plain-language enforcement check to `review-workflow-writing-style.md`. That agent reviews prose actively (it checks banned vocabulary, the em-dash cap, BLUF, section length), so it needs a real lens, not just a slug in a citation.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-14T11:16Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- Phase A reviews confirmed the exact scope split: 18 of the 19 enumerating agents carry the uniform "the five AI-tell subset section slugs to apply are …, and `## Orientation`" sentence; `dr-audit.md:22` is the lone odd shape — a blockquote slug list with no count word and a trailing "Structural rules (…)" clause. Its sixth slug must land before the sentence period, not appended after the trailing clause (technical T2, adversarial A1). Folded into Step 2's description.
+- Technical T1 corrected a citation in `## Context and Orientation`: the writing-style reviewer's "Key rules to enforce" list is `:26`–`:35`, not `:26`–`:39` (the wider range overshot into the `## Tooling` section at `:37`). Fixed in place.
 
 ## Decision Log
 <!-- Track-canonical live decisions (D7). This track executes plan D3/D4; it owns one content-edit decision. -->
@@ -30,9 +33,12 @@ The other 19 agents are mechanical slug additions to the identical house-style p
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
+- [x] Technical: PASS at iteration 1 (2 findings, both suggestions, both accepted as decomposition aids — T1 citation correction applied to `## Context and Orientation`; T2 `dr-audit.md` mid-sentence insertion folded into Step 2). No blocker or should-fix, so no fix iteration.
+- [x] Adversarial: PASS at iteration 1 (1 finding, suggestion, accepted — A1 is the same `dr-audit.md` Oxford-comma point as T2, folded into Step 2). Three narrowed challenges all held: scope/sizing (20-of-20 in-scope set complete and correct), cross-track-episode reality (the `## Plain language` section exists at `house-style.md:78`; all 19 agents still carry the five-slug preamble; `review-workflow-writing-style.md` carries no enumeration but actively enforces house-style lenses, so it needs a content edit), invariant violation (INFEASIBLE).
+- Risk: not run — lite tier with no warranting characteristic (no critical path, no performance constraint, no major architectural decision), per the Phase-3A tier-driven review selection.
 
 ## Context and Orientation
-The 20 review agents under `.claude/agents/` split two ways. 19 carry the same house-style preamble naming the five subset slugs (line ~20: "the five AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, and `## Orientation`"). `dr-audit.md` phrases the same five-slug list slightly differently (`:22`) but is one of the 19. The 20th, `review-workflow-writing-style.md`, does not enumerate the five slugs — it is the active writing-style reviewer, with a "Key rules to enforce" list (`:26`–`:39`) and a checks section (`:69`+) covering Banned vocabulary, Em-dash, section cap, BLUF. It needs a content edit, not a slug add (D3-1).
+The 20 review agents under `.claude/agents/` split two ways. 19 carry the same house-style preamble naming the five subset slugs (line ~20: "the five AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, and `## Orientation`"). `dr-audit.md` phrases the same five-slug list slightly differently (`:22`) but is one of the 19. The 20th, `review-workflow-writing-style.md`, does not enumerate the five slugs — it is the active writing-style reviewer, with a "Key rules to enforce" list (`:26`–`:35`) and a checks section (`:67`+, first subsection `### Banned vocabulary sweep` at `:69`) covering Banned vocabulary, Em-dash, section cap, BLUF. It needs a content edit, not a slug add (D3-1).
 
 This track depends on Track 1: the `## Plain language` section must exist before these agents name it or check it.
 
@@ -43,7 +49,9 @@ This track depends on Track 1: the `## Plain language` section must exist before
 Invariant to preserve: every agent preamble this track touches ends at exactly six slugs in the canonical order; `review-workflow-writing-style.md` checks plain language alongside its existing lenses.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. Add the sixth AI-tell subset slug `## Plain language` after `## Orientation` in the house-style preamble of 12 enumerating agents: `review-bugs-concurrency`, `review-code-quality`, `review-crash-safety`, `review-performance`, `review-security`, `review-test-behavior`, `review-test-completeness`, `review-test-concurrency`, `review-test-crash-safety`, `review-test-structure`, `review-workflow-consistency`, `review-workflow-context-budget`. Each carries the uniform sentence "the five AI-tell subset section slugs to apply are …, and `## Orientation`"; insert the slug before the period (so the tail reads "…, `## Orientation`, and `## Plain language`") and change the count word "five"→"six". No other prose changes. — risk: low (default: prose-only workflow edit — meaning-preserving enumeration sync; no hook/gate/schema change)  [ ]
+2. Add `## Plain language` to the remaining 7 enumerating agents and add the Plain-language enforcement lens to `review-workflow-writing-style.md` (D3-1). The 6 uniform agents — `review-workflow-hook-safety`, `review-workflow-instruction-completeness`, `review-workflow-prompt-design`, `code-reviewer`, `pr-reviewer`, `test-quality-reviewer` — take the same slug insertion and "five"→"six" flip as Step 1. `dr-audit.md` (`:22`) is the odd shape: a blockquote slug list with no count word and a trailing "Structural rules (…)" clause, so insert the slug mid-sentence before the period — turn "…, and `## Orientation`." into "…, `## Orientation`, and `## Plain language`." — and do not append it after the trailing clause (T2 / A1). In `review-workflow-writing-style.md`, add a Plain-language bullet to the "Key rules to enforce" list (`:26`–`:35`) and a `### Plain language` subsection in `## Review criteria` (after `:67`, parallel to `### Banned vocabulary sweep` at `:69`); keep it judgment-shaped and reported as a finding with no score (D2, D3-1). Write the new check prose in plain language (self-application). — risk: medium (workflow machinery: the writing-style Plain-language lens is a bounded behavioral edit that changes agent-observable review behavior; the 7 slug flips are prose-only) — size: ~8 files; reason (a): end of track — the only other low/medium work is Step 1's 12 files, and merging it would total 20 and trip the ~14 overblown line  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
