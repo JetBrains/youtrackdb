@@ -14,6 +14,7 @@ This track adds the sixth section slug to the 19 `.claude/agents/*.md` enumerati
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-14T11:16Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-14T11:37Z [ctx=safe] Step 1 complete (commit 766e7d8419)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -50,11 +51,30 @@ Invariant to preserve: every agent preamble this track touches ends at exactly s
 
 ## Concrete Steps
 
-1. Add the sixth AI-tell subset slug `## Plain language` after `## Orientation` in the house-style preamble of 12 enumerating agents: `review-bugs-concurrency`, `review-code-quality`, `review-crash-safety`, `review-performance`, `review-security`, `review-test-behavior`, `review-test-completeness`, `review-test-concurrency`, `review-test-crash-safety`, `review-test-structure`, `review-workflow-consistency`, `review-workflow-context-budget`. Each carries the uniform sentence "the five AI-tell subset section slugs to apply are …, and `## Orientation`"; insert the slug before the period (so the tail reads "…, `## Orientation`, and `## Plain language`") and change the count word "five"→"six". No other prose changes. — risk: low (default: prose-only workflow edit — meaning-preserving enumeration sync; no hook/gate/schema change)  [ ]
+1. Add the sixth AI-tell subset slug `## Plain language` after `## Orientation` in the house-style preamble of 12 enumerating agents: `review-bugs-concurrency`, `review-code-quality`, `review-crash-safety`, `review-performance`, `review-security`, `review-test-behavior`, `review-test-completeness`, `review-test-concurrency`, `review-test-crash-safety`, `review-test-structure`, `review-workflow-consistency`, `review-workflow-context-budget`. Each carries the uniform sentence "the five AI-tell subset section slugs to apply are …, and `## Orientation`"; insert the slug before the period (so the tail reads "…, `## Orientation`, and `## Plain language`") and change the count word "five"→"six". No other prose changes. — risk: low (default: prose-only workflow edit — meaning-preserving enumeration sync; no hook/gate/schema change)  [x] commit: 766e7d8419
 2. Add `## Plain language` to the remaining 7 enumerating agents and add the Plain-language enforcement lens to `review-workflow-writing-style.md` (D3-1). The 6 uniform agents — `review-workflow-hook-safety`, `review-workflow-instruction-completeness`, `review-workflow-prompt-design`, `code-reviewer`, `pr-reviewer`, `test-quality-reviewer` — take the same slug insertion and "five"→"six" flip as Step 1. `dr-audit.md` (`:22`) is the odd shape: a blockquote slug list with no count word and a trailing "Structural rules (…)" clause, so insert the slug mid-sentence before the period — turn "…, and `## Orientation`." into "…, `## Orientation`, and `## Plain language`." — and do not append it after the trailing clause (T2 / A1). In `review-workflow-writing-style.md`, add a Plain-language bullet to the "Key rules to enforce" list (`:26`–`:35`) and a `### Plain language` subsection in `## Review criteria` (after `:67`, parallel to `### Banned vocabulary sweep` at `:69`); keep it judgment-shaped and reported as a finding with no score (D2, D3-1). Write the new check prose in plain language (self-application). — risk: medium (workflow machinery: the writing-style Plain-language lens is a bounded behavioral edit that changes agent-observable review behavior; the 7 slug flips are prose-only) — size: ~8 files; reason (a): end of track — the only other low/medium work is Step 1's 12 files, and merging it would total 20 and trip the ~14 overblown line  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 766e7d84194c371f1125d56eb2e55e5552d8cba4, 2026-06-14T11:37Z [ctx=safe]
+**What was done:** Added `## Plain language` after `## Orientation` in the AI-tell subset preamble of the 12 enumerating review agents, and flipped that sentence's count word from "five" to "six". The slug tail now reads "…, `## Orientation`, and `## Plain language`." in canonical order. No other prose changed.
+
+**What was discovered:** All 12 files carried the byte-identical preamble sentence, so one guarded literal-replace covered every file with no per-file variation. The diff is exactly 12 files at one line each.
+
+**Key files:**
+- `.claude/agents/review-bugs-concurrency.md` (modified)
+- `.claude/agents/review-code-quality.md` (modified)
+- `.claude/agents/review-crash-safety.md` (modified)
+- `.claude/agents/review-performance.md` (modified)
+- `.claude/agents/review-security.md` (modified)
+- `.claude/agents/review-test-behavior.md` (modified)
+- `.claude/agents/review-test-completeness.md` (modified)
+- `.claude/agents/review-test-concurrency.md` (modified)
+- `.claude/agents/review-test-crash-safety.md` (modified)
+- `.claude/agents/review-test-structure.md` (modified)
+- `.claude/agents/review-workflow-consistency.md` (modified)
+- `.claude/agents/review-workflow-context-budget.md` (modified)
 
 ## Validation and Acceptance
 - All 19 enumerating agents list `## Plain language` in the preamble; any numeric count reads "six".
