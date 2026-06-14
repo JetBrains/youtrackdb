@@ -109,9 +109,15 @@ flowchart TD
 - No rewrite of existing prose to plain language across the repo; the rule binds new and edited prose going forward (the same way every other house-style rule binds).
 
 ## Checklist
-- [ ] Track 1: Author the rule and update the canonical homes, core docs, hook, and `CLAUDE.md`
+- [x] Track 1: Author the rule and update the canonical homes, core docs, hook, and `CLAUDE.md`
   > Adds the `## Plain language` section to `house-style.md` (after `## Orientation`) with its boundary clause and a self-check item, then updates every canonical home and core-doc enumeration: the `house-conversation.md` chat subset, the `conventions.md §1.5` tier table plus its Tier-B code-comment restatement, the 11 core workflow docs, the hook reminder and its pin test (five→six), and the `CLAUDE.md` de-enumeration. This track defines the rule the other two propagate.
-  > **Scope:** ~16 files covering house-style.md, house-conversation.md, conventions.md §1.5, 10 other core workflow docs, CLAUDE.md, the house-style write-reminder hook, and its pin test.
+  >
+  > **Track episode:**
+  > Authored the `## Plain language` section and flipped the always-on AI-tell subset five→six across the canonical homes, the 11 core workflow docs, the write-reminder hook + its pin test, and `CLAUDE.md` (de-enumerated to a pointer, D6). The hook body fit the sixth slug plus the carve note at 491 chars under the hard 500-char cap, so D2's no-re-tune constraint held (SD1). The §1.5 Tier-B restatement gained a parallel plain-language paragraph naming which moves carry to comment scale.
+  > Track-level review (5 workflow reviewers) was clean on three dimensions; consistency and instruction-completeness independently caught the one open SD5 item — the §1.5 rename-detection grep helper listed four of six Tier-B headings, so renaming `## Orientation` or `## Plain language` found zero pointer sites. `Review fix:` `7b8ad4f424` completed the helper to six, anchoring the two common-word names to their `##`/`§` heading-pointer form (bare matching produced ~109 false positives from `## Context and Orientation`; anchored yields 122 clean pointer-site lines, 0 false positives). Gate-check PASS at 1 iteration.
+  > Cross-track: the same grep has a verbatim copy at `readability-feedback/SKILL.md:54`, already in Track 2's scope. A plan correction (`ea8f1152c8`) folds the grep-sync into Track 2. Track 3 unaffected.
+  >
+  > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
 
 - [ ] Track 2: Propagate the slug to the workflow prompts and skills
   > Adds the sixth section slug to the 11 `.claude/workflow/prompts/*.md` enumerations and the 6 `.claude/skills/*/SKILL.md` enumerations. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit, not just a slug add). `readability-feedback/SKILL.md:54` also carries a verbatim copy of the `conventions.md §1.5` rename-detection grep; sync it to the now-six-heading form Track 1 landed (a grep edit, not just a slug add — Track 1 Phase C correction).

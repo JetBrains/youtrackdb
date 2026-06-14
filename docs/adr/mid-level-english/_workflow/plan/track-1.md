@@ -11,14 +11,15 @@ This track adds the new `## Plain language` section to `house-style.md` (right a
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 
 - [x] 2026-06-13T17:03Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-13T19:01Z [ctx=safe] Step 1 complete (commit 9c968cc81f)
 - [x] 2026-06-13T19:08Z [ctx=safe] Step 2 complete (commit 0365429691)
 - [x] 2026-06-13T19:16Z [ctx=safe] Step 3 complete (commit 870b9e7846)
 - [x] 2026-06-14T04:07Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-14T04:15Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -82,6 +83,9 @@ Plus the boundary clause: plain language governs general English only. It never 
 <!-- Continuous-log. Review outcomes and the track-completion summary at Phase C. -->
 - [x] Technical: PASS at iteration 2 (2 findings — T1 should-fix, T2 suggestion; both accepted and applied: SD1 hook char-cap + SD4 design-mechanical-checks.py exclusion, with Plan-of-Work / Validation / Interfaces edits). Gate-check VERIFIED both.
 - [x] Adversarial: PASS at iteration 2 (3 findings — A1 blocker, A2 should-fix, A3 suggestion; all accepted and applied: SD1/SD2/SD3 + Plan-of-Work step 4–5 / Validation / Interfaces edits). Gate-check VERIFIED A1/A2/A3 and surfaced one new suggestion A4 (the reconciliation grep does not match `CLAUDE.md`), applied to the In-scope reconciliation paragraph.
+- [x] Track-level code review (Phase C): PASS at 1 fix iteration. Diff was workflow-only, so the four code baselines skipped (baseline-skip override) and five workflow reviewers ran (consistency, context-budget, writing-style, instruction-completeness, hook-safety; prompt-design did not fire — no skills/agents/prompts in scope). Three dimensions clean. Consistency (should-fix) and instruction-completeness (suggestion) independently flagged the open SD5 item: the `conventions.md §1.5` rename-detection grep at `:572` enumerated four of six Tier-B headings, so a rename of `## Orientation` or `## Plain language` would silently find zero pointer sites. Resolved in `Review fix:` `7b8ad4f424` — completed the helper to six, anchoring the two common-word names to their `##`/`§` heading-pointer form (empirical: bare matching produced ~109 false positives from `## Context and Orientation`; anchored yields 122 clean pointer-site lines, 0 false positives). Gate-check VERIFIED both. This closes SD5.
+- **Plan correction (deferred finding):** the same rename grep has a verbatim copy at `readability-feedback/SKILL.md:54`, already in Track 2's slug-propagation scope. Folded into Track 2 (`ea8f1152c8`) — Track 2 now also syncs that copy to the six-heading form. Track 3 unaffected.
+- **Track-completion summary:** 3 steps, 0 failed. The `## Plain language` rule and the five→six subset flip landed across all Track-1 scope; the branch self-applies the rule. Remaining branch work: Track 2 (prompts + skills, incl. the SKILL.md:54 grep sync) and Track 3 (review agents), then Phase 4. The §1.7(k) opt-out edits live; the drift gate will fire each session and is suppressed per the plan, with a single `/migrate-workflow` after the branch-final pathspec-touching commit.
 
 ## Context and Orientation
 The AI-tell subset is the part of the house style that applies to every prose surface — chat, durable Markdown, and `*.java`/`*.kt` code comments — as opposed to the full rule set, which applies only to durable Markdown. Today the subset is five sections. The merged #1142 flip (PR `f74ef47e94`) added `## Orientation` as a four→five flip and is the direct precedent for this work, including its §1.7(k) opt-out.
