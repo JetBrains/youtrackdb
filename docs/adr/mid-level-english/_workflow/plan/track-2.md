@@ -11,7 +11,7 @@ The file footprint is ~17 (11 prompts + 6 skills), but the edits are not uniform
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-14T04:56Z [ctx=info] Review + decomposition complete
@@ -50,6 +50,7 @@ The remaining 14 files in this track are mechanical slug additions that execute 
 - [x] Technical: PASS at iteration 2 (3 findings — 1 should-fix, 2 suggestions — all accepted and applied)
 - [x] Adversarial: PASS at iteration 2 (5 findings — 3 should-fix, 2 suggestions — all accepted and applied)
 - Risk: not run — lite tier with no warranting characteristic (no critical path, no performance constraint, no major architectural decision), per the Phase-3A tier-driven review selection.
+- [x] Phase C track-level code review: PASS at iteration 1. Workflow-only diff, so the baseline group skipped and 5 workflow reviewers ran (consistency, prompt-design, instruction-completeness, context-budget, writing-style; hook-safety did not fire — no hooks/scripts/settings touched). Consistency raised 3 findings and context-budget 1, all four against `design-review.md` and all from one root cause: Step 1 raised the cold-read Prose AI-tell block to three scan axes but left three downstream restatement/routing sites describing two, and the block summary overran the §1.8 120-char cap (failing `workflow-reindex.py --check`). All four fixed in `Review fix:` b47ad98135 and VERIFIED at gate-check. prompt-design, instruction-completeness, and writing-style were clean (writing-style confirmed the new prose meets the branch's own `## Plain language` rule).
 
 The reviews converged on one substantive correction and several count fixes, all in the track file's own prose: the design-review cold-read edit was pointed at the wrong block (Human-reader rules instead of `### Prose AI-tell additions`, fixed in D2-1); `design-review.md` has no five-slug preamble so the prompt count is 10 not 11; only 4 of the 6 skills carry a blockquote enumeration; and the verbatim grep target was pinned byte-identical to `conventions.md:572`. The `ai-tells` catalogue question (plan CR1) and the `readability-feedback` multi-spot edits were resolved against the #1142 Orientation precedent (D2-2, D2-3). One factual phrase in the plan Component Map (line 54, the wrong block name) was corrected to match.
 
