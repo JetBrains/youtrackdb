@@ -20,7 +20,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
 | §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
-| §Prose AI-tell additions | reviewer-design | 1,4 | Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation, Plain language; creation-time. |
+| §Prose AI-tell additions | reviewer-design | 1,4 | Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Orientation, Plain language; creation-time. |
 | §Track-scoped cold-read (Step 4b) | reviewer-design | 1 | The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
@@ -184,13 +184,13 @@ audience the prose fails, and (for navigability) the opaque section or
 (for explanatory register) the disconnected assertions.
 
 ### Prose AI-tell additions
-<!-- roles=reviewer-design phases=1,4 summary="Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation, Plain language; creation-time." -->
+<!-- roles=reviewer-design phases=1,4 summary="Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Orientation, Plain language; creation-time." -->
 
 Applies to `phase1-creation`, `phase4-creation`, `design-sync` (the three
 `target=design` kinds) **and** `target=tracks`. This block has its own
 applies-to set: unlike the Human-reader additions above (design kinds
 only), it also runs on the Step-4b track cold-read, because plan-at-start
-track prose carries the same over-dense / too-terse failures as design
+track prose carries the same over-dense / too-terse / hard-to-read failures as design
 prose. Scan the changed sections (for `target=tracks`, the plan-at-start
 track sections) on **three axes**:
 
@@ -244,8 +244,8 @@ question 7 becomes "how would a reader find the full mechanism — the
 inline `## Decision Log` records, and in `full` the `**Full design**`
 reference into the frozen `design.md` seed?".
 
-**Plus the Prose AI-tell additions (§ above).** Run that block's over-dense
-and too-terse scan on the plan-at-start track sections, the same as on a
+**Plus the Prose AI-tell additions (§ above).** Run that block's over-dense,
+too-terse, and hard-to-read scan on the plan-at-start track sections, the same as on a
 `target=design` cold-read; its applies-to set names `target=tracks`
 explicitly. The Human-reader additions do **not** run here — they are
 design-kind only.
@@ -426,8 +426,8 @@ exception — e.g. `[blocker] audience-fit: <quoted prose +
 named audience + why it breaks down>`.)
 
 (Findings under the § Prose AI-tell additions go in the same
-list with the same multi-line shape, prefixed `over-dense:` or
-`too-terse:` — e.g. `[should-fix] over-dense: <quoted sentence +
+list with the same multi-line shape, prefixed `over-dense:`,
+`too-terse:`, or `hard-to-read:` — e.g. `[should-fix] over-dense: <quoted sentence +
 the house-style § it breaks>`. This holds for all three
 `target=design` kinds **and** for `target=tracks` — the Prose
 AI-tell block runs on the Step-4b track cold-read even though the
