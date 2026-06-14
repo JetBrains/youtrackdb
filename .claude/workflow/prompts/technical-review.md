@@ -28,7 +28,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 You are reviewing ONE TRACK of an implementation plan for technical soundness.
 You MUST read the codebase to validate this track's assumptions.
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the five AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, and `## Orientation`.
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the six AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, `## Orientation`, and `## Plain language`.
 
 ## Workflow Context
 <!-- roles=reviewer-technical phases=3A summary="Phase A terminology (track, step, episode, Decision Record) and where the track's detail lives during decomposition." -->

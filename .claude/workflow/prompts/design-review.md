@@ -20,7 +20,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
 | §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
-| §Prose AI-tell additions | reviewer-design | 1,4 | Over-dense / too-terse scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation; creation-time. |
+| §Prose AI-tell additions | reviewer-design | 1,4 | Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation, Plain language; creation-time. |
 | §Track-scoped cold-read (Step 4b) | reviewer-design | 1 | The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
@@ -184,7 +184,7 @@ audience the prose fails, and (for navigability) the opaque section or
 (for explanatory register) the disconnected assertions.
 
 ### Prose AI-tell additions
-<!-- roles=reviewer-design phases=1,4 summary="Over-dense / too-terse scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation; creation-time." -->
+<!-- roles=reviewer-design phases=1,4 summary="Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Mechanism traces, inflated labels, Orientation, Plain language; creation-time." -->
 
 Applies to `phase1-creation`, `phase4-creation`, `design-sync` (the three
 `target=design` kinds) **and** `target=tracks`. This block has its own
@@ -192,7 +192,7 @@ applies-to set: unlike the Human-reader additions above (design kinds
 only), it also runs on the Step-4b track cold-read, because plan-at-start
 track prose carries the same over-dense / too-terse failures as design
 prose. Scan the changed sections (for `target=tracks`, the plan-at-start
-track sections) on **both axes**:
+track sections) on **three axes**:
 
 - **Over-dense** — the judgment cases the `dsc-ai-tell` regex set cannot
   catch. Check against `.claude/output-styles/house-style.md § Banned analysis patterns`
@@ -208,6 +208,13 @@ track sections) on **both axes**:
   the floor the cut-rules cut to: prose a reader cannot follow without
   opening the code, or a one-line assertion dropped with no motivation, is
   a finding the same as padding.
+- **Hard-to-read** — check against `.claude/output-styles/house-style.md § Plain language`.
+  Flag a sentence that uses an uncommon word where a common one fits, a
+  long tangled sentence the reader must read twice, or an idiom or
+  ambiguous phrasal verb. This axis is about word choice and sentence
+  shape, so it applies even to prose that is the right length and
+  well-motivated. Report it as a finding; plain-language quality stays a
+  judgment call, with no score.
 
 **Bound to creation-time prose.** This block runs at design-mutation time
 (`target=design`) and once at Step 4b before the plan commit
@@ -455,7 +462,7 @@ attempt the fix automatically.>
 ## Tone and depth
 <!-- roles=reviewer-design phases=1,4 summary="One-sentence answers, cite don't paraphrase, flag insufficiency, no intent-speculation; human-reader rules excepted." -->
 
-- One-sentence answers where one suffices. **Exception**: the five Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions). **A second exception**: the § Prose AI-tell additions checks require evidence too — quote the over-dense sentence (or the too-terse assertion) and name the house-style rule it breaks (§ Banned analysis patterns, § Mechanism traces and inline citations, or § Orientation), rather than a one-word verdict.
+- One-sentence answers where one suffices. **Exception**: the five Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions). **A second exception**: the § Prose AI-tell additions checks require evidence too — quote the over-dense sentence (or the too-terse assertion, or the hard-to-read one) and name the house-style rule it breaks (§ Banned analysis patterns, § Mechanism traces and inline citations, § Orientation, or § Plain language), rather than a one-word verdict.
 - Cite, don't paraphrase.
 - If unanswerable, say "Insufficient — see finding below" and add the structural finding.
 - Don't speculate about intent the doc doesn't state.
