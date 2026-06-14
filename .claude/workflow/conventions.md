@@ -569,7 +569,7 @@ scale. Other extensions stay silent.
 
 The six Tier-B section names are stable headings after YTDB-836; a
 future rename in `house-style.md` requires updating every pointer in
-the same commit. Run `grep -rn 'Banned vocabulary\|Banned sentence patterns\|Banned analysis patterns\|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming.
+the same commit. Run `grep -rnE '## Orientation|## Plain language|§ Orientation|§ Plain language|Banned vocabulary|Banned sentence patterns|Banned analysis patterns|Em-dash discipline' .claude/ CLAUDE.md` to enumerate pointer sites before renaming. `Orientation` and `Plain language` are common words, so the scan matches them only in their `##` / `§` heading-pointer form to stay precise; the other four names are distinctive enough to match bare.
 
 For the `*.java` / `*.kt` Tier-B surface, the `§ Orientation` floor is
 restated: a code-comment reader has the file open by definition, so the
