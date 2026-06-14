@@ -36,14 +36,17 @@ The 11 workflow prompts under `.claude/workflow/prompts/` each carry a house-sty
 
 The 6 skills under `.claude/skills/` cite the subset in their startup read-lists or house-style notes (`create-plan/SKILL.md:23`, `execute-tracks/SKILL.md:23`, `review-plan/SKILL.md:31`, `review-workflow-pr/SKILL.md:45`, `readability-feedback/SKILL.md`, `ai-tells/SKILL.md:20`–`:28` — the last cites the subset sections as a fingerprint→section catalogue (`## Catalogue lookups`, six sections, two outside the subset), not the five-slug preamble, so it has no five-slug enumeration to extend; confirm at Phase A whether the catalogue should gain a `## Plain language` row).
 
+`readability-feedback/SKILL.md:54` also holds a verbatim copy of the `conventions.md §1.5` rename-detection grep, introduced as the way to "find every pointer and update them in the same commit". Track 1's Phase C completed that helper in `conventions.md` from four Tier-B headings to six (the two common-word names `## Orientation` / `## Plain language` anchored to their `##`/`§` heading-pointer form, the other four bare, switched to `grep -rnE`). The `SKILL.md:54` copy still lists the old four bare names, so the two helpers now diverge; this track syncs the copy to match. This is a grep edit, not a slug add (Track 1 Phase C cross-track correction).
+
 This track depends on Track 1: the `## Plain language` section and the §1.5 mapping must exist before these enumerations name the slug.
 
 ## Plan of Work
 1. Add `## Plain language` to the five-slug enumeration in each of the 11 prompts (after `### Em-dash discipline` / `## Orientation`, matching the existing slug order). Flip any numeric "five" → "six" in the same sentence.
 2. In `design-review.md`, also add the rule to the cold-read Human-reader rules / Prose AI-tell additions list, so the cold-read checks plain language, not just lists it (D2-1).
 3. Add `## Plain language` to the subset enumeration in each of the 6 skills. Confirm at Phase A whether `ai-tells/SKILL.md`'s `## Catalogue lookups` (a fingerprint→section catalogue, not a five-slug enumeration) should gain a `## Plain language` row.
+4. In `readability-feedback/SKILL.md`, also sync the rename-detection grep copy at `:54` to the six-heading form `conventions.md §1.5` now carries (copy the live `conventions.md` helper verbatim so the two never diverge again). This is a grep edit beyond the slug add in step 3 (Track 1 Phase C cross-track correction).
 
-Invariant to preserve: every prompt and skill enumeration this track touches ends at exactly six slugs in the canonical order, and any numeric count reads "six".
+Invariant to preserve: every prompt and skill enumeration this track touches ends at exactly six slugs in the canonical order, and any numeric count reads "six". The `readability-feedback/SKILL.md:54` grep copy matches the live `conventions.md §1.5` helper.
 
 ## Concrete Steps
 <!-- Phase A placeholder. -->
@@ -55,6 +58,7 @@ Invariant to preserve: every prompt and skill enumeration this track touches end
 - Every one of the 11 prompts lists `## Plain language` in its subset enumeration; counts read "six".
 - `design-review.md`'s cold-read Human-reader rules include the Plain-language check.
 - Every one of the 6 skills that enumerates the subset lists `## Plain language` (or is confirmed not to enumerate it).
+- The rename-detection grep copy at `readability-feedback/SKILL.md:54` matches the six-heading form in the live `conventions.md §1.5` (the two helpers no longer diverge).
 - All edited prose reads in plain language (self-application).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->

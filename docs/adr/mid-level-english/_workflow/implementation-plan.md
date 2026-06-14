@@ -114,7 +114,7 @@ flowchart TD
   > **Scope:** ~16 files covering house-style.md, house-conversation.md, conventions.md §1.5, 10 other core workflow docs, CLAUDE.md, the house-style write-reminder hook, and its pin test.
 
 - [ ] Track 2: Propagate the slug to the workflow prompts and skills
-  > Adds the sixth section slug to the 11 `.claude/workflow/prompts/*.md` enumerations and the 6 `.claude/skills/*/SKILL.md` enumerations. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit, not just a slug add).
+  > Adds the sixth section slug to the 11 `.claude/workflow/prompts/*.md` enumerations and the 6 `.claude/skills/*/SKILL.md` enumerations. `design-review.md` also gains the rule in the cold-read Human-reader list (a content edit, not just a slug add). `readability-feedback/SKILL.md:54` also carries a verbatim copy of the `conventions.md §1.5` rename-detection grep; sync it to the now-six-heading form Track 1 landed (a grep edit, not just a slug add — Track 1 Phase C correction).
   > **Scope:** ~17 files covering 11 workflow prompts and 6 skills.
   > **Depends on:** Track 1
 
