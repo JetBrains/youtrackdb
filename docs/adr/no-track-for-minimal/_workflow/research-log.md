@@ -170,8 +170,8 @@ minimal PR-description summary as today; the doc dies in Phase-4 cleanup.
   (zero new artifact). Held because the Phase-2 audit summary is multi-line
   review prose (consistency + structural findings, auto-fixes, escalations),
   not a one-liner; embedding it in the append-only ledger would bloat the
-  tail `determine_state` greps. User owns this decision (they chose the
-  separate doc); flagged in chat for override.
+  tail `determine_state` greps. **User confirmed (gate iter1): keep the
+  separate doc.**
 
 ### [2026-06-15T08:10:20Z] [ctx=safe] Mid-phase-handoff: file unchanged; the two plan-anchored secondary markers → ledger
 Two distinct senses of "handoff": (1) the handoff FILE `_workflow/handoff-*.md`
@@ -273,5 +273,10 @@ See `_workflow/reviews/research-log-adversarial-iter1.md`. Resolved in the
 Decision Log / Open Questions above: A1 (Step 1c rewire → ledger), A2
 (minimal→lite/full ESCALATE materialization), A3 (branch §1.7(b) staging
 mode), A4 (ledger unstamped). A5 (fold plan-review doc into a ledger event)
-held with strengthened rationale, user owns the call. Iter 2 re-challenge
-pending.
+resolved: user kept the separate doc with the strengthened size rationale.
+
+### Adversarial review of this log (2026-06-15T09:18:42Z) — PASS
+Iter 2 (verdict-producer): A1–A4 VERIFIED, A5 REJECTED (held owner decision,
+rationale sound). No new findings; CONTRACT_OK. Gate cleared — design
+authoring (Step 4a) unblocked. See
+`_workflow/reviews/research-log-adversarial-iter2.md`.
