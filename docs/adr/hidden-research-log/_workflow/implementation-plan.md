@@ -16,7 +16,7 @@ prose lenses. The minimal stub template carries no `### Constraints`
 natively; this one-line section is the hand-roll YTDB-1125 will codify. -->
 
 ## Checklist
-- [ ] Track 1: Make the research log agent-internal during Phase 0
+- [x] Track 1: Make the research log agent-internal during Phase 0
   > YTDB-1124. `research.md` tells the agent to append decisions to the
   > research log but never says the log stays out of the research
   > conversation, so the agent leaks log bookkeeping at the user ("recorded
@@ -27,7 +27,24 @@ natively; this one-line section is the hand-roll YTDB-1125 will codify. -->
   > reflects the rule in `create-plan` SKILL.md's Phase-0 narration. The log
   > stays the agent's silent durable memory; findings reach the user as
   > plain prose.
-  > **Scope:** ~2 files covering `research.md` (§Rules opacity rule + reworded §Rules/§How-it-works/§Transition passages) and `create-plan` SKILL.md (Phase-0 narration reflection)
+  >
+  > **Track episode:**
+  > Made the Phase-0 research log agent-internal. Added a `research.md`
+  > §Rules opacity rule that keeps `research-log.md` silent (no write
+  > narration, section names, D-numbers, or quoted
+  > `**Why:**`/`**Alternatives rejected:**` fields surfaced to the user),
+  > and reworded the §Rules "Record decisions" bullet plus the §How it
+  > works, §The research log, and §Transition passages so findings reach
+  > the user as plain prose. The two sanctioned user-facing recaps survive
+  > un-muzzled: the §Transition findings summary and the create-plan Step-4
+  > gate verdict. `create-plan` SKILL.md Step 2/3 gained matching
+  > agent-internal cross-references. All seven edits landed in the §1.7
+  > staged mirror; live workflow stays at develop until the Phase-4
+  > promotion (I6). One discovery: `workflow-reindex.py --check` globs the
+  > staged subtree directly, so it validated the staged copies in-scope
+  > with no live-path gap. No cross-track impact (single track).
+  >
+  > **Track file:** `plan/track-1.md` (1 step, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency only; structural dropped under `minimal` tier per D9/D10) — passed at iteration 1
