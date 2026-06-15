@@ -6,7 +6,7 @@
 |---|---|---|---|
 | §1.1 Glossary | any | any | Closed-term definitions every phase shares: enums, annotations, TOC region, staging, stamps. |
 | §1.2 Plan File Structure | planner,orchestrator,decomposer | 1,2,3A | Layout of the plan file and track files: sections, status markers, scope indicators. |
-| §Per-tier artifact set | planner,orchestrator | 1,2 | Which _workflow artifacts each change tier produces; log and plan are universal, the design is full-tier only. |
+| §Per-tier artifact set | planner,orchestrator | 1,2 | Which artifacts each tier produces; log, ledger, and plan-review are universal; plan is lite/full, design is full only. |
 | §Plan file content (`implementation-plan.md`) — thinned `lite`/`full` plan | planner | 1 | The thinned derived-mirror plan: Checklist plus a thin cross-track Component Map; minimal has no plan. |
 | §Section budgets | planner,final-designer | 1,4 | Soft length caps per plan and design section. |
 | §Track file content (`plan/track-N.md`) | planner,orchestrator,decomposer,implementer | 1,3A,3B,3C | The 15-section track-file shape and what each section holds. |
@@ -224,7 +224,7 @@ startup and routes the user through the `/migrate-workflow` skill to
 realign.
 
 ### Per-tier artifact set
-<!-- roles=planner,orchestrator phases=1,2 summary="Which _workflow artifacts each change tier produces; log and plan are universal, the design is full-tier only." -->
+<!-- roles=planner,orchestrator phases=1,2 summary="Which artifacts each tier produces; log, ledger, and plan-review are universal; plan is lite/full, design is full only." -->
 
 Not every change produces every artifact in the layout above. The
 **change tier** (§1.1:any:any glossary; full rule in `planning.md` §Tier
@@ -358,8 +358,10 @@ the structural review enforces them.
 <!-- roles=planner,orchestrator,decomposer,implementer phases=1,3A,3B,3C summary="The 15-section track-file shape and what each section holds." -->
 
 Created during Phase 1 (in `lite`/`full` alongside `implementation-plan.md`;
-in `minimal` as the only Phase-1 plan artifact) — one file per planned
-track. The full file shape — the 12 OpenAI-style ExecPlan sections
+in `minimal` as the only Phase-1 plan artifact), one file per planned
+track. The full file shape is defined in
+`conventions-execution.md §2.1` *Track file content*. It is the 12
+OpenAI-style ExecPlan sections
 (`## Purpose / Big Picture`, `## Progress`,
 `## Surprises & Discoveries`, `## Decision Log`,
 `## Outcomes & Retrospective`, `## Context and Orientation`,
@@ -368,9 +370,8 @@ track. The full file shape — the 12 OpenAI-style ExecPlan sections
 `## Interfaces and Dependencies`) plus the combined
 `## Invariants & Constraints` section (D9) and the workflow-specific
 siblings `## Episodes` and `## Base commit`, together with any optional
-track-level Mermaid diagram — 15 sections total — is defined in
-`conventions-execution.md §2.1` *Track file content*. That doc is also where Phase A → C
-subsequent population is documented.
+track-level Mermaid diagram — 15 sections total. That doc is also where
+Phase A → C subsequent population is documented.
 
 `/execute-tracks` startup derives resume state from the phase ledger (D3)
 and, in `lite`/`full`, reads `implementation-plan.md` for cross-track

@@ -149,7 +149,7 @@ resumes off the ledger, with the `plan/track-1.md` glob as the secondary
 signal that the one track file was written. For `lite`/`full`,
 `implementation-plan.md` **presence** stays the routing signal (the plan is
 present in those tiers), and the tier is read from the **ledger** `tier`
-field — never from a plan line (the plan no longer carries a tier line; it
+field, never from a plan line (the plan no longer carries a tier line; it
 moved to the ledger per D4) and never from a fresh read of the research log,
 which would be a third decision-content read site and break S2.
 
@@ -163,7 +163,13 @@ LEDGER_TIER="$(sed -n 's/.* tier=\([a-z]*\).*/\1/p' \
     docs/adr/<dir-name>/_workflow/phase-ledger.md 2>/dev/null | tail -n 1)"
 ```
 
-Route on what exists:
+Route on what exists. Evaluate the branches in order; the first whose
+condition holds wins. The `design.md`-keyed branches are mutually exclusive
+with the no-design branches by file presence, but the `minimal` resume branch
+and the fresh-start branch both describe the no-plan/no-design state, so the
+order matters: the more-specific `minimal` resume is reached first and the
+fresh-start branch is the catch-all that fires only when no earlier branch
+matched.
 
 - **`design.md` exists, `implementation-plan.md` does not** — `full` tier
   mid-authoring (only `full` writes a `design.md`). The design seed may be
@@ -221,16 +227,34 @@ Route on what exists:
   it; do not re-run Step 4 and do not author a plan (`minimal` has none).
   Proceed to Step 2 only if the user explicitly asks to start a new aim
   against the same dir (rare).
-- **Neither `implementation-plan.md` nor `design.md` exists, and the ledger
-  is absent (or present with no `tier`/`minimal` track file yet)** — fresh
-  start. Proceed to Step 2 (aim), then Step 3 (research), then Step 4 (the
+- **Ledger absent, `plan/track-1.md` present, no `implementation-plan.md`,
+  no `design.md`** — a `minimal` Phase-1 session interrupted between the
+  track-file write and the ledger seed (the seed runs after the track file
+  is written; Step "Seed the phase ledger"). The durable Phase-1 artifact
+  in `minimal` is the track file, and it landed, so this is **not** a fresh
+  start: re-authoring `plan/track-1.md` would clobber work already on disk.
+  Resume by seeding the ledger (`--phase 0 --tier minimal`, plus the
+  matched categories and any `§1.7` staging mode) and continuing from the
+  recorded state, not by re-running research, tier classification, or the
+  Step-4b track-file Write. (`lite`/`full` cannot reach this branch: their
+  durable Phase-1 artifact is `implementation-plan.md`, whose presence is
+  matched by an earlier branch above.)
+- **Neither `implementation-plan.md` nor `design.md` exists, and no
+  `minimal` resume signal is present** — fresh start. The "no `minimal`
+  resume signal" condition is the OR of three testable arms, evaluated
+  against the same `LEDGER_TIER` value parsed at the top of this step: the
+  ledger is **absent**; OR the ledger is present but its `tier` field is
+  **empty or unreadable** (`LEDGER_TIER` blank); OR the ledger reads
+  `tier=minimal` but `plan/track-1.md` has **not** been written yet (the
+  branch immediately above already claimed the case where the track file
+  exists). Proceed to Step 2 (aim), then Step 3 (research), then Step 4 (the
   tier classifier + adversarial gate, then per-tier Step 4a/4b). This also
   covers the narrow `/clear` window where Step 4's gate cleared but no
-  artifact was written yet: with no plan, no `design.md`, and no seeded
-  ledger tier on disk there is no resume signal, so the resume correctly
-  reads as a fresh start and Step 4's classifier re-runs, re-deriving the
-  tier from the now-populated log through its existing sanctioned authoring
-  read — no extra read site, S2 intact.
+  artifact was written yet: with no plan, no `design.md`, no seeded ledger
+  tier, and no track file on disk there is no resume signal, so the resume
+  correctly reads as a fresh start and Step 4's classifier re-runs,
+  re-deriving the tier from the now-populated log through its existing
+  sanctioned authoring read — no extra read site, S2 intact.
 - **Both files exist** — the plan is already derived (`full` tier, design
   and plan both committed); this is a normal resume, not a Step-4 entry.
   The drift / handoff / state routing above already handled it; do not
@@ -243,7 +267,8 @@ This check has a defined resume path for every artifact combination, so a
 always routes to Step 4b, an uncommitted or dirty one routes back to
 Step 4a to finish authoring, a `lite`/`full` derived plan resumes normally
 without re-entering design authoring, and a plan-less `minimal` session
-resumes off the ledger and its single track file rather than reading as a
+resumes off the ledger and its single track file (or, when the seed had
+not yet run, by seeding the ledger and continuing) rather than reading as a
 fresh start. The check runs **after** the drift and handoff gates so a
 pending migration or handoff resolves first (those can change what is on
 disk), and **before** the aim prompt so a Step-4b resume does not re-ask

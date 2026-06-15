@@ -1656,9 +1656,15 @@ ledger_tail_value() {
   [ -f "$ledger" ] || return
   while IFS= read -r line || [ -n "$line" ]; do
     # Anchor the key at a token boundary: either at line start (`key=`) or
-    # after a space (` key=`), so `track=` never matches inside `xtrack=` and
-    # the `phase=` key never matches a `categories="…phase=…"` substring (a
-    # quoted value is consumed whole below before the next key is scanned).
+    # after a space (` key=`), so `track=` never matches inside `xtrack=`. The
+    # scan takes the FIRST ` $key=` token on the line and stops; it does not
+    # loop or re-examine the rest. A decoy `phase=` inside a quoted
+    # `categories="…phase=…"` span is therefore avoided only because the emitter
+    # (`append_ledger` above) writes every bare read-key — `phase`, `track` —
+    # BEFORE the quoted `categories` field, so the real bare token is always the
+    # first match. The safety invariant is that emit order, NOT a quoted-span
+    # skip: a key emitted AFTER `categories` would let a same-named decoy inside
+    # the quoted value win, so keep every reader-consumed key ahead of it.
     case " $line" in
       *" $key="*)
         # Strip everything up to and including the first ` $key=`.

@@ -7,7 +7,7 @@
 | §Overview | orchestrator,planner | any | What the execution workflow is and how its phases compose. |
 | §Terminology: Phases 0/1/2/3/4 vs Phases A/B/C | any | any | Disambiguates the numeric planning phases from the A/B/C per-track sub-phases. |
 | §Session Lifecycle | orchestrator | 2,3A,3B,3C,4 | How one /execute-tracks session starts, advances tracks, and ends. |
-| §Startup Protocol (Auto-Resume) | orchestrator | 2,3A,3B,3C,4 | State detection at startup: where to resume from the plan and track files. |
+| §Startup Protocol (Auto-Resume) | orchestrator | 2,3A,3B,3C,4 | State detection at startup: resume from the phase ledger and track files (lite/full also read the plan). |
 | §Track Pre-Flight (Strategy Assessment + Track Summary) | orchestrator | 3A | Per-track strategy check and summary before review and decomposition. |
 | §Cross-Track Impact Monitoring | orchestrator | 3B,3C | Watching for changes that ripple into upcoming tracks. |
 | §Session Boundary Rules | orchestrator | 2,3A,3B,3C,4 | When to end a session and what to record before stopping. |
@@ -75,7 +75,8 @@ The overall workflow has five phases:
   `planning.md` §Design Document.
 - **Phase 2 (Implementation Review)**: runs **autonomously** as the first
   phase of `/execute-tracks` when the startup protocol detects State 0
-  (plan file's `## Plan Review` checklist entry is `[ ]`). Two-step review:
+  (the phase ledger records no phase boundary past the Phase-0→1 gate; D3).
+  Two-step review:
   (1) consistency review (design doc ↔ code ↔ plan, autonomous classifier
   with user escalation only for design decisions),
   (2) structural review (plan-internal quality, autonomous classifier).
@@ -114,11 +115,11 @@ at every phase boundary.
 ```mermaid
 flowchart TD
     START["/execute-tracks"]
-    READ["Read plan file\n+ track file\nIdentify state"]
+    READ["Read phase ledger\n+ track file\nIdentify state"]
 
     START --> READ
 
-    READ -->|"Plan review not yet done\n(## Plan Review is [ ])"| P2["State 0: Autonomous Plan Review\n(implementation-review.md)"]
+    READ -->|"Plan review not yet done\n(ledger records no\nPhase-0 boundary yet)"| P2["State 0: Autonomous Plan Review\n(implementation-review.md)"]
     READ -->|"Pre-Phase-A\n(next track is [ ], no track file)"| PREFLIGHT["Track Pre-Flight\nPanel 1: strategy assessment (look-back)\nPanel 2: track summary (look-forward)"]
     READ -->|"Phase A done,\nsteps incomplete"| PB["Phase B: Step\nImplementation"]
     READ -->|"All steps done,\ncode review incomplete\nor track not marked [x]"| PC["Phase C: Code Review\n+ Track Completion"]
@@ -164,7 +165,7 @@ cross-track impact.
 ---
 
 ## Startup Protocol (Auto-Resume)
-<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State detection at startup: where to resume from the plan and track files." -->
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State detection at startup: resume from the phase ledger and track files (lite/full also read the plan)." -->
 
 Startup is a single dispatch over one JSON blob. Run
 `.claude/scripts/workflow-startup-precheck.sh --mode full` once at
@@ -281,13 +282,21 @@ then drift, then handoffs, then state routing.
    There is **no `state.track` field** — re-derive the active track this
    way, gated by tier:
 
-   - **`lite`/`full`** (a plan exists): walk the plan's `## Checklist`
-     for the first `[ ]` track, the same walk the script used.
+   - **`lite`/`full`** (a plan exists): read the active track from the
+     **ledger `track` tail** — the same value the script's ledger path
+     read to compute `state.substate` (D3), so the track you display and
+     the sub-state you route on always name the same track. Cross-check
+     it against the plan's `## Checklist` first-`[ ]` walk: in the normal
+     flow they agree (the orchestrator appends `track=N` at the same
+     boundary it flips track N-1 to `[x]`), and on a mismatch — a missed
+     Checklist flip, or a `track=N` append that landed before the prior
+     box was flipped — surface the inconsistency to the user rather than
+     silently preferring one source.
    - **`minimal`** (no plan, no Checklist): the active track is
      **`track-1`** by construction — a single-track tier has exactly one
      track file, which the script's ledger path defaults to when the
      ledger names no track (D10). There is no `## Checklist` to walk, so
-     the `lite`/`full` walk above does not apply.
+     the `lite`/`full` cross-check above does not apply.
 
    Each resume handles exactly **one phase**; end the session after that
    phase.
@@ -302,10 +311,14 @@ then drift, then handoffs, then state routing.
      first gate — plan review completes before any track work. End the
      session after the gate passes; the next `/execute-tracks` re-evaluates
      from State A.
-   - **`phase == "A"`** — the first `[ ]` track has no track file
+   - **`phase == "A"`** — the active track has no track file
      yet (pre-Phase-A; rare, since `/create-plan` writes every track
      file at Phase 1 and the only track-file-deleting action leaves
-     the track `[~]`). Run the Track Pre-Flight gate
+     the track `[~]`). In `lite`/`full` the active track is the first
+     `[ ]` Checklist track; in `minimal` the ledger recorded a phase
+     before `plan/track-1.md` was written and the active track is
+     `track-1` per the tier-gated re-derivation above. Run the Track
+     Pre-Flight gate
      (`track-review.md` § Track Pre-Flight), then Phase A in the same
      session. **Panel 1 (strategy assessment) is conditionally
      skipped** via the `**Strategy refresh:**` idempotency check: the
@@ -723,9 +736,13 @@ any YouTrack issues, list their ids in the completion message. The
 user manually flips the draft PR to "ready for review" when satisfied —
 Claude does not run `gh pr ready`.
 
-Tracked in the `## Final Artifacts` section of
-`implementation-plan.md` (see State D markers in the Startup
-Protocol table above).
+Phase-4 progress is tracked by the phase ledger (D3/D7): the tail
+records phase `D` while Phase 4 is pending and phase `Done` once the
+final commit lands (see the `phase == "D"` / `phase == "Done"` rows in
+the Startup Protocol above). The plan's `## Final Artifacts` section is
+gone under the derived-mirror model (D5/D7). Track 2 re-points the
+Phase-4 start/resume signal and the track-completion-episode writer off
+the plan checkbox onto the ledger.
 
 **Full instructions:** prompts/create-final-design.md:final-designer:4
 
