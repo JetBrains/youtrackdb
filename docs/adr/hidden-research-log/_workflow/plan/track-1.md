@@ -16,6 +16,7 @@ YTDB-1124. `research.md` tells the agent to append decisions to the research log
 - [x] 2026-06-15T05:44Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-15T06:05Z [ctx=safe] Step 1 complete (commit 69c673e359)
 - [x] 2026-06-15T06:54Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-15T07:00Z [ctx=safe] Track-level code review iteration 2 complete (2/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
