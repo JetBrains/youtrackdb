@@ -3372,6 +3372,12 @@ of the release CAS key, so the heal's thread-independence is untouched.
 The two-field shape named in the resolution above is superseded by the
 triple.
 
+**Extension (2026-06-15, F115):** the foreign-thread teardown heal sources
+the release ordinal from the volatile holder it reads (the F105 triple), not
+from the session-side engagement record — so the holder's session-keyed
+compare-and-clear is the single cross-thread release authority, and the
+record's write position gates only the same-thread `finally`.
+
 ### F97 — The reconciled wiring-pin rationale is backwards: violating throw-before-increment leaks the freezer count permanently (the consequence the fold deleted), and the mask belongs to F87's clean-unwind clause, which D7 never received [MAJOR]
 Pass-10 report C30. `endOperation` has exactly one production caller,
 `endAtomicOperation`'s `finally` (`AtomicOperationsManager:441`–`:443`,
@@ -3669,6 +3675,15 @@ F96), one volatile write per session teardown, data paths untouched. Folds:
 D7 teardown bullet (handshake clause, record-survival sentence, acceptance
 triple), F96 extension note, F61 note (the withdrawn F79 reap backstop that
 covered this window is replaced structurally by the handshake).
+
+**F115 amendment (2026-06-15): the engage-misses-mark heal reads the holder,
+not the record.** The release pass that heals an engage which missed the mark
+is the foreign-thread teardown, so it derives the presented ordinal from the
+volatile holder it already loads (F105's triple), not from the session-side
+engagement record. The record's survival across `clear()`/`close()` stays
+pinned, but for the *same-thread* outermost `finally` only — the foreign heal
+never reads it, closing the record-write-position gap F115 raised. See D7's
+abnormal-termination bullet for the path split.
 
 ### F105 — The holder record lacks the thread identity pin (2)'s engage guard requires; the pass-9 lock supplied it natively, and all three natural substitutes misfire [MAJOR]
 Pass-11 report C34. Pin (2)'s predicate is "different session **on the
@@ -4082,6 +4097,36 @@ volatile write publishes it (acquire → record → holder → mark re-check);
 alternative: the teardown's release pass derives the presented ordinal from
 the holder value it just read. Affected: F104, D7, F96.
 
+**Resolved (2026-06-15): shape (b) accepted — the foreign teardown derives
+the presented ordinal from the volatile holder it reads, not the
+session-side record.** The two release paths differ in threading, and the
+fix follows that line. The normal release runs in the owning session's
+outermost `finally` on the *acquiring thread*, which both wrote and reads the
+session-side engagement record — same-thread program order makes the
+acquire-time ordinal visible with no publication question, and the captured
+ordinal keeps the anti-stale CAS. The teardown heal is the only foreign-thread
+releaser, and it already loads the volatile holder to identify the session;
+the holder carries the acquire ordinal (F105's triple), is published
+cross-thread by the engage's holder write, and lives on the mutex untouched by
+`rollbackInternal`'s `clear()`/`close()`. So the teardown reads the holder and
+CAS-clears when `holder.session` is the torn-down session, never consulting
+the session-side record. F115's gap — a record written after the mark
+re-check with no happens-before edge to the foreign read — disappears because
+the foreign path no longer reads the record; the record's write position gates
+only the same-thread `finally`, where program order already orders the
+acquire-time write before the read. Anti-stale holds on both paths: the
+same-thread `finally` presents its own captured ordinal, and the one-shot
+teardown CAS-against-the-holder-it-read fails benignly if the holder changed
+(the owner's racing late release then warn-noops). Shape (a) (write the record
+before the holder so the holder's volatile write republishes it) was rejected
+as the heavier correctness argument: it keeps the foreign teardown reading the
+record and needs two ordering pins — record-before-holder on the acquire side
+and holder-before-record on the teardown read side — where (b) removes the
+record from the foreign path entirely. Zero new fences either way. Folds: D7
+abnormal-termination bullet (release-site clause split by path), F104 record
+(amendment: the engage-misses-mark heal reads the holder, not the record), F96
+record (extension: the foreign heal's ordinal source is the holder).
+
 ### F116 — F106's `checkOpenness` cap is a plain-field read with no JMM edge from the foreign teardown: "never a fresh one" is best-effort, not structural [MINOR]
 Pass-12 report C40. `checkOpenness` reads `status`, a plain field
 (`DatabaseSessionEmbedded:223`); the foreign teardown writes CLOSED at
@@ -4446,8 +4491,18 @@ assignee, 2026-06-03.
   permit untouched. The session/tx-side engagement state carrying the
   presented acquire-time ordinal survives `rollbackInternal`'s `clear()`
   and `close()`'s field wipes until the outermost `finally` consumes it
-  (F104): wiped early, the heal would present nothing, warn-noop, and
-  wedge the mutex on the very path the guard exists to heal. The guard
+  (F104): wiped early, the same-thread `finally` would present nothing,
+  warn-noop, and wedge the mutex on the very path the guard exists to heal.
+  The acquire-time ordinal the release presents is sourced by path (F115):
+  the same-thread outermost `finally` reads it from that surviving
+  session-side record (its own captured ordinal, anti-stale, no cross-thread
+  publication question — the acquiring thread both wrote and reads it); the
+  foreign-thread teardown heal instead reads it from the volatile holder it
+  already loads to identify the session (the holder carries the ordinal per
+  F105, is published cross-thread by the engage's holder write, and lives on
+  the mutex untouched by the session wipes), CAS-clearing when
+  `holder.session` is the torn-down session. The session record's write
+  position therefore never gates the foreign heal. The guard
   is thread-independent by construction,
   which is the point. (1) Pool shutdown executing the owning session's
   teardown on a foreign thread matches and heals: DDL recovers without a
