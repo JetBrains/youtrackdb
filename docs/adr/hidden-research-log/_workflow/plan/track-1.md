@@ -9,11 +9,12 @@ After this track, a Phase-0 research conversation never exposes the research log
 YTDB-1124. `research.md` tells the agent to append decisions to the research log but never says the log stays out of the research conversation, so the agent leaks log bookkeeping at the user ("recorded as D3", section names, quoted `**Why:**`/`**Alternatives rejected:**` fields). This track adds a user-facing opacity rule to `research.md` §Rules, rewords the two leak-inviting passages (the "Record decisions" bullet and the §Transition "confirms the log captures…" line), and reflects the rule in `create-plan` SKILL.md's Phase-0 narration. The log stays the agent's silent durable memory; findings reach the user as plain prose.
 
 ## Progress
-- [ ] Review + decomposition
-- [ ] Step implementation
+- [x] Review + decomposition
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-15T05:44Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-15T06:05Z [ctx=safe] Step 1 complete (commit 69c673e359)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -132,11 +133,39 @@ confirm with `workflow-reindex.py --check` against the staged copies.
 
 ## Concrete Steps
 
-1. Apply the research-log opacity rule across both staged Phase-0 surfaces — the five `research.md` edits (§Rules opacity bullet plus the reworded "Record decisions" bullet, the §How it works step-4 silent-logging cross-ref, the §Transition step-1 internal-completeness reword, and the §The research log discoverability note) and the two `create-plan/SKILL.md` edits (Step-3 "Append decisions…" reword plus the Step-2 agent-internal cross-ref), per `## Plan of Work` steps 1a–1e and 2a–2b. Copy each live develop-state file into its `_workflow/staged-workflow/.claude/` mirror path verbatim on first touch (§1.7(e)), then edit the staged copy; preserve the two D3 carve-outs and add no new `##`/`###` headings. — risk: medium (workflow machinery: multi-file prose that changes agent-observable behavior; bounded — drives no gate, runs nothing automatically) — size: ~2 files; (a) no mergeable low/medium work fits — the two staged files are the entire single-track change  [ ]
+1. Apply the research-log opacity rule across both staged Phase-0 surfaces — the five `research.md` edits (§Rules opacity bullet plus the reworded "Record decisions" bullet, the §How it works step-4 silent-logging cross-ref, the §Transition step-1 internal-completeness reword, and the §The research log discoverability note) and the two `create-plan/SKILL.md` edits (Step-3 "Append decisions…" reword plus the Step-2 agent-internal cross-ref), per `## Plan of Work` steps 1a–1e and 2a–2b. Copy each live develop-state file into its `_workflow/staged-workflow/.claude/` mirror path verbatim on first touch (§1.7(e)), then edit the staged copy; preserve the two D3 carve-outs and add no new `##`/`###` headings. — risk: medium (workflow machinery: multi-file prose that changes agent-observable behavior; bounded — drives no gate, runs nothing automatically) — size: ~2 files; (a) no mergeable low/medium work fits — the two staged files are the entire single-track change  [x] commit: 69c673e359
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
 step. Empty at Phase 1. -->
+
+### Step 1 — commit 69c673e359, 2026-06-15T06:05Z [ctx=safe]
+**What was done:** Applied the research-log opacity rule to both staged
+Phase-0 surfaces. Copied the live develop-state `research.md` and
+`create-plan/SKILL.md` into the `_workflow/staged-workflow/.claude/` mirror
+(§1.7(e) copy-then-edit on first touch), then made seven edits on the staged
+copies. In `research.md`: a new §Rules bullet that keeps `research-log.md`
+agent-internal (no write narration, section names, D-numbers, or quoted
+`**Why:**`/`**Alternatives rejected:**` fields to the user); a reworded
+§Rules "Record decisions" bullet that makes the acknowledgment conversational
+and the field logging private; a silent-logging cross-reference on the §How
+it works step-4 append bullet; an internal-completeness reword of the
+§Transition step-1 line that names the plain-language findings summary as the
+user-facing output; and a one-line discoverability note in §The research log.
+In `create-plan/SKILL.md`: matching agent-internal cross-references in the
+Step-2 seed sentence and the Step-3 append bullet. Both D3 carve-outs survive
+un-muzzled: the §Transition summary is named as the one sanctioned recap, and
+the Step-4 adversarial-gate verdict recital is untouched.
+
+**What was discovered:** `workflow-reindex.py` globs the staged subtree
+directly (`…/_workflow/staged-workflow/.claude/workflow/**/*.md` and
+`…/skills/**/SKILL.md`), so `--check` validated the staged copies in-scope and
+passed at exit 0. The staged-aware reindex works as the plan assumed; there is
+no live-path validation gap.
+
+**Key files:**
+- `docs/adr/hidden-research-log/_workflow/staged-workflow/.claude/workflow/research.md` (new)
+- `docs/adr/hidden-research-log/_workflow/staged-workflow/.claude/skills/create-plan/SKILL.md` (new)
 
 ## Validation and Acceptance
 This is a workflow-prose change; the "test" surrogates are doc-consistency
