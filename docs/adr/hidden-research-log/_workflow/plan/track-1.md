@@ -208,3 +208,6 @@ leaves the running workflow machinery untouched (the I6 invariant).
 Phase-3A review-criteria re-point onto the prose lenses (rule coherence,
 instruction completeness, prompt-design soundness, context-budget impact,
 breakage of dependent prompts/agents).
+
+## Base commit
+1ac9ec14510d54b69f5e2bd1e2b19048041034b7
