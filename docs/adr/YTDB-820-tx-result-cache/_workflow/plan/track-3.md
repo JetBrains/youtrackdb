@@ -28,6 +28,7 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
 
 - [x] 2026-06-12T08:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-15T10:18Z [ctx=safe] Step 1 complete (commit 28fcf27642)
+- [x] 2026-06-15T12:09Z [ctx=info] Step 2 complete (commit 28af616037)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -38,6 +39,12 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
   admitting them to the floor; the Interfaces "Key signatures"
   `getMatchPatternInvolvedAliases` entry is on `SQLBooleanExpression`, not
   `SQLWhereClause`. See Episodes §Step 1.
+- 2026-06-15T12:09Z Step 2 established the Etap A addressing model that Steps
+  3-5 should match: store raw RID-identifiable records, key the skip-set by RID,
+  and project at the view emission boundary, so the single-alias RECORD fold and
+  the multi-alias `MATCH_TUPLE_MULTI` path do not diverge. A record-attribute or
+  `@rid` ORDER BY single-alias MATCH stays uncached `MATCH_TUPLE_MULTI` until a
+  later step resolves the sort key on the underlying record. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -45,6 +52,13 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
   cap to Step 3 (schema-free classify cannot count records) and gated `while:` /
   `maxDepth:` / `optional:` MATCH to `K0_NONE` conservatively rather than
   reconciling them at the floor. See Episodes §Step 1.
+- 2026-06-15T12:09Z (design-decision) Step 2 resolved a design under-specification
+  (escalated, user-approved): the Etap A single-alias fold stores raw
+  RID-identifiable records and applies the `returnProjector` at the view emission
+  boundary (Alternative B), rather than storing the executor's non-identifiable
+  projected tuples, which would have broken the I4 DELETE/UPDATE skip-set for
+  multi-item RETURN. The fold is scoped to `shape==RECORD`; record-attribute
+  ORDER BY is excluded. See Episodes §Step 2.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -276,7 +290,7 @@ re-execution happens on the next `query()`).
 ## Concrete Steps
 
 1. MATCH K0_NONE classify gate in `ShapeClassifier.classify` (Plan-of-Work step 1: SKIP/LIMIT first, then GROUP BY/UNWIND/RETURN DISTINCT/NOT MATCH, non-alias-keyed RETURN, LET/subquery, any node missing `class:`, cross-alias-state WHERE, link-path-deref WHERE via a new dedicated walk, non-statically-resolvable edge/class label, `n+m>maxRecordsPerEntry` → K0_NONE; non-gated MATCH stays `MATCH_TUPLE_MULTI`); `ShapeClassifierTest` routing assertions + the negative `where:(i.title=?)` row — risk: high (performance hot path: cache classify/lookup logic; the no-backstop floor's first gate — a missed shape silently serves stale results)  [x]  commit: 28fcf27642
-2. Etap A single-alias MATCH → RECORD fold (Plan-of-Work step 2): `classify` single-alias→RECORD split, `CachedEntry.returnProjector`, MATCH-aware `effectiveFromClasses`/`whereClauseOf`/`orderByOf` (or a dedicated MATCH populate path) in `DatabaseSessionEmbedded`, and the `serveThroughCache`/`buildView` Etap-A branch reusing `buildForRecord` with the projector applied pre-sort; Etap A cache-miss-vs-hit equivalence tests across CREATE/UPDATE/DELETE + a non-empty-`effectiveFromClasses` assertion *(independent of steps 3-5)* — risk: high (performance hot path: cache lookup + view-build path; an empty `effectiveFromClasses` would serve stale)  [ ]
+2. Etap A single-alias MATCH → RECORD fold (Plan-of-Work step 2): `classify` single-alias→RECORD split, `CachedEntry.returnProjector`, MATCH-aware `effectiveFromClasses`/`whereClauseOf`/`orderByOf` (or a dedicated MATCH populate path) in `DatabaseSessionEmbedded`, and the `serveThroughCache`/`buildView` Etap-A branch reusing `buildForRecord` with the projector applied pre-sort; Etap A cache-miss-vs-hit equivalence tests across CREATE/UPDATE/DELETE + a non-empty-`effectiveFromClasses` assertion *(independent of steps 3-5)* — risk: high (performance hot path: cache lookup + view-build path; an empty `effectiveFromClasses` would serve stale)  [x]  commit: 28af616037
 3. `MATCH_TUPLE_MULTI` entry metadata + `CachedEntry.computeMatchEffectiveFromClasses` + edge-class extraction (Plan-of-Work step 3): populate `aliasClasses`/`traversalEdgeClasses`/`aliasWheres`/`effectiveFromClasses` at entry construction (multi-class union closure), reuse `SQLMatchStatement.buildPatterns`/`addAliases` for the alias→class/where maps, and extract the edge class from `SQLMatchPathItem`'s `SQLMethodCall` recognizing `out/in/both/outE/inE/bothE`, folding the parser `null`→`E` default and multi-param; unit tests asserting `effectiveFromClasses` per method-name variant and the unnamed-`out()`→`E` base closure — risk: high (correctness floor: edge-class extraction is the entire edge-mutation tombstone story — R1 blocker)  [ ]
 4. `MatchMultiDelta` + `DeltaBuilder.buildForMatchMulti` two-pass (Plan-of-Work step 4): pass-1 tombstone pre-scan (scoped CREATE / edge-class DELETE / update-into-match → TOMBSTONE short-circuit) and pass-2 per-tuple build (`tupleSkipSet` via `reverseIndex` on vertex DELETE, `ridSkipSet` on pass→fail UPDATE with the null-`aliasWheres` "always matches" guard); delta-builder unit tests on a constructed entry + staged tx ops covering each TOMBSTONE trigger, the skip-sets, and the no-WHERE-bound-alias UPDATE no-NPE case — risk: high (the delta-build is the entire correctness story for the no-version-backstop shape)  [ ]
 5. Multi-alias session wiring + tombstone eviction + `CachedResultSetView` MATCH path + I4/I7 matrix (Plan-of-Work steps 5-7): `serveThroughCache` separate MATCH gate with the `viewOwnsGuard = result instanceof CachedResultSetView` transfer, `buildView` routing a TOMBSTONE through a new `QueryResultCache.removeForTombstone` (`overflowEntry` pinned-entry discipline) to `executeUncached`, and the `CachedResultSetView` MATCH per-tuple path (skip `tupleSkipSet`, drop on `ridSkipSet`, extend `reverseIndex`/`contributingRids` on stream-pull, cross-thread release via `exitCacheCodeUnchecked`); end-to-end MATCH equivalence matrix (vertex DELETE, pass→fail, bound-edge pass→fail, no-WHERE-alias UPDATE, tombstone on edge CREATE/DELETE/update-into-match, edge-between-already-cached-vertices, out-of-pattern-CREATE-does-not-tombstone) + a `viewOwnsGuard`-not-leaked regression + the I7 live-view-under-tombstone test — risk: high (concurrency: re-entrancy guard transfer + pinned-entry eviction; performance hot path: cache lookup/eviction + query-execution wiring)  [ ]
@@ -325,6 +339,61 @@ MATCH to RECORD; that is Step 2.
 
 **Key files:**
 - `ShapeClassifier.java` (modified)
+- `ShapeClassifierTest.java` (modified)
+
+### Step 2 — commit 28af616037, 2026-06-15T12:09Z [ctx=info]
+**What was done:** Folded single-alias, edge-free MATCH with a record-local
+ORDER BY onto the RECORD cache path (Etap A, Alternative B). The entry stores
+raw RID-identifiable records (reusing Track 1's `buildForRecord` and its
+RID-keyed skip-set and sorted-merge unchanged); a stored `returnProjector`
+(`Function<Result, Result>`) is applied at the view emission boundary, and both
+ORDER BY merge heads are projected before comparison (memoized per cursor
+position so each cache row projects at most once per emission decision). The
+populate path resolves the alias's class closure, pattern WHERE, and statement
+ORDER BY through the three `DatabaseSessionEmbedded` populate helpers and maps
+the executor's projected MATCH stream back to raw single-record rows. `classify`
+splits a single-alias MATCH to RECORD only after the Step 1 K0_NONE gates;
+multi-alias, edge-bearing, foreign-ORDER-BY, and record-attribute-ORDER-BY
+patterns stay `MATCH_TUPLE_MULTI`. Added `MatchEtapAEquivalenceTest` (cache-off
+vs cache-on row-sequence equivalence across CREATE / WHERE-break UPDATE / value
+UPDATE / DELETE / no-mutation, including the multi-item `RETURN u, u.name` case
+that exposed the gap).
+
+**What was discovered:** A projected MATCH RETURN row carries the bound record
+under the alias key (`getEntity(alias)`), but a raw cached or inject row carries
+the record as its own identity (`asEntityOrNull`); the projector must read the
+latter, not `getProperty(alias)`. The single-alias ORDER BY ranks the projected
+tuple, so the projected-head comparison had to be added to both the inject-list
+sort and the view merge.
+
+**What changed from the plan:** The step resolved a plan and design
+under-specification, escalated and user-approved as **Alternative B**. Design
+D8-lazy commits to folding single-alias MATCH into `buildForRecord` via a stored
+`returnProjector` but never stated the cache-cursor's identifiability, and a
+literal "store the projected tuples" reading would have broken the I4
+DELETE/UPDATE skip-set for any multi-item RETURN (those tuples are
+non-RID-identifiable). B keeps the cache cursor RID-addressable and projects at
+emit. The projector signature is `Function<Result, Result>` (the natural type at
+the emit boundary), not the Interfaces' documented
+`Function<RecordAbstract, Result>` — an internal field only, no external
+contract. Review then scoped the fold to `shape==RECORD` only (a K0_NONE
+single-alias MATCH must replay real RETURN tuples, not pick up the projector)
+and excluded record-attribute ORDER BY (`@rid` / `@class`) from the RECORD fold
+(it routes to `MATCH_TUPLE_MULTI`). Affects **Steps 3-5**: they should adopt the
+same "store raw records, RID-key the skip-set, project at the boundary" model so
+the two MATCH shapes do not diverge; a record-attribute or `@rid` ORDER BY
+single-alias MATCH stays uncached `MATCH_TUPLE_MULTI` unless a later step
+resolves the sort key on the underlying record. One optional left for later: the
+`DeltaBuilder` inject-list-sort Schwartzian transform (the PF2 sort-side half).
+
+**Key files:**
+- `DatabaseSessionEmbedded.java` (modified)
+- `CachedEntry.java` (modified)
+- `DeltaBuilder.java` (modified)
+- `CachedResultSetView.java` (modified)
+- `QueryResultCache.java` (modified)
+- `ShapeClassifier.java` (modified)
+- `MatchEtapAEquivalenceTest.java` (new)
 - `ShapeClassifierTest.java` (modified)
 
 ## Validation and Acceptance
