@@ -49,6 +49,16 @@ public enum CacheableShape {
   MATCH_TUPLE_MULTI,
 
   /**
+   * {@code SELECT distinct(prop)} / {@code SELECT DISTINCT prop} — the distinct value set of a single
+   * bare property, emitted as one row per distinct value. Reconciled incrementally through the same
+   * per-value RID buckets as {@code AGGREGATE_COUNT_DISTINCT} (the entry carries an {@code AggregateState}
+   * of that kind); the view emits the bucket keys as rows instead of their count. Distinct projections
+   * over a path or expression, multiple columns, or carrying ORDER BY route to {@link #K0_NONE} instead.
+   * Wired in this track.
+   */
+  DISTINCT_VALUES,
+
+  /**
    * Deterministically reproducible but not record-by-record reconcilable. Cached under the
    * mutation-version gate. Wired in this foundation.
    */

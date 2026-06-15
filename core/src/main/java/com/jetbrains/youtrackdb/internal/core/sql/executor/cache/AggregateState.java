@@ -10,9 +10,10 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -131,9 +132,15 @@ public final class AggregateState {
   /** The RID that produced {@link #currentScalar}; {@code was_extremum} is RID identity against it. */
   @Nullable private RID extremumRid;
 
-  // ---- COUNT_DISTINCT ----
-  /** Distinct value &rarr; contributing RIDs. The scalar is the live bucket count. */
-  private final Map<Object, Set<RID>> distinctBuckets = new HashMap<>();
+  // ---- COUNT_DISTINCT / DISTINCT_VALUES ----
+  /**
+   * Distinct value &rarr; contributing RIDs. The {@code AGGREGATE_COUNT_DISTINCT} scalar is the live
+   * bucket count; the {@code DISTINCT_VALUES} view emits the bucket keys as rows. A {@link LinkedHashMap}
+   * so {@link #distinctValuesInOrder} yields keys in first-occurrence (observe == scan) order, matching
+   * a fresh {@code SELECT distinct(prop)}; a delta F-&gt;T transition appends a new value after the
+   * populate-time values, where a fresh execution also emits a tx-created record's new value.
+   */
+  private final Map<Object, Set<RID>> distinctBuckets = new LinkedHashMap<>();
 
   // ---- Memory cap (installed by the cache at put time) ----
   private int maxContributors = Integer.MAX_VALUE;
@@ -534,6 +541,16 @@ public final class AggregateState {
     var row = new ResultInternal(session, 1);
     row.setProperty(alias, scalar());
     return row;
+  }
+
+  /**
+   * The distinct values currently held, in first-occurrence order, one per {@code DISTINCT_VALUES}
+   * output row. Backed by {@link #distinctBuckets}'s insertion order. The caller wraps each value as a
+   * {@code {alias: value}} row, reproducing a fresh {@code SELECT distinct(prop)} result.
+   */
+  @Nonnull
+  public List<Object> distinctValuesInOrder() {
+    return new ArrayList<>(distinctBuckets.keySet());
   }
 
   /** The finalised scalar value per kind (the value {@link #toResult} stores under the alias). */

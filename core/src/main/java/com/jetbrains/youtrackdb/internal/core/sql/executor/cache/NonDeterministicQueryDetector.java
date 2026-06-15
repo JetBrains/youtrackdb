@@ -35,9 +35,13 @@ import javax.annotation.Nonnull;
  * here so the caller's hint short-circuits caching.
  *
  * <p><b>Fail-open by design.</b> The denylist enumerates the known non-deterministic functions; a new
- * non-deterministic builtin added without a denylist entry would slip through and be cached. The
- * enumeration-completeness guard that asserts every registered function is classified lands with the
- * aggregate work in a later track; the {@code NOCACHE} hint is the escape valve until then.
+ * non-deterministic builtin added without a denylist entry would slip through and be cached. {@code
+ * FunctionDeterminismEnumerationTest} is the completeness guard: it walks every function registered
+ * across the three service-loaded factories and fails the build when one is neither denylisted nor in
+ * the known-deterministic allowlist, so a forgotten entry becomes a build break rather than a silent
+ * miscache. That test reads {@link #NON_DETERMINISTIC_FUNCTIONS} directly, so the two cannot drift.
+ * The {@code NOCACHE} hint remains the escape valve for non-deterministic user functions the denylist
+ * cannot see.
  *
  * <p><b>Traversal.</b> The walk descends the full JJTree node tree from the statement root, so it
  * reaches every expression position — top-level WHERE, ORDER BY items and their modifier chains,
@@ -51,8 +55,11 @@ public final class NonDeterministicQueryDetector {
    * the raw function name via {@code equalsIgnoreCase}. {@code date} is handled specially (only the
    * zero-argument form is non-deterministic) and is therefore NOT in this set; see {@link
    * #isNonDeterministicFunction}.
+   *
+   * <p>Package-visible so {@code FunctionDeterminismEnumerationTest} (the I5 completeness guard) reads
+   * this set as the single source of truth instead of re-declaring a copy that could drift from it.
    */
-  private static final Set<String> NON_DETERMINISTIC_FUNCTIONS =
+  static final Set<String> NON_DETERMINISTIC_FUNCTIONS =
       Set.of("sysdate", "uuid", "eval", "math_random");
 
   private NonDeterministicQueryDetector() {

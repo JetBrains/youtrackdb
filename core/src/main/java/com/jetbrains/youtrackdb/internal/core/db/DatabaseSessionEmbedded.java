@@ -123,6 +123,7 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.st
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregateProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
@@ -783,22 +784,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return executeUncached(statement, args);
     }
 
-    // Two-guard bracketing: bump the tx-level depth around the entire lookup-and-view scope so a
-    // nested query() (e.g. a UDF in WHERE) bypasses the cache; the cache's own inFlightLookup guards
-    // the lookup call. Decremented in the finally so an exception mid-lookup still restores the
-    // depth. The view extends this bracket across its own iteration (see CachedResultSetView), so
-    // the guard is not released here for the hit/miss view returned below — only the bare-lookup
-    // window is.
+    // Re-entrancy bracket: bump the tx-level cache-code depth around the synchronous lookup-and-build
+    // scope so a nested query() issued while we are inside it — a UDF in a WHERE evaluated during the
+    // delta build, or during the aggregate eager-drive below — bypasses the cache. The cache's own
+    // inFlightLookup guards the bare lookup call. The guard is released unconditionally in the finally:
+    // the lazy stream pull that happens later, during view iteration, is bracketed separately by the
+    // CachedResultSetView around each row it produces (see CachedResultSetView.hasNext), so the depth
+    // is held exactly over the windows a re-entrant query could corrupt and not for the view's whole
+    // idle lifetime. A query() issued by user code between two next() calls therefore still uses the
+    // cache, and an abandoned view never silently disables it for the rest of the transaction.
     tx.enterCacheCode();
-    boolean viewOwnsGuard = false;
     try {
       var hit = cache.lookup(key, tx.getMutationVersion());
       if (hit != null) {
         // Hit: the stored entry was proven deterministic and RECORD/K0_NONE at populate, so neither
         // the non-determinism walk nor the shape classifier runs again — the entry carries its shape.
-        var view = buildView(hit, tx, args);
-        viewOwnsGuard = true;
-        return view;
+        return buildView(hit, tx, args);
       }
       // Miss: now (and only now) pay for the AST analysis needed to decide whether to populate an
       // entry. A non-deterministic statement or an unwired shape bypasses the cache uncached.
@@ -811,37 +812,28 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         // contributing record, so the miss builds a per-execution plan copy, splices the tap upstream
         // of the aggregation step, and eager-drives it (RECORD/K0_NONE lazy-pull cannot seed an
         // aggregate). On any unexpected plan shape (e.g. a hardwired CountFromClassStep) it falls back
-        // to uncached execution and counts a splice failure. The two-guard contract is preserved: a
-        // built CachedResultSetView owns the cache-code guard, an uncached fallback leaves
-        // viewOwnsGuard false so the finally below releases it — identical to the RECORD path.
-        var aggregateResult =
-            populateAndBuildAggregateView(select, args, key, shape, tx, cache);
-        viewOwnsGuard = aggregateResult instanceof CachedResultSetView;
-        return aggregateResult;
+        // to uncached execution and counts a splice failure. The eager-drive runs inside this guarded
+        // scope, so a UDF in the aggregate's WHERE that issues a nested query() is bypassed.
+        return populateAndBuildAggregateView(select, args, key, shape, tx, cache);
+      }
+      if (shape == CacheableShape.DISTINCT_VALUES
+          && statement instanceof SQLSelectStatement distinctSelect) {
+        // SELECT distinct(prop) / SELECT DISTINCT prop: the distinct value set, reconciled through the
+        // same per-value buckets as an aggregate but emitted as one row per distinct value. Its tap
+        // splices above the pre-distinct projection; unexpected plan shapes fall back uncached.
+        return populateAndBuildDistinctValuesView(distinctSelect, args, key, tx, cache);
       }
       if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
         // MATCH_TUPLE_MULTI is classified but its delta/view path is not wired yet; route it to
         // uncached execution until that path lands.
         return executeUncached(statement, args);
       }
-      var result = populateAndBuildView(statement, args, key, shape, tx, cache);
-      // Transfer the guard to the view only when one was actually built. The populate path has a
-      // fallback that returns the unwrapped uncached result when execution did not yield a
-      // LocalResultSet (no entry, no view): on that branch no view exists to release the guard, so
-      // ownership must NOT transfer or the finally would skip release and leak the depth bump for the
-      // rest of the transaction. A built view is always a CachedResultSetView, so the instanceof check
-      // distinguishes the two outcomes exactly.
-      viewOwnsGuard = result instanceof CachedResultSetView;
-      return result;
+      return populateAndBuildView(statement, args, key, shape, tx, cache);
     } finally {
-      // Release the bare-lookup guard only when no view took ownership of it. When a view was
-      // returned, the view holds the guard for its iteration lifetime and releases it on close /
-      // exhaustion (paired with its entry pin); releasing here would reopen the cache to a
-      // re-entrant query() while the view is still being consumed. On the populate fallback path
-      // (no view built) viewOwnsGuard stays false, so the guard is released here exactly once.
-      if (!viewOwnsGuard) {
-        tx.exitCacheCode();
-      }
+      // Always release the synchronous-scope guard. A returned view holds no guard of its own; it
+      // re-enters the bracket per row during iteration (CachedResultSetView.hasNext), so it cannot
+      // leak the depth and an abandoned view no longer disables the cache for the rest of the tx.
+      tx.exitCacheCode();
     }
   }
 
@@ -988,6 +980,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // The classifier accepted the shape but the metadata derivation found no clean single-aggregate
       // (e.g. a computed-expression argument that classify routed elsewhere): there is nothing to seed,
       // so run uncached and count a splice failure.
+      LogManager.instance().warn(this,
+          "tx-result cache: AGGREGATE-classified statement yielded no single-aggregate metadata"
+              + " (shape=" + shape + "); running uncached. Statement: " + select);
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
     }
@@ -1001,6 +996,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var plan = select.createExecutionPlan(ctx, false);
     if (!(plan instanceof SelectExecutionPlan selectPlan)) {
+      LogManager.instance().warn(this,
+          "tx-result cache: aggregate plan is a " + plan.getClass().getSimpleName()
+              + ", not a SelectExecutionPlan; cannot splice the cache tap, running uncached."
+              + " Statement: " + select);
       plan.close();
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
@@ -1010,7 +1009,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (aggregateStep == null) {
       // No AggregateProjectionCalculationStep to splice above — e.g. a bare or single-field-indexed
       // COUNT(*) the planner hardwired to a CountFromClassStep. Fall back uncached and count the splice
-      // failure (the global splice-failure rate picks it up through the metric bridge).
+      // failure (the global splice-failure rate picks it up through the metric bridge). Log the plan's
+      // step types so an unexpected planner shape (a planner-versioning drift) is diagnosable, not just
+      // counted.
+      var stepTypes = selectPlan.getSteps().stream()
+          .map(s -> s.getClass().getSimpleName()).toList();
+      LogManager.instance().warn(this,
+          "tx-result cache: no AggregateProjectionCalculationStep to splice the cache tap above;"
+              + " running uncached. Plan steps: " + stepTypes + ". Statement: " + select);
       selectPlan.close();
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
@@ -1055,6 +1061,137 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     cache.put(key, entry);
 
     return buildView(entry, tx, args);
+  }
+
+  /**
+   * Populate path for {@link CacheableShape#DISTINCT_VALUES} (SELECT distinct(prop) / SELECT DISTINCT
+   * prop). Reuses the aggregate side-tap + bucket machinery: the plan is
+   * {@code Fetch -> [Filter] -> ProjectionCalculationStep -> DistinctExecutionStep}, so the tap splices
+   * ABOVE the pre-distinct projection to observe each raw, RID-bearing filtered record before dedup and
+   * bucket it by {@code (value -> RID)}. The plan is eager-driven to full population (the deduped output
+   * rows are discarded; the view emits the bucket keys). An unexpected plan shape falls back uncached and
+   * counts a splice failure, so a dedup-free RECORD-style result is never cached.
+   */
+  private ResultSet populateAndBuildDistinctValuesView(
+      @Nonnull SQLSelectStatement select,
+      @Nullable Object args,
+      @Nonnull CacheKey key,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull QueryResultCache cache) {
+    var metadata = ShapeClassifier.distinctValueMetadata(select);
+    if (metadata == null || metadata.propertyName() == null) {
+      LogManager.instance().warn(this,
+          "tx-result cache: DISTINCT_VALUES select yielded no bare-property metadata; running"
+              + " uncached. Statement: " + select);
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var ctx = freshContext(args);
+    // Stamp BEFORE building/driving the plan so the delta builder later admits only post-populate ops.
+    var populateMutationVersion = tx.getMutationVersion();
+
+    var plan = select.createExecutionPlan(ctx, false);
+    if (!(plan instanceof SelectExecutionPlan selectPlan)) {
+      LogManager.instance().warn(this,
+          "tx-result cache: distinct plan is a " + plan.getClass().getSimpleName()
+              + ", not a SelectExecutionPlan; running uncached. Statement: " + select);
+      plan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var projection = findDistinctSourceProjection(selectPlan);
+    if (projection == null) {
+      // No DistinctExecutionStep with a pre-distinct ProjectionCalculationStep to tap above (observing
+      // raw, RID-bearing records). Fall back uncached and log the plan steps for planner-versioning
+      // diagnosis.
+      var stepTypes = selectPlan.getSteps().stream()
+          .map(s -> s.getClass().getSimpleName()).toList();
+      LogManager.instance().warn(this,
+          "tx-result cache: no Distinct+Projection step pair to splice the distinct tap above;"
+              + " running uncached. Plan steps: " + stepTypes + ". Statement: " + select);
+      selectPlan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    // The bucket machinery is kind AGGREGATE_COUNT_DISTINCT; the entry shape (DISTINCT_VALUES) is what
+    // makes the view emit the keys as rows rather than the scalar count.
+    var state = new AggregateState(
+        CacheableShape.AGGREGATE_COUNT_DISTINCT, metadata.propertyName(), metadata.alias());
+    cache.installAggregateOverflowGuard(key, state);
+    spliceTapAbove(projection, new AggregateCacheTapStep(state, ctx));
+
+    try {
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(ctx)) {
+          stream.next(ctx);
+        }
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      plan.close();
+    }
+
+    var entry = new CachedEntry(
+        CacheableShape.DISTINCT_VALUES,
+        effectiveFromClasses(select),
+        select.getWhereClause(),
+        select.getOrderBy(),
+        null,
+        null,
+        null,
+        populateMutationVersion);
+    entry.setAggregateState(state);
+    cache.put(key, entry);
+
+    return buildView(entry, tx, args);
+  }
+
+  /**
+   * Finds the pre-distinct {@link ProjectionCalculationStep} the distinct tap splices above. The tap
+   * observes the raw, RID-bearing filtered records that enter the projection (the projection computes
+   * the distinct value and strips identity; {@link AggregateState#observe} requires a non-null RID).
+   * Returns the (first plain) projection only when the plan also carries a {@link DistinctExecutionStep},
+   * which confirms the distinct shape; a {@code null} return (no DistinctExecutionStep, or no plain
+   * projection) drives the splice-failure fallback. The projection need not be adjacent to the
+   * DistinctExecutionStep — an ORDER BY inserts an {@code OrderByStep} between them — so the scan finds
+   * each independently. {@link AggregateProjectionCalculationStep} is excluded so the tap stays on raw
+   * records.
+   */
+  @Nullable private static ProjectionCalculationStep findDistinctSourceProjection(
+      @Nonnull SelectExecutionPlan plan) {
+    var hasDistinct = false;
+    ProjectionCalculationStep projection = null;
+    for (var step : plan.getSteps()) {
+      if (step instanceof DistinctExecutionStep) {
+        hasDistinct = true;
+      } else if (projection == null
+          && step instanceof ProjectionCalculationStep candidate
+          && !(step instanceof AggregateProjectionCalculationStep)) {
+        projection = candidate;
+      }
+    }
+    return hasDistinct ? projection : null;
+  }
+
+  /**
+   * Splices {@code tap} immediately upstream of {@code below}, so the tap observes the raw records that
+   * enter {@code below}. The shared splice primitive behind {@link #spliceTap}'s splice-above-projection
+   * arm and the distinct tap.
+   */
+  private static void spliceTapAbove(
+      @Nonnull AbstractExecutionStep below, @Nonnull AggregateCacheTapStep tap) {
+    var upstream = below.prev;
+    tap.setPrevious(upstream);
+    if (upstream != null) {
+      upstream.setNext(tap);
+    }
+    below.setPrevious(tap);
+    tap.setNext(below);
   }
 
   /**
@@ -1128,11 +1265,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // because the wired delta-path shapes carry no non-param context state (see method Javadoc).
       ctx = freshContext(args);
     }
-    // The view takes ownership of the open cache-code guard (entered in serveThroughCache) and holds
-    // it for its whole iteration lifetime, releasing it exactly once on close / exhaustion. This
-    // keeps a re-entrant query() — e.g. a UDF in WHERE evaluated during the lazy stream pull, which
-    // happens after serveThroughCache has returned — bypassed for the entire view consumption, not
-    // just the synchronous lookup window.
+    // The cache-code re-entrancy guard entered in serveThroughCache is released when that method
+    // returns; the view does NOT hold it across its idle lifetime. The view re-enters the guard
+    // around each row it produces (CachedResultSetView.hasNext brackets computeNext), so a UDF in
+    // WHERE / ORDER BY / RETURN evaluated during a lazy stream pull is bypassed, while a query()
+    // issued by user code between two next() calls legitimately uses the cache.
+    if (entry.getShape() == CacheableShape.DISTINCT_VALUES) {
+      // Distinct value set: reuse the aggregate replay (copy + applyMutation over post-populate ops),
+      // but the view emits the replayed bucket keys as rows rather than the scalar count.
+      var distinctDelta = DeltaBuilder.buildForAggregate(entry, tx, ctx);
+      return CachedResultSetView.forDistinctValues(
+          entry, distinctDelta, this, tx, entry.getPlan(), ctx);
+    }
     if (isAggregateShape(entry.getShape())) {
       // Aggregate: copy the seeded state and replay the post-populate mutations onto the copy; the view
       // emits the single replayed scalar. The entry holds no stream, so the view's plan slot is null.

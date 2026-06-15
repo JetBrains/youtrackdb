@@ -6,7 +6,10 @@ import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import javax.annotation.Nonnull;
@@ -82,6 +85,16 @@ public final class CachedResultSetView implements ResultSet {
   /** True once the aggregate view has emitted its single scalar row; then the view is drained. */
   private boolean aggregateEmitted;
 
+  /**
+   * For a {@code DISTINCT_VALUES} view: the {@code {alias: value}} rows to emit, one per distinct bucket
+   * key, sorted by the entry's ORDER BY. Built once from the replayed {@link #aggregateDelta} on first
+   * {@link #computeNextDistinctValue} and fixed thereafter (I7). Null until then.
+   */
+  @Nullable private List<Result> distinctRows;
+
+  /** Cursor into {@link #distinctRows} for the {@code DISTINCT_VALUES} view. */
+  private int distinctIndex;
+
   @Nullable private DatabaseSessionEmbedded session;
 
   /**
@@ -148,6 +161,23 @@ public final class CachedResultSetView implements ResultSet {
     return new CachedResultSetView(entry, null, aggregateDelta, session, tx, executionPlan, ctx);
   }
 
+  /**
+   * {@code DISTINCT_VALUES} factory: the view carries the replayed {@link AggregateState} copy (kind
+   * {@code AGGREGATE_COUNT_DISTINCT}) and emits one {@code {alias: value}} row per distinct bucket key,
+   * in first-occurrence order, reproducing a fresh {@code SELECT distinct(prop)}. Pin and cache-code
+   * guard lifetime are identical to the aggregate path.
+   */
+  @Nonnull
+  public static CachedResultSetView forDistinctValues(
+      @Nonnull CachedEntry entry,
+      @Nonnull AggregateState distinctDelta,
+      @Nullable DatabaseSessionEmbedded session,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nullable InternalExecutionPlan executionPlan,
+      @Nonnull CommandContext ctx) {
+    return new CachedResultSetView(entry, null, distinctDelta, session, tx, executionPlan, ctx);
+  }
+
   private CachedResultSetView(
       @Nonnull CachedEntry entry,
       @Nullable TxDeltaCursor delta,
@@ -163,9 +193,11 @@ public final class CachedResultSetView implements ResultSet {
     this.tx = tx;
     this.executionPlan = executionPlan;
     this.ctx = ctx;
-    // Pin the entry for this view's whole lifetime so LRU eviction cannot close the shared stream
-    // out from under an in-flight iteration. The cache-code guard is already open (entered by the
-    // session around the lookup); this view now owns it and releases it on close / exhaustion.
+    // Pin the entry for this view's whole lifetime so LRU eviction cannot close the shared stream out
+    // from under an in-flight iteration; the pin is released on close / natural exhaustion. The
+    // cache-code re-entrancy guard is NOT held for the view's lifetime: hasNext() re-enters it around
+    // each computeNext() so it covers only the row-production windows (stream pull, delta merge,
+    // RETURN projection), not the view's idle time between next() calls.
     entry.incrementLiveViewCount();
   }
 
@@ -177,7 +209,16 @@ public final class CachedResultSetView implements ResultSet {
     if (lookahead != null) {
       return true;
     }
-    lookahead = computeNext();
+    // Re-enter the tx cache-code guard only for the row-production window: a lazy stream pull (and the
+    // delta merge / RETURN projection) can evaluate a UDF that issues a nested query(), which must
+    // bypass the cache. Released in the finally so a query() between two next() calls — outside any
+    // row production — still uses the cache, and an abandoned view holds no guard.
+    tx.enterCacheCode();
+    try {
+      lookahead = computeNext();
+    } finally {
+      tx.exitCacheCode();
+    }
     if (lookahead == null) {
       // Both cursors are drained: release the pin now so an iterated-to-exhaustion view stops
       // blocking eviction even before the consumer calls close(). The release is idempotent.
@@ -203,6 +244,11 @@ public final class CachedResultSetView implements ResultSet {
    */
   @Nullable private Result computeNext() {
     if (aggregateDelta != null) {
+      // Both the scalar AGGREGATE_* views and the DISTINCT_VALUES view carry a replayed AggregateState;
+      // the entry shape decides whether to emit the single scalar or one row per distinct bucket key.
+      if (entry.getShape() == CacheableShape.DISTINCT_VALUES) {
+        return computeNextDistinctValue();
+      }
       return computeNextAggregate();
     }
     if (delta == null) {
@@ -216,6 +262,36 @@ public final class CachedResultSetView implements ResultSet {
    * {@code null} thereafter, so {@code hasNext()} is true exactly once. There is no stream to pull and
    * no cache cursor; the scalar was fully computed at delta build.
    */
+  /**
+   * {@code DISTINCT_VALUES} emit: one {@code {alias: value}} row per distinct bucket key, in
+   * first-occurrence order, then {@code null}. The key list is snapshotted once from the replayed
+   * {@link #aggregateDelta} (kind {@code AGGREGATE_COUNT_DISTINCT}), so it reflects the post-delta value
+   * set fixed at view construction (I7), matching a fresh {@code SELECT distinct(prop)} at this moment.
+   */
+  @Nullable private Result computeNextDistinctValue() {
+    if (distinctRows == null) {
+      var rows = new ArrayList<Result>();
+      for (var value : aggregateDelta.distinctValuesInOrder()) {
+        var row = new ResultInternal(session, 1);
+        row.setProperty(aggregateDelta.getAlias(), value);
+        rows.add(row);
+      }
+      // The shape is admitted only with a deterministic ORDER BY on the projected column, so sorting the
+      // bucket-key rows by that comparator reproduces a fresh execution's order exactly (the bucket
+      // insertion order is not enough: a fresh re-scan interleaves a tx-mutated record at a scan position
+      // the replay cannot mirror).
+      var orderBy = entry.getOrderBy();
+      if (orderBy != null && rows.size() > 1) {
+        rows.sort((a, b) -> orderBy.compare(a, b, ctx));
+      }
+      distinctRows = rows;
+    }
+    if (distinctIndex >= distinctRows.size()) {
+      return null;
+    }
+    return distinctRows.get(distinctIndex++);
+  }
+
   @Nullable private Result computeNextAggregate() {
     if (aggregateEmitted) {
       return null;
@@ -408,21 +484,17 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * Releases the entry's live-view pin and the transaction's cache-code guard exactly once across
-   * {@link #close()} and natural exhaustion. The guard exit is paired with the pin decrement so the
-   * re-entrancy bypass holds for the whole view-consumption lifetime (covering the lazy stream pulls
-   * during iteration) and is lifted once the view can no longer pull rows.
+   * Releases the entry's live-view pin exactly once across {@link #close()} and natural exhaustion, so
+   * an iterated-to-exhaustion or explicitly-closed view stops blocking LRU eviction. Idempotent. The
+   * cache-code re-entrancy guard is not touched here: it is entered and exited per row in
+   * {@link #hasNext()}, never held across the view's lifetime, so there is nothing to release at pin
+   * time — and the pool-shutdown close path (which may run cross-thread) decrements only the pin, a
+   * floored no-op that does not assert the owning thread.
    */
   private void releasePin() {
     if (!pinReleased) {
       pinReleased = true;
       entry.decrementLiveViewCount();
-      // Unchecked exit: this release also fires on the tx-end clear path, which the pool-shutdown
-      // thread may reach cross-thread (an abandoned-but-strongly-held view closed by
-      // closeActiveQueries() during realClose()). The owning-thread assert on exitCacheCode() would
-      // trip there under -ea even though the floored decrement is harmless off-thread, so the view
-      // releases through the unchecked path while the synchronous session path keeps the assert.
-      tx.exitCacheCodeUnchecked();
     }
   }
 

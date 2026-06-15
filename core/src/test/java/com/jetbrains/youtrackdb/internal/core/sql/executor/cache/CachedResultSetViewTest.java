@@ -97,10 +97,10 @@ public class CachedResultSetViewTest {
   }
 
   /**
-   * The live transaction backing {@code db}. The view holds the transaction's cache-code re-entrancy
-   * guard for its iteration lifetime and releases it on close / exhaustion; these unit tests never
-   * enter that guard first, so the view's {@code exitCacheCode()} is a floored-at-zero no-op against
-   * the real transaction and does not perturb the pin-count assertions below.
+   * The live transaction backing {@code db}. The view enters and exits the transaction's cache-code
+   * re-entrancy guard around each {@code computeNext()} (not for its whole iteration lifetime), so
+   * iterating a view here leaves the depth balanced after every row; these unit tests run on the owning
+   * thread, so the per-row enter/exit is balanced and does not perturb the pin-count assertions below.
    */
   private FrontendTransactionImpl tx() {
     return (FrontendTransactionImpl) db.getTransactionInternal();

@@ -174,6 +174,72 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
+   * {@code SELECT distinct(prop) ... ORDER BY prop} (function form) classifies as DISTINCT_VALUES: a
+   * single bare-property distinct value set with a deterministic ORDER BY on the projected column,
+   * reconciled incrementally through the per-value buckets and emitted one row per distinct value.
+   */
+  @Test
+  public void distinctFunctionWithOrderByClassifiesAsDistinctValues() {
+    Assert.assertEquals(
+        CacheableShape.DISTINCT_VALUES,
+        ShapeClassifier.classify(parse("select distinct(name) from OUser order by name")));
+  }
+
+  /** {@code SELECT DISTINCT prop ... ORDER BY prop} (operator form) classifies as DISTINCT_VALUES. */
+  @Test
+  public void distinctOperatorWithOrderByClassifiesAsDistinctValues() {
+    Assert.assertEquals(
+        CacheableShape.DISTINCT_VALUES,
+        ShapeClassifier.classify(parse("select distinct name from OUser order by name")));
+  }
+
+  /**
+   * A distinct value set WITHOUT ORDER BY classifies K0_NONE, not DISTINCT_VALUES: an unordered
+   * distinct's row order is storage-scan-dependent and a bucket replay cannot reproduce it (a fresh
+   * re-scan interleaves a tx-mutated record at a position the replay would append at the tail). It must
+   * never reach RECORD either, which would inject raw records without deduping on a mutation.
+   */
+  @Test
+  public void distinctWithoutOrderByClassifiesAsK0None() {
+    Assert.assertEquals(
+        "function distinct without ORDER BY must be K0_NONE, never RECORD",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select distinct(name) from OUser")));
+    Assert.assertEquals(
+        "operator DISTINCT without ORDER BY must be K0_NONE, never RECORD",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select distinct name from OUser")));
+  }
+
+  /** An ORDER BY on a column other than the projected distinct column routes to K0_NONE. */
+  @Test
+  public void distinctOrderedByForeignColumnClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select distinct(name) from OUser order by age")));
+  }
+
+  /** A multi-column distinct (distinct tuples) is not the single-value bucket shape; K0_NONE. */
+  @Test
+  public void multiColumnDistinctClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select distinct name, age from OUser order by name")));
+  }
+
+  /**
+   * The subquery distinct-count idiom {@code SELECT count(*) FROM (SELECT distinct(prop) ...)} stays
+   * K0_NONE: the outer count over a subquery target is not a per-record-reconcilable shape (lifting the
+   * inner distinct value set to an incremental scalar would need sub-statement caching, deferred).
+   */
+  @Test
+  public void countOverDistinctSubqueryStaysK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select count(*) from (select distinct(name) from OUser)")));
+  }
+
+  /**
    * A projection mixing an aggregate with another item is not a clean single-aggregate shape and is
    * not a plain RECORD either, so it falls to K0_NONE.
    */

@@ -1403,12 +1403,12 @@ public class FrontendTransactionImpl implements
   }
 
   /**
-   * Decrements the cache-code re-entrancy depth without asserting the owning thread. Used by the view's
-   * pin release, which runs on the tx-end clear path that {@code DatabaseSessionEmbeddedPooled.realClose}
-   * may reach cross-thread during pool shutdown (the same cross-thread exception that {@link #close()}
-   * and {@link #rollbackInternal()} carry). The decrement is floored at zero, so an off-thread call is
-   * harmless: it only ever lowers a counter that has no meaning past tx end. Keeping the assert on the
-   * synchronous {@link #exitCacheCode()} session path preserves the owner-thread check where it can fire.
+   * Decrements the cache-code re-entrancy depth without asserting the owning thread, the floored-at-zero
+   * primitive that {@link #exitCacheCode()} delegates to after its owner-thread assert. Kept as a
+   * separate unchecked entry point for any future cross-thread cleanup that must lower a counter with no
+   * meaning past tx end; the decrement is floored at zero, so an off-thread call is harmless. The view's
+   * per-row guard ({@code CachedResultSetView.hasNext}) runs only on the owning thread, so it uses the
+   * checked {@link #exitCacheCode()}.
    */
   public void exitCacheCodeUnchecked() {
     if (cacheCodeDepth > 0) {

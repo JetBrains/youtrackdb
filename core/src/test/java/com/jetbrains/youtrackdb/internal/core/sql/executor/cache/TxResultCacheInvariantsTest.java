@@ -643,9 +643,11 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
 
   /**
    * I2 rests on {@code assertOnOwningThread} guarding every cache mutation path; the cache-code
-   * re-entrancy depth counter that brackets the lookup-and-view scope must always return to zero after
-   * a query completes on the owning thread. A non-zero residual depth would mean the guard leaked and
-   * every later query would take the re-entrant bypass. After a full drain the depth is balanced.
+   * re-entrancy depth counter must always return to zero after a query completes on the owning thread.
+   * A non-zero residual depth would mean the guard leaked and every later query would take the
+   * re-entrant bypass. The guard now brackets only the synchronous lookup/build scope plus each per-row
+   * {@code computeNext()}, so the depth is balanced as soon as query() returns and stays balanced after
+   * a full drain; this case asserts the post-drain balance.
    */
   @Test
   public void i2_cacheCodeDepthBalancedAfterQuery() {
@@ -762,15 +764,14 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * The one genuinely concurrent path the feature has: a live, pinned view's pin release reaching the
-   * transaction's cache-code guard from a foreign thread, the way the pool-shutdown sink
-   * ({@code closeActiveQueries()} on the cleanup thread during {@code realClose()}) does. The view
-   * releases the guard through {@code exitCacheCodeUnchecked()}, which must NOT assert the owning thread
-   * (the floored decrement is harmless off-thread). The synchronous session path keeps the asserting
-   * {@code exitCacheCode()}. This pins both halves: after a query has set the owning thread, a foreign
-   * unchecked exit must not throw, while a foreign checked exit must trip the owner assert. Run with
-   * {@code -ea} (the suite's mandated mode); before the unchecked-exit fix the view's release used the
-   * asserting path and a cross-thread shutdown threw an {@code AssertionError}.
+   * Pins the two cache-code depth primitives directly: {@code exitCacheCodeUnchecked()} must NOT assert
+   * the owning thread (the floored decrement is harmless off-thread), while the synchronous
+   * {@code exitCacheCode()} must. After a query has set the owning thread, a foreign unchecked exit must
+   * not throw and a foreign checked exit must trip the owner assert. The view no longer holds the guard
+   * across its lifetime — it brackets each {@code computeNext()} on the owning thread (see
+   * {@code CachedResultSetView.hasNext}) — so no production path takes the unchecked exit cross-thread
+   * today; the primitive and this guard are retained for any future cross-thread cleanup. Run with
+   * {@code -ea} (the suite's mandated mode).
    */
   @Test
   public void crossThreadGuardReleaseUsesUncheckedExitAndDoesNotAssert() throws Exception {

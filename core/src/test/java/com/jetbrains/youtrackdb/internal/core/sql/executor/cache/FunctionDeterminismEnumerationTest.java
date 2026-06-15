@@ -149,4 +149,23 @@ public class FunctionDeterminismEnumerationTest extends DbTestBase {
           registered.contains(nonDeterministic));
     }
   }
+
+  /**
+   * Pins the test's {@link #KNOWN_NON_DETERMINISTIC} set to the production denylist so the two cannot
+   * drift. {@link NonDeterministicQueryDetector#NON_DETERMINISTIC_FUNCTIONS} is the single source of
+   * truth; the test set must equal it plus the special arity-checked {@code date} name (which the
+   * detector handles separately, not through the name set). A new denylist entry added on one side
+   * without the other fails here, closing the gap where a production-only addition would never be
+   * exercised by the completeness walk, or a test-only addition would never actually bypass the cache.
+   */
+  @Test
+  public void knownNonDeterministicMirrorsProductionDenylist() {
+    var expected = new TreeSet<>(NonDeterministicQueryDetector.NON_DETERMINISTIC_FUNCTIONS);
+    expected.add("date");
+    Assert.assertEquals(
+        "KNOWN_NON_DETERMINISTIC must equal the production denylist plus the arity-checked date() name;"
+            + " a new denylist entry must be added to both the detector and this test",
+        expected,
+        new TreeSet<>(KNOWN_NON_DETERMINISTIC));
+  }
 }

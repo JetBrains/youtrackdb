@@ -205,6 +205,50 @@ public class TxResultCacheWiringTest extends DbTestBase {
     session.rollback();
   }
 
+  /**
+   * Abandoned-view guard-release regression (the narrowed-guard fix). A {@code query()} that returns a
+   * live view the caller neither drains nor closes must leave the tx cache-code depth at zero, so the
+   * cache stays usable for the rest of the transaction. Before the fix the view held the guard for its
+   * whole lifetime, so an abandoned-but-strongly-held view pinned depth &gt; 0 and silently routed every
+   * later {@code query()} onto the re-entrant bypass, leaving the cache dead for the rest of the tx.
+   * Here the first query's view is deliberately left open and unconsumed; the depth must be balanced
+   * once {@code query()} returns, and a second identical query in the same tx must hit the cache.
+   */
+  @Test
+  public void abandonedViewDoesNotDisableCacheForRestOfTx() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    seed(2);
+
+    session.begin();
+    var cache = tx().getQueryResultCache();
+    assertNotNull(cache);
+    var sql = "SELECT FROM " + CLASS_NAME;
+
+    // First query: keep the returned view open and unconsumed (the abandoned-view scenario). The
+    // populate path puts the entry before returning, so it exists even though nothing was iterated.
+    var abandoned = session.query(sql);
+    assertEquals("the returned view must leave the cache-code guard balanced (depth 0)", 0,
+        tx().getCacheCodeDepth());
+    assertEquals("the first query populated exactly one entry", 1, cache.size());
+
+    // Second identical query in the same tx must hit the cache, proving the abandoned view did not
+    // keep the re-entrancy guard held. A leaked guard would route this onto the uncached bypass
+    // (no hit counted).
+    try (var rs = session.query(sql)) {
+      var rows = 0;
+      while (rs.hasNext()) {
+        rs.next();
+        rows++;
+      }
+      assertEquals("the second query returns the seeded rows", 2, rows);
+    }
+    assertEquals("the second identical query was served from cache (a hit), not bypassed", 1,
+        cache.getMetrics().getHits());
+
+    abandoned.close();
+    session.rollback();
+  }
+
   // ===========================================================================
   // Flag OFF — zero behaviour change
   // ===========================================================================
@@ -237,14 +281,13 @@ public class TxResultCacheWiringTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * Guard-balance regression test for the populate fallback that builds no view. The cache gate
-   * enters the tx re-entrancy guard around the lookup-and-populate scope and normally hands that
-   * guard to the {@code CachedResultSetView} it returns, which releases it on close/exhaustion. But
-   * the populate path has a fallback: when real execution does not return a {@code LocalResultSet}
-   * (so the cache cannot lift its stream), it returns the unwrapped result and builds no view. On
-   * that branch no view exists to release the guard, so the gate must release it itself in the
-   * finally; the prior guard-handoff logic transferred ownership unconditionally and leaked the
-   * depth bump for the rest of the transaction, silently disabling the cache.
+   * Guard-balance regression test for the populate fallback that builds no view. The cache gate enters
+   * the tx re-entrancy guard around the synchronous lookup-and-populate scope and always releases it in
+   * its finally, whether or not a view was built. The populate path has a fallback: when real execution
+   * does not return a {@code LocalResultSet} (so the cache cannot lift its stream), it returns the
+   * unwrapped result and builds no view. This pins that the gate still balances the guard on that
+   * no-view branch — depth back to zero once the call returns — so a later query() in the same tx is
+   * not forced onto the re-entrant bypass.
    *
    * <p>SELECT/MATCH always return a {@code LocalResultSet} today, so this branch is unreachable
    * through normal SQL; the test reaches it by invoking the private {@code serveThroughCache} with a

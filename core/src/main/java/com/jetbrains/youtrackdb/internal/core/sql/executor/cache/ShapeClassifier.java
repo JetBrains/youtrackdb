@@ -567,6 +567,14 @@ public final class ShapeClassifier {
       return CacheableShape.K0_NONE;
     }
 
+    // Distinct value-set projection (SELECT distinct(prop) / SELECT DISTINCT prop) before the RECORD
+    // fallback: a distinct projection that fell through to RECORD would store the engine's deduped rows
+    // and then inject raw records without deduping on a mutation, diverging from fresh execution.
+    var distinct = distinctValueSetShape(select);
+    if (distinct != null) {
+      return distinct;
+    }
+
     var aggregate = singleAggregateShape(select.getProjection(), select.getWhereClause() != null);
     if (aggregate != null) {
       return aggregate;
@@ -580,6 +588,124 @@ public final class ShapeClassifier {
     }
 
     return CacheableShape.RECORD;
+  }
+
+  /**
+   * Classifies the distinct value-set projections {@code SELECT distinct(prop)} (function form) and
+   * {@code SELECT DISTINCT prop} (operator form) into {@link CacheableShape#DISTINCT_VALUES}, or
+   * {@link CacheableShape#K0_NONE} for a distinct projection the per-value bucket delta cannot reconcile
+   * (a path/expression argument, more than one column, or no deterministic ORDER BY). Returns
+   * {@code null} only when the projection is not a distinct projection at all, so the caller falls
+   * through to the aggregate / RECORD branches.
+   *
+   * <p>A deterministic ORDER BY on the projected column is <b>required</b> for the incremental shape:
+   * without it the distinct order is storage-scan-dependent (a fresh execution re-scans with a
+   * tx-mutated record interleaved at a scan position the bucket replay cannot reproduce), so an
+   * unordered distinct routes to K0_NONE, which re-executes and matches that scan order. With ORDER BY,
+   * the view sorts the bucket keys by the same comparator a fresh execution uses, so the sequences
+   * match exactly.
+   *
+   * <p><b>Critical:</b> once a projection is recognised as distinct, every path returns
+   * {@code DISTINCT_VALUES} or {@code K0_NONE}, never {@code null} — a distinct projection must never
+   * reach the RECORD fallback, which stores the engine's already-deduped rows and then injects raw
+   * records without deduping on a mutation, diverging from a fresh execution.
+   */
+  private static CacheableShape distinctValueSetShape(@Nonnull SQLSelectStatement select) {
+    var projection = select.getProjection();
+    if (projection == null || projection.getItems() == null) {
+      return null;
+    }
+    var items = projection.getItems();
+    var operatorDistinct = projection.isDistinct();
+    SQLFunctionCall functionDistinct = null;
+    if (!operatorDistinct && items.size() == 1) {
+      var call = rootAggregateCall(items.getFirst());
+      if (call != null
+          && call.getName() != null
+          && "distinct".equalsIgnoreCase(call.getName().getStringValue())) {
+        functionDistinct = call;
+      }
+    }
+    if (!operatorDistinct && functionDistinct == null) {
+      return null; // not a distinct projection
+    }
+    // From here the projection IS distinct: return DISTINCT_VALUES or K0_NONE, never null.
+    if (items.size() != 1) {
+      return CacheableShape.K0_NONE; // multi-column distinct
+    }
+    var item = items.getFirst();
+    SQLExpression inner = null;
+    if (operatorDistinct) {
+      inner = item.getExpression();
+    } else {
+      var params = functionDistinct.getParams();
+      if (params != null && params.size() == 1) {
+        inner = params.getFirst();
+      }
+    }
+    // A bare property is delta-reconcilable (the side-tap reads it off each record via getProperty);
+    // a path/expression argument cannot be read that way in v1 and routes to the version-gated path.
+    var column = inner == null ? null : basePropertyName(inner);
+    if (column == null) {
+      return CacheableShape.K0_NONE;
+    }
+    // A deterministic ORDER BY on the projected column is required so the cached bucket keys can be
+    // sorted to match a fresh execution; an unordered distinct's order is not reproducible. The output
+    // column is the bare property itself: the executor unwraps distinct(v) and emits the row under "v"
+    // (not under getProjectionAlias()'s "distinct(v)" default), and SELECT DISTINCT v emits "v" too.
+    return orderByOnProjectedColumn(select, column)
+        ? CacheableShape.DISTINCT_VALUES
+        : CacheableShape.K0_NONE;
+  }
+
+  /**
+   * Whether every ORDER BY item references {@code column} (the distinct projection's runtime output
+   * property) with no RID sort and no modifier chain, so the {@code DISTINCT_VALUES} view can sort its
+   * bucket-key rows by the same comparator a fresh execution uses. A {@code null} or empty ORDER BY
+   * returns {@code false}: an unordered distinct is not incrementally reproducible and routes to K0_NONE.
+   */
+  private static boolean orderByOnProjectedColumn(
+      @Nonnull SQLSelectStatement select, @Nonnull String column) {
+    var orderBy = select.getOrderBy();
+    if (orderBy == null || orderBy.getItems() == null || orderBy.getItems().isEmpty()) {
+      return false;
+    }
+    for (var o : orderBy.getItems()) {
+      if (o.getRid() != null
+          || o.getModifier() != null
+          || o.getAlias() == null
+          || !column.equals(o.getAlias())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * The {@code (propertyName, alias)} for a {@link CacheableShape#DISTINCT_VALUES} select: the bare
+   * property the buckets key on (and that the side-tap reads off each record) plus the output column a
+   * fresh execution emits. Returns {@code null} when the statement is not a DISTINCT_VALUES shape
+   * (classify-consistent, mirroring {@link #aggregateMetadata}). The returned kind is
+   * {@code DISTINCT_VALUES}; the populate path seeds an {@code AggregateState} of kind
+   * {@code AGGREGATE_COUNT_DISTINCT}, whose per-value buckets back the value set.
+   */
+  @Nullable public static AggregateMetadata distinctValueMetadata(@Nonnull SQLSelectStatement select) {
+    if (classify(select) != CacheableShape.DISTINCT_VALUES) {
+      return null;
+    }
+    var projection = select.getProjection();
+    var item = projection.getItems().getFirst();
+    SQLExpression inner;
+    if (projection.isDistinct()) {
+      inner = item.getExpression();
+    } else {
+      inner = rootAggregateCall(item).getParams().getFirst();
+    }
+    // propertyName and the output-column alias are both the bare property: the side-tap reads it off
+    // each record via getProperty, and the executor emits the distinct row under that name (the
+    // distinct(v) wrapper unwraps to "v", not getProjectionAlias()'s "distinct(v)").
+    var property = basePropertyName(inner);
+    return new AggregateMetadata(CacheableShape.DISTINCT_VALUES, property, property);
   }
 
   /** A target whose FROM item is itself a parsed statement is a subquery; routes to K0_NONE. */
@@ -617,12 +743,15 @@ public final class ShapeClassifier {
     }
     var shape = aggregateShapeForCall(call);
     if (shape == CacheableShape.AGGREGATE_COUNT && isDistinct(call)) {
-      // COUNT(DISTINCT prop) is routed to K0_NONE rather than a distinct-count aggregate shape: the
-      // engine has no native distinct-count and computes count(distinct(prop)) as a plain row count, so
-      // the K0 version gate (re-execute on any mutation) already reproduces the engine's result exactly,
-      // and modelling a true distinct-count in the aggregate replay would diverge from that native
-      // semantics. The AggregateState COUNT_DISTINCT machinery is retained for a future engine with a
-      // true distinct-count, but no production path reaches it in v1.
+      // COUNT(DISTINCT prop) is routed to K0_NONE rather than a distinct-count aggregate shape. The
+      // engine does NOT compute a true distinct count here: count(distinct(prop)) composes count over the
+      // distinct() inner aggregate as a plain ROW count, so count(distinct(v)) over values [10,20,20]
+      // returns 3, not 2 (verified empirically against the live executor; distinct(v) as a *projection*
+      // dedupes to 2 rows, but the count+distinct aggregate composition counts rows). The K0 version gate
+      // (re-execute on any mutation) reproduces that engine row-count semantics exactly; a true
+      // distinct-count replay via AggregateState's bucket map would return the deduplicated count and
+      // silently diverge from fresh execution. The AggregateState COUNT_DISTINCT machinery is retained
+      // for a future engine that adds a native distinct-count, but no production path reaches it in v1.
       return CacheableShape.K0_NONE;
     }
     if (shape == CacheableShape.AGGREGATE_COUNT && call.isStar() && !hasWhereClause) {
