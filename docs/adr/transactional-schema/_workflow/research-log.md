@@ -3210,7 +3210,8 @@ field (F101: the importer's unknown-field skip is verified for scalars only,
 `DatabaseImport:418`–`:420`). The
 `brokenRids` path keeps its behavior — per-record losses are logged and
 reported in the dump — but gains per-record write isolation (F109: each
-record renders to a buffer and is written whole or discarded whole, in
+record renders to a bounded buffer — in-memory up to a threshold, spilling
+to a temp file beyond it, F120 — and is written whole or discarded whole, in
 both modes), so a swallowed record can no longer strand the shared
 generator at object context. A
 fail-fast abort leaves exit ≠ 0 and **no file at the final name** (corrected
@@ -3912,9 +3913,15 @@ completion flag legitimately set), and because best-effort mode without
 isolation degrades every record after the first broken one, defeating the
 salvage purpose. Generator-context repair was rejected: Jackson has no
 legal repair from every stranded state (a dangling field name cannot be
-closed), so repair re-derives the fragility this finding removes. Cost:
-one record-sized buffer and a copy per record, on an offline migration
-tool. The dropped qualifier is restored in F100's grounding and the
+closed), so repair re-derives the fragility this finding removes. The
+per-record buffer is bounded (F120): records render to an in-memory buffer
+up to a threshold and spill to a transient temp file beyond it (rendered
+there, streamed into the dump on success, discarded on render failure), so
+isolation holds whole-or-nothing at O(threshold) memory for any record size
+on this offline migration tool — and a too-large record can no longer OOME
+the per-record buffer (a general OOME elsewhere stays fail-closed via
+promote-only-on-success). The dropped qualifier is restored in F100's
+grounding and the
 F90/D20 bounding sentences — the swallow-stranding arm becomes
 unreachable in the new exporter once isolation lands, but the ledger's
 description of legacy generator behavior stays accurate (the F110
@@ -4309,6 +4316,22 @@ buffer with a stated overflow consequence (spill to a temp file beyond a
 threshold, or oversized-distinct-from-corrupted reporting in best-effort /
 loud abort in fail-fast), and state the O(rendered-record) memory cost as
 accepted. Affected: D20, F109, F94.
+
+**Resolved (2026-06-15): bound the buffer with a spill-to-temp path beyond a
+threshold.** A migration tool must export any record the storage holds, so the
+report-oversized / loud-abort alternative was rejected — it leaves a valid
+database un-migratable (best-effort sheds a healthy record, fail-fast aborts
+the run on a large-but-healthy record, which is not corruption). Records render
+to an in-memory buffer up to a threshold and spill to a transient temp file
+beyond it (rendered there, streamed into the dump on success, discarded on
+render failure), preserving whole-or-nothing isolation at O(threshold) memory
+for any record size on this offline tool. Bounding the buffer also resolves the
+OOME concern: a too-large record spills rather than exhausting the heap, so
+"discarded whole" is always deliverable; a general OOME from elsewhere stays
+fail-closed via promote-only-on-success (the `.tmp` orphan, no promotion). The
+O(rendered-record) cost the proposal floated is replaced by the bounded
+O(threshold) cost. Folds: F109 resolved block (cost line → bounded buffer +
+spill), D20 isolation pin, F94 (b) isolation note (bound reference).
 
 ### F121 — The F113 sentinel treats "the logger" as one sink, but `LogManager` routes per requester-class category: a sentinel through any other category false-passes [MINOR]
 Pass-12 report U36. `SLF4JLogManager.log` resolves and caches a logger per
@@ -5477,8 +5500,10 @@ recover.
   flag set after the last section is written, checked before the rename,
   with every failure path leaving or deleting the `.tmp` and never
   renaming — and per-record write isolation in both modes — each record
-  renders to a buffer and is written whole or discarded whole into
-  `brokenRids` — because without them an `exportRecord` swallow leaves
+  renders to a bounded buffer (in-memory up to a threshold, spilling to a
+  transient temp file beyond it) and is written whole or discarded whole
+  into `brokenRids` at O(threshold) memory for any record size (F120) —
+  because without them an `exportRecord` swallow leaves
   the generator stranded at object context and the abort promotes a
   mangled dump) — the primary-exception outcome stays delivered by the F94
   (b) `addSuppressed` / log-then-rethrow discipline, which the pins narrow to
