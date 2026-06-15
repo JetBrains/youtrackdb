@@ -212,6 +212,21 @@ Walked every section the plan carries today against a new home. Closeouts:
 - Feature name in minimal → track-1 H1 + PR title (no plan).
 Result: no plan-exclusive section is left homeless.
 
+### [2026-06-15T09:18:42Z] [ctx=safe] Resume state is two-level; ledger owns top-level, track file owns within-track
+The ledger is the single source for the top-level phase + active track; the
+track file's `## Progress`/`## Concrete Steps` owns the within-track sub-state
+(which step, review status). Resume is a two-level lookup, each level one home.
+- **Why:** per-step status is glued to per-step content (description, risk
+  tag, commit SHA, episode in `## Concrete Steps`/`## Episodes`); the ledger
+  appends per phase boundary, while per-step status changes per step and per
+  review iteration. Single-source by fact, two files by design — no dual write.
+- **Alternatives rejected:** ledger owns ALL resume state (single state file,
+  track checkboxes display-only) — chattier ledger, splits step status from
+  step identity. YTDB-1123 also scoped it this way ("keep the track-file
+  sub-state walk unchanged"). User confirmed the two-level split.
+- **Surfaced by:** user challenge during Step 4a ("why not ledger single
+  source").
+
 ## Surprises & Discoveries
 
 ### [2026-06-15T08:10:20Z] [ctx=safe] The plan's three "machinery" justifications all dissolve
