@@ -249,7 +249,9 @@ its verdict headings to. The log is created **unstamped**: it is on the
 `§1.6(f)` never-stamped list (D19), so no line-1 `workflow-sha` comment is
 written and the `§1.6(b)` paired-idiom does not run for it. Idempotent on resume: if the
 log already exists (a prior Phase-0 session created it), leave its
-`## Initial request` intact and append to the continuous logs only.
+`## Initial request` intact and append to the continuous logs only. The log
+is the agent's internal memory: seed it without narrating the seeding to
+the user (`research.md` §Rules, the *Keep the research log agent-internal* rule).
 
 The plan will be saved to:
 `docs/adr/<dir-name>/_workflow/implementation-plan.md`
@@ -271,7 +273,10 @@ Once the user provides the aim, enter **research mode**. In this mode:
   as they settle — each entry an ISO timestamp and a `[ctx=<level>]` tag,
   each `## Decision Log` entry carrying the `**Why:**` and
   `**Alternatives rejected:**` fields the Step-4 adversarial gate
-  challenges (`research.md` §The research log for the append cadence)
+  challenges (`research.md` §The research log for the append cadence). Do
+  this silently: the log is agent-internal, so surface its content to the
+  user as plain conversational prose, never as log quotes, section names,
+  or D-numbers (`research.md` §Rules, the *Keep the research log agent-internal* rule)
 - Do **NOT** produce plan files, design documents, or track decompositions
 
 Stay in research mode until the user explicitly asks to create the plan
