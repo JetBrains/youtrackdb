@@ -13,6 +13,7 @@ YTDB-1124. `research.md` tells the agent to append decisions to the research log
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-15T05:44Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -26,7 +27,7 @@ log; the track file is the live authority. -->
 #### D1: Use §1.7 staging, not the §1.7(k) prose-rule opt-out
 - **Alternatives considered**: (a) §1.7(k) prose-rule self-application opt-out, editing both files live — the conceptually appealing dogfooding path; (b) §1.7(k) opt-out confined to `research.md` only, dropping the `create-plan` SKILL.md edit; (c) §1.7 staging (chosen).
 - **Rationale**: The Phase-0→1 adversarial gate raised a blocker (iter1 A1): §1.7(k) criterion (2) is a **file-level consumer-class** test, explicitly "consumer class, not author intent" (`conventions.md:1231,1243`). `create-plan/SKILL.md` is read by the agent as the `/create-plan` orchestration procedure — an execution-procedure file — so it must stage; the edit-level "it's just narration prose" reading is not permitted. Because the §1.7(b) and §1.7(k) markers are mutually exclusive per plan, editing any execution-procedure file makes the opt-out unavailable, not merely weaker. Alternative (b) keeps the opt-out but narrows the change below the issue's "reflect it in the create-plan Phase 0 narration" scope. Staging honors the full issue scope and is unambiguously rule-compliant. User-confirmed.
-- **Risks/Caveats**: No self-application this session — live `research.md` stays at develop until the Phase-4 promotion, so this `/create-plan` run is not held to the new rule (the correct trade per §1.7's reasoning, since `create-plan/SKILL.md` is running machinery). This is the first branch to exercise §1.7(l) end-to-end (its own note flags the bootstrap caveat). The minimal stub template has no native `### Constraints`, so the workflow-modifying marker is hand-rolled into a one-line section — tracked by YTDB-1125 (broadened to cover both §1.7 markers).
+- **Risks/Caveats**: No self-application this session — live `research.md` stays at develop until the Phase-4 promotion, so this `/create-plan` run is not held to the new rule (the correct trade per §1.7's reasoning, since `create-plan/SKILL.md` is running machinery). This branch exercises §1.7(l)'s review-criteria re-point through the (b) workflow-modifying trigger: the prose-lens switch fired on the Phase-A technical review. Conventions §1.7(l):1320 reserves the separate first-via-(k) opt-out milestone for a later branch, so this note claims no first-via-(k) status. The minimal stub template has no native `### Constraints`, so the workflow-modifying marker is hand-rolled into a one-line section — tracked by YTDB-1125 (broadened to cover both §1.7 markers).
 - **Implemented in**: this track (the §1.7(b) marker lives in the plan's `### Constraints`; staged edits under `_workflow/staged-workflow/.claude/`).
 
 #### D2: Opacity rule placement — canonical in §Rules, cross-referenced elsewhere
@@ -50,6 +51,11 @@ log; the track file is the live authority. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 1 (1 finding, 1 accepted) — minimal-tier
+  prose-only track, §1.7(l) prose lenses. All 11 certificates CONFIRMED; no
+  blocker/should-fix. T1 (suggestion, accepted): tightened D1's §1.7(l)
+  "first to exercise" caveat to name the (b) trigger and disclaim the
+  first-via-(k) milestone.
 
 ## Context and Orientation
 This track edits two workflow-prose files. Their current leak-inviting text:
@@ -125,7 +131,8 @@ either file, so the TOC region and per-section annotations are unchanged;
 confirm with `workflow-reindex.py --check` against the staged copies.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the numbered roster here. -->
+
+1. Apply the research-log opacity rule across both staged Phase-0 surfaces — the five `research.md` edits (§Rules opacity bullet plus the reworded "Record decisions" bullet, the §How it works step-4 silent-logging cross-ref, the §Transition step-1 internal-completeness reword, and the §The research log discoverability note) and the two `create-plan/SKILL.md` edits (Step-3 "Append decisions…" reword plus the Step-2 agent-internal cross-ref), per `## Plan of Work` steps 1a–1e and 2a–2b. Copy each live develop-state file into its `_workflow/staged-workflow/.claude/` mirror path verbatim on first touch (§1.7(e)), then edit the staged copy; preserve the two D3 carve-outs and add no new `##`/`###` headings. — risk: medium (workflow machinery: multi-file prose that changes agent-observable behavior; bounded — drives no gate, runs nothing automatically) — size: ~2 files; (a) no mergeable low/medium work fits — the two staged files are the entire single-track change  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -149,14 +156,29 @@ checks and the reviewer passes, not Java/unit tests.
 - Both edited files satisfy the full house style (`conventions.md` §1.5;
   workflow Markdown tier).
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+**Per-step acceptance (Step 1).** This is a prose-only workflow change with
+no Java/unit tests, so the step has no EARS/Gherkin acceptance lines used as
+test method names. Step 1's acceptance is the five track-level doc-consistency
+checks above, evaluated against the staged copies: the opacity rule lands in
+`research.md` §Rules; the two reworded passages no longer read as license to
+echo the log; both D3 carve-outs survive un-muzzled; no new `##`/`###`
+headings (`workflow-reindex.py --check` passes on the staged copies); and both
+files satisfy the workflow Markdown house-style tier.
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim
 as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths
-once steps are decomposed. -->
+**Step 1.** Idempotent by construction. The §1.7(e) copy-then-edit routing
+keys off whether a staged copy already exists: re-running the step on a fresh
+tree copies each live develop-state file into its staged mirror and applies
+the seven edits; re-running with the staged copies already present edits in
+place. Either way the end state is the same staged content. Recovery on a
+failed or abandoned attempt is the implementer's standard `git reset --hard
+HEAD`, which discards the uncommitted staged subtree; the next attempt
+re-copies from the still-untouched live files and redoes the edits. No live
+`.claude/**` file is mutated before the Phase-4 promotion, so a mid-step abort
+leaves the running workflow machinery untouched (the I6 invariant).
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
