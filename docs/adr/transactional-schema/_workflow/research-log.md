@@ -1,18 +1,23 @@
-# YTDB-382 Transactional Schema — Research Decision Log
+# YTDB-382 Transactional Schema — Research Log
 
-Append-only working log for the research phase of YTDB-382 (make schema
-changes transactional). Three streams, each appended as we work: the initial
-idea, key findings as they surface, and decisions as we make them. A fourth
-holding pen tracks open questions so nothing drops on the floor. This file is
-a research scratchpad under `_workflow/` and is removed in the Phase 4 cleanup
-commit with the rest of the directory; it is not a stamped plan artifact.
+The durable Phase-0/1 research log for YTDB-382 (make schema changes
+transactional). An append-only working ledger in the canonical research-log
+sections: `## Initial request` (the verbatim aim), `## Surprises &
+Discoveries` (codebase realities surfaced during exploration, including the
+adversarial review findings), `## Decision Log`, `## Open Questions`, and
+`## Adversarial gate record`. This file is a research scratchpad under
+`_workflow/` and is removed in the Phase 4 cleanup commit with the rest of the
+directory; it is not a stamped plan artifact.
 
 Findings are numbered `F<n>`, decisions `D<n>`, open questions `Q<n>` so later
-entries can reference earlier ones.
+entries can reference earlier ones. The sections keep their working order
+(surprises before the decision log); only the headings are canonical. The
+`## Baseline and re-validation` section is omitted: YTDB-382 is a database
+feature, not a workflow-modifying branch.
 
 ---
 
-## 1. Initial idea
+## Initial request
 
 YTDB-382 (corrected description, confirmed by the assignee 2026-06-03): today
 YouTrackDB refuses schema updates inside a transaction. Two consequences:
@@ -28,7 +33,7 @@ earlier work is dropped).
 
 ---
 
-## 2. Key findings
+## Surprises & Discoveries
 
 ### F1 — The whole schema is a single record
 `SchemaShared` holds live state in memory (`classes`, `collectionsToClasses`,
@@ -595,7 +600,7 @@ flowchart TD
   RD["direct index read in tx"] -. indexId = -1 .-> THR["getIndexValues throws (F23); planner skips (D13)"]
 ```
 
-## 2a. Adversarial review findings (2026-06-03)
+### Adversarial review findings (passes 1–12)
 
 An adversarial sub-agent attacked the spine for contradictions, ungrounded
 claims, and gaps. F33 and F35 were re-verified against live code; the rest are
@@ -3738,27 +3743,27 @@ reach widening, both untouched by this pin).
 ### F107 — Residual thread-owned-lock language survives in four live anchors, including D7's own Guard (F38) bullet mandating the assert the teardown bullet revokes [MINOR]
 Pass-11 report C36. D7's acquire/release bullet still says "assert the
 releasing thread equals the acquiring thread … `IllegalMonitorStateException`"
-(dead semantics; contradicts the heal); the §2a map entries for F71 and F79
+(dead semantics; contradicts the heal); the adversarial-findings resolution map entries for F71 and F79
 end at superseded states; F13's "(D7)" sentence binds the dead primitive to
 the live design.
 
 ```mermaid
 flowchart LR
   A1["D7 Guard (F38): same-thread<br/>assert (dead semantics)"] --> CONTRA["contradicts the teardown bullet's<br/>thread-independent heal"]
-  A2["§2a map F71/F79 entries +<br/>F13 '(D7)' sentence"] --> STALE["route readers to the<br/>rejected primitives"]
+  A2["adversarial-findings resolution map F71/F79 entries +<br/>F13 '(D7)' sentence"] --> STALE["route readers to the<br/>rejected primitives"]
   FIX["fix: re-key Guard (F38) to session identity;<br/>append F96 state to both map entries;<br/>bound F13 to its survey date"] -.-> CONTRA
 ```
 
 **Resolution (proposed):** rewrite the Guard (F38) bullet to the
 session-identity rule (or point at the teardown bullet); append the F96
 state to both map entries; bound F13's sentence to its survey date.
-Affected: D7, §2a map, F13.
+Affected: D7, adversarial-findings resolution map, F13.
 
 **Resolved (2026-06-12): accepted as proposed, all four anchors.** The
 Guard (F38) bullet is re-keyed to the session-identity rule with a pointer
 at the abnormal-termination bullet (the same-thread assert is revoked — it
 would fire `AssertionError` on the pool-teardown heal — and
-`IllegalMonitorStateException` removed as dead semantics). The §2a map's
+`IllegalMonitorStateException` removed as dead semantics). The adversarial-findings resolution map's
 F71 entry gains the re-reversal (F96 `Semaphore(1)` + session-keyed
 compare-and-clear); the pass-7 amendment block's F79 sentence gains the
 two-settlement supersession (token withdrawn at pass 9, no revoker exists;
@@ -4135,7 +4140,7 @@ Affected: D20, F94, F102, F113.
 
 ---
 
-## 3. Decisions
+## Decision Log
 
 ### D1 — Invert the dependency: metadata-first, storage reconciles at commit
 **Locking resolved by D19: a schema-carrying commit takes `stateLock.writeLock()`
@@ -5265,7 +5270,7 @@ flowchart LR
 
 ---
 
-## 4. Open questions
+## Open Questions
 
 ### Open
 (none — the architecture spine is settled; Q11 resolved by D16, Q12 by D19.)
@@ -5296,3 +5301,82 @@ flowchart LR
   `SchemaShared`; `SchemaProxy` routes to it for the tx duration).
 - **Q10 — Diff matching / rename** → D9 (diff over collection ids, not class
   names; rename is structurally inert).
+
+---
+
+## Adversarial gate record
+
+The formal Phase-0→1 adversarial gate (`/create-plan` §Step 4) has not run yet;
+this branch is still in Phase 0. The entries below record the manual adversarial
+hardening passes run against this log during research, cast in the canonical
+gate-record heading shape so a later consumer reads the gate state at a glance.
+
+- Full per-lens reports for passes 5–12 live in
+  `_workflow/adversarial-pass<N>-concurrency.md` and
+  `_workflow/adversarial-pass<N>-durability.md`; they play the role of the
+  canonical ephemeral `_workflow/reviews/research-log-adversarial-iter<N>.md`
+  files. Passes 1–4 predate the per-pass-file convention and are inline only.
+- The finding bodies (F33–F121) and their D-record resolutions are under
+  Surprises & Discoveries → "Adversarial review findings (passes 1–12)".
+- A consumer checking gate state matches the latest dated entry (pass 12).
+  Passes 1–11 are fully resolved; pass 12's proposed resolutions are registered
+  but not yet settled, so the gate is **open**.
+
+### Adversarial review of this log (2026-06-03) — NEEDS REVISION: 6 findings (F33–F38), 1 blocker
+Pass 1 — initial spine attack (contradictions, ungrounded claims, gaps). Inline;
+no report file. All resolved (F33→D19, F34→D3, F35→D15, F36→F31, F37→D6, F38→D7).
+
+### Adversarial review of this log (2026-06-03) — NEEDS REVISION: 6 findings (F39–F44), 2 blockers
+Pass 2 — re-attack on D16–D19 / F26–F38. Inline; no report file. All resolved.
+
+### Adversarial review of this log (2026-06-04) — NEEDS REVISION: 3 findings (F45–F47)
+Pass 3 — D8/F41, D14, D15 commit-machinery seams (PSI-verified). Inline; no
+report file. All resolved.
+
+### Adversarial review of this log (2026-06-04) — NEEDS REVISION: 4 findings (F48–F51)
+Pass 4 — performance pass on the 400-class / 4,000-index batch workload. Inline;
+no report file. All resolved (concentration envelope + one F35 implementation
+invariant).
+
+### Adversarial review of this log (2026-06-10) — NEEDS REVISION: 12 findings (F52–F63), 4 blockers
+Pass 5 — two lenses (concurrency + durability) on the lock architecture, the
+commit-failure path, and the WAL replay machinery. Reports:
+`_workflow/adversarial-pass5-concurrency.md`,
+`_workflow/adversarial-pass5-durability.md`. All resolved.
+
+### Adversarial review of this log (2026-06-10) — NEEDS REVISION: 12 findings (F64–F75), 3 blockers
+Pass 6 — pass-5-created seams plus the session-layer commit phase and the
+file-id recycle branch. Reports: `_workflow/adversarial-pass6-concurrency.md`,
+`_workflow/adversarial-pass6-durability.md`. All resolved.
+
+### Adversarial review of this log (2026-06-10) — NEEDS REVISION: 7 findings (F76–F82), 0 blockers
+Pass 7 — audited the never-attacked text the pass-5/6 resolutions wrote into the
+D entries. Reports: `_workflow/adversarial-pass7-concurrency.md`,
+`_workflow/adversarial-pass7-durability.md`. All resolved.
+
+### Adversarial review of this log (2026-06-11) — NEEDS REVISION: 9 findings (F83–F91), 1 blocker
+Pass 8 — attacked the pass-7 folds. Reports:
+`_workflow/adversarial-pass8-concurrency.md`,
+`_workflow/adversarial-pass8-durability.md`. All resolved: F83–F85/F89 dissolved
+by postponing cross-thread reaping to YTDB-1114; F86–F88/F90–F91 accepted and
+folded.
+
+### Adversarial review of this log (2026-06-11) — NEEDS REVISION: 4 findings (F92–F95), 0 blockers
+Pass 9 — attacked the pass-8 settlement text. Reports:
+`_workflow/adversarial-pass9-concurrency.md`,
+`_workflow/adversarial-pass9-durability.md`. All resolved.
+
+### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 8 findings (F96–F103), 0 blockers
+Pass 10. Reports: `_workflow/adversarial-pass10-concurrency.md`,
+`_workflow/adversarial-pass10-durability.md`. All resolved.
+
+### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 10 findings (F104–F113), 0 blockers
+Pass 11 (scoped). Reports: `_workflow/adversarial-pass11-concurrency.md`,
+`_workflow/adversarial-pass11-durability.md`. All resolved.
+
+### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 8 findings (F114–F121), 2 major — OPEN
+Pass 12 (scoped). Reports: `_workflow/adversarial-pass12-concurrency.md`,
+`_workflow/adversarial-pass12-durability.md`. Proposed resolutions are registered
+in the finding entries but not yet settled. This is the latest entry: the gate
+stays open until F114–F121 settle and a re-attack clears, after which the formal
+Phase-0→1 gate runs at `/create-plan` §Step 4.
