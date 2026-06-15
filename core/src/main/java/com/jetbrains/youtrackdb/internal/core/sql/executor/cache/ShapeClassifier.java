@@ -267,12 +267,13 @@ public final class ShapeClassifier {
    * WHERE carries no cross-alias / link-deref / subquery escape; this method only adds the
    * single-binding shape test plus the projectable-ORDER-BY test.
    *
-   * <p><b>ORDER BY projectability.</b> The RECORD fold sorts the raw cached records by the entry's
-   * ORDER BY and projects each row only at the emit boundary, so every ORDER BY item must resolve
-   * against the single bound record: it must reference either a bare record attribute or a path whose
-   * head is the bound alias ({@code ORDER BY u.name}, reduced to {@code name} on the record). An ORDER
-   * BY over a foreign head or a computed projection alias cannot be read from the raw record and keeps
-   * the statement on the {@code MATCH_TUPLE_MULTI} path (currently served uncached) rather than
+   * <p><b>ORDER BY projectability.</b> The RECORD fold sorts by projecting both merge heads to the
+   * RETURN tuple and comparing them, so every ORDER BY item must resolve against a column the projected
+   * tuple carries: a path whose head is the bound alias ({@code ORDER BY u.name}, present in the tuple
+   * as the {@code u.name} column). An ORDER BY over a foreign head, a computed projection alias, a RID
+   * sort, or a bare record attribute ({@code @rid}/{@code @class}/{@code @version}/…) cannot be read
+   * from the projected tuple (the tuple is non-identifiable and keyed only by the RETURN columns), so it
+   * keeps the statement on the {@code MATCH_TUPLE_MULTI} path (currently served uncached) rather than
    * producing a mis-sorted RECORD merge.
    */
   private static boolean isSingleAliasRecordFold(@Nonnull SQLMatchStatement match) {
@@ -293,11 +294,20 @@ public final class ShapeClassifier {
   }
 
   /**
-   * True when every ORDER BY item resolves against the single bound record: a bare record attribute,
-   * or an alias-headed path whose head is {@code boundAlias} (so stripping the alias prefix yields a
-   * record property). A {@code null} ORDER BY (no sort) is trivially local. Any item with a foreign
-   * alias head, a RID sort, or a head that is neither the bound alias nor a bare attribute is not
-   * record-local and disqualifies the RECORD fold.
+   * True when every ORDER BY item resolves against the single bound record by reading a column the
+   * projected RETURN tuple carries: an alias-headed path whose head is {@code boundAlias} (so the
+   * projected tuple keeps that column, e.g. {@code u.name}). A {@code null} ORDER BY (no sort) is
+   * trivially local. Any other item disqualifies the RECORD fold and keeps the statement on the
+   * {@code MATCH_TUPLE_MULTI} path.
+   *
+   * <p>A RID sort and a record-attribute sort ({@code @rid}, {@code @class}, {@code @version}, …) are
+   * both rejected for the same reason: the view sorts by projecting both merge heads to the RETURN
+   * tuple and comparing them, but that tuple is a non-identifiable {@code ResultInternal} keyed only by
+   * the RETURN columns ({@code u}, {@code u.name}), so {@code getProperty("@rid")} / a RID read resolves
+   * to {@code null} on every head. The comparator would treat every row as equal and emit in cache /
+   * inject order, mis-sorting vs a fresh MATCH that orders on the raw record's attribute before the
+   * final projection. Admitting such an ORDER BY would therefore produce a silently wrong order, so it
+   * stays on the per-tuple {@code MATCH_TUPLE_MULTI} floor rather than folding to RECORD.
    */
   private static boolean orderByIsAliasLocal(@Nullable SQLOrderBy orderBy,
       @Nullable String boundAlias) {
@@ -317,10 +327,10 @@ public final class ShapeClassifier {
         }
         continue;
       }
-      if (item.getRecordAttr() == null) {
-        // Neither an alias path nor a bare record attribute: not resolvable on the raw record.
-        return false;
-      }
+      // Anything that is not an alias-headed path — a bare record attribute (@rid/@class/@version/…) or
+      // a bare identifier — cannot be resolved on the projected RETURN tuple, so it disqualifies the
+      // fold. (A bare record attribute would read null on the projected tuple and mis-sort.)
+      return false;
     }
     return true;
   }

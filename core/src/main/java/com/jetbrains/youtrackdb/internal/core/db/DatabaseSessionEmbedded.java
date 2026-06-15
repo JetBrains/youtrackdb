@@ -899,8 +899,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     // RETURN tuples, but the cache must store raw, RID-identifiable records so the RECORD skip-set /
     // sorted-merge stay RID-addressable. Map the projected stream back to raw single-record rows and
     // carry the RETURN projector on the entry; the view re-derives the tuple at the emit boundary.
-    var matchOrigin = (statement instanceof SQLMatchStatement match)
-        ? singleAliasOrigin(match) : null;
+    //
+    // Scope this fold strictly to the RECORD shape. A single-alias MATCH can still classify K0_NONE
+    // (statement SKIP/LIMIT, while:/maxDepth:/optional:), and the K0_NONE replay path
+    // (CachedResultSetView.computeNextK0None) never applies a returnProjector — it emits stored rows
+    // verbatim. Installing the raw-record mapper + projector on a K0_NONE entry would store raw
+    // entities and then emit them unprojected, so the view would return raw records instead of the
+    // RETURN tuple a fresh execution yields. Gating on shape==RECORD keeps a K0_NONE single-alias MATCH
+    // on the normal replay path, where it stores and emits the executor's real RETURN tuples.
+    var matchOrigin =
+        (shape == CacheableShape.RECORD && statement instanceof SQLMatchStatement match)
+            ? singleAliasOrigin(match) : null;
     ExecutionStream lifted = localResult.getStream();
     if (matchOrigin != null) {
       var alias = matchOrigin.getAlias();
@@ -926,6 +935,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         ctx,
         populateMutationVersion);
     if (matchOrigin != null && statement instanceof SQLMatchStatement match) {
+      assert shape == CacheableShape.RECORD : "Etap-A projector installed on a non-RECORD entry";
       entry.setReturnProjector(buildMatchReturnProjector(match, matchOrigin, args));
     }
     cache.put(key, entry);
@@ -1257,6 +1267,17 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // way). Re-wrap it into the alias-keyed { alias -> record } row the MATCH executor's first step
       // emits, then run the RETURN projection over it.
       var entity = rawRow.asEntityOrNull();
+      // A well-formed single-alias MATCH binds exactly one class-constrained record per row, so the raw
+      // cached / injected row always carries that record. A null here means the binding vanished
+      // between stream production and projection (a deleted/unreadable record the RID skip-set should
+      // have suppressed) — an edge the design treats as not-reached. Fail loudly rather than emit a
+      // non-identifiable empty tuple (new ResultInternal(session, null) leaves identifiable null), which
+      // would be a silent wrong row; a future shape-broadening that lets a null binding through must
+      // surface here rather than corrupt the result.
+      if (entity == null) {
+        throw new IllegalStateException(
+            "single-alias MATCH RETURN projector found no bound record for alias " + alias);
+      }
       var aliasRow = new ResultInternal(this);
       aliasRow.setProperty(alias, entity);
       return projection.calculateSingle(projectorCtx, aliasRow, false);
@@ -1275,8 +1296,15 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private ResultMapper rawAliasRecordMapper(@Nonnull String alias) {
     return (projectedRow, ctx) -> {
       var entity = projectedRow.getEntity(alias);
-      // A single-alias MATCH binds exactly one record per row; the alias key always resolves to it.
-      assert entity != null : "single-alias MATCH row carries no record under alias " + alias;
+      // A single-alias MATCH binds exactly one record per row; the alias key always resolves to it. A
+      // null binding would make new ResultInternal(session, null) a non-identifiable empty row, which
+      // the RID skip-set cannot address and which emits as a silent wrong tuple. Fail loudly instead so
+      // a future shape-broadening that lets a null binding through surfaces here rather than corrupting
+      // the cached result.
+      if (entity == null) {
+        throw new IllegalStateException(
+            "single-alias MATCH row carries no record under alias " + alias);
+      }
       return new ResultInternal(this, entity);
     };
   }

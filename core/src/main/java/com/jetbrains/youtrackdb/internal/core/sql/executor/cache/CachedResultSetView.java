@@ -102,6 +102,16 @@ public final class CachedResultSetView implements ResultSet {
   /** One-element lookahead the merge fills in {@link #hasNext()} and drains in {@link #next()}. */
   @Nullable private Result lookahead;
 
+  // --- Comparison-time projection memo for the cache head (RECORD merge only) ---
+  // While the inject side keeps winning, `position` does not advance, so the same cache row at
+  // `position` is compared (and re-projected) against successive inject heads. Projecting it once per
+  // emission decision instead of once per losing compare turns the merge's worst-case O(n*k) projector
+  // calls back into O(n+k). The memo is valid only while `position` is unchanged; advancing the cache
+  // cursor (the cache row was consumed or skipped) invalidates it. The inject head is naturally
+  // single-use — it advances when consumed — so only the cache head needs memoizing.
+  private int compareMemoPosition = -1;
+  @Nullable private Result compareMemoProjection;
+
   private boolean closed;
 
   /**
@@ -294,7 +304,7 @@ public final class CachedResultSetView implements ResultSet {
       // column (e.g. u.name) resolves and the comparator ranks on the projected value, not the raw
       // record.
       var cmp = orderBy == null ? -1 : orderBy.compare(projectForCompare(deltaHead),
-          projectForCompare(cacheHead), ctx);
+          projectCacheHeadForCompare(cacheHead), ctx);
       if (cmp <= 0) {
         return project(delta.advanceInject());
       }
@@ -322,6 +332,27 @@ public final class CachedResultSetView implements ResultSet {
   @Nonnull
   private Result projectForCompare(@Nonnull Result raw) {
     return project(raw);
+  }
+
+  /**
+   * Comparison-time projection of the cache head at the current {@link #position}, memoized so the same
+   * cache row is projected at most once per emission decision. While the inject side wins, {@code
+   * position} stays fixed and {@code raw} is the same row across iterations; without the memo each
+   * losing compare would re-run the projector, giving the merge a worst-case O(n*k) projector calls
+   * where O(n+k) distinct projections suffice. The memo keys on {@code position}: once the cache cursor
+   * advances (the row was consumed or skipped) a later read at the same numeric position is a different
+   * row, so a position change invalidates the cached projection. This is the cache the {@link
+   * #projectForCompare} seam was kept separate for.
+   */
+  @Nonnull
+  private Result projectCacheHeadForCompare(@Nonnull Result raw) {
+    if (compareMemoPosition == position && compareMemoProjection != null) {
+      return compareMemoProjection;
+    }
+    var projected = projectForCompare(raw);
+    compareMemoPosition = position;
+    compareMemoProjection = projected;
+    return projected;
   }
 
   /** Whether the delta skip-set suppresses this row. Non-identifiable rows are never skipped. */

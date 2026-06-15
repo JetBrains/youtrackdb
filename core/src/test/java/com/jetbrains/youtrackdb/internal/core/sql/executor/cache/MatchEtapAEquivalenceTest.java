@@ -82,6 +82,16 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
   }
 
   /**
+   * The same single-alias MATCH with a statement-level {@code LIMIT}. A LIMIT routes the statement to
+   * the K0_NONE shape (a paginated top-N prefix is not delta-reconcilable), so it must NOT pick up the
+   * Etap-A raw-record mapper / returnProjector: the K0_NONE replay path emits stored rows verbatim and
+   * never re-projects, so a K0_NONE entry must store the executor's real RETURN tuples, not raw records.
+   */
+  private static String matchSqlLimited() {
+    return matchSql() + " limit 5";
+  }
+
+  /**
    * Clears every committed record of CLASS_NAME in its own tx with the cache forced off, so the
    * flag-off and flag-on halves of a pair start from identical committed state and the clearing DELETE
    * never touches the cache under test.
@@ -151,6 +161,12 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
    */
   private List<List<String>> runScenario(boolean cacheEnabled, String[] seedNames,
       Consumer<FrontendTransactionImpl> mutation) {
+    return runScenario(cacheEnabled, seedNames, mutation, matchSql());
+  }
+
+  /** As {@link #runScenario(boolean, String[], Consumer)} but driving an explicit MATCH SQL. */
+  private List<List<String>> runScenario(boolean cacheEnabled, String[] seedNames,
+      Consumer<FrontendTransactionImpl> mutation, String sql) {
     clearClass();
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
     for (var n : seedNames) {
@@ -159,9 +175,9 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
 
     session.begin();
-    snapshot(session.query(matchSql())); // populate (flag on) or plain execution (flag off)
+    snapshot(session.query(sql)); // populate (flag on) or plain execution (flag off)
     mutation.accept(tx());
-    var result = snapshot(session.query(matchSql())); // delta-replayed view (on) or fresh (off)
+    var result = snapshot(session.query(sql)); // delta-replayed view (on) or fresh (off)
     session.rollback();
     return result;
   }
@@ -169,6 +185,15 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
   private void assertEquivalent(String[] seedNames, Consumer<FrontendTransactionImpl> mutation) {
     var fresh = runScenario(false, seedNames, mutation);
     var cached = runScenario(true, seedNames, mutation);
+    assertEquals(
+        "Cached single-alias MATCH replay must equal a fresh uncached execution at the same moment",
+        fresh, cached);
+  }
+
+  private void assertEquivalent(String[] seedNames, Consumer<FrontendTransactionImpl> mutation,
+      String sql) {
+    var fresh = runScenario(false, seedNames, mutation, sql);
+    var cached = runScenario(true, seedNames, mutation, sql);
     assertEquals(
         "Cached single-alias MATCH replay must equal a fresh uncached execution at the same moment",
         fresh, cached);
@@ -269,6 +294,102 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
   public void noMutation_replaysFrozenResult() {
     assertEquivalent(new String[] {"alice", "bob", "carol"}, t -> {
     });
+  }
+
+  /**
+   * Multiple post-populate CREATEs that all sort before the single cached record. The RECORD
+   * sorted-merge compares the same cache head against each injected row in turn, so the cache head is
+   * re-projected on each losing comparison — this is the path the comparison-time projection memo
+   * covers. The cached replay must still equal a fresh execution (the memo must return the identical
+   * projected tuple it computed the first time), proving the memoization is transparent.
+   */
+  @Test
+  public void multipleInjectsBeforeOneCacheHead_matchesFresh() {
+    // Seed a single matching record whose ORDER BY key ("mike") sorts after the three injected names,
+    // so each inject wins the comparison against the same cache head and the merge re-reads it.
+    assertEquivalent(new String[] {"mike"}, t -> {
+      for (var n : new String[] {"alice", "bob", "carol"}) {
+        var e = session.newEntity(CLASS_NAME);
+        e.setProperty(NAME, n);
+        e.setProperty(FLAG, true);
+      }
+    });
+  }
+
+  // ===========================================================================
+  // K0_NONE single-alias MATCH — must replay real RETURN tuples, not raw records
+  // ===========================================================================
+
+  /**
+   * A single-alias MATCH with a statement-level {@code LIMIT} classifies K0_NONE, not RECORD: the
+   * paginated prefix is not delta-reconcilable. Such an entry must NOT install the Etap-A raw-record
+   * mapper / returnProjector — the K0_NONE replay path emits stored rows verbatim without re-projecting,
+   * so a mis-scoped install would store raw records and emit raw entity rows instead of the {@code u,
+   * u.name} RETURN tuple. This test asserts the cached LIMIT replay equals a fresh uncached LIMIT
+   * execution, which fails (raw rows vs projected tuples) if the projector install is not gated on
+   * shape==RECORD.
+   */
+  @Test
+  public void limitedSingleAliasMatchReplaysProjectedTuples() {
+    assertEquivalent(new String[] {"alice", "bob", "carol"}, t -> {
+    }, matchSqlLimited());
+  }
+
+  /**
+   * Same K0_NONE LIMIT shape, now with a post-populate CREATE. The K0_NONE path re-executes (the
+   * version gate forces a fresh run once a mutation lands), so the cached replay must still match a
+   * fresh uncached LIMIT execution that sees the new row, and must emit projected tuples throughout.
+   */
+  @Test
+  public void limitedSingleAliasMatchWithCreate_matchesFresh() {
+    assertEquivalent(new String[] {"alice", "carol"}, createMatching("bob"), matchSqlLimited());
+  }
+
+  /**
+   * Direct row-shape assertion for the K0_NONE LIMIT path: the cached view's emitted row must carry the
+   * same column set a fresh uncached LIMIT execution produces (the RETURN tuple's columns), not the raw
+   * record's own properties ({@code name}/{@code active}). The expected column set is read from a fresh
+   * run rather than hardcoded so the test does not depend on the exact projected-column naming. Pins the
+   * row shape directly: a projector install mis-scoped onto the K0_NONE entry would emit raw entity rows
+   * whose property names include {@code active}, failing the equality check below.
+   */
+  @Test
+  public void limitedSingleAliasMatchEmitsReturnTupleColumns() {
+    commitMatching("alice");
+
+    // Source of truth: the RETURN tuple's column set from a fresh uncached execution.
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    java.util.Set<String> expectedColumns;
+    session.begin();
+    try (var rs = session.query(matchSqlLimited())) {
+      assertTrue("the LIMIT MATCH must return at least one row", rs.hasNext());
+      expectedColumns = new java.util.HashSet<>(rs.next().getPropertyNames());
+    } finally {
+      session.rollback();
+    }
+    // A projected RETURN tuple must not expose the raw record's own WHERE-only field.
+    assertFalse("the fresh RETURN tuple must not carry the raw record's own '" + FLAG + "' field",
+        expectedColumns.contains(FLAG));
+
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    session.begin();
+    try {
+      // First query populates the K0_NONE entry; second is served from it.
+      try (var populate = session.query(matchSqlLimited())) {
+        while (populate.hasNext()) {
+          populate.next();
+        }
+      }
+      try (var rs = session.query(matchSqlLimited())) {
+        assertTrue("the cached LIMIT MATCH must return at least one row", rs.hasNext());
+        Result row = rs.next();
+        assertEquals(
+            "the cached K0_NONE view must emit the RETURN tuple columns, not raw record fields",
+            expectedColumns, new java.util.HashSet<>(row.getPropertyNames()));
+      }
+    } finally {
+      session.rollback();
+    }
   }
 
   // Name-keyed mutation wrappers: the RID is resolved inside the scenario tx (after re-seed) by a

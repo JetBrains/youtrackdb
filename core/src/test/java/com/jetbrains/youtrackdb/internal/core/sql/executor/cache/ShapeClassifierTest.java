@@ -321,6 +321,22 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
+   * A single-alias MATCH whose ORDER BY is a bare record attribute ({@code @rid}) must NOT fold onto
+   * the RECORD path. The RECORD fold sorts by projecting both merge heads to the RETURN tuple ({@code
+   * u}, {@code u.name}) and comparing them, but that projected tuple is non-identifiable, so reading
+   * {@code @rid} on it returns null for every head — the comparator would treat all rows as equal and
+   * emit in cache/inject order, mis-sorting vs a fresh MATCH that orders on the raw record's @rid. The
+   * statement must stay MATCH_TUPLE_MULTI instead.
+   */
+  @Test
+  public void singleAliasMatchWithRecordAttrOrderByStaysTupleMulti() {
+    Assert.assertEquals(
+        CacheableShape.MATCH_TUPLE_MULTI,
+        ShapeClassifier.classify(
+            parse("match {as:u, class:OUser} return u, u.name order by @rid")));
+  }
+
+  /**
    * MATCH + LIMIT routes to K0_NONE: a cached top-N tuple set cannot promote tuple N+1 after an
    * in-transaction drop, so the paginated prefix is structurally incomplete (the same reason as the
    * SELECT SKIP/LIMIT gate). The SKIP/LIMIT check runs first, before any other MATCH gate.
