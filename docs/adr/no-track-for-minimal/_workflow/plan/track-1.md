@@ -22,12 +22,13 @@ Track 2 rewires the runtime consumers onto it.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-15T15:30Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-15T16:09Z [ctx=safe] Step 1 complete (commit e7d18b9bb6)
 - [x] 2026-06-15T16:30Z [ctx=safe] Step 2 complete (commit 16ac0731c9)
+- [x] 2026-06-15T16:42Z [ctx=safe] Step 3 complete (commit c710c0796a)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -55,6 +56,12 @@ at Phase 1. -->
   widening, and the Phase-4 / track-completion signal). The consistency
   sweep also reconciled stale `workflow.md` plan-checkbox text and two
   glossary entries to the ledger model. See Episodes §Step 2.
+- 2026-06-15T16:42Z Step 3 left the `s17` staging-mode token spelling
+  unpinned (the script validates only that it is a bare token); Track 2
+  pins the literal when it re-points the §1.7 marker readers. The
+  `create-plan` Phase-1 seeding now writes `phase=0` and the `tier`
+  field, so the tier is read from the ledger rather than a plan line.
+  See Episodes §Step 3.
 
 ## Decision Log
 
@@ -212,6 +219,10 @@ at Phase 1. -->
   readers, the `.claude/scripts/**` enforcement gate, and the Phase-4 /
   track-completion signal on their develop-era plan-checkbox sources for
   Track 2 to re-point. See Episodes §Step 2.
+- 2026-06-15T16:42Z (dependency-reveal) Step 3 moved the change tier off
+  the plan `**Change tier:**` line onto the ledger `tier` field and left
+  the `s17` token literal unpinned for Track 2's marker-reader re-point.
+  See Episodes §Step 3.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -370,7 +381,7 @@ lookup keeps the track-file sub-state walk unchanged.
    Phase 1 via `--append-ledger`; rewire Step 1c resume routing onto the ledger
    (D10). — risk: medium (workflow machinery, behavioral but bounded: one skill's
    decision/dispatch logic) — size: ~1 file; no mergeable low/medium work fits
-   (the rest of the track is high)  [ ]
+   (the rest of the track is high)  [x] commit: c710c0796a
 
 Steps are sequential: Step 1 pins the ledger grammar (the contract), Step 2
 documents the model that references it, and Step 3 consumes both (seeds the
@@ -485,6 +496,47 @@ and the `create-final-design.md` Phase-4 `git add` plus divergence check
 to include `.claude/scripts` (D14). (3) Re-point the Phase-4 start/resume
 signal and the track-completion-episode writer off the plan
 `## Final Artifacts` and track checkbox onto the ledger.
+
+### Step 3 — commit c710c0796a, 2026-06-15T16:42Z [ctx=safe]
+**What was done:** Rewrote the staged `create-plan/SKILL.md` to produce
+the derived-mirror artifact set. Dropped the `minimal` shape-complete
+stub plan template (D2 — `minimal` has no `implementation-plan.md`).
+Thinned the `lite`/`full` aggregator template to `## Design Document`
+(full only) plus a thin cross-track `## Component Map` plus
+`## Checklist`, dropping Goals, Constraints, Architecture Notes, Plan
+Review, and Final Artifacts (D1/D5), matching the `conventions.md §1.2`
+thinned-plan schematic. Added `## Invariants & Constraints` as the 15th
+track-file section after `## Interfaces and Dependencies` (D9). Added a
+Phase-1 `--append-ledger` seeding step (`phase=0`, tier, categories,
+conditional `s17`) with the exact flags and grammar from the staged
+script (D6/D10). Rewired Step 1c resume routing onto the ledger (D10):
+`minimal` routes on ledger presence plus `tier=minimal` plus the
+`plan/track-1.md` glob, while `lite`/`full` keep plan presence as the
+signal and read the tier from the ledger.
+
+**What was discovered:** The `s17` staging-mode token spelling is not
+pinned to a literal anywhere in the staged docs or script; the docs
+describe the values descriptively and the script validates only that
+`s17` is a bare metacharacter-free token. The seeding call passes
+`--s17 <staging-mode token>` conditionally and points at
+`conventions.md §1.7(b)/(k)` as the home, leaving the exact literal to
+Track 2's marker-reader re-point (Track 1 defines the home; pinning a
+literal here would pre-empt Track 2). See Surprises §Step 3.
+
+**What changed from the plan:** none material. The Step 1c rewire split
+the old "neither file exists" branch into a truly-fresh start versus a
+plan-less `minimal` resume and added the ledger-tier parse idiom, both
+within the step's stated intent.
+
+**Key files:**
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/skills/create-plan/SKILL.md` (new)
+
+**Critical context:** The plan no longer carries a `**Change tier:**`
+line; the tier moved to the ledger `tier` field (D4), so Step 1c and
+every fresh `/execute-tracks` session read the tier from the ledger, not
+a plan line. This is the consumer-facing contract Track 2's runtime
+re-pointing builds on, alongside the ledger phase vocabulary
+{0, A, C, D, Done} from Step 1.
 
 ## Validation and Acceptance
 
