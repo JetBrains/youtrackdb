@@ -5615,8 +5615,9 @@ gate-record heading shape so a later consumer reads the gate state at a glance.
 - The finding bodies (F33–F121) and their D-record resolutions are under
   Surprises & Discoveries → "Adversarial review findings (passes 1–12)".
 - A consumer checking gate state matches the latest dated entry (pass 12).
-  Passes 1–11 are fully resolved; pass 12's proposed resolutions are registered
-  but not yet settled, so the gate is **open**.
+  Passes 1–11 are fully resolved; pass 12's findings (F114–F121) are all
+  settled (2026-06-15). The gate stays **open** pending the pass-13-vs-dry
+  re-attack, after which the formal Phase-0→1 gate runs.
 
 ### Adversarial review of this log (2026-06-03) — NEEDS REVISION: 6 findings (F33–F38), 1 blocker
 Pass 1 — initial spine attack (contradictions, ungrounded claims, gaps). Inline;
@@ -5670,9 +5671,10 @@ Pass 10. Reports: `_workflow/adversarial-pass10-concurrency.md`,
 Pass 11 (scoped). Reports: `_workflow/adversarial-pass11-concurrency.md`,
 `_workflow/adversarial-pass11-durability.md`. All resolved.
 
-### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 8 findings (F114–F121), 2 major — OPEN
+### Adversarial review of this log (2026-06-12) — NEEDS REVISION: 8 findings (F114–F121), 2 major — ALL SETTLED 2026-06-15
 Pass 12 (scoped). Reports: `_workflow/adversarial-pass12-concurrency.md`,
-`_workflow/adversarial-pass12-durability.md`. Proposed resolutions are registered
-in the finding entries but not yet settled. This is the latest entry: the gate
-stays open until F114–F121 settle and a re-attack clears, after which the formal
-Phase-0→1 gate runs at `/create-plan` §Step 4.
+`_workflow/adversarial-pass12-durability.md`. All eight findings were
+independently code-validated (PSI) and confirmed, then settled one commit each
+on 2026-06-15: F114/F115 (major) plus F116–F121 (minor). This is the latest
+entry: the gate stays open until a re-attack (pass 13 vs the loop-dry decision)
+clears, after which the formal Phase-0→1 gate runs at `/create-plan` §Step 4.
