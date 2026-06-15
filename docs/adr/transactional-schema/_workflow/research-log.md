@@ -3804,6 +3804,12 @@ CAS shape returned session-keyed at F96 with the F105 thread member;
 survey date with a live-primitive pointer (the thread-binding fact stays
 load-bearing via the F105 engage predicate).
 
+**F117 closure (2026-06-15):** the re-key left a loud-vs-warn split at this
+anchor (the Guard bullet implied a loud release-site rejection while the
+mechanism specifies a uniform warn-noop). F117 resolves it: every
+release-site mismatch warn-noops, and "loud" is the engage-side predicate
+only.
+
 ### F108 — Wiring pin (i) is satisfiable by a pre-call probe placement that re-opens F86's outage under a park-mode operator freeze [MINOR]
 Pass-11 report C37. A standalone probe before `startTxCommit` satisfies
 "throws before the depth increment" yet leaves a probe-to-`startOperation`
@@ -4185,6 +4191,20 @@ warn-log and leave the permit untouched; "loud" belongs only to the
 engage-side throw (the F105 predicate). Align both sentences. Affected:
 D7, F107, F97.
 
+**Resolved (2026-06-15): all release-site mismatches warn-log; "loud" is the
+engage-side predicate only.** A throw at the release site is wrong: the
+release runs in the teardown `finally`, where a throw would mask the owner's
+real exception (the F97 shape), and a different-session presenter reaches that
+same site. Both D7 sentences are aligned to the mechanism the
+abnormal-termination bullet already states — every release-site mismatch
+(different session, stale ordinal, holder already null) loses the CAS and
+warn-noops, permit untouched. The only loud rejection is the engage-side
+predicate (F105): the engage path throws when `holder.thread == currentThread
+&& holder.session != engagingSession`. The Guard (F38) bullet and the
+teardown bullet's pre-existing "rejected loudly" sentence are both reworded.
+Folds: D7 (both sentences), F107 record (closure note: the loud-vs-warn
+ambiguity at the re-keyed anchor is now resolved).
+
 ### F118 — The F110 relabel is still not context-exact: a pending-field-name state promotes a malformed dump, and the swallow arm's "record object open" proxy does not entail object context [MINOR]
 Pass-12 report U33 (jackson 2.21.4 artifact-verified: `writeEndObject`
 checks only `inObject()`, no dangling-name guard). (1) A failure between
@@ -4408,9 +4428,13 @@ assignee, 2026-06-03.
   re-keyed per F96; residual assert revoked per F107):** release goes
   through the session-keyed atomic compare-and-clear described in the
   abnormal-termination bullet — only the owning session's teardown
-  releases, from any thread; a different-session presenter is rejected
-  loudly, and a stale same-session presenter loses the CAS and
-  warn-noops. The pass-9 same-thread release assert is revoked (it would
+  releases, from any thread; every release-site mismatch (different session,
+  stale ordinal, holder already null) loses the CAS and warn-noops, leaving
+  the permit untouched — the release site is the teardown `finally`, which
+  must not throw (the F97 mask shape). Loud rejection is the engage-side
+  predicate only (F105): the engage path throws when the mutex is held by a
+  different session on the current thread. The pass-9 same-thread release
+  assert is revoked (it would
   fire `AssertionError` on the pool-teardown heal), and no primitive in
   the settled design can throw `IllegalMonitorStateException`. v1 scopes
   mid-tx session migration out (F13).
@@ -4555,10 +4579,13 @@ assignee, 2026-06-03.
   can admit one more zombie commit — harmless, because that straggler still
   serializes behind F52's lock and runs on a cleared tx (F85). Relaxing
   F52's lock scope — e.g. a future seed that reads outside the schema lock —
-  re-opens two-writer exposure on the heal path. A buggy different-session release is
-  rejected loudly — F38's same-thread rule becomes this session-identity
-  rule, enforced by the explicit guard rather than lock ownership
-  (mid-tx thread migration stays scoped out, F13). (2) The engage path
+  re-opens two-writer exposure on the heal path. A buggy different-session
+  release at this site warn-noops like every other release-site mismatch (the
+  F97 mask shape forbids a throw from the teardown `finally`) — F38's
+  same-thread rule becomes this session-identity rule, enforced by the
+  explicit guard rather than lock ownership, and the loud signal for a
+  different-session conflict is the engage-side predicate below, not the
+  release (mid-tx thread migration stays scoped out, F13). (2) The engage path
   reads the holder before acquiring and throws loudly when the mutex is
   held by a different session on the current thread — the concrete
   predicate is `holder.thread == currentThread && holder.session !=
