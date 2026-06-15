@@ -11,12 +11,13 @@ YTDB-1124. `research.md` tells the agent to append decisions to the research log
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-15T05:44Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-15T06:05Z [ctx=safe] Step 1 complete (commit 69c673e359)
 - [x] 2026-06-15T06:54Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-15T07:00Z [ctx=safe] Track-level code review iteration 2 complete (2/3 iterations)
+- [x] 2026-06-15T07:02Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -59,6 +60,22 @@ summary at Phase C. -->
   blocker/should-fix. T1 (suggestion, accepted): tightened D1's §1.7(l)
   "first to exercise" caveat to name the (b) trigger and disclaim the
   first-via-(k) milestone.
+- [x] Phase C track-level review: PASS in 2 of 3 iterations. The diff was
+  workflow-only, so the five §1.7(l) prose-lens reviewers ran (consistency,
+  prompt-design, instruction-completeness, context-budget, writing-style) and
+  the four code baselines were skipped. Iteration 1 raised six findings.
+  WI1 and WP1 collapsed to one opacity-rule ambiguity: the "one sanctioned
+  recap" wording read as exclusive and dropped Decision-Log D3's second
+  carve-out (the create-plan Step-4 gate-verdict recital). WP2 flagged a
+  cross-reference handle that did not match the §Rules bullet title, and WS1
+  through WS3 flagged em-dash overuse in the track file's own prose. The
+  implementer fixed the two staged-file findings (scoping the recap clause to
+  the log itself and naming the Step-4 verdict as a permitted non-recap;
+  aligning the handle); the orchestrator fixed the track-file em-dashes. The
+  iteration-1 reword introduced one regression (WS4, a fresh em-dash pair in
+  the opacity bullet) that the gate-check caught and iteration 2 fixed. All
+  final gate-checks returned VERIFIED. No deferred findings, no plan
+  corrections.
 
 ## Context and Orientation
 This track edits two workflow-prose files. Their current leak-inviting text:
