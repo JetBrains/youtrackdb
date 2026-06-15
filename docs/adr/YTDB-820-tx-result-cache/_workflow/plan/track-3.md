@@ -361,6 +361,9 @@ not in `lookup`). Track 2 is a sequencing predecessor (stacked-diff order) and t
 source of the `serveThroughCache` separate-gate + `viewOwnsGuard`-transfer pattern;
 MATCH does not consume aggregate internals.
 
+## Base commit
+6913778bbeeb02ce6711d2c1ec894bd27a39043d
+
 **Downstream consumers:** none (final shape track).
 
 **Key signatures:**
