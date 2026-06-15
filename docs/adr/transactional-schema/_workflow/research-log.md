@@ -4377,6 +4377,145 @@ already safe (a threshold-dropped sentinel fails the control). Folds: D20
 review pin (sentinel category pinned), F113 resolved block (amendment); F102's
 two-capture structure is unchanged.
 
+### F122 — F114's engage-time cut races the entrant's enqueue, and the pre-park re-check is not kind-aware: an entrant that enqueues after the cut parks against the operator freeze and never wakes, reopening F86 [BLOCKER]
+Pass-13 report C1. F114 added the operator-arm `cutWaitingList`+`unpark`, but
+the cut is one-shot and does not order against a concurrent enqueue.
+Interleaving: the schema entrant passes `throwFreezeExceptionIfNeeded`
+(`OperationsFreezer:40`) while only a transient quiesce is active (no throw
+supplier, so no throw); the operator-arm cut fires (the operator freeze
+engages) before the entrant reaches `addThreadInWaitingList` (`:44`), so the
+cut misses the node; the entrant then enqueues and reaches the pre-park
+re-check at `:46`, which is a **bare `freezeRequests.get() > 0` count read,
+not kind-aware** (the only throw site is `:40`, already passed) — so it parks
+at `:47` against the operator freeze and stays parked inside the four-lock
+window until `freezeRequests → 0`, the exact F86/C38 read outage F114 claimed
+to close. The release path is immune only because release drops
+`freezeRequests` to 0 before cutting; the engage path keeps it > 0, breaking
+that invariant. F114's Dekker citation (`operationsCount`/`freezeRequests`)
+orders the drain, not the cut/enqueue race. Confirmed against the source
+(`:40` is the sole throw, `:46` is a bare count read before `park`).
+
+**Resolution (proposed):** add the missing half — make the pre-park re-check
+at `:46` **kind-aware** for the schema-commit entrant (re-run the kind-aware
+throw decision after `addThreadInWaitingList`, before `park`), so an operator
+freeze that engaged after `:40` is seen and throws rather than parks; this
+closes the enqueue-races-cut window independent of the cut. The operator-arm
+cut-and-unpark (F114) stays for the already-parked layered case (the woken
+entrant re-runs `:40` and throws). Together they close both the enqueue-race
+and the already-parked windows; correct the Dekker-pair claim. Affected: F114,
+F108, D7, F86.
+
+### F123 — F114's "`cutWaitingList` stays cut-safe, never a double-unpark" is false: the head==tail branch returns without CAS, so two cutters double-unpark the same waiter [MINOR]
+Pass-13 report C2. F114 adds a second concurrent `cutWaitingList` caller (the
+operator-arm), so pass-12's sole-caller PSI is now stale. `WaitingList:47-48`
+returns `new WaitingListNode(head.item)` on the `head == tail` branch with no
+CAS and no head/tail clear, so two cutters (operator-arm + `releaseOperations`)
+both return the same waiter and double-unpark it; the single-element branch
+also leaves `head == tail` so the tail can re-return. Benign — `unpark` is
+permit-idempotent and the woken entrant re-evaluates — but the asserted
+property is wrong as written (confirmed against `WaitingList.cutWaitingList`).
+
+**Resolution (proposed):** reword the F114 cut-safety clause — concurrent
+cutters may double-unpark a waiter, which is benign (idempotent `unpark`; the
+woken entrant re-evaluates and re-parks or throws); the property pinned is "no
+lost wakeup and no over-release of the freezer count," not "no double-unpark."
+Note the cutWaitingList sole-caller fact is superseded (F114 adds the second
+caller). Affected: F114.
+
+### F124 — F116's "admits at most one more zombie commit" over-states the bound: the plain-status visibility window is unbounded [MINOR]
+Pass-13 report C3. `status` is a plain field (`DatabaseSessionEmbedded:223`)
+with no JMM edge from the foreign teardown's CLOSED write, so the staleness
+window is unbounded — the count of zombie commits the late-visible status can
+admit is "one or more," not "at most one." Harmless (the structural safety is
+F52's whole-commit lock on a cleared tx, correctly named by F116), but the
+quantifier is wrong.
+
+**Resolution (proposed):** reword F116's bound from "at most one more zombie
+commit" to "one or more (the plain-status visibility window is unbounded under
+the JMM)"; the structural safety is unchanged. Affected: F116, D7.
+
+### F125 — F120's isolation does not survive the copy-out: a stream-in failure mid-record strands the shared generator at object context and promotes a truncated record [MAJOR]
+Pass-13 report U1. F120 bounds the per-record **render**, but the buffered (or
+spilled) record still has to be copied into the shared generator. A stream-in
+failure mid-record (disk full during the copy-out) strands the shared
+generator at **object** context — the exact state isolation was sold to
+prevent. On the fail-fast path `close()`'s `writeEndObject` then succeeds at
+object context and promotes a **truncated-but-valid-JSON record** (the F118
+silently-accepted-bad-data case, reached through F120's new copy-out surface);
+F100's "strands at array context, no promotion" guarantee inverts when the
+strand is inside a record. The "whole-or-nothing isolation for any record
+size" claim overclaims: it holds for the render step, not the copy-out the fix
+itself introduces.
+
+**Resolution (proposed):** distinguish render-failure from copy-out-failure.
+Render failure (into the buffer/spill) → clean per-record discard (isolation
+holds, shared generator untouched). Copy-out failure (streaming the buffered
+record into the shared generator) → **fatal/unrecoverable** export error, not
+a per-record discard: once the shared generator is touched it cannot be
+cleanly continued, so the export aborts and promote-only-on-success leaves no
+file at the final name (fail-closed). State that the whole-or-nothing
+guarantee is over the render step; the copy-out is an all-or-fatal step
+covered by promote-only-on-success, not by per-record discard. Affected: F120,
+F109, F118, F100, D20.
+
+### F126 — F120 is silent on the spill file's lifecycle and naming [MAJOR]
+Pass-13 report U2. The F120 text pins "discarded on render failure" but names
+no delete site for success-after-stream-in, no delete on the
+copy-out/exception path, and no collision-free spill name (risk against
+`<name>.json.gz.tmp` and against a concurrent same-database export). Standard
+temp-file discipline is unstated, and an undeleted spill leaks disk on the
+offline tool.
+
+**Resolution (proposed):** pin standard temp-file discipline for the spill — a
+unique spill name (per-export, per-record, distinct from the dump's
+`<name>.json.gz.tmp`), deleted on every path (success stream-in, render-failure
+discard, copy-out-failure abort, exception) in a `finally`; the spill is
+transient and never promoted. Affected: F120, D20.
+
+### F127 — F120's O(threshold) is false for a single oversized field value [MINOR]
+Pass-13 report U3. A single large field value (a 40 MB string/blob) cannot be
+split across the spill boundary; the serializer materializes it whole before
+it can spill. The OOME class is therefore narrowed (many-small-fields) not
+eliminated (single-large-value); "any record size … no longer OOME"
+overclaims. The correct bound is O(threshold + largest-single-value).
+
+**Resolution (proposed):** restate the bound as O(threshold + largest single
+field value); the spill bounds the aggregate record, but a single field value
+is materialized whole by the serializer before it can spill, so a value larger
+than available heap still OOMEs (fail-closed via promote-only-on-success). The
+OOME class is narrowed, not eliminated. Affected: F120.
+
+### F128 — F121's sentinel category diverges from the real error category under subclassing [MINOR]
+Pass-13 report U4. F121's sentinel uses `DatabaseExport.class`; the error
+sites use `this` (so `this.getClass()`). `DatabaseExport` is not `final`
+(PSI-verified: `final=false`, 0 current subclasses, extends
+`DatabaseImpExpAbstract`). A future subclass routes its error lines under the
+subclass category while the sentinel checks the parent category — the same
+false-pass one inheritance level down. Today's behavior is correct (0
+subclasses), but the pin is fragile.
+
+**Resolution (proposed):** provoke the sentinel through `this` (the same
+requester object the error sites use, so the category matches by construction
+regardless of subclassing) rather than through `DatabaseExport.class`;
+alternatively pin `DatabaseExport` `final`. Provoke-through-`this` is
+preferred — it tracks the actual error category by construction. Affected:
+F121, F113, D20.
+
+### F129 — F121's "every export error line travels the `DatabaseExport` category" is an over-claimed invariant [MINOR]
+Pass-13 report U5. Helper classes log under their own requester categories
+(e.g. `JSONSerializerJackson` `warn(this, …)`); the claim holds at error level
+for the legacy exporter today, but the new exporter's spill/copy-out IO
+(F125/F126) adds fresh error surfaces an implementer could route under a helper
+category, which the `DatabaseExport`-only sentinel and capture would miss.
+
+**Resolution (proposed):** scope the claim honestly — at error level the
+legacy export path routes through the `DatabaseExport` category today, and the
+new spill/copy-out IO error lines must be emitted under the same category (log
+with requester = the `DatabaseExport` instance, not the helper) so the
+sentinel and capture cover them. State the liveness control covers only the
+`DatabaseExport` category and that export-path error logging must use that
+requester. Affected: F121, F120, D20.
+
 ---
 
 ## Decision Log
@@ -5616,8 +5755,10 @@ gate-record heading shape so a later consumer reads the gate state at a glance.
   Surprises & Discoveries → "Adversarial review findings (passes 1–12)".
 - A consumer checking gate state matches the latest dated entry (pass 12).
   Passes 1–11 are fully resolved; pass 12's findings (F114–F121) are all
-  settled (2026-06-15). The gate stays **open** pending the pass-13-vs-dry
-  re-attack, after which the formal Phase-0→1 gate runs.
+  settled (2026-06-15). Pass 13 (the re-attack on the pass-12 fresh text) ran
+  2026-06-15 and was **not** dry: it registered F122–F129 (1 blocker, 2 major,
+  5 minor), not yet settled, so the gate stays **open**. The blocker (F122)
+  re-opens F114's outage; the majors (F125/F126) are in F120's spill mechanism.
 
 ### Adversarial review of this log (2026-06-03) — NEEDS REVISION: 6 findings (F33–F38), 1 blocker
 Pass 1 — initial spine attack (contradictions, ungrounded claims, gaps). Inline;
@@ -5675,6 +5816,18 @@ Pass 11 (scoped). Reports: `_workflow/adversarial-pass11-concurrency.md`,
 Pass 12 (scoped). Reports: `_workflow/adversarial-pass12-concurrency.md`,
 `_workflow/adversarial-pass12-durability.md`. All eight findings were
 independently code-validated (PSI) and confirmed, then settled one commit each
-on 2026-06-15: F114/F115 (major) plus F116–F121 (minor). This is the latest
-entry: the gate stays open until a re-attack (pass 13 vs the loop-dry decision)
-clears, after which the formal Phase-0→1 gate runs at `/create-plan` §Step 4.
+on 2026-06-15: F114/F115 (major) plus F116–F121 (minor).
+
+### Adversarial review of this log (2026-06-15) — NEEDS REVISION: 8 findings (F122–F129), 1 blocker — OPEN
+Pass 13 (scoped, re-attack on the pass-12 fresh F114–F121 text only). Reports:
+`_workflow/adversarial-pass13-concurrency.md`,
+`_workflow/adversarial-pass13-durability.md`. Two lenses; 0/16 failed attacks
+notwithstanding, the pass was not dry. Findings (proposed resolutions in the
+finding entries): F122 [BLOCKER] F114's engage-time cut races the entrant's
+enqueue and the pre-park re-check is not kind-aware → the F86 outage reopens;
+F123/F124 [MINOR] F114 cut-safety wording, F116 quantifier; F125/F126 [MAJOR]
+F120's isolation does not survive the copy-out, and the spill-file lifecycle is
+unstated; F127/F128/F129 [MINOR] F120 O(threshold) bound, F121 subclass-category
+divergence, F121 helper-category claim. This is the latest entry: the gate
+stays open until F122–F129 settle and a re-attack clears, after which the
+formal Phase-0→1 gate runs at `/create-plan` §Step 4.
