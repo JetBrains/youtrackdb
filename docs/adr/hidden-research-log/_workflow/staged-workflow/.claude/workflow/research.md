@@ -198,8 +198,8 @@ When the user says to create the plan:
   instead. The one sanctioned structured recap *of the log itself* is the
   Phase-1 transition findings summary (§Transition to Phase 1), and it too is
   plain language, not log quotes. Surfacing findings, blockers, or a gate
-  verdict to the user — for example the `create-plan` Step-4 adversarial-gate
-  verdict and tier proposal — is not a recap of the log and stays permitted.
+  verdict to the user (for example the `create-plan` Step-4 adversarial-gate
+  verdict and tier proposal) is not a recap of the log and stays permitted.
 - **Record decisions in the research log.** When the user makes a
   decision during research (e.g., "let's use approach X"), the
   acknowledgment to the user is conversational; appending the decision to
