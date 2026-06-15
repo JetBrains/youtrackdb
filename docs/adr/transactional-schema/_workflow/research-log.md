@@ -5816,19 +5816,23 @@ gate-record heading shape so a later consumer reads the gate state at a glance.
   files. Passes 1–4 predate the per-pass-file convention and are inline only.
 - The finding bodies (F33–F121) and their D-record resolutions are under
   Surprises & Discoveries → "Adversarial review findings (passes 1–12)".
-- A consumer checking gate state matches the latest dated entry (pass 13).
-  Passes 1–12 are fully resolved. Pass 13 (the re-attack on the pass-12 fresh
-  text) ran 2026-06-15 and was **not** dry: it registered F122–F129 (1 blocker,
-  2 major, 5 minor). The blocker F122 was prose-settled (`51ab351bdf`); the
-  remaining seven were closed by the **consolidation pass** (2026-06-15), which
-  re-expressed the log at design altitude in the new `## Invariants and Test
-  Requirements` and `## Delegated to implementation` sections rather than
-  prose-settling each finding. The pass-13 entry below records the
-  resolved-by-consolidation outcome. The consolidation reframes the next gate:
-  a re-attack now targets the invariant list for completeness (does it cover
-  every failure mode, is each property testable?), which converges, instead of
-  mechanism prose, which does not. Once that re-attack is dry, the formal
-  Phase-0→1 gate runs at `/create-plan` §Step 4.
+- A consumer checking gate state matches the latest dated entry: the formal
+  Phase-0→1 gate, iteration 3, **PASS** — the gate is **cleared**. Passes 1–12
+  are fully resolved. Pass 13 (the re-attack on the pass-12 fresh text) ran
+  2026-06-15 and was **not** dry: it registered F122–F129 (1 blocker, 2 major, 5
+  minor). The blocker F122 was prose-settled (`51ab351bdf`); the remaining seven
+  were closed by the **consolidation pass** (2026-06-15), which re-expressed the
+  log at design altitude in the new `## Invariants and Test Requirements` and
+  `## Delegated to implementation` sections rather than prose-settling each
+  finding. The consolidation reframed the gate to target the invariant list for
+  completeness (does it cover every failure mode, is each property testable?)
+  rather than mechanism prose. The formal Phase-0→1 gate (`/create-plan`
+  §Step 4) then ran on 2026-06-15 and cleared: three iterations attacking the
+  invariant list converged (3 findings → 1 → 0 PASS), every finding a
+  testability gap closed additively with no decision reopened. The dated entries
+  below record it — the resolved-by-consolidation pass-13 entry, then gate
+  iterations 1–3. Phase 1 design authoring (Step 4a) proceeds from the invariant
+  list.
 
 ### Adversarial review of this log (2026-06-03) — NEEDS REVISION: 6 findings (F33–F38), 1 blocker
 Pass 1 — initial spine attack (contradictions, ungrounded claims, gaps). Inline;
@@ -5947,6 +5951,19 @@ new subclass collection so a polymorphic query returns the subclass rows.
 Resolved by augmenting I-P2 with a positive membership-coverage test and a clause
 naming membership-only as a tracked changed-index category in its own right.
 Re-verified at iteration 3.
+
+### Adversarial review of this log (2026-06-15) — PASS: A4 VERIFIED, 0 new findings
+Iteration 3 (verdict-producer), same scope and lenses. Report:
+`_workflow/reviews/research-log-adversarial-iter3.md`. A4 VERIFIED: I-P2 pins the
+positive post-commit membership coverage (PSI-grounded against the real
+`collectionsToIndex` field), composing cleanly with the negative
+mid-tx/rollback clauses and partitioning ownership with I-A7 (de-guarding facets
+a/b → I-A7; persistence/coverage facet c → I-P2), so all three F46 facets now
+have a catching test. Zero new findings. The gate converged: iter1 (3 findings)
+→ iter2 (1) → iter3 (0), which is the convergent outcome the consolidation
+predicted for attacking the invariant list rather than mechanism prose. **The
+formal Phase-0→1 adversarial gate (`/create-plan` §Step 4) is CLEARED.** Phase 1
+design authoring (Step 4a) proceeds, seeded from the invariant list.
 
 ---
 
