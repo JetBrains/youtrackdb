@@ -27,6 +27,7 @@ Track 2 rewires the runtime consumers onto it.
 - [ ] Track completion
 - [x] 2026-06-15T15:30Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-15T16:09Z [ctx=safe] Step 1 complete (commit e7d18b9bb6)
+- [x] 2026-06-15T16:30Z [ctx=safe] Step 2 complete (commit 16ac0731c9)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -48,6 +49,12 @@ at Phase 1. -->
   signature and event grammar stay unchanged. Track 2's orchestrator
   callers must check the append exit status rather than assume success.
   See Episodes §Step 1.
+- 2026-06-15T16:30Z Step 2 pinned the §1.7 staging-mode marker home to
+  the ledger `s17` field and documented the full Track 2 re-point
+  surface (the §1.7 marker readers, the `.claude/scripts/**` gate
+  widening, and the Phase-4 / track-completion signal). The consistency
+  sweep also reconciled stale `workflow.md` plan-checkbox text and two
+  glossary entries to the ledger model. See Episodes §Step 2.
 
 ## Decision Log
 
@@ -200,6 +207,11 @@ at Phase 1. -->
   design diagram's illustrative `phase=3C`) and made the append
   loud-reject / loud-fail. Track 2's callers must emit these exact phase
   tokens and check the append exit status. See Episodes §Step 1.
+- 2026-06-15T16:30Z (dependency-reveal) Step 2 fixed the §1.7
+  staging-mode marker home as the ledger `s17` field and left the marker
+  readers, the `.claude/scripts/**` enforcement gate, and the Phase-4 /
+  track-completion signal on their develop-era plan-checkbox sources for
+  Track 2 to re-point. See Episodes §Step 2.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -351,7 +363,7 @@ lookup keeps the track-file sub-state walk unchanged.
    §Startup Protocol state derivation reads the ledger tail + the no-plan
    `minimal` active-track-is-`track-1` note. — risk: high (workflow machinery:
    edits the §1.7 staging convention, the §1.6 stamp scheme, the auto-resume
-   state-machine spec, and the shared plan/track schema)  [ ]
+   state-machine spec, and the shared plan/track schema)  [x] commit: 16ac0731c9
 3. create-plan authoring surface (`create-plan/SKILL.md`) — drop the `minimal`
    shape-complete stub template; thin the `lite`/`full` aggregator template; add
    `## Invariants & Constraints` to the track template; seed the ledger at
@@ -415,6 +427,64 @@ check the append exit status. See Decision Log §Step 1.
 plus the active-track number is now part of the published contract; an
 unrecognized phase token is a loud parse error (exit 3). Track 2's
 readers and Step 2's docs must use these exact tokens.
+
+### Step 2 — commit 16ac0731c9, 2026-06-15T16:30Z [ctx=safe]
+**What was done:** Specified the derived-mirror artifact model across
+the four staged workflow docs, written against Step 1's as-built ledger
+contract. `conventions.md` gained four `§1.1` glossary terms (phase
+ledger, derived-mirror plan, plan-review document, combined
+`## Invariants & Constraints`), a `§1.2` per-tier artifact set with the
+ledger and plan-review rows (plan is `lite`/`full`-only, `minimal` drops
+it) plus the thinned `lite`/`full` plan structure, the `§1.6(f)` ledger
+and plan-review unstamped exclusions (D13, excluded by omission), the
+`§1.7(b)/(k)` marker-home note (the staging mode lives in the ledger
+`s17` field per D4), the `§1.7(a)/(b)/(d)/(e)` plus `(f)` divergence-check
+`.claude/scripts/**` extension (D14), and the 14 → 15 track-section
+count. `conventions-execution.md` `§2.1` added `## Invariants &
+Constraints` as the 15th section across the template, sections-in-order,
+and the lifecycle table. `planning.md` rewired tier classification onto
+the ledger, thinned the plan, dropped the `minimal` plan, added the 15th
+section to track descriptions, and recorded the D5 disposition of
+`### Goals` and Architecture Notes. `workflow.md` `§Startup Protocol`
+now derives state from the ledger tail and gates the agent-side
+active-track Checklist walk to `lite`/`full`. `workflow-reindex --check`
+passes on all four staged docs.
+
+**What was discovered:** The internal-consistency sweep found stale
+old-model text that would have contradicted the new model and fixed it
+in the same step: two `§1.1` glossary entries (Change tier, Aggregator
+plan) and several `workflow.md` `§Startup Protocol` plan-checkbox
+references (the `phase == "0"`, `phase == "D"`/`"Done"` bullets and the
+`review-done-track-open` substate row). The §1.7 staging-mode marker
+home is now the ledger `s17` field, which Track 2 re-points its readers
+onto. See Surprises §Step 2.
+
+**What changed from the plan:** none material. Beyond the named
+sections, the consistency sweep touched a few co-located plan-checkbox
+phrasings to keep each document internally coherent, which the step's
+"no dangling reference to a removed section" validation mandates. The
+`§1.7(c)` detection rule and the marker-reader consumers were left on
+the develop-era in-plan `### Constraints` scan on purpose: re-pointing
+them onto `s17` is Track 2's work, and the `(b)/(k)` marker-home notes
+say so. See Decision Log §Step 2.
+
+**Key files:**
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/workflow/conventions.md` (modified)
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/workflow/conventions-execution.md` (modified)
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/workflow/planning.md` (modified)
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/workflow/workflow.md` (modified)
+
+**Critical context:** Track 2's re-point surface is now pinned by the
+`conventions.md` source of truth. (1) Re-point the §1.7 marker readers
+from the plan `### Constraints` scan onto the ledger `s17` field: the
+implementer per-spawn gate, the three Phase-3A `§1.7(l)` criteria-switch
+blocks, the Phase-2 review staged-read blocks, plus
+`dimensional-review-gate-check.md` and `review-gate-verification.md`
+(plan CR1). (2) Widen the implementer-rules pre-commit live-path gate
+and the `create-final-design.md` Phase-4 `git add` plus divergence check
+to include `.claude/scripts` (D14). (3) Re-point the Phase-4 start/resume
+signal and the track-completion-episode writer off the plan
+`## Final Artifacts` and track checkbox onto the ledger.
 
 ## Validation and Acceptance
 
