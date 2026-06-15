@@ -58,6 +58,10 @@ tier-specific artifact (see `prompts/adversarial-review.md`
 §Research-log-scoped review (Phase 0→1) and `planning.md` §Tier
 classification).
 
+The log is the agent's internal memory, never surfaced to the user during
+research: its structure stays out of the research conversation, and findings
+reach the user as plain prose (see §Rules).
+
 **Six sections:**
 
 - `## Initial request` — the verbatim aim, written **once** at aim
@@ -136,7 +140,9 @@ not left in the log.
    - Presents findings and intermediate conclusions
    - Helps the user evaluate trade-offs and alternatives
    - Appends decisions, surprises, and open questions to the research log
-     as they settle (§The research log)
+     as they settle (silently — the log is agent-internal; surface the
+     content to the user as plain prose, not log quotes; see §Rules and
+     §The research log)
    - Does **NOT** produce plan files, design documents, or track decompositions
 5. The user drives the conversation — asking questions, requesting deeper
    investigation, or steering toward specific areas.
@@ -148,11 +154,16 @@ not left in the log.
 
 When the user says to create the plan:
 
-1. The agent confirms the research log captures the key findings and
-   decisions from the conversation, appending any that were settled but
-   not yet logged. The log is the durable seed for planning — it ensures
-   the planning phase builds on what was decided, not just what the agent
-   happens to remember after a context boundary.
+1. The agent checks, for its own use, that the research log captures the
+   key findings and decisions from the conversation, appending any that
+   were settled but not yet logged. This is an internal completeness check
+   against the agent's own durable memory, not a request for the user to
+   review or reference the log. The user-facing output at this step is a
+   plain-language findings summary (the one sanctioned structured recap of
+   the log per §Rules), not a log review or a list of section names. The log is the
+   durable seed for planning: it ensures the planning phase builds on what
+   was decided, not just what the agent happens to remember after a context
+   boundary.
 2. Step 4 of `create-plan` reads the now-rich log to propose the change
    tier (`full` / `lite` / `minimal`) and runs the relocated adversarial
    review on the log as a gate before any Phase-1 artifact is authored
@@ -180,10 +191,21 @@ When the user says to create the plan:
   guess based on class names or package structure alone.
 - **Surface trade-offs.** When presenting findings, highlight alternatives
   and trade-offs so the user can make informed decisions.
+- **Keep the research log agent-internal.** Maintain `research-log.md`
+  silently: do not narrate writes to it, name its sections, cite D-numbers,
+  or quote its `**Why:**` / `**Alternatives rejected:**` fields to the user.
+  Surface findings, trade-offs, and decisions as plain conversational prose
+  instead. The one sanctioned structured recap *of the log itself* is the
+  Phase-1 transition findings summary (§Transition to Phase 1), and it too is
+  plain language, not log quotes. Surfacing findings, blockers, or a gate
+  verdict to the user (for example the `create-plan` Step-4 adversarial-gate
+  verdict and tier proposal) is not a recap of the log and stays permitted.
 - **Record decisions in the research log.** When the user makes a
-  decision during research (e.g., "let's use approach X"), acknowledge it
-  clearly and append it to the log's `## Decision Log` with its `**Why:**`
-  and `**Alternatives rejected:**` fields. The log, not conversation
+  decision during research (e.g., "let's use approach X"), the
+  acknowledgment to the user is conversational; appending the decision to
+  the log's `## Decision Log` with its `**Why:**` and
+  `**Alternatives rejected:**` fields is the agent's private bookkeeping
+  (keep it agent-internal per the rule above). The log, not conversation
   memory, is what carries decisions across a `/clear` and into planning.
 - **Internet research is allowed.** Use web search and web fetch when the
   user asks about external libraries, algorithms, standards, or prior art.
