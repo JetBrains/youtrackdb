@@ -5915,6 +5915,24 @@ settled was re-decided. The next re-attack targets the invariant list, not the
 mechanism prose; when it is dry, the formal Phase-0→1 gate runs at
 `/create-plan` §Step 4.
 
+### Adversarial review of this log (2026-06-15) — NEEDS REVISION: 3 findings (0 blocker, 2 should-fix, 1 suggestion)
+The formal Phase-0→1 gate (`/create-plan` §Step 4), iteration 1 — the
+convergent re-attack on the consolidated invariant list, primed with the
+Concurrency and Crash-safety / Durability lenses. Report:
+`_workflow/reviews/research-log-adversarial-iter1.md`. 21 of 24 invariants
+survived clean; the freeze-kind taxonomy and the F88 allocator pin verified
+sound. Findings, all testability gaps on otherwise-correct design intent (no
+re-decision): A1 [should-fix] — no invariant named the de-guarding of the six
+self-commit/throw transactionality entry points (F3/F4/F21/F26/F46), and none
+tested the silent membership self-commit leak; A2 [should-fix] — I-A1 had no
+positive committed-drop test, leaving the D9/F43 set-difference drop-detection
+path (not D6's changed-record set) unprotected; A3 [suggestion] — F51's
+lazy-invalidation requirement (O(1) null-and-rebuild, not O(N²) eager
+reconstruction) was unpinned. Resolved additively: added I-A7 (the
+transactional-enablement contract with the membership-leak test), a positive-drop
+test plus the detection-source property to I-A1, and an F51 lazy-invalidation
+entry to `## Delegated to implementation`. Re-verified at iteration 2.
+
 ---
 
 ## Invariants and Test Requirements
@@ -5951,17 +5969,29 @@ examples the consolidation spec named keep their original IDs (`I-freezer-1`,
   only at commit, driven by the commit's own atomic operation. A rolled-back or
   crashed-before-commit schema transaction leaves the storage byte-for-byte
   unchanged: no orphaned collection, no orphaned engine, no lost data on a
-  drop.
+  drop. A committed drop does remove the structure, and the create/drop set is
+  detected from the collection-id set difference over the committed versus
+  tx-local in-memory structures (D9), never from the transaction's
+  changed-record set (D6): a dropped class's record is deleted, so it carries no
+  per-property change signal, and a diff built from the changed-record set would
+  silently drop nothing.
 - **Test**: create a class and an index in a transaction, then roll back, and
   assert no collection or engine files exist and no registry entry is left.
   Repeat with a crash injected after the transaction body and before commit;
   recovery leaves the same clean state. A committed drop survives a crash
-  (redone from the WAL).
-- **Provenance**: D1, D3, D10; F7, F8, F16.
+  (redone from the WAL). And the positive drop path: create a class with data
+  and an index, commit; in a second transaction drop the class, commit; assert
+  the collection files, the engine files, and the registry entries are gone and
+  the data is unreadable, then restart and confirm the same. A drop-detection
+  built from the changed-record set passes the rollback and crash cases but
+  fails this positive drop, which is the property it defends.
+- **Provenance**: D1, D3, D9, D10; F7, F8, F16, F37, F43.
 - **Mechanism (delegated)**: file create/delete is buffered intent applied only
   in `commitChanges`, which rollback skips; reconciliation runs inside the
-  commit's atomic operation. Implementer owns the buffering wiring; the F55
-  lazy-consult replay fix is a prerequisite track for the crash-recovery half.
+  commit's atomic operation; the structural diff is the in-memory collection-id
+  set difference. Implementer owns the buffering wiring and the diff source; the
+  F55 lazy-consult replay fix is a prerequisite track for the crash-recovery
+  half.
 
 #### I-A2 — A provisional collection id never reaches durable bytes
 - **Invariant**: a new collection carries a provisional id (a sentinel range
@@ -6052,6 +6082,34 @@ examples the consolidation spec named keep their original IDs (`I-freezer-1`,
 - **Provenance**: D5, D7.
 - **Mechanism (delegated)**: the `Semaphore(1)` and its engage point (see I-C2,
   I-handshake-1). Implementer owns the primitive.
+
+#### I-A7 — Every schema and index mutation entry point rides the user transaction
+- **Invariant**: the dependency inversion (I-A1) is only real if the entry
+  points that today forbid or self-commit a schema/index mutation are reworked
+  to ride the user transaction and defer their structural effect to commit.
+  Every site that currently throws on an active transaction (the `SchemaShared`
+  schema-record save, `dropClass` / `dropClassInternal`, the `IndexManager`
+  `createIndex` / `dropIndex`) or opens its own micro-transaction
+  (`addCollectionToIndex` / `removeCollectionFromIndex`, reached transitively
+  from `createClass` / `addSuperClass` through the polymorphic
+  collection-membership ripple) is de-guarded. The self-commit sites are the
+  dangerous ones: left in place they do not throw, they silently commit a
+  collection-membership change in a nested micro-transaction that escapes the
+  user transaction, leaking it to other sessions and breaking rollback-freedom.
+- **Test**: inside one transaction, trigger a polymorphic membership ripple
+  (`addSuperClass`, or an alter-add-collection on a class with an indexed
+  subclass); assert a concurrent session does not observe the membership change
+  before commit, and assert a rollback leaves the shared `Index`'s
+  `collectionsToIndex` untouched. A throw-guard left in place fails any DDL test
+  loudly; a self-commit guard left in place passes a naive DDL test but fails
+  this isolation-and-rollback test, which is the silent failure the invariant
+  defends.
+- **Provenance**: D1, D8, D15; F3, F4, F21, F26, F46.
+- **Mechanism (delegated)**: de-guarding each site and routing its effect
+  through the overlay or the changed-class / changed-index set so it applies
+  commit-only. Implementer owns the per-site rework. The F46 membership ripple
+  feeds a null collection name under a provisional id, so commit-only deferral
+  is a correctness requirement, not only an isolation one.
 
 ### Concurrency invariants
 
@@ -6483,3 +6541,11 @@ serve instead.
   index creation re-serializes the whole set per add (O(N²)); the batch case is
   O(N). The incremental optimization folds into YTDB-1064. Implementer and the
   follow-up own it; no v1 invariant depends on the optimization.
+- **Snapshot-rebuild invalidation is lazy, not eager** (serves I-P2; F35, F51).
+  The mid-tx snapshot rebuild I-P2 requires must be lazy invalidation (null the
+  snapshot, rebuild on next read, O(1)), never eager reconstruction (O(current
+  schema size) per `createIndex` / `dropIndex`, which is O(N²) on the F48
+  4,000-index batch — the write-amplification class YTDB-382 exists to kill,
+  reappearing on the read side). I-P2's correctness test passes under either, so
+  this is a performance property the implementer owns, folded next to F50's
+  write-side entry above.
