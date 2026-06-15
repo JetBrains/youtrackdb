@@ -3763,6 +3763,15 @@ pins permit accounting; the exclusion half is what the new sentence
 protects), and the F96/F99 records stand unchanged (permit accounting and
 reach widening, both untouched by this pin).
 
+**F116 amendment (2026-06-15): the `checkOpenness` gate is best-effort, not
+the second structural property.** Of the two properties named above, only
+F52's whole-commit lock scope is structural; the `checkOpenness` gate
+(`commitImpl:3151`) is a best-effort early cap — a plain-`status` read
+(`DatabaseSessionEmbedded:223`) with no JMM edge from the foreign CLOSED
+write, so a late-visible status admits at most one more zombie commit,
+harmless behind F52's lock on a cleared tx (F85). The D7 teardown bullet now
+states the cap as best-effort.
+
 ### F107 — Residual thread-owned-lock language survives in four live anchors, including D7's own Guard (F38) bullet mandating the assert the teardown bullet revokes [MINOR]
 Pass-11 report C36. D7's acquire/release bullet still says "assert the
 releasing thread equals the acquiring thread … `IllegalMonitorStateException`"
@@ -4144,6 +4153,23 @@ standard.
 pin the visibility edge (volatile `status`, or `commitImpl` re-checks the
 already-volatile F104 mark). Affected: F106, D7.
 
+**Resolved (2026-06-15): state the cap as best-effort; F52's lock is the
+exclusion authority.** PSI-confirmed: `status` is a plain field
+(`DatabaseSessionEmbedded:223`), the foreign teardown writes CLOSED at
+`internalClose:2234`, and the F104 mark is never read by the commit path, so
+the gate carries no happens-before edge and "never a fresh one" cannot be a
+structural guarantee. The pin-the-visibility-edge alternative (volatile
+`status`) was rejected: D7 already settled plain tx `status` as a deliberate
+shipped memory mode (the F83-F85 settlement), so promoting it to volatile
+would reverse a standing decision and tax every `checkOpenness` call for a
+property F52's whole-commit lock already delivers structurally. The fix
+states the `checkOpenness` gate as a best-effort early cap (visibility-lagged)
+and names F52's `SchemaShared.lock` scope as the structural exclusion
+authority; a late-visible status admits at most one more zombie commit,
+harmless because that straggler serializes behind F52's lock on a cleared tx
+(F85). Folds: D7 teardown bullet (gate demoted to best-effort, F52's lock
+named as authority), F106 record (amendment note).
+
 ### F117 — The re-keyed Guard (F38) bullet splits mismatch outcomes ("rejected loudly" vs "warn-noops"), contradicting the single warn-log outcome the mechanism specifies [MINOR]
 Pass-12 report C41. The teardown bullet specifies one outcome for all three
 mismatch arms (warn-log, permit untouched); the re-keyed Guard bullet's
@@ -4518,14 +4544,18 @@ assignee, 2026-06-03.
   commit-phase zombie — `pool.close()` tearing down a borrowed session
   whose owner thread is mid-commit, so the next DDL acquires the healed
   mutex while that commit still runs inside the four-lock window — rests
-  on two load-bearing properties (F106): the successor's seed and commit
-  serialize behind the zombie's remaining commit at F52's whole-commit
-  `SchemaShared.lock` scope (the F88 allocator-seed pin inside
-  `stateLock.write` keeps F80 id uniqueness), and the `checkOpenness`
-  gate (`commitImpl:3151`) caps the overlap at the one zombie commit
-  already in flight, never a fresh one. Relaxing either — e.g. a future
-  seed that reads outside the schema lock — re-opens two-writer exposure
-  on the heal path. A buggy different-session release is
+  on F52's whole-commit `SchemaShared.lock` scope (F106): the successor's
+  seed and commit serialize behind the zombie's remaining commit there (the
+  F88 allocator-seed pin inside `stateLock.write` keeps F80 id uniqueness),
+  which is the structural exclusion authority. The `checkOpenness` gate
+  (`commitImpl:3151`) is a best-effort early cap only, not a second
+  structural property (F116): it reads the plain `status` field
+  (`DatabaseSessionEmbedded:223`) with no JMM edge from the foreign
+  teardown's CLOSED write (`internalClose:2234`), so a late-visible status
+  can admit one more zombie commit — harmless, because that straggler still
+  serializes behind F52's lock and runs on a cleared tx (F85). Relaxing
+  F52's lock scope — e.g. a future seed that reads outside the schema lock —
+  re-opens two-writer exposure on the heal path. A buggy different-session release is
   rejected loudly — F38's same-thread rule becomes this session-identity
   rule, enforced by the explicit guard rather than lock ownership
   (mid-tx thread migration stays scoped out, F13). (2) The engage path
