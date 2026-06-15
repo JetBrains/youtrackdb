@@ -180,10 +180,18 @@ public final class DeltaBuilder {
 
     // Sort the inject list by the query's ORDER BY so the view's sorted-merge stays correct. With no
     // ORDER BY the rows keep their mutation-iteration order, matching the unsorted fresh-execution
-    // contract for that query shape.
+    // contract for that query shape. For an Etap-A single-alias MATCH the ORDER BY ranks the projected
+    // RETURN tuples (e.g. ORDER BY u.name), but the inject rows are raw records, so each operand is
+    // projected through the entry's returnProjector before the comparison — the same projected-head
+    // comparison the view's merge uses, so the inject list and the cache cursor stay co-ordered.
     final var orderBy = entry.getOrderBy();
     if (orderBy != null && injectList.size() > 1) {
-      injectList.sort((a, b) -> orderBy.compare(a, b, ctx));
+      final var projector = entry.getReturnProjector();
+      if (projector == null) {
+        injectList.sort((a, b) -> orderBy.compare(a, b, ctx));
+      } else {
+        injectList.sort((a, b) -> orderBy.compare(projector.apply(a), projector.apply(b), ctx));
+      }
     }
 
     // Promote the new pair onto the entry (overwriting any older version's pair) using unmodifiable

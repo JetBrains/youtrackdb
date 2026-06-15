@@ -239,6 +239,13 @@ public final class CachedResultSetView implements ResultSet {
    * RECORD sorted-merge, transcribing the design's {@code view.next()} algorithm: skip cache heads the
    * delta replaces, materialize the next storage row before consulting the delta head (load-bearing for
    * sort correctness), then emit the smaller of the two heads with ties favouring the inject side.
+   *
+   * <p>For an Etap-A single-alias MATCH entry the rows are raw, RID-identifiable records and the entry
+   * carries a {@code returnProjector}: skip decisions still key on the raw record's RID (so the merge
+   * stays RID-addressable), but the ORDER BY comparison projects both heads first (the ORDER BY ranks
+   * the projected RETURN tuple, e.g. {@code u.name}) and the emitted row is the projected tuple — the
+   * projector is the last transform before the consumer. A null projector (plain RECORD SELECT) leaves
+   * every row unprojected, the original behaviour.
    */
   @Nullable private Result computeNextRecord() {
     var results = entry.getResults();
@@ -246,7 +253,8 @@ public final class CachedResultSetView implements ResultSet {
       var cacheHead = position < results.size() ? results.get(position) : null;
 
       // Suppress a cached row the delta marks for replacement or deletion; consume the position
-      // without emitting and re-loop.
+      // without emitting and re-loop. The skip probe reads the raw row's RID, so it is correct even
+      // when the row will later be projected to a (non-identifiable) RETURN tuple.
       if (cacheHead != null && isSkipped(cacheHead)) {
         position++;
         continue;
@@ -271,24 +279,49 @@ public final class CachedResultSetView implements ResultSet {
       }
       // Cache drained, delta has rows: drain the (already sorted) inject list.
       if (cacheHead == null) {
-        return delta.advanceInject();
+        return project(delta.advanceInject());
       }
       // Delta drained, cache has rows: drain the cache.
       if (deltaHead == null) {
         position++;
-        return cacheHead;
+        return project(cacheHead);
       }
       // Both heads present: emit the smaller per ORDER BY; ties favour the inject side.
       var orderBy = entry.getOrderBy();
       // With no ORDER BY there is no sort key, so the inject list (mutation-iteration order) drains
-      // first, matching the unsorted fresh-execution contract for that query shape.
-      var cmp = orderBy == null ? -1 : orderBy.compare(deltaHead, cacheHead, ctx);
+      // first, matching the unsorted fresh-execution contract for that query shape. With an ORDER BY
+      // and a returnProjector, both heads are projected before the comparison so a projected ORDER BY
+      // column (e.g. u.name) resolves and the comparator ranks on the projected value, not the raw
+      // record.
+      var cmp = orderBy == null ? -1 : orderBy.compare(projectForCompare(deltaHead),
+          projectForCompare(cacheHead), ctx);
       if (cmp <= 0) {
-        return delta.advanceInject();
+        return project(delta.advanceInject());
       }
       position++;
-      return cacheHead;
+      return project(cacheHead);
     }
+  }
+
+  /**
+   * Applies the entry's Etap-A RETURN projector to a row about to be emitted, or returns the row
+   * unchanged when there is no projector (plain RECORD SELECT). This is the last transform before the
+   * row reaches the consumer.
+   */
+  @Nonnull
+  private Result project(@Nonnull Result raw) {
+    var projector = entry.getReturnProjector();
+    return projector == null ? raw : projector.apply(raw);
+  }
+
+  /**
+   * Projects a merge head for the ORDER BY comparison only. Identical to {@link #project} today; kept
+   * as a separate seam so a future change to comparison-time projection (e.g. caching the projected
+   * key) does not disturb the emit-time projection.
+   */
+  @Nonnull
+  private Result projectForCompare(@Nonnull Result raw) {
+    return project(raw);
   }
 
   /** Whether the delta skip-set suppresses this row. Non-identifiable rows are never skipped. */

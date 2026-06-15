@@ -98,6 +98,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.Authenticat
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryProxy;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
@@ -126,6 +127,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.AggregateCacheTapStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.AggregateState;
@@ -139,6 +141,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.NonDeterministi
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.ShapeClassifier;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.TxDeltaCursor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultMapper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAlterClassStatement;
@@ -149,8 +153,14 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreatePropertyStatem
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropClassStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropIndexStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropPropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTruncateClassStatement;
@@ -884,7 +894,22 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     var plan = localResult.getInternalExecutionPlan();
     var ctx = plan.getContext();
-    var wrapped = new IdempotentExecutionStream(localResult.getStream());
+
+    // A single-alias MATCH folds onto the RECORD path (Etap A): the executor stream yields projected
+    // RETURN tuples, but the cache must store raw, RID-identifiable records so the RECORD skip-set /
+    // sorted-merge stay RID-addressable. Map the projected stream back to raw single-record rows and
+    // carry the RETURN projector on the entry; the view re-derives the tuple at the emit boundary.
+    var matchOrigin = (statement instanceof SQLMatchStatement match)
+        ? singleAliasOrigin(match) : null;
+    ExecutionStream lifted = localResult.getStream();
+    if (matchOrigin != null) {
+      var alias = matchOrigin.getAlias();
+      // A single-alias MATCH always names its bound alias; without one the projector/mapper cannot key
+      // the record, so this would be a classify/populate divergence rather than a recoverable shape.
+      assert alias != null : "single-alias MATCH origin has no alias";
+      lifted = lifted.map(rawAliasRecordMapper(alias));
+    }
+    var wrapped = new IdempotentExecutionStream(lifted);
     // Thread the wrapper back into the LocalResultSet's stream slot too. That LocalResultSet is
     // orphaned (not returned, not registered in activeQueries), so its close never fires; the entry
     // is the sole closer today. The wrapper's idempotency is the defensive guard for a future second
@@ -900,6 +925,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         plan,
         ctx,
         populateMutationVersion);
+    if (matchOrigin != null && statement instanceof SQLMatchStatement match) {
+      entry.setReturnProjector(buildMatchReturnProjector(match, matchOrigin, args));
+    }
     cache.put(key, entry);
 
     return buildView(entry, tx, args);
@@ -1126,10 +1154,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   /**
    * The subclass closure of the statement's read classes for the entry's delta class filter. A
-   * plain SELECT resolves its FROM target class; anything without a resolvable single class target
-   * (subquery target, RID target, MATCH) yields the empty set, so the delta filter matches nothing
-   * and the entry behaves as a pure replay — correct because only RECORD-classified plain SELECTs
-   * reach the delta path here.
+   * plain SELECT resolves its FROM target class; a single-alias MATCH (Etap A) resolves its one
+   * bound alias's class so the RECORD delta filter is non-empty and reconciles in-tx mutations;
+   * anything without a resolvable single class target (subquery target, RID target, multi-alias
+   * MATCH) yields the empty set, so the delta filter matches nothing and the entry behaves as a pure
+   * replay — correct because only RECORD-classified plain SELECTs and single-alias MATCH reach the
+   * delta path here.
    */
   private Set<String> effectiveFromClasses(@Nonnull SQLStatement statement) {
     if (statement instanceof SQLSelectStatement select && select.getTarget() != null) {
@@ -1139,15 +1169,116 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         return CachedEntry.computeEffectiveFromClasses(fromClass);
       }
     }
+    if (statement instanceof SQLMatchStatement match) {
+      var origin = singleAliasOrigin(match);
+      if (origin != null) {
+        var className = origin.getClassName(null);
+        if (className != null) {
+          SchemaClass fromClass = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+          return CachedEntry.computeEffectiveFromClasses(fromClass);
+        }
+      }
+    }
     return Set.of();
   }
 
-  @Nullable private static SQLWhereClause whereClauseOf(@Nonnull SQLStatement statement) {
-    return statement instanceof SQLSelectStatement select ? select.getWhereClause() : null;
+  @Nullable private SQLWhereClause whereClauseOf(@Nonnull SQLStatement statement) {
+    if (statement instanceof SQLSelectStatement select) {
+      return select.getWhereClause();
+    }
+    if (statement instanceof SQLMatchStatement match) {
+      var origin = singleAliasOrigin(match);
+      // The single bound alias's pattern WHERE re-evaluates against a mutated record at delta-build,
+      // exactly like a plain SELECT's WHERE; its properties are unqualified relative to the alias, so
+      // it reads the raw record directly. A null (no where:) matches every record.
+      return origin == null ? null : origin.getFilter();
+    }
+    return null;
   }
 
-  @Nullable private static SQLOrderBy orderByOf(@Nonnull SQLStatement statement) {
-    return statement instanceof SQLSelectStatement select ? select.getOrderBy() : null;
+  @Nullable private SQLOrderBy orderByOf(@Nonnull SQLStatement statement) {
+    if (statement instanceof SQLSelectStatement select) {
+      return select.getOrderBy();
+    }
+    if (statement instanceof SQLMatchStatement match) {
+      // The statement ORDER BY ranks the projected RETURN tuples (e.g. ORDER BY u.name). The view and
+      // delta builder compare projected merge heads, so the entry carries it verbatim; the classifier
+      // already proved every ORDER BY item is record-local for the single-alias fold.
+      return singleAliasOrigin(match) == null ? null : match.getOrderBy();
+    }
+    return null;
+  }
+
+  /**
+   * The origin vertex node of a single-alias MATCH (one match expression, no traversal edge), or
+   * {@code null} when the statement is multi-alias or not a single-binding shape. Mirrors the
+   * single-alias test the shape classifier uses, evaluated here with the session available so the
+   * three populate helpers above resolve the alias's class / WHERE / ORDER BY consistently.
+   */
+  @Nullable private static SQLMatchFilter singleAliasOrigin(@Nonnull SQLMatchStatement match) {
+    var expressions = match.getMatchExpressions();
+    if (expressions.size() != 1) {
+      return null;
+    }
+    SQLMatchExpression expr = expressions.getFirst();
+    var origin = expr.getOrigin();
+    if (origin == null || !expr.getItems().isEmpty()) {
+      return null;
+    }
+    return origin;
+  }
+
+  /**
+   * Builds the Etap-A RETURN projector for a single-alias MATCH: a transform that takes a raw cached
+   * or inject record row (an identifiable {@link Result} wrapping the single bound record), wraps it
+   * back into the {@code {alias -> record}} shape the MATCH executor's first step produces, and runs
+   * the RETURN projection over it so the emitted row is the RETURN tuple a fresh MATCH would yield
+   * (e.g. {@code RETURN u, u.name}). The projection is rebuilt from the statement's RETURN items the
+   * same way the MATCH planner builds it, then applied per row. The command context carries the
+   * query's parameter bindings so a parameterized RETURN/projection resolves identically.
+   */
+  private Function<Result, Result> buildMatchReturnProjector(
+      @Nonnull SQLMatchStatement match, @Nonnull SQLMatchFilter origin, @Nullable Object args) {
+    var alias = origin.getAlias();
+    var returnItems = match.getReturnItems();
+    var returnAliases = match.getReturnAliases();
+    var returnNested = match.getReturnNestedProjections();
+    var projectionItems = new ArrayList<SQLProjectionItem>(returnItems.size());
+    for (var i = 0; i < returnItems.size(); i++) {
+      SQLIdentifier itemAlias = i < returnAliases.size() ? returnAliases.get(i) : null;
+      SQLNestedProjection nested = i < returnNested.size() ? returnNested.get(i) : null;
+      projectionItems.add(new SQLProjectionItem(returnItems.get(i), itemAlias, nested));
+    }
+    var projection = new SQLProjection(projectionItems, false);
+    var projectorCtx = freshContext(args);
+    return rawRow -> {
+      // The raw row's own record is the single bound record (the cache stores raw ResultInternal rows
+      // wrapping it, and the delta builder injects new ResultInternal(session, record) rows the same
+      // way). Re-wrap it into the alias-keyed { alias -> record } row the MATCH executor's first step
+      // emits, then run the RETURN projection over it.
+      var entity = rawRow.asEntityOrNull();
+      var aliasRow = new ResultInternal(this);
+      aliasRow.setProperty(alias, entity);
+      return projection.calculateSingle(projectorCtx, aliasRow, false);
+    };
+  }
+
+  /**
+   * Maps a populated single-alias MATCH stream row (the executor's projected RETURN tuple, which
+   * still carries the bound record under the alias key) back to a raw, RID-identifiable single-record
+   * {@link Result}. Storing the raw record — not the projected tuple — keeps the RECORD skip-set /
+   * sorted-merge RID-addressable; the {@code returnProjector} re-derives the tuple at the view emit
+   * boundary. The stream is already ordered by the statement ORDER BY (the executor sorted the
+   * projected tuples), so the raw-record cache stream stays in the same projected order.
+   */
+  @Nonnull
+  private ResultMapper rawAliasRecordMapper(@Nonnull String alias) {
+    return (projectedRow, ctx) -> {
+      var entity = projectedRow.getEntity(alias);
+      // A single-alias MATCH binds exactly one record per row; the alias key always resolves to it.
+      assert entity != null : "single-alias MATCH row carries no record under alias " + alias;
+      return new ResultInternal(this, entity);
+    };
   }
 
   /**

@@ -269,15 +269,55 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
-   * A single-alias MATCH also stays MATCH_TUPLE_MULTI at this step. The single-alias RECORD fold
-   * (Etap A) is a later refinement; this gate only routes unreconcilable shapes to K0_NONE and
-   * leaves every other MATCH at MATCH_TUPLE_MULTI.
+   * A single-alias MATCH (one bound alias, no traversal edge) folds onto the RECORD delta path: the
+   * Etap-A path stores the raw bound records and replays them through a returnProjector. {@code RETURN
+   * u} binds exactly one alias with no edge, so it classifies RECORD rather than MATCH_TUPLE_MULTI.
    */
   @Test
-  public void singleAliasMatchClassifiesAsTupleMulti() {
+  public void singleAliasMatchClassifiesAsRecord() {
+    Assert.assertEquals(
+        CacheableShape.RECORD,
+        ShapeClassifier.classify(parse("match {as:u, class:OUser} return u")));
+  }
+
+  /**
+   * A single-alias MATCH with a multi-item RETURN ({@code RETURN u, u.name}) still folds onto RECORD:
+   * it binds one alias with no traversal edge, and the multi-property RETURN tuple is reproduced by
+   * the stored returnProjector at the view emit boundary. This is the projected-tuple case the
+   * RID-addressable cache must still serve.
+   */
+  @Test
+  public void singleAliasMatchWithMultiItemReturnClassifiesAsRecord() {
+    Assert.assertEquals(
+        CacheableShape.RECORD,
+        ShapeClassifier.classify(parse("match {as:u, class:OUser} return u, u.name")));
+  }
+
+  /**
+   * A single-alias MATCH with a WHERE and a record-local ORDER BY ({@code ORDER BY u.name}, whose
+   * head is the bound alias) folds onto RECORD: the WHERE re-evaluates against the mutated record and
+   * the ORDER BY reads a property of the single bound record after projection.
+   */
+  @Test
+  public void singleAliasMatchWithWhereAndAliasLocalOrderByClassifiesAsRecord() {
+    Assert.assertEquals(
+        CacheableShape.RECORD,
+        ShapeClassifier.classify(
+            parse("match {as:u, class:OUser, where:(name = ?)} return u, u.name order by u.name")));
+  }
+
+  /**
+   * A single-alias MATCH whose ORDER BY references a foreign alias head is NOT record-local, so it
+   * cannot fold onto the RECORD path (the raw single record cannot resolve another alias's column).
+   * It stays MATCH_TUPLE_MULTI for the per-tuple delta floor rather than producing a mis-sorted RECORD
+   * merge.
+   */
+  @Test
+  public void singleAliasMatchWithForeignOrderByStaysTupleMulti() {
     Assert.assertEquals(
         CacheableShape.MATCH_TUPLE_MULTI,
-        ShapeClassifier.classify(parse("match {as:u, class:OUser} return u")));
+        ShapeClassifier.classify(
+            parse("match {as:u, class:OUser} return u, u.name order by other.name")));
   }
 
   /**
@@ -417,30 +457,31 @@ public class ShapeClassifierTest extends DbTestBase {
   /**
    * The negative companion to the link-deref gate: a plain qualified own-property WHERE
    * (where:(i.title = ?), whose dotted head i IS the bound alias) is not a link dereference and must
-   * NOT route to K0_NONE. It stays MATCH_TUPLE_MULTI. This pins that the link-deref walk keys on a
-   * foreign head, not on the mere presence of a dot.
+   * NOT route to K0_NONE. Being a single-alias edge-free pattern with {@code return i}, it folds onto
+   * RECORD (Etap A) rather than the per-tuple floor. This pins that the link-deref walk keys on a
+   * foreign head, not on the mere presence of a dot — a foreign head would route K0_NONE instead.
    */
   @Test
-  public void matchQualifiedOwnPropertyWhereStaysTupleMulti() {
+  public void matchQualifiedOwnPropertyWhereFoldsToRecord() {
     var shape =
         ShapeClassifier.classify(parse("match {as:i, class:OUser, where:(i.title = ?)} return i"));
     Assert.assertEquals(
         "a qualified own-property WHERE (i.title on bound alias i) is not a link dereference and must"
-            + " not route to K0_NONE",
-        CacheableShape.MATCH_TUPLE_MULTI,
+            + " not route to K0_NONE; the single-alias fold makes it RECORD",
+        CacheableShape.RECORD,
         shape);
     Assert.assertNotEquals(CacheableShape.K0_NONE, shape);
   }
 
   /**
-   * A bare own-property WHERE (where:(title = ?), with no dotted path at all) likewise stays
-   * MATCH_TUPLE_MULTI: it references the bound record's own property and reaches nothing outside the
-   * pattern.
+   * A bare own-property WHERE (where:(title = ?), with no dotted path at all) likewise does not route
+   * to K0_NONE: it references the bound record's own property and reaches nothing outside the pattern.
+   * As a single-alias edge-free pattern it folds onto RECORD (Etap A).
    */
   @Test
-  public void matchBareOwnPropertyWhereStaysTupleMulti() {
+  public void matchBareOwnPropertyWhereFoldsToRecord() {
     Assert.assertEquals(
-        CacheableShape.MATCH_TUPLE_MULTI,
+        CacheableShape.RECORD,
         ShapeClassifier.classify(parse("match {as:i, class:OUser, where:(title = ?)} return i")));
   }
 

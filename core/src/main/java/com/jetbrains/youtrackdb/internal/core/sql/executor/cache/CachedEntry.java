@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -72,6 +73,17 @@ public final class CachedEntry {
 
   /** The query's ORDER BY, used to position injected rows in the merged view. May be {@code null}. */
   @Nullable private final SQLOrderBy orderBy;
+
+  /**
+   * For an Etap-A single-alias MATCH entry, the transform that turns a raw cached/inject record row
+   * (an identifiable {@link Result} wrapping the single bound record) into the RETURN tuple the MATCH
+   * executor would emit (e.g. {@code RETURN u, u.name}). The entry stores raw, RID-identifiable
+   * records so the RECORD-shape skip-set / sorted-merge stay RID-addressable; the projector is applied
+   * as the last transform before each row reaches the consumer, and to both ORDER BY merge heads
+   * before comparison so a projected ORDER BY column resolves. {@code null} for every non-MATCH shape
+   * (plain RECORD / K0_NONE / AGGREGATE_*), whose rows are emitted as-is.
+   */
+  @Nullable private Function<Result, Result> returnProjector;
 
   /** Mutation version captured before the populating execution started. */
   private final long populateMutationVersion;
@@ -178,6 +190,19 @@ public final class CachedEntry {
 
   @Nullable public SQLOrderBy getOrderBy() {
     return orderBy;
+  }
+
+  /**
+   * The Etap-A MATCH RETURN projector, or {@code null} for a non-MATCH entry. Applied by {@link
+   * CachedResultSetView} at the emit boundary and before each ORDER BY merge comparison.
+   */
+  @Nullable public Function<Result, Result> getReturnProjector() {
+    return returnProjector;
+  }
+
+  /** Sets the Etap-A MATCH RETURN projector at cache-put. {@code null} leaves rows unprojected. */
+  public void setReturnProjector(@Nullable Function<Result, Result> returnProjector) {
+    this.returnProjector = returnProjector;
   }
 
   public long getPopulateMutationVersion() {

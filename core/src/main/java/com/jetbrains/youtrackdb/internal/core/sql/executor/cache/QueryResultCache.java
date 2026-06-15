@@ -294,4 +294,14 @@ public final class QueryResultCache {
   public QueryCacheMetrics getMetrics() {
     return metrics;
   }
+
+  /**
+   * A snapshot of the live cache entries, for tests that assert an entry's populate-time metadata
+   * (shape, class closure, projector) without going through {@link #lookup} and perturbing the
+   * hit/miss metrics. Package-visible: the cache exposes no entry enumeration on its production API.
+   */
+  @Nonnull
+  java.util.Collection<CachedEntry> entriesForTest() {
+    return new ArrayList<>(entries.values());
+  }
 }

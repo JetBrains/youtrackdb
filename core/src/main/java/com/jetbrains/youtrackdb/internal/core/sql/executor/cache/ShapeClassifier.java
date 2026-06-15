@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
@@ -47,12 +48,12 @@ import javax.annotation.Nullable;
  *       FROM C} (no WHERE) is hardwired in the planner to an O(1) {@code CountFromClassStep} that the
  *       aggregate side-tap can never reach, so it also routes to {@code K0_NONE}; a {@code COUNT(*)}
  *       with a (non-indexed) WHERE does build the aggregation step and stays {@code AGGREGATE_COUNT}.
- *   <li><b>MATCH &rarr; {@link CacheableShape#MATCH_TUPLE_MULTI} or {@link CacheableShape#K0_NONE}.</b>
- *       A MATCH statement routes to {@code K0_NONE} when any shape the per-tuple delta floor cannot
- *       reconcile is present (see {@link #classifyMatch}); otherwise it stays {@code
- *       MATCH_TUPLE_MULTI}. The single-alias RECORD-fold (Etap A) refines the {@code
- *       MATCH_TUPLE_MULTI} result in a later step; this method does not yet split single-alias MATCH
- *       to {@code RECORD}.
+ *   <li><b>MATCH &rarr; {@link CacheableShape#RECORD}, {@link CacheableShape#MATCH_TUPLE_MULTI}, or
+ *       {@link CacheableShape#K0_NONE}.</b> A MATCH statement routes to {@code K0_NONE} when any shape
+ *       the per-tuple delta floor cannot reconcile is present (see {@link #classifyMatch}). Otherwise
+ *       a single-alias MATCH (one bound alias, no traversal edge, record-local ORDER BY) folds onto
+ *       the {@code RECORD} delta path via a stored {@code returnProjector} (Etap A), and every other
+ *       MATCH stays {@code MATCH_TUPLE_MULTI} for the per-tuple delta floor.
  *   <li><b>Everything else &rarr; {@link CacheableShape#K0_NONE}.</b> GROUP BY, LET, UNWIND,
  *       subquery target, expression aggregates — deterministically reproducible but not
  *       record-by-record reconcilable.
@@ -166,8 +167,9 @@ public final class ShapeClassifier {
       Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*|'[^']*'|\"[^\"]*\"");
 
   /**
-   * Classifies a MATCH statement into {@link CacheableShape#MATCH_TUPLE_MULTI} or {@link
-   * CacheableShape#K0_NONE}. The {@code MATCH_TUPLE_MULTI} delta floor reconciles vertex DELETE and
+   * Classifies a MATCH statement into {@link CacheableShape#RECORD} (the single-alias Etap-A fold),
+   * {@link CacheableShape#MATCH_TUPLE_MULTI}, or {@link CacheableShape#K0_NONE}. The {@code
+   * MATCH_TUPLE_MULTI} delta floor reconciles vertex DELETE and
    * pass&rarr;fail UPDATE incrementally and tombstones the rest; it carries no mutation-version
    * backstop, so any MATCH shape the floor cannot reconcile must route to the version-gated {@code
    * K0_NONE} path here. A missed gate would silently serve a stale tuple set, so the gate is
@@ -245,7 +247,82 @@ public final class ShapeClassifier {
       }
     }
 
+    // Single-alias split (Etap A): a MATCH that binds exactly one alias with no traversal edge folds
+    // onto the RECORD delta path. The entry stores the raw bound records and replays them through a
+    // returnProjector that reproduces the RETURN tuple at the view emit boundary, so the RECORD
+    // skip-set / sorted-merge stay RID-addressable. A multi-alias or edge-bearing MATCH cannot fold
+    // this way and stays MATCH_TUPLE_MULTI for the per-tuple delta floor.
+    if (isSingleAliasRecordFold(match)) {
+      return CacheableShape.RECORD;
+    }
+
     return CacheableShape.MATCH_TUPLE_MULTI;
+  }
+
+  /**
+   * True when the MATCH is the single-alias shape the Etap-A RECORD fold handles: exactly one match
+   * expression whose origin vertex binds a class and carries no traversal step (no {@code .out/.in/...}
+   * edge), and whose RETURN / ORDER BY are reducible to the single bound record. The K0_NONE gates in
+   * {@link #classifyMatch} have already run, so the origin's class is statically resolvable and its
+   * WHERE carries no cross-alias / link-deref / subquery escape; this method only adds the
+   * single-binding shape test plus the projectable-ORDER-BY test.
+   *
+   * <p><b>ORDER BY projectability.</b> The RECORD fold sorts the raw cached records by the entry's
+   * ORDER BY and projects each row only at the emit boundary, so every ORDER BY item must resolve
+   * against the single bound record: it must reference either a bare record attribute or a path whose
+   * head is the bound alias ({@code ORDER BY u.name}, reduced to {@code name} on the record). An ORDER
+   * BY over a foreign head or a computed projection alias cannot be read from the raw record and keeps
+   * the statement on the {@code MATCH_TUPLE_MULTI} path (currently served uncached) rather than
+   * producing a mis-sorted RECORD merge.
+   */
+  private static boolean isSingleAliasRecordFold(@Nonnull SQLMatchStatement match) {
+    var expressions = match.getMatchExpressions();
+    if (expressions.size() != 1) {
+      return false;
+    }
+    var expr = expressions.getFirst();
+    var origin = expr.getOrigin();
+    if (origin == null || origin.getClassName(null) == null) {
+      return false;
+    }
+    // A traversal step binds a second alias / an edge: not the single-binding shape.
+    if (!expr.getItems().isEmpty()) {
+      return false;
+    }
+    return orderByIsAliasLocal(match.getOrderBy(), origin.getAlias());
+  }
+
+  /**
+   * True when every ORDER BY item resolves against the single bound record: a bare record attribute,
+   * or an alias-headed path whose head is {@code boundAlias} (so stripping the alias prefix yields a
+   * record property). A {@code null} ORDER BY (no sort) is trivially local. Any item with a foreign
+   * alias head, a RID sort, or a head that is neither the bound alias nor a bare attribute is not
+   * record-local and disqualifies the RECORD fold.
+   */
+  private static boolean orderByIsAliasLocal(@Nullable SQLOrderBy orderBy,
+      @Nullable String boundAlias) {
+    if (orderBy == null || orderBy.getItems() == null) {
+      return true;
+    }
+    for (var item : orderBy.getItems()) {
+      if (item.getRid() != null) {
+        // A RID sort is not a record property read on the projected tuple.
+        return false;
+      }
+      var alias = item.getAlias();
+      if (alias != null) {
+        // Alias-headed path (e.g. u.name): record-local only when the head is the single bound alias.
+        if (!alias.equals(boundAlias)) {
+          return false;
+        }
+        continue;
+      }
+      if (item.getRecordAttr() == null) {
+        // Neither an alias path nor a bare record attribute: not resolvable on the raw record.
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
