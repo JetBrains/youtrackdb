@@ -163,7 +163,16 @@ is re-pointed once and the rest follow. Each edit consumes a Track 1 contract.
    that carry the same standalone §1.7(b) staged-read block
    (`dimensional-review-gate-check`, `review-gate-verification`) from the plan's
    `### Constraints` to the ledger; re-point `track-review` and
-   `create-final-design` tier-line reads to the ledger.
+   `create-final-design` tier-line reads to the ledger. Also realize D14's
+   Track-2 half (Track 1 adds `.claude/scripts/**` to the §1.7 staged prefix set;
+   Track 2 makes the runtime enforce and promote it): (i) extend the
+   implementer-rules §1.7(e) pre-commit gate to refuse a live `.claude/scripts/**`
+   edit on a workflow-modifying branch, outside the Phase-4 promotion commit
+   (matching the existing three-prefix exception); (ii) extend the
+   `create-final-design.md` Phase-4 promotion so its pre-promotion divergence
+   check and its `git add` both include `.claude/scripts` — the `cp -r .claude/.`
+   already copies the staged scripts onto live, but without the wider `git add`
+   they are copied yet never committed, so they never reach develop.
 3. **Pause boundaries → ledger events (D8).** Route the mid-phase-handoff
    Phase-2/State-0 and Phase-4 secondary markers to a ledger `paused` event,
    keeping the greppable `**PAUSED` prefix (or extending the recovery grep to
@@ -196,6 +205,12 @@ completed step. Empty at Phase 1. -->
 - The implementer §1.7(c) gate and the three §1.7(l) review prompts detect a
   workflow-modifying branch from the ledger marker, with the same stable-prefix
   semantics as the old plan `### Constraints` read.
+- The implementer-rules §1.7(e) pre-commit gate refuses a live
+  `.claude/scripts/**` edit on a workflow-modifying branch, outside the Phase-4
+  promotion commit (D14).
+- A Phase-4 promotion of a workflow-modifying branch commits the staged
+  `.claude/scripts/**` (the `git add` and divergence check include it), so a
+  promoted precheck script reaches develop (D14).
 - A paused phase boundary at State 0 or Phase 4 is recorded as a ledger event
   that `determine_state` reads on resume, and the recovery grep still finds it.
 - A `minimal`→`lite` upgrade materializes `implementation-plan.md`; a

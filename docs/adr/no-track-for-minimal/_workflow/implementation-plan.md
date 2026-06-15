@@ -39,7 +39,11 @@ This plan is workflow-modifying: it edits .claude/workflow/**, .claude/skills/**
   branch moves the resume-state field (plan checkboxes → ledger, D3/D6) and adds
   a track-file section (D9); each independently fails §1.7(k) criterion 1, so
   the prose-rule opt-out does not apply. Implementer and reviewer steps use
-  staged-read precedence; Phase 4 rebases onto develop before promotion.
+  staged-read precedence; Phase 4 rebases onto develop before promotion. The
+  in-scope set includes `.claude/scripts/**` (the precheck script + tests), which
+  the develop-era §1.7 does not auto-route; this branch extends §1.7 to cover
+  `.claude/scripts/**` (D14) and, for its own execution, stages the script and
+  tests by manual copy-then-edit (Track 1 `## Context and Orientation`).
 - **This branch runs the develop workflow while shipping the new one.** Its own
   plan and track artifacts therefore follow today's format — a full aggregator
   plan that carries Architecture Notes and Decision Records, with the §1.7
@@ -144,9 +148,11 @@ graph TD
 - **Rationale**: dropping the `minimal` plan removes the artifact
   `determine_state` parses today; resume state needs a non-plan home. The
   startup script derives State 0 / A / C / D / Done from the ledger.
-- **Risks/Caveats**: a torn append must not corrupt state — handled by the
-  atomic temp-file-plus-rename append and the existing interrupted-write
-  reconciliation.
+- **Risks/Caveats**: a torn append must not corrupt state — the atomic
+  temp-file-plus-rename append handles it: the rename publishes the new tail
+  atomically, so a crash mid-append leaves the prior ledger intact. The
+  roster-vs-`## Progress` interrupted-write reconciliation is a separate
+  track-file mechanism and does not apply to the ledger.
 - **Implemented in**: Track 1 (precheck.sh `determine_state`, tests).
 
 #### D4: Branch-level facts live in the ledger
@@ -273,7 +279,30 @@ graph TD
   would trip the drift gate's unstamped detection. The ledger joins the §1.6(f)
   exclusion list alongside `research-log.md`.
 - **Risks/Caveats**: none; `track-1.md` remains the stamped drift anchor.
-- **Implemented in**: Track 1 (conventions §1.6(f), precheck.sh drift fold).
+- **Implemented in**: Track 1 (conventions §1.6(f) exclusion entry; no
+  `detect_drift` code change — the ledger is excluded by omission from the
+  hardcoded artifact list).
+
+#### D14: §1.7 staging covers `.claude/scripts/**`
+- **Alternatives considered**: leave §1.7 covering only `.claude/workflow/**`,
+  `.claude/skills/**`, `.claude/agents/**` and handle this branch's script edits
+  by branch-local manual staging alone.
+- **Rationale**: this branch edits `.claude/scripts/workflow-startup-precheck.sh`
+  and its two test files, and D12 asserts "every `.claude/**` edit stages." The
+  shipped §1.7 must back that, so §1.7(a)/(b)/(d)/(e) add `.claude/scripts/**` and
+  the implementer-rules pre-commit gate refuses live `.claude/scripts/**` edits.
+  Future script-touching workflow branches then get the same auto-routing and
+  gate the other prefixes have. Raised by the Phase-A adversarial review (A1,
+  blocker; user-ratified "extend §1.7 to scripts").
+- **Risks/Caveats**: the extension takes effect only after Phase 4 promotion, so
+  this branch runs the develop-era §1.7 that does not route scripts — its script
+  and tests are staged by manual copy-then-edit (Track 1 `## Context and
+  Orientation`), and the develop gate does not guard a live-script slip.
+- **Implemented in**: Track 1 (conventions §1.7(a)/(b)/(d)/(e)); Track 2
+  (implementer-rules §1.7(e) gate refuses live `.claude/scripts/**` outside the
+  promotion commit; `create-final-design.md` Phase-4 promotion divergence check
+  and `git add` both include `.claude/scripts` so promoted scripts reach
+  develop).
 
 #### Invariants
 - The ledger tail is the single source of resume top-level phase state;

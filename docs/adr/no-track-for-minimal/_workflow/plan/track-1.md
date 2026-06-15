@@ -21,15 +21,26 @@ Step 1c resume on the ledger). This track defines and produces the new model;
 Track 2 rewires the runtime consumers onto it.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-15T15:30Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- **§1.7 staging did not cover `.claude/scripts/**` (Phase A adversarial A1,
+  blocker).** The frozen design (D12) and plan assumed "every `.claude/**` edit
+  stages," but §1.7(a)/(d)/(e) name only `workflow`/`skills`/`agents`, and the
+  Phase-4 promotion `git add` + divergence check omit `.claude/scripts`.
+  Resolved by adding **D14** (extend §1.7 to `.claude/scripts/**`).
+  **Cross-track impact on Track 2:** Track 2 must (i) extend the
+  implementer-rules §1.7(e) gate to refuse live `.claude/scripts/**` outside the
+  promotion commit, and (ii) widen the `create-final-design.md` Phase-4
+  promotion `git add` + divergence check to include `.claude/scripts`. Captured
+  in Track 2's Plan-of-Work step 2, Validation, and D14 `Implemented in`.
 
 ## Decision Log
 
@@ -69,8 +80,11 @@ at Phase 1. -->
   phase and active track, the track file's `## Progress` owns the within-track
   sub-state.
 - **Risks/Caveats**: a torn append must not corrupt state — the atomic
-  temp-file-plus-rename append plus the existing interrupted-write
-  reconciliation cover it.
+  temp-file-plus-rename append covers it: a partial write lands in the temp
+  file and the rename publishes the new tail atomically, so a crash mid-append
+  leaves the prior ledger intact and `determine_state` resolves the prior
+  state. (The existing roster-vs-`## Progress` interrupted-write reconciliation
+  is a separate track-file mechanism and does not apply to the ledger.)
 - **Implemented in**: this track (precheck.sh `determine_state`, tests).
 - **Full design**: design.md §"The phase ledger", §"Resume routing".
 
@@ -141,12 +155,51 @@ at Phase 1. -->
   exclusion list alongside `research-log.md`. `track-1.md` stays the stamped
   drift anchor, so dropping the `minimal` plan does not weaken drift detection.
 - **Risks/Caveats**: none material.
-- **Implemented in**: this track (conventions §1.6(f), precheck.sh drift fold).
+- **Implemented in**: this track (conventions §1.6(f) exclusion entry). No
+  `detect_drift` code change is needed: its walk enumerates a hardcoded artifact
+  list (`implementation-plan.md`, `design.md`, `design-mechanics.md`,
+  `plan/track-*.md`), so the ledger is excluded by omission — the implementer
+  confirms the ledger filename is not added to that list.
 - **Full design**: design.md §"The phase ledger".
+
+#### D14: §1.7 staging covers `.claude/scripts/**`
+- **Alternatives considered**: leave §1.7 covering only `.claude/workflow/**`,
+  `.claude/skills/**`, `.claude/agents/**` and handle this branch's script edits
+  by branch-local manual staging alone (Phase 4 `cp -r .claude/.` promotes a
+  staged `scripts/` subtree regardless).
+- **Rationale**: this branch's in-scope set includes
+  `.claude/scripts/workflow-startup-precheck.sh` and its two test files, and
+  design D12 asserts "every `.claude/**` edit stages." The shipped §1.7 must back
+  that assertion, so §1.7(a) path layout, (b) marker enumeration, (d)
+  reads-precedence, and (e) write-routing all add `.claude/scripts/**`, and the
+  implementer-rules pre-commit gate (Track 2) refuses live `.claude/scripts/**`
+  edits. Future workflow-modifying branches that touch the scripts then get the
+  same auto-routing and gate protection the workflow/skills/agents prefixes
+  already have. Raised by the Phase-A adversarial review (A1, blocker;
+  user-ratified resolution "extend §1.7 to scripts").
+- **Risks/Caveats**: the extension takes effect only after Phase 4 promotion, so
+  THIS branch runs the develop-era §1.7 that does not route scripts — its script
+  and tests are authored manually at the staged path (see `## Context and
+  Orientation`), and the develop gate does not guard a live-script slip.
+- **Implemented in**: this track (conventions §1.7(a)/(b)/(d)/(e)); Track 2
+  (implementer-rules §1.7(e) gate refuses live `.claude/scripts/**` outside the
+  promotion commit; `create-final-design.md` Phase-4 promotion divergence check
+  and `git add` both include `.claude/scripts`).
+- **Full design**: design.md records the as-built in Phase 4 (the frozen design
+  predates this Phase-A review finding).
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (3 findings T1-T3, all accepted and fixed;
+  gate iter2 surfaced one suggestion T4 — plan-mirror D13 lag — fixed).
+- [x] Risk: PASS at iteration 2 (5 findings R1-R5, all accepted/verified; zero
+  regressions, zero new findings).
+- [x] Adversarial: PASS at iteration 3 (4 findings A1-A4 incl. 1 blocker, plus
+  A5 surfaced at gate iter2; all resolved). A1 (§1.7 omitted
+  `.claude/scripts/**`) resolved via the user-ratified D14 §1.7-scripts
+  extension; A1/A5 needed two gate iterations to fully close the Phase-4
+  promotion `git add`/divergence-check gap.
 
 ## Context and Orientation
 
@@ -155,6 +208,21 @@ this track routes to `_workflow/staged-workflow/.claude/**`; the live workflow
 stays at develop state and the branch executes under the develop workflow. The
 new `workflow-startup-precheck.sh` and its tests are exercised from the staged
 path, not wired into the live machinery.
+
+**Branch-local script staging (D14).** This track adds `.claude/scripts/**` to
+the §1.7 staging convention (D14), but that coverage only takes effect after
+Phase 4 promotion — the branch itself runs the develop-era §1.7, which routes
+only `.claude/workflow/**`, `.claude/skills/**`, and `.claude/agents/**`. So the
+implementer authors the new script and its tests by **manual** copy-then-edit at
+the staged path: on first touch, copy the live
+`.claude/scripts/workflow-startup-precheck.sh` (and the two test files) into
+`_workflow/staged-workflow/.claude/scripts/`, then edit only the staged copies.
+The live `.claude/scripts/**` files are never touched. The develop-era
+pre-commit gate does not guard `.claude/scripts/**`, so this discipline is
+manual, not gate-enforced; Phase 4's `cp -r .claude/.` promotes the staged
+`scripts/` subtree alongside the rest (Track 2 widens the Phase-4 promotion
+`git add` and divergence check to include `.claude/scripts`, so the copied
+files are committed and reach develop — D14).
 
 Codebase state at the start of this track:
 
@@ -199,8 +267,11 @@ references it, and the skill that produces the artifacts is touched last.
    the CLI `case` and an atomic temp-file-plus-rename append. Rewrite
    `determine_state` to read the ledger tail (latest value per key) for the
    top-level phase and active track, keeping the track-file `## Progress` read
-   for the within-track sub-state. Add the ledger to the drift logic as an
-   unstamped artifact (it is not folded into the §1.6(h) stamp walk). Decide and
+   for the within-track sub-state. Record the ledger as an unstamped artifact in
+   the §1.6(f) exclusion list (doc-only); no `detect_drift` code change is needed
+   because its walk enumerates a hardcoded artifact list that does not include
+   the ledger filename (T1/A4 — the implementer confirms the omission holds).
+   Decide and
    pin the event vocabulary and field grammar (phase, track, tier + matched
    categories, §1.7 mode, paused) — this grammar is the contract Track 2's
    readers consume.
@@ -213,7 +284,10 @@ references it, and the skill that produces the artifacts is touched last.
    per-tier artifact set (the ledger row; `minimal` drops the plan; `lite`/`full`
    thin it) and the thinned plan structure; §1.6(f) ledger exclusion (D13);
    §1.7(b)/(k) marker-home note (the §1.7 mode marker now lives in the ledger,
-   D4 — this track defines the home; Track 2 re-points the readers); the
+   D4 — this track defines the home; Track 2 re-points the readers); §1.7(a)
+   path layout, (b) marker enumeration, (d) reads-precedence, and (e)
+   write-routing all add `.claude/scripts/**` to the staged prefix set (D14;
+   Track 2 extends the implementer-rules gate to enforce it); the
    track-file section count (14 → 15).
 4. **Conventions-execution §2.1.** Add `## Invariants & Constraints` as the 15th
    section to the track-file template and the section-lifecycle table; note that
@@ -224,7 +298,11 @@ references it, and the skill that produces the artifacts is touched last.
    `lite`/`full` plan; `minimal` has no plan), §Track descriptions (the 15th
    section), and the disposition of `### Goals` / Architecture Notes per D5.
 6. **Workflow.md §Startup Protocol.** State derivation reads the ledger tail
-   rather than the plan checkboxes.
+   rather than the plan checkboxes. For the no-plan `minimal` resume the active
+   track is `track-1` by construction (single-track tier; D10's `plan/track-1.md`
+   secondary signal), so the agent-side active-track re-derivation that walks the
+   plan `## Checklist` (workflow.md §Startup Protocol step 5) is gated to
+   `lite`/`full` — `minimal` has no Checklist to walk.
 7. **create-plan SKILL.** Drop the `minimal` shape-complete stub template; thin
    the `lite`/`full` aggregator template; add `## Invariants & Constraints` to
    the track template; seed the ledger at Phase 1 via `--append-ledger`; rewire
@@ -235,9 +313,44 @@ that still carry a Checklist must resume without regression — the two-level
 lookup keeps the track-file sub-state walk unchanged.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, an
-optional `size:` clause, and a `[ ]` status checkbox. -->
+
+1. Ledger primitive in `workflow-startup-precheck.sh` + its tests — add the
+   `--append-ledger` subcommand and an atomic temp-file-plus-rename append;
+   rewrite `determine_state` to read the ledger tail (top-level phase + active
+   track), keeping the track-file `## Progress` within-track read; confirm the
+   ledger stays excluded by omission from `detect_drift`'s hardcoded artifact
+   list; pin the event grammar and key set (the Track-2 contract); cover append,
+   last-value-wins, interrupted (torn) append, the new `determine_state` ledger
+   path, and the no-plan `minimal` resume (`track-1` active track, no Checklist),
+   and rework `test_workflow_startup_precheck_stub.py` for the no-plan `minimal`
+   case. Authored by manual copy-then-edit at the staged path; the live script is
+   never touched. — risk: high (workflow machinery: a script that runs
+   automatically, and the auto-resume state machine)  [ ]
+2. Artifact-model specification across the convention/planning/workflow docs —
+   conventions.md §1.1 glossary (phase ledger, derived-mirror plan, plan-review
+   document, combined Invariants & Constraints), §1.2 per-tier artifact set +
+   thinned `lite`/`full` plan structure + 14→15 section count, §1.6(f) ledger
+   exclusion (D13), §1.7(b)/(k) marker-home note (D4 home; Track 2 re-points the
+   readers), §1.7(a)/(b)/(d)/(e) `.claude/scripts/**` coverage (D14);
+   conventions-execution.md §2.1 `## Invariants & Constraints` 15th section
+   template + lifecycle; planning.md tier classification + thinned plan structure
+   + 15th section + `### Goals`/Architecture-Notes disposition (D5); workflow.md
+   §Startup Protocol state derivation reads the ledger tail + the no-plan
+   `minimal` active-track-is-`track-1` note. — risk: high (workflow machinery:
+   edits the §1.7 staging convention, the §1.6 stamp scheme, the auto-resume
+   state-machine spec, and the shared plan/track schema)  [ ]
+3. create-plan authoring surface (`create-plan/SKILL.md`) — drop the `minimal`
+   shape-complete stub template; thin the `lite`/`full` aggregator template; add
+   `## Invariants & Constraints` to the track template; seed the ledger at
+   Phase 1 via `--append-ledger`; rewire Step 1c resume routing onto the ledger
+   (D10). — risk: medium (workflow machinery, behavioral but bounded: one skill's
+   decision/dispatch logic) — size: ~1 file; no mergeable low/medium work fits
+   (the rest of the track is high)  [ ]
+
+Steps are sequential: Step 1 pins the ledger grammar (the contract), Step 2
+documents the model that references it, and Step 3 consumes both (seeds the
+ledger via the subcommand, uses the templates the docs define). No parallel
+steps.
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -251,7 +364,8 @@ completed step. Empty at Phase 1. -->
 - An interrupted (torn) append leaves the prior ledger tail intact and
   `determine_state` resolves the prior state.
 - A `minimal` branch with a ledger and a `plan/track-1.md` but no
-  `implementation-plan.md` resumes to its recorded state (not a fresh start).
+  `implementation-plan.md` resumes to its recorded state (not a fresh start),
+  with the active track resolved as `track-1` (no Checklist walk).
 - An existing `lite`/`full` plan with a Checklist resumes unchanged.
 - The drift gate still finds a stamped anchor (`track-1.md`) when the plan is
   absent; the ledger is reported unstamped without tripping the drift gate.
@@ -285,7 +399,21 @@ belong to one specific step. Often empty. -->
 - `.claude/skills/create-plan/SKILL.md`
 
 All edits route to the staged mirror under
-`docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/**`.
+`docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/**` (including
+`.claude/scripts/**` once D14 lands; for this branch's own execution the script
+and tests are staged by manual copy-then-edit — see `## Context and
+Orientation`).
+
+**Sub-floor sizing justification (~8 in-scope files, below the ~12 merge
+floor).** Track 1 is not merged into Track 2 for two reasons: (1) it is the
+foundation Track 2 depends on — the ledger primitive, the artifact model, and
+the contracts Track 2 consumes — so merging would produce one ~21-file track
+that mixes definition and consumption across a dependency boundary; (2) its
+files are large and dense (the ~1,744-line `workflow-startup-precheck.sh`,
+`conventions.md`, `conventions-execution.md`, `planning.md`, `workflow.md`,
+`create-plan/SKILL.md`), so a combined track would breach practical review
+capacity well below the ~20-25 split ceiling. The define/consume seam is the
+natural track boundary.
 
 **Out-of-scope (Track 2):** the runtime consumer prose — `implementation-review.md`,
 the `consistency-review` / `structural-review` / `create-final-design` /
@@ -298,8 +426,12 @@ does not re-point the readers.
 **Contracts this track publishes (Track 2 depends on them):**
 - The `--append-ledger` subcommand signature (the fields an orchestrator passes:
   phase, optional track, tier + matched categories, §1.7 mode, paused event).
-- The ledger event grammar `determine_state` greps (line shape, key set,
-  last-value-wins read).
+- The ledger event grammar `determine_state` greps — one entry per line,
+  `[<ISO>] [ctx=<level>] key=value …`, last-value-wins per key on read.
+  Illustrative shape (exact token spelling is pinned in Plan-of-Work step 1;
+  that as-built grammar is what Track 2's Phase A reviews against):
+  `[2026-06-15T16:42Z] [ctx=safe] phase=A track=1 tier=full categories="Workflow machinery,Architecture" s17=b`
+  — key set `phase` / `track` / `tier` / `categories` / `s17` / `paused`.
 - The thinned `lite`/`full` plan shape and the per-tier artifact set the
   consumers branch on.
 - The 15th track section `## Invariants & Constraints`.
