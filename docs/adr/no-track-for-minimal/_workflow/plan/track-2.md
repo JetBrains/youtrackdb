@@ -44,8 +44,10 @@ at Phase 1. -->
 - **Risks/Caveats**: a missed reader silently reads a stale or absent fact, so
   the reader inventory must be exhaustive — `inline-replanning`,
   `track-review`, `create-final-design`, `consistency-review`, the three
-  §1.7(l) review prompts (`technical`/`risk`/`adversarial`), and the implementer
-  §1.7(c) gate (`step-implementation`, `implementer-rules`).
+  §1.7(l) review prompts (`technical`/`risk`/`adversarial`), the implementer
+  §1.7(c) gate (`step-implementation`, `implementer-rules`), and the two
+  gate-recheck prompts that carry the same standalone §1.7(b) staged-read block
+  (`dimensional-review-gate-check`, `review-gate-verification`).
 - **Implemented in**: this track (the readers); Track 1 defines the conventions
   §1.7 marker home.
 - **Full design**: design.md §"The phase ledger" (Decisions & invariants, D4).
@@ -131,6 +133,11 @@ today:
 - **`.claude/workflow/step-implementation.md`, `implementer-rules.md`**: the
   per-spawn implementer §1.7(c) gate that reads `### Constraints` for the marker
   and routes writes to staged paths. The marker read re-points to the ledger.
+- **`.claude/workflow/prompts/dimensional-review-gate-check.md`,
+  `prompts/review-gate-verification.md`**: the two gate-recheck prompts (the
+  Phase-3B/3C dimensional gate-check and the Phase-3A review-gate re-check) carry
+  the same standalone §1.7(b) staged-read block reading the plan's
+  `### Constraints` for the marker. The marker read re-points to the ledger.
 - **`.claude/workflow/track-review.md`**: the Phase-A review that reads the tier
   line to prime its criteria.
 - **`.claude/workflow/inline-replanning.md`**: the ESCALATE/tier-upgrade path —
@@ -151,10 +158,12 @@ is re-pointed once and the rest follow. Each edit consumes a Track 1 contract.
    degenerate-unreadable-tier branch; `structural-review.md` drops the `minimal`
    pass and adapts the bloat checks to the thinned plan.
 2. **Tier-line + §1.7(c)/(l) marker readers → ledger (D4).** Re-point the marker
-   read in the three §1.7(l) review prompts and the implementer §1.7(c) gate
-   (`step-implementation`, `implementer-rules`) from the plan's `### Constraints`
-   to the ledger; re-point `track-review` and `create-final-design` tier-line
-   reads to the ledger.
+   read in the three §1.7(l) review prompts, the implementer §1.7(c) gate
+   (`step-implementation`, `implementer-rules`), and the two gate-recheck prompts
+   that carry the same standalone §1.7(b) staged-read block
+   (`dimensional-review-gate-check`, `review-gate-verification`) from the plan's
+   `### Constraints` to the ledger; re-point `track-review` and
+   `create-final-design` tier-line reads to the ledger.
 3. **Pause boundaries → ledger events (D8).** Route the mid-phase-handoff
    Phase-2/State-0 and Phase-4 secondary markers to a ledger `paused` event,
    keeping the greppable `**PAUSED` prefix (or extending the recovery grep to
@@ -218,6 +227,8 @@ belong to one specific step. Often empty. -->
 - `.claude/workflow/prompts/technical-review.md`
 - `.claude/workflow/prompts/risk-review.md`
 - `.claude/workflow/prompts/adversarial-review.md`
+- `.claude/workflow/prompts/dimensional-review-gate-check.md`
+- `.claude/workflow/prompts/review-gate-verification.md`
 - `.claude/workflow/step-implementation.md`
 - `.claude/workflow/implementer-rules.md`
 - `.claude/workflow/track-review.md`

@@ -326,7 +326,11 @@ graph TD
   > **Depends on:** Track 1
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1 (consistency iter 1, structural iter 1)
+
+**Auto-fixed (mechanical)**: none.
+
+**Escalated (design decisions)**: CR1 (consistency, should-fix) — Track 2's §1.7(b)-marker reader inventory omitted two staged-read consumers, `dimensional-review-gate-check.md` and `review-gate-verification.md`, which read the workflow-modifying marker from the plan's `### Constraints` (the location D4 moves to the ledger and D5 removes). User chose "add both to Track 2": both were added to Track 2's `## Interfaces and Dependencies` in-scope list, the D4 reader inventory, the Plan-of-Work step-2 re-point, and the `## Context and Orientation` consumer enumeration. design.md (frozen) records the as-built in Phase 4.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
