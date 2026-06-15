@@ -27,12 +27,24 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
 - [ ] Track completion
 
 - [x] 2026-06-12T08:56Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-15T10:18Z [ctx=safe] Step 1 complete (commit 28fcf27642)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-06-15T10:18Z Step 1 discovered: the `n+m>maxRecordsPerEntry` cap cannot
+  run in schema-free classify, so it defers to Step 3 entry construction;
+  `while:` / `maxDepth:` / `optional:` MATCH are gated to `K0_NONE`
+  conservatively, so Steps 4-5 must decide `reverseIndex` reconciliation before
+  admitting them to the floor; the Interfaces "Key signatures"
+  `getMatchPatternInvolvedAliases` entry is on `SQLBooleanExpression`, not
+  `SQLWhereClause`. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. -->
+- 2026-06-15T10:18Z (scope-down) Step 1 deferred the `n+m>maxRecordsPerEntry`
+  cap to Step 3 (schema-free classify cannot count records) and gated `while:` /
+  `maxDepth:` / `optional:` MATCH to `K0_NONE` conservatively rather than
+  reconciling them at the floor. See Episodes §Step 1.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -263,7 +275,7 @@ re-execution happens on the next `query()`).
 
 ## Concrete Steps
 
-1. MATCH K0_NONE classify gate in `ShapeClassifier.classify` (Plan-of-Work step 1: SKIP/LIMIT first, then GROUP BY/UNWIND/RETURN DISTINCT/NOT MATCH, non-alias-keyed RETURN, LET/subquery, any node missing `class:`, cross-alias-state WHERE, link-path-deref WHERE via a new dedicated walk, non-statically-resolvable edge/class label, `n+m>maxRecordsPerEntry` → K0_NONE; non-gated MATCH stays `MATCH_TUPLE_MULTI`); `ShapeClassifierTest` routing assertions + the negative `where:(i.title=?)` row — risk: high (performance hot path: cache classify/lookup logic; the no-backstop floor's first gate — a missed shape silently serves stale results)  [ ]
+1. MATCH K0_NONE classify gate in `ShapeClassifier.classify` (Plan-of-Work step 1: SKIP/LIMIT first, then GROUP BY/UNWIND/RETURN DISTINCT/NOT MATCH, non-alias-keyed RETURN, LET/subquery, any node missing `class:`, cross-alias-state WHERE, link-path-deref WHERE via a new dedicated walk, non-statically-resolvable edge/class label, `n+m>maxRecordsPerEntry` → K0_NONE; non-gated MATCH stays `MATCH_TUPLE_MULTI`); `ShapeClassifierTest` routing assertions + the negative `where:(i.title=?)` row — risk: high (performance hot path: cache classify/lookup logic; the no-backstop floor's first gate — a missed shape silently serves stale results)  [x]  commit: 28fcf27642
 2. Etap A single-alias MATCH → RECORD fold (Plan-of-Work step 2): `classify` single-alias→RECORD split, `CachedEntry.returnProjector`, MATCH-aware `effectiveFromClasses`/`whereClauseOf`/`orderByOf` (or a dedicated MATCH populate path) in `DatabaseSessionEmbedded`, and the `serveThroughCache`/`buildView` Etap-A branch reusing `buildForRecord` with the projector applied pre-sort; Etap A cache-miss-vs-hit equivalence tests across CREATE/UPDATE/DELETE + a non-empty-`effectiveFromClasses` assertion *(independent of steps 3-5)* — risk: high (performance hot path: cache lookup + view-build path; an empty `effectiveFromClasses` would serve stale)  [ ]
 3. `MATCH_TUPLE_MULTI` entry metadata + `CachedEntry.computeMatchEffectiveFromClasses` + edge-class extraction (Plan-of-Work step 3): populate `aliasClasses`/`traversalEdgeClasses`/`aliasWheres`/`effectiveFromClasses` at entry construction (multi-class union closure), reuse `SQLMatchStatement.buildPatterns`/`addAliases` for the alias→class/where maps, and extract the edge class from `SQLMatchPathItem`'s `SQLMethodCall` recognizing `out/in/both/outE/inE/bothE`, folding the parser `null`→`E` default and multi-param; unit tests asserting `effectiveFromClasses` per method-name variant and the unnamed-`out()`→`E` base closure — risk: high (correctness floor: edge-class extraction is the entire edge-mutation tombstone story — R1 blocker)  [ ]
 4. `MatchMultiDelta` + `DeltaBuilder.buildForMatchMulti` two-pass (Plan-of-Work step 4): pass-1 tombstone pre-scan (scoped CREATE / edge-class DELETE / update-into-match → TOMBSTONE short-circuit) and pass-2 per-tuple build (`tupleSkipSet` via `reverseIndex` on vertex DELETE, `ridSkipSet` on pass→fail UPDATE with the null-`aliasWheres` "always matches" guard); delta-builder unit tests on a constructed entry + staged tx ops covering each TOMBSTONE trigger, the skip-sets, and the no-WHERE-bound-alias UPDATE no-NPE case — risk: high (the delta-build is the entire correctness story for the no-version-backstop shape)  [ ]
@@ -271,6 +283,49 @@ re-execution happens on the next `query()`).
 
 ## Episodes
 <!-- Continuous-log. -->
+
+### Step 1 — commit 28fcf27642, 2026-06-15T10:18Z [ctx=safe]
+**What was done:** Extended the schema-free, AST-only `ShapeClassifier.classify`
+to route a MATCH statement to `K0_NONE` on every shape the `MATCH_TUPLE_MULTI`
+per-tuple delta floor cannot reconcile, via a new `classifyMatch` method plus
+helpers. Gates, in order: SKIP/LIMIT; GROUP BY / UNWIND / RETURN DISTINCT / NOT
+MATCH; non-alias-keyed RETURN (`$elements` / `$pathElements` / `$patterns` /
+`$matches` / `$paths`); a subquery inside any pattern WHERE; a vertex node
+missing `class:`; a non-statically-resolvable class or edge label; a
+cross-alias-state WHERE (`$matched.alias`); a link-path-dereference WHERE; and
+(added under review) any node carrying `while:` / `maxDepth:` or `optional:`. A
+non-gated MATCH stays `MATCH_TUPLE_MULTI`. Added 21 `ShapeClassifierTest`
+routing rows, including the required negative `where:(i.title=?)` row.
+
+**What was discovered:** Four facts the later steps depend on. (1)
+`getMatchPatternInvolvedAliases` is declared on `SQLBooleanExpression`, not on
+`SQLWhereClause` as the Interfaces "Key signatures" entry states;
+`SQLWhereClause.getBaseExpression()` reaches the root for a single-call alias
+walk. (2) The MATCH grammar carries no LET clause, so the planned "LET binding
+present" gate is structurally unreachable; the subquery-in-WHERE gate covers
+the related case. (3) A literal-string edge label such as `out('member')`
+renders with quotes, so static-label resolvability must accept a quoted string
+literal, and the link-deref head check must skip literal leaves so a dot inside
+a literal is not read as a path separator. (4) `while:` / `maxDepth:` /
+`optional:` are exposed on `SQLMatchFilter` (the node `classifyMatch` already
+inspects), so the variable-depth and optional gates fit `vertexNodeForcesK0None`
+directly.
+
+**What changed from the plan:** The plan's step-1 list ends with
+`n+m>maxRecordsPerEntry → K0_NONE`, but that cap needs populate-time record
+counts the schema-free classify cannot compute. Consistent with the plan's own
+"classify is schema-free" clause and design L506, the cap defers to **Step 3**
+(entry construction), which must enforce `n+m<=maxRecordsPerEntry`. Review also
+added two gates the plan omitted: variable-depth (`while:` / `maxDepth:`) and
+`optional:` MATCH route to `K0_NONE` conservatively, since a variable or null
+alias binding has no stable RID for the `reverseIndex`. This affects **Steps
+4-5**: admitting either shape to the floor later requires first deciding how its
+binding reconciles against `reverseIndex`. Step 1 does not split single-alias
+MATCH to RECORD; that is Step 2.
+
+**Key files:**
+- `ShapeClassifier.java` (modified)
+- `ShapeClassifierTest.java` (modified)
 
 ## Validation and Acceptance
 
