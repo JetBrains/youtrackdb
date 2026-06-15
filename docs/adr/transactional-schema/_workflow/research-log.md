@@ -5933,6 +5933,21 @@ transactional-enablement contract with the membership-leak test), a positive-dro
 test plus the detection-source property to I-A1, and an F51 lazy-invalidation
 entry to `## Delegated to implementation`. Re-verified at iteration 2.
 
+### Adversarial review of this log (2026-06-15) — NEEDS REVISION: 1 finding (0 blocker, 1 should-fix), 3 prior VERIFIED
+Iteration 2 (verdict-producer), same scope and lenses. Report:
+`_workflow/reviews/research-log-adversarial-iter2.md`. A1, A2, A3 all VERIFIED:
+I-A7 pins the de-guarding contract with a PSI-confirmed entry-point inventory,
+I-A1 now carries the positive-drop test and the D9-not-D6 detection source, and
+the F51 lazy-invalidation Delegated entry is present. One new finding, A4
+[should-fix] — the symmetric positive of A1, displaced one F46 facet over: I-A7
+and I-P2 pinned the negative membership properties (no leak, rollback-clean) but
+neither pinned the positive post-commit coverage, where a committed
+`addSuperClass` / alter-add-collection must leave the parent index covering the
+new subclass collection so a polymorphic query returns the subclass rows.
+Resolved by augmenting I-P2 with a positive membership-coverage test and a clause
+naming membership-only as a tracked changed-index category in its own right.
+Re-verified at iteration 3.
+
 ---
 
 ## Invariants and Test Requirements
@@ -6267,11 +6282,23 @@ examples the consolidation spec named keep their original IDs (`I-freezer-1`,
   key-entry tracking. The tx-local snapshot is force-rebuilt on every mid-tx
   `createIndex` / `dropIndex`, because `ClassIndexManager` reads the cached
   `indexes` set materialized once at snapshot init; without the rebuild, same-tx
-  inserts into the new index are silently untracked.
+  inserts into the new index are silently untracked. A collection-membership
+  change on a committed index (the polymorphic ripple from `addSuperClass`, or
+  an alter-add-collection on a class with an indexed superclass) is a tracked
+  changed-index category in its own right, so the commit persists the
+  `collectionsToIndex` delta and the parent index covers the new subclass
+  collection afterward.
 - **Test**: create an index mid-transaction, insert rows into the indexed class
   in the same transaction, commit; the committed index contains those rows (the
   F32 silent-untracking regression). Rename, drop, and collection-membership
-  changes apply commit-only and never mutate a shared `Index` object mid-tx.
+  changes apply commit-only and never mutate a shared `Index` object mid-tx. And
+  the positive membership case: commit an `addSuperClass` (or
+  alter-add-collection) that adds a subclass collection to a superclass's index,
+  then run a polymorphic query through that index and assert it returns the
+  subclass rows. An implementation that routes the membership change through the
+  overlay but omits the membership-only changed-index category passes the
+  isolation and rollback tests (I-A7) yet fails this positive coverage, the
+  silent under-return the category exists to prevent.
 - **Provenance**: D15; F20, F25, F32, F35, F40, F46, F60.
 - **Mechanism (delegated)**: the overlay of the two lookup maps, the
   force-rebuild trigger, and the four overlay categories (created, dropped,
