@@ -3894,8 +3894,14 @@ mechanism pins on the new exporter (D20): (1) promote-only-on-success — an
 explicit completion flag set after the last section is written, checked
 before the rename; every failure path leaves (or deletes) the `.tmp` and
 never renames. The no-file pin becomes a real invariant independent of
-generator context, and the primary-exception pin trivializes (nothing
-needs `writeEndObject` on the discard path). (2) Per-record write
+generator context. The promote-only-on-success pin does not trivialize the
+primary-exception outcome, though (F119): the discard path still performs
+cleanup I/O (generator and gzip/file close, `.tmp` delete), and a
+`finally`-resident cleanup throw can still replace the in-flight scan failure
+(the live case is correlated disk-full), so the secondary class narrows to
+cleanup-I/O failures but does not vanish — the primary-exception outcome stays
+delivered by the F94 (b) `addSuppressed` / log-then-rethrow discipline, which
+stays load-bearing. (2) Per-record write
 isolation in both modes, not only best-effort: each record renders to a
 buffer and is written whole or discarded whole into `brokenRids`, so a
 swallowed broken record can never strand the shared generator. Isolation
@@ -4270,6 +4276,20 @@ mechanism pins deliver the no-file outcome; the primary-exception outcome
 stays delivered by its own suppression discipline (the pin narrows the
 secondary class, it does not trivialize it away). Affected: D20, F109,
 F94.
+
+**Resolved (2026-06-15): the pins deliver the no-file outcome; the
+primary-exception outcome stays on the suppression discipline.** The
+promote-only-on-success and per-record-isolation pins deliver the no-file
+invariant, but they do not trivialize the primary-exception outcome: the
+discard path still performs cleanup I/O (generator and gzip/file close, `.tmp`
+delete), so a `finally`-resident cleanup throw can still replace the in-flight
+scan failure (the live case is correlated disk-full). The pins narrow the
+secondary class to cleanup-I/O failures; they do not eliminate it, and the
+F94 (b) `addSuppressed` / log-then-rethrow discipline stays load-bearing for
+the primary-exception outcome. Reworded "trivializes" to "narrows" in the
+F109 resolved block and D20's outcome clause so the wording no longer reads as
+license to drop the discipline. Folds: F109 resolved block, D20 outcome clause
+(F94's (b) discipline is reinforced, not changed).
 
 ### F120 — The per-record buffer is unbounded: best-effort reclassifies too-big-to-buffer records as broken, and the OOME class cannot honor "discarded whole" [MINOR]
 Pass-12 report U35. "Record-sized" is unbounded (embedded recursion at
@@ -5452,7 +5472,7 @@ recover.
   promotion; the `.tmp` orphan is the only residue), two outcome pins ride
   it (no-file-at-final-name-after-failure is kept whatever the close-path
   implementation; the scan failure propagates as the primary exception, not
-  the close-path secondary), two mechanism pins deliver those outcomes
+  the close-path secondary), the mechanism pins deliver the no-file outcome
   (F109: the exporter promotes only on success — an explicit completion
   flag set after the last section is written, checked before the rename,
   with every failure path leaving or deleting the `.tmp` and never
@@ -5460,7 +5480,10 @@ recover.
   renders to a buffer and is written whole or discarded whole into
   `brokenRids` — because without them an `exportRecord` swallow leaves
   the generator stranded at object context and the abort promotes a
-  mangled dump), and a best-effort-marked dump requires the ack
+  mangled dump) — the primary-exception outcome stays delivered by the F94
+  (b) `addSuppressed` / log-then-rethrow discipline, which the pins narrow to
+  cleanup-I/O failures but do not eliminate (F119); and a best-effort-marked
+  dump requires the ack
   flag at import even in the manifest era (a salvage manifest agrees with
   its truncated dump) — a gate enforceable only by v15-aware importers:
   pre-branch binaries skip the unknown scalar marker unread (the same
