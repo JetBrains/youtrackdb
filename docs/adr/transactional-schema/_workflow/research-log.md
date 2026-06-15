@@ -4058,6 +4058,16 @@ capture reads as unverified, not clean. The listener capture needs no
 control — its per-collection count lines are an intrinsic positive
 signal.
 
+**F121 amendment (2026-06-15): the sentinel goes through the `DatabaseExport`
+category.** `SLF4JLogManager` resolves and caches a logger per requester
+class (`:48`–`:64`), and every export error line travels the
+`…db.tool.DatabaseExport` category (requester `this` at
+`:152`/`:213`/`:225`/`:281`/`:293`/`:606`), which JUL/logback/log4j2 filter
+and route independently. So the provoked sentinel is logged at error level
+through that same category (`LogManager.error(DatabaseExport.class, …)`), and
+destination verification checks that category's effective destination, not the
+root's — a sentinel through any other category false-passes.
+
 ### F114 — "Per-unpark re-evaluation covers the layered case" is false: `releaseOperations` unparks only at `freezeRequests == 0`, so the schema commit stays parked inside the four-lock window for a layered operator freeze's whole duration [MAJOR]
 Pass-12 report C38 (PSI: `releaseOperations` is the sole unpark path —
 `cutWaitingList`'s only caller `OperationsFreezer:105`,
@@ -4351,6 +4361,21 @@ level through the export tool's own category
 (`LogManager.error(DatabaseExport.class, …)`), and destination
 verification checks that category's effective destination, not the root's.
 Affected: D20, F94, F102, F113.
+
+**Resolved (2026-06-15): provoke the sentinel through the `DatabaseExport`
+category.** PSI-confirmed: `SLF4JLogManager.log` resolves and caches one
+logger per requester-class name (`:48`–`:64`), and every `DatabaseExport`
+error site logs with `requester = this` at `:152`/`:213`/`:225`/`:281`/`:293`/`:606`,
+so they all route the `…db.tool.DatabaseExport` category — which JUL, logback,
+and log4j2 filter and route independently. The liveness control provokes its
+known line at error level through that same category
+(`LogManager.error(DatabaseExport.class, …)`), and the destination-verification
+arm checks that category's effective destination, not the root logger's; a
+sentinel through any other category lands in the capture while the real error
+lines route elsewhere, so the control would false-pass. Level direction was
+already safe (a threshold-dropped sentinel fails the control). Folds: D20
+review pin (sentinel category pinned), F113 resolved block (amendment); F102's
+two-capture structure is unchanged.
 
 ---
 
@@ -5477,10 +5502,13 @@ recover.
   embedding tool decides where each channel lands, so the procedure names
   both captures (the tool's listener output and its error log, or one
   redirected stream) and the review fails when either is missing, with a
-  liveness control on the error capture (F113): provoke one known line
-  through the logger before the export and confirm it appears in the
-  capture (or verify the logger destination where the tool supports
-  introspection) — a clean export writes zero error lines, so an empty
+  liveness control on the error capture (F113, F121): provoke one known
+  line at error level through the export tool's own `DatabaseExport`
+  category (`LogManager.error(DatabaseExport.class, …)`, the category every
+  export error line travels) before the export and confirm it appears in the
+  capture, or verify that category's effective destination where the tool
+  supports introspection — not the root logger's, which `LogManager` routes
+  per requester class — a clean export writes zero error lines, so an empty
   error capture without the control reads as unverified, not clean; the
   listener capture needs no control, its count lines being an intrinsic
   positive signal. The
