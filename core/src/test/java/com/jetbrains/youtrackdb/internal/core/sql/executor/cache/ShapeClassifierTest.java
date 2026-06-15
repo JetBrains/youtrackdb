@@ -248,4 +248,199 @@ public class ShapeClassifierTest extends DbTestBase {
   public void aggregateMetadataForRecordShapeIsNull() {
     Assert.assertNull(metadata("select from OUser where name = ?"));
   }
+
+  // ===========================================================================
+  // MATCH classify routing — the K0_NONE gate and the non-gated MATCH_TUPLE_MULTI
+  // residual. classify is schema-free (AST only), so these queries reference OUser
+  // and arbitrary edge labels without the classes needing to exist.
+  // ===========================================================================
+
+  /**
+   * A multi-alias MATCH with statically-resolvable vertex and edge labels, alias-keyed RETURN, and
+   * no pagination/grouping/distinct/cross-alias/link-deref WHERE is the canonical non-gated shape:
+   * it stays MATCH_TUPLE_MULTI for the per-tuple delta floor.
+   */
+  @Test
+  public void multiAliasMatchClassifiesAsTupleMulti() {
+    Assert.assertEquals(
+        CacheableShape.MATCH_TUPLE_MULTI,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser}.out('member'){as:p, class:OUser} return i, p")));
+  }
+
+  /**
+   * A single-alias MATCH also stays MATCH_TUPLE_MULTI at this step. The single-alias RECORD fold
+   * (Etap A) is a later refinement; this gate only routes unreconcilable shapes to K0_NONE and
+   * leaves every other MATCH at MATCH_TUPLE_MULTI.
+   */
+  @Test
+  public void singleAliasMatchClassifiesAsTupleMulti() {
+    Assert.assertEquals(
+        CacheableShape.MATCH_TUPLE_MULTI,
+        ShapeClassifier.classify(parse("match {as:u, class:OUser} return u")));
+  }
+
+  /**
+   * MATCH + LIMIT routes to K0_NONE: a cached top-N tuple set cannot promote tuple N+1 after an
+   * in-transaction drop, so the paginated prefix is structurally incomplete (the same reason as the
+   * SELECT SKIP/LIMIT gate). The SKIP/LIMIT check runs first, before any other MATCH gate.
+   */
+  @Test
+  public void matchWithLimitClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("match {as:u, class:OUser} return u limit 10")));
+  }
+
+  /** MATCH + SKIP routes to K0_NONE for the same paginated-prefix reason as LIMIT. */
+  @Test
+  public void matchWithSkipClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("match {as:u, class:OUser} return u skip 5")));
+  }
+
+  /** MATCH + GROUP BY routes to K0_NONE: a per-tuple skip/inject delta cannot reconcile grouping. */
+  @Test
+  public void matchWithGroupByClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:u, class:OUser} return u.name, count(*) group by u.name")));
+  }
+
+  /** MATCH + UNWIND routes to K0_NONE: the unwound fan-out is not per-tuple reconcilable. */
+  @Test
+  public void matchWithUnwindClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:u, class:OUser} return u.name as x unwind x")));
+  }
+
+  /** MATCH RETURN DISTINCT routes to K0_NONE: a DISTINCT collapse is not per-tuple reconcilable. */
+  @Test
+  public void matchReturnDistinctClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("match {as:u, class:OUser} return distinct u")));
+  }
+
+  /**
+   * A MATCH carrying a NOT MATCH anti-join routes to K0_NONE: the anti-join membership cannot be
+   * maintained by a per-tuple skip/inject delta.
+   */
+  @Test
+  public void matchWithNotMatchClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse(
+                "match {as:i, class:OUser}, not {as:i}.out('member'){as:p, class:OUser} return i")));
+  }
+
+  /**
+   * RETURN $elements routes to K0_NONE: it flattens the row to one element with no alias keys,
+   * breaking the alias-keyed tuple assumption the per-tuple delta and the Etap-A projector rely on.
+   */
+  @Test
+  public void matchReturnElementsClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser}, not {as:i}.out('member'){as:p, class:OUser}"
+                + " return $elements")));
+  }
+
+  /**
+   * A pattern node with no class: routes to K0_NONE: an unconstrained alias cannot seed a class
+   * filter for the delta build, so its mutations could not be scoped.
+   */
+  @Test
+  public void matchNodeMissingClassClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE, ShapeClassifier.classify(parse("match {as:u} return u")));
+  }
+
+  /**
+   * A non-statically-resolvable (parameterized) edge label routes to K0_NONE: the edge-class closure
+   * cannot be built from the AST alone, so seeding it would risk a wrong or empty closure.
+   */
+  @Test
+  public void matchParameterizedEdgeLabelClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser}.out(:edgeType){as:p, class:OUser} return i, p")));
+  }
+
+  /**
+   * A non-statically-resolvable (parameterized) class label routes to K0_NONE for the same
+   * AST-only-closure reason as the parameterized edge label.
+   */
+  @Test
+  public void matchParameterizedClassLabelClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("match {as:u, class: :cls} return u")));
+  }
+
+  /**
+   * A cross-alias-state pattern WHERE (a $matched.<otherAlias> reference) routes to K0_NONE: the
+   * per-tuple delta cannot re-evaluate a predicate spanning two aliases against a single mutated
+   * record.
+   */
+  @Test
+  public void matchCrossAliasStateWhereClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:a, class:OUser}.out('member'){as:b, class:OUser,"
+                + " where:($matched.a is not null)} return a, b")));
+  }
+
+  /**
+   * A link-path-dereference pattern WHERE (where:(assignee.name = ?), a dotted path whose head is a
+   * link rather than the bound alias) routes to K0_NONE: a mutation of the dereferenced
+   * out-of-pattern record would otherwise be dropped by the delta build's class filter.
+   */
+  @Test
+  public void matchLinkPathDerefWhereClassifiesAsK0None() {
+    Assert.assertEquals(
+        "a WHERE dereferencing a link into an out-of-pattern class must classify K0_NONE so the"
+            + " mutation of the dereferenced record is served correctly under the version gate",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser, where:(assignee.name = ?)} return i")));
+  }
+
+  /**
+   * The negative companion to the link-deref gate: a plain qualified own-property WHERE
+   * (where:(i.title = ?), whose dotted head i IS the bound alias) is not a link dereference and must
+   * NOT route to K0_NONE. It stays MATCH_TUPLE_MULTI. This pins that the link-deref walk keys on a
+   * foreign head, not on the mere presence of a dot.
+   */
+  @Test
+  public void matchQualifiedOwnPropertyWhereStaysTupleMulti() {
+    var shape =
+        ShapeClassifier.classify(parse("match {as:i, class:OUser, where:(i.title = ?)} return i"));
+    Assert.assertEquals(
+        "a qualified own-property WHERE (i.title on bound alias i) is not a link dereference and must"
+            + " not route to K0_NONE",
+        CacheableShape.MATCH_TUPLE_MULTI,
+        shape);
+    Assert.assertNotEquals(CacheableShape.K0_NONE, shape);
+  }
+
+  /**
+   * A bare own-property WHERE (where:(title = ?), with no dotted path at all) likewise stays
+   * MATCH_TUPLE_MULTI: it references the bound record's own property and reaches nothing outside the
+   * pattern.
+   */
+  @Test
+  public void matchBareOwnPropertyWhereStaysTupleMulti() {
+    Assert.assertEquals(
+        CacheableShape.MATCH_TUPLE_MULTI,
+        ShapeClassifier.classify(parse("match {as:i, class:OUser, where:(title = ?)} return i")));
+  }
 }

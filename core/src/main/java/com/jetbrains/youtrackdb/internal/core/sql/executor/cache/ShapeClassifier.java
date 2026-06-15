@@ -1,16 +1,24 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Node;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFunctionCall;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SimpleNode;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
@@ -39,9 +47,12 @@ import javax.annotation.Nullable;
  *       FROM C} (no WHERE) is hardwired in the planner to an O(1) {@code CountFromClassStep} that the
  *       aggregate side-tap can never reach, so it also routes to {@code K0_NONE}; a {@code COUNT(*)}
  *       with a (non-indexed) WHERE does build the aggregation step and stays {@code AGGREGATE_COUNT}.
- *   <li><b>MATCH &rarr; {@link CacheableShape#MATCH_TUPLE_MULTI}.</b> Returned for any MATCH
- *       statement here; the MATCH delta path and the single-alias RECORD-fold (Etap A) land in a
- *       later track, so the session bypasses these for now.
+ *   <li><b>MATCH &rarr; {@link CacheableShape#MATCH_TUPLE_MULTI} or {@link CacheableShape#K0_NONE}.</b>
+ *       A MATCH statement routes to {@code K0_NONE} when any shape the per-tuple delta floor cannot
+ *       reconcile is present (see {@link #classifyMatch}); otherwise it stays {@code
+ *       MATCH_TUPLE_MULTI}. The single-alias RECORD-fold (Etap A) refines the {@code
+ *       MATCH_TUPLE_MULTI} result in a later step; this method does not yet split single-alias MATCH
+ *       to {@code RECORD}.
  *   <li><b>Everything else &rarr; {@link CacheableShape#K0_NONE}.</b> GROUP BY, LET, UNWIND,
  *       subquery target, expression aggregates — deterministically reproducible but not
  *       record-by-record reconcilable.
@@ -134,15 +145,313 @@ public final class ShapeClassifier {
     if (statement instanceof SQLSelectStatement select) {
       return classifySelect(select);
     }
-    if (statement instanceof SQLMatchStatement) {
-      // MATCH delta path (multi-alias reconcile + single-alias Etap A RECORD fold) lands in a later
-      // track. Returning the final shape value lets the session's bypass decision stay a pure shape
-      // check; until the MATCH path is wired, the session routes these to uncached execution.
-      return CacheableShape.MATCH_TUPLE_MULTI;
+    if (statement instanceof SQLMatchStatement match) {
+      return classifyMatch(match);
     }
     // INSERT/UPDATE/DELETE and other statements are not idempotent SELECT/MATCH reads and are gated
     // out before classify is reached; treat any unexpected statement conservatively.
     return CacheableShape.K0_NONE;
+  }
+
+  /**
+   * A class or edge label is statically resolvable from the AST alone when it renders as a plain
+   * identifier ({@code class:OUser}) or a quoted string literal ({@code out('member')}). A
+   * parameterized label ({@code class: :type}, {@code out(:edgeType)}) renders with a {@code ?} or
+   * {@code :} marker, and a computed label renders with operators or punctuation; both fail this
+   * pattern and route to {@code K0_NONE} rather than seeding a wrong or empty class closure at entry
+   * construction. The quoted alternative forbids an interior quote so it matches a single complete
+   * string literal, not two concatenated tokens.
+   */
+  private static final Pattern STATIC_LABEL =
+      Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*|'[^']*'|\"[^\"]*\"");
+
+  /**
+   * Classifies a MATCH statement into {@link CacheableShape#MATCH_TUPLE_MULTI} or {@link
+   * CacheableShape#K0_NONE}. The {@code MATCH_TUPLE_MULTI} delta floor reconciles vertex DELETE and
+   * pass&rarr;fail UPDATE incrementally and tombstones the rest; it carries no mutation-version
+   * backstop, so any MATCH shape the floor cannot reconcile must route to the version-gated {@code
+   * K0_NONE} path here. A missed gate would silently serve a stale tuple set, so the gate is
+   * deliberately broad: every check below over-approximates toward {@code K0_NONE} (which always
+   * re-executes on any mutation and is therefore correctness-safe) rather than risk admitting an
+   * unreconcilable shape.
+   *
+   * <p>This method is schema-free: it reads the parsed AST only, with no session or schema lookup, so
+   * it can run on the {@code query()} hot path. Checks that need schema resolution or populate-time
+   * record counts (the {@code n + m <= maxRecordsPerEntry} cap) are deferred to entry construction,
+   * where the session and schema are available.
+   *
+   * <p>The gates, in order:
+   *
+   * <ol>
+   *   <li><b>SKIP or LIMIT</b> (first, mirroring {@link #classifySelect}): a paginated prefix cannot
+   *       be repaired by a per-tuple delta, so a dropped in-window tuple would emit the wrong
+   *       cardinality.
+   *   <li><b>GROUP BY, UNWIND, RETURN DISTINCT, or NOT MATCH</b>: a per-tuple skip/inject delta
+   *       cannot reconcile any of these.
+   *   <li><b>RETURN is not the alias-keyed form</b>: {@code $elements}, {@code $pathElements}, {@code
+   *       $patterns}/{@code $matches}, {@code $paths} flatten the row away from the alias-keyed tuple
+   *       the delta path and Etap-A projector assume.
+   *   <li><b>A subquery target in any pattern WHERE</b>: the inner result is opaque to the per-tuple
+   *       delta. (MATCH has no LET clause in the grammar, so there is no LET gate.)
+   *   <li><b>Any vertex node missing {@code class:}</b>, or a non-statically-resolvable class or edge
+   *       label: an unconstrained or parameter-resolved label cannot seed a class closure from the
+   *       AST alone.
+   *   <li><b>A cross-alias-state WHERE</b> (a {@code $matched.otherAlias} reference, detected via
+   *       {@link SQLWhereClause#getMatchPatternInvolvedAliases}).
+   *   <li><b>A link-path-dereference WHERE</b> ({@code where:(assignee.name = ?)}): a dotted path
+   *       whose head is a property/link rather than the bound alias dereferences into a class outside
+   *       the pattern's read set, whose mutation the delta build's class filter would otherwise drop.
+   * </ol>
+   */
+  private static CacheableShape classifyMatch(@Nonnull SQLMatchStatement match) {
+    // SKIP/LIMIT first, for the same paginated-prefix reason as classifySelect: a cached top-N tuple
+    // set cannot promote tuple N+1 after an in-tx drop.
+    if (match.getSkip() != null || match.getLimit() != null) {
+      return CacheableShape.K0_NONE;
+    }
+
+    // Shapes the per-tuple delta cannot reconcile: grouping/unwind fan-out, DISTINCT collapse, and a
+    // NOT MATCH anti-join whose membership a tuple skip/inject cannot maintain.
+    if (match.getGroupBy() != null
+        || match.getUnwind() != null
+        || match.isReturnDistinct()
+        || !match.getNotMatchExpressions().isEmpty()) {
+      return CacheableShape.K0_NONE;
+    }
+
+    // RETURN must be the alias-keyed form. The $elements/$pathElements/$patterns/$matches/$paths
+    // special forms flatten the row to one element with no alias keys, breaking the alias-keyed tuple
+    // assumption (getProperty(alias), reverseIndex, the Etap-A returnProjector).
+    if (match.returnsElements()
+        || match.returnsPathElements()
+        || match.returnsPatterns()
+        || match.returnsPaths()) {
+      return CacheableShape.K0_NONE;
+    }
+
+    for (var expr : match.getMatchExpressions()) {
+      if (matchExpressionForcesK0None(expr)) {
+        return CacheableShape.K0_NONE;
+      }
+    }
+
+    return CacheableShape.MATCH_TUPLE_MULTI;
+  }
+
+  /**
+   * Runs every per-pattern-expression K0_NONE gate over one {@link SQLMatchExpression}: the origin
+   * vertex node, each traversal step's edge label, and each step's target vertex node. Returns {@code
+   * true} as soon as any gate fires, so the caller routes the whole statement to {@code K0_NONE}.
+   */
+  private static boolean matchExpressionForcesK0None(@Nonnull SQLMatchExpression expr) {
+    if (vertexNodeForcesK0None(expr.getOrigin())) {
+      return true;
+    }
+    for (var item : expr.getItems()) {
+      if (edgeLabelForcesK0None(item) || vertexNodeForcesK0None(item.getFilter())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A vertex node forces {@code K0_NONE} when it declares no statically-resolvable {@code class:}, or
+   * when its pattern WHERE references another alias's state ({@code $matched.x}) or dereferences a
+   * link into an out-of-pattern class. {@code getClassName(null)} is the context-free read of the
+   * declared class; it returns {@code null} when no {@code class:} is present and the rendered label
+   * otherwise, which {@link #STATIC_LABEL} then tests for static resolvability.
+   */
+  private static boolean vertexNodeForcesK0None(SQLMatchFilter node) {
+    if (node == null) {
+      // A path item with no target filter binds no vertex node; nothing to gate on it here.
+      return false;
+    }
+    var className = node.getClassName(null);
+    if (className == null || !STATIC_LABEL.matcher(className).matches()) {
+      return true;
+    }
+    var where = node.getFilter();
+    if (where == null) {
+      return false;
+    }
+    // A subquery embedded in the pattern WHERE produces a result opaque to the per-tuple delta; route
+    // it to the version gate. (MATCH has no LET clause in the grammar, so there is no separate LET
+    // gate to apply alongside this one.)
+    if (subtreeHasSubquery(where)) {
+      return true;
+    }
+    // Cross-alias-state WHERE: a $matched.<otherAlias> reference the per-tuple delta cannot re-evaluate
+    // against a single mutated record.
+    if (whereReferencesOtherAlias(where)) {
+      return true;
+    }
+    // Link-path-dereference WHERE: a dotted path whose head is not the bound alias reaches into an
+    // out-of-pattern record whose mutation the class filter would otherwise drop.
+    return whereHasLinkPathDeref(where, node.getAlias());
+  }
+
+  /**
+   * True when a path item's traversal edge label is not statically resolvable from the AST. The edge
+   * label is the first parameter of the step's {@link SQLMethodCall}; the parser folds a bare {@code
+   * out()} to the literal {@code "E"}, so a resolvable step always carries at least one literal-label
+   * parameter. A parameterized label ({@code out(:edgeType)}) cannot seed an edge-class closure from
+   * the AST alone and routes to {@code K0_NONE}; the closure itself is extracted at entry
+   * construction. Multi-label steps ({@code out('E1','E2')}) pass only when every label is static.
+   */
+  private static boolean edgeLabelForcesK0None(@Nonnull SQLMatchPathItem item) {
+    var method = item.getMethod();
+    if (method == null) {
+      return false;
+    }
+    var params = method.getParams();
+    if (params == null || params.isEmpty()) {
+      // A traversal step with no label is not statically resolvable to a specific edge class; the
+      // parser normally folds a bare out() to "E", so an empty param list is the conservative reject.
+      return true;
+    }
+    for (var param : params) {
+      if (!isStaticLabel(param)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** True when the expression renders as a bare static identifier (a literal class or edge label). */
+  private static boolean isStaticLabel(@Nonnull SQLExpression label) {
+    var rendered = label.toString();
+    return STATIC_LABEL.matcher(rendered).matches();
+  }
+
+  /** Pre-order walk for any embedded {@link SQLStatement} (a subquery) under {@code node}. */
+  private static boolean subtreeHasSubquery(Node node) {
+    if (node instanceof SQLStatement) {
+      return true;
+    }
+    var childCount = node.jjtGetNumChildren();
+    for (var i = 0; i < childCount; i++) {
+      var child = node.jjtGetChild(i);
+      if (child instanceof SimpleNode && subtreeHasSubquery(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * True when the WHERE references another pattern alias's state via {@code $matched.<alias>}. {@link
+   * SQLBooleanExpression#getMatchPatternInvolvedAliases} returns the set of {@code
+   * $matched}-referenced aliases for a boolean expression; a non-empty set anywhere in the WHERE's
+   * boolean tree is a cross-alias-state predicate. The method is declared on {@code
+   * SQLBooleanExpression}, not on {@code SQLWhereClause}, so the walk finds the boolean nodes and
+   * queries each.
+   */
+  private static boolean whereReferencesOtherAlias(@Nonnull SQLWhereClause where) {
+    return subtreeReferencesOtherAlias(where);
+  }
+
+  /** Pre-order walk for any {@link SQLBooleanExpression} that names a {@code $matched} alias. */
+  private static boolean subtreeReferencesOtherAlias(Node node) {
+    if (node instanceof SQLBooleanExpression bool) {
+      var aliases = bool.getMatchPatternInvolvedAliases();
+      if (aliases != null && !aliases.isEmpty()) {
+        return true;
+      }
+    }
+    var childCount = node.jjtGetNumChildren();
+    for (var i = 0; i < childCount; i++) {
+      var child = node.jjtGetChild(i);
+      if (child instanceof SimpleNode && subtreeReferencesOtherAlias(child)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * True when the WHERE contains a dotted path whose head identifier is neither the bound alias nor a
+   * context variable, indicating a dereference into a linked (out-of-pattern) record. A bare property
+   * ({@code title}) carries no dereference modifier; a qualified own-property ({@code i.title} on
+   * alias {@code i}) has the bound alias as its head; only a foreign head with a {@code .suffix}
+   * dereference ({@code assignee.name}) reaches outside the pattern's read set. This walk is the
+   * dedicated mechanism the cross-alias check ({@link #whereReferencesOtherAlias}) does not cover.
+   */
+  private static boolean whereHasLinkPathDeref(@Nonnull SQLWhereClause where, String boundAlias) {
+    return subtreeHasLinkPathDeref(where, boundAlias);
+  }
+
+  /** Pre-order walk for any {@link SQLBaseExpression} that dereferences a non-bound-alias head. */
+  private static boolean subtreeHasLinkPathDeref(Node node, String boundAlias) {
+    if (node instanceof SQLBaseExpression base
+        && baseExpressionDerefsForeignHead(base, boundAlias)) {
+      return true;
+    }
+    var childCount = node.jjtGetNumChildren();
+    for (var i = 0; i < childCount; i++) {
+      var child = node.jjtGetChild(i);
+      if (child instanceof SimpleNode && subtreeHasLinkPathDeref(child, boundAlias)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * True when a base expression dereferences (carries a {@code .suffix} / {@code [..]} / {@code
+   * .method()} modifier chain) and its head identifier is a foreign property rather than the bound
+   * alias or a context variable. The head is read from {@code toString()} up to the first dereference
+   * separator; a {@code $}-prefixed head is a context/system variable, not a link into another class,
+   * and is left to the cross-alias check.
+   */
+  private static boolean baseExpressionDerefsForeignHead(@Nonnull SQLBaseExpression base,
+      String boundAlias) {
+    var rendered = base.toString();
+    if (rendered.isEmpty() || isLiteralHead(rendered.charAt(0))) {
+      // A string or numeric literal ('a.b', 12.5, ?) is not a property path; a dot or bracket inside
+      // it is part of the literal, not a dereference separator, so it cannot reach out of pattern.
+      return false;
+    }
+    var sepIndex = firstDerefSeparator(rendered);
+    if (sepIndex < 0) {
+      // No dereference: a bare own-property reference (e.g. "title"); nothing reaches out of pattern.
+      return false;
+    }
+    var head = rendered.substring(0, sepIndex);
+    if (head.isEmpty() || head.charAt(0) == '$') {
+      // A $-variable head ($matched, $parent, $current, ...) is handled by the cross-alias gate, not
+      // here; it is not a plain link dereference into another class.
+      return false;
+    }
+    // A dotted path whose head is the bound alias (e.g. "i.title" on alias i) is a qualified reference
+    // to the bound record's own property, not a link into another class; only a foreign head derefs.
+    return !head.equals(boundAlias);
+  }
+
+  /**
+   * True when a rendered base expression begins with a literal marker (a string-literal quote, a
+   * digit, a sign, or a {@code ?} positional parameter) rather than an identifier start. Such a leaf
+   * carries no property head, so it cannot be a link dereference.
+   */
+  private static boolean isLiteralHead(char first) {
+    return first == '\'' || first == '"' || first == '?' || first == '-' || first == '+'
+        || (first >= '0' && first <= '9');
+  }
+
+  /**
+   * Index of the first dereference separator ({@code .} or {@code [}) in a rendered base expression,
+   * or {@code -1} when the expression is a bare identifier with no dereference.
+   */
+  private static int firstDerefSeparator(@Nonnull String rendered) {
+    var dot = rendered.indexOf('.');
+    var bracket = rendered.indexOf('[');
+    if (dot < 0) {
+      return bracket;
+    }
+    if (bracket < 0) {
+      return dot;
+    }
+    return Math.min(dot, bracket);
   }
 
   private static CacheableShape classifySelect(@Nonnull SQLSelectStatement select) {
