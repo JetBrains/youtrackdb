@@ -2807,6 +2807,14 @@ flowing); the in-window gate is demoted to authoritative backstop. D7's
 freezer bullet now states that the gate alone cannot deliver the availability
 claim.
 
+**F114 extension (2026-06-15): the loud-failure promise holds across layered
+freezes.** The operator-kind arm of `freezeOperations` cuts and unparks the
+waiting list on engage (D7 placement clause), so a commit parked behind a
+transient quiesce is woken to throw the instant an operator freeze layers on,
+never held inside the four-lock window for the operator freeze's duration.
+Without it, `releaseOperations`'s unpark-only-at-zero (`OperationsFreezer:97`)
+re-creates exactly this outage one freeze-layer up.
+
 ### F87 — "The freezer's throwing variant" does not exist per-operation, and both implementable keys break a premise [MAJOR]
 Convergent: pass-8 reports U18 + C24. Throw-vs-park is a property of the **freeze**,
 not the entrant: the gate throws only when the freeze registered a `FreezeParameters`
@@ -3811,6 +3819,16 @@ timeout re-probes stay best-effort early exits, not the backstop. The
 F97 and F87 records stand unchanged (their pins were correct; the
 placement clause closes the reading they left open).
 
+**F114 correction (2026-06-15): the layered case needs the operator-arm
+wake.** The placement clause's "re-evaluated on every unpark" delivers the
+layered-case throw only with F114's companion pin. `releaseOperations` unparks
+at `freezeRequests == 0` only (`OperationsFreezer:97`), so a commit parked
+behind a transient that an operator freeze then layers over (transient
+releases to a nonzero count) is never woken for the operator freeze's
+duration without the engage-time cut-and-unpark now pinned in D7's freezer
+bullet. The layered-case sentence here stands as the intent; the mechanism
+that delivers it lives in the D7 placement clause.
+
 ### F109 — "No file at the final name" is not an invariant of the specified mechanisms: one swallowed broken record strands the generator at object context and the abort promotes [MAJOR]
 Pass-11 report U28. The fold dropped pass 10's own qualifier ("or after
 `exportRecord`'s internal swallow left a record object open"). `recordToJson`
@@ -4010,6 +4028,39 @@ alternative: the schema entrant parks timed). Acceptance triple gains a
 fourth line: commit parked behind a transient + operator freeze layers in →
 loud abort within the bound, never parked for the freeze's duration.
 Affected: F108, D7, F86.
+
+**Resolved (2026-06-15): shape (a) accepted — the operator-kind arm of
+`freezeOperations` cuts and unparks the waiting list after its increment.**
+The companion pin closes the only gap the placement clause left.
+Code-confirmed (PSI): `releaseOperations` unparks the waiting list solely at
+`freezeRequests == 0` (`OperationsFreezer:97` gates the whole
+`cutWaitingList`+`unpark` block; sole production caller
+`AtomicOperationsManager:252`; `cutWaitingList`/`addThreadInWaitingList` have
+the single callers `OperationsFreezer:105`/`:44`), and `freezeOperations`
+never unparks — so a schema commit parked behind a transient quiesce
+(`DiskStorage:356`, a non-throwing `freezeWriteOperations(null)`) while an
+operator freeze layers on (`freezeRequests` 1→2) and the transient then
+releases (2→1) is never woken for the operator freeze's whole duration.
+F108's "per-unpark re-evaluation covers the layered case" was false: no
+unpark fires on the layering transition. The fix makes the operator-kind arm
+fire the same `cutWaitingList`+`unpark` block at engage time (after
+`incrementAndGet`): the woken schema-commit entrant re-evaluates the
+kind-aware gate and throws, woken data entrants re-check `freezeRequests > 0`
+and re-park (cheap, rare). The freezer's existing Dekker discipline bounds
+the race — the freezer publishes `freezeRequests` and the freeze kind before
+cutting, the entrant publishes `operationsCount` before reading them, so
+either the entrant already sees the operator freeze and throws or the cut
+wakes it — and `cutWaitingList` stays cut-safe under the now-two unpark sites
+(a racing cutter takes the whole list or empty, never a double-unpark). The
+added cost lands only on the rare operator-freeze engage path. Shape (b)
+(schema entrant parks timed) was rejected: a `parkNanos` backstop leaves the
+commit inside the four-lock window for up to one timeout interval after the
+operator freeze engages — a bounded reopening of the very outage — and it
+promotes a polling early-exit to the backstop role the in-window gate holds.
+Folds: D7 freezer bullet (placement clause gains the layered-case wake pin
+plus a fourth acceptance line), F108 record (correction note: the
+layered-case sentence needs this companion pin), F86 record (extension note:
+the loud-failure promise now holds across layered freezes).
 
 ### F115 — The F104 handshake pins holder-vs-mark but not the session-side ordinal record's write position: written after the mark re-check, the teardown warn-noops and the wedge returns [MAJOR]
 Pass-12 report C39. The release site presents the acquire-time ordinal read
@@ -4525,8 +4576,25 @@ assignee, 2026-06-03.
   (`OperationsFreezer:35`–`:50`) — armed only for the schema-commit
   entrant, re-evaluated on every unpark, throwing where `:40` throws
   today, count-balanced by the `:38` decrement and still before the
-  `:56` depth increment, so all three pins hold by position. A separate
-  pre-call probe before `startTxCommit` does NOT satisfy the pins: it
+  `:56` depth increment, so all three pins hold by position.
+  **Layered-case wake (F114):** per-unpark re-evaluation covers the layered
+  case only because the wake protocol is extended to fire on operator-freeze
+  engage, not solely on full release. `releaseOperations` unparks the waiting
+  list at `freezeRequests == 0` only (`OperationsFreezer:97`), so a commit
+  parked behind a transient quiesce (`DiskStorage:356`, kind = transient)
+  while an operator freeze layers on (1→2) and the transient releases (2→1)
+  would otherwise stay parked for the operator freeze's whole duration (the
+  F86 outage). The operator-kind arm of `freezeOperations` therefore cuts and
+  unparks the waiting list after its increment, running the same unpark block
+  the release side runs: the woken schema-commit entrant re-evaluates the gate
+  and throws, woken data entrants re-check `freezeRequests > 0` and re-park.
+  The Dekker handshake bounds the race both ways (the freezer publishes
+  `freezeRequests` and the freeze kind before cutting; the entrant publishes
+  `operationsCount` before reading them), so either the entrant already sees
+  the operator freeze and throws or the cut wakes it, and `cutWaitingList`
+  stays cut-safe under the now-two unpark sites (a racing cutter takes the
+  list or empty, never a double-unpark). A
+  separate pre-call probe before `startTxCommit` does NOT satisfy the pins: it
   sits outside the freezer's entrant/freezer handshake (the entrant
   publishes `operationsCount` before reading `freezeRequests`; the
   freezer publishes `freezeRequests` before draining the count), so a
@@ -4547,7 +4615,11 @@ assignee, 2026-06-03.
   park, commit succeeds; data write vs engaged `freeze(db,true)` → loud
   `ModificationOperationProhibitedException`, today's behavior unchanged
   (F93: pins the contract an implementer reading "uniform park" would have
-  silently converted into a write hang).
+  silently converted into a write hang); schema commit parked behind an
+  in-flight transient quiesce when an operator freeze then layers in → loud
+  `ModificationOperationProhibitedException` within the wake bound
+  (operator-arm cut-and-unpark, F114), never parked for the operator freeze's
+  duration.
   Check-and-back-off (release all four, park, retry) stays rejected as
   fragile.
 - **Thread assumption** verified in F13 (sessions are thread-bound).
