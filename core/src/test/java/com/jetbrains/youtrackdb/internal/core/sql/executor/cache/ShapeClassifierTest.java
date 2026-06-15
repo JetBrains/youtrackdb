@@ -443,4 +443,57 @@ public class ShapeClassifierTest extends DbTestBase {
         CacheableShape.MATCH_TUPLE_MULTI,
         ShapeClassifier.classify(parse("match {as:i, class:OUser, where:(title = ?)} return i")));
   }
+
+  /**
+   * A bounded variable-depth traversal (a {@code maxDepth:} node) routes to K0_NONE. The bound
+   * produces a transitive-closure tuple set whose membership depends on multi-hop reachability; the
+   * direct-membership reverseIndex floor cannot reconcile a deletion of an intermediate vertex on a
+   * multi-hop path (the downstream tuples never contained the deleted RID), so the shape must ride
+   * the version gate rather than the per-tuple floor.
+   */
+  @Test
+  public void matchMaxDepthClassifiesAsK0None() {
+    Assert.assertEquals(
+        "a maxDepth: traversal is a transitive closure the per-tuple floor cannot reconcile; it must"
+            + " classify K0_NONE",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser}.out('member'){as:p, class:OUser, maxDepth:3}"
+                + " return i, p")));
+  }
+
+  /**
+   * A {@code while:} traversal node routes to K0_NONE. Beyond the same transitive-closure
+   * unreconcilability as maxDepth:, gating on the while: node's presence also closes the escape hatch
+   * where a link-deref / cross-alias / subquery predicate inside the while: condition would bypass the
+   * where:-side gates (which only inspect getFilter(), never getWhileCondition()). The while:
+   * condition here is deterministic (a plain property predicate), so it survives the upstream
+   * non-deterministic-query detector and reaches classify.
+   */
+  @Test
+  public void matchWhileConditionClassifiesAsK0None() {
+    Assert.assertEquals(
+        "a while: traversal node must classify K0_NONE: its transitive closure is unreconcilable and"
+            + " its while: predicate escapes the where:-side gates",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser}.out('member'){as:p, class:OUser, while:(title = ?)}"
+                + " return i, p")));
+  }
+
+  /**
+   * An {@code optional:} node routes to K0_NONE. An optional node that fails to match binds a null
+   * alias value into the tuple, and the alias-keyed per-tuple delta path and reverseIndex have no RID
+   * to index for a null binding; gating it to K0_NONE conservatively keeps the unreconcilable
+   * null-binding shape off the floor.
+   */
+  @Test
+  public void matchOptionalNodeClassifiesAsK0None() {
+    Assert.assertEquals(
+        "an optional: node binds a null alias value with no RID to index; it must classify K0_NONE",
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(
+            parse("match {as:i, class:OUser}.out('member'){as:p, class:OUser, optional:true}"
+                + " return i, p")));
+  }
 }

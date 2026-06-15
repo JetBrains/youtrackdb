@@ -201,6 +201,16 @@ public final class ShapeClassifier {
    *   <li><b>A link-path-dereference WHERE</b> ({@code where:(assignee.name = ?)}): a dotted path
    *       whose head is a property/link rather than the bound alias dereferences into a class outside
    *       the pattern's read set, whose mutation the delta build's class filter would otherwise drop.
+   *   <li><b>A variable-depth or optional node</b> ({@code while:}, {@code maxDepth:}, {@code
+   *       optional:}): a {@code while:}/{@code maxDepth:} traversal builds a transitive-closure tuple
+   *       set whose membership depends on multi-hop reachability, which the direct-membership {@code
+   *       reverseIndex} floor cannot reconcile when an intermediate vertex on a path is deleted; an
+   *       {@code optional:} node binds a null alias value the alias-keyed tuple path has no RID to
+   *       index. Gating on node presence also closes the {@code while:} predicate as a WHERE escape
+   *       hatch: the link-deref/cross-alias/subquery gates run only against the {@code where:} clause
+   *       ({@link SQLMatchFilter#getFilter}), never the separate {@code while:} predicate ({@link
+   *       SQLMatchFilter#getWhileCondition}), so a node carrying a {@code while:} is routed to {@code
+   *       K0_NONE} before any unreconcilable predicate inside it could be missed.
    * </ol>
    */
   private static CacheableShape classifyMatch(@Nonnull SQLMatchStatement match) {
@@ -256,7 +266,8 @@ public final class ShapeClassifier {
   }
 
   /**
-   * A vertex node forces {@code K0_NONE} when it declares no statically-resolvable {@code class:}, or
+   * A vertex node forces {@code K0_NONE} when it declares no statically-resolvable {@code class:}, when
+   * it carries a variable-depth ({@code while:}/{@code maxDepth:}) or {@code optional:} modifier, or
    * when its pattern WHERE references another alias's state ({@code $matched.x}) or dereferences a
    * link into an out-of-pattern class. {@code getClassName(null)} is the context-free read of the
    * declared class; it returns {@code null} when no {@code class:} is present and the rendered label
@@ -266,6 +277,16 @@ public final class ShapeClassifier {
     if (node == null) {
       // A path item with no target filter binds no vertex node; nothing to gate on it here.
       return false;
+    }
+    // Variable-depth (while:/maxDepth:) and optional: nodes are unreconcilable by the per-tuple floor:
+    // a transitive-closure traversal's membership depends on multi-hop reachability the direct-
+    // membership reverseIndex cannot repair when an intermediate vertex is deleted, and an optional
+    // node binds a null alias value with no RID to index. Gating on node presence also routes any
+    // while:-bearing node to K0_NONE before its separate while: predicate (never seen by the where:-
+    // side link-deref/cross-alias/subquery gates below) could smuggle an unreconcilable predicate past
+    // the gate. Over-approximating these to K0_NONE is correctness-safe.
+    if (node.getWhileCondition() != null || node.getMaxDepth() != null || node.isOptional()) {
+      return true;
     }
     var className = node.getClassName(null);
     if (className == null || !STATIC_LABEL.matcher(className).matches()) {
@@ -341,32 +362,19 @@ public final class ShapeClassifier {
 
   /**
    * True when the WHERE references another pattern alias's state via {@code $matched.<alias>}. {@link
-   * SQLBooleanExpression#getMatchPatternInvolvedAliases} returns the set of {@code
-   * $matched}-referenced aliases for a boolean expression; a non-empty set anywhere in the WHERE's
-   * boolean tree is a cross-alias-state predicate. The method is declared on {@code
-   * SQLBooleanExpression}, not on {@code SQLWhereClause}, so the walk finds the boolean nodes and
-   * queries each.
+   * SQLBooleanExpression#getMatchPatternInvolvedAliases} already recurses through the whole boolean
+   * tree under the WHERE's root expression and returns the full set of {@code $matched}-referenced
+   * aliases, so a single call on the root answers the question without an outer per-node walk; a
+   * non-empty set is a cross-alias-state predicate. (A manual pre-order walk that called the method at
+   * every descended boolean node re-did the descent the method already performs, an O(n^2) re-walk.)
    */
   private static boolean whereReferencesOtherAlias(@Nonnull SQLWhereClause where) {
-    return subtreeReferencesOtherAlias(where);
-  }
-
-  /** Pre-order walk for any {@link SQLBooleanExpression} that names a {@code $matched} alias. */
-  private static boolean subtreeReferencesOtherAlias(Node node) {
-    if (node instanceof SQLBooleanExpression bool) {
-      var aliases = bool.getMatchPatternInvolvedAliases();
-      if (aliases != null && !aliases.isEmpty()) {
-        return true;
-      }
+    var root = where.getBaseExpression();
+    if (root == null) {
+      return false;
     }
-    var childCount = node.jjtGetNumChildren();
-    for (var i = 0; i < childCount; i++) {
-      var child = node.jjtGetChild(i);
-      if (child instanceof SimpleNode && subtreeReferencesOtherAlias(child)) {
-        return true;
-      }
-    }
-    return false;
+    var aliases = root.getMatchPatternInvolvedAliases();
+    return aliases != null && !aliases.isEmpty();
   }
 
   /**
