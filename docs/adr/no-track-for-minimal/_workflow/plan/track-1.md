@@ -26,6 +26,7 @@ Track 2 rewires the runtime consumers onto it.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-15T15:30Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-15T16:09Z [ctx=safe] Step 1 complete (commit e7d18b9bb6)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -41,6 +42,12 @@ at Phase 1. -->
   promotion commit, and (ii) widen the `create-final-design.md` Phase-4
   promotion `git add` + divergence check to include `.claude/scripts`. Captured
   in Track 2's Plan-of-Work step 2, Validation, and D14 `Implemented in`.
+- 2026-06-15T16:09Z Step 1 hardened the ledger append into a published
+  contract for Track 2: it loud-rejects malformed field values (exit 3)
+  and loud-fails on a `mkdir` / write / `mv` error, where the
+  signature and event grammar stay unchanged. Track 2's orchestrator
+  callers must check the append exit status rather than assume success.
+  See Episodes §Step 1.
 
 ## Decision Log
 
@@ -188,6 +195,12 @@ at Phase 1. -->
 - **Full design**: design.md records the as-built in Phase 4 (the frozen design
   predates this Phase-A review finding).
 
+- 2026-06-15T16:09Z (dependency-reveal) Step 1 pinned the ledger `phase`
+  vocabulary to the state-machine values {0, A, C, D, Done} (not the
+  design diagram's illustrative `phase=3C`) and made the append
+  loud-reject / loud-fail. Track 2's callers must emit these exact phase
+  tokens and check the append exit status. See Episodes §Step 1.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
@@ -325,7 +338,7 @@ lookup keeps the track-file sub-state walk unchanged.
    and rework `test_workflow_startup_precheck_stub.py` for the no-plan `minimal`
    case. Authored by manual copy-then-edit at the staged path; the live script is
    never touched. — risk: high (workflow machinery: a script that runs
-   automatically, and the auto-resume state machine)  [ ]
+   automatically, and the auto-resume state machine)  [x] commit: e7d18b9bb6
 2. Artifact-model specification across the convention/planning/workflow docs —
    conventions.md §1.1 glossary (phase ledger, derived-mirror plan, plan-review
    document, combined Invariants & Constraints), §1.2 per-tier artifact set +
@@ -355,6 +368,53 @@ steps.
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step. Empty at Phase 1. -->
+
+### Step 1 — commit e7d18b9bb6, 2026-06-15T16:09Z [ctx=safe]
+**What was done:** Added the `--append-ledger` subcommand to the staged
+`workflow-startup-precheck.sh` with an atomic temp-file-plus-rename
+append, and pinned the event grammar `[<ISO>] [ctx=<level>] phase=…
+track=… tier=… categories="…" s17=… paused=…` (key set {phase, track,
+tier, categories, s17, paused}, `categories` the one quoted field,
+last-value-wins per key on read). Rewrote `determine_state` as a
+two-level resume: a new `determine_state_from_ledger` reads the ledger
+tail for the top-level phase ({0, A, C, D, Done}) and active track,
+computes the State C sub-state from the track file's `## Progress`, and
+defaults the active track to `track-1` for the plan-less `minimal` case;
+with no ledger it falls back to the unchanged plan-checkbox walk.
+Confirmed without a code change that the ledger stays excluded by
+omission from `detect_drift`'s hardcoded artifact list. The step-level
+hook-safety review then hardened the append path: a value validator
+(newline in any field, space in a bare-token field, double-quote in
+`categories` each exit 3), loud-fail guards on `mkdir` / write / `mv`
+with `exit $?` at the call site, and a `trap … RETURN` that reaps the
+PID-suffixed temp without breaking atomicity. 105/105 staged tests pass.
+
+**What was discovered:** A latent newline-detection bug surfaced and was
+fixed in the same step. `*"$(printf '\n')"*` degenerates to `*""*`
+because command substitution strips the trailing newline, so it matched
+every value; the fix uses a `$'\n'` ANSI-C variable in a `case` glob.
+Cross-track for Track 2: the hook-safety hardening refined the published
+contract so the append now loud-rejects malformed field values and
+loud-fails on a write error instead of silently corrupting or losing the
+tail. The `--append-ledger` signature and the event grammar stay
+unchanged, so Track 2's reader contract holds. See Surprises §Step 1.
+
+**What changed from the plan:** The ledger `phase` token was pinned to
+the state-machine values {0, A, C, D, Done} rather than the design
+diagram's illustrative `phase=3C`; the within-track sub-phase stays in
+the track file per the two-level rule. This is a dependency-reveal for
+Track 2: its orchestrator callers must emit these exact phase tokens and
+check the append exit status. See Decision Log §Step 1.
+
+**Key files:**
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/scripts/workflow-startup-precheck.sh` (new)
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck.py` (new)
+- `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck_stub.py` (new)
+
+**Critical context:** The ledger `phase` vocabulary {0, A, C, D, Done}
+plus the active-track number is now part of the published contract; an
+unrecognized phase token is a loud parse error (exit 3). Track 2's
+readers and Step 2's docs must use these exact tokens.
 
 ## Validation and Acceptance
 
