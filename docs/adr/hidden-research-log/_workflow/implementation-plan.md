@@ -30,7 +30,11 @@ natively; this one-line section is the hand-roll YTDB-1125 will codify. -->
   > **Scope:** ~2 files covering `research.md` (§Rules opacity rule + reworded §Rules/§How-it-works/§Transition passages) and `create-plan` SKILL.md (Phase-0 narration reflection)
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency only; structural dropped under `minimal` tier per D9/D10) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: none — the consistency review and its independent gate verification both returned zero findings (CONTRACT_OK). Every current-state claim in Track 1 (the quoted `research.md` §Rules / §Transition / §How it works passages, the `create-plan/SKILL.md` Step 2/3 bullets, both D3 user-facing-recap carve-outs, and the D1 `conventions.md:1231,1243` §1.7(k) citation) verified against the live develop-state files.
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (PR-description verdict summary; no `docs/adr/` entry — Gate 2 is the durable-ADR boundary; the §1.7(f) staged→live promotion commit runs here too, driven by the staged subtree)
