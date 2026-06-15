@@ -5816,12 +5816,19 @@ gate-record heading shape so a later consumer reads the gate state at a glance.
   files. Passes 1–4 predate the per-pass-file convention and are inline only.
 - The finding bodies (F33–F121) and their D-record resolutions are under
   Surprises & Discoveries → "Adversarial review findings (passes 1–12)".
-- A consumer checking gate state matches the latest dated entry (pass 12).
-  Passes 1–11 are fully resolved; pass 12's findings (F114–F121) are all
-  settled (2026-06-15). Pass 13 (the re-attack on the pass-12 fresh text) ran
-  2026-06-15 and was **not** dry: it registered F122–F129 (1 blocker, 2 major,
-  5 minor), not yet settled, so the gate stays **open**. The blocker (F122)
-  re-opens F114's outage; the majors (F125/F126) are in F120's spill mechanism.
+- A consumer checking gate state matches the latest dated entry (pass 13).
+  Passes 1–12 are fully resolved. Pass 13 (the re-attack on the pass-12 fresh
+  text) ran 2026-06-15 and was **not** dry: it registered F122–F129 (1 blocker,
+  2 major, 5 minor). The blocker F122 was prose-settled (`51ab351bdf`); the
+  remaining seven were closed by the **consolidation pass** (2026-06-15), which
+  re-expressed the log at design altitude in the new `## Invariants and Test
+  Requirements` and `## Delegated to implementation` sections rather than
+  prose-settling each finding. The pass-13 entry below records the
+  resolved-by-consolidation outcome. The consolidation reframes the next gate:
+  a re-attack now targets the invariant list for completeness (does it cover
+  every failure mode, is each property testable?), which converges, instead of
+  mechanism prose, which does not. Once that re-attack is dry, the formal
+  Phase-0→1 gate runs at `/create-plan` §Step 4.
 
 ### Adversarial review of this log (2026-06-03) — NEEDS REVISION: 6 findings (F33–F38), 1 blocker
 Pass 1 — initial spine attack (contradictions, ungrounded claims, gaps). Inline;
@@ -5881,7 +5888,7 @@ Pass 12 (scoped). Reports: `_workflow/adversarial-pass12-concurrency.md`,
 independently code-validated (PSI) and confirmed, then settled one commit each
 on 2026-06-15: F114/F115 (major) plus F116–F121 (minor).
 
-### Adversarial review of this log (2026-06-15) — NEEDS REVISION: 8 findings (F122–F129), 1 blocker — OPEN
+### Adversarial review of this log (2026-06-15) — RESOLVED BY CONSOLIDATION 2026-06-15: 8 findings (F122–F129), 1 blocker
 Pass 13 (scoped, re-attack on the pass-12 fresh F114–F121 text only). Reports:
 `_workflow/adversarial-pass13-concurrency.md`,
 `_workflow/adversarial-pass13-durability.md`. Two lenses; 0/16 failed attacks
@@ -5891,6 +5898,588 @@ enqueue and the pre-park re-check is not kind-aware → the F86 outage reopens;
 F123/F124 [MINOR] F114 cut-safety wording, F116 quantifier; F125/F126 [MAJOR]
 F120's isolation does not survive the copy-out, and the spill-file lifecycle is
 unstated; F127/F128/F129 [MINOR] F120 O(threshold) bound, F121 subclass-category
-divergence, F121 helper-category claim. This is the latest entry: the gate
-stays open until F122–F129 settle and a re-attack clears, after which the
-formal Phase-0→1 gate runs at `/create-plan` §Step 4.
+divergence, F121 helper-category claim.
+
+**Resolution.** F122 was prose-settled at `51ab351bdf` (kind-aware
+park-decision check at the freezer's park site — the missing half of F114) and
+re-expressed as I-freezer-1. The other seven were closed by the consolidation
+pass rather than prose-settled one by one: F125 became the copy-out clause of
+I-migration-isolation; F123, F124, F126, F127, F128, F129 became entries in
+`## Delegated to implementation`, each tied to the invariant it serves. Pass 13
+was the thirteenth pass to attack mechanism prose and the thirteenth not to
+converge, which is the diagnosis the consolidation acts on: the contracts have
+been stable since ~F86, so the log now records them as invariants and tests and
+delegates the infinitely-refinable mechanism detail to Phase 3. Provenance for
+every closed finding lives in its F-entry under Surprises & Discoveries; nothing
+settled was re-decided. The next re-attack targets the invariant list, not the
+mechanism prose; when it is dry, the formal Phase-0→1 gate runs at
+`/create-plan` §Step 4.
+
+---
+
+## Invariants and Test Requirements
+
+This section is the design-altitude restatement of the architecture. Each entry
+names one contract the design must guarantee, the test that proves it, the F/D
+entries it came from, and one sufficient mechanism sketch the implementer owns.
+It is the seed for `design.md` (Phase 1, Step 4a) and for the track-level
+invariants and test requirements; the Decision Log above stays the provenance
+record, and the F-entries under Surprises & Discoveries stay the discovery
+trail.
+
+The altitude rule, learned from thirteen adversarial passes that never
+converged: an invariant is a property a test can check, not a line of
+mechanism. Where a contract is a hard concurrency property that a test catches
+only unreliably, the entry pins the exact interleaving the test must exercise,
+because that interleaving is the testable form of the property. Mechanism
+detail below the property — line placement, field volatility, file naming,
+library quirks — lives in `## Delegated to implementation` or in the
+`Mechanism (delegated)` line, marked so an implementer owns the realization and
+a test owns the property.
+
+A note on the IDs: `I-A*` are architecture and commit-structure invariants,
+`I-C*` are concurrency invariants, `I-P*` are schema-view and index-publication
+invariants, `I-U*` are persistence and durability invariants. The two worked
+examples the consolidation spec named keep their original IDs (`I-freezer-1`,
+`I-handshake-1`, `I-migration-isolation`).
+
+### Architecture and commit-structure invariants
+
+#### I-A1 — Structural change is atomic with the commit and free to roll back
+- **Invariant**: a schema mutation during a transaction touches only metadata
+  records; the storage structure (collections, index engines, files) changes
+  only at commit, driven by the commit's own atomic operation. A rolled-back or
+  crashed-before-commit schema transaction leaves the storage byte-for-byte
+  unchanged: no orphaned collection, no orphaned engine, no lost data on a
+  drop.
+- **Test**: create a class and an index in a transaction, then roll back, and
+  assert no collection or engine files exist and no registry entry is left.
+  Repeat with a crash injected after the transaction body and before commit;
+  recovery leaves the same clean state. A committed drop survives a crash
+  (redone from the WAL).
+- **Provenance**: D1, D3, D10; F7, F8, F16.
+- **Mechanism (delegated)**: file create/delete is buffered intent applied only
+  in `commitChanges`, which rollback skips; reconciliation runs inside the
+  commit's atomic operation. Implementer owns the buffering wiring; the F55
+  lazy-consult replay fix is a prerequisite track for the crash-recovery half.
+
+#### I-A2 — A provisional collection id never reaches durable bytes
+- **Invariant**: a new collection carries a provisional id (a sentinel range
+  disjoint from `-1`, the abstract-class marker, so `<= -2`) during the
+  transaction; at commit every provisional id is resolved to its real id before
+  any record serializes. No serialized byte (a class record's property values,
+  an inserted record's RID, the `collectionsToClasses` reverse map) durably
+  carries a provisional id. The in-memory schema maps treat provisional ids as
+  pending-real (reverse map populated, uniqueness validated) while file and
+  storage sites keep skipping negative ids.
+- **Test**: a transaction creates a class and inserts records into it, then
+  commits; restart; the class resolves to its collections and each record
+  resolves to its class. A provisional id surviving into bytes fails this on
+  restart (the class silently loses its collections) — the regression this
+  invariant exists to prevent.
+- **Provenance**: D2, D9; F42, F58.
+- **Mechanism (delegated)**: the commit-time patch list (class id-list, record
+  RIDs, `collectionsToClasses` re-key, provisional→real resolution, property-value
+  re-point before `commitEntry`). Implementer owns the patch-ordering and the
+  `collectionId < 0` vs `<= -2` predicate split across sites.
+
+#### I-A3 — Commit applies structure before it needs structure
+- **Invariant**: at commit, index-engine creation lands before `lockIndexes`
+  and collection creation before the record-position-allocation loop; a record
+  inserted into a new class gets a position only after its collection exists,
+  and an engine resolves before any code that looks it up by id. Reconciliation
+  and population run through lock-free inner primitives under the already-held
+  write lock, never the public structural methods (which re-acquire the
+  non-reentrant `stateLock`). Population of a new index emits zero additional
+  WAL units.
+- **Test**: one transaction creates two classes (16 collections, 2+ engines)
+  plus records, commits, and restarts; every collection and engine resolves. A
+  reconciliation that called the public methods would deadlock on the
+  non-reentrant write lock; a population that opened a nested batch would emit
+  extra WAL units, both observable.
+- **Provenance**: D3, D12, D19; F34, F39, F54.
+- **Mechanism (delegated)**: extracting `doAddIndexEngine` /
+  `doDeleteIndexEngine(atomicOperation, …)` from the public methods, and the
+  lock-free internal scan feeding `doPut`. Implementer owns the extraction.
+
+#### I-A4 — A failed commit leaves no phantom registration
+- **Invariant**: publication of the shared in-memory registries (collections
+  array, engine maps, config caches, the link-bag `fileIdBTreeMap`) is deferred
+  to the post-`commitChanges` success path. New collection and engine ids are
+  drawn from a commit-local allocator seeded from the shared registries after
+  `stateLock.writeLock()` is acquired, unique across the commit, and published
+  with the registries only on success. A commit that fails at apply (for example
+  a uniqueness violation) rolls back the WAL with no registration left behind,
+  and its ids are reusable.
+- **Test**: force a commit to fail at the apply phase; assert no collection or
+  engine is registered in the shared maps afterward and the next commit reuses
+  the ids. Concurrently, a non-commit engine registrar (`rebuild`,
+  `loadExternalIndexEngine`, `recreateIndexes`) running under `stateLock.write`
+  alone does not collide with a schema commit's id allocation.
+- **Provenance**: D3, D19; F53, F80, F88.
+- **Mechanism (delegated)**: the commit-local allocator seeded inside the
+  write-lock window. Implementer owns the seed-read placement (the F88 pin) and
+  the success-path publication.
+
+#### I-A5 — Schema isolation is record-local, identical to data
+- **Invariant**: schema mutations are visible only to the mutating transaction,
+  through the tx-local `SchemaShared` copy that `SchemaProxy` routes reads and
+  writes to; other sessions see committed schema until commit; rollback is free
+  because the shared `SchemaShared` is never touched mid-transaction. The
+  tx-local copy is a `fromStream` re-parse (fresh classes bound to the tx-local
+  owner), not a field-level deep copy, so the derived-state ripple (inheritance,
+  `polymorphicCollectionIds`, subclass sets) stays inside the copy. Proxies bind
+  by name, not by captured instance, during a schema transaction.
+- **Test**: tx1 creates a class; a concurrent tx2 does not see it until tx1
+  commits, while tx1 sees its own uncommitted class through every read path
+  (`getClass`, snapshot, class/property proxy). A captured pre-tx
+  `SchemaClassProxy` mutated inside tx1 routes to the tx-local view, not the
+  shared one.
+- **Provenance**: D4, D8; F41, F45, F65.
+- **Mechanism (delegated)**: the three-tier proxy resolution (name re-resolution
+  during a write-view tx, captured-delegate fast path otherwise, snapshot family
+  untouched). Implementer owns the per-session index-manager routing seam.
+
+#### I-A6 — One schema writer at a time, enforced by locking, never by rollback
+- **Invariant**: a second schema-changing transaction blocks on the D7 mutex
+  rather than racing to a commit-time conflict; a schema transaction is never
+  aborted or rolled back because of schema contention. The premise that makes
+  blocking acceptable is the low schema-change rate.
+- **Test**: two concurrent schema transactions; the second blocks until the
+  first completes, and neither aborts on conflict. A data commit
+  (`stateLock.readLock`) and a snapshot-based schema read run unblocked
+  alongside a held schema mutex.
+- **Provenance**: D5, D7.
+- **Mechanism (delegated)**: the `Semaphore(1)` and its engage point (see I-C2,
+  I-handshake-1). Implementer owns the primitive.
+
+### Concurrency invariants
+
+#### I-C1 — The four locks are taken in one acyclic order
+- **Invariant**: the lock order is always D7 mutex → `SchemaShared.lock` →
+  `IndexManagerEmbedded.lock` → `stateLock.writeLock`; no path takes them in
+  reverse, and a second schema transaction blocks on the mutex before touching
+  any of the other three, so the design is deadlock-free.
+- **Test**: a schema commit (holding all four in order) runs concurrently with a
+  data-path `reload` that takes `SchemaShared.lock.write` → `stateLock.read` and
+  with an `IndexManagerAbstract.load` that takes `indexLock.write` →
+  `stateLock.read`; no interleaving deadlocks. A stress harness that drives
+  schema commits against reloads and index loads completes without a hang.
+- **Provenance**: D7, D19; F52, F64.
+- **Mechanism (delegated)**: acquiring both metadata write locks before
+  `stateLock`. Implementer owns the acquisition sequence at the commit entry.
+
+#### I-C2 — The schema mutex engages above the shared locks, never inside them
+- **Invariant**: the D7 mutex engages at the `SchemaProxy` / index-routing layer
+  on a transaction's first write-routed schema or index mutation, strictly
+  before any shared metadata lock and before seeding the tx-local copy. It never
+  engages inside `SchemaShared.acquireSchemaWriteLock` or
+  `IndexManagerEmbedded.acquireExclusiveLock`: a hook there would park a second
+  transaction on the mutex while it already holds a shared write lock, freezing
+  every lock-based schema read for the first transaction's whole duration and
+  deadlocking against the commit-side schema-lock acquisition.
+- **Test**: tx1 holds the schema mutex through a long body; concurrent
+  lock-based schema reads keep flowing (not frozen) and no deadlock occurs. An
+  index-only transaction engages the mutex without touching the schema funnel.
+- **Provenance**: D7; F44, F56, F65.
+- **Mechanism (delegated)**: the engage hook at the write-routing decision
+  point, including the class/property-proxy mutating calls. Implementer owns the
+  hook site.
+
+#### I-freezer-1 — A schema commit never turns a freeze into a read outage
+- **Invariant**: a schema-carrying commit never parks inside the four-lock
+  window against an operator-kind freeze. Against such a freeze it aborts loudly
+  with `ModificationOperationProhibitedException` (asserted by type) within a
+  bound, with locks released and reads still flowing. Against a transient
+  internal quiesce it parks briefly and the commit then succeeds. Data commits
+  keep today's gate semantics (park for park-mode freezes, throw for throw-mode).
+- **Test**, one case per window:
+  - operator park-mode freeze pre-engaged → schema commit throws by type, zero
+    locks held, reads flow;
+  - operator freeze engages mid-entry, including the case where the operator-arm
+    cut fires before the entrant has enqueued → throw at the kind-aware
+    park-decision check, never parked;
+  - operator freeze layers over an in-flight transient quiesce the commit is
+    already parked behind → the commit wakes (operator-arm cut-and-unpark) and
+    throws within the wake bound, never parked for the operator freeze's
+    duration;
+  - in-flight transient quiesce only → brief park, commit succeeds;
+  - data write vs throw-mode freeze → loud `ModificationOperationProhibitedException`,
+    behavior unchanged.
+  A bare "loud error" assertion is insufficient: it passes the masked
+  `IllegalStateException` the design rules out, so the assertion is on the
+  exception type.
+- **Provenance**: D7; F78, F86, F87, F93, F97, F108, F114, F122.
+- **Mechanism (delegated)**: a freeze-kind taxonomy (operator vs transient) at
+  the five registration sites; a kind-aware gate evaluated at both the
+  freezer's loop-top throw site and its park-decision site; the operator-arm cut
+  that unparks an already-parked entrant; the zero-lock entry probe and the
+  bounded try-acquire re-probes as best-effort early exits. Implementer owns
+  line placement and freezer wiring; tests own the five interleavings.
+
+#### I-handshake-1 — The schema mutex has exactly one releaser and never wedges
+- **Invariant**: the D7 mutex permit is released by exactly one path. A pool
+  teardown racing a mid-flight engage never leaves the permit held with no
+  releaser. A torn-down owner's late release warn-noops and never throws from
+  the teardown `finally` (a throw would mask the owner's real exception). The
+  ownership record is `(owning session, acquire ordinal, acquiring thread)`,
+  and only a session-keyed compare-and-clear releases the permit; the thread
+  member is engage-guard and diagnostic only, never part of the release key.
+- **Test**: `pool.close()` of a borrowed session holding an open schema
+  transaction → the mutex is released and the next DDL proceeds without a
+  restart; the owner's `finally` racing the pool teardown on the same session →
+  exactly one release, the loser warn-logs; `pool.close()` racing the engage
+  itself, at each interleaving point → either the transaction aborts loudly with
+  the permit released or the heal completes, never a held permit with no
+  releaser.
+- **Provenance**: D7; F61, F96, F98, F104, F105, F115.
+- **Mechanism (delegated)**: the session-keyed compare-and-clear; the volatile
+  holder the foreign teardown reads; the same-thread `finally` reading its own
+  captured ordinal from the surviving session-side record; the Dekker engage /
+  teardown handshake via a volatile teardown-intent mark published at
+  `realClose()` entry. Implementer owns the field volatility and the mark
+  placement; tests own the teardown-vs-engage interleavings.
+
+#### I-C3 — Tx-scoped resources are torn down only on the owning thread
+- **Invariant**: every transaction-scoped resource (the D7 mutex, the freezer
+  engagement, the D19 lock, the `tsMin` holder accounting, the commit-local
+  structural-id allocator) is released only on the owning thread. Cross-thread
+  reaping is out of scope for v1; a stranded transaction (owner wedged, dead, or
+  abandoned) leaks its pin, the YTDB-550 monitor detects and reports it, and a
+  wedged owner keeps the mutex so DDL stays loudly unavailable until restart.
+  Reclamation is YTDB-1114's job (an identity-keyed snapshot registry with
+  lease-based stranding detection and revocation fenced at storage boundaries),
+  never touching tx-private state from a foreign thread. The one legitimate
+  cross-thread caller, pool-shutdown `close()` of a checked-out session, runs
+  the owning session's own teardown, so I-handshake-1's guard matches and the
+  mutex heals.
+- **Test**: a stranded schema transaction → the monitor reports it and no
+  foreign thread mutates tx-private state; pool shutdown of a checked-out
+  session → the mutex heals via the owning-session teardown (the I-handshake-1
+  path).
+- **Provenance**: D7; F61, F71, F76, F84, F85, F92, F99; YTDB-1114.
+- **Mechanism (delegated)**: the owner-thread-only teardown contract; the
+  shipped normal-path memory modes (volatile `tsMin` at begin, opaque reset,
+  plain `activeTxCount`, plain status) stand unchanged. Implementer owns nothing
+  new here beyond honoring the scope boundary.
+
+#### I-C4 — Engaging the mutex on a thread that already holds it fails loudly
+- **Invariant**: the engage path reads the holder before acquiring and throws
+  loudly when the mutex is held by a different session on the current thread
+  (`holder.thread == currentThread && holder.session != engagingSession`),
+  because otherwise legal embedded session alternation would self-deadlock the
+  thread on its own hold. A holder on a different thread parks normally (healthy
+  contention). The accepted consequence: one thread cannot hold two
+  simultaneously open schema transactions over two sessions; sequential schema
+  transactions and data transactions alongside a held mutex stay legal.
+- **Test**: same thread, two sessions, the second engaging a schema transaction
+  while the first's mutex is held → throws (no self-deadlock); a different thread
+  engaging → parks until release.
+- **Provenance**: D7; F105.
+- **Mechanism (delegated)**: the engage-side predicate reading the holder's
+  thread member. Implementer owns the predicate.
+
+### Schema-view and index-publication invariants
+
+#### I-P1 — Commit promotes into the existing shared instances and invalidates once
+- **Invariant**: at commit the tx-local schema is promoted by re-parsing the
+  just-committed per-class records into the existing shared `SchemaShared`
+  instances (new classes constructed bound to the shared owner, dropped classes
+  removed, edges re-resolved by name), never by adopting the tx-local objects
+  (whose `final owner` is the dead tx-local instance). One single trailing
+  `forceSnapshot` invalidates the shared snapshot, never two separate
+  publish-then-invalidate pairs. Listeners (`onSchemaUpdate`, and
+  `onIndexManagerUpdate` when the changed-index set is non-empty) fire after the
+  F52/F64 locks release. Promotion and the `forceSnapshot` run under
+  `SchemaShared.lock.writeLock()`, acquired before `stateLock.writeLock()`.
+- **Test**: commit a schema change; assert the shared class instances are the
+  same objects updated in place (not replaced by tx-local instances), the
+  snapshot is invalidated exactly once, and `MetadataUpdateListener` consumers
+  (plan caches) are notified. A property-create commit re-reads correctly
+  through the shared snapshot afterward.
+- **Provenance**: D8; F62, F68, F69.
+- **Mechanism (delegated)**: the re-parse-into-existing-instances promotion and
+  the single-`forceSnapshot` discipline. Implementer owns the re-parse.
+
+#### I-P2 — Indexes are overlaid, not copied, and the snapshot rebuilds on mid-tx index change
+- **Invariant**: a schema/index transaction sees indexes through a lightweight
+  tx-local definition overlay (effective set = committed + tx-created −
+  tx-dropped); index content (BTree entries) is never copied and stays
+  storage-backed, with the tx's own entries riding the existing per-tx
+  key-entry tracking. The tx-local snapshot is force-rebuilt on every mid-tx
+  `createIndex` / `dropIndex`, because `ClassIndexManager` reads the cached
+  `indexes` set materialized once at snapshot init; without the rebuild, same-tx
+  inserts into the new index are silently untracked.
+- **Test**: create an index mid-transaction, insert rows into the indexed class
+  in the same transaction, commit; the committed index contains those rows (the
+  F32 silent-untracking regression). Rename, drop, and collection-membership
+  changes apply commit-only and never mutate a shared `Index` object mid-tx.
+- **Provenance**: D15; F20, F25, F32, F35, F40, F46, F60.
+- **Mechanism (delegated)**: the overlay of the two lookup maps, the
+  force-rebuild trigger, and the four overlay categories (created, dropped,
+  in-place rename, in-place collection-membership). Implementer owns the
+  per-session index-manager routing seam.
+
+#### I-P3 — A tx-created index is not query-usable until its creating tx commits
+- **Invariant**: inside the creating transaction a new index gives no query
+  acceleration (its engine does not exist until commit); the planner skips any
+  index whose engine is not built (`getIndexId() < 0`) and falls through to a
+  full scan, which returns the correct merged transaction view (committed rows +
+  tx updates − tx deletes). The existing read-merge for already-built indexes is
+  preserved unchanged.
+- **Test**: a query inside the creating transaction returns correct results via
+  the scan fallback, not via the unbuilt index (which would throw); after commit
+  the same query accelerates through the built engine.
+- **Provenance**: D13; F23.
+- **Mechanism (delegated)**: the planner-guard that excludes unbuilt indexes
+  from `getIndexesInternal()`. Implementer owns the guard.
+
+#### I-P4 — A tx-created index commits to exactly the transaction's final state
+- **Invariant**: for every tx-created index, the commit accounts for all of the
+  transaction's record operations through a tx-aware split: the population scan
+  skips every RID in the transaction's record-operation set, and the commit-time
+  re-derivation contributes final-state puts only (created and updated rows,
+  whose values are in memory; a deleted row is never put). Population covers
+  committed rows the transaction did not touch; re-derivation covers exactly the
+  tx-touched rows, with no double-count and no missing key.
+- **Test**: a transaction creates an index and inserts, updates, and deletes
+  rows on the indexed class; the committed index reflects exactly the final
+  state. A populated-class build beyond the v1 size bound is the Phase-1 boundary
+  decision (loud rejection pointing at YTDB-1064 vs accept with a documented heap
+  envelope), not a property this invariant fixes.
+- **Provenance**: D12; F57, F66, F70, F77.
+- **Mechanism (delegated)**: the population-scan skip set and the final-state
+  re-derivation. Implementer owns both; the residual concurrent-data-commit
+  window (same shape as today's `fillIndex` race) is follow-up YTDB-1101.
+
+### Persistence and durability invariants
+
+#### I-U1 — Per-class records remove schema write amplification, and the root is written exactly when its payload changes
+- **Invariant**: the schema is stored as per-class entity records linked from a
+  root schema record; at commit only the changed class records are written, so a
+  one-class change no longer rewrites the whole schema. The root record is
+  written whenever the class link set changes or any of its non-link payload
+  changes (the global-property table, `collectionCounter`, `blobCollections`).
+- **Test**: a property-create commit followed by a restart and a read returns the
+  property (no null `globalRef` NPE) and allocates a fresh non-colliding
+  collection name (no stale counter); a one-class change writes only that class
+  record plus the root when the payload changed, not the full schema.
+- **Provenance**: D14; F1, F20, F59.
+- **Mechanism (delegated)**: the `toStream` / `fromStream` per-class-record
+  rewrite, the schema-record link set, and the net-new per-class record-RID
+  field bound at load. Implementer owns the serializer rewrite and the version
+  bump.
+
+#### I-U2 — Class rename touches zero storage
+- **Invariant**: collection names are generated from a counter alone (decoupled
+  from class names), so a class rename is a pure metadata change that never
+  renames a collection file through the non-WAL-safe `writeCache.renameFile`
+  path; the rename is structurally inert (the collection-id set is identical
+  before and after, so zero collection create/drop).
+- **Test**: rename a class and assert zero file renames, zero collection
+  create/drop, and intact data; a crash during the rename commit leaves a
+  recoverable, consistent state (no half-renamed file, because no file is
+  renamed).
+- **Provenance**: D9, D11; F15, F18.
+- **Mechanism (delegated)**: the counter-only name generation and neutering
+  `renameCollection`. Implementer owns both sites.
+
+#### I-U3 — Engine files are base-keyed, and class rename keeps the index accelerating
+- **Invariant**: every index-engine file base derives from the stable engine id
+  unconditionally (under D20 import-only migration no name-keyed engine file can
+  exist in a v1 database, so there is no dual-base compatibility path). A class
+  rename re-keys `classPropertyIndex` and updates each affected definition's
+  `className` (commit-only, recursing composites), so the index keeps
+  accelerating queries under the new class name; the index name itself stays
+  stale. The full inert index-name rename and `ALTER INDEX … RENAME` are
+  deferred to YTDB-1066.
+- **Test**: rename a class with an auto-named index, then query the renamed
+  class; the query accelerates through the same engine with no rebuild and no
+  engine-file rename. A same-name drop-and-recreate in one workload produces no
+  file collision (the base-keying dissolves F67's recycle branch).
+- **Provenance**: D16, D17; F28, F29, F30, F67.
+- **Mechanism (delegated)**: the persisted base in `StorageComponent`, the
+  immutable file base with `setName` changing only the logical name, and the
+  `IndexDefinition.className` setter. Implementer owns the file-base plumbing
+  (data, null-bucket, histogram `.ixs`).
+
+#### I-U4 — Genesis bootstrap builds the schema before it inserts users
+- **Invariant**: genesis runs two transactions: a schema transaction that
+  creates every internal class, property, and index (including the `OUser.name`
+  UNIQUE index) and commits, building the index at commit; then a data
+  transaction that inserts the default roles and users into the now-committed
+  classes. The user-creation code's direct index lookups resolve against a real
+  engine, so no same-tx unbuilt-index lookup occurs.
+- **Test**: a fresh database genesis builds the `OUser.name` index before any
+  user insert; the default users are created through real engine lookups, not
+  scan fallbacks. The schema transaction engages the D7 mutex (no contention at
+  genesis); the following data transaction does not.
+- **Provenance**: D18; F2, F31.
+- **Mechanism (delegated)**: restructuring `SecurityShared.create` and the
+  sibling metadata creators into the two-phase shape. Implementer owns the
+  restructure.
+
+#### I-U5 — A schema-carrying commit takes the write lock from the start; a pure-data commit keeps the read-lock fast path
+- **Invariant**: the commit decides at entry whether it carries schema or index
+  changes (the same signal that engages the D7 mutex and builds the diff). A
+  schema-carrying commit takes `stateLock.writeLock()` from the start, with no
+  read→write upgrade and no interleaving window; a pure-data commit keeps the
+  `readLock()` fast path and today's concurrency. An index-only transaction
+  takes the write-lock branch even though it never touched the schema
+  chokepoint.
+- **Test**: a schema commit holds the write lock for its whole duration (no
+  upgrade observable); a data commit runs concurrently with other data commits
+  on the read-lock path; an index-only transaction is serialized as a
+  schema-carrying commit. The cost (a schema commit excluding concurrent data
+  commits for its duration) is bounded by the low schema-change rate.
+- **Provenance**: D1, D19; Q12, F33.
+- **Mechanism (delegated)**: the schema-carry branch at commit entry reading the
+  unified schema-or-index signal, and the snapshot-first conversion of the two
+  remaining per-record lock-based read sites. Implementer owns the branch and
+  the conversions.
+
+#### I-migration-fail-closed — Format migration is operator-driven export/import that fails loudly, never silently
+- **Invariant**: the single-record → per-class-record schema-format change is
+  migrated by exporting the old database to JSON with the old binaries and
+  importing into a fresh database with the new binaries; no in-place on-open
+  migration runs, and the new code never parses the old format. Opening an
+  old-format database with new binaries is rejected on a version check with a
+  redirect message. Export emits a manifest written strictly last and atomically;
+  import hard-fails on a missing or unparsable manifest, a missing expected
+  section, or an incompletely-consumed gzip stream. A crash mid-export or
+  mid-import is loudly incomplete, never silently partial.
+- **Test**: a truncated or corrupt dump fails the import loudly; a mid-export
+  crash leaves no well-formed manifest; opening an old-format database with new
+  binaries is rejected (not migrated in place); a complete legacy dump missing
+  any expected section is refused, and a legacy dump requires the explicit
+  unverified-import acknowledgment flag.
+- **Provenance**: D14, D20; F49, F63, F75, F81, F82, F90, F91, F95, F101, F112.
+- **Mechanism (delegated)**: the manifest temp+fsync+rename discipline, the
+  whole-stream gzip validation (single-member framing, fully-consumed check via
+  inflater arithmetic), the section-presence check, and the version gate. See
+  the delegated entries for the framing-parse and fallback details.
+
+#### I-migration-isolation — A record is exported whole or not at all, including the copy-out
+- **Invariant**: per-record rendering is whole-or-nothing, and the copy-out into
+  the shared dump is whole-or-fatal: a mid-render failure discards the record
+  cleanly (into `brokenRids`), and a mid-copy-out I/O failure aborts the export
+  fail-closed (promote-only-on-success), never promoting a truncated record. The
+  exporter exports any record the storage holds: an oversized but healthy record
+  is exported (spilled to a transient file beyond a memory threshold), not shed.
+  Memory stays O(threshold) for any record size.
+- **Test**: a mid-record I/O failure leaves no file at the final name; an
+  oversized-but-healthy record is present in the dump, not dropped; a mid-copy-out
+  failure aborts with no promoted dump. A record that fails to render is recorded
+  in `brokenRids` and the export continues only in best-effort mode.
+- **Provenance**: D20; F109, F118, F120, F125.
+- **Mechanism (delegated)**: the bounded per-record buffer with spill-to-temp,
+  the promote-only-on-success completion flag, and the render-fail-clean /
+  copy-out-fail-fatal split. Implementer owns the spill mechanism, naming, and
+  thresholds (see the delegated entries).
+
+#### I-migration-failfast — The new exporter fails fast and promotes nothing on failure
+- **Invariant**: the new exporter (EXPORTER_VERSION 15) rethrows record-scan
+  failures by default; an explicit best-effort opt-out restores log-and-continue
+  and is recorded in the dump's `info` section. A fail-fast abort leaves exit ≠ 0
+  with no file at the final name, and the scan failure propagates as the primary
+  exception, not a close-path secondary. A structurally-closed-but-malformed dump
+  (a pending field name from a fault between a `writeFieldName` and its value) is
+  parse-rejected at import, not accepted as a clean record. A best-effort-marked
+  dump requires the acknowledgment flag at import even in the manifest era, a
+  gate enforceable only by v15-aware importers.
+- **Test**: inject a record-scan failure; assert exit ≠ 0, no file at the final
+  name, and the scan exception (not the close-path exception) as the primary;
+  a best-effort dump imported without the ack flag is refused; a dump with a
+  pending field name is parse-rejected. The operator verifies export exit status
+  before importing, because a file at the final name proves nothing (the failure
+  path renames too only when it strands at object context — bounded per F100/F118).
+- **Provenance**: D20; F94, F100, F110, F118, F119; YTDB-1115.
+- **Mechanism (delegated)**: the rethrow-by-default at the scan catch, the
+  `addSuppressed` / log-then-rethrow primary-exception discipline, the
+  EXPORTER_VERSION bump, and the v15 scalar best-effort marker. Implementer owns
+  the catch wiring and the jackson context handling.
+
+---
+
+## Delegated to implementation
+
+These are the implementation-scope findings the consolidation moved out of the
+log's design altitude. Each is a detail an implementer realizes and a test
+pins, serving one of the invariants above. They are not re-litigated by future
+adversarial passes; a pass that wants to attack them attacks the invariant they
+serve instead.
+
+- **Freezer gate line placement** (serves I-freezer-1; F108, F122). The
+  kind-aware gate is the schema-commit variant of `startOperation`'s check,
+  evaluated at the freezer's loop-top throw site and at its park-decision site,
+  re-evaluated on every unpark, count-balanced by the decrement and before the
+  depth increment. The exact lines, the increment ordering, and the
+  clean-unwind placement (the gate and `startTxCommit` outside the
+  rollback/`endTxCommit`-paired try) are the implementer's; the test owns the
+  five I-freezer-1 interleavings.
+- **Freezer wiring pins** (serves I-freezer-1; F87, F97). The gate throws
+  strictly before the freezer depth increment (else the depth and count leak
+  into a storage-wide freeze hang), and it lands on the frontend-commit path
+  only. Implementer owns the placement; the leak and the mask are the failure
+  modes the placement prevents.
+- **Cut-safety wording** (serves I-freezer-1 / I-handshake-1; F123). The waiting-list
+  cut is idempotent (a head==tail list returns without a CAS, and a second
+  cutter is benign); describe it as cut-safe rather than asserting a single
+  cutter. Implementer owns the wording in the freezer code comment.
+- **Zombie-commit visibility window** (serves I-handshake-1; F116, F124). The
+  `checkOpenness` gate is a best-effort early cap, not a second structural
+  property: it reads a plain `status` field with no JMM edge from the foreign
+  teardown's CLOSED write, so a late-visible status can admit one more zombie
+  commit. It is harmless because that straggler still serializes behind F52's
+  whole-commit schema lock and runs on a cleared transaction; the visibility
+  window is unbounded in time but bounded in effect. Implementer owns whether to
+  pin the edge or leave it best-effort.
+- **Holder field volatility and the teardown-intent mark** (serves
+  I-handshake-1; F104, F105, F115). The holder is a volatile reference the
+  foreign teardown reads; the same-thread `finally` reads its own captured
+  ordinal from the surviving session-side record; the teardown-intent mark is a
+  dedicated volatile flag published at `realClose()` entry before the release
+  pass, not a hoisted `STATUS.CLOSED`. Implementer owns the field declarations
+  and the publication order; the test owns the engage-vs-teardown interleavings.
+- **Spill-file lifecycle and naming** (serves I-migration-isolation; F120, F126,
+  F127). The per-record spill file is deleted on every path (success, render
+  failure, copy-out failure, abort), carries a collision-free name, and the
+  O(threshold) memory bound is stated as O(threshold + largest single field
+  value) for a single oversized value. Implementer owns the naming scheme, the
+  threshold value, and the cleanup wiring; the test owns the oversized-record and
+  mid-spill-failure cases.
+- **Export error-log category plumbing** (serves I-migration-fail-closed /
+  I-migration-failfast; F102, F113, F121, F128, F129). Export error lines travel
+  the `DatabaseExport` logger category; the legacy-dump export-log review
+  captures both the listener count lines and the logger error lines and fails if
+  either is missing, with a liveness control that provokes one known error line
+  through that category before the export. The sentinel is provoked through the
+  exporter's own logging call (through `this` rather than `DatabaseExport.class`,
+  since the class is non-final, though it has zero subclasses today), and helper
+  categories that escape the `DatabaseExport`-only sentinel (a new spill I/O
+  error surface) are covered. Implementer owns the category wiring and the
+  provoke-sentinel call; the test owns the capture-completeness check.
+- **Gzip framing parse** (serves I-migration-fail-closed; F103, F111). The
+  fully-consumed check is a `GZIPInputStream` subclass comparing
+  `Inflater.getBytesRead()` plus the actual parsed header length and the 8-byte
+  trailer against the physical file size, with the header length parsed by
+  walking the FLG optional fields (the JDK writer's 10-byte form is not RFC
+  1952's, and a re-gzipped dump storing FNAME would falsely fail a fixed
+  constant). Stream-exhaustion probes are forbidden (the JDK trailer probe
+  consumes trailing residue into the dead decoder buffer). Implementer owns the
+  subclass; the test owns the trailing-bytes and re-gzipped-dump cases.
+- **Plain-JSON import fallback** (serves I-migration-fail-closed; F103). The
+  migration-path import rejects non-gzip input (an uncompressed dump forfeits the
+  whole gzip validation layer); the general import path keeps the silent
+  plain-JSON fallback with that consequence recorded. Implementer owns the
+  path-specific gate.
+- **`collectionsToClasses` re-key mechanics** (serves I-A2; D2, F42). The
+  provisional→real re-key of the reverse map is one of the five commit-time patch
+  items; the in-memory map sites distinguish abstract (`-1`) from provisional
+  (`<= -2`) while file sites keep skipping all negatives. Implementer owns the
+  per-site predicate.
+- **Monolithic index-manager link-set rewrite** (serves I-P2; F50). The index
+  manager record's `CONFIG_INDEXES` link set stays monolithic, so incremental
+  index creation re-serializes the whole set per add (O(N²)); the batch case is
+  O(N). The incremental optimization folds into YTDB-1064. Implementer and the
+  follow-up own it; no v1 invariant depends on the optimization.
