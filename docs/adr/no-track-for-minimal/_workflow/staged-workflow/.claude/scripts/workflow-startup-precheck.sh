@@ -57,6 +57,14 @@
 #     `categories` is the one quoted value (it may carry spaces and commas, e.g.
 #     `categories="Workflow machinery,Architecture"`); every other value is a
 #     bare metacharacter-free token.
+#   * Values are VALIDATED on append, mirroring the read path's loud-reject
+#     posture: a newline in any field, a space in a bare-token field
+#     (phase/track/tier/s17/paused/ctx), or a double quote in `categories` is
+#     rejected with a stderr diagnostic and exit 3, because each would split or
+#     truncate the line and silently corrupt last-value-wins resolution. The
+#     orchestrator is the sole caller and passes controlled tokens, but the
+#     grammar is the contract other tracks build on, so a malformed value fails
+#     loudly rather than corrupting the tail.
 #   * Read semantics are LAST-VALUE-WINS PER KEY across the whole file: a reader
 #     scans every line and keeps the most recent value seen for each key, so a
 #     mid-flight tier or phase change is recorded by APPENDING a new line rather
@@ -67,7 +75,11 @@
 #     a sibling temp file holding `(old contents)+(new line)`, then `mv`'d over
 #     the ledger. A crash mid-write leaves either the prior ledger or the
 #     temp file, never a torn ledger, so a torn append leaves the prior tail
-#     intact and determine_state resolves the prior state.
+#     intact and determine_state resolves the prior state. A RETURN trap reaps
+#     the temp file on a failure path so a failed append leaves no orphan.
+#   * A failed mkdir / temp write / rename surfaces as a NON-ZERO exit with a
+#     stderr diagnostic — a lost append never masquerades as a recorded boundary
+#     (the orchestrator treats a 0 exit as "the boundary is recorded").
 #
 # No global `set -e`: matching statusline-command.sh and the byte-source
 # detection blocks, the detection paths rely on defensive `|| true` rather
@@ -1504,18 +1516,84 @@ ledger_path() {
 # either the prior ledger or the temp file — never a torn ledger. A torn append
 # therefore leaves the prior tail intact and determine_state resolves the prior
 # state (D3 / D6).
+# Reject a LEDGER_* value that would break the pinned grammar, mirroring the
+# loud-reject posture the read path takes for an unrecognized `phase`. A
+# malformed value would otherwise silently corrupt the tail rather than failing,
+# and this primitive is the resume state machine whose grammar is the contract
+# Track 2 consumes. Two value classes are rejected (exit 3, the parse_error code,
+# with a stderr diagnostic):
+#
+#   * a NEWLINE in ANY field — a newline writes a second physical line, and the
+#     last-value-wins reader would treat the smuggled `phase=Done` tail of that
+#     line as the resolved phase, routing resume to the wrong state;
+#   * a SPACE in any BARE-token field (phase/track/tier/s17/paused/ctx) — the
+#     reader splits a bare value at the first space, so a space would truncate
+#     the value or spawn a spurious key=value token. `categories` is the one
+#     field that may carry spaces, so it is exempt from the space check;
+#   * a DOUBLE-QUOTE in `categories` — `categories` is the one quoted value, so
+#     an embedded `"` closes its span early and the reader's `%%\"*` truncates
+#     it. A `"` is outside the documented "spaces and commas" alphabet.
+#
+# Args: $1 = field name (for the diagnostic); $2 = the value; $3 = "bare" for a
+# bare-token field (space-rejecting) or "quoted" for the categories field.
+reject_bad_ledger_value() {
+  local name="$1" value="$2" kind="$3"
+  # A literal newline held in a variable; a command substitution `$(printf '\n')`
+  # cannot carry one (it strips trailing newlines), so use ANSI-C quoting.
+  local nl=$'\n'
+  case "$value" in
+    *"$nl"*)
+      echo "append-ledger: $name value must not contain a newline" >&2
+      exit 3
+      ;;
+  esac
+  if [ "$kind" = "bare" ]; then
+    case "$value" in
+      *" "*)
+        echo "append-ledger: $name value must be a bare token (no spaces)" >&2
+        exit 3
+        ;;
+    esac
+  elif [ "$kind" = "quoted" ]; then
+    case "$value" in
+      *'"'*)
+        echo "append-ledger: $name value must not contain a double quote" >&2
+        exit 3
+        ;;
+    esac
+  fi
+}
+
 append_ledger() {
   local ledger dir tmp ts line ctx
   ledger="$(ledger_path)"
   dir="$(dirname "$ledger")"
+
+  # WH1: validate every field before building the line so a malformed value
+  # fails loudly (exit 3) rather than silently splitting or truncating the tail.
+  # ctx and the bare-token fields reject spaces and newlines; categories rejects
+  # a newline and an embedded double quote.
+  ctx="${LEDGER_CTX:-safe}"
+  reject_bad_ledger_value "ctx"        "$ctx"               bare
+  reject_bad_ledger_value "phase"      "$LEDGER_PHASE"      bare
+  reject_bad_ledger_value "track"      "$LEDGER_TRACK"      bare
+  reject_bad_ledger_value "tier"       "$LEDGER_TIER"       bare
+  reject_bad_ledger_value "s17"        "$LEDGER_S17"        bare
+  reject_bad_ledger_value "paused"     "$LEDGER_PAUSED"     bare
+  reject_bad_ledger_value "categories" "$LEDGER_CATEGORIES" quoted
+
   # The plan `_workflow/` dir is created by /create-plan before the first
-  # append; mkdir -p makes the append self-sufficient and idempotent.
-  mkdir -p "$dir"
+  # append; mkdir -p makes the append self-sufficient and idempotent. WH2: a
+  # failed mkdir (unwritable parent) must surface, not silently no-op a lost
+  # append into an exit 0.
+  if ! mkdir -p "$dir"; then
+    echo "append-ledger: failed to create $dir" >&2
+    return 1
+  fi
 
   # ISO 8601 UTC, minute precision, matching the `## Progress` entry timestamps
   # (e.g. 2026-06-15T16:42Z). `-u` forces UTC regardless of the host TZ.
   ts="$(date -u +%Y-%m-%dT%H:%MZ)"
-  ctx="${LEDGER_CTX:-safe}"
 
   line="[$ts] [ctx=$ctx]"
   [ -n "$LEDGER_PHASE" ]      && line="$line phase=$LEDGER_PHASE"
@@ -1530,13 +1608,34 @@ append_ledger() {
   # atomic). The temp name carries the PID so concurrent appends — which the
   # orchestrator never issues, but a stray re-invocation might — cannot collide.
   tmp="$dir/.phase-ledger.$$.tmp"
+  # WH3: reap the temp on any return so a failure between creation and the rename
+  # leaves no orphan in `_workflow/`. On the success path the rename consumes the
+  # temp before this fires, so the trap's `rm -f` is a harmless no-op — atomicity
+  # is preserved (the cleanup never runs between a successful rename and publish,
+  # because the rename IS the publish and leaves no temp to remove).
+  trap 'rm -f "$tmp"' RETURN
+
+  # WH2: each write step is guarded so a disk-full / unwritable failure surfaces
+  # as a non-zero return + diagnostic instead of a silently incomplete append.
   if [ -f "$ledger" ]; then
-    cat "$ledger" > "$tmp"
+    if ! cat "$ledger" > "$tmp"; then
+      echo "append-ledger: failed to stage existing ledger into $tmp" >&2
+      return 1
+    fi
   else
-    : > "$tmp"
+    if ! : > "$tmp"; then
+      echo "append-ledger: failed to create $tmp" >&2
+      return 1
+    fi
   fi
-  printf '%s\n' "$line" >> "$tmp"
-  mv -f "$tmp" "$ledger"
+  if ! printf '%s\n' "$line" >> "$tmp"; then
+    echo "append-ledger: failed to write the new entry to $tmp" >&2
+    return 1
+  fi
+  if ! mv -f "$tmp" "$ledger"; then
+    echo "append-ledger: failed to publish $ledger" >&2
+    return 1
+  fi
 }
 
 # Set LEDGER_VALUE to the LAST (most-recent) value of $key across every line of
@@ -1995,10 +2094,14 @@ emit_json() {
 
 # --append-ledger is the one mutation mode and emits no JSON: append the event
 # line atomically and exit before the JSON dispatch below. Handled first so the
-# JSON-reporter dispatch never runs for it.
+# JSON-reporter dispatch never runs for it. WH2: propagate append_ledger's exit
+# status rather than unconditionally exiting 0 — a failed mkdir / write / rename
+# returns non-zero, so a lost append surfaces to the orchestrator instead of
+# masquerading as a recorded boundary. (A rejected field value exits 3 from
+# inside append_ledger before reaching here.)
 if [ "$APPEND_LEDGER" = "1" ]; then
   append_ledger
-  exit 0
+  exit $?
 fi
 
 # Run the detection each mode needs, then emit. `full` and `divergence-only`

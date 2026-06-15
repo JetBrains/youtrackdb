@@ -3777,6 +3777,184 @@ def test_append_ledger_mutually_exclusive_with_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Append-path hardening — value validation, failure surfacing, and temp cleanup.
+#
+# The append primitive is the resume state machine and its grammar is the
+# contract Track 2 consumes, so a malformed value must fail loudly rather than
+# silently corrupt the ledger tail, a failed write must surface a non-zero exit
+# rather than masquerade as a recorded boundary, and a failed append must leave
+# no orphan temp file. These pin those three properties.
+# ---------------------------------------------------------------------------
+
+
+def test_append_ledger_rejects_newline_in_field() -> None:
+    """A newline smuggled into any field is rejected (exit 3 + stderr diagnostic)
+    and the ledger is NOT written. Without the guard, the newline would write a
+    second physical line whose `phase=Done` tail the last-value-wins reader would
+    resolve as the phase — routing resume to the wrong state. Mirrors the read
+    path's loud-reject posture for an unrecognized phase."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "X\nphase=Done", cwd=fx.path
+        )
+        assert proc.returncode == 3, (
+            f"a newline in a field must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "newline" in proc.stderr, (
+            f"the reject must name the newline cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_ledger_rejects_double_quote_in_categories() -> None:
+    """An embedded double quote in `categories` is rejected (exit 3): a `"` would
+    close the quoted span early, and the reader's `%%\"*` truncation would drop
+    the rest of the value. `categories` is the one quoted field, so a `"` is
+    outside its documented spaces-and-commas alphabet."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "A", "--categories", 'foo"bar', cwd=fx.path
+        )
+        assert proc.returncode == 3, (
+            f"a double quote in categories must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "double quote" in proc.stderr, (
+            f"the reject must name the double-quote cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_ledger_rejects_space_in_bare_field() -> None:
+    """A space in a bare-token field (here `phase`) is rejected (exit 3): the
+    reader splits a bare value at the first space, so a space would truncate the
+    value or spawn a spurious `key=value` token. Only `categories` may carry
+    spaces."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck("--append-ledger", "--phase", "A B", cwd=fx.path)
+        assert proc.returncode == 3, (
+            f"a space in a bare field must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "bare token" in proc.stderr, (
+            f"the reject must name the bare-token cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_ledger_allows_spaces_in_categories() -> None:
+    """The complement to the bare-field space reject: a space in `categories` is
+    ALLOWED (it is the one quoted field), so an append carrying a multi-word
+    category list exits 0 and writes the quoted value whole. This guards against
+    the validation over-rejecting the one field the grammar permits spaces in."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--phase", "A",
+            "--categories", "Workflow machinery, Architecture",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"a space in categories must be allowed (exit 0), got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        line = fx.ledger_file.read_text(encoding="utf-8").splitlines()[0]
+        assert 'categories="Workflow machinery, Architecture"' in line, (
+            f"the multi-word category list must be written whole, got {line!r}"
+        )
+
+
+def test_append_ledger_surfaces_write_failure_nonzero() -> None:
+    """A failed append (here an unwritable `_workflow/` dir, simulating a
+    permissions / disk-full failure) surfaces a NON-ZERO exit and a stderr
+    diagnostic rather than silently exiting 0. The orchestrator treats a 0 exit as
+    "the boundary is recorded", so a lost append must not masquerade as success.
+    The dir is chmod'd back so the fixture's temp-dir cleanup can remove it."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # Pre-create the _workflow/ dir, then make it unwritable so the temp-file
+        # write inside append_ledger fails.
+        workflow_dir = fx.plan_dir / "_workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(workflow_dir, 0o500)
+        try:
+            proc = run_precheck("--append-ledger", "--phase", "C", cwd=fx.path)
+        finally:
+            # Restore write permission unconditionally so TemporaryDirectory
+            # cleanup (and any later assertion) can touch the dir.
+            os.chmod(workflow_dir, 0o700)
+        assert proc.returncode != 0, (
+            f"a failed write must exit non-zero, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "append-ledger" in proc.stderr, (
+            f"a failed append must emit a diagnostic, got {proc.stderr!r}"
+        )
+
+
+def test_append_ledger_no_orphan_temp_on_success() -> None:
+    """The success path leaves no `.phase-ledger.<pid>.tmp` orphan: the rename
+    consumes the temp, and the RETURN trap's `rm -f` is then a harmless no-op. A
+    second append (over an existing ledger) exercises the cat-existing branch and
+    must likewise leave no temp behind."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        run_precheck("--append-ledger", "--phase", "A", cwd=fx.path)
+        run_precheck("--append-ledger", "--phase", "C", "--track", "1", cwd=fx.path)
+        workflow_dir = fx.plan_dir / "_workflow"
+        orphans = [p.name for p in workflow_dir.iterdir() if p.name.endswith(".tmp")]
+        assert orphans == [], (
+            f"no .tmp orphan must remain after a successful append, got {orphans!r}"
+        )
+
+
+def test_append_ledger_no_orphan_temp_on_failure() -> None:
+    """The failure path leaves no orphan temp either: the RETURN trap reaps the
+    PID-suffixed temp on a failed write. Simulates the failure by making the
+    `_workflow/` dir unwritable AFTER pre-seeding it (so mkdir -p succeeds but the
+    temp write fails), then asserts no `.tmp` survives once permission is
+    restored."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        workflow_dir = fx.plan_dir / "_workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        # A prior committed ledger so the failing branch is the cat-existing one;
+        # its bytes also confirm the failed append did not corrupt it.
+        ledger = workflow_dir / "phase-ledger.md"
+        ledger.write_text("[2026-06-15T10:00Z] [ctx=safe] phase=A\n", encoding="utf-8")
+        os.chmod(workflow_dir, 0o500)
+        try:
+            proc = run_precheck("--append-ledger", "--phase", "C", cwd=fx.path)
+        finally:
+            os.chmod(workflow_dir, 0o700)
+        assert proc.returncode != 0, (
+            f"the failure fixture must exit non-zero, got {proc.returncode}"
+        )
+        orphans = [p.name for p in workflow_dir.iterdir() if p.name.endswith(".tmp")]
+        assert orphans == [], (
+            f"the RETURN trap must reap the temp on a failed append, got {orphans!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Runner.
 # ---------------------------------------------------------------------------
 
@@ -3876,6 +4054,14 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("ledger_excluded_from_drift_walk_by_omission", test_ledger_excluded_from_drift_walk_by_omission),
     ("ledger_anchor_track_file_keeps_drift_clean_when_plan_absent", test_ledger_anchor_track_file_keeps_drift_clean_when_plan_absent),
     ("append_ledger_mutually_exclusive_with_mode", test_append_ledger_mutually_exclusive_with_mode),
+    # -- append-path hardening: value validation, failure surfacing, temp cleanup
+    ("append_ledger_rejects_newline_in_field", test_append_ledger_rejects_newline_in_field),
+    ("append_ledger_rejects_double_quote_in_categories", test_append_ledger_rejects_double_quote_in_categories),
+    ("append_ledger_rejects_space_in_bare_field", test_append_ledger_rejects_space_in_bare_field),
+    ("append_ledger_allows_spaces_in_categories", test_append_ledger_allows_spaces_in_categories),
+    ("append_ledger_surfaces_write_failure_nonzero", test_append_ledger_surfaces_write_failure_nonzero),
+    ("append_ledger_no_orphan_temp_on_success", test_append_ledger_no_orphan_temp_on_success),
+    ("append_ledger_no_orphan_temp_on_failure", test_append_ledger_no_orphan_temp_on_failure),
 ]
 
 
