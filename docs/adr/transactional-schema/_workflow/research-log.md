@@ -3944,6 +3944,19 @@ promote; array context (between entries in
 "between-section (object-context)" phrasing carries a relabel line rather
 than a rewrite.
 
+**F118 refinement (2026-06-15): the head clause is the sole classifier.** The
+generator-context statement is the classifier; the between-sections /
+inside-object-scope listings are illustrations, not a definition (the class is
+any object context), and "array context" is likewise any array scope, not only
+between-entries in named sections. Two further precisions: a fault between a
+`writeFieldName` and its value leaves a pending name, so an object-context
+promotion can emit `"name":}` — structurally closed but malformed,
+parse-rejected at import (not "well-formed"); and the F109 `exportRecord`
+swallow promotes only when it strands at object context — a swallow
+mid-embedded-array strands at array context and does not promote
+(`writeEndObject` throws first). D20's bounding parenthetical carries the
+corrected statement.
+
 ### F111 — The F103 "fixed 10-byte header" constant is the JDK writer's shape, not RFC 1952's: a re-gzipped dump falsely fails the arithmetic [MINOR]
 Pass-11 report U30. `gzip`/`pigz` store FNAME by default, so the
 inspect-and-re-gzip round trip produces a valid single-member dump whose
@@ -4226,6 +4239,22 @@ pending-field-name, in which case the promoted dump is malformed and
 parse-rejected, not well-formed); the swallow arm conditions on the
 stranded context; the array gloss is marked illustrative. Affected: D20,
 F90, F100, F110.
+
+**Resolved (2026-06-15): the generator-context head clause is the sole
+classifier; proxies demoted to illustrations.** Jackson 2.21.4 confirmed:
+`writeEndObject` checks only `inObject()` (no dangling-name guard), and the
+`DatabaseExport:430`/`:437` `writeFieldName`/value pairs are real, so a
+mid-pair fault leaves a pending name and `close()` emits `"name":}`. The fix
+makes "leaves the generator at object context" the classifier and demotes the
+between-sections / inside-object-scope listings to illustrations; states that
+an object-context promotion is structurally closed but may be malformed
+(pending-field-name → `"name":}`, parse-rejected at import, fail-closed — not
+well-formed); conditions the F109 swallow arm on the stranded context (a
+swallow mid-embedded-array strands at array context and does not promote,
+`writeEndObject` throwing first); and marks the array gloss illustrative (the
+never-promotes class is any array scope). Folds: D20 bounding parenthetical
+(the live carrier), F110 record (refinement note); F90/F100 inherit via their
+existing relabel pointers to F110.
 
 ### F119 — "Two mechanism pins deliver those outcomes" overclaims: the primary-exception outcome is delivered by the suppression discipline, and "trivializes" reads as license to drop it [MINOR]
 Pass-12 report U34. The F109 mechanisms deliver the no-file outcome only;
@@ -5367,16 +5396,23 @@ recover.
   never reach the final name — the exporter writes `<name>.json.gz.tmp` and
   promotes only in `close()` (`DatabaseExport:87`/`:291`), and a truncated
   gzip throws at import decompression (`DatabaseImport:138`) — while an
-  export failure that leaves the generator at object context (relabeled
-  per F110: between sections, or inside any object scope a section opens
-  — `info`, a schema class, an index entry — with the F109 `exportRecord`
-  swallow that leaves a record object open landing here too; bounded per
-  F100: the array-context class, between entries in
-  `collections`/`records`/`indexes`, never promotes, because
-  `writeEndObject` throws first) produces a cleanly closed dump at the final name
-  by construction, because `exportDatabase`'s `finally` runs `close()` on the
-  failure path too (`:157`–`:158`), which writes `writeEndObject` (`:277`),
-  auto-closes every open scope, and renames into place. Closure: (c) the
+  export failure that leaves the generator at **object context** promotes
+  (the classifier is the innermost generator context, relabeled per F110;
+  the listings are illustrations, not a definition: between sections, or
+  inside any object scope a section opens — `info`, a schema class, an index
+  entry — and the F109 `exportRecord` swallow only when it strands at object
+  context, not when it strands mid-embedded-array; bounded per F100/F118: any
+  **array context** — between entries in `collections`/`records`/`indexes`,
+  or inside a record's embedded array — never promotes, because
+  `writeEndObject` throws first) renames a structurally-closed dump at the
+  final name by construction, because `exportDatabase`'s `finally` runs
+  `close()` on the failure path too (`:157`–`:158`), which writes
+  `writeEndObject` (`:277`), auto-closes every open scope, and renames into
+  place. The promoted dump is structurally closed but not necessarily
+  well-formed: a fault between a `writeFieldName` and its value leaves a
+  pending name, so `close()` emits `"name":}` (jackson 2.21.4
+  `writeEndObject` checks only `inObject()`, no dangling-name guard) —
+  parse-rejected at import (fail-closed), not a clean record (F118). Closure: (c) the
   import hard-fails a legacy dump missing any expected section — a complete
   legacy dump always contains `info`, `collections` (or `clusters`),
   `schema`, `records`, `brokenRids`, and `indexes`, the last section written
