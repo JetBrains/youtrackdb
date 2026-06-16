@@ -344,11 +344,11 @@ then drift, then handoffs, then state routing.
    - **`phase == "D"`** — the ledger tail records phase `D` (every track
      complete, Phase 4 pending). Start or resume Phase 4 per
      `prompts/create-final-design.md`: on a fresh entry, start it; on a
-     resume (a Phase-4 pause event in the ledger), if both final artifacts
-     exist, review and complete, otherwise restart from Step 3 of
+     resume (a Phase-4 `paused` event in the ledger), if both final
+     artifacts exist, review and complete, otherwise restart from Step 3 of
      `create-final-design.md`. (The plan `## Final Artifacts` checkbox is
-     gone — D7; the phase comes from the ledger. Track 2 re-points the
-     Phase-4 start/resume signal off the plan checkbox onto the ledger.)
+     gone — D7; the Phase-4 start/resume signal comes from the ledger
+     `phase` tail.)
    - **`phase == "Done"`** — the ledger tail records phase `Done` (Phase 4
      complete). Nothing to resume.
 
@@ -414,9 +414,10 @@ exactly one phase:
 - **After State 0 (autonomous plan review)** — both consistency and
   structural reviews have passed, the plan / track files / design have
   been fixed (mechanical fixes auto-applied; design decisions resolved
-  by the user), `## Plan Review` is marked `[x]` with the audit summary,
-  and the workflow-update commit has been pushed. Session ends. Next
-  session starts Phase A of Track 1.
+  by the user), the audit summary is written to `plan-review.md`, the
+  `phase=A` ledger boundary is appended (D3/D7), and the workflow-update
+  commit has been pushed. Session ends. Next session starts Phase A of
+  Track 1.
 
 - **After Phase A (review + decomposition)** — track file is written to disk
   with all steps as `[ ]` and `Review + decomposition` marked `[x]`. Session
@@ -428,13 +429,16 @@ exactly one phase:
   Phase C.
 
 - **After Phase C (code review + track completion)** — review is complete,
-  plan corrections saved (if any), user approved track results, track
-  episode written and track marked `[x]` in the plan file on disk.
-  Session ends. The next session's Track Pre-Flight gate runs Panel 1
-  (strategy assessment) against this track's episode. If session is
-  interrupted before user approval, the next session re-enters Phase C
-  at the track completion stage (all phases `[x]` in track file, track
-  still `[ ]` in plan file).
+  plan corrections saved (if any), user approved track results, the
+  completion episode is written to the track file's `## Episodes`, the
+  ledger completion boundary is appended (and in `lite`/`full` the plan
+  track entry is collapsed and marked `[x]`). Session ends. The next
+  session's Track Pre-Flight gate runs Panel 1 (strategy assessment)
+  against this track's episode. If the session is interrupted before user
+  approval, the next session re-enters Phase C at the track completion
+  stage (all phases `[x]` in the track file, but the ledger has not
+  recorded this track's completion boundary; in `lite`/`full` the plan
+  track entry is still `[ ]`).
 
 - **After ESCALATE resolution** — if inline replanning produces a revised
   plan, end the session. The next session starts fresh with the revised plan.
@@ -574,7 +578,7 @@ User interaction points:
 | **Track pre-flight (State A, pre-Phase-A)** | Two-panel summary: Panel 1: strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2: upcoming track summary built from the plan-file entry + the track file's four track-level sections (`## Purpose / Big Picture` intro, `## Context and Orientation` current-state framing plus any track-level diagram, `## Plan of Work` step sequencing, `## Interfaces and Dependencies` in-scope / out-of-scope and inter-track dependencies). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; Apply executes `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK`, buffers `CLARIFY`, answers `QUESTION` inline); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
-| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write track episode + collapse + `[x]`); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`, `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
+| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write the completion episode to the track file + append the ledger completion boundary; in `lite`/`full` also collapse the plan entry + mark `[x]`); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`, `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
 | **Self-improvement reflection (every session end)** | 0..N proposed YouTrack issues (capped at 3, deduped against existing `project: YTDB tag: dev-workflow` issues), each with title + Bug/Feature type + one-line summary; skipped with a notice when the YouTrack MCP server is unreachable | Pick which proposals to create in YouTrack (numbers, "all", or "none") |
@@ -740,9 +744,11 @@ Phase-4 progress is tracked by the phase ledger (D3/D7): the tail
 records phase `D` while Phase 4 is pending and phase `Done` once the
 final commit lands (see the `phase == "D"` / `phase == "Done"` rows in
 the Startup Protocol above). The plan's `## Final Artifacts` section is
-gone under the derived-mirror model (D5/D7). Track 2 re-points the
-Phase-4 start/resume signal and the track-completion-episode writer off
-the plan checkbox onto the ledger.
+gone under the derived-mirror model (D5/D7), so the Phase-4 start/resume
+signal reads the ledger `phase` tail and the track-completion episode is
+canonical in the track file's `## Episodes`
+(track-code-review.md:orchestrator,reviewer-dim-track:3C § Track
+Completion), not the plan checkbox.
 
 **Full instructions:** prompts/create-final-design.md:final-designer:4
 
@@ -765,7 +771,7 @@ For other workflow components, see:
 - **`track-code-review.md`** — Phase C: code review + track completion
 - **`research.md`** — Phase 0 (research: interactive exploration before planning)
 - **`planning.md`** — Phase 1 (planning)
-- **`implementation-review.md`** — Phase 2 (autonomous implementation review: consistency + structural). **Loaded on-demand only when State 0 is active** (the startup protocol routes there when `## Plan Review` is `[ ]`); also loaded on manual `/review-plan` invocation. Non-State-0 sessions never read this file.
+- **`implementation-review.md`** — Phase 2 (autonomous implementation review: consistency + structural). **Loaded on-demand only when State 0 is active** (the startup protocol routes there when the phase ledger records no `phase` boundary yet — D3/D7); also loaded on manual `/review-plan` invocation. Non-State-0 sessions never read this file.
 - **`prompts/create-final-design.md`** — Phase 4 (final artifacts: `design-final.md`, `adr.md`)
 
 On-demand reference documents (loaded only when their specific situation arises):
