@@ -146,6 +146,13 @@ today:
   Phase-2/State-0 and Phase-4 rows point beneath removed plan sections (D8).
 - **`.claude/workflow/track-code-review.md`**: Phase-C track completion writes
   the completion episode; it moves canonical to the track file (D5 of the plan).
+- **`.claude/workflow/workflow.md`**: Track 1 migrated the Startup Protocol,
+  Session Lifecycle, and Final Artifacts prose to the ledger model but left
+  three references keyed on the removed plan `## Plan Review` / `## Final
+  Artifacts` sections, each marked "Track 2 re-points this": the Phase-4
+  start/resume signal and track-completion-episode writer, the
+  When-to-end-a-session State-0 bullet, and the implementation-review loader
+  note. Track 2 finishes the re-point onto the ledger.
 
 ## Plan of Work
 
@@ -183,6 +190,17 @@ is re-pointed once and the rest follow. Each edit consumes a Track 1 contract.
 5. **Completion episode → track file.** `track-code-review` writes the track
    completion episode canonical to the track file's `## Episodes`; the
    `lite`/`full` Checklist keeps a one-line summary and pointer.
+6. **Finish the `workflow.md` re-points Track 1 flagged.** Track 1 migrated
+   `workflow.md` to the ledger model but left three consumer references keyed on
+   the now-removed plan sections, each tagged "Track 2 re-points this": the
+   Phase-4 start/resume signal and the track-completion-episode writer off the
+   plan `## Final Artifacts` + track checkbox onto the ledger (the Startup
+   Protocol `phase == "D"` row and the `## Final Artifacts` section), the
+   When-to-end-a-session State-0 bullet off `## Plan Review`, and the
+   implementation-review loader note off `## Plan Review`. Re-point all three to
+   the ledger so no bullet declares those plan sections "gone" while another
+   still routes resume or end-session on them. Consumes Track 1's ledger `phase`
+   contract (the `phase == "D"`/`"Done"` tail values).
 
 Invariant to preserve: the §1.7(b)/(k) stable-prefix match semantics are
 unchanged — only the *location* the consumers read the marker from moves from
@@ -250,6 +268,7 @@ belong to one specific step. Often empty. -->
 - `.claude/workflow/inline-replanning.md`
 - `.claude/workflow/mid-phase-handoff.md`
 - `.claude/workflow/track-code-review.md`
+- `.claude/workflow/workflow.md`
 
 All edits route to the staged mirror under
 `docs/adr/no-track-for-minimal/_workflow/staged-workflow/.claude/**`.

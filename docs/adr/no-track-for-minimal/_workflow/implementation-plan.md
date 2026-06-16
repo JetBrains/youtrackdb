@@ -368,6 +368,11 @@ graph TD
   > self-references the model-move left stale.
   >
   > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
+  >
+  > **Strategy refresh:** ADJUST — Track 2 scope widened to include
+  > `workflow.md`, with a Plan-of-Work step 6 for the three Phase-4/State-0
+  > re-points Track 1 left flagged (the start/resume signal, the
+  > When-to-end-a-session State-0 bullet, the implementation-review loader note).
 
 - [ ] Track 2: Rewire the runtime consumers onto the ledger
   > Re-point every consumer that reads branch-level facts or review state at the
@@ -378,10 +383,11 @@ graph TD
   > `minimal`→`lite`/`full` escalation materialize the dropped plan and design,
   > and moves the track completion episode into the track file. Depends on the
   > ledger format and conventions Track 1 defines.
-  > **Scope:** ~13 files covering `implementation-review.md`, the
+  > **Scope:** ~16 files covering `implementation-review.md`, the
   > `consistency-review`/`structural-review`/`create-final-design`/`technical-review`/`risk-review`/`adversarial-review`
   > prompts, `step-implementation.md`, `implementer-rules.md`, `track-review.md`,
-  > `inline-replanning.md`, `mid-phase-handoff.md`, and `track-code-review.md`.
+  > `inline-replanning.md`, `mid-phase-handoff.md`, `track-code-review.md`, and
+  > `workflow.md` (the Phase-4/State-0 re-points Track 1 flagged for this track).
   > **Depends on:** Track 1
 
 ## Plan Review
