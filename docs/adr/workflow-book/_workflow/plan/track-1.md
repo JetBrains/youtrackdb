@@ -14,6 +14,7 @@ This track builds the generator that produces a book about the YouTrackDB develo
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T08:47Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-16T09:43Z [ctx=safe] Step 1 complete (commit e4ef1c6916)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -141,12 +142,29 @@ The single ordering constraint that crosses files is that the pipeline branches 
 Phase A decomposition produced two `low`-risk steps along the machinery/book-target seam (D2/D3). Step 1 authors the entire `workflow-book-builder/` generator (the brief, the pipeline, the diagram convention and render script, and the four role prompts); Step 2 stamps the empty `docs/workflow-book/` layout. The split is driven by footprint: the whole track is ~14 files, which sits at the ~14 overblown line, so it splits into these two coherent halves rather than landing in one over-large step. Step 1 runs first (its `BOOK_BRIEF.md` defines the roles the pipeline and prompts reference, and the README in Step 2 records what the machinery does), though the two directory trees are disjoint and neither modifies the other's files. Every step is `low` because no file is under `.claude/**` (D2, non-workflow-modifying), no Java is touched, and no behavioral code path is added — the lone script is an operator helper this plan never runs (D1).
 
 ## Concrete Steps
-1. Author the `workflow-book-builder/` machinery generator — `BOOK_BRIEF.md` (audience, voice, conventions, diagram rules, the four role definitions; D4/D5), `PIPELINE.md` (the embedded copy-paste START prompt then the unified evolution-aware pipeline with an explicit empty-vs-non-empty-baseline branch; D8/D10/D12), `DIAGRAMS.md` (hybrid ASCII + D2 convention, the enumerated bounded SVG figure set, the render step, the "how to add a figure" procedure, and the one-time `d2` install as an operator step; D5/D6), the four role prompts `prompts/{author,technical-reviewer,copy-editor,beta-reader}.md` (the expanded role definitions the pipeline spawns; D8), `scripts/render-diagrams.sh` (D2-source → committed SVG with the missing-`d2` guard that prints the install command; authored but not run, D1/D6), and the empty `reviews/` and `beta-feedback/` run-output dirs with `.gitkeep` (D11). — risk: low (default: prose machinery plus one operator-run helper script, neither under `.claude/**` (D2, non-workflow-modifying) nor executed by this plan (D1); no HIGH or MEDIUM trigger fires) — size: ~10 files; the only other low unit is Step 2 (book-target), and absorbing it reaches ~14 and trips the overblown split line (closed-set reason a)  [ ]
+1. Author the `workflow-book-builder/` machinery generator — `BOOK_BRIEF.md` (audience, voice, conventions, diagram rules, the four role definitions; D4/D5), `PIPELINE.md` (the embedded copy-paste START prompt then the unified evolution-aware pipeline with an explicit empty-vs-non-empty-baseline branch; D8/D10/D12), `DIAGRAMS.md` (hybrid ASCII + D2 convention, the enumerated bounded SVG figure set, the render step, the "how to add a figure" procedure, and the one-time `d2` install as an operator step; D5/D6), the four role prompts `prompts/{author,technical-reviewer,copy-editor,beta-reader}.md` (the expanded role definitions the pipeline spawns; D8), `scripts/render-diagrams.sh` (D2-source → committed SVG with the missing-`d2` guard that prints the install command; authored but not run, D1/D6), and the empty `reviews/` and `beta-feedback/` run-output dirs with `.gitkeep` (D11). — risk: low (default: prose machinery plus one operator-run helper script, neither under `.claude/**` (D2, non-workflow-modifying) nor executed by this plan (D1); no HIGH or MEDIUM trigger fires) — size: ~10 files; the only other low unit is Step 2 (book-target), and absorbing it reaches ~14 and trips the overblown split line (closed-set reason a)  [x] commit: e4ef1c6916
 2. Stamp the `docs/workflow-book/` book-target layout empty — `README.md` (production record + pinned baseline workflow-SHA `3e9c22298d` + evolution-history table; D10), `TOC.md` (the living chapter-map + cross-reference-matrix placeholder the first run fills; D7/D9), and the empty `chapters/` and `assets/diagrams/` directories with `.gitkeep` so the layout is visible in version control; no chapter and no rendered diagram is committed (D1). — risk: low (default: pure `docs/` prose plus empty `.gitkeep` placeholders; no HIGH or MEDIUM trigger fires) — size: ~4 files; the only other low unit is Step 1 (machinery, ~10 files), and merging into it reaches ~14 and trips the overblown split line (closed-set reason a)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B appends one block per completed step. Empty
 at Phase 1. -->
+
+### Step 1 — commit e4ef1c6916, 2026-06-16T09:43Z [ctx=safe]
+**What was done:** Authored the 10-file `workflow-book-builder/` machinery generator. `BOOK_BRIEF.md` fixes the new-engineer audience (D4), the voice, the conventions, the hybrid diagram rules, and the four role definitions. `PIPELINE.md` opens with a self-contained copy-paste START prompt (D12), then the unified evolution-aware pipeline that branches explicitly on an empty versus non-empty baseline (D8/D10). `DIAGRAMS.md` documents the ASCII-default convention with a closed three-figure committed-D2-SVG set, the render step, the "how to add a figure" procedure, and the one-time `d2` install as an operator step (D5/D6). The four `prompts/*.md` files expand the role definitions the pipeline spawns. `scripts/render-diagrams.sh` renders D2 source to committed SVG behind a missing-`d2` guard that prints the install command; it is authored, not run (D1/D6). The empty `reviews/` and `beta-feedback/` run-output directories carry `.gitkeep`. The machinery imitates the sibling internals book's prose-prompt production model.
+
+**What was discovered:** Step 2's `docs/workflow-book/` layout is coupled to `PIPELINE.md`, which already names the exact run-target paths (`docs/workflow-book/README.md`, `TOC.md`, `assets/diagrams/`, and `maintenance/drift-*.md`). Step 2 must keep those filenames byte-consistent and pin baseline workflow-SHA `3e9c22298d` (the value `BOOK_BRIEF.md` already names) in `README.md`, with a living-artifact `TOC.md` placeholder carrying the chapter-map plus cross-reference-matrix shape the pipeline edits. Corpus figures the track pinned verified against disk: 31 workflow docs at 0.99 MB (the directory `du` of 1.3 MB folds in the `prompts/` subdir), plus 11 prompts, 20 agents, 16 skills. `d2` is not installed, as D6 anticipated.
+
+**Key files:**
+- `workflow-book-builder/BOOK_BRIEF.md` (new)
+- `workflow-book-builder/PIPELINE.md` (new)
+- `workflow-book-builder/DIAGRAMS.md` (new)
+- `workflow-book-builder/prompts/author.md` (new)
+- `workflow-book-builder/prompts/technical-reviewer.md` (new)
+- `workflow-book-builder/prompts/copy-editor.md` (new)
+- `workflow-book-builder/prompts/beta-reader.md` (new)
+- `workflow-book-builder/scripts/render-diagrams.sh` (new)
+- `workflow-book-builder/reviews/.gitkeep` (new)
+- `workflow-book-builder/beta-feedback/.gitkeep` (new)
 
 ## Validation and Acceptance
 A reviewer can check this track by inspection, because no chapter is produced and the renderer does not run (D1). The acceptance criteria are:
