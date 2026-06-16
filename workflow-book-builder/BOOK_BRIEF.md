@@ -74,9 +74,9 @@ A chapter is produced by four roles, run in waves. The expanded prompt for each 
 
 A chapter is done only when it has cleared all four roles. The pipeline orders the waves and decides which roles run on which chapters; this brief only fixes what each role is.
 
-## The one departure from the model
+## Diagram convention
 
-This machinery imitates the YouTrackDB internals book at `docs-ytdb-internals-book/docs/ytdb-internals-book/`, which proved the prose-prompt production model: a brief fixes voice and audience, a single hand-driven prompt drives the role waves, and a `TOC.md` carries the chapter map plus a cross-reference matrix. The workflow book matches that structure and register, with one deliberate difference recorded in [`DIAGRAMS.md`](DIAGRAMS.md): diagrams are ASCII by default with a small set of committed SVGs, rather than the inline mermaid the model ships in every chapter. Mermaid renders inconsistently across viewers; ASCII and committed SVG render the same everywhere.
+The book draws diagrams as ASCII by default, with a small set of committed SVGs for the few figures ASCII cannot lay out. The convention is specified in full in [`DIAGRAMS.md`](DIAGRAMS.md). Mermaid is not used: it renders inconsistently across viewers (GitHub, IDEs, PDF export, static-site generators each support a different subset), while ASCII and committed SVG render the same everywhere.
 
 ## The one-time `d2` install (operator step)
 
