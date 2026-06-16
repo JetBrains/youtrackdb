@@ -24,13 +24,33 @@ tx-local seed (Track 3) binds the per-class RIDs this track introduces.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T14:03Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-16T16:14Z [ctx=safe] Step 1 complete (commit 9c7409305b)
+- [x] 2026-06-16T16:14Z [ctx=safe] Step implementation complete (Phase B done; 1/1 step)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-06-16T16:14Z Step 1: `DatabaseCompare.convertSchemaDoc` was already dead
+  code. Schema records live in internal collection id 0, which `skipRecord`
+  skips unconditionally, so it was unreachable before this change. It is
+  dropped, not rewritten. Any future schema-record comparison work must account
+  for the collection-0 skip. See Episodes §Step 1.
+- 2026-06-16T16:14Z Step 1: the schema version is now 6 (was 4). Track 8's
+  migration (EXPORTER_VERSION 14→15) and any `DatabaseExport` / `DatabaseImport`
+  schema-version field must agree on 6. See Episodes §Step 1.
+- 2026-06-16T16:14Z Step 1: the serializer now asserts
+  `isWriteLockedByCurrentThread()`, documenting the write-lock contract. Track 7
+  must revisit this invariant if it inverts the schema lock model (BC2 flagged
+  the prior read-lock acquire as latent under the single-writer commit model).
+  See Episodes §Step 1.
+- 2026-06-16T16:14Z Step 1: the round-trip preserves per-class RIDs and the root
+  non-link payload (test-verified via durable reload), so Track 3's tx-local
+  seed binds RIDs faithfully; the load reader rejects a non-persistent linked
+  record id with a diagnosable `ConfigurationException`, which Track 4's
+  selective per-class write can rely on. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -122,10 +142,64 @@ seeds a tx-local copy from a `fromStream` re-parse.
 ## Concrete Steps
 <!-- Phase A placeholder. -->
 
-1. Migrate the schema to per-class records. Rework `SchemaShared.toStream`/`fromStream` so the root schema record carries a link set to per-class standalone entity records plus the non-link root payload (global-property table, `collectionCounter`, `blobCollections`); save each class as a standalone record and add its RID to the root's link set on create, delete the record and unlink on drop, all inside `saveInternal`'s `executeInTx` so the multi-record write is atomic, mirroring `IndexManagerAbstract.addIndexInternalNoLock` (`getOrCreateLinkSet(CONFIG_INDEXES).add(...)`) and `IndexManagerAbstract.load` (bind each entity from the link set). Add the net-new record-RID field to `SchemaClassImpl`, bound at load from the link set; a new class's record RID resolves through the ordinary temp→persistent record-id path at commit (not D2). Preserve each class's record RID and the root's non-link payload across a `toStream`→`fromStream` round-trip. In the SAME commit: bump `CURRENT_VERSION_NUMBER` to a value distinct from both `VERSION_NUMBER_V4` (4) and `VERSION_NUMBER_V5` (5) and tighten the `fromStream` gate to `schemaVersion != CURRENT_VERSION_NUMBER` (drop the `VERSION_NUMBER_V5` accept-arm) so both a version-4 and a legacy version-5 database reject-and-redirect rather than falling through into the new link-set parser; and update `DatabaseCompare.convertSchemaDoc` for the link-set root (resolve the per-class records, or drop the now-redundant root special-case since the record walk already content-compares them) so the standing `StorageBackup*` / `DbImportExport*` / `LocalPaginatedStorageRestore*` ITs stay green. Ship serializer round-trip tests (per-class RID + root-payload preservation), a standalone-record create/drop test, and a version-gate reject test covering both v4 and legacy v5. The three pieces must land together: the new `fromStream` parses the link set, so the version bump and the `DatabaseCompare` update cannot be split into separate commits without a broken intermediate state. — risk: high (crash-safety/durability + architecture: modifies on-disk schema record serialization and the multi-record atomic schema-save write, the foundational format every later track builds on, shared by the standing backup/restore/import ITs)  [ ]
+1. Migrate the schema to per-class records. Rework `SchemaShared.toStream`/`fromStream` so the root schema record carries a link set to per-class standalone entity records plus the non-link root payload (global-property table, `collectionCounter`, `blobCollections`); save each class as a standalone record and add its RID to the root's link set on create, delete the record and unlink on drop, all inside `saveInternal`'s `executeInTx` so the multi-record write is atomic, mirroring `IndexManagerAbstract.addIndexInternalNoLock` (`getOrCreateLinkSet(CONFIG_INDEXES).add(...)`) and `IndexManagerAbstract.load` (bind each entity from the link set). Add the net-new record-RID field to `SchemaClassImpl`, bound at load from the link set; a new class's record RID resolves through the ordinary temp→persistent record-id path at commit (not D2). Preserve each class's record RID and the root's non-link payload across a `toStream`→`fromStream` round-trip. In the SAME commit: bump `CURRENT_VERSION_NUMBER` to a value distinct from both `VERSION_NUMBER_V4` (4) and `VERSION_NUMBER_V5` (5) and tighten the `fromStream` gate to `schemaVersion != CURRENT_VERSION_NUMBER` (drop the `VERSION_NUMBER_V5` accept-arm) so both a version-4 and a legacy version-5 database reject-and-redirect rather than falling through into the new link-set parser; and update `DatabaseCompare.convertSchemaDoc` for the link-set root (resolve the per-class records, or drop the now-redundant root special-case since the record walk already content-compares them) so the standing `StorageBackup*` / `DbImportExport*` / `LocalPaginatedStorageRestore*` ITs stay green. Ship serializer round-trip tests (per-class RID + root-payload preservation), a standalone-record create/drop test, and a version-gate reject test covering both v4 and legacy v5. The three pieces must land together: the new `fromStream` parses the link set, so the version bump and the `DatabaseCompare` update cannot be split into separate commits without a broken intermediate state. — risk: high (crash-safety/durability + architecture: modifies on-disk schema record serialization and the multi-record atomic schema-save write, the foundational format every later track builds on, shared by the standing backup/restore/import ITs)  [x] commit: 9c7409305b
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 9c7409305b, 2026-06-16T16:14Z [ctx=safe]
+**What was done:** Replaced the monolithic schema record with a root record
+carrying a `classes` LINKSET to one standalone record per class plus the
+non-link root payload (global-property table, `collectionCounter`,
+`blobCollections`), mirroring the index manager's `CONFIG_INDEXES` link set.
+Added a nullable record-RID field to `SchemaClassImpl`, bound at load from the
+link set and allocated at commit through the ordinary temp→persistent
+record-id path; `SchemaClassImpl.toStream` now writes into a caller-supplied
+standalone record instead of an embedded entity. Bumped `CURRENT_VERSION_NUMBER`
+from 4 to 6 and tightened the `fromStream` gate to
+`schemaVersion != CURRENT_VERSION_NUMBER`, dropping the legacy
+`VERSION_NUMBER_V5` accept-arm so both a version-4 and a legacy version-5
+database reject-and-redirect to export/import. Removed
+`DatabaseCompare.convertSchemaDoc`. Shipped `PerClassSchemaRecordTest`
+(round-trip RID + root-payload preservation with durable reload, standalone
+create/drop, version-gate reject for v4 and legacy v5) and updated
+`CaseSensitiveClassNameTest` and `DatabaseCompareDeadCodeTest`. Four
+dimensional reviewers ran on the step (bugs-concurrency, crash-safety,
+test-crash-safety, test-structure); crash-safety passed clean, and one
+`Review fix:` iteration (9c7409305b) resolved 2 should-fix plus 7 suggestion
+findings, all VERIFIED at the iteration-2 gate check with no regression.
+
+**What was discovered:** `DatabaseCompare`'s schema special-case was already
+dead code before this change. The schema root and per-class records live in
+internal collection id 0, which `skipRecord` skips unconditionally, so
+`convertSchemaDoc` was never reached; under the link-set format its
+embedded-set coercion would also have corrupted the LINKSET. Dropping it was
+the correct one of the two options the step offered, and it keeps the standing
+backup/restore `DatabaseCompare` suites green. The `DbImportExport*` ITs named
+in the plan are all `@Disabled`, so the live `DatabaseCompare` gate is the
+`StorageBackup*` and `LocalPaginatedStorageRestore*` core suites (verified
+green). A class left with a non-persistent record id self-heals on the next
+schema mutation, because the serializer re-streams every class on each save.
+One trivial below-gate nit remains: a message-less `assertNotNull` at
+`PerClassSchemaRecordTest:151`, which the test-structure gate check flagged but
+could not raise at suggestion severity; Phase C's track-level test review sees
+it. Cross-track facts are promoted to Surprises below.
+
+**What changed from the plan:** The plan offered "update
+`DatabaseCompare.convertSchemaDoc` or drop the redundant root special-case";
+the implementer dropped it after confirming it was unreachable dead code, which
+resolves D14's `DatabaseCompare` sub-task by deletion. No track-level deviation.
+The selective per-class write, the root-record dirtiness rule, and the F59
+root-omission regression stay deferred to Track 4 (D6 dirty tracking); the
+migrator stays in Track 8.
+
+**Key files:**
+- `SchemaShared.java` (modified)
+- `SchemaClassImpl.java` (modified)
+- `DatabaseCompare.java` (modified)
+- `PerClassSchemaRecordTest.java` (new)
+- `CaseSensitiveClassNameTest.java` (modified)
+- `DatabaseCompareDeadCodeTest.java` (modified)
 
 ## Validation and Acceptance
 - A `toStream`→`fromStream` round-trip preserves each class's record RID and the
