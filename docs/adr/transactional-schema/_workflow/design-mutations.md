@@ -145,3 +145,50 @@ to clean.
 low-value). Env: `fable` unavailable, so author and auditor spawns ran on the
 session default. The YTDB-1130 comment is deferred to Mutation 4, since the
 code-grounded result is the better data point.
+
+## Mutation 4 — 2026-06-16 — content-edit (design.md) — code-grounded readability pass-2
+
+**Kind**: content-edit (readability enrichment). No decision, invariant, mechanism,
+or four-lock-order change. design.md 889 → ~1044 lines. Line-1 stamp, Mermaid
+bodies, `### Decisions & invariants` lists (all 20 D-records, all 25 invariants),
+and the four-lock order verified preserved against the committed baseline.
+
+**Method**: re-audited the committed pass-1 doc with the 5-range cold-auditor
+contract, then a code-grounded author (the audit worklist + codebase access via
+grep/`Read` + mcp-steroid PSI for reference-accuracy + a TRANSLATE mandate)
+established current-state-then-change for each flagged passage, grounded in real
+symbols.
+
+**Data (YTDB-1130 — does code-grounding beat the prose-only floor?): yes.**
+- Pass-1 prose-only: 55 (frozen) → 57 (warm self-edit, discarded) → 54
+  (cold-author, kept). Floor ~54; prose reshaping could not beat it.
+- Pass-2 code-grounded, same 5 auditors (controls for auditor variance): fresh
+  independent baseline 76 (the gap from the pass-1 internal 54 is auditor
+  variance) → ~38 after one author round (−50%). Part 1 converged 19 → 6 → 3
+  across two rounds. 0 GAPs throughout — no rule hardening.
+- The loop converges to a domain-density floor (the Dekker handshake, the mutex
+  ownership-record prose, the cap-bound Overview inventories), not to zero.
+
+**Code claims verified accurate**: `ScalableRWLock` non-reentrant and `stateLock`
+is one; `OperationsFreezer` `cutWaitingList`/`LockSupport.unpark`/`freezeRequests`;
+`EXPORTER_VERSION` 14; collection name `<lowercase-classname>_<counter>`;
+`fromStream`/`toStream` on `SchemaClassImpl`; `SchemaClassProxy` captured delegate;
+`addCollectionToIndex`/`removeCollectionFromIndex` self-commit via
+`executeInTxInternal`; `checkOpenness` CLOSED-status guard; `reload` takes
+`SchemaShared.lock`; `commitChanges` success-path-only. Two design-level claims
+left as the prose's own assertion (index-build WAL atomicity; the forward/reverse
+collection maps glossed by direction only, asserting no false `SchemaShared` field).
+
+**Process incident (recorded honestly)**: a named-teammate `Agent` spawn returned a
+roster error but its underlying agent launched and kept running; with a shared
+`TaskList` present it auto-pulled the orchestration tasks and co-edited design.md as
+a rogue, alongside two intended authors — three concurrent writers. The
+read-before-edit guard serialized the edits (no lost updates; structure, D-records,
+invariants, lock order, and code claims all verified intact afterward), so the doc
+passed every integrity check, but the run was contaminated — the exact final
+integer is indicative, not a clean single-author measurement. Recovery: cleared the
+task board to stop the auto-pull, confirmed the file static. The clean exact-final
+re-audit was skipped (no further agents per the user's instruction). A trivial
+line-wrap orphan in the provisional-id paragraph was fixed by hand.
+
+**Env**: `fable` unavailable; spawns ran on the session default (opus).
