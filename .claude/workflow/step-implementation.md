@@ -471,7 +471,7 @@ finding ID prefixes, and gate format.
 
       **Stage a `diff <live> <staged>` delta for freshly-created
       staged copies (workflow-modifying plans).** When the branch is in
-      §1.7(b) staging mode (read ledger-first: the phase ledger's `s17`
+      `§1.7(b)` staging mode (read ledger-first: the phase ledger's `s17`
       field equals the workflow-modifying token; when no
       `phase-ledger.md` exists, fall back to the plan's `### Constraints`
       carrying the canonical `§1.7(b)`

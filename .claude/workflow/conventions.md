@@ -1054,7 +1054,7 @@ The convention runs on two independent detection signals, each serving
 a distinct consumer:
 
 - **Ledger `s17` declaration** drives the implementer enforcement gate.
-  Per-spawn, the implementer reads the §1.7 mode **ledger-first**: the
+  Per-spawn, the implementer reads the §1.7:orchestrator,implementer,planner,final-designer:1,3A,3B,3C,4 mode **ledger-first**: the
   phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value
   wins) and checks for the workflow-modifying token. When no
   `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying
@@ -1434,7 +1434,7 @@ stamp-advance lands.
 
 The three Phase-3A criteria-switch blocks (the "Workflow-machinery
 criteria" block in `technical-review.md`, `risk-review.md`, and
-`adversarial-review.md`) fire when the branch is in §1.7(b) staging mode
+`adversarial-review.md`) fire when the branch is in §1.7(b):orchestrator,implementer,planner:1,3A,3B,3C,4 staging mode
 **or** the (k) opt-out mode — read ledger-first: the phase ledger's
 `s17` field (`_workflow/phase-ledger.md`, last value wins) equals
 **either** the workflow-modifying token **or** the opt-out token; when no

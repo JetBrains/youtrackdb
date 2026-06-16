@@ -172,7 +172,7 @@ Inputs:
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
-**Staged-read precedence (workflow-modifying plans):** When the branch is in §1.7(b) staging mode — read ledger-first: the phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value wins) equals the workflow-modifying token; when no `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying branch), fall back to the plan's `### Constraints` carrying the canonical `§1.7(b)` workflow-modifying marker sentence — resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or `.claude/scripts/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the branch is in `§1.7(b)` staging mode — read ledger-first: the phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value wins) equals the workflow-modifying token; when no `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying branch), fall back to the plan's `### Constraints` carrying the canonical `§1.7(b)` workflow-modifying marker sentence — resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or `.claude/scripts/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 ---
 

@@ -17,7 +17,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Workflow Context | reviewer-plan | 2 | Phase 2 structural review: plan-quality check (no code read) across plan file, track files, and design document. |
 | §Classification rules | reviewer-plan | 2 | Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity. |
-| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, seed↔track fidelity, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
+| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, duplication, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
 | §`design-decision` — orchestrator escalates to the user | reviewer-plan | 2 | Track ordering, sizing, contradiction, missing-DR, and implausible-scope findings the user must resolve. |
 
 <!--Document index end-->
@@ -125,7 +125,7 @@ Inputs:
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
-**Staged-read precedence (workflow-modifying plans):** When the branch is in §1.7(b) staging mode — read ledger-first: the phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value wins) equals the workflow-modifying token; when no `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying branch), fall back to the plan's `### Constraints` carrying the canonical `§1.7(b)` workflow-modifying marker sentence — resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or `.claude/scripts/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the branch is in `§1.7(b)` staging mode — read ledger-first: the phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value wins) equals the workflow-modifying token; when no `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying branch), fall back to the plan's `### Constraints` carrying the canonical `§1.7(b)` workflow-modifying marker sentence — resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or `.claude/scripts/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 **Where track descriptions live:** For each **pending** track (`[ ]`),
 read the track's detailed description (what/how/constraints/interactions

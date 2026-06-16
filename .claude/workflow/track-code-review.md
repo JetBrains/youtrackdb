@@ -250,7 +250,7 @@ of the changes.
    regeneration rule (the staged files become stale after every
    `Review fix:` commit).
 8. **Stage a `diff <live> <staged>` delta for freshly-created staged
-   copies (workflow-modifying plans).** When the branch is in §1.7(b)
+   copies (workflow-modifying plans).** When the branch is in `§1.7(b)`
    staging mode — read ledger-first: the phase ledger's `s17` field
    (`_workflow/phase-ledger.md`, last value wins) equals the
    workflow-modifying token; when no `phase-ledger.md` exists, fall back to

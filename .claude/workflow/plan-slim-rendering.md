@@ -11,7 +11,7 @@
 | §Rendering rule | orchestrator | 3B,3C | Keep pre-Checklist content and [ ] tracks verbatim; collapse [x] and [~] entries to title + intro + episode. |
 | §Example — before and after | orchestrator | 3B,3C | A worked before/after pair showing a completed track collapsing to the slim form. |
 | §Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**` and `**Depends on:**` lines) | orchestrator | 3B,3C | The pre-collapse on-disk entry carrying Scope and Depends on lines. |
-| §After (slim render) | orchestrator | 3B,3C | The same entry after the slim transform drops Scope and Depends on lines, keeping the one-line episode summary, the Track file pointer, and Strategy refresh. |
+| §After (slim render) | orchestrator | 3B,3C | After the slim transform: Scope and Depends-on dropped, episode summary, Track file pointer, and Strategy refresh kept. |
 | §How to identify the "intro paragraph" | orchestrator | 3B,3C | The intro paragraph is the blockquote content before the first **Keyword**: marker line. |
 | §Interaction with the on-disk collapse | orchestrator | 3B,3C | Track completion collapses the on-disk description to this same slim form; the rendering rule is then idempotent. |
 | §Slim-track rendering | orchestrator | 3A,3B,3C | Render a track inline for sub-agents: keep the inline Decision Log, drop high-cadence logs; consumer rewiring deferred. |
@@ -224,7 +224,7 @@ summary plus a pointer (the full episode is canonical in the track file's
 ```
 
 ### After (slim render)
-<!-- roles=orchestrator phases=3B,3C summary="The same entry after the slim transform drops Scope and Depends on lines, keeping the one-line episode summary, the Track file pointer, and Strategy refresh." -->
+<!-- roles=orchestrator phases=3B,3C summary="After the slim transform: Scope and Depends-on dropped, episode summary, Track file pointer, and Strategy refresh kept." -->
 
 ```markdown
 - [x] Track 2: Direct Buffer Write Infrastructure

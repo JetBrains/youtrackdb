@@ -7,7 +7,7 @@
 | §When this protocol fires | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Fire a handoff at warning/critical context when WIP has not yet landed in durable files; examples and counter-examples. |
 | §File location | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The handoff file path, the per-phase naming convention, multi-pause handling, and collision-suffix rules. |
 | §Detection at session start | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Both startup commands list handoffs early; the file is the authoritative pause signal over the in-file marker. |
-| §Secondary marker (defense-in-depth) | orchestrator | 2,3A,3B,3C,4 | Leave a secondary pause pointer — a greppable **PAUSED line in the track Progress for A/B/C, a ledger paused event for State 0 / Phase 4; the recovery grep extends to the ledger and a paused event clears when its handoff file is gone. |
+| §Secondary marker (defense-in-depth) | orchestrator | 2,3A,3B,3C,4 | Leave a greppable secondary pause pointer: a PAUSED line in track Progress, or a ledger event for State 0 / Phase 4. |
 | §`MEMORY.md` cross-reference | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Add or update a per-branch memory-index entry after writing the handoff; it is supplemental to the on-disk file. |
 | §Templates | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header plus the research-shaped and decision-shaped body templates; pick by pause shape, not phase. |
 | §Header (both templates) | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header fields: paused date, phase, context level, branch, HEAD, unpushed count. |
@@ -148,7 +148,7 @@ the next `/execute-tracks` invocation; `/review-plan` itself does not
 need a handoff-detection step at the top of its skill instructions.
 
 ## Secondary marker (defense-in-depth)
-<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Leave a greppable secondary pause pointer — a **PAUSED line in the track Progress for A/B/C, a ledger paused event for State 0 / Phase 4." -->
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Leave a greppable secondary pause pointer: a PAUSED line in track Progress, or a ledger event for State 0 / Phase 4." -->
 
 In addition to writing the handoff file, leave a secondary pause pointer
 keyed to the phase. The natural progress file differs by phase, and two

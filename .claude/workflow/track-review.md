@@ -14,7 +14,7 @@
 | §Inputs passed to Phase A review sub-agents | orchestrator | 3A | The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope). |
 | §Track-scoped technical review | reviewer-technical | 3A | The track-scoped technical review and its prompt file. |
 | §Track-scoped risk review | reviewer-risk | 3A | The track-scoped risk review and its prompt file. |
-| §Track-scoped adversarial review | reviewer-adversarial | 3A | The track-scoped adversarial review and its prompt file. |
+| §Track-scoped adversarial review | reviewer-adversarial | 3A | The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the D14 tier model/effort pin. |
 | §Review gate verification | orchestrator | 3A | Re-run the Phase A reviews against applied fixes via the review-gate-verification prompt. |
 | §Review iteration protocol | orchestrator | 3A | Phase A reviews follow the shared review iteration protocol (max 3 iterations, cumulative IDs). |
 | §Step Decomposition | decomposer | 3A | Decompose the track into a roster of risk-tagged steps; sizing, cross-cutting, and parallel-annotation rules. |

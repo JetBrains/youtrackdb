@@ -4,9 +4,9 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Detection | orchestrator,planner | 1,2,3A | Detection moved to the script's `--mode full` drift walk; this section cites the JSON the gate reads. |
-| §No-drift normalization | orchestrator,planner | 1,2,3A | Normalization moved to the script; cites the `actions_taken` recital and keeps the path-quoting note. |
-| §Skip conditions | orchestrator,planner | 1,2,3A | Three silent-skip conditions (no _workflow dir, Phase 4 active via the ledger phase tail, empty diff) checked cheapest-first. |
+| §Detection | orchestrator,planner | 1,2,3A | Detection moved to the script's --mode full drift walk; this section cites the JSON the gate reads. |
+| §No-drift normalization | orchestrator,planner | 1,2,3A | Normalization moved to the script; cites the actions_taken recital and keeps the path-quoting note. |
+| §Skip conditions | orchestrator,planner | 1,2,3A | Three silent-skip conditions (no _workflow dir, Phase 4 active per ledger tail, empty diff), cheapest-first. |
 | §Resolutions | orchestrator,planner | 1,2,3A | On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default. |
 | §Migrate now | orchestrator,planner | 1,2,3A | End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline. |
 | §Defer | orchestrator,planner | 1,2,3A | Continue this session and record a deferred-drift todo recited at session end. |
@@ -191,7 +191,7 @@ silent housekeeping report, not a drift signal.
 ---
 
 ## Skip conditions
-<!-- roles=orchestrator,planner phases=1,2,3A summary="Three silent-skip conditions (no _workflow dir, Phase 4 active via the ledger phase tail, empty diff) checked cheapest-first." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Three silent-skip conditions (no _workflow dir, Phase 4 active per ledger tail, empty diff), cheapest-first." -->
 
 Three silent-skip conditions short-circuit before the prompt fires.
 The script applies them during its `--mode full` drift walk and folds

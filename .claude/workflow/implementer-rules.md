@@ -398,7 +398,7 @@ Path-mapping rule
 above. The gate catches bypass shapes — an absolute live path
 passed to a tool, a `Bash` redirection that the implementer
 forgot to rewrite — at commit time, before the bypass lands in
-history. The gate fires only when the branch is in §1.7(b) staging
+history. The gate fires only when the branch is in `§1.7(b)` staging
 mode — detected ledger-first per the Path-mapping rule above (the
 phase ledger's `s17` field equals the workflow-modifying token; the
 plan's `### Constraints` marker per conventions.md:any:any `§1.7(b)`

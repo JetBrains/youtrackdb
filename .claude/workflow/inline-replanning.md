@@ -176,7 +176,7 @@ them in this order:
    order keeps the same-commit set internally consistent: the materialized
    plan and the `tier` append land together in the step-6 commit, so the
    committed pair never shows an upgraded tier pointing at a plan that is
-   not yet written. A `full` upgrade that crosses the §1.7 staging line
+   not yet written. A `full` upgrade that crosses the `§1.7` staging line
    also appends the `s17` field on the same or a following boundary.
 
 Without the materialize step, the re-entered selectors would resolve the

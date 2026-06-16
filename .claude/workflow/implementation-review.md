@@ -7,7 +7,7 @@
 | §Overview | orchestrator,reviewer-plan | 2 | What Phase 2 plan review covers and when it runs. |
 | §How to run | orchestrator | 2 | Entry points and preconditions for launching the review. |
 | §Precondition (both entry points) | orchestrator | 2 | State that must hold before either entry point starts. |
-| §Tier-driven pass selection (D9/D10) | orchestrator | 2 | Phase-2 passes key off the tier line: per-tier consistency shape, `minimal` drops structural, design-presence guards. |
+| §Tier-driven pass selection (D9/D10) | orchestrator | 2 | Phase-2 passes key off the tier line: per-tier consistency shape, minimal drops structural, design-presence guards. |
 | §Step 1: Consistency Review | orchestrator,reviewer-plan | 2 | The consistency pass: contradictions, missing links, mismatched counts. |
 | §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
 | §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
@@ -619,7 +619,7 @@ finding.
 Two durable traces survive the autonomous flow:
 
 ### 1. The `plan-review.md` document and the ledger review state
-<!-- roles=orchestrator phases=2 summary="Recording the audit summary in plan-review.md and the review state in the phase ledger." -->
+<!-- roles=orchestrator phases=2 summary="Recording the audit summary in `plan-review.md` and the review state in the phase ledger." -->
 
 The audit splits into two homes (D7): the multi-line review *summary*
 goes to `plan-review.md` (a cold record rarely read during development),

@@ -6,7 +6,7 @@
 |---|---|---|---|
 | §Goal | reviewer-plan,orchestrator | 2 | Validate plan structure and completeness (cycles, missing descriptions, contradictions, bloat) without reading code. |
 | §Structural review prompt | reviewer-plan | 2 | Pointer to the structural-review sub-agent prompt file. |
-| §Bloat checks | reviewer-plan | 2 | The per-section bloat budgets (DR/invariant/integration/component length, superseded DRs, seed↔track fidelity) and fixes; bloat-fix destinations re-route to track sections. |
+| §Bloat checks | reviewer-plan | 2 | The per-section bloat budgets (DR/invariant/integration/component length, superseded DRs, duplication) and fixes. |
 | §Gate verification | reviewer-plan | 2 | After fixes, the structural review re-runs via the gate-verification prompt to confirm. |
 | §Review iteration | orchestrator,reviewer-plan | 2 | Up to 3 iterations: auto-apply mechanical fixes, escalate design-decision findings, gate-check until clean. |
 | §Review output | orchestrator,reviewer-plan | 2 | The review is not persisted; mechanical fixes apply to the plan, the durable trace is the gate-PASS audit entry. |
