@@ -28,7 +28,7 @@ One row per production run: the date, the SHA range the run covered, and which c
 
 ## How this book is produced
 
-The book follows the prose-prompt production model proven by the YouTrackDB internals book at `../docs-ytdb-internals-book/docs/ytdb-internals-book/`: a brief fixes the voice and audience, a single hand-driven pipeline drives the role waves, and a table of contents carries the chapter map plus a cross-reference matrix. The one departure is diagrams — ASCII by default with a small committed-SVG set, instead of the inline mermaid the model ships — recorded in [`../../workflow-book-builder/DIAGRAMS.md`](../../workflow-book-builder/DIAGRAMS.md).
+The book follows the prose-prompt production model proven by the YouTrackDB internals book at `../docs-ytdb-internals-book/docs/ytdb-internals-book/`: a brief fixes the voice and audience, a single hand-driven pipeline drives the role waves, and a table of contents carries the chapter map plus a cross-reference matrix. The one departure is diagrams. The book uses ASCII by default with a small committed-SVG set, instead of the inline mermaid the model ships, and records the convention in [`../../workflow-book-builder/DIAGRAMS.md`](../../workflow-book-builder/DIAGRAMS.md).
 
 An operator produces or refreshes the book by pasting one block, the START prompt at the top of [`../../workflow-book-builder/PIPELINE.md`](../../workflow-book-builder/PIPELINE.md), into a fresh agent session. That session computes the drift window against the baseline above, classifies impact, edits the table of contents for any new or restructured chapters, runs the author, technical-reviewer, copy-editor, and beta-reader waves over the touched chapters, renders any committed-SVG figures, and bumps the baseline. Initial production is the case where the baseline is empty, so the window is the whole corpus and every chapter is built.
 
@@ -40,7 +40,7 @@ This is the layout a production run fills. Everything except this README and the
 
 - [`TOC.md`](TOC.md) — the chapter map and the cross-reference matrix (chapter to source files). A living artifact a run edits; currently a placeholder.
 - [`chapters/`](chapters/) — the chapter files, named `<NN>-<slug>.md`. Empty until a run writes them.
-- [`assets/diagrams/`](assets/diagrams/) — the committed `fig-N.svg` figures and their `.d2` sidecars. Empty until a run renders a figure from the enumerated SVG set.
+- [`assets/diagrams/`](assets/diagrams/) — the committed `fig-<name>.svg` figures and their `.d2` sidecars. Empty until a run renders a figure from the enumerated SVG set.
 - [`maintenance/`](maintenance/) — the per-run drift notes, named `drift-<short-SHA>.md`, that an evolution run writes when it computes a drift window. Empty until an evolution run writes one.
 
 ## Start here

@@ -4,7 +4,7 @@ The book draws diagrams two ways. ASCII box-and-arrow diagrams in fenced code bl
 
 This is the one place the book departs from its model, the YouTrackDB internals book, which ships inline mermaid in every chapter. Mermaid renders inconsistently across viewers (GitHub, IDEs, PDF export, static-site generators each support a different subset). ASCII renders identically everywhere and needs no tooling. A committed SVG renders in every image-capable viewer without a reader-side build. Pre-rendering loses some of the diffability of inline source; the book accepts that loss in exchange for reader-side portability, and contains it by keeping the SVG set small and the source diffable in a sidecar `.d2` file.
 
-D2 is the render DSL. The choice is a preference for a single Go binary with no headless-browser dependency, over mermaid-cli's puppeteer and Chromium chain. It is a design preference, not a measured robustness claim.
+D2 is the render DSL. The choice is a preference for a single Go binary with no headless-browser dependency, over mermaid-cli's puppeteer and Chromium chain. It is a design preference, not a benchmarked claim.
 
 ## When ASCII, when SVG
 

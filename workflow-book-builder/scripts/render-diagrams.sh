@@ -13,6 +13,11 @@
 # without rendering, rather than failing with an opaque "command not found".
 #
 # Usage: workflow-book-builder/scripts/render-diagrams.sh
+#
+# Exit codes:
+#   0  rendered the sidecars, or found none to render (both are success)
+#   2  the `d2` binary is not installed
+#   3  the diagrams directory does not exist
 
 set -euo pipefail
 
@@ -38,13 +43,13 @@ Install it once, then re-run this script:
 See workflow-book-builder/BOOK_BRIEF.md and workflow-book-builder/DIAGRAMS.md
 for the one-time install step and the diagram convention.
 EOF
-  exit 1
+  exit 2
 fi
 
-if [ ! -d "${DIAGRAMS_DIR}" ]; then
+if [[ ! -d "${DIAGRAMS_DIR}" ]]; then
   echo "render-diagrams.sh: diagrams directory not found: ${DIAGRAMS_DIR}" >&2
   echo "Nothing to render. Create the .d2 sidecars first (see DIAGRAMS.md)." >&2
-  exit 1
+  exit 3
 fi
 
 # Render each .d2 sidecar to a committed .svg beside it. The `nullglob`
@@ -59,7 +64,7 @@ for src in "${DIAGRAMS_DIR}"/*.d2; do
   rendered=$((rendered + 1))
 done
 
-if [ "${rendered}" -eq 0 ]; then
+if [[ "${rendered}" -eq 0 ]]; then
   echo "render-diagrams.sh: no .d2 sidecars found in ${DIAGRAMS_DIR}; nothing to render."
 else
   echo "render-diagrams.sh: rendered ${rendered} diagram(s)."

@@ -49,28 +49,34 @@ The book lives at `docs/workflow-book/`; the machinery lives here in `workflow-b
 >
 > Give each author its chapter brief from `TOC.md`, the source files that brief names, `BOOK_BRIEF.md`, and `DIAGRAMS.md`. The author writes to `docs/workflow-book/chapters/`.
 >
+> When the wave finishes, reconcile the flags the authors raised (homeless concepts, wrong earlier chapters) before moving to Step 4 — see "Reconcile author flags before Step 4" under the whole-run rules below.
+>
 > ### Step 4 — technical-reviewer wave
 >
-> Spawn technical-reviewer agents per `workflow-book-builder/prompts/technical-reviewer.md`, one per roughly three touched chapters, in parallel. Each reviewer verifies every source citation, file reference, and factual claim in its chapters against the tree at `NEW_SHA`, and writes a report under `workflow-book-builder/reviews/`. Apply blockers and important fixes in a short revision pass. Only touched chapters (authored or swept) are reviewed; clean chapters are not.
+> Spawn technical-reviewer agents per `workflow-book-builder/prompts/technical-reviewer.md`, one per roughly three touched chapters, in parallel. Each reviewer verifies every source citation, file reference, and factual claim in its chapters against the tree at `NEW_SHA`, and writes a report under `workflow-book-builder/reviews/`. Apply blockers and important fixes in a revision pass (see "How the producer applies a fix" under the whole-run rules below). Only touched chapters (authored or swept) are reviewed; clean chapters are not.
+>
+> A chapter that carried a blocker does not advance until the blocker is cleared. After the revision pass, re-run the technical reviewer over only the chapters that carried a blocker; the chapter is clean only when its re-review returns no blocker. Cap the apply-then-re-review loop at two iterations; if a chapter still carries a blocker after the second re-review, stop the run and escalate the unresolved blocker to the operator rather than carrying it forward. A chapter does not flow into Step 5 or Step 8 with an open blocker.
 >
 > ### Step 5 — copy-editor wave
 >
-> Spawn copy-editor agents per `workflow-book-builder/prompts/copy-editor.md`, one per roughly five chapters, in parallel, over the chapters an author substantially rewrote. A surgical citation sweep does not need a copy edit. Each editor passes for voice consistency, pacing, and the house style, changing no factual claim.
+> Spawn copy-editor agents per `workflow-book-builder/prompts/copy-editor.md`, one per roughly five chapters, in parallel, over every `rewrite` and `new-or-restructure` chapter (the chapters Step 3 gave a full author). `sweep` chapters get no copy edit — a surgical citation sweep changed no prose to align. Each editor passes for voice consistency, pacing, and the house style, changing no factual claim.
 >
 > ### Step 6 — beta-reader wave (gated)
 >
 > Spawn beta-reader agents per `workflow-book-builder/prompts/beta-reader.md`.
 >
-> - **Empty baseline:** run all three personas over the whole book in order.
-> - **Non-empty baseline:** run beta readers only if Step 2 touched five or more chapters; run one persona (the target reader) over the touched chapters in context. If four or fewer chapters were touched, skip this step — the cost does not pay off.
+> - **Empty baseline:** run all three personas, each over the whole book in order. Each persona's set is the entire book — three full cover-to-cover passes, not a partition of the chapters across the three readers.
+> - **Non-empty baseline:** run beta readers only if Step 2 put five or more chapters in the `rewrite` or `new-or-restructure` bands (the chapters that got a full author — `sweep` chapters do not count toward the five); run one persona (the target reader) over those chapters in context. If four or fewer such chapters were touched, skip this step — the cost does not pay off.
 >
-> Each beta reader writes a report under `workflow-book-builder/beta-feedback/`. Apply the top issues they raise in a revision pass.
+> Each beta reader writes a report under `workflow-book-builder/beta-feedback/`. Apply the top issues they raise in a revision pass (see "How the producer applies a fix" under the whole-run rules below).
 >
 > ### Step 7 — render diagrams
 >
-> If any touched chapter added or changed a figure in the enumerated SVG set (see `workflow-book-builder/DIAGRAMS.md`), run `workflow-book-builder/scripts/render-diagrams.sh`. The script renders each `.d2` sidecar under `docs/workflow-book/assets/diagrams/` to a committed `fig-N.svg`. If `d2` is not installed, the script prints the one-time install command; install it once per `BOOK_BRIEF.md` and re-run. ASCII figures need no render step.
+> If any touched chapter added or changed a figure in the enumerated SVG set (see `workflow-book-builder/DIAGRAMS.md`), run `workflow-book-builder/scripts/render-diagrams.sh`. The script renders each `.d2` sidecar under `docs/workflow-book/assets/diagrams/` to a committed `fig-<name>.svg` beside it (the output stem matches the sidecar, so `fig-phase-state-machine.d2` becomes `fig-phase-state-machine.svg`). If `d2` is not installed, the script prints the one-time install command; install it once per `BOOK_BRIEF.md` and re-run. ASCII figures need no render step.
 >
 > ### Step 8 — bump the baseline
+>
+> This step runs only when every touched chapter's technical-reviewer verdict is clean (Step 4's gate). If any chapter still carries an open blocker, the run does not reach this step; it escalated to the operator at Step 4 instead.
 >
 > Update `docs/workflow-book/README.md`: set the **Source-tree baseline** table to `NEW_SHA` (full SHA, short SHA, date, subject, branch), and append one row to the **Evolution history** sub-section recording the date, the SHA range, and which chapters were touched. On an empty baseline this is the first baseline and the first evolution-history row.
 >
@@ -81,6 +87,8 @@ The book lives at `docs/workflow-book/`; the machinery lives here in `workflow-b
 > 3. **Terminology is canonical.** The book picks one name per concept and uses it consistently. If the source renames a concept, raise it as a drift note and reconcile in favour of the book's terminology, or rename across every chapter that uses it.
 > 4. **Removed features.** If a chapter documents a workflow procedure that no longer exists, do not delete the chapter silently. Flag it in the drift file and ask the operator whether to remove it, rewrite it as a historical note, or replace it with the successor procedure.
 > 5. **New features.** If the drift window added a genuine new concept (a new phase, a new tier, a new review dimension) with no chapter home, that is new-or-restructure work: edit the TOC in Step 2 and author the new chapter. This is the explicit difference from a line-only sweep, which can never add a chapter.
+> 6. **How the producer applies a fix.** Both reviewer roles write findings and forbid self-editing; the producer (this session) owns the apply. Apply a fix that changes prose a reader sees, such as a reworded explanation, a restructured paragraph, or a new sentence, by re-spawning an author over the affected chapter per `prompts/author.md`, so the edit clears the voice and pacing rules. Apply a pure citation or anchor correction (a path that moved, a section anchor that drifted, no claim and no prose changed) inline. Either way the chapter re-clears the voice rules before the run ends; a voice-bearing edit never lands outside the author discipline.
+> 7. **Reconcile author flags before Step 4.** An author raises two flags to the producer mid-wave: a concept it needed but no chapter owns yet, and an earlier chapter its work revealed to be wrong or incomplete (see `prompts/author.md`). After the author wave (Step 3) and before technical review (Step 4), collect these flags. For each homeless-concept flag, assign the concept to an existing chapter, open a new-or-restructure TOC edit for it (re-entering Step 2 for that chapter), or record it as out of scope for this run in the drift file. For each wrong-earlier-chapter flag, reclassify that chapter into the rewrite band and author it in this run, or record the deferral in the drift file. A flag is never dropped silently.
 >
 > Work in `mode: plan` first to preview the scope, then execute. Parallelise author and reviewer agents across non-overlapping chapter sets. Track the steps as you go.
 
@@ -103,7 +111,7 @@ Folding initial production and ongoing evolution into one pipeline keeps one cop
 | Step 1 — drift window | Skipped; the window is the whole corpus | `git log BOOK_SHA..NEW_SHA` over the source paths, grouped into a drift file |
 | Step 2 — TOC | Built from scratch; every chapter is new-or-restructure | Edited only for the new-or-restructure band; clean/sweep chapters leave the TOC unchanged |
 | Step 3 — authors | One author per chapter | Authors only for rewrite and new-or-restructure chapters; sweep chapters get a citation sweep; clean chapters get nothing |
-| Step 6 — beta read | All three personas over the whole book | Gated: one persona over the touched chapters, only if five or more chapters were touched |
+| Step 6 — beta read | All three personas, each over the whole book | Gated: one persona over the rewrite/new-or-restructure chapters, only if five or more of them were touched |
 
 **Table P.1 — where the from-scratch and incremental cases differ.** The other steps (technical review, copy edit, render, baseline bump) run the same in both cases, over whichever chapters the branch above selected.
 
@@ -132,7 +140,7 @@ Folding initial production and ongoing evolution into one pipeline keeps one cop
 
 ### What this pipeline deliberately does not do
 
-- It does not assume beta readers run every cycle. The beta wave is gated behind five or more touched chapters on an evolution run.
-- It does not re-run the copy edit on a surgical citation sweep. Copy edit runs only where an author substantially rewrote a chapter.
+- It does not assume beta readers run every cycle. The beta wave is gated behind five or more `rewrite`/`new-or-restructure` chapters on an evolution run.
+- It does not re-run the copy edit on a surgical citation sweep. Copy edit runs over the `rewrite` and `new-or-restructure` chapters only — the chapters Step 3 gave a full author.
 - It does not render diagrams it does not need. The render step runs only when a touched chapter added or changed a figure in the enumerated SVG set; ASCII figures never render.
 - It does not pick the mode up front. The operator pastes one block; the run decides empty-versus-non-empty from the state of `docs/workflow-book/` on its own.

@@ -32,4 +32,4 @@ The pipeline spawns one author per chapter, in parallel waves (see [`../PIPELINE
 >
 > ### Deliverable
 >
-> One chapter file at `docs/workflow-book/chapters/<NN>-<slug>.md` that follows the brief, teaches the chapter's one or two mental models, and clears the voice and house-style rules. End your session by listing the source files you verified and any concept you had to reference that no chapter yet owns.
+> One chapter file at `docs/workflow-book/chapters/<NN>-<slug>.md` that follows the brief, teaches the chapter's one or two mental models, and clears the voice and house-style rules. End your session by listing the source files you verified, any concept you had to reference that no chapter yet owns, and any earlier chapter your work revealed to be wrong or incomplete. The producer reconciles both kinds of flag before technical review.
