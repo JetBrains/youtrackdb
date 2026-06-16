@@ -21,7 +21,7 @@ defines.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T06:28Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-16T07:19Z [ctx=safe] Step 1 complete (commit 9bba7b62a6)
@@ -175,6 +175,19 @@ summary at Phase C. -->
   `plan-slim-rendering` missed consumer) joined the inventory fix; A7 (iter 2)
   added the D8 pause clear-on-resolution path. Scope/sizing, cross-track-episode
   reality, and invariant challenges all survived on the revised track.
+- [x] Track-level code review: PASS at iteration 2. Diff is workflow-only, so
+  the baseline code/test reviewers skipped and five workflow reviewers ran
+  (consistency, prompt-design, context-budget, writing-style,
+  instruction-completeness; hook-safety did not fire — no script/hook/settings
+  touched). 13 findings at iter 1 (1 blocker, 4 should-fix, 8 suggestion); WB1
+  dropped as a net-favorable observation, the other 12 fixed — 9 in staged
+  files by the implementer, 3 track-file writing-style nits by the orchestrator
+  (the implementer is barred from the track file). Iter-1 gate-check passed
+  WC/WP/WS and failed WI on one new should-fix, WI5: the WI1 "minimal stub
+  plan" fix had corrected two of three sites in `implementation-review.md` and
+  missed a third. Iter 2 fixed WI5 (the implementer caught a fourth site under
+  the same framing); WI gate-check passed. No findings deferred; no plan
+  corrections.
 
 ## Context and Orientation
 
