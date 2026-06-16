@@ -9,10 +9,11 @@ After this track lands, an operator has a complete set of copy-paste prompts tha
 This track builds the generator that produces a book about the YouTrackDB development workflow, not the book itself. The workflow being documented is the set of prose procedures under `.claude/workflow/` (phases 0–4, change tiers, tracks/steps, review agents, drift and migration). The generator is a top-level `workflow-book-builder/` directory of copy-paste prose prompts and briefs that an operator pastes and drives by hand, modeled on the existing `docs-ytdb-internals-book/` production pipeline. The book it will later emit lands in a separate `docs/workflow-book/` tree, whose layout this track stamps out empty. The one departure from the model: diagrams are ASCII by default with a small set of committed D2-rendered SVGs, replacing the mermaid the model uses, because mermaid renders unreliably across viewers.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-16T08:47Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -94,13 +95,14 @@ the research log. One block per decision: -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 1 (1 finding, 1 accepted) — 0 blockers. T1 (should-fix): corpus-size figure corrected from "about 1.3 MB" to "about 1.0 MB" for the 31 workflow docs (measured 0.99 MB; counts 31/11/20/16 verified exact). Risk and Adversarial dropped under `minimal` tier.
 
 ## Context and Orientation
 This track produces two directory trees that, together, form a generator and an empty home for what it generates. The first tree, `workflow-book-builder/`, is the machinery: prose prompts and briefs an operator pastes into an agent and drives by hand. The second tree, `docs/workflow-book/`, is the book target: where a later run of the machinery writes the actual reading material. The split is the user's explicit requirement — reading material belongs under `docs/`, production machinery does not (D3) — and is the one place this design departs from its model.
 
 The model the machinery imitates is the YouTrackDB internals book, which lives at `../docs-ytdb-internals-book/docs/ytdb-internals-book/` (a sibling repository) and is described in its `BOOK_BRIEF.md`. That book proved the prose-prompt production model: a `BOOK_BRIEF.md` fixes voice and audience, a maintenance prompt and an author-wave cycle drive author / technical-reviewer / copy-editor / beta-reader passes by hand, and a `TOC.md` carries the chapter map plus a cross-reference matrix. The internals book keeps machinery and content in one interleaved directory; this track splits them (D2, D3).
 
-The subject the book documents is the YouTrackDB development workflow — the prose procedures under `.claude/workflow/` in this repository. That corpus is large: 31 workflow docs (about 1.3 MB) plus 11 prompts, 20 agents, and 16 skills. The book will teach phases 0–4, the change tiers (`full` / `lite` / `minimal`), tracks / steps / episodes, the review agents, drift and migration, the workflow-SHA stamps, and §1.7 staging. Chapters map to concepts, not one-to-one to files. A *workflow-SHA* is a git commit hash of the `.claude/workflow` tree; the book pins one as its *baseline* (the snapshot the current chapters describe), and evolution runs walk `git log <baseline>..HEAD` over the source paths to find what changed. The current baseline is `3e9c22298d`.
+The subject the book documents is the YouTrackDB development workflow — the prose procedures under `.claude/workflow/` in this repository. That corpus is large: 31 workflow docs (about 1.0 MB) plus 11 prompts, 20 agents, and 16 skills. The book will teach phases 0–4, the change tiers (`full` / `lite` / `minimal`), tracks / steps / episodes, the review agents, drift and migration, the workflow-SHA stamps, and §1.7 staging. Chapters map to concepts, not one-to-one to files. A *workflow-SHA* is a git commit hash of the `.claude/workflow` tree; the book pins one as its *baseline* (the snapshot the current chapters describe), and evolution runs walk `git log <baseline>..HEAD` over the source paths to find what changed. The current baseline is `3e9c22298d`.
 
 The concrete deliverables are the ~13 files in the layout below. This track authors every machinery file and stamps the book-target layout empty; it writes no chapters and runs no renderer (D1).
 
@@ -136,9 +138,11 @@ Two invariants hold across every step. First, the branch touches no `.claude/**`
 
 The single ordering constraint that crosses files is that the pipeline branches on an empty versus non-empty baseline (D10). `PIPELINE.md` must make that branch explicit: the from-scratch path (empty baseline, TOC built from scratch, every chapter through the full waves) and the incremental path (drift window, clean/sweep/rewrite/new-or-restructure triage, a few touched chapters) are one document and one role set, but not one control flow. The Concrete Steps roster below names the per-file steps once decomposition runs.
 
+Phase A decomposition produced two `low`-risk steps along the machinery/book-target seam (D2/D3). Step 1 authors the entire `workflow-book-builder/` generator (the brief, the pipeline, the diagram convention and render script, and the four role prompts); Step 2 stamps the empty `docs/workflow-book/` layout. The split is driven by footprint: the whole track is ~14 files, which sits at the ~14 overblown line, so it splits into these two coherent halves rather than landing in one over-large step. Step 1 runs first (its `BOOK_BRIEF.md` defines the roles the pipeline and prompts reference, and the README in Step 2 records what the machinery does), though the two directory trees are disjoint and neither modifies the other's files. Every step is `low` because no file is under `.claude/**` (D2, non-workflow-modifying), no Java is touched, and no behavioral code path is added — the lone script is an operator helper this plan never runs (D1).
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster
-here. Empty at Phase 1. -->
+1. Author the `workflow-book-builder/` machinery generator — `BOOK_BRIEF.md` (audience, voice, conventions, diagram rules, the four role definitions; D4/D5), `PIPELINE.md` (the embedded copy-paste START prompt then the unified evolution-aware pipeline with an explicit empty-vs-non-empty-baseline branch; D8/D10/D12), `DIAGRAMS.md` (hybrid ASCII + D2 convention, the enumerated bounded SVG figure set, the render step, the "how to add a figure" procedure, and the one-time `d2` install as an operator step; D5/D6), the four role prompts `prompts/{author,technical-reviewer,copy-editor,beta-reader}.md` (the expanded role definitions the pipeline spawns; D8), `scripts/render-diagrams.sh` (D2-source → committed SVG with the missing-`d2` guard that prints the install command; authored but not run, D1/D6), and the empty `reviews/` and `beta-feedback/` run-output dirs with `.gitkeep` (D11). — risk: low (default: prose machinery plus one operator-run helper script, neither under `.claude/**` (D2, non-workflow-modifying) nor executed by this plan (D1); no HIGH or MEDIUM trigger fires) — size: ~10 files; the only other low unit is Step 2 (book-target), and absorbing it reaches ~14 and trips the overblown split line (closed-set reason a)  [ ]
+2. Stamp the `docs/workflow-book/` book-target layout empty — `README.md` (production record + pinned baseline workflow-SHA `3e9c22298d` + evolution-history table; D10), `TOC.md` (the living chapter-map + cross-reference-matrix placeholder the first run fills; D7/D9), and the empty `chapters/` and `assets/diagrams/` directories with `.gitkeep` so the layout is visible in version control; no chapter and no rendered diagram is committed (D1). — risk: low (default: pure `docs/` prose plus empty `.gitkeep` placeholders; no HIGH or MEDIUM trigger fires) — size: ~4 files; the only other low unit is Step 1 (machinery, ~10 files), and merging into it reaches ~14 and trips the overblown split line (closed-set reason a)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B appends one block per completed step. Empty
@@ -156,14 +160,18 @@ A reviewer can check this track by inspection, because no chapter is produced an
 - The book-target layout is present and empty: `chapters/` and `assets/diagrams/` exist with `.gitkeep` (or one-line placeholder) and contain no chapter or rendered diagram (D1).
 - No file under `.claude/**` is added or modified (D2 — branch stays non-workflow-modifying).
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+<!-- Phase A: no per-step EARS/Gherkin lines. This track is acceptance-by-
+inspection (D1 — no test is authored or run), so there are no test method
+names to derive; the track-level acceptance criteria above cover both steps. -->
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim
 as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths
-once steps are decomposed. -->
+Both steps are idempotent: each authors or stamps a fixed set of files, so re-running a step overwrites those files to the same end state rather than appending. No external state, no migration, and no on-disk data format is touched (D1).
+
+- **Step 1 (machinery).** Recovery from a failed or partial attempt: `git reset --hard HEAD` discards the partial `workflow-book-builder/` tree; re-run from a clean tree. `render-diagrams.sh` is authored but never executed here (D1/D6), so a partial attempt cannot leave behind rendered SVGs or a half-run pipeline.
+- **Step 2 (book-target).** Recovery: `git reset --hard HEAD` discards the partial `docs/workflow-book/` layout; re-run. The directories ship empty with `.gitkeep`, so there is no generated content to clean up.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
