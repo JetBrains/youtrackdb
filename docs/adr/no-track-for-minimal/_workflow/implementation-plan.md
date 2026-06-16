@@ -324,7 +324,7 @@ graph TD
   they stay current-format (D12).
 
 ## Checklist
-- [ ] Track 1: The phase ledger, the new artifact model, and the authoring surface
+- [x] Track 1: The phase ledger, the new artifact model, and the authoring surface
   > Build the append-only phase ledger and its `--append-ledger` subcommand
   > in `workflow-startup-precheck.sh`, then define the model around it:
   > `determine_state` reading the ledger tail
@@ -335,9 +335,39 @@ graph TD
   > stub, thin `lite`/`full`, add `## Invariants & Constraints`, seed the
   > ledger, route Step 1c resume on the ledger). This track defines and produces
   > the new model; Track 2 rewires the runtime consumers onto it.
-  > **Scope:** ~8 files covering `workflow-startup-precheck.sh` + its two test
-  > files, `conventions.md`, `conventions-execution.md`, `planning.md`,
-  > `workflow.md`, and `create-plan/SKILL.md`.
+  >
+  > **Track episode:**
+  > Built the ledger primitive and the derived-mirror artifact model the rest
+  > of the branch builds on. `workflow-startup-precheck.sh` gained
+  > `--append-ledger` (atomic temp-file-plus-rename) and a two-level
+  > `determine_state`: the ledger tail owns the top-level phase ({0,A,C,D,Done})
+  > and active track, the track file's `## Progress` owns the within-track
+  > sub-state, and a missing ledger falls back to the old plan-checkbox walk so
+  > in-flight `lite`/`full` plans resume unchanged. The convention/planning/
+  > workflow docs specify the per-tier artifact set (`minimal` drops the plan,
+  > `lite`/`full` thin it), the §1.6(f) ledger exclusion, the §1.7 staging-mode
+  > home (ledger `s17` field), and the 15th track section `## Invariants &
+  > Constraints`. `create-plan` produces the new set: no `minimal` stub, thinned
+  > aggregator, ledger seeded at Phase 1, Step 1c resume routed on the ledger.
+  > A latent newline-detection bug (`*"$(printf '\n')"*` degenerating to
+  > `*""*`) was caught and fixed in the Step 1 hook-safety hardening; the append
+  > now loud-rejects malformed field values and loud-fails on a write error, and
+  > the ledger `phase` vocabulary is a published exit-3-on-mismatch contract.
+  > Cross-track for Track 2 (the consumer rewire, pinned by `conventions.md`):
+  > move every §1.7 marker reader off the plan `### Constraints` scan onto the
+  > ledger `s17` field; widen the implementer-rules pre-commit live-path gate and
+  > the `create-final-design` Phase-4 `git add` + divergence check to cover
+  > `.claude/scripts/**` (D14); re-point the Phase-4 start/resume signal and the
+  > track-completion-episode writer off the plan `## Final Artifacts` + track
+  > checkbox onto the ledger. Phase C left two "Track 2 re-points this" notes in
+  > `workflow.md` and deliberately skipped two consumer-layer plan-checkbox
+  > references (the When-to-end-a-session State-0 bullet, the implementation-
+  > review loader note) for Track 2's sweep. Code review: 6-reviewer
+  > workflow-machinery fan-out, 12 findings (0 blockers), one iteration, all
+  > fixed (`4c9ba69da0`) and gate-verified; the findings clustered on Track-1
+  > self-references the model-move left stale.
+  >
+  > **Track file:** `plan/track-1.md` (3 steps, 0 failed)
 
 - [ ] Track 2: Rewire the runtime consumers onto the ledger
   > Re-point every consumer that reads branch-level facts or review state at the

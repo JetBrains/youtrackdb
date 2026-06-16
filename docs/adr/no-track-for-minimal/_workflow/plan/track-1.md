@@ -24,7 +24,7 @@ Track 2 rewires the runtime consumers onto it.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-15T15:30Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-15T16:09Z [ctx=safe] Step 1 complete (commit e7d18b9bb6)
 - [x] 2026-06-15T16:30Z [ctx=safe] Step 2 complete (commit 16ac0731c9)
