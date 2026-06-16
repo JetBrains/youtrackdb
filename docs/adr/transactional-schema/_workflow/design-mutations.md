@@ -56,3 +56,42 @@ were applied as the reviewer prescribed. A full cold-read re-spawn was not run
 for the post-PASS fixes — both were localized (a two-line diagram reorder and a
 heading rename) and the mechanical re-check confirmed zero findings, with the
 diagram now matching the thrice-stated authoritative lock order.
+
+## Mutation 2 — 2026-06-16 — content-edit (design.md)
+
+**Diff summary**: Flushed the Phase-1 review-hold batch (D15) of four readability
+clarifications raised during the user's design review, applied as one mutation.
+(1) "Tx-local index overlay": tightened the loose "create/drop" to "index
+create/drop (`createIndex` / `dropIndex`)" and added a clause that a tx-created
+index's committed entries come from the commit-time re-derivation (cross-ref
+"Index build and query-usability"), not the per-record `ClassIndexManager`
+tracking the force-rebuild surfaces — that tracking framing applies to
+pre-existing indexes only, so an implementer cannot re-introduce the F66
+silent-untracking corruption. (2) "Mutex lifecycle and the permit handshake":
+comprehension expansion — a "What the pieces are" gloss (Semaphore(1)-not-
+ReentrantLock, the `(session, ordinal, thread)` ownership record explained by
+role), a two-paths-to-release paragraph, the engage/teardown store-then-load
+handshake prose, and a new Mermaid flowchart of the three-outcome race.
+(3) "The freezer gate": glossed the two freeze kinds with examples and named the
+exception type `ModificationOperationProhibitedException`; cleared a pre-existing
+em-dash triple-clause in the same paragraph. Decisions and invariants unchanged
+(D7, D12/D13/D15, I-P1..I-P4, I-handshake-1, I-C3, I-freezer-1) — clarifications
+only, no gate run.
+
+**Mechanical checks** (target=design): PASS (0 findings)
+**Cold-read** (scope: whole-doc): PASS (0 blockers, 0 should-fix, 2 suggestions)
+
+**Findings**:
+- suggestion (cold-read): off-convention in-doc cross-ref form in the new overlay
+  clause — resolved (changed to `(see "Index build and query-usability" below)`).
+- suggestion (cold-read): a pre-existing "(see the research log's delegated list)"
+  pointer sits in an edited sentence and is unresolvable for a cold reader — NOT
+  applied; dropping only this one would make it inconsistent with the doc's other
+  research-log references. Deferred to the doc-wide readability-feedback pass.
+
+**Iterations**: 1 of 3 (PASS). Six em-dash overuns introduced in the mutex
+expansion were corrected before the mechanical check (down to zero per paragraph).
+The section-length-cap exemption flagged in the queue was not needed — the
+expanded sections stayed under the cap (mechanical PASS). Suggestion 1 was a
+one-line cosmetic cross-ref fix; no full cold-read re-spawn (mechanical re-check
+confirmed PASS).
