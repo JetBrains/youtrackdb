@@ -6,7 +6,7 @@
 **Change tier:** minimal — matched categories: none
 
 ## Checklist
-- [ ] Track 1: Workflow-book builder machinery
+- [x] Track 1: Workflow-book builder machinery
   > This track builds the generator that produces a book about the YouTrackDB
   > development workflow, not the book itself. The workflow being documented is
   > the set of prose procedures under `.claude/workflow/` (phases 0–4, change
@@ -18,10 +18,29 @@
   > stamps out empty. The one departure from the model: diagrams are ASCII by
   > default with a small set of committed D2-rendered SVGs, replacing the
   > mermaid the model uses, because mermaid renders unreliably across viewers.
-  > **Scope:** ~13 files covering the `workflow-book-builder/` machinery (brief,
-  > unified pipeline, diagram convention, four role prompts, render script, two
-  > empty run-output dirs) and the empty `docs/workflow-book/` book-target layout
-  > (README, TOC, empty chapters and diagram-asset dirs).
+  >
+  > **Track episode:**
+  > Built the `workflow-book-builder/` generator (10 files: the brief, the
+  > unified evolution-aware pipeline with an embedded copy-paste START prompt,
+  > the hybrid ASCII/D2-SVG diagram convention, four role prompts, a never-run
+  > render script, and two empty run-output dirs) and stamped the empty
+  > `docs/workflow-book/` book-target layout (5 files: a README pinning baseline
+  > workflow-SHA `3e9c22298d`, a living TOC placeholder, and three `.gitkeep`
+  > dirs). Both steps were `low` risk and landed first-spawn with no step-level
+  > review. Phase C track-level review passed at iteration 1 with 0 blockers:
+  > the diff is prose plus one never-run operator script, so the four code/test
+  > baselines and context-budget were skipped (nothing is always-loaded) and
+  > five workflow-dimension reviewers ran; 12 findings (5 should-fix, 7
+  > suggestion) were applied in one fix iteration (`873d36e581`) and all 12
+  > VERIFIED at gate-check. The should-fixes hardened `PIPELINE.md` — a
+  > technical-review re-verification loop with a two-iteration cap and operator
+  > escalation, an author-flag reconcile step — and aligned the SVG figure
+  > naming on the `fig-<name>.svg` stem across four files. A track-completion
+  > review-mode pass then removed the unpublished internals-book reference from
+  > the three book deliverables (`08789eecc3`). No findings deferred, no plan
+  > corrections, no cross-track impact (single-track plan).
+  >
+  > **Track file:** `plan/track-1.md` (2 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency; structural dropped under `minimal` tier) — passed at iteration 1
