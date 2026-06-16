@@ -350,7 +350,7 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > payload changes, and bump the schema version into a reject-and-redirect gate.
   > This is the persistence foundation and the write-amplification win; the
   > tx-local seed (Track 3) binds the per-class RIDs it introduces.
-  > **Scope:** ~7 files covering `SchemaShared`/`SchemaClassImpl` serialization, the schema-record link set, the version constant, and serializer tests.
+  > **Scope:** ~9 files covering `SchemaShared`/`SchemaClassImpl` serialization, the schema-record link set, the version constant plus the open-time gate, `DatabaseCompare.convertSchemaDoc`, and serializer / round-trip / version-gate tests.
   > **Depends on:** Track 1
 
 - [ ] Track 3: Tx-local schema view, transactional enablement, and the metadata-write mutex (D1, D4, D5, D7, D8)
