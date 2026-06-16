@@ -305,6 +305,36 @@ public class CachedResultSetViewTest {
   }
 
   /**
+   * Partial-iteration resume across two views on one entry. A first view pulls one of three rows from
+   * the stream and is then abandoned (never closed, entry left non-exhausted with a single row
+   * materialized and the stream paused at index 1). A second view over the SAME entry, the shape the
+   * cache hit path builds when the same query runs twice, must replay the one cached row from
+   * {@code entry.results} and then resume the paused stream to pull the remaining two, yielding the full
+   * {1, 2, 3} without dropping or duplicating the boundary row. Regression guard for the
+   * resume-from-mid-stream index that no single-view test reaches.
+   */
+  @Test
+  public void secondViewResumesPartiallyPulledStreamEntry() {
+    var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+    var entry = streamEntry(orderBy, List.of(newRec(1), newRec(2), newRec(3)));
+
+    // First view pulls exactly one row, then is abandoned without close() or exhaustion.
+    var first = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
+    assertTrue(first.hasNext());
+    assertEquals(Integer.valueOf(1), first.next().getProperty(FIELD));
+    assertFalse("Entry must still be mid-stream after a single pull", entry.isExhausted());
+    assertEquals("Only the first row is materialized so far", 1, entry.getResults().size());
+
+    // Second view over the same entry replays the cached prefix then resumes the paused stream.
+    var second = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
+    assertEquals("Second view replays row 0 then resumes the stream tail",
+        List.of(1, 2, 3), drainValues(second));
+    assertTrue("Resuming to the end flips the shared entry to exhausted", entry.isExhausted());
+    assertEquals("All three rows are materialized in the shared cache", 3,
+        entry.getResults().size());
+  }
+
+  /**
    * A RID in the skip-set must be suppressed even when it surfaces from the stream pull (not just from
    * the pre-cached prefix), closing the lazy-pull gap. The stream yields {1, 2, 3}; row 2 is skipped
    * (a post-populate delete of a record beyond the cached prefix), so the view emits {1, 3} while still

@@ -14,6 +14,9 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import org.junit.After;
 import org.junit.Before;
@@ -568,12 +571,81 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
     commitMatching(10);
     commitMatching(20);
     session.begin();
+    // The seeded set {10, 20} makes every scalar deterministic, so assert the actual value, not merely
+    // non-null: a splice that returned a wrong-but-non-null scalar would otherwise slip through. Compare
+    // via doubleValue() so the assertion is agnostic to the boxed numeric type (Integer/Long/Double).
+    var expected = Map.of(
+        "count(*)", 2.0,
+        "sum(" + VALUE + ")", 30.0,
+        "avg(" + VALUE + ")", 15.0,
+        "min(" + VALUE + ")", 10.0,
+        "max(" + VALUE + ")", 20.0);
     for (var agg : new String[] {"count(*)", "sum(" + VALUE + ")", "avg(" + VALUE + ")",
         "min(" + VALUE + ")", "max(" + VALUE + ")"}) {
       var s = scalar(session.query(aggSql(agg)));
-      assertTrue("every aggregate kind returns a non-null scalar over a non-empty set: " + agg,
-          s != null);
+      assertTrue(
+          "every aggregate kind returns a non-null numeric scalar over a non-empty set: " + agg,
+          s instanceof Number);
+      assertEquals("aggregate " + agg + " must replay the correct scalar over {10, 20}",
+          expected.get(agg), ((Number) s).doubleValue(), 0.0);
     }
     session.rollback();
+  }
+
+  /**
+   * SUM / AVG / MIN / MAX over a single contributor that is DELETED after populate must emit ZERO rows,
+   * matching a fresh execution. The other aggregate equivalence tests seed multiple records so the
+   * contributor set never empties end-to-end; this drives the all-contributors-deleted transition
+   * through the splice + build + view pipeline for every value-aggregate kind. A fresh SUM/AVG/MIN/MAX
+   * over an empty input emits no row (only COUNT emits a single {@code 0}), so the cached aggregate view
+   * must also emit zero rows rather than a single (null- or zero-scalar) row. Asserting the row COUNT is
+   * load-bearing: before the {@code emitsNoRow} fix the cached view always emitted one row here,
+   * diverging from a fresh execution's zero rows. COUNT is deliberately excluded — it emits one {@code 0}
+   * row over an empty set, which the cache already matches.
+   */
+  @Test
+  public void valueAggregatesEmitNoRowWhenAllContributorsDeleted() {
+    for (var agg : new String[] {"sum(" + VALUE + ")", "avg(" + VALUE + ")", "min(" + VALUE + ")",
+        "max(" + VALUE + ")"}) {
+      var fresh = runSingleContributorDeleteRows(false, agg);
+      var cached = runSingleContributorDeleteRows(true, agg);
+      assertEquals("a fresh " + agg + " over the emptied set emits zero rows", 0, fresh.size());
+      assertEquals("the cached " + agg + " replay must match fresh and also emit zero rows", fresh,
+          cached);
+    }
+  }
+
+  /**
+   * Seeds exactly one matching record, populates the aggregate entry, deletes that sole contributor in
+   * the same tx, then captures the second query's rows (one scalar value per row, null when the row
+   * carries no scalar property). Driven once per flag state; comparing the two captured row lists is the
+   * equivalence assertion.
+   */
+  private List<Object> runSingleContributorDeleteRows(boolean cacheEnabled, String agg) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    var only = commitMatching(10); // the single contributor
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+    var sql = aggSql(agg);
+
+    session.begin();
+    scalar(session.query(sql)); // populate (scalar = 10)
+    deleteRecord(only).accept(tx()); // delete the only contributor
+    var rows = scalarRows(session.query(sql)); // must replay to a single null-scalar row
+    session.rollback();
+    return rows;
+  }
+
+  /** Drains a result set into one scalar value per row (null when a row has no scalar property). */
+  private static List<Object> scalarRows(ResultSet rs) {
+    var out = new ArrayList<>();
+    try (rs) {
+      while (rs.hasNext()) {
+        var row = rs.next();
+        var names = row.getPropertyNames();
+        out.add(names.isEmpty() ? null : row.getProperty(names.iterator().next()));
+      }
+    }
+    return out;
   }
 }

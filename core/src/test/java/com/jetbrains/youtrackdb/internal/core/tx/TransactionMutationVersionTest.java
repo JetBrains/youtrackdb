@@ -34,6 +34,12 @@ public class TransactionMutationVersionTest {
 
   @After
   public void after() {
+    // Roll back any still-open transaction before closing: a test that fails mid-body skips its own
+    // terminal rollback, and closing a session with an active tx turns one clean assertion failure into
+    // a noisier close/drop failure that masks the real cause.
+    if (db.getTransactionInternal().isActive()) {
+      db.rollback();
+    }
     db.close();
     youTrackDB.drop(getClass().getSimpleName());
     youTrackDB.close();

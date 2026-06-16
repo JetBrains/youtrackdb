@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheTestSupport.onlyEntry;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
@@ -420,6 +421,52 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
     }
   }
 
+  /**
+   * Regression for the strike-threshold-crossing empty-result bug on the multi-alias MATCH path. On the
+   * execution where the class-scoped gate's repeated invalidation crosses the strike threshold,
+   * {@code invalidateMatchMulti} routes the key non-cacheable and {@code serveThroughCache} falls
+   * through to repopulate in the same call; {@code cache.put} then closes the freshly built entry's
+   * stream, so without a re-check the MATCH_TUPLE_MULTI view replays an EMPTY tuple set. The crossing
+   * query must instead return the full pattern result. Threshold is set to 2 so the second
+   * post-populate gate trip's query is the crossing one. Unlike the count-only test above, this asserts
+   * the crossing query's TUPLES, which is what catches the empty result. The gate-tripping UPDATE
+   * touches an unused property, so the expected RETURN tuples never change.
+   */
+  @Test
+  public void repeatedPatternMutation_thresholdCrossingQueryReturnsFullResultNotEmpty() {
+    var prevThreshold =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+            .getValueAsInteger();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD.setValue(2);
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    seedGraph();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+
+    // seedGraph links alice->bob and bob->carol; the MATCH returns those two [a, b] pairs, sorted.
+    var expected = List.of(List.of(ALICE, BOB), List.of(BOB, CAROL));
+    try {
+      session.begin();
+      snapshot(session.query(matchSql())); // populate at v0
+
+      // First post-populate gate trip: strike 1 (< 2) re-populates and returns the full pattern.
+      session.command("UPDATE " + VERTEX + " SET touched = 1");
+      assertEquals("strike-1 invalidation still returns the full pattern", expected,
+          snapshot(session.query(matchSql())));
+
+      // Second gate trip: the next query crosses the threshold (strike 2 >= 2) and routes the key
+      // non-cacheable on this very call. The crossing query must still return the full pattern.
+      session.command("UPDATE " + VERTEX + " SET touched = 2");
+      assertEquals(
+          "the threshold-crossing multi-alias MATCH query must return the full result, not empty",
+          expected, snapshot(session.query(matchSql())));
+
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+          .setValue(prevThreshold);
+    }
+  }
+
   // ===========================================================================
   // Entry metadata — vertex and edge classes fold into the closure
   // ===========================================================================
@@ -452,12 +499,5 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
     } finally {
       session.rollback();
     }
-  }
-
-  /** Returns the single cache entry, asserting there is exactly one. */
-  private static CachedEntry onlyEntry(QueryResultCache cache) {
-    var entries = cache.entriesForTest();
-    assertEquals("expected exactly one cache entry", 1, entries.size());
-    return entries.iterator().next();
   }
 }

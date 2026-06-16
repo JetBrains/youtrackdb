@@ -20,7 +20,9 @@ import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import org.junit.After;
@@ -197,6 +199,22 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
         t -> {
           var e = session.newEntity(CLASS_NAME);
           e.setProperty(FIELD, 99);
+        });
+  }
+
+  /**
+   * A CREATE matching the query when the populated result was EMPTY (zero seeded rows): the merge must
+   * emit exactly the one injected row from an empty cached prefix, matching a fresh execution. This
+   * drives {@code computeNextRecord} with {@code cacheHead == null} from the very first iteration, a
+   * distinct entry into the merge loop from the populated-prefix cases the other tests cover.
+   */
+  @Test
+  public void recordEquivalence_createIntoEmptyResultAfterPopulate() {
+    assertEquivalentPostPopulate(0,
+        "SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " >= 0 ORDER BY " + FIELD + " ASC",
+        t -> {
+          var e = session.newEntity(CLASS_NAME);
+          e.setProperty(FIELD, 5);
         });
   }
 
@@ -378,6 +396,58 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
         cache.getMetrics().getK0Invalidations());
 
     session.rollback();
+  }
+
+  /**
+   * Regression for the strike-threshold-crossing empty-result bug: on the very execution where a
+   * K0_NONE entry's repeated version-gate invalidation crosses {@code k0NoneInvalidationThreshold}, the
+   * key is routed non-cacheable inside {@code lookup} and control falls through to the populate branch
+   * in the same {@code serveThroughCache} call. {@code cache.put} then refuses to store the
+   * non-cacheable key and closes the freshly built entry's stream, so without a re-check the view would
+   * replay an EMPTY result. The threshold-crossing query must instead return the full fresh result.
+   * Threshold is set to 2 so the third query (after the second post-populate mutation) is the crossing
+   * one. The GROUP BY result must hold one row per distinct FIELD value across the seed plus both
+   * in-tx creates, not zero rows.
+   */
+  @Test
+  public void k0None_thresholdCrossingQueryReturnsFullResultNotEmpty() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    var prevThreshold =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+            .getValueAsInteger();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD.setValue(2);
+    try {
+      seed(3); // FIELD {0, 1, 2}
+      var sql = "SELECT " + FIELD + ", count(*) FROM " + CLASS_NAME + " GROUP BY " + FIELD;
+
+      session.begin();
+      var cache = tx().getQueryResultCache();
+      assertEquals("GROUP BY classifies as K0_NONE", CacheableShape.K0_NONE,
+          ShapeClassifier.classify(YqlStatementCache.get(sql, session)));
+
+      drainRows(session.query(sql)); // miss + populate at v0
+
+      // First post-populate mutation: query re-invalidates (strike 1 < 2) and re-populates at v1.
+      var a = session.newEntity(CLASS_NAME);
+      a.setProperty(FIELD, 10);
+      assertEquals("strike-1 invalidation still returns the full result", Set.of(0, 1, 2, 10),
+          new HashSet<>(drainRows(session.query(sql))));
+
+      // Second post-populate mutation: the next query crosses the threshold (strike 2 >= 2) and routes
+      // the key non-cacheable on this very call. The crossing query must still return every group.
+      var b = session.newEntity(CLASS_NAME);
+      b.setProperty(FIELD, 20);
+      var crossing = new HashSet<>(drainRows(session.query(sql)));
+      assertEquals("the threshold-crossing K0_NONE query must return the full result, not empty",
+          Set.of(0, 1, 2, 10, 20), crossing);
+      assertEquals("both post-populate mutations invalidated the stale K0_NONE entry", 2,
+          cache.getMetrics().getK0Invalidations());
+
+      session.rollback();
+    } finally {
+      GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+          .setValue(prevThreshold);
+    }
   }
 
   // ===========================================================================
@@ -619,7 +689,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
       // Open the first query's view and pin its entry by leaving it mid-iteration (one row pulled).
       var held = session.query("SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " >= 0");
       assertTrue(held.hasNext());
-      held.next();
+      var firstPulled = held.next().<Object>getProperty(FIELD);
 
       // A second distinct query exceeds maxEntries=1 and would evict the eldest — but the held view's
       // entry is pinned, so eviction must skip it rather than truncate the live view.
@@ -630,6 +700,13 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
       var remaining = drainRows(held);
       assertEquals("a pinned live view keeps its full result under LRU pressure (I9)", 2,
           remaining.size());
+      // Assert content, not just count: the pulled row plus the remaining two must be exactly the
+      // seeded set {0, 1, 2} — eviction pressure must not drop a real row or replay a duplicate of the
+      // already-pulled one. Compared as a set because the query carries no ORDER BY.
+      var allSeen = new HashSet<>(remaining);
+      allSeen.add(firstPulled);
+      assertEquals("the pinned view yields exactly the seeded set across the pull boundary",
+          Set.of(0, 1, 2), allSeen);
 
       session.rollback();
     } finally {
@@ -819,6 +896,47 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
     }
   }
 
+  /**
+   * The documented cross-thread sink, exercised end-to-end: a pool-shutdown thread running
+   * {@code QueryResultCache.clear()} after the owning thread populated an entry must not throw, must
+   * drain the cache, and must be idempotent on a second clear() (I6). {@code clear()} is the one method
+   * the cache's own Javadoc allows from a foreign thread; the depth-primitive test above pins only the
+   * guard's assert contract, not this state-touching path. With the cache fields non-volatile this test
+   * documents the best-effort contract and guards against a regression that breaks the idempotent,
+   * null-safe cross-thread clear (it does not prove memory visibility under a real race; that would be a
+   * production-side fix — marking the fields volatile or publishing through a barrier).
+   */
+  @Test
+  public void crossThreadClearAfterPopulateDrainsAndIsIdempotent() throws Exception {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    seed(3);
+    session.begin();
+    try {
+      var cache = tx().getQueryResultCache();
+      // Owning thread populates an entry.
+      drainRows(session.query("SELECT FROM " + CLASS_NAME));
+      assertEquals("the owning-thread query populated one entry", 1, cache.size());
+
+      // A foreign (pool-shutdown) thread runs clear() twice: it must not throw and must be idempotent.
+      var error = new AtomicReference<Throwable>();
+      var shutdown = new Thread(() -> {
+        try {
+          cache.clear();
+          cache.clear();
+        } catch (Throwable t) {
+          error.set(t);
+        }
+      });
+      shutdown.start();
+      shutdown.join();
+
+      assertNull("cross-thread clear() must not throw", error.get());
+      assertEquals("cross-thread clear() drained the cache", 0, cache.size());
+    } finally {
+      session.rollback();
+    }
+  }
+
   // ===========================================================================
   // TRUNCATE CLASS inside a SQL script invalidates a sibling query()'s cache
   // ===========================================================================
@@ -870,7 +988,10 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
     var second = drainRows(session.query(sql));
     assertEquals("repeated query is identical with the flag off", first, second);
     assertNull("no cache is allocated when the flag is off", tx().getQueryResultCache());
-    assertFalse("the result is non-empty", first.isEmpty());
+    // Pin the actual flag-off result, not merely that it is self-consistent and non-empty: the floor
+    // must return exactly the seeded set {0, 1, 2}. Compared as a set because the query has no ORDER BY.
+    assertEquals("the flag-off result is exactly the seeded set", Set.of(0, 1, 2),
+        new HashSet<>(first));
     session.rollback();
   }
 }

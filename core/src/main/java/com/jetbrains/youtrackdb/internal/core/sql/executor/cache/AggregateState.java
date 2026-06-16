@@ -544,6 +544,22 @@ public final class AggregateState {
   }
 
   /**
+   * Whether a fresh execution emits NO row for the current contributor set, so the cached scalar view
+   * must suppress its single row to match. A non-GROUP-BY aggregate over an empty input set emits one
+   * row only for {@code COUNT} (count = 0); {@code SUM} / {@code AVG} / {@code MIN} / {@code MAX} emit
+   * zero rows (verified against the engine: a fresh {@code SELECT min(x) FROM C WHERE <no-match>}
+   * returns no rows, while {@code count(*)} returns a single {@code 0}). Suppression therefore applies
+   * exactly when a value aggregate has no remaining contributor; COUNT and COUNT_DISTINCT always emit.
+   */
+  public boolean emitsNoRow() {
+    return switch (kind) {
+      case AGGREGATE_SUM, AGGREGATE_AVG, AGGREGATE_MIN, AGGREGATE_MAX ->
+          contributingValues.isEmpty();
+      default -> false;
+    };
+  }
+
+  /**
    * The distinct values currently held, in first-occurrence order, one per {@code DISTINCT_VALUES}
    * output row. Backed by {@link #distinctBuckets}'s insertion order. The caller wraps each value as a
    * {@code {alias: value}} row, reproducing a fresh {@code SELECT distinct(prop)} result.

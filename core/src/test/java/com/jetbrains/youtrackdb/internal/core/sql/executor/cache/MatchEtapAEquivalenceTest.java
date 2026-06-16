@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheTestSupport.onlyEntry;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
@@ -449,12 +450,5 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
     } finally {
       session.rollback();
     }
-  }
-
-  /** Returns the single cache entry, asserting there is exactly one. */
-  private static CachedEntry onlyEntry(QueryResultCache cache) {
-    var entries = cache.entriesForTest();
-    assertEquals("expected exactly one cache entry", 1, entries.size());
-    return entries.iterator().next();
   }
 }

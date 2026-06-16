@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -343,7 +344,7 @@ public final class QueryResultCache {
    * hit/miss metrics. Package-visible: the cache exposes no entry enumeration on its production API.
    */
   @Nonnull
-  java.util.Collection<CachedEntry> entriesForTest() {
+  Collection<CachedEntry> entriesForTest() {
     return new ArrayList<>(entries.values());
   }
 }

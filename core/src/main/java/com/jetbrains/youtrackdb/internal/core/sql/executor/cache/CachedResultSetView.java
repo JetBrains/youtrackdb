@@ -258,11 +258,6 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * Aggregate single-row emit: returns the replayed {@link AggregateState#toResult} the first time and
-   * {@code null} thereafter, so {@code hasNext()} is true exactly once. There is no stream to pull and
-   * no cache cursor; the scalar was fully computed at delta build.
-   */
-  /**
    * {@code DISTINCT_VALUES} emit: one {@code {alias: value}} row per distinct bucket key, in
    * first-occurrence order, then {@code null}. The key list is snapshotted once from the replayed
    * {@link #aggregateDelta} (kind {@code AGGREGATE_COUNT_DISTINCT}), so it reflects the post-delta value
@@ -292,11 +287,21 @@ public final class CachedResultSetView implements ResultSet {
     return distinctRows.get(distinctIndex++);
   }
 
+  /**
+   * Aggregate single-row emit: returns the replayed {@link AggregateState#toResult} the first time and
+   * {@code null} thereafter, so {@code hasNext()} is true at most once. There is no stream to pull and
+   * no cache cursor; the scalar was fully computed at delta build. A SUM/AVG/MIN/MAX whose contributor
+   * set drained to empty emits zero rows (see {@link AggregateState#emitsNoRow}), matching a fresh
+   * execution, which returns no row for those kinds over an empty input; only COUNT emits a 0 row.
+   */
   @Nullable private Result computeNextAggregate() {
     if (aggregateEmitted) {
       return null;
     }
     aggregateEmitted = true;
+    if (aggregateDelta.emitsNoRow()) {
+      return null;
+    }
     return aggregateDelta.toResult(session);
   }
 
@@ -374,11 +379,17 @@ public final class CachedResultSetView implements ResultSet {
       }
       // Both heads present: emit the smaller per ORDER BY; ties favour the inject side.
       var orderBy = entry.getOrderBy();
-      // With no ORDER BY there is no sort key, so the inject list (mutation-iteration order) drains
-      // first, matching the unsorted fresh-execution contract for that query shape. With an ORDER BY
-      // and a returnProjector, both heads are projected before the comparison so a projected ORDER BY
-      // column (e.g. u.name) resolves and the comparator ranks on the projected value, not the raw
-      // record.
+      // With no ORDER BY there is no sort key, so the inject list (the in-tx CREATE / update-into-match
+      // rows, in mutation-iteration order) drains first, then the cached prefix. This tracks the
+      // engine's unordered forward-scan order, which emits the transaction's own records first and the
+      // storage records after (see RecordIteratorCollection.hasNext: "FORWARD: transaction records
+      // first, then storage records"). The match is not row-exact: tx records created before populate
+      // already sit at the front of the cached prefix, so the relative order among tx records split
+      // across the populate boundary can differ from a single fresh scan. That is acceptable because an
+      // unordered SELECT does not contract a row order (storage-scan-dependent), and the row SET is
+      // identical. With an ORDER BY and a returnProjector, both heads are projected before the
+      // comparison so a projected ORDER BY column (e.g. u.name) resolves and the comparator ranks on the
+      // projected value, not the raw record.
       var cmp = orderBy == null ? -1 : orderBy.compare(projectForCompare(deltaHead),
           projectCacheHeadForCompare(cacheHead), ctx);
       if (cmp <= 0) {
@@ -490,6 +501,16 @@ public final class CachedResultSetView implements ResultSet {
    * {@link #hasNext()}, never held across the view's lifetime, so there is nothing to release at pin
    * time — and the pool-shutdown close path (which may run cross-thread) decrements only the pin, a
    * floored no-op that does not assert the owning thread.
+   *
+   * <p><b>Abandoned views.</b> A view dropped without {@code close()} and without being iterated to
+   * exhaustion never reaches either release site, so its pin stays held and its entry stays exempt from
+   * LRU eviction. This is bounded by the transaction's lifetime, not a leak across transactions:
+   * {@code FrontendTransactionImpl.clear()} (every tx-end path) calls {@code QueryResultCache.clear()},
+   * which closes every entry regardless of pin count. The only effect is that one long transaction with
+   * many abandoned, partially-consumed views can hold its cache transiently over {@code maxEntries}.
+   * Acceptable for v1: ResultSets are expected to be closed or drained, so abandonment is the
+   * exceptional path; tying the pin to a phantom-reference cleaner would be the lever if a long-tx
+   * over-bound regression ever shows up.
    */
   private void releasePin() {
     if (!pinReleased) {

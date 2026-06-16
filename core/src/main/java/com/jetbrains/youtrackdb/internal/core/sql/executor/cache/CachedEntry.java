@@ -104,6 +104,17 @@ public final class CachedEntry {
 
   @Nullable private CommandContext ctx;
 
+  /**
+   * A replay command context, built lazily the first time a view needs one after the populate-time
+   * {@link #ctx} is gone (released on stream exhaustion, or never set for the streamless aggregate /
+   * distinct shapes). Memoized so repeated replays of the same entry do not each allocate a fresh
+   * context plus param-map copy. Sound to reuse across replays because the entry's key fixes its
+   * {@code :param} bindings for its whole lifetime and the wired delta-path shapes read no non-param
+   * context state (see {@code DatabaseSessionEmbedded.buildView} Javadoc); the same reuse-a-context
+   * pattern already holds for the live populate context on RECORD entries. Released at {@link #close}.
+   */
+  @Nullable private CommandContext replayCtx;
+
   private boolean exhausted;
 
   // Cross-view delta-pair cache (written by the delta builder in a later step).
@@ -266,6 +277,20 @@ public final class CachedEntry {
   }
 
   /**
+   * Returns the memoized {@link #replayCtx}, building it from {@code factory} on first use. Callers use
+   * this only when {@link #getCtx} is {@code null} (populate context gone). The factory runs at most
+   * once per entry.
+   */
+  @Nonnull
+  public CommandContext getOrCreateReplayCtx(
+      @Nonnull java.util.function.Supplier<CommandContext> factory) {
+    if (replayCtx == null) {
+      replayCtx = factory.get();
+    }
+    return replayCtx;
+  }
+
+  /**
    * The execution plan backing the live stream. The entry holds a strong reference to it for the
    * stream's lifetime (released on {@link #close}) so the plan and its resources stay reachable while
    * any view may still drive the stream.
@@ -386,6 +411,7 @@ public final class CachedEntry {
       // Already closed (or never had a live stream); nothing to release.
       plan = null;
       ctx = null;
+      replayCtx = null;
       return;
     }
     var planToClose = plan;
@@ -403,6 +429,7 @@ public final class CachedEntry {
         stream = null;
         plan = null;
         ctx = null;
+        replayCtx = null;
       }
     }
   }

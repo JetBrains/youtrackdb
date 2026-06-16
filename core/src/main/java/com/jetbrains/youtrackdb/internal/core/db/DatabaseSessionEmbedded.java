@@ -818,6 +818,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           return buildView(hit, tx, args);
         }
       }
+      // A stale-entry invalidation that just ran can cross the repopulate-strike threshold and route
+      // this key into the non-cacheable set on this very call: a K0_NONE version-gate strike inside
+      // lookup() (the line above), or the multi-alias MATCH invalidateMatchMulti() on the stale branch.
+      // Both share the strike counter, and either can be the strike that tips the key over. When it
+      // does, populating now is unsafe: cache.put() refuses to store a non-cacheable key and closes the
+      // fresh entry's stream, so buildView() would replay an empty result instead of the rows a fresh
+      // run returns. Re-check and route to uncached execution before paying for populate. The pre-lookup
+      // isNonCacheable check at the top of this method cannot catch this, because the key became
+      // non-cacheable only just now, after that check ran.
+      if (cache.isNonCacheable(key)) {
+        return executeUncached(statement, args);
+      }
       // Miss: now (and only now) pay for the AST analysis needed to decide whether to populate an
       // entry. A non-deterministic statement or an unwired shape bypasses the cache uncached.
       if (NonDeterministicQueryDetector.containsNonDeterministicReference(statement)) {
@@ -1294,10 +1306,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       @Nonnull CachedEntry entry, @Nonnull FrontendTransactionImpl tx, @Nullable Object args) {
     var ctx = entry.getCtx();
     if (ctx == null) {
-      // The entry's stream has been exhausted and its context released; rebuild an equivalent context
-      // so ORDER BY comparison and WHERE re-evaluation still resolve the same :param bindings. Sound
-      // because the wired delta-path shapes carry no non-param context state (see method Javadoc).
-      ctx = freshContext(args);
+      // The entry's stream has been exhausted and its context released, or this is a streamless
+      // aggregate / distinct entry that never carried one; rebuild an equivalent context so ORDER BY
+      // comparison and WHERE re-evaluation still resolve the same :param bindings. Sound because the
+      // wired delta-path shapes carry no non-param context state (see method Javadoc). Memoized on the
+      // entry so repeated replays (a hot aggregate re-queried thousands of times) reuse one context
+      // instead of allocating a fresh one plus a param-map copy on every replay.
+      ctx = entry.getOrCreateReplayCtx(() -> freshContext(args));
     }
     // The cache-code re-entrancy guard entered in serveThroughCache is released when that method
     // returns; the view does NOT hold it across its idle lifetime. The view re-enters the guard
