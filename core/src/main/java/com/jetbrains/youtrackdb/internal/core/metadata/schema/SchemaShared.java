@@ -541,7 +541,27 @@ public abstract class SchemaShared implements CloseableInStorage {
       final List<EntityImpl> storedClasses = new ArrayList<>();
       if (classLinks != null) {
         for (var link : classLinks) {
-          storedClasses.add(session.load(link.getIdentity()));
+          var classRid = link.getIdentity();
+          if (classRid == null || !classRid.isPersistent()) {
+            throw new ConfigurationException(
+                session.getDatabaseName(),
+                "Schema root links a class record with a non-persistent identity (" + classRid
+                    + "). The schema link set is damaged. Please export your database with a"
+                    + " previous version of YouTrackDB and reimport it using the current one.");
+          }
+          EntityImpl classRecord;
+          try {
+            classRecord = session.load(classRid);
+          } catch (RuntimeException loadFailure) {
+            // Preserve the original load failure as the cause so the dangling link is diagnosable.
+            throw (ConfigurationException) new ConfigurationException(
+                session.getDatabaseName(),
+                "Schema root links a class record at " + classRid + " that cannot be loaded. The"
+                    + " schema link set is damaged. Please export your database with a previous"
+                    + " version of YouTrackDB and reimport it using the current one.")
+                .initCause(loadFailure);
+          }
+          storedClasses.add(classRecord);
         }
       }
 
@@ -556,7 +576,11 @@ public abstract class SchemaShared implements CloseableInStorage {
           cls = createClassInstance(name);
           cls.fromStream(c);
         }
-        cls.setRecordId(c.getIdentity());
+        var boundRid = c.getIdentity();
+        assert boundRid != null && boundRid.isPersistent()
+            : "schema class '" + name + "' loaded from the root link set must carry a persistent"
+                + " record id, got " + boundRid;
+        cls.setRecordId(boundRid);
 
         newClasses.put(cls.getName(), cls);
         addCollectionClassMap(cls);
@@ -660,6 +684,11 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Binds POJO to EntityImpl.
    */
   public EntityImpl toStream(@Nonnull DatabaseSessionEmbedded session) {
+    // The body mutates shared state (per-class recordId binds, link-set adds/removes) and writes
+    // records, so the real contract is that the caller holds the schema write lock. The read-lock
+    // acquire below is the supported reentrant downgrade under that already-held write lock.
+    assert lock.isWriteLockedByCurrentThread()
+        : "toStream() mutates shared schema state and must be called under the schema write lock";
     lock.readLock().lock();
     try {
       EntityImpl entity = session.load(identity);
@@ -681,17 +710,24 @@ public abstract class SchemaShared implements CloseableInStorage {
       final Set<RID> liveRecords = new HashSet<>();
       for (var c : realClasses) {
         EntityImpl classRecord;
-        if (c.getRecordId() == null) {
-          // New class: allocate a standalone record. Its temporary RID becomes permanent at
-          // commit and the ChangeableRecordId mutates in place, so the bound field and the link
-          // both resolve to the persistent RID without a second write.
+        var boundRid = c.getRecordId();
+        if (boundRid == null || !boundRid.isPersistent()) {
+          // New class, or a class whose previous save rolled back before its temporary record id
+          // became persistent. In both cases allocate a fresh standalone record: its temporary RID
+          // becomes permanent at commit and the ChangeableRecordId mutates in place, so the bound
+          // field and the link both resolve to the persistent RID without a second write. Reusing a
+          // non-persistent id would load against a record that never persisted and wedge every
+          // future save, so the rollback case self-heals here rather than requiring a reload.
           classRecord = session.newInternalInstance();
           c.setRecordId(classRecord.getIdentity());
           classLinks.add(classRecord.getIdentity());
         } else {
-          classRecord = session.load(c.getRecordId());
+          classRecord = session.load(boundRid);
         }
         c.toStream(session, classRecord);
+        assert c.getRecordId() != null
+            : "schema class '" + c.getName() + "' must have a bound record id before it joins the"
+                + " live-record set written to the root link set";
         liveRecords.add(c.getRecordId());
       }
 

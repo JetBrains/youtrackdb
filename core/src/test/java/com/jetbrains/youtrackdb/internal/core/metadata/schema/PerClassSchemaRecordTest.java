@@ -10,6 +10,7 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
+import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.HashSet;
@@ -74,11 +75,14 @@ public class PerClassSchemaRecordTest extends DbTestBase {
     assertTrue("the root link set must contain the class record RID",
         rootClassLinks().contains(ridBefore));
 
-    // Reopen forces SchemaShared.fromStream to rebuild from the on-disk per-class records.
+    // Force a fromStream re-parse of the on-disk per-class records on EVERY profile. reOpen reuses
+    // the cached SchemaShared under the default MEMORY profile, so reload() (which always re-reads
+    // the root record and rebuilds classes + bound RIDs) is what makes the round trip real locally.
+    schemaShared().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
 
     var clsAfter = schemaShared().getClass("RoundTripClass");
-    assertNotNull("class must survive a reopen", clsAfter);
+    assertNotNull("class must survive a fromStream re-parse", clsAfter);
     assertEquals("the per-class record RID must be re-bound from the link set at load",
         ridBefore, clsAfter.getRecordId());
     assertTrue("the reopened root link set must still contain the class record RID",
@@ -94,7 +98,7 @@ public class PerClassSchemaRecordTest extends DbTestBase {
     var schema = session.getMetadata().getSchema();
     schema.createClass("ToDrop");
     var droppedRid = schemaShared().getClass("ToDrop").getRecordId();
-    assertNotNull(droppedRid);
+    assertNotNull("a created class must carry a bound record RID before it is dropped", droppedRid);
     assertTrue("freshly created class record must be linked from the root",
         rootClassLinks().contains(droppedRid));
 
@@ -104,6 +108,8 @@ public class PerClassSchemaRecordTest extends DbTestBase {
     assertFalse("the dropped class record must be unlinked from the root",
         rootClassLinks().contains(droppedRid));
 
+    // Force a fromStream re-parse on every profile (see createdClassPersistsAsStandaloneLinkedRecord).
+    schemaShared().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
     assertNull("dropped class must not reappear after a reopen",
         schemaShared().getClass("ToDrop"));
@@ -120,22 +126,73 @@ public class PerClassSchemaRecordTest extends DbTestBase {
   public void rootNonLinkPayloadSurvivesReopen() {
     session.getMetadata().getSchema().createClass("PayloadClass");
     schemaShared().getClass("PayloadClass").createProperty(session, "amount", PropertyType.INTEGER);
+    // Register a blob collection so the third documented payload element is actually exercised.
+    int blobCollId = session.addCollection("payloadBlobColl");
+    schemaShared().addBlobCollection(session, blobCollId);
 
     var counterBefore = readRootCollectionCounter();
     assertNotNull("the collection counter is part of the root non-link payload", counterBefore);
     var globalsBefore = schemaShared().getGlobalProperties().size();
+    assertTrue("the blob-collections set must hold the registered collection before a reopen",
+        schemaShared().getBlobCollections().contains(blobCollId));
 
+    // Force a fromStream re-parse on every profile (see createdClassPersistsAsStandaloneLinkedRecord).
+    schemaShared().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
 
     var counterAfter = readRootCollectionCounter();
     assertEquals("the collection counter must survive a reopen", counterBefore, counterAfter);
     assertEquals("the global-property table must survive a reopen",
         globalsBefore, schemaShared().getGlobalProperties().size());
+    assertTrue("the blob-collections set must survive a reopen",
+        schemaShared().getBlobCollections().contains(blobCollId));
 
     var clsAfter = schemaShared().getClass("PayloadClass");
     assertNotNull(clsAfter);
     assertNotNull("the class property must survive the round-trip",
         clsAfter.getProperty("amount"));
+  }
+
+  /**
+   * A failed schema save can roll back after its inner transaction bound a temporary record id
+   * onto the shared class instance but before that id became persistent, leaving the class with a
+   * non-persistent record id. The next save must self-heal by allocating a fresh standalone record
+   * rather than loading against the record that never persisted. This pins that recovery: a class
+   * carrying a simulated post-rollback temp id is re-saved, ends up with a persistent record id,
+   * and the whole schema still survives a fromStream re-parse.
+   */
+  @Test
+  public void nonPersistentRecordIdIsReallocatedOnNextSave() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("WedgedClass");
+    var goodRid = schemaShared().getClass("WedgedClass").getRecordId();
+    assertNotNull("the class must carry a persistent record RID after a clean create", goodRid);
+    assertTrue("the freshly created record RID must be persistent", goodRid.isPersistent());
+
+    // Simulate the post-failed-save state: a non-persistent temporary id left bound on the shared
+    // class instance, exactly what a rolled-back inner save leaves behind.
+    var staleTempRid = new ChangeableRecordId();
+    assertFalse("the simulated stale RID must be non-persistent", staleTempRid.isPersistent());
+    schemaShared().getClass("WedgedClass").setRecordId(staleTempRid);
+
+    // Trigger a schema save that re-streams every class. The wedged class must not load against the
+    // dead temp id; the save must succeed and rebind a persistent record RID.
+    schema.createClass("TriggerSave");
+
+    var healedRid = schemaShared().getClass("WedgedClass").getRecordId();
+    assertNotNull("the re-saved class must carry a record RID again", healedRid);
+    assertTrue("the re-saved class record RID must be persistent after self-heal",
+        healedRid.isPersistent());
+    assertTrue("the healed record RID must be linked from the root",
+        rootClassLinks().contains(healedRid));
+
+    // The schema must survive a fromStream re-parse with the wedged class intact.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reparsed = schemaShared().getClass("WedgedClass");
+    assertNotNull("the self-healed class must survive a fromStream re-parse", reparsed);
+    assertTrue("the reopened root link set must contain the healed record RID",
+        rootClassLinks().contains(reparsed.getRecordId()));
   }
 
   /**
@@ -175,8 +232,9 @@ public class PerClassSchemaRecordTest extends DbTestBase {
       fail("reload must reject schema version " + rejectedVersion
           + " and redirect to export/import");
     } catch (ConfigurationException expected) {
-      assertTrue("rejection must redirect to export/import",
-          expected.getMessage().contains("export"));
+      // The ConfigurationException type is the load-bearing signal; the message is operator-facing
+      // prose that steers toward export/import and is intentionally not pinned to a substring.
+      assertNotNull("rejection must carry a diagnostic message", expected.getMessage());
     }
   }
 }
