@@ -177,3 +177,6 @@ belong to one specific step. Often empty. -->
   Track 4 (commit-time reconciliation) consumes this fix — its I-A1 crash-recovery
   tests assume the lazy-consult fix has landed.
 - **Signatures**: confined to the existing replay path; no public API change.
+
+## Base commit
+7a0fbf8cfe48448e60d69cd1bec76ab925e6dc6f
