@@ -189,34 +189,36 @@ public final class ShapeClassifier {
    * <p>The gates, in order:
    *
    * <ol>
-   *   <li><b>SKIP or LIMIT</b> (first, mirroring {@link #classifySelect}): a paginated prefix cannot
-   *       be repaired by a per-tuple delta, so a dropped in-window tuple would emit the wrong
-   *       cardinality.
-   *   <li><b>GROUP BY, UNWIND, RETURN DISTINCT, or NOT MATCH</b>: a per-tuple skip/inject delta
-   *       cannot reconcile any of these.
+   *   <li><b>SKIP or LIMIT</b> (first, mirroring {@link #classifySelect}): a paginated prefix routes to
+   *       the version gate rather than the multi-alias path, a conservative gate matching the SELECT
+   *       treatment.
+   *   <li><b>GROUP BY, UNWIND, RETURN DISTINCT, or NOT MATCH</b>: routed to {@code K0_NONE} as a
+   *       conservative shape gate; the global version gate reproduces these on any mutation.
    *   <li><b>RETURN is not the alias-keyed form</b>: {@code $elements}, {@code $pathElements}, {@code
-   *       $patterns}/{@code $matches}, {@code $paths} flatten the row away from the alias-keyed tuple
-   *       the delta path and Etap-A projector assume.
-   *   <li><b>A subquery target in any pattern WHERE</b>: the inner result is opaque to the per-tuple
-   *       delta. (MATCH has no LET clause in the grammar, so there is no LET gate.)
+   *       $patterns}/{@code $matches}, {@code $paths} flatten the row, which the Etap-A single-alias
+   *       {@code returnProjector} cannot reproduce, so the single/multi split routes them to {@code
+   *       K0_NONE}.
+   *   <li><b>A subquery target in any pattern WHERE</b>: routed to {@code K0_NONE}; its inner result is
+   *       not part of the pattern's read-class closure. (MATCH has no LET clause in the grammar.)
    *   <li><b>Any vertex node missing {@code class:}</b>, or a non-statically-resolvable class or edge
-   *       label: an unconstrained or parameter-resolved label cannot seed a class closure from the
-   *       AST alone.
-   *   <li><b>A cross-alias-state WHERE</b> (a {@code $matched.otherAlias} reference, detected via
-   *       {@link SQLWhereClause#getMatchPatternInvolvedAliases}).
-   *   <li><b>A link-path-dereference WHERE</b> ({@code where:(assignee.name = ?)}): a dotted path
-   *       whose head is a property/link rather than the bound alias dereferences into a class outside
-   *       the pattern's read set, whose mutation the delta build's class filter would otherwise drop.
+   *       label: the multi-alias class-scoped gate needs the pattern's read-class closure, which an
+   *       unconstrained or parameter-resolved label cannot seed from the AST alone, so the gate could
+   *       never fire and the entry must ride the global version gate instead.
+   *   <li><b>A cross-alias-state WHERE</b> (a {@code $matched.otherAlias} reference, detected via {@link
+   *       SQLWhereClause#getMatchPatternInvolvedAliases}): the result depends on another alias's state
+   *       outside this node's class, which the class-scoped closure does not cover.
+   *   <li><b>A link-path-dereference WHERE</b> ({@code where:(assignee.name = ?)}): a dotted path whose
+   *       head is a property/link rather than the bound alias reaches into a class outside the pattern's
+   *       read set; a mutation to that out-of-pattern class is absent from the closure, so the
+   *       class-scoped gate would miss it and replay a stale result. This and the cross-alias gate are
+   *       the load-bearing ones — the read-class closure is the multi-alias entry's only backstop.
    *   <li><b>A variable-depth or optional node</b> ({@code while:}, {@code maxDepth:}, {@code
-   *       optional:}): a {@code while:}/{@code maxDepth:} traversal builds a transitive-closure tuple
-   *       set whose membership depends on multi-hop reachability, which the direct-membership {@code
-   *       reverseIndex} floor cannot reconcile when an intermediate vertex on a path is deleted; an
-   *       {@code optional:} node binds a null alias value the alias-keyed tuple path has no RID to
-   *       index. Gating on node presence also closes the {@code while:} predicate as a WHERE escape
-   *       hatch: the link-deref/cross-alias/subquery gates run only against the {@code where:} clause
-   *       ({@link SQLMatchFilter#getFilter}), never the separate {@code while:} predicate ({@link
-   *       SQLMatchFilter#getWhileCondition}), so a node carrying a {@code while:} is routed to {@code
-   *       K0_NONE} before any unreconcilable predicate inside it could be missed.
+   *       optional:}): routed to {@code K0_NONE} conservatively. Gating on node presence also closes the
+   *       {@code while:} predicate as a WHERE escape hatch: the link-deref/cross-alias/subquery gates run
+   *       only against the {@code where:} clause ({@link SQLMatchFilter#getFilter}), never the separate
+   *       {@code while:} predicate ({@link SQLMatchFilter#getWhileCondition}), so a node carrying a
+   *       {@code while:} is routed to {@code K0_NONE} before an out-of-closure predicate inside it could
+   *       be missed.
    * </ol>
    */
   private static CacheableShape classifyMatch(@Nonnull SQLMatchStatement match) {
@@ -226,8 +228,8 @@ public final class ShapeClassifier {
       return CacheableShape.K0_NONE;
     }
 
-    // Shapes the per-tuple delta cannot reconcile: grouping/unwind fan-out, DISTINCT collapse, and a
-    // NOT MATCH anti-join whose membership a tuple skip/inject cannot maintain.
+    // Conservative shape gates: grouping/unwind fan-out, DISTINCT collapse, and a NOT MATCH anti-join
+    // route to the global version gate rather than the multi-alias class-scoped path.
     if (match.getGroupBy() != null
         || match.getUnwind() != null
         || match.isReturnDistinct()
@@ -236,8 +238,8 @@ public final class ShapeClassifier {
     }
 
     // RETURN must be the alias-keyed form. The $elements/$pathElements/$patterns/$matches/$paths
-    // special forms flatten the row to one element with no alias keys, breaking the alias-keyed tuple
-    // assumption (getProperty(alias), reverseIndex, the Etap-A returnProjector).
+    // special forms flatten the row to one element with no alias keys, which the Etap-A single-alias
+    // returnProjector cannot reproduce, so the single/multi split routes them to K0_NONE.
     if (match.returnsElements()
         || match.returnsPathElements()
         || match.returnsPatterns()
@@ -255,7 +257,7 @@ public final class ShapeClassifier {
     // onto the RECORD delta path. The entry stores the raw bound records and replays them through a
     // returnProjector that reproduces the RETURN tuple at the view emit boundary, so the RECORD
     // skip-set / sorted-merge stay RID-addressable. A multi-alias or edge-bearing MATCH cannot fold
-    // this way and stays MATCH_TUPLE_MULTI for the per-tuple delta floor.
+    // this way and stays MATCH_TUPLE_MULTI for the class-scoped version gate.
     if (isSingleAliasRecordFold(match)) {
       return CacheableShape.RECORD;
     }
@@ -311,7 +313,7 @@ public final class ShapeClassifier {
    * to {@code null} on every head. The comparator would treat every row as equal and emit in cache /
    * inject order, mis-sorting vs a fresh MATCH that orders on the raw record's attribute before the
    * final projection. Admitting such an ORDER BY would therefore produce a silently wrong order, so it
-   * stays on the per-tuple {@code MATCH_TUPLE_MULTI} floor rather than folding to RECORD.
+   * stays on the {@code MATCH_TUPLE_MULTI} class-scoped path rather than folding to RECORD.
    */
   private static boolean orderByIsAliasLocal(@Nullable SQLOrderBy orderBy,
       @Nullable String boundAlias) {
@@ -369,13 +371,10 @@ public final class ShapeClassifier {
       // A path item with no target filter binds no vertex node; nothing to gate on it here.
       return false;
     }
-    // Variable-depth (while:/maxDepth:) and optional: nodes are unreconcilable by the per-tuple floor:
-    // a transitive-closure traversal's membership depends on multi-hop reachability the direct-
-    // membership reverseIndex cannot repair when an intermediate vertex is deleted, and an optional
-    // node binds a null alias value with no RID to index. Gating on node presence also routes any
-    // while:-bearing node to K0_NONE before its separate while: predicate (never seen by the where:-
-    // side link-deref/cross-alias/subquery gates below) could smuggle an unreconcilable predicate past
-    // the gate. Over-approximating these to K0_NONE is correctness-safe.
+    // Variable-depth (while:/maxDepth:) and optional: nodes route to K0_NONE conservatively. Gating on
+    // node presence also routes any while:-bearing node to K0_NONE before its separate while: predicate
+    // (never seen by the where:-side link-deref/cross-alias/subquery gates below) could smuggle an
+    // out-of-closure predicate past the gate. Over-approximating these to K0_NONE is correctness-safe.
     if (node.getWhileCondition() != null || node.getMaxDepth() != null || node.isOptional()) {
       return true;
     }
@@ -387,14 +386,14 @@ public final class ShapeClassifier {
     if (where == null) {
       return false;
     }
-    // A subquery embedded in the pattern WHERE produces a result opaque to the per-tuple delta; route
-    // it to the version gate. (MATCH has no LET clause in the grammar, so there is no separate LET
+    // A subquery embedded in the pattern WHERE reads a result outside the pattern's read-class closure;
+    // route it to the version gate. (MATCH has no LET clause in the grammar, so there is no separate LET
     // gate to apply alongside this one.)
     if (subtreeHasSubquery(where)) {
       return true;
     }
-    // Cross-alias-state WHERE: a $matched.<otherAlias> reference the per-tuple delta cannot re-evaluate
-    // against a single mutated record.
+    // Cross-alias-state WHERE: a $matched.<otherAlias> reference reads another alias's state outside
+    // this node's class, which the class-scoped closure does not cover.
     if (whereReferencesOtherAlias(where)) {
       return true;
     }
