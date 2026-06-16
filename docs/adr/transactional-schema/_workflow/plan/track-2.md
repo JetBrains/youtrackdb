@@ -187,3 +187,6 @@ verbatim as test method names. Empty until Move 3 lands. -->
 - **Signatures**: the per-class record-RID field on `SchemaClassImpl` (bound at
   load, allocated at commit for a new class); the schema version constant; no
   public schema API change.
+
+## Base commit
+c078c7e1fe17c65ac617174a1de278f02d427e0b
