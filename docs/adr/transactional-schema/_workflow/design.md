@@ -432,10 +432,14 @@ tx-dropped (hidden), in-place rename, and in-place collection-membership. The
 snapshot's class-index list is sourced from the index manager, so during a schema
 or index transaction the snapshot build must resolve to the overlaid set, and
 because `ClassIndexManager` reads a cached index set materialized once at snapshot
-init, the tx-local snapshot must be force-rebuilt on every mid-transaction
-create/drop or same-transaction inserts into the new index are silently
-untracked. That rebuild is lazy invalidation, not eager reconstruction (see the
-research log's delegated list).
+init, the tx-local snapshot must be force-rebuilt on every mid-transaction index
+create/drop (`createIndex` / `dropIndex`) or same-transaction inserts into the new
+index are silently untracked. That rebuild is lazy invalidation, not eager
+reconstruction (see the research log's delegated list). The per-record tracking
+this surfaces is the entry source for pre-existing indexes; a tx-created index's
+committed entries instead come from the commit-time re-derivation (see "Index
+build and query-usability" below), which stays correct even when an early `deleteRecord`
+flush drains operations before the `createIndex`.
 
 At commit the changed-index set drives engine creation and drops, the changed
 per-index entities are written, and the definition overlay publishes into the
@@ -615,20 +619,64 @@ through a session-keyed compare-and-clear, and a torn-down owner's late release
 warn-noops rather than throwing from the teardown. Cross-thread reaping of a
 stranded transaction is out of scope.
 
-The mutex's authoritative ownership record is `(owning session, acquire ordinal,
-acquiring thread)`, written at acquire; only a session-keyed compare-and-clear
-releases the permit, and the thread member is engage-guard and diagnostic only,
-never part of the release key. The single release point is the outermost teardown
-finally of the owning session's commit/rollback. A foreign teardown (pool shutdown
-of a checked-out session) reads the volatile holder to identify the session and
-CAS-clears when it owns it; the same-thread finally reads its own captured ordinal
-from the surviving session-side record. A torn-down owner's late release loses the
-CAS and warn-noops rather than throwing (a throw from the teardown finally would
-mask the owner's real exception) or over-releasing (the ordinal rejects every
-stale presenter). An engage/teardown handshake closes the mid-flight window: the
-teardown publishes a volatile teardown-intent mark before its release pass, and
-the engage re-checks the mark after writing the holder, so at least one side sees
-the other and the permit is never held with no releaser.
+**What the pieces are.** The mutex is a `Semaphore(1)` (one permit), not a
+`ReentrantLock`. The choice is forced by teardown: a `ReentrantLock` can be
+unlocked only by the thread that locked it, so a dead or reaped owner thread could
+never release it (a permanent wedge), whereas a semaphore permit can be released
+from any thread. A bare semaphore is unsafe, though, because its `release()` is an
+unconditional counter increment any thread can call, so the permit carries an
+ownership record written at acquire: `(owning session, acquire ordinal, acquiring
+thread)`. The **session** is the release key: release is a compare-and-clear that
+fires only if this session still owns the permit, which stops a stale or
+just-woken owner from releasing a permit a successor now holds. The **acquire
+ordinal** is a monotonic counter that distinguishes this acquisition from a later
+one, so a stale presenter is rejected and the permit is never over-released. The
+**thread** is engage-guard and diagnostic only (it catches same-thread
+self-deadlock per I-C4 and names the holder in the wait diagnostic); it is never
+part of the release key, precisely because the one legitimate foreign releaser
+runs on a different thread.
+
+The single normal release point is the outermost teardown `finally` of the owning
+session's commit or rollback. Two paths reach it. The owner's own `finally` reads
+its captured ordinal from the surviving session-side record and CAS-clears. A
+foreign teardown (a pool shutdown of a still-checked-out session) runs that
+session's own teardown, reads the volatile holder to identify the session, and
+CAS-clears when it matches. If both race the same session, exactly one wins the
+CAS; the loser warn-noops rather than throwing (a throw from the teardown `finally`
+would mask the owner's real exception) or re-releasing (the ordinal-plus-session
+key rejects every stale presenter).
+
+The subtle window is an engage caught mid-flight (permit acquired, holder not yet
+written) when a one-shot pool close runs its release pass and finds no holder to
+clear. Without a fix the owner then finishes acquiring on a now-closed session,
+whose `checkOpenness` gate (the open/closed guard on commit and rollback) locks it
+out of its own release point: permit held, no releaser, DDL wedged. An
+engage/teardown handshake closes it, a store-then-load (Dekker) pair. The teardown
+publishes a dedicated volatile teardown-intent mark before its release pass, a
+separate flag (not the session's `STATUS.CLOSED`), because teardown runs rollback
+before it sets CLOSED and an early CLOSED would trip `checkOpenness` inside
+teardown's own rollback. The engage writes the holder after acquiring the permit,
+then re-checks the mark; on a marked session it self-releases through the
+session-keyed CAS and throws. Store-then-load on both sides guarantees at least one
+side sees the other:
+
+```mermaid
+flowchart TD
+    MID["engage mid-flight: permit acquired,<br/>holder not yet written"]
+    TDN["teardown: publish teardown-intent mark,<br/>then run release pass"]
+    MID --> Q{"who sees whom?"}
+    TDN --> Q
+    Q -- "teardown missed the<br/>half-written engage" --> A["engage's post-acquire re-check sees the mark:<br/>self-release via session CAS + throw"]
+    Q -- "engage missed the mark" --> B["release pass sees the holder:<br/>normal CAS-clear (heal)"]
+    Q -- "both see each other" --> C["second release loses<br/>the CAS: warn-noop"]
+    A --> OK["permit never held with no releaser"]
+    B --> OK
+    C --> OK
+```
+
+One rider: the engagement record (the acquire-time ordinal the `finally`
+presents) must survive `rollbackInternal`'s `clear()` / `close()` wipes until the outermost
+`finally` consumes it; wiped early, the normal heal presents nothing and wedges.
 
 Teardown is owner-thread-only for every transaction-scoped resource — the mutex,
 the freezer engagement, the storage write lock, the snapshot-floor holder
@@ -674,13 +722,16 @@ engaged lock-free by an operator freeze, not part of the lock order. A schema
 commit that parked on it would hold all four locks and convert the freeze window
 into a total read outage. The in-window gate alone cannot deliver the loud-failure
 promise, and freeze kind is a registration property, not an entrant choice, so the
-design adds a freeze-kind taxonomy (operator/long-lived versus transient internal
-quiesce) at the registration sites. The loud-fail decision executes before the
-four-lock sequence: the schema commit probes the freezer at entry and throws with
-zero locks held against an operator freeze, parks against a transient quiesce. The
-write lock is acquired through a bounded try-acquire loop that re-probes and throws
-— releasing the held metadata locks — if an operator freeze engaged after the
-probe, so the write-lock request never finishes queueing and reads keep flowing.
+design adds a freeze-kind taxonomy at the registration sites: an **operator**
+(long-lived, admin-initiated) freeze versus a **transient internal quiesce** (the
+brief self-freezes for synch, incremental backup, or index rebuild). The loud-fail
+decision executes before the four-lock sequence: the schema commit probes the
+freezer at entry and, against an operator freeze, throws
+`ModificationOperationProhibitedException` (asserted by exact type, not a generic
+loud error) with zero locks held; against a transient quiesce it parks. The write
+lock is acquired through a bounded try-acquire loop that re-probes and throws,
+releasing the held metadata locks, if an operator freeze engaged after the probe,
+so the write-lock request never finishes queueing and reads keep flowing.
 The in-window gate stays as the authoritative backstop for a freeze engaging after
 the write lock is held.
 
