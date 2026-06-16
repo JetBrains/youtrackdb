@@ -27,6 +27,7 @@ defines.
 - [x] 2026-06-16T07:19Z [ctx=safe] Step 1 complete (commit 9bba7b62a6)
 - [x] 2026-06-16T07:38Z [ctx=safe] Step 2 complete (commit a7fd6b7864)
 - [x] 2026-06-16T07:52Z [ctx=safe] Step 3 complete (commit 824c01d43d)
+- [x] 2026-06-16T08:35Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -122,7 +123,8 @@ discovered" when the finding affects future steps or other tracks. -->
   `## Plan Review` and `## Final Artifacts`, both removed from the thinned plan.
   Routing them to a ledger `paused` event is uniform across tiers and strictly
   stronger — a ledger paused event is machine-read by `determine_state` on
-  resume, not just a human cue. The handoff file itself is unchanged; only the
+  resume, where the old plan marker was only a human cue. The handoff file
+  itself is unchanged; only the
   in-plan defense-in-depth marker relocates. A/B/C pauses stay in the track
   `## Progress`; Phase 0/1 and ad-hoc stay "none".
 - **Risks/Caveats**: of D8's two mitigation arms, the "keep the greppable
@@ -146,7 +148,7 @@ discovered" when the finding affects future steps or other tracks. -->
 #### D11: Minimal→lite/full escalation materializes the dropped plan and design
 - **Alternatives considered**: route only "tier-line readers → ledger" and leave
   the writer side implicit.
-- **Rationale**: `inline-replanning` is a tier-line writer, not only a reader:
+- **Rationale**: `inline-replanning` both reads and writes the tier line:
   an ESCALATE upgrade rewrites the tier line and a `lite`→`full` upgrade writes
   a new design seed. Under D2 the `minimal` tier has no plan or design, so the
   upgrade carrier must write the upgraded tier as a ledger event and materialize
@@ -610,7 +612,7 @@ roster line. The re-points are idempotent — re-applying a marker/tier/signal
 re-point to an already-edited file yields the same staged text, and the
 ledger-first-with-`### Constraints`-fallback read resolves the same whether or
 not a prior partial edit landed. No step mutates shared external state (no DB,
-no live workflow — the I6 invariant holds: live `.claude/**` stays at develop
+no live workflow; the I6 invariant holds, so live `.claude/**` stays at develop
 until Phase-4 promotion), so re-running a step has no side effect beyond the
 staged file and its commit.
 
