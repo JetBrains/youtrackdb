@@ -269,4 +269,49 @@ public final class DeltaBuilder {
 
     return deltaState;
   }
+
+  /**
+   * Class-scoped version gate for a multi-alias MATCH ({@code MATCH_TUPLE_MULTI}) entry: reports whether
+   * a post-populate mutation has touched any class in the entry's read-class closure, so the frozen
+   * tuple set can no longer be trusted. A multi-alias MATCH is replayed verbatim while no pattern-class
+   * mutation has happened and re-executed once one has; unlike RECORD it builds no per-tuple delta,
+   * because reconstructing tuples from a projected RETURN row (which carries scalars such as {@code
+   * u.name}, not the bound records) is not possible, and a coarse class-scoped invalidation suits the
+   * read-mostly workload the cache targets.
+   *
+   * <p><b>Fast path.</b> When the transaction's mutation version equals the entry's populate version no
+   * mutation has happened at all, so the entry is a definite hit and the record-operation scan is
+   * skipped. This is the common case in a read-mostly transaction, where most queries between two
+   * mutations are pure hits.
+   *
+   * <p><b>Scan.</b> Otherwise every post-populate operation (version filter, as in {@link
+   * #buildForRecord}) is checked against the entry's class closure: a single Entity operation whose
+   * schema class is in the closure makes the entry stale. Operations on unrelated classes leave the
+   * entry serviceable, which is the advantage of the class-scoped gate over a global one.
+   *
+   * @param entry the cached multi-alias MATCH entry to test
+   * @param tx    the active transaction whose {@code recordOperations} carry the post-populate deltas
+   * @return {@code true} when the entry must be invalidated and re-executed; {@code false} when it may
+   *     still be replayed verbatim
+   */
+  public static boolean matchMultiStale(
+      @Nonnull CachedEntry entry, @Nonnull FrontendTransactionImpl tx) {
+    if (entry.getPopulateMutationVersion() == tx.getMutationVersion()) {
+      return false;
+    }
+    final var effectiveFromClasses = entry.getEffectiveFromClasses();
+    for (final var op : tx.getRecordOperationsInternal()) {
+      if (op.version <= entry.getPopulateMutationVersion()) {
+        continue;
+      }
+      if (!(op.record instanceof Entity entity)) {
+        continue;
+      }
+      final var className = entity.getSchemaClassName();
+      if (className != null && effectiveFromClasses.contains(className)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }

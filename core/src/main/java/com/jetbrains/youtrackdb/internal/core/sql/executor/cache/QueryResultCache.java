@@ -213,6 +213,30 @@ public final class QueryResultCache {
   }
 
   /**
+   * Invalidates a multi-alias MATCH ({@link CacheableShape#MATCH_TUPLE_MULTI}) entry whose class-scoped
+   * version gate found a post-populate mutation in one of the pattern's read classes. Mirrors the
+   * K0_NONE gate in {@link #lookup}: drops the entry, counts an invalidation, and routes the key
+   * non-cacheable once it has been invalidated the configured number of times, bounding repopulate churn
+   * in a write-heavy fragment. The strike count shares {@link #k0Strikes} with the K0_NONE gate, which
+   * is sound because a given key has one fixed shape, so the two gates never count the same key. Called
+   * from the session's hit-path gate rather than from {@link #lookup}, because the class-scoped scan
+   * needs the transaction's record operations the lookup contract does not carry. A no-op when the key
+   * has no live entry (already evicted).
+   */
+  public void invalidateMatchMulti(@Nonnull CacheKey key) {
+    var entry = entries.get(key);
+    if (entry == null) {
+      return;
+    }
+    invalidate(key, entry);
+    metrics.incrementK0Invalidations();
+    var strikes = k0Strikes.merge(key, 1, Integer::sum);
+    if (strikes >= k0NoneInvalidationThreshold) {
+      nonCacheableKeys.add(key);
+    }
+  }
+
+  /**
    * Drops every cached entry while keeping the cache instance live, closing each entry's paused stream
    * first. The bulk-DML hook for the one mid-transaction operation (TRUNCATE CLASS) that can change
    * stored data without flowing through the mutation log. Snapshots the values before iterating so an

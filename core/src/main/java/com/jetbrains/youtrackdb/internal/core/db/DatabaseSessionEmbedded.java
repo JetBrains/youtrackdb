@@ -158,6 +158,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
@@ -739,11 +740,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * off (the transaction's cache is {@code null}); a cache code path is already on the stack ({@code
    * cacheCodeDepth > 0}, the re-entrancy guard, so a {@code query()} issued from a UDF in a WHERE
    * clause does not recurse into the cache); the statement is not a SELECT or MATCH; the statement
-   * references a non-deterministic function or per-row context variable; or the classified shape is
-   * not one whose delta/view path is wired yet ({@code RECORD}, {@code K0_NONE}, and the {@code
-   * AGGREGATE_*} family route through the cache; {@code MATCH_TUPLE_MULTI} is classified but not yet
-   * wired, so it bypasses here. The {@code AGGREGATE_*} miss takes its own eager-drive populate path
-   * with a side-tap splice, and falls back uncached on an untappable plan shape).
+   * references a non-deterministic function or per-row context variable; or the classified shape has no
+   * wired path. {@code RECORD}, {@code K0_NONE}, the {@code AGGREGATE_*} family, and {@code
+   * MATCH_TUPLE_MULTI} all route through the cache. The {@code AGGREGATE_*} miss takes its own
+   * eager-drive populate path with a side-tap splice and falls back uncached on an untappable plan
+   * shape. A {@code MATCH_TUPLE_MULTI} (multi-alias MATCH) entry replays verbatim under a class-scoped
+   * version gate: a hit whose pattern read-classes saw a post-populate mutation is invalidated and
+   * re-executed, and a pattern whose read-class closure is empty is not cached.
    *
    * @param statement the parsed, idempotent query statement
    * @param args      the positional {@code Object[]} or named {@code Map<Object,Object>} parameters
@@ -797,9 +800,19 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     try {
       var hit = cache.lookup(key, tx.getMutationVersion());
       if (hit != null) {
-        // Hit: the stored entry was proven deterministic and RECORD/K0_NONE at populate, so neither
-        // the non-determinism walk nor the shape classifier runs again — the entry carries its shape.
-        return buildView(hit, tx, args);
+        if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI
+            && DeltaBuilder.matchMultiStale(hit, tx)) {
+          // A multi-alias MATCH hit passes a class-scoped version gate. A post-populate mutation
+          // touched one of the pattern's read classes, so the frozen tuple set is stale and cannot be
+          // reconciled per-tuple (a projected RETURN row carries no bound records to rebuild tuples
+          // from); drop the entry and re-populate on the miss path below.
+          cache.invalidateMatchMulti(key);
+        } else {
+          // Hit: the stored entry was proven deterministic and a wired shape at populate, so neither
+          // the non-determinism walk nor the shape classifier runs again; the entry carries its shape.
+          // A multi-alias MATCH reaching here had no pattern-class mutation since populate.
+          return buildView(hit, tx, args);
+        }
       }
       // Miss: now (and only now) pay for the AST analysis needed to decide whether to populate an
       // entry. A non-deterministic statement or an unwired shape bypasses the cache uncached.
@@ -823,9 +836,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         // splices above the pre-distinct projection; unexpected plan shapes fall back uncached.
         return populateAndBuildDistinctValuesView(distinctSelect, args, key, tx, cache);
       }
+      if (shape == CacheableShape.MATCH_TUPLE_MULTI) {
+        // Multi-alias MATCH caches via a class-scoped version gate: replay verbatim while no pattern-
+        // class mutation has happened, re-execute once one has. The gate can fire only if the entry
+        // knows its read-class closure; an empty closure (no resolvable pattern class) would replay a
+        // stale tuple set forever after any mutation, so refuse to cache it and run uncached.
+        if (effectiveFromClasses(statement).isEmpty()) {
+          return executeUncached(statement, args);
+        }
+        return populateAndBuildView(statement, args, key, shape, tx, cache);
+      }
       if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
-        // MATCH_TUPLE_MULTI is classified but its delta/view path is not wired yet; route it to
-        // uncached execution until that path lands.
+        // Any other not-yet-wired shape bypasses the cache uncached.
         return executeUncached(statement, args);
       }
       return populateAndBuildView(statement, args, key, shape, tx, cache);
@@ -1326,14 +1348,90 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (statement instanceof SQLMatchStatement match) {
       var origin = singleAliasOrigin(match);
       if (origin != null) {
+        // Single-alias MATCH (Etap A / RECORD): the one bound alias's class closure.
         var className = origin.getClassName(null);
         if (className != null) {
           SchemaClass fromClass = getMetadata().getImmutableSchemaSnapshot().getClass(className);
           return CachedEntry.computeEffectiveFromClasses(fromClass);
         }
+        return Set.of();
       }
+      // Multi-alias MATCH (MATCH_TUPLE_MULTI): the union of every alias node class and every traversal-
+      // edge class, each with its subclass closure. The class-scoped version gate invalidates the entry
+      // when a post-populate mutation touches any class in this set.
+      return matchMultiEffectiveFromClasses(match);
     }
     return Set.of();
+  }
+
+  /**
+   * The multi-alias MATCH read-class closure for the class-scoped version gate: every alias node class
+   * (origin and each traversal target) plus every traversal-edge class named by a {@code .out/.in/.both}
+   * step, each expanded to its subclass closure. The shape classifier has already routed any pattern
+   * with a non-statically-resolvable class or edge label to {@code K0_NONE}, so every label reaching
+   * here is a literal the schema snapshot can resolve; an unresolvable name still resolves to {@code
+   * null} and is dropped (it names no live records). Edge classes fold in so an edge create or delete
+   * trips the gate rather than slipping past the alias-class filter.
+   */
+  private Set<String> matchMultiEffectiveFromClasses(@Nonnull SQLMatchStatement match) {
+    var aliasClasses = new ArrayList<SchemaClass>();
+    var edgeClasses = new ArrayList<SchemaClass>();
+    for (var expr : match.getMatchExpressions()) {
+      addMatchNodeClass(expr.getOrigin(), aliasClasses);
+      for (var item : expr.getItems()) {
+        addMatchNodeClass(item.getFilter(), aliasClasses);
+        addMatchEdgeClasses(item.getMethod(), edgeClasses);
+      }
+    }
+    return CachedEntry.computeMatchEffectiveFromClasses(aliasClasses, edgeClasses);
+  }
+
+  /** Resolves a pattern node's declared {@code class:} (context-free) and adds it to {@code out}. */
+  private void addMatchNodeClass(@Nullable SQLMatchFilter node, @Nonnull List<SchemaClass> out) {
+    if (node == null) {
+      return;
+    }
+    var className = node.getClassName(null);
+    if (className != null) {
+      var resolved = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+      if (resolved != null) {
+        out.add(resolved);
+      }
+    }
+  }
+
+  /**
+   * Resolves the edge class(es) a traversal step names and adds them to {@code out}. The edge labels are
+   * the step method's parameters (the parser folds a bare {@code out()} to the literal {@code "E"}, so a
+   * traversal step always carries at least one label parameter); a multi-label step contributes each.
+   * A string-literal label is rendered with surrounding quotes, so they are stripped before resolution.
+   */
+  private void addMatchEdgeClasses(@Nullable SQLMethodCall method, @Nonnull List<SchemaClass> out) {
+    if (method == null) {
+      return;
+    }
+    var params = method.getParams();
+    if (params == null) {
+      return;
+    }
+    for (var param : params) {
+      var label = stripLabelQuotes(param.toString());
+      var resolved = getMetadata().getImmutableSchemaSnapshot().getClass(label);
+      if (resolved != null) {
+        out.add(resolved);
+      }
+    }
+  }
+
+  /** Strips a single pair of surrounding single or double quotes from a rendered edge label. */
+  private static String stripLabelQuotes(@Nonnull String rendered) {
+    if (rendered.length() >= 2) {
+      var first = rendered.charAt(0);
+      if ((first == '\'' || first == '"') && rendered.charAt(rendered.length() - 1) == first) {
+        return rendered.substring(1, rendered.length() - 1);
+      }
+    }
+    return rendered;
   }
 
   @Nullable private SQLWhereClause whereClauseOf(@Nonnull SQLStatement statement) {

@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -166,6 +167,39 @@ public final class CachedEntry {
       names.add(sub.getName());
     }
     return Set.copyOf(names);
+  }
+
+  /**
+   * Computes the multi-alias MATCH read-class closure for the class-scoped version gate: the union of
+   * every alias node class and every traversal-edge class, each expanded to its full subclass closure.
+   * A {@code null} class in either collection contributes nothing, because an unresolvable label names
+   * no live records and so its mutations cannot change the result. The returned set is the {@link
+   * #effectiveFromClasses} a multi-alias MATCH entry carries: a post-populate mutation to any class in
+   * it invalidates the entry, since a created, deleted, or changed record of a pattern class may add,
+   * drop, or alter a matched tuple. A multi-alias MATCH whose closure would be empty is not cached (the
+   * gate could never fire), so an entry that reaches this builder always has a non-empty result.
+   */
+  public static Set<String> computeMatchEffectiveFromClasses(
+      @Nonnull Collection<SchemaClass> aliasClasses,
+      @Nonnull Collection<SchemaClass> edgeClasses) {
+    var names = new HashSet<String>();
+    addSubclassClosure(aliasClasses, names);
+    addSubclassClosure(edgeClasses, names);
+    return Set.copyOf(names);
+  }
+
+  /** Adds each non-null class and its subclass closure (by name) to {@code names}. */
+  private static void addSubclassClosure(
+      @Nonnull Collection<SchemaClass> classes, @Nonnull Set<String> names) {
+    for (var clazz : classes) {
+      if (clazz == null) {
+        continue;
+      }
+      names.add(clazz.getName());
+      for (var sub : clazz.getAllSubclasses()) {
+        names.add(sub.getName());
+      }
+    }
   }
 
   public CacheableShape getShape() {

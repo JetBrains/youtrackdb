@@ -22,13 +22,16 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-12T08:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-15T10:18Z [ctx=safe] Step 1 complete (commit 28fcf27642)
 - [x] 2026-06-15T12:09Z [ctx=info] Step 2 complete (commit 28af616037)
+- [x] 2026-06-16T10:05Z [ctx=info] Steps 3-5 complete via the model-C pivot
+  (multi-alias MATCH served by a class-scoped version gate, not per-tuple
+  reconciliation). See Episodes §Steps 3-5 (model C).
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -45,6 +48,23 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
   the multi-alias `MATCH_TUPLE_MULTI` path do not diverge. A record-attribute or
   `@rid` ORDER BY single-alias MATCH stays uncached `MATCH_TUPLE_MULTI` until a
   later step resolves the sort key on the underlying record. See Episodes §Step 2.
+- 2026-06-16T10:05Z Steps 3-5 found the per-tuple `reverseIndex` floor is
+  unbuildable for the common multi-alias RETURN shape, and pivoted the whole
+  multi-alias path to a class-scoped version gate (model C). Root cause: the
+  design populates `reverseIndex` by reading `getProperty(alias)` off each cached
+  row, but a multi-alias RETURN that projects fields (`RETURN a.name as a, b.name
+  as b`, the dominant shape, confirmed by `MatchStatementExecutionNewTest:2835`)
+  carries only scalars under the projection keys, not the bound records, so no
+  per-alias RID is recoverable and the skip-set cannot map a deleted or updated
+  record to its tuples. A pre-projection side-tap could recover the bindings, but
+  for the read-mostly target workload the per-tuple bookkeeping is built at
+  populate and consulted only on an in-pattern mutation, while any CREATE, edge
+  DELETE, or update-into-match tombstones the entry regardless. Model C instead
+  freezes the projected tuples, folds the alias and edge classes into
+  `effectiveFromClasses`, and at lookup invalidates the entry when a post-populate
+  mutation touches a pattern class (else replays verbatim). It reads the mutation
+  op's own class, never `getProperty(alias)`, so the field-projection shape is
+  correct by construction. See Episodes §Steps 3-5 (model C) and the Decision Log.
 
 ## Decision Log
 <!-- Continuous-log. -->
@@ -59,6 +79,25 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
   projected tuples, which would have broken the I4 DELETE/UPDATE skip-set for
   multi-item RETURN. The fold is scoped to `shape==RECORD`; record-attribute
   ORDER BY is excluded. See Episodes §Step 2.
+- 2026-06-16T10:05Z (design-decision, escalated, user-approved) Multi-alias MATCH
+  ships as model C, a class-scoped version gate, not the design's per-tuple
+  `reverseIndex` reconciliation (model B). The design's per-tuple population is
+  unbuildable for a field-projection RETURN (no bound record on the projected
+  row), and the alternative pre-projection side-tap is over-engineered for the
+  read-mostly target: the bookkeeping is built every populate but pays off only on
+  an in-pattern vertex-DELETE or pass-fail UPDATE, while CREATE / edge-DELETE /
+  update-into-match tombstone the entry anyway. Model C freezes the projected
+  tuples and at lookup invalidates the entry when a post-populate mutation touches
+  any class in `effectiveFromClasses` (alias classes plus traversal-edge classes,
+  with subclass closures), else replays verbatim. It is class-scoped, so it
+  survives mutations to classes outside the pattern (a win over a global K0_NONE
+  gate), and reads only the mutation op's class, so the field-projection shape is
+  correct without ever recovering a bound record from a projected row. Trade-off
+  accepted: a whole-entry re-execution on the first in-pattern mutation, with no
+  incremental single-tuple drop. The Step-1 link-deref / cross-alias K0_NONE gates
+  stay load-bearing: a mutation to an out-of-pattern dereferenced class is not in
+  `effectiveFromClasses`, so such patterns must route to K0_NONE, which they
+  already do.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -291,9 +330,9 @@ re-execution happens on the next `query()`).
 
 1. MATCH K0_NONE classify gate in `ShapeClassifier.classify` (Plan-of-Work step 1: SKIP/LIMIT first, then GROUP BY/UNWIND/RETURN DISTINCT/NOT MATCH, non-alias-keyed RETURN, LET/subquery, any node missing `class:`, cross-alias-state WHERE, link-path-deref WHERE via a new dedicated walk, non-statically-resolvable edge/class label, `n+m>maxRecordsPerEntry` → K0_NONE; non-gated MATCH stays `MATCH_TUPLE_MULTI`); `ShapeClassifierTest` routing assertions + the negative `where:(i.title=?)` row — risk: high (performance hot path: cache classify/lookup logic; the no-backstop floor's first gate — a missed shape silently serves stale results)  [x]  commit: 28fcf27642
 2. Etap A single-alias MATCH → RECORD fold (Plan-of-Work step 2): `classify` single-alias→RECORD split, `CachedEntry.returnProjector`, MATCH-aware `effectiveFromClasses`/`whereClauseOf`/`orderByOf` (or a dedicated MATCH populate path) in `DatabaseSessionEmbedded`, and the `serveThroughCache`/`buildView` Etap-A branch reusing `buildForRecord` with the projector applied pre-sort; Etap A cache-miss-vs-hit equivalence tests across CREATE/UPDATE/DELETE + a non-empty-`effectiveFromClasses` assertion *(independent of steps 3-5)* — risk: high (performance hot path: cache lookup + view-build path; an empty `effectiveFromClasses` would serve stale)  [x]  commit: 28af616037
-3. `MATCH_TUPLE_MULTI` entry metadata + `CachedEntry.computeMatchEffectiveFromClasses` + edge-class extraction (Plan-of-Work step 3): populate `aliasClasses`/`traversalEdgeClasses`/`aliasWheres`/`effectiveFromClasses` at entry construction (multi-class union closure), reuse `SQLMatchStatement.buildPatterns`/`addAliases` for the alias→class/where maps, and extract the edge class from `SQLMatchPathItem`'s `SQLMethodCall` recognizing `out/in/both/outE/inE/bothE`, folding the parser `null`→`E` default and multi-param; unit tests asserting `effectiveFromClasses` per method-name variant and the unnamed-`out()`→`E` base closure — risk: high (correctness floor: edge-class extraction is the entire edge-mutation tombstone story — R1 blocker)  [ ]
-4. `MatchMultiDelta` + `DeltaBuilder.buildForMatchMulti` two-pass (Plan-of-Work step 4): pass-1 tombstone pre-scan (scoped CREATE / edge-class DELETE / update-into-match → TOMBSTONE short-circuit) and pass-2 per-tuple build (`tupleSkipSet` via `reverseIndex` on vertex DELETE, `ridSkipSet` on pass→fail UPDATE with the null-`aliasWheres` "always matches" guard); delta-builder unit tests on a constructed entry + staged tx ops covering each TOMBSTONE trigger, the skip-sets, and the no-WHERE-bound-alias UPDATE no-NPE case — risk: high (the delta-build is the entire correctness story for the no-version-backstop shape)  [ ]
-5. Multi-alias session wiring + tombstone eviction + `CachedResultSetView` MATCH path + I4/I7 matrix (Plan-of-Work steps 5-7): `serveThroughCache` separate MATCH gate with the `viewOwnsGuard = result instanceof CachedResultSetView` transfer, `buildView` routing a TOMBSTONE through a new `QueryResultCache.removeForTombstone` (`overflowEntry` pinned-entry discipline) to `executeUncached`, and the `CachedResultSetView` MATCH per-tuple path (skip `tupleSkipSet`, drop on `ridSkipSet`, extend `reverseIndex`/`contributingRids` on stream-pull, cross-thread release via `exitCacheCodeUnchecked`); end-to-end MATCH equivalence matrix (vertex DELETE, pass→fail, bound-edge pass→fail, no-WHERE-alias UPDATE, tombstone on edge CREATE/DELETE/update-into-match, edge-between-already-cached-vertices, out-of-pattern-CREATE-does-not-tombstone) + a `viewOwnsGuard`-not-leaked regression + the I7 live-view-under-tombstone test — risk: high (concurrency: re-entrancy guard transfer + pinned-entry eviction; performance hot path: cache lookup/eviction + query-execution wiring)  [ ]
+3. `MATCH_TUPLE_MULTI` entry metadata + `CachedEntry.computeMatchEffectiveFromClasses` + edge-class extraction (Plan-of-Work step 3): populate `aliasClasses`/`traversalEdgeClasses`/`aliasWheres`/`effectiveFromClasses` at entry construction (multi-class union closure), reuse `SQLMatchStatement.buildPatterns`/`addAliases` for the alias→class/where maps, and extract the edge class from `SQLMatchPathItem`'s `SQLMethodCall` recognizing `out/in/both/outE/inE/bothE`, folding the parser `null`→`E` default and multi-param; unit tests asserting `effectiveFromClasses` per method-name variant and the unnamed-`out()`→`E` base closure — risk: high (correctness floor: edge-class extraction is the entire edge-mutation tombstone story — R1 blocker)  [x] model C: only `CachedEntry.computeMatchEffectiveFromClasses` + edge-class extraction (in `DatabaseSessionEmbedded.matchMultiEffectiveFromClasses`) shipped; `aliasWheres` / per-tuple `contributingRids` / `reverseIndex` were dropped (the gate needs only the class closure). See Episodes §Steps 3-5.
+4. `MatchMultiDelta` + `DeltaBuilder.buildForMatchMulti` two-pass (Plan-of-Work step 4): pass-1 tombstone pre-scan (scoped CREATE / edge-class DELETE / update-into-match → TOMBSTONE short-circuit) and pass-2 per-tuple build (`tupleSkipSet` via `reverseIndex` on vertex DELETE, `ridSkipSet` on pass→fail UPDATE with the null-`aliasWheres` "always matches" guard); delta-builder unit tests on a constructed entry + staged tx ops covering each TOMBSTONE trigger, the skip-sets, and the no-WHERE-bound-alias UPDATE no-NPE case — risk: high (the delta-build is the entire correctness story for the no-version-backstop shape)  [x] model C: no `MatchMultiDelta` / two-pass build; replaced by `DeltaBuilder.matchMultiStale` (a class-scoped post-populate-op scan returning a boolean). See Episodes §Steps 3-5.
+5. Multi-alias session wiring + tombstone eviction + `CachedResultSetView` MATCH path + I4/I7 matrix (Plan-of-Work steps 5-7): `serveThroughCache` separate MATCH gate with the `viewOwnsGuard = result instanceof CachedResultSetView` transfer, `buildView` routing a TOMBSTONE through a new `QueryResultCache.removeForTombstone` (`overflowEntry` pinned-entry discipline) to `executeUncached`, and the `CachedResultSetView` MATCH per-tuple path (skip `tupleSkipSet`, drop on `ridSkipSet`, extend `reverseIndex`/`contributingRids` on stream-pull, cross-thread release via `exitCacheCodeUnchecked`); end-to-end MATCH equivalence matrix (vertex DELETE, pass→fail, bound-edge pass→fail, no-WHERE-alias UPDATE, tombstone on edge CREATE/DELETE/update-into-match, edge-between-already-cached-vertices, out-of-pattern-CREATE-does-not-tombstone) + a `viewOwnsGuard`-not-leaked regression + the I7 live-view-under-tombstone test — risk: high (concurrency: re-entrancy guard transfer + pinned-entry eviction; performance hot path: cache lookup/eviction + query-execution wiring)  [x] model C: no tombstone-evict or per-tuple view path; `serveThroughCache` adds a class-scoped hit-path gate (`matchMultiStale` -> `QueryResultCache.invalidateMatchMulti`) and routes a multi-alias miss to `populateAndBuildView`. The entry replays verbatim through the existing K0_NONE-style view path (delta == null), so `CachedResultSetView` / `buildView` needed no change. See Episodes §Steps 3-5.
 
 ## Episodes
 <!-- Continuous-log. -->
@@ -395,6 +434,66 @@ resolves the sort key on the underlying record. One optional left for later: the
 - `ShapeClassifier.java` (modified)
 - `MatchEtapAEquivalenceTest.java` (new)
 - `ShapeClassifierTest.java` (modified)
+
+### Steps 3-5 (model C) — 2026-06-16T10:05Z [ctx=info]
+**What was done:** Shipped the multi-alias MATCH (`MATCH_TUPLE_MULTI`) path as a
+class-scoped version gate, not the design's per-tuple `reverseIndex`
+reconciliation. Five surgical changes, no new step class or view code:
+- `CachedEntry.computeMatchEffectiveFromClasses(aliasClasses, edgeClasses)`: the
+  union of every alias class and traversal-edge class with subclass closures.
+- `DatabaseSessionEmbedded.effectiveFromClasses` gained a multi-alias branch
+  (`matchMultiEffectiveFromClasses` + `addMatchNodeClass` / `addMatchEdgeClasses`
+  / `stripLabelQuotes`): collects alias node classes (`getClassName(null)`) and
+  traversal-edge labels (the step method's params, quotes stripped, `null`->`E`
+  fold via the parser), resolves each against the schema snapshot.
+- `DeltaBuilder.matchMultiStale(entry, tx)`: a boolean class-scoped scan. Fast
+  path returns false when `tx.mutationVersion == populateMutationVersion`
+  (read-mostly hit); otherwise any post-populate Entity op whose class is in
+  `effectiveFromClasses` makes the entry stale.
+- `QueryResultCache.invalidateMatchMulti(key)`: invalidate + strike + route
+  non-cacheable after the threshold, reusing the K0_NONE strike machinery (a key
+  has one fixed shape, so the two gates never collide on `k0Strikes`).
+- `DatabaseSessionEmbedded.serveThroughCache`: the hit path runs the gate
+  (`matchMultiStale` -> `invalidateMatchMulti`, then falls through to
+  re-populate); the miss path routes a multi-alias MATCH to `populateAndBuildView`
+  and refuses to cache one whose `effectiveFromClasses` is empty.
+
+A multi-alias entry stores the executor's projected RETURN tuples and replays them
+through the existing K0_NONE path (`buildView` yields `delta == null`), so
+`CachedResultSetView` and `buildView` needed no change.
+
+**What was discovered:** The field-projection RETURN shape (`RETURN a.name as a,
+b.name as b`) carries scalars under the projection keys and no bound record under
+`getProperty(alias)` (confirmed against `MatchStatementExecutionNewTest:2835`), so
+the design's per-tuple population was structurally unbuildable for the dominant
+shape, not just costly. The class-scoped gate sidesteps it by reading the mutation
+op's own class. The `String.valueOf(getProperty(...))` generic-overload trap (the
+compiler infers `char[]` and inserts a bad cast) reappeared in the test snapshot
+helper, fixed by binding to `Object` first.
+
+**What changed from the plan:** The full model-B pivot to model C, escalated and
+user-approved on the read-mostly cost argument. See the Decision Log
+(2026-06-16T10:05Z) for the rationale and trade-off. The Step-1 K0_NONE gates stay
+load-bearing: model C's class filter is complete only because link-deref /
+cross-alias patterns already route to K0_NONE. Steps 3-5's model-B deliverables
+(`MatchMultiDelta`, two-pass `buildForMatchMulti`, `reverseIndex` /
+`contributingRids`, tombstone evict, the per-tuple view path) were not built.
+**Phase 4 must reconcile `design.md` §"MATCH multi-alias (partial Etap B in v1)"
+and `design-mechanics.md` §"MATCH multi-alias"**: both describe the per-tuple
+`reverseIndex` / two-pass tombstone design, which the as-built code replaces with
+the class-scoped gate. The deferred-ADR note (full Etap B CREATE-discovery,
+incremental edge-DELETE) still holds; model C is a coarser v1 floor than the
+partial Etap B the design assumed.
+
+**Key files:**
+- `CachedEntry.java` (modified — `computeMatchEffectiveFromClasses`)
+- `DatabaseSessionEmbedded.java` (modified — multi-alias `effectiveFromClasses`,
+  `serveThroughCache` gate + populate routing)
+- `DeltaBuilder.java` (modified — `matchMultiStale`)
+- `QueryResultCache.java` (modified — `invalidateMatchMulti`)
+- `MatchMultiAliasCacheTest.java` (new — 8 tests: field-projection replay,
+  vertex/edge mutation invalidation equivalence, unrelated-class survival via
+  metrics, vertex+edge closure folding)
 
 ## Validation and Acceptance
 
