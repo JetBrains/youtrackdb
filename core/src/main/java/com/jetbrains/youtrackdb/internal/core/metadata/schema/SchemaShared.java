@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaNotCreatedException;
@@ -34,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalPrope
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -59,10 +61,13 @@ import javax.annotation.Nullable;
  */
 public abstract class SchemaShared implements CloseableInStorage {
 
-  public static final int CURRENT_VERSION_NUMBER = 4;
+  // Version 6 introduces the per-class-record format: the root schema record links one standalone
+  // record per class instead of holding every class in a single embedded set. Versions 4 and 5 are
+  // the previous embedded-set formats; both are now reject-and-redirect-only at open time, since
+  // their bytes cannot be parsed by the link-set reader. Migration is operator-driven export/import.
+  public static final int CURRENT_VERSION_NUMBER = 6;
   public static final int VERSION_NUMBER_V4 = 4;
-  // this is needed for guarantee the compatibility to 2.0-M1 and 2.0-M2 no changed associated with
-  // it
+  // VERSION_NUMBER_V5 marked the 2.0-M1/2.0-M2 embedded-set form; retained for reference only.
   public static final int VERSION_NUMBER_V5 = 5;
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -498,9 +503,10 @@ public abstract class SchemaShared implements CloseableInStorage {
                     + " the database but double check the integrity of the database",
                 null);
         return;
-      } else if (schemaVersion != CURRENT_VERSION_NUMBER && VERSION_NUMBER_V5 != schemaVersion) {
-        // VERSION_NUMBER_V5 is needed for guarantee the compatibility to 2.0-M1 and 2.0-M2 no
-        // changed associated with it
+      } else if (schemaVersion != CURRENT_VERSION_NUMBER) {
+        // Accept exactly the current format. Both a pre-bump version-4 database and the legacy
+        // version-5 (2.0-M1/M2) form now reject-and-redirect to export/import rather than falling
+        // through into the per-class link-set parser, which would mis-read their embedded classes.
         // HANDLE SCHEMA UPGRADE
         throw new ConfigurationException(
             session.getDatabaseName(),
@@ -527,7 +533,18 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       final Map<String, SchemaClassImpl> newClasses = new HashMap<>();
 
-      Collection<EntityImpl> storedClasses = entity.getProperty("classes");
+      // The root record links one standalone record per class (the per-class-record format).
+      // Load each linked record and pair it with its RID so the class can bind its own record
+      // identity, exactly as IndexManagerAbstract.load binds each index. The record list also
+      // drives the inheritance-rebuild pass below.
+      final LinkSet classLinks = entity.getLinkSet("classes");
+      final List<EntityImpl> storedClasses = new ArrayList<>();
+      if (classLinks != null) {
+        for (var link : classLinks) {
+          storedClasses.add(session.load(link.getIdentity()));
+        }
+      }
+
       for (var c : storedClasses) {
         String name = c.getProperty("name");
 
@@ -539,6 +556,7 @@ public abstract class SchemaShared implements CloseableInStorage {
           cls = createClassInstance(name);
           cls.fromStream(c);
         }
+        cls.setRecordId(c.getIdentity());
 
         newClasses.put(cls.getName(), cls);
         addCollectionClassMap(cls);
@@ -647,14 +665,44 @@ public abstract class SchemaShared implements CloseableInStorage {
       EntityImpl entity = session.load(identity);
       entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      // This steps is needed because in classes there are duplicate due to aliases
-      Set<SchemaClassImpl> realClases = new HashSet<>(classes.values());
+      // The root record links one standalone record per class, mirroring the index manager's
+      // CONFIG_INDEXES link set. Aliases that share an impl are written once; the link set ends
+      // up holding exactly the live classes' record RIDs. Records that were linked before but no
+      // longer back a live class (a dropped class) are deleted and unlinked below.
+      Set<SchemaClassImpl> realClasses = new HashSet<>(classes.values());
 
-      Set<Entity> classesEntities = session.newEmbeddedSet();
-      for (var c : realClases) {
-        classesEntities.add(c.toStream(session));
+      LinkSet classLinks = entity.getOrCreateLinkSet("classes");
+      // Snapshot the previously-linked records so drops can be detected as a set difference.
+      final Set<RID> previouslyLinked = new HashSet<>();
+      for (var link : classLinks) {
+        previouslyLinked.add(link.getIdentity());
       }
-      entity.setProperty("classes", classesEntities, PropertyType.EMBEDDEDSET);
+
+      final Set<RID> liveRecords = new HashSet<>();
+      for (var c : realClasses) {
+        EntityImpl classRecord;
+        if (c.getRecordId() == null) {
+          // New class: allocate a standalone record. Its temporary RID becomes permanent at
+          // commit and the ChangeableRecordId mutates in place, so the bound field and the link
+          // both resolve to the persistent RID without a second write.
+          classRecord = session.newInternalInstance();
+          c.setRecordId(classRecord.getIdentity());
+          classLinks.add(classRecord.getIdentity());
+        } else {
+          classRecord = session.load(c.getRecordId());
+        }
+        c.toStream(session, classRecord);
+        liveRecords.add(c.getRecordId());
+      }
+
+      // Drop the records that backed classes removed since the last save, and unlink them.
+      for (var rid : previouslyLinked) {
+        if (!liveRecords.contains(rid)) {
+          classLinks.remove(rid);
+          EntityImpl droppedRecord = session.load(rid);
+          droppedRecord.delete();
+        }
+      }
 
       List<Entity> globalProperties = session.newEmbeddedList();
       for (var globalProperty : properties) {

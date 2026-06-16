@@ -77,6 +77,14 @@ public abstract class SchemaClassImpl {
   protected int[] collectionIds;
   protected List<SchemaClassImpl> superClasses = new ArrayList<>();
   protected int[] polymorphicCollectionIds;
+  /**
+   * RID of the standalone record that persists this class under the per-class-record schema
+   * format. Bound at load from the schema root record's class link set, the same way
+   * {@code IndexManagerAbstract.load} binds each index to its own record. {@code null} for a
+   * class that has not been persisted yet; a new class is allocated a fresh record at save and
+   * its temporary RID becomes permanent at commit.
+   */
+  @Nullable protected RID recordId;
   protected List<SchemaClassImpl> subclasses;
   protected float overSize = 0f;
   protected boolean strictMode = false; // @SINCE v1.0rc8
@@ -566,8 +574,20 @@ public abstract class SchemaClassImpl {
 
   protected abstract SchemaPropertyImpl createPropertyInstance();
 
-  public Entity toStream(DatabaseSessionEmbedded session) {
-    var entity = session.newEmbeddedEntity();
+  @Nullable public RID getRecordId() {
+    return recordId;
+  }
+
+  public void setRecordId(@Nullable RID recordId) {
+    this.recordId = recordId;
+  }
+
+  /**
+   * Serializes this class into the supplied standalone record. The caller (the schema root's
+   * {@code toStream}) owns the record's identity and link-set membership; this method only writes
+   * the class fields into it. Properties stay embedded within the class record.
+   */
+  public Entity toStream(DatabaseSessionEmbedded session, EntityImpl entity) {
     entity.setProperty("name", name);
     entity.setProperty("description", description);
     entity.setProperty("defaultCollectionId", defaultCollectionId);

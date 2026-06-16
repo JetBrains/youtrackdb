@@ -21,7 +21,6 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import org.junit.Test;
@@ -1022,9 +1021,12 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     session.executeInTx(tx -> {
       EntityImpl schemaEntity = session.load(schemaRid);
-      Collection<EntityImpl> storedClasses = schemaEntity.getProperty("classes");
+      // Under the per-class-record format the root links one standalone record per class; load
+      // each linked record to reach the child's stored superclass field.
+      var classLinks = schemaEntity.getLinkSet("classes");
 
-      for (var storedClass : storedClasses) {
+      for (var link : classLinks) {
+        EntityImpl storedClass = session.load(link.getIdentity());
         String name = storedClass.getProperty("name");
         if ("ChildCls".equals(name)) {
           // Replace "ParentCls" with "parentcls" in the superClasses list.
