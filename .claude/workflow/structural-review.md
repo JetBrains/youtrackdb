@@ -158,20 +158,24 @@ issues.
 ## Review output
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="The review is not persisted; mechanical fixes apply to the plan, the durable trace is the gate-PASS audit entry." -->
 
-The structural review is not persisted to disk. Mechanical fixes are
+The structural review is not persisted as a review report. Mechanical
+fixes are
 applied autonomously to `implementation-plan.md` (and the relevant
 `plan/track-N.md` files when track descriptions need updates);
 design-decision findings ride in the orchestrator's conversation
-context until escalated and resolved. The durable trace is the
-gate-PASS state, the resulting commit, and the audit-summary entry in
-the plan file's `## Plan Review` section (see
-implementation-review.md:orchestrator,reviewer-plan:2 §Audit trail).
+context until escalated and resolved. The durable trace splits in two
+under D7: the multi-line audit summary is written to `plan-review.md`
+(present in every tier), and the review *state* is recorded in the phase
+ledger as a `phase=A` boundary (the machine signal the startup protocol's
+State-0 detection reads — there is no plan `## Plan Review` checkbox to
+flip). See implementation-review.md:orchestrator,reviewer-plan:2 §"The
+`plan-review.md` document and the ledger review state" for the exact write.
 A typical iteration looks like:
 
 ```
 Iteration 1
   Finding S1 [blocker, mechanical]      → AUTO-FIX → delete superseded DR D2 (replaced by D5)
-  Finding S2 [should-fix, mechanical]   → AUTO-FIX → trim D3 from 42 lines to 18; move worked example to design.md §Histogram Build
+  Finding S2 [should-fix, mechanical]   → AUTO-FIX → trim D3 from 42 lines to 18; move worked example to the track's ## Decision Log
   Finding S3 [should-fix, design-decision] → ESCALATE → user resolves Track 2 vs. Track 4 contradiction by reordering
 
 Iteration 2 (Gate Verification)

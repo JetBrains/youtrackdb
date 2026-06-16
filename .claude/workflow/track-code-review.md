@@ -34,8 +34,9 @@ Phase C is a **two-actor phase**, mirroring Phase B's split:
   in-scope vs deferred, spawn the per-iteration **implementer** to
   apply in-scope fixes, dispatch on its return, run the gate-check
   fan-out, manage iteration counts, run the context check, apply
-  plan corrections, compile the track episode, present results to
-  the user, mark the track `[x]` upon approval.
+  plan corrections, compile the completion episode, present results to
+  the user, and on approval record completion (the track-file episode
+  plus a ledger boundary, and the plan `[x]` in `lite`/`full`).
 - The **implementer** (a fresh sub-agent spawned per iteration that
   has fixes to apply, see implementer-rules.md:implementer:3B,3C)
   performs sub-steps 1–3 of fix application — read the cumulative
@@ -88,9 +89,10 @@ findings list above so they go through the same review-fix iteration
 as the dimensional review's output.
 
 After the review loop completes and any deferred findings are processed,
-this phase continues directly into track completion: compiling the track
-episode, presenting results to the user, and marking the track `[x]` upon
-approval. Merging code review and track completion into a single session
+this phase continues directly into track completion: compiling the
+completion episode, presenting results to the user, and on approval
+recording completion (the track-file episode plus a ledger boundary, and
+the plan `[x]` in `lite`/`full`). Merging code review and track completion into a single session
 ensures the agent has full context of which findings were fixed, which were
 deferred (and where), and what plan corrections were made — all of which
 feed into an accurate track episode.
@@ -248,8 +250,12 @@ of the changes.
    regeneration rule (the staged files become stale after every
    `Review fix:` commit).
 8. **Stage a `diff <live> <staged>` delta for freshly-created staged
-   copies (workflow-modifying plans).** When the plan's `### Constraints`
-   carries the canonical `§1.7(b)` workflow-modifying marker sentence, a
+   copies (workflow-modifying plans).** When the branch is in §1.7(b)
+   staging mode — read ledger-first: the phase ledger's `s17` field
+   (`_workflow/phase-ledger.md`, last value wins) equals the
+   workflow-modifying token; when no `phase-ledger.md` exists, fall back to
+   the plan's `### Constraints` carrying the canonical `§1.7(b)`
+   workflow-modifying marker sentence — a
    track's deliverable is often a staged copy under
    `…/_workflow/staged-workflow/.claude/…`. The first commit that creates
    such a copy shows it as a whole-file add in the cumulative diff, which
@@ -425,15 +431,19 @@ back to grep and note the reference-accuracy caveat in any finding
 that depends on a symbol search.
 
 ## Staged-read precedence (workflow-modifying plans)
-When the plan's `### Constraints` carries the canonical
-`§1.7(b)` workflow-modifying marker sentence, resolve every
-read of a `.claude/workflow/**` or
-`.claude/skills/**` file through `§1.7(d)`, taking the staged
-copy under `_workflow/staged-workflow/` when present and the
-live file otherwise. Without the marker this caveat is inert:
-read the live path. Reading the live file when a staged copy
-exists would compare a change against `develop`'s version of a
-rule the branch already rewrote and report a phantom mismatch.
+When the branch is in §1.7(b) staging mode — read ledger-first: the
+phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value
+wins) equals the workflow-modifying token; when no `phase-ledger.md`
+exists (an in-flight pre-ledger workflow-modifying branch), fall back
+to the plan's `### Constraints` carrying the canonical `§1.7(b)`
+workflow-modifying marker sentence — resolve every read of a
+`.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or
+`.claude/scripts/**` file through `§1.7(d)`, taking the staged copy
+under `_workflow/staged-workflow/` when present and the live file
+otherwise. Without the marker in either source this caveat is inert:
+read the live path. Reading the live file when a staged copy exists
+would compare a change against `develop`'s version of a rule the
+branch already rewrote and report a phantom mismatch.
 
 ## Review-target delta for freshly-created staged copies
 When a changed file is a staged copy first created in this
@@ -1242,7 +1252,8 @@ proceed directly to track completion **in the same session**.
    initial Completion entry, on post-Apply re-render after a
    FIX_FINDING round, and on State C session re-entry (per
    `workflow.md` § Startup Protocol State C sub-states row "All
-   steps `[x]`, code review `[x]`, track still `[ ]` in plan").
+   steps `[x]`, code review `[x]`, the ledger has not recorded this
+   track's completion boundary").
    In all three cases, re-read `git diff {base_commit}..HEAD`
    against current HEAD before compiling, so the episode reflects
    any `Review fix:` commits a prior-session implementer may have
@@ -1307,82 +1318,102 @@ proceed directly to track completion **in the same session**.
    The three-option panel re-renders after every review-mode Apply
    until the user picks **Approve** or **ESCALATE**.
 
-4. **Write the track episode, collapse the description, and mark `[x]`**
-   in the plan file on disk (only after user approval).
+4. **Write the completion episode to the track file, and (in
+   `lite`/`full`) collapse the plan entry and mark it `[x]`** — only
+   after user approval.
 
-   The track episode is written **only after user approval**, and at
-   the same time the description is **collapsed** to remove
-   implementation detail that is now superseded by the committed code
-   and step episodes.
+   The completion episode is canonical in the **track file's
+   `## Episodes`** section (D5), written as a final
+   `### Track completion` block after the per-step episode blocks. This
+   is the home that exists in every tier, including `minimal`, which has
+   no plan to carry the episode. The episode is written **only after
+   user approval**.
 
-   **Always keep** (regardless of plan shape): the **intro paragraph**
-   (the first paragraph of the original plan-checklist description),
-   the `**Track episode:**` block (written at collapse time), the
-   `**Track file:**` pointer, and the `**Strategy refresh:**` line if
-   present — though that line is never yet on disk at Phase C collapse
-   time; the next session's Track Pre-Flight gate appends it when
-   Panel 1 (strategy assessment) clears (see
-   track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A § Track Pre-Flight step 6).
-
-   **Always drop**: the `**Scope:**` line and the `**Depends on:**`
-   line.
-
-   Pending-track entries in the plan are written in the thin form
-   during Phase 1 (intro paragraph + `**Scope:**` + `**Depends on:**`
-   only); the track's detailed intent, plan, and dependency content
-   live in the track file's four Phase 1 track-level sections
-   (`## Purpose / Big Picture`, `## Context and Orientation`,
-   `## Plan of Work`, `## Interfaces and Dependencies`) from Phase 1
-   onward, not inline in the plan checklist. Phase C does not touch
-   those track-file sections either; it only writes the track episode +
-   collapse into the plan-file entry.
-
-   **Track episode fields:**
+   **Completion episode fields (written to the track file's
+   `## Episodes`):**
    - Strategic summary covering: what was built, key discoveries, plan
      deviations with cross-track impact. Length is proportional to
      cross-track impact — a routine track may need only a couple of
      sentences, while a track with architectural surprises should
      include enough detail for the next session's Track Pre-Flight
      gate (Panel 1 strategy assessment) to assess downstream impact
-     without reading the track file.
-   - Reference to the track file with step count and failure count.
-   - This is what future track sessions read from the plan file — the
-     track file is available for deeper investigation if needed.
+     without reading the whole track file.
+   - Step count and failure count.
 
-   Final on-disk form:
+   ```markdown
+   ### Track completion — <ISO> [ctx=<level>]
+   <strategic summary — length proportional to cross-track impact>
+
+   M steps, K failed.
+   ```
+
+   **In `lite`/`full` only — collapse the plan entry and mark it
+   `[x]`.** The plan checklist entry keeps a one-line summary and a
+   pointer to the track-file episode (not the full episode prose, which
+   is now canonical in the track file):
 
    ```markdown
    - [x] Track N: <title>
      > <intro paragraph — first paragraph of the original description>
      >
-     > **Track episode:**
-     > <strategic summary — length proportional to cross-track impact>
+     > **Track episode:** <one-line summary> — see `plan/track-N.md`
+     > `## Episodes` § Track completion. (M steps, K failed)
      >
-     > **Track file:** `plan/track-N.md` (M steps, K failed)
+     > **Track file:** `plan/track-N.md`
    ```
 
-   This shrinks completed-track entries from 100+ lines to ~10–15
-   lines and keeps the plan file lean as tracks land. The
-   `**Strategy refresh:**` line is appended by the next session's
-   Track Pre-Flight gate when Panel 1 clears.
+   **Always keep** in the collapsed plan entry: the **intro paragraph**
+   (the first paragraph of the original plan-checklist description), the
+   one-line `**Track episode:**` summary + pointer, the `**Track file:**`
+   pointer, and the `**Strategy refresh:**` line if present — though that
+   line is never yet on disk at Phase C collapse time; the next session's
+   Track Pre-Flight gate appends it when Panel 1 (strategy assessment)
+   clears (see
+   track-review.md:decomposer,orchestrator,reviewer-adversarial,reviewer-risk,reviewer-technical:3A § Track Pre-Flight step 6).
+   **Always drop**: the `**Scope:**` line and the `**Depends on:**` line.
+   Pending-track entries in the plan are written in the thin form during
+   Phase 1 (intro paragraph + `**Scope:**` + `**Depends on:**` only); the
+   track's detailed intent, plan, and dependency content live in the
+   track file's four Phase 1 track-level sections (`## Purpose / Big
+   Picture`, `## Context and Orientation`, `## Plan of Work`,
+   `## Interfaces and Dependencies`) from Phase 1 onward.
 
-   **Why collapse:** Completed tracks accumulate in the plan file and
-   are re-sent to every sub-agent as strategic context. Keeping the
-   full implementation detail for completed tracks inflates every
-   code-review sub-agent prompt by tens of thousands of tokens. The
-   intro paragraph plus track episode is sufficient strategic context
-   for reviewers of later tracks. For how sub-agents render the plan,
-   see plan-slim-rendering.md:orchestrator:3B,3C.
+   **In `minimal` — no plan entry to collapse or mark.** The completion
+   episode in the track file's `## Episodes` is the only record. Track
+   completion is recorded in the ledger by appending a `phase` boundary
+   (the same boundary the next-session resume reads — see "Why deferred
+   write" below); there is no plan `[x]` to flip.
 
-5. **Commit and push the track-completion changes** as a single
-   Workflow update commit. The plan-file edit (track episode + `[x]`
-   + collapsed description) and any final track-file Progress updates
-   from Phase C land together so the draft PR shows a clean track
-   boundary:
+   **Why collapse the plan entry (`lite`/`full`):** completed tracks
+   accumulate in the plan file and are re-sent to every sub-agent as
+   strategic context. Keeping the full episode prose in the plan inflates
+   every code-review sub-agent prompt; the one-line summary plus a pointer
+   to the canonical track-file episode is sufficient strategic context for
+   reviewers of later tracks. For how sub-agents render the plan, see
+   plan-slim-rendering.md:orchestrator:3B,3C.
+
+5. **Record completion in the ledger, then commit and push** as a single
+   Workflow update commit. First append the completion boundary to the
+   phase ledger (the machine-read resume signal — D3): advance the active
+   `track` to the next track when one remains, or cross to `phase=D` when
+   this is the last track and Phase 4 is next:
 
    ```bash
-   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
-           docs/adr/<dir-name>/_workflow/plan/track-<N>.md
+   # Next track remains (lite/full multi-track):
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger --track <N+1>
+   # Last track complete (every tier, including minimal):
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger --phase D
+   ```
+
+   Then land the track-file episode write, the ledger append, and — in
+   `lite`/`full` — the plan-file edit (one-line track episode summary +
+   `[x]` + collapsed description) together so the draft PR shows a clean
+   track boundary. Under `minimal` there is no plan file to stage:
+
+   ```bash
+   git add docs/adr/<dir-name>/_workflow/phase-ledger.md \
+           docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
+           docs/adr/<dir-name>/_workflow/implementation-plan.md   # lite/full only
    git commit -m "Mark <track> complete"
    git push
    ```
@@ -1431,13 +1462,23 @@ proceed directly to track completion **in the same session**.
 7. **Session ends.** The next session's Track Pre-Flight gate runs
    the strategy assessment (Panel 1) against this track's episode.
 
-**Why deferred write:** Writing the track episode and marking `[x]` before
-user approval creates a state that cannot be reliably resumed — if the
-session ends between marking `[x]` and receiving approval, the next session
-detects the track as complete (State A: pre-Phase-A — Track Pre-Flight
-runs) and skips user review entirely. By deferring the write, an
-interrupted session simply re-enters track completion on resume (all
-phases `[x]` in the track file, track still `[ ]` in the plan file).
+**Why deferred write:** Writing the completion episode and recording the
+track as done before user approval creates a state that cannot be reliably
+resumed — if the session ends between recording completion and receiving
+approval, the next session detects the track as complete and skips user
+review entirely. By deferring the write, an interrupted session simply
+re-enters track completion on resume.
+
+The resume signal is **the track-file Progress against the ledger**, not a
+plan `[x]`. In every tier the resume condition is: **all phases `[x]` in the
+track file's `## Progress`, but the ledger has not yet recorded this track's
+completion boundary** (the active `track` has not advanced, and `phase` has
+not crossed to `D`/`Done`). In `lite`/`full` the plan track `[ ]` is the
+human-visible echo of this same not-yet-complete state; in `minimal` there
+is no plan, so the ledger `phase` tail is the only signal — the track file
+shows all phases `[x]` while the ledger still reads `phase=C` with no
+completion append, so the next session re-enters Track Completion rather
+than treating the track as done.
 
 **Why merge with code review:** Phase C's code review and track completion
 have no perspective conflict — unlike Phase B→C (where implementation

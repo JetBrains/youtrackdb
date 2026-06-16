@@ -481,8 +481,11 @@ review-mode rounds.
    subsection committed by the gate above; both phases of consumption
    route through the same file.
 
-2. **Read the confirmed tier** (the tier line in
-   `implementation-plan.md`) to select which reviews to run (see
+2. **Read the confirmed tier** — ledger-first: the phase ledger's
+   `tier` field (`_workflow/phase-ledger.md`, last value wins); when no
+   `phase-ledger.md` exists (an in-flight pre-ledger `lite`/`full`
+   plan), fall back to the tier line in `implementation-plan.md` — to
+   select which reviews to run (see
    §Tier-driven review selection below).
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
@@ -598,7 +601,9 @@ review-mode rounds.
 <!-- roles=orchestrator,decomposer phases=3A summary="Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only." -->
 
 The **confirmed tier** (D9), not step count, selects the Phase-3A panel
-at the change level. Read the tier line in `implementation-plan.md`. This
+at the change level. Read the tier ledger-first: the phase ledger's
+`tier` field (last value wins); when no `phase-ledger.md` exists, fall
+back to the tier line in `implementation-plan.md`. This
 replaces the former Simple / Moderate / Complex step-count axis as the
 change-level selector. The selection reads **no per-step risk signal**
 (S4): the tier is the change-level driver; the per-step `risk:` tag stays

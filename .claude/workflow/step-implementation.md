@@ -309,10 +309,11 @@ The rulebook defines what you do, the three early-return cases
 your output must end with. Do not modify the track file or the plan —
 those are the orchestrator's responsibility.
 
-When the active plan's `### Constraints` section carries the canonical
-workflow-modifying marker sentence defined in `conventions.md` §1.7(b),
-the rulebook adds two staging-specific routes you apply on every write
-to `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**`.
+When the active branch is in §1.7(b) staging mode (the canonical
+workflow-modifying marker defined in `conventions.md` §1.7(b)), the
+rulebook adds two staging-specific routes you apply on every write to
+`.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or
+`.claude/scripts/**`.
 Both routes live in the rulebook already — the **Path mapping for
 workflow-modifying plans** bullet under §"What the implementer does
 (sub-steps 1–3, expanded)" Sub-step 1 routes writes to
@@ -320,13 +321,18 @@ workflow-modifying plans** bullet under §"What the implementer does
 **Pre-commit gate, live-workflow-path check** alongside the
 ephemeral-identifier gate refuses live-path commits outside the Phase 4
 promotion commit. Reads of `.claude/workflow/**`, `.claude/skills/**`,
-or `.claude/agents/**` follow the precedence rule in `conventions.md`
+`.claude/agents/**`, or `.claude/scripts/**` follow the precedence rule
+in `conventions.md`
 §1.7(d): the staged copy is authoritative when present, otherwise read
 the live file. No extra
-spawn input carries the marker — you detect it by reading the
-`### Constraints` section of the active plan, which you already load
-for strategic context. On plans without the marker, the staging rule
-does not apply and you write to live paths normally.
+spawn input carries the marker — you detect it ledger-first: read the
+phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value
+wins) and check for the workflow-modifying token. When no
+`phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying
+branch), fall back to reading the `### Constraints` section of the
+active plan, which you already load for strategic context. On a branch
+in neither staging mode, the staging rule does not apply and you write
+to live paths normally.
 
 ## Stable inputs (static)
 
@@ -464,9 +470,12 @@ finding ID prefixes, and gate format.
       advances and the previously staged files go stale.
 
       **Stage a `diff <live> <staged>` delta for freshly-created
-      staged copies (workflow-modifying plans).** When the plan's
-      `### Constraints` carries the canonical `§1.7(b)`
-      workflow-modifying marker sentence, a step's deliverable is often
+      staged copies (workflow-modifying plans).** When the branch is in
+      §1.7(b) staging mode (read ledger-first: the phase ledger's `s17`
+      field equals the workflow-modifying token; when no
+      `phase-ledger.md` exists, fall back to the plan's `### Constraints`
+      carrying the canonical `§1.7(b)`
+      workflow-modifying marker sentence), a step's deliverable is often
       a staged copy under `…/_workflow/staged-workflow/.claude/…`. The
       first commit that creates such a copy shows it as a whole-file
       add, which hides the real change: only the delta against the live
@@ -580,10 +589,16 @@ finding ID prefixes, and gate format.
       any finding that depends on a symbol search.
 
       ## Staged-read precedence (workflow-modifying plans)
-      When the plan's `### Constraints` carries the canonical
-      `§1.7(b)` workflow-modifying marker sentence, resolve every
-      read of a `.claude/workflow/**`, `.claude/skills/**`, or
-      `.claude/agents/**` file through `§1.7(d)`, taking the staged
+      When the branch is in §1.7(b) staging mode — read ledger-first:
+      the phase ledger's `s17` field (`_workflow/phase-ledger.md`,
+      last value wins) equals the workflow-modifying token; when no
+      `phase-ledger.md` exists (an in-flight pre-ledger
+      workflow-modifying branch), fall back to the plan's
+      `### Constraints` carrying the canonical `§1.7(b)`
+      workflow-modifying marker sentence — resolve every
+      read of a `.claude/workflow/**`, `.claude/skills/**`,
+      `.claude/agents/**`, or `.claude/scripts/**` file through
+      `§1.7(d)`, taking the staged
       copy under `_workflow/staged-workflow/` when present and the
       live file otherwise. Without the marker this caveat is inert:
       read the live path. Reading the live file when a staged copy

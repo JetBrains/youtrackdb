@@ -6,7 +6,7 @@
 |---|---|---|---|
 | §Detection | orchestrator,planner | 1,2,3A | Detection moved to the script's `--mode full` drift walk; this section cites the JSON the gate reads. |
 | §No-drift normalization | orchestrator,planner | 1,2,3A | Normalization moved to the script; cites the `actions_taken` recital and keeps the path-quoting note. |
-| §Skip conditions | orchestrator,planner | 1,2,3A | Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first. |
+| §Skip conditions | orchestrator,planner | 1,2,3A | Three silent-skip conditions (no _workflow dir, Phase 4 active via the ledger phase tail, empty diff) checked cheapest-first. |
 | §Resolutions | orchestrator,planner | 1,2,3A | On drift, print the commit count and stamp base, then force a Migrate / Defer / Suppress pick with no default. |
 | §Migrate now | orchestrator,planner | 1,2,3A | End the session and ask the user to re-invoke /migrate-workflow; the gate never runs the skill inline. |
 | §Defer | orchestrator,planner | 1,2,3A | Continue this session and record a deferred-drift todo recited at session end. |
@@ -191,7 +191,7 @@ silent housekeeping report, not a drift signal.
 ---
 
 ## Skip conditions
-<!-- roles=orchestrator,planner phases=1,2,3A summary="Three silent-skip conditions (no _workflow dir, plan complete + Phase 4 active, empty diff) checked cheapest-first." -->
+<!-- roles=orchestrator,planner phases=1,2,3A summary="Three silent-skip conditions (no _workflow dir, Phase 4 active via the ledger phase tail, empty diff) checked cheapest-first." -->
 
 Three silent-skip conditions short-circuit before the prompt fires.
 The script applies them during its `--mode full` drift walk and folds
@@ -209,14 +209,17 @@ cheapest first:
    Matches the `/migrate-workflow` skill's zero-match halt path when
    the caller's resolved plan dir carries no workflow subtree.
 
-2. **Plan complete plus Phase 4 active.** The active plan's
+2. **Phase 4 active (Phase-4-pending or complete).** The active plan's
    `_workflow/` subtree is about to be removed by the Phase 4 cleanup
-   commit. Read only `$PLAN_DIR/_workflow/implementation-plan.md`; the
-   skip fires when that plan has all track entries `[x]` or `[~]`
-   **and** the `## Final Artifacts` entry `[>]` or `[x]`. A missing,
-   unreadable, or still-open plan (or Pre-`[>]` Final Artifacts) falls
-   through to #3. Pre-`[>]` is still a window for a user migration
-   before final artifacts land. The cross-plan AND-fold the
+   commit. The plan's `## Final Artifacts` section is gone under the
+   derived-mirror model (D5/D7) — and `minimal` has no plan at all — so
+   this skip reads the **phase ledger** `phase` tail (last value wins),
+   not a plan checkbox: it fires when
+   `$PLAN_DIR/_workflow/phase-ledger.md` exists and its resolved
+   `phase` is `D` (Phase 4 pending) or `Done` (Phase 4 complete). A
+   missing or unreadable ledger, or a ledger whose tail `phase` is
+   `0`/`A`/`C`, falls through to #3 — that is still a window for a user
+   migration before final artifacts land. The cross-plan AND-fold the
    branch-wide gate used to apply is dropped — each plan migrates
    independently (D13).
 

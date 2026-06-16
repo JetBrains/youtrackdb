@@ -52,6 +52,33 @@ from typing import Callable, List, Optional, Tuple
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT_PATH = REPO_ROOT / ".claude" / "scripts" / "workflow-startup-precheck.sh"
 
+
+def _resolve_live_repo_root() -> Path:
+    """Walk up from this test file to the first ancestor that holds
+    `.claude/workflow/conventions.md`, returning that ancestor.
+
+    When this suite runs from its normal home (`.claude/scripts/tests/`),
+    `REPO_ROOT` (parents[3]) already holds `.claude/workflow/conventions.md`, so
+    this returns the same dir. When the suite runs from the branch-local STAGED
+    mirror (`docs/adr/<dir>/_workflow/staged-workflow/.claude/scripts/tests/`),
+    `REPO_ROOT` is the staged-workflow root, which carries the staged script but
+    not (in this step) `conventions.md`. The walk continues up to the real repo
+    root so the § 1.6(h) conformance byte-source resolves against the live
+    `conventions.md` while `SCRIPT_PATH` still points at the co-located (staged)
+    script. The fallback to `REPO_ROOT` keeps the suite's behavior unchanged on a
+    checkout that has no conventions.md anywhere above (the assertion in the
+    conformance test then surfaces the missing byte-source clearly)."""
+    for parent in Path(__file__).resolve().parents:
+        if (parent / ".claude" / "workflow" / "conventions.md").is_file():
+            return parent
+    return REPO_ROOT
+
+
+# The live repo root, used only to locate the § 1.6(h) conformance byte-source
+# (`conventions.md`). `SCRIPT_PATH` deliberately stays anchored at `REPO_ROOT`
+# (parents[3]) so a staged copy of this suite exercises the staged script.
+LIVE_REPO_ROOT = _resolve_live_repo_root()
+
 # A throwaway but well-formed 40-hex SHA used to exercise the present-scalar
 # branch of the empty->null idiom. Not a real commit; the scaffold echoes it
 # back verbatim without resolving it against git.
@@ -423,6 +450,39 @@ class GitFixture:
         path = self.plan_dir / "_workflow" / relpath
         with path.open("a", encoding="utf-8") as handle:
             handle.write(extra)
+
+    # -- phase-ledger surface ------------------------------------------------
+
+    @property
+    def ledger_file(self) -> Path:
+        """The phase ledger the precheck resolves from the branch:
+        `<plan_dir>/_workflow/phase-ledger.md`."""
+        return self.plan_dir / "_workflow" / "phase-ledger.md"
+
+    def write_ledger(self, body: str, *, commit: bool = True) -> Path:
+        """Write the phase ledger verbatim (the test supplies the exact event
+        lines) and commit it so the working tree is clean for the divergence half
+        of the same `full` run. Used by the determine_state ledger-path tests:
+        they pin the read contract by supplying hand-authored event lines rather
+        than going through `--append-ledger`, so a read regression is isolated
+        from an append regression."""
+        path = self.ledger_file
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+        if commit:
+            rel = str(path.relative_to(self.path))
+            self._git("add", rel)
+            self._git("commit", "-q", "-m", "add phase-ledger.md")
+        return path
+
+    def write_track_only(self, track_num: int, body: str, *, stamp: str) -> Path:
+        """Author a stamped `plan/track-<N>.md` for the no-plan `minimal` resume:
+        a ledger-driven State C resolves the active track to this file's
+        `## Progress` WITHOUT an `implementation-plan.md` on disk. The stamp keeps
+        the drift half of the same `full` run a clean all-stamped read (track-1.md
+        is the drift anchor when the plan is absent, D13). Line 1 of `body` should
+        be a comment so the stamp lands above the sections."""
+        return self.plan_artifact(f"plan/track-{track_num}.md", stamp=stamp, body=body)
 
 
 # ---------------------------------------------------------------------------
@@ -2942,7 +3002,7 @@ def test_state_C_substate_discrepancy_real_track_file_shape() -> None:
 # ---------------------------------------------------------------------------
 
 
-CONVENTIONS_PATH = REPO_ROOT / ".claude" / "workflow" / "conventions.md"
+CONVENTIONS_PATH = LIVE_REPO_ROOT / ".claude" / "workflow" / "conventions.md"
 
 # The four artifact globs the § 1.6(h) walk enumerates, in order. The
 # conformance check confirms both the canonical block and the script's walk
@@ -3250,6 +3310,651 @@ def test_conformance_normalization_recompute_walk_enumerates_canonical_globs() -
 
 
 # ---------------------------------------------------------------------------
+# The phase ledger — the `--append-ledger` mutation and the determine_state
+# ledger-path resume.
+#
+# The ledger (`<plan_dir>/_workflow/phase-ledger.md`) is the append-only event
+# log that owns branch-level resume state (D3/D6). `--append-ledger` appends one
+# event line atomically (temp-file + rename); `determine_state` reads the ledger
+# tail (last-value-wins per key) for the top-level phase and the active track,
+# then the track file's `## Progress` for the within-track sub-state — the
+# two-level resume. These tests pin:
+#
+#   * the appended grammar (the contract Track 2 consumes): the fixed
+#     `[<ISO>] [ctx=<level>] key=value …` shape with the
+#     { phase, track, tier, categories, s17, paused } key set, `categories`
+#     quoted, empty fields omitted;
+#   * last-value-wins reads (a second append of a changed key is the value read);
+#   * the torn (interrupted) append leaving the prior tail intact;
+#   * the determine_state ledger path for each phase token (0/A/C/D/Done),
+#     including the State C two-level resume into the track file's `## Progress`;
+#   * the no-plan `minimal` resume: ledger + `plan/track-1.md` but no
+#     `implementation-plan.md` resolves State C with the active track defaulted
+#     to `track-1` (no Checklist walk);
+#   * the ledger stays excluded by omission from detect_drift's hardcoded
+#     artifact list (no drift-walk change; the ledger is never enumerated).
+#
+# Byte-source: the script header's "The phase ledger" contract block and design
+# §"The phase ledger" / §"Resume routing".
+# ---------------------------------------------------------------------------
+
+
+# An ISO-8601-UTC timestamp regex matching the `date -u +%Y-%m-%dT%H:%MZ` the
+# append emits (minute precision, trailing Z), used to assert the appended line's
+# leading `[<ISO>]` token without pinning the wall-clock value.
+_ISO_TS_RE = r"\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z\]"
+
+
+def _ledger_text(fx: "GitFixture") -> str:
+    """Read the on-disk ledger after an `--append-ledger` run."""
+    return fx.ledger_file.read_text(encoding="utf-8")
+
+
+def test_append_ledger_writes_pinned_grammar() -> None:
+    """A single `--append-ledger` with every field set writes ONE line in the
+    fixed grammar: a leading `[<ISO>]` timestamp, a `[ctx=<level>]` marker, then
+    the `phase`/`track`/`tier`/`categories`/`s17`/`paused` tokens in that order,
+    with `categories` the one double-quoted value (it may carry a comma). This
+    pins the contract Track 2's readers consume."""
+    import re
+
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--ctx", "safe",
+            "--phase", "A",
+            "--track", "1",
+            "--tier", "full",
+            "--categories", "Workflow machinery,Architecture",
+            "--s17", "b",
+            "--paused", "phase-2",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"--append-ledger should exit 0, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert proc.stdout == "", (
+            f"--append-ledger emits no JSON on stdout, got {proc.stdout!r}"
+        )
+        lines = _ledger_text(fx).splitlines()
+        assert len(lines) == 1, f"one append must write exactly one line, got {lines!r}"
+        pattern = (
+            rf"^{_ISO_TS_RE} \[ctx=safe\] phase=A track=1 tier=full "
+            r'categories="Workflow machinery,Architecture" s17=b paused=phase-2$'
+        )
+        assert re.match(pattern, lines[0]), (
+            f"appended line must match the pinned grammar {pattern!r}, got {lines[0]!r}"
+        )
+
+
+def test_append_ledger_omits_empty_fields_and_defaults_ctx() -> None:
+    """An append that supplies only `--phase` writes the timestamp, a defaulted
+    `[ctx=safe]` marker, and `phase=…` — and NOTHING ELSE. Unsupplied keys are
+    omitted entirely (never written as an empty `key=` token), and a missing
+    `--ctx` defaults to `safe` so every entry still carries a `[ctx=…]` marker."""
+    import re
+
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck("--append-ledger", "--phase", "0", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"--append-ledger should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        line = _ledger_text(fx).splitlines()[0]
+        assert re.match(rf"^{_ISO_TS_RE} \[ctx=safe\] phase=0$", line), (
+            f"a phase-only append must default ctx and omit empty keys, got {line!r}"
+        )
+        for absent in ("track=", "tier=", "categories=", "s17=", "paused="):
+            assert absent not in line, (
+                f"unsupplied key {absent!r} must be omitted, got {line!r}"
+            )
+
+
+def test_append_ledger_appends_does_not_overwrite() -> None:
+    """A second `--append-ledger` APPENDS a new line below the first rather than
+    rewriting it — the append-only invariant. Both lines survive on disk; the
+    last-value-wins read (asserted separately) is what collapses them to a single
+    resolved state."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        run_precheck("--append-ledger", "--phase", "A", cwd=fx.path)
+        run_precheck("--append-ledger", "--phase", "C", "--track", "1", cwd=fx.path)
+        lines = _ledger_text(fx).splitlines()
+        assert len(lines) == 2, f"two appends must leave two lines, got {lines!r}"
+        assert "phase=A" in lines[0], f"first line keeps phase=A, got {lines[0]!r}"
+        assert "phase=C" in lines[1], f"second line adds phase=C, got {lines[1]!r}"
+
+
+def test_append_ledger_last_value_wins_on_read() -> None:
+    """Two appends of the same key (`tier=minimal` then `tier=full`, a mid-flight
+    tier change) plus a `phase` change resolve to the LATEST value of each key:
+    the ledger-driven state reads `phase=C`/`track=1` from the second append, not
+    the first. This is the read half of the append-only / last-value-wins
+    contract."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        run_precheck(
+            "--append-ledger", "--phase", "A", "--tier", "minimal", cwd=fx.path
+        )
+        run_precheck(
+            "--append-ledger", "--phase", "C", "--track", "1", "--tier", "full",
+            cwd=fx.path,
+        )
+        # A track file so the latest phase=C resolves the two-level State C read.
+        fx.write_track_only(
+            1,
+            "<!-- track fixture -->\n# Track 1\n\n## Progress\n"
+            "- [ ] Review + decomposition\n",
+            stamp=head,
+        )
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
+            "the latest ledger phase (C) and track (1) must win over the earlier "
+            f"phase=A entry, got {state!r}"
+        )
+
+
+def test_torn_append_leaves_prior_tail_intact() -> None:
+    """An interrupted (torn) append must not corrupt resume state: the atomic
+    temp-file-plus-rename means a crash mid-write leaves the PRIOR ledger
+    untouched, so `determine_state` resolves the prior state. This simulates the
+    torn write by leaving a stray `.phase-ledger.<pid>.tmp` holding a half-written
+    line beside a complete prior ledger, then asserting the read still resolves
+    the prior tail (the temp file is never read; only the committed ledger is) and
+    that the prior ledger bytes are unchanged."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        # A complete prior ledger recording phase=A.
+        prior = fx.write_ledger(
+            f"[2026-06-15T10:00Z] [ctx=safe] phase=A tier=minimal\n"
+        )
+        prior_bytes = prior.read_bytes()
+        # A stray temp file as if a crashed append had written a partial line to
+        # the sibling temp without completing the rename. Its name mirrors the
+        # script's `.phase-ledger.<pid>.tmp` pattern; a torn body has no newline.
+        torn = prior.parent / ".phase-ledger.99999.tmp"
+        torn.write_text(
+            "[2026-06-15T10:00Z] [ctx=safe] phase=A tier=minimal\n"
+            "[2026-06-15T11:00Z] [ctx=info] phase=C tra",  # truncated mid-line
+            encoding="utf-8",
+        )
+        # The read must resolve the PRIOR state (phase=A -> State A here, no track
+        # file), never the torn temp's partial phase=C.
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "A", "substate": None}, (
+            "a torn append (stray temp file) must leave the prior phase=A tail "
+            f"authoritative, got {state!r}"
+        )
+        assert prior.read_bytes() == prior_bytes, (
+            "the prior ledger bytes must be untouched by a torn append"
+        )
+
+
+def _ledger_state(phase: str, *, track: str = "", track_body: str = "") -> dict:
+    """Run `--mode full` against a branch with a phase ledger (no
+    implementation-plan.md) and return the `state` object. The ledger records
+    `phase` (and optional `track`); when `track_body` is given a stamped
+    `plan/track-<track or 1>.md` is authored so the State C two-level read has a
+    `## Progress` to consume. The drift half stays a clean all-stamped read: the
+    ledger is unstamped-by-design (excluded from the walk), and the track file,
+    when present, carries the HEAD stamp; with no track file the walk is the
+    empty-input no-drift path."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fields = f"phase={phase}"
+        if track:
+            fields += f" track={track}"
+        fx.write_ledger(f"[2026-06-15T12:00Z] [ctx=safe] {fields}\n")
+        if track_body:
+            fx.write_track_only(int(track or "1"), track_body, stamp=head)
+        return _state(run_precheck("--mode", "full", cwd=fx.path))
+
+
+def test_ledger_path_state_0() -> None:
+    """A ledger recording `phase=0` (plan review not yet passed) resolves State 0
+    from the ledger, the same conservative pre-gate state the legacy plan-checkbox
+    walk gives an unreviewed plan — but now with NO implementation-plan.md on
+    disk."""
+    state = _ledger_state("0")
+    assert state == {"phase": "0", "substate": None}, (
+        f"ledger phase=0 must resolve State 0, got {state!r}"
+    )
+
+
+def test_ledger_path_state_A_no_track_file() -> None:
+    """A ledger recording `phase=A` resolves State A: the pre-Phase-A state with
+    no track file yet. No implementation-plan.md and no track file on disk."""
+    state = _ledger_state("A")
+    assert state == {"phase": "A", "substate": None}, (
+        f"ledger phase=A must resolve State A, got {state!r}"
+    )
+
+
+def test_ledger_path_state_C_resolves_substate_from_track_file() -> None:
+    """A ledger recording `phase=C track=2` resolves State C and computes the
+    within-track sub-state from `plan/track-2.md`'s `## Progress` — the two-level
+    resume: the ledger owns the phase and active track, the track file owns the
+    sub-state. Here decomposition is done and the roster has a `[ ]` step, so the
+    sub-state is steps-partial."""
+    body = (
+        "<!-- track fixture -->\n# Track 2\n\n## Progress\n"
+        "- [x] 2026-06-15T00:00Z [ctx=info] Review + decomposition complete\n"
+        "- [ ] Step implementation\n\n## Concrete Steps\n\n"
+        "1. one — risk: high  [ ]\n"
+    )
+    state = _ledger_state("C", track="2", track_body=body)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        "ledger phase=C track=2 must resolve State C with the track file's "
+        f"sub-state (steps-partial), got {state!r}"
+    )
+
+
+def test_ledger_path_state_C_track_missing_is_state_a() -> None:
+    """A ledger recording `phase=C track=1` but with NO `plan/track-1.md` on disk
+    resolves State A (pre-decomposition), mirroring the legacy walk's
+    first-`[ ]`-track-without-a-file branch — a phase recorded as C cannot resolve
+    a sub-state without a track file."""
+    state = _ledger_state("C", track="1")
+    assert state == {"phase": "A", "substate": None}, (
+        f"ledger phase=C with no track file must resolve State A, got {state!r}"
+    )
+
+
+def test_ledger_path_state_D() -> None:
+    """A ledger recording `phase=D` resolves State D (Phase 4 pending), with no
+    plan file on disk."""
+    state = _ledger_state("D")
+    assert state == {"phase": "D", "substate": None}, (
+        f"ledger phase=D must resolve State D, got {state!r}"
+    )
+
+
+def test_ledger_path_state_done() -> None:
+    """A ledger recording `phase=Done` resolves Done (Phase 4 complete)."""
+    state = _ledger_state("Done")
+    assert state == {"phase": "Done", "substate": None}, (
+        f"ledger phase=Done must resolve Done, got {state!r}"
+    )
+
+
+def test_ledger_no_plan_minimal_resume_defaults_track_1() -> None:
+    """The headline no-plan `minimal` resume: a ledger recording `phase=C` with
+    NO `track` field and a `plan/track-1.md` present but NO
+    `implementation-plan.md` resolves State C with the active track defaulted to
+    `track-1` — no Checklist walk (there is no plan to walk). This is the case the
+    whole `minimal`-drops-the-plan change rests on: such a branch resumes to its
+    recorded state instead of restarting as a fresh State 0."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        # Ledger records phase=C but names no track; the active track defaults to 1.
+        fx.write_ledger("[2026-06-15T12:00Z] [ctx=info] phase=C tier=minimal\n")
+        fx.write_track_only(
+            1,
+            "<!-- track fixture -->\n# Track 1\n\n## Progress\n"
+            "- [x] 2026-06-15T00:00Z [ctx=info] Review + decomposition complete\n"
+            "- [ ] Step implementation\n\n## Concrete Steps\n\n"
+            "1. the single track — risk: high  [ ]\n",
+            stamp=head,
+        )
+        # Guard: there is genuinely no implementation-plan.md on disk.
+        assert not (fx.plan_dir / "_workflow" / "implementation-plan.md").exists(), (
+            "the no-plan minimal fixture must have no implementation-plan.md"
+        )
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": "steps-partial"}, (
+            "a plan-less minimal branch with a ledger and plan/track-1.md must "
+            f"resume State C (active track defaulted to 1), got {state!r}"
+        )
+
+
+def test_ledger_absent_falls_back_to_plan_checkbox_walk() -> None:
+    """Regression guard: a branch with NO ledger and an in-flight `lite`/`full`
+    plan still resumes via the legacy plan-checkbox walk. Plan Review passed, the
+    single Checklist track is `[ ]` with a track file present, so the walk
+    resolves State C — unchanged from before the ledger existed. This is the
+    invariant that keeps existing in-flight plans resuming without regression."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        body = _plan_doc(
+            PLAN_REVIEW_PASSED,
+            "- [ ] Track 1: the active track",
+            "- [ ] Phase 4: Final artifacts",
+        )
+        fx.plan_artifact("implementation-plan.md", stamp=head, body=body)
+        fx.plan_artifact(
+            "plan/track-1.md",
+            stamp=head,
+            body="<!-- t -->\n# Track 1\n\n## Progress\n- [ ] Review + decomposition\n",
+        )
+        # No ledger written.
+        assert not fx.ledger_file.exists(), "this regression fixture writes no ledger"
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": "decomposition-pending"}, (
+            "with no ledger the legacy plan-checkbox walk must still resolve State "
+            f"C, got {state!r}"
+        )
+
+
+def test_ledger_unrecognized_phase_is_parse_error() -> None:
+    """A corrupt ledger (an unrecognized `phase=` token) fails loudly via
+    parse_error — exit 3, a stderr message naming phase-ledger.md, and NO JSON on
+    stdout — rather than silently routing to a wrong state. Mirrors the
+    closed-enum parse-error contract the Checklist / section walks apply to
+    malformed glyphs."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        fx.write_ledger("[2026-06-15T12:00Z] [ctx=safe] phase=bogus\n")
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 3, (
+            f"an unrecognized ledger phase must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert proc.stdout == "", (
+            f"a ledger parse error must emit no JSON, got {proc.stdout!r}"
+        )
+        assert "phase-ledger.md" in proc.stderr, (
+            f"the parse error must name phase-ledger.md, got {proc.stderr!r}"
+        )
+
+
+def test_ledger_categories_value_with_spaces_reads_back_whole() -> None:
+    """The quoted `categories` value (which may carry spaces and commas) is
+    written and would read back whole. This append-then-inspect pins that the
+    grammar's one quoted field survives a round trip: the on-disk line carries the
+    full quoted value, and a subsequent `phase` key after it is still its own
+    token (the quote does not swallow the rest of the line). The state read on the
+    same fixture confirms the trailing `phase` token after the quoted value is
+    parsed correctly (last-value-wins on `phase` is unaffected by the quoted
+    `categories` before it)."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        run_precheck(
+            "--append-ledger",
+            "--phase", "A",
+            "--categories", "Workflow machinery, Architecture",
+            cwd=fx.path,
+        )
+        line = _ledger_text(fx).splitlines()[0]
+        assert 'categories="Workflow machinery, Architecture"' in line, (
+            f"the quoted categories value must survive whole, got {line!r}"
+        )
+        # phase=A precedes categories in the emit order, so it is still its own
+        # token; the read resolves State A, proving the quoted value did not
+        # corrupt the surrounding tokens.
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "A", "substate": None}, (
+            f"phase token must read cleanly alongside a quoted categories, got {state!r}"
+        )
+
+
+def test_ledger_excluded_from_drift_walk_by_omission() -> None:
+    """The ledger stays excluded from drift detection BY OMISSION from
+    detect_drift's hardcoded artifact list (D13) — there is no detect_drift code
+    change. A `_workflow/` holding ONLY a phase-ledger.md (no
+    implementation-plan.md / design.md / track-*.md) is the empty-input no-drift
+    path: the walk enumerates none of its four hardcoded globs, so the ledger is
+    never classified stamped or unstamped, and drift reports `detected=false` with
+    a null kind. An UNSTAMPED ledger therefore does NOT trip the unstamped-drift
+    short-circuit — proving the ledger is not in the walk's set."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # Only a ledger in _workflow/ — and it is unstamped (no workflow-sha
+        # line), which WOULD trip drift if the walk enumerated it.
+        fx.write_ledger("[2026-06-15T12:00Z] [ctx=safe] phase=A\n")
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        assert obj["drift"]["detected"] is False, (
+            "an unstamped ledger as the only _workflow/ artifact must NOT register "
+            f"drift (it is excluded by omission from the walk), got {obj['drift']!r}"
+        )
+        assert obj["drift"]["kind"] is None, (
+            "the ledger-only _workflow/ is the empty-input no-drift path (null "
+            f"kind), got {obj['drift']!r}"
+        )
+
+
+def test_ledger_anchor_track_file_keeps_drift_clean_when_plan_absent() -> None:
+    """With the plan dropped (no implementation-plan.md), `track-1.md` is the
+    drift anchor (D13): a stamped track-1.md plus an unstamped-by-design ledger is
+    a clean all-stamped no-drift read. This pins that dropping the plan does not
+    weaken drift detection — the walk still finds a stamped anchor and the ledger
+    is silently excluded."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.write_ledger("[2026-06-15T12:00Z] [ctx=safe] phase=C track=1\n")
+        # track-1.md is the lone stamped artifact (the drift anchor); no plan.
+        fx.write_track_only(
+            1,
+            "<!-- t -->\n# Track 1\n\n## Progress\n- [ ] Review + decomposition\n",
+            stamp=head,
+        )
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        assert obj["drift"]["detected"] is False, (
+            "a stamped track-1.md anchor + unstamped ledger must be a clean "
+            f"no-drift read, got {obj['drift']!r}"
+        )
+
+
+def test_append_ledger_mutually_exclusive_with_mode() -> None:
+    """`--append-ledger` and `--mode` are mutually exclusive: passing both is a
+    caller error (exit 2, usage on stderr, no JSON), because one is a mutation and
+    the other a JSON reporter."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        proc = run_precheck("--append-ledger", "--mode", "full", "--phase", "A", cwd=fx.path)
+        assert proc.returncode == 2, (
+            f"--append-ledger + --mode must exit 2, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert proc.stdout == "", f"the error path emits no JSON, got {proc.stdout!r}"
+
+
+# ---------------------------------------------------------------------------
+# Append-path hardening — value validation, failure surfacing, and temp cleanup.
+#
+# The append primitive is the resume state machine and its grammar is the
+# contract Track 2 consumes, so a malformed value must fail loudly rather than
+# silently corrupt the ledger tail, a failed write must surface a non-zero exit
+# rather than masquerade as a recorded boundary, and a failed append must leave
+# no orphan temp file. These pin those three properties.
+# ---------------------------------------------------------------------------
+
+
+def test_append_ledger_rejects_newline_in_field() -> None:
+    """A newline smuggled into any field is rejected (exit 3 + stderr diagnostic)
+    and the ledger is NOT written. Without the guard, the newline would write a
+    second physical line whose `phase=Done` tail the last-value-wins reader would
+    resolve as the phase — routing resume to the wrong state. Mirrors the read
+    path's loud-reject posture for an unrecognized phase."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "X\nphase=Done", cwd=fx.path
+        )
+        assert proc.returncode == 3, (
+            f"a newline in a field must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "newline" in proc.stderr, (
+            f"the reject must name the newline cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_ledger_rejects_double_quote_in_categories() -> None:
+    """An embedded double quote in `categories` is rejected (exit 3): a `"` would
+    close the quoted span early, and the reader's `%%\"*` truncation would drop
+    the rest of the value. `categories` is the one quoted field, so a `"` is
+    outside its documented spaces-and-commas alphabet."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "A", "--categories", 'foo"bar', cwd=fx.path
+        )
+        assert proc.returncode == 3, (
+            f"a double quote in categories must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "double quote" in proc.stderr, (
+            f"the reject must name the double-quote cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_ledger_rejects_space_in_bare_field() -> None:
+    """A space in a bare-token field (here `phase`) is rejected (exit 3): the
+    reader splits a bare value at the first space, so a space would truncate the
+    value or spawn a spurious `key=value` token. Only `categories` may carry
+    spaces."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck("--append-ledger", "--phase", "A B", cwd=fx.path)
+        assert proc.returncode == 3, (
+            f"a space in a bare field must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "bare token" in proc.stderr, (
+            f"the reject must name the bare-token cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_ledger_allows_spaces_in_categories() -> None:
+    """The complement to the bare-field space reject: a space in `categories` is
+    ALLOWED (it is the one quoted field), so an append carrying a multi-word
+    category list exits 0 and writes the quoted value whole. This guards against
+    the validation over-rejecting the one field the grammar permits spaces in."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--phase", "A",
+            "--categories", "Workflow machinery, Architecture",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"a space in categories must be allowed (exit 0), got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        line = fx.ledger_file.read_text(encoding="utf-8").splitlines()[0]
+        assert 'categories="Workflow machinery, Architecture"' in line, (
+            f"the multi-word category list must be written whole, got {line!r}"
+        )
+
+
+def test_append_ledger_surfaces_write_failure_nonzero() -> None:
+    """A failed append (here an unwritable `_workflow/` dir, simulating a
+    permissions / disk-full failure) surfaces a NON-ZERO exit and a stderr
+    diagnostic rather than silently exiting 0. The orchestrator treats a 0 exit as
+    "the boundary is recorded", so a lost append must not masquerade as success.
+    The dir is chmod'd back so the fixture's temp-dir cleanup can remove it."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # Pre-create the _workflow/ dir, then make it unwritable so the temp-file
+        # write inside append_ledger fails.
+        workflow_dir = fx.plan_dir / "_workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(workflow_dir, 0o500)
+        try:
+            proc = run_precheck("--append-ledger", "--phase", "C", cwd=fx.path)
+        finally:
+            # Restore write permission unconditionally so TemporaryDirectory
+            # cleanup (and any later assertion) can touch the dir.
+            os.chmod(workflow_dir, 0o700)
+        assert proc.returncode != 0, (
+            f"a failed write must exit non-zero, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "append-ledger" in proc.stderr, (
+            f"a failed append must emit a diagnostic, got {proc.stderr!r}"
+        )
+
+
+def test_append_ledger_no_orphan_temp_on_success() -> None:
+    """The success path leaves no `.phase-ledger.<pid>.tmp` orphan: the rename
+    consumes the temp, and the RETURN trap's `rm -f` is then a harmless no-op. A
+    second append (over an existing ledger) exercises the cat-existing branch and
+    must likewise leave no temp behind."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        run_precheck("--append-ledger", "--phase", "A", cwd=fx.path)
+        run_precheck("--append-ledger", "--phase", "C", "--track", "1", cwd=fx.path)
+        workflow_dir = fx.plan_dir / "_workflow"
+        orphans = [p.name for p in workflow_dir.iterdir() if p.name.endswith(".tmp")]
+        assert orphans == [], (
+            f"no .tmp orphan must remain after a successful append, got {orphans!r}"
+        )
+
+
+def test_append_ledger_no_orphan_temp_on_failure() -> None:
+    """The failure path leaves no orphan temp either: the RETURN trap reaps the
+    PID-suffixed temp on a failed write. Simulates the failure by making the
+    `_workflow/` dir unwritable AFTER pre-seeding it (so mkdir -p succeeds but the
+    temp write fails), then asserts no `.tmp` survives once permission is
+    restored."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        workflow_dir = fx.plan_dir / "_workflow"
+        workflow_dir.mkdir(parents=True, exist_ok=True)
+        # A prior committed ledger so the failing branch is the cat-existing one;
+        # its bytes also confirm the failed append did not corrupt it.
+        ledger = workflow_dir / "phase-ledger.md"
+        ledger.write_text("[2026-06-15T10:00Z] [ctx=safe] phase=A\n", encoding="utf-8")
+        os.chmod(workflow_dir, 0o500)
+        try:
+            proc = run_precheck("--append-ledger", "--phase", "C", cwd=fx.path)
+        finally:
+            os.chmod(workflow_dir, 0o700)
+        assert proc.returncode != 0, (
+            f"the failure fixture must exit non-zero, got {proc.returncode}"
+        )
+        orphans = [p.name for p in workflow_dir.iterdir() if p.name.endswith(".tmp")]
+        assert orphans == [], (
+            f"the RETURN trap must reap the temp on a failed append, got {orphans!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Runner.
 # ---------------------------------------------------------------------------
 
@@ -3330,6 +4035,33 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("conformance_drift_walk_carries_no_stamped_pairs", test_conformance_drift_walk_carries_no_stamped_pairs),
     ("conformance_migrate_range_walk_carries_stamped_pairs", test_conformance_migrate_range_walk_carries_stamped_pairs),
     ("conformance_normalization_recompute_walk_enumerates_canonical_globs", test_conformance_normalization_recompute_walk_enumerates_canonical_globs),
+    # -- phase ledger: append primitive + determine_state ledger path ----------
+    ("append_ledger_writes_pinned_grammar", test_append_ledger_writes_pinned_grammar),
+    ("append_ledger_omits_empty_fields_and_defaults_ctx", test_append_ledger_omits_empty_fields_and_defaults_ctx),
+    ("append_ledger_appends_does_not_overwrite", test_append_ledger_appends_does_not_overwrite),
+    ("append_ledger_last_value_wins_on_read", test_append_ledger_last_value_wins_on_read),
+    ("torn_append_leaves_prior_tail_intact", test_torn_append_leaves_prior_tail_intact),
+    ("ledger_path_state_0", test_ledger_path_state_0),
+    ("ledger_path_state_A_no_track_file", test_ledger_path_state_A_no_track_file),
+    ("ledger_path_state_C_resolves_substate_from_track_file", test_ledger_path_state_C_resolves_substate_from_track_file),
+    ("ledger_path_state_C_track_missing_is_state_a", test_ledger_path_state_C_track_missing_is_state_a),
+    ("ledger_path_state_D", test_ledger_path_state_D),
+    ("ledger_path_state_done", test_ledger_path_state_done),
+    ("ledger_no_plan_minimal_resume_defaults_track_1", test_ledger_no_plan_minimal_resume_defaults_track_1),
+    ("ledger_absent_falls_back_to_plan_checkbox_walk", test_ledger_absent_falls_back_to_plan_checkbox_walk),
+    ("ledger_unrecognized_phase_is_parse_error", test_ledger_unrecognized_phase_is_parse_error),
+    ("ledger_categories_value_with_spaces_reads_back_whole", test_ledger_categories_value_with_spaces_reads_back_whole),
+    ("ledger_excluded_from_drift_walk_by_omission", test_ledger_excluded_from_drift_walk_by_omission),
+    ("ledger_anchor_track_file_keeps_drift_clean_when_plan_absent", test_ledger_anchor_track_file_keeps_drift_clean_when_plan_absent),
+    ("append_ledger_mutually_exclusive_with_mode", test_append_ledger_mutually_exclusive_with_mode),
+    # -- append-path hardening: value validation, failure surfacing, temp cleanup
+    ("append_ledger_rejects_newline_in_field", test_append_ledger_rejects_newline_in_field),
+    ("append_ledger_rejects_double_quote_in_categories", test_append_ledger_rejects_double_quote_in_categories),
+    ("append_ledger_rejects_space_in_bare_field", test_append_ledger_rejects_space_in_bare_field),
+    ("append_ledger_allows_spaces_in_categories", test_append_ledger_allows_spaces_in_categories),
+    ("append_ledger_surfaces_write_failure_nonzero", test_append_ledger_surfaces_write_failure_nonzero),
+    ("append_ledger_no_orphan_temp_on_success", test_append_ledger_no_orphan_temp_on_success),
+    ("append_ledger_no_orphan_temp_on_failure", test_append_ledger_no_orphan_temp_on_failure),
 ]
 
 

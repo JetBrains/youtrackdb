@@ -1,42 +1,33 @@
 #!/usr/bin/env python3
-"""Validation that the UNCHANGED `workflow-startup-precheck.sh` parses the
-shape-complete `minimal` stub plan.
+"""Validation that `workflow-startup-precheck.sh` resumes a plan-less `minimal`
+branch from its phase ledger.
 
-The complexity-adaptive tiering work adds a `minimal` tier whose plan is a
-~10-line stub rather than the full aggregator. The whole premise of that tier
-is that the resume state machine is left untouched: the existing precheck
-script must read the stub's three state-bearing sections and resolve a valid
-resume state without any script change. This file pins that premise as an
-executable assertion.
+The no-track-for-minimal work drops `implementation-plan.md` from the `minimal`
+tier: a one-track change has nothing left for a plan to summarize. The resume
+state that the plan's checkboxes used to carry now lives in an append-only phase
+ledger (`<plan_dir>/_workflow/phase-ledger.md`), and the active track is
+`track-1` by construction (single-track tier — no `## Checklist` to walk). This
+file pins that the precheck resumes such a branch to its recorded state instead
+of restarting it as a fresh State 0.
 
-It is deliberately a SEPARATE file from `test_workflow_startup_precheck.py`:
-that file is the precheck's own contract suite and must stay byte-identical
-(no script/test edits is the load-bearing invariant the stub work rests on).
-This file adds NEW coverage on the LIVE script without touching either, so a
-regression here flags "the stub shape and the unchanged parser drifted apart"
-distinctly from a regression in the parser's own suite.
+This replaces the old stub-plan premise. Before this work, the `minimal` tier
+shipped a shape-complete stub of `implementation-plan.md` purely so the unchanged
+state machine had a plan to parse; this file then pinned "the unchanged script
+parses the stub." That premise is gone: there is no `minimal` plan to parse, and
+the state machine reads the ledger. The cases below are the no-plan analogues of
+the old stub-plan transitions:
 
-The synthesized stub is byte-faithful to the authoritative `minimal` stub
-template in `create-plan/SKILL.md` (the plan-derivation block): a
-`## High-level plan` carrying the tier line, a `## Checklist` with exactly one
-track entry, a `## Plan Review` section with its decision checkbox, and a
-`## Final Artifacts` section with its decision checkbox. The state walk reads
-each section's first top-level checkbox, so the stub's checkboxes (not bare
-headings) are what keep resume out of a stranded State 0.
+  * ledger phase=0 (plan review not passed) -> readable State 0, the
+    autonomous-review gate, with NO implementation-plan.md on disk;
+  * ledger phase=C with plan/track-1.md present -> State C, the mid-track resume,
+    with the active track defaulted to track-1 (no Checklist walk);
+  * ledger phase=Done -> Done, the end-of-plan resume.
 
-Three assertions, matching the three states a stub passes through over its
-lifetime:
-
-  * As written (`## Plan Review` `[ ]`), the precheck reports a readable state
-    and it is State 0 — plan review has not passed, so the stub resumes at the
-    autonomous-review gate exactly like a full plan.
-  * With `## Plan Review` flipped to `[x]` (review passed), the precheck walks
-    the single `## Checklist` track and reports State A (no track file) or
-    State C (track file present) — the post-review, mid-execution resume.
-  * With the single `## Checklist` track flipped to `[x]` AND `## Final
-    Artifacts` flipped to `[x]`, the precheck finds no `[ ]` track and reports
-    State D (Phase 4 pending) or Done (Phase 4 complete) — the end-of-plan
-    resume.
+It stays a SEPARATE file from `test_workflow_startup_precheck.py` (the precheck's
+own contract suite) so a regression here flags "the no-plan minimal resume and
+the ledger reader drifted apart" distinctly from a regression in the parser's own
+suite. The synthesized ledger lines are byte-faithful to the grammar pinned in
+`test_workflow_startup_precheck.py` and the script header.
 
 Invocation (from repo root):
 
@@ -45,10 +36,10 @@ Invocation (from repo root):
 Exit code 0: every test case passed. Exit code 1: one or more failed; each
 failure prints a clear message naming the test case.
 
-Runner shape mirrors `test_workflow_startup_precheck.py` (stand-alone, no
-pytest collection, exit-code semantics, single file, shells out to the bash
-script). Pytest is not installed on the project's CI image; the stand-alone
-runner keeps the test executable on any Python 3 host.
+Runner shape mirrors `test_workflow_startup_precheck.py` (stand-alone, no pytest
+collection, exit-code semantics, single file, shells out to the bash script).
+Pytest is not installed on the project's CI image; the stand-alone runner keeps
+the test executable on any Python 3 host.
 """
 
 from __future__ import annotations
@@ -68,21 +59,21 @@ SCRIPT_PATH = REPO_ROOT / ".claude" / "scripts" / "workflow-startup-precheck.sh"
 
 # ---------------------------------------------------------------------------
 # Process helper — mirrors the existing suite's run_precheck so this file
-# invokes the LIVE script the same way (bash + the same arg vector + a cwd
-# pointing at the fixture repo). Kept local rather than imported: the
-# stand-alone runners in this directory do not import one another.
+# invokes the script the same way (bash + the same arg vector + a cwd pointing at
+# the fixture repo). Kept local rather than imported: the stand-alone runners in
+# this directory do not import one another.
 # ---------------------------------------------------------------------------
 
 
 def run_precheck(*args: str, cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     """Run the precheck script with the given args inside `cwd`, capturing
-    stdout/stderr. `check=False` so a non-zero exit surfaces as a clear
-    per-case assertion rather than a raised CalledProcessError. `cwd` runs the
-    script inside the fixture git repo so the state walk resolves the fixture's
-    branch (and thus its plan dir) rather than the runner's own checkout.
-    `timeout=60` so a wedged child (a git operation that escapes the script's
-    own internal `timeout 10` guard) fails fast with a clear message instead of
-    hanging the runner; mirrors the D11 test's `run_script` bound."""
+    stdout/stderr. `check=False` so a non-zero exit surfaces as a clear per-case
+    assertion rather than a raised CalledProcessError. `cwd` runs the script
+    inside the fixture git repo so the state walk resolves the fixture's branch
+    (and thus its plan dir) rather than the runner's own checkout. `timeout=60` so
+    a wedged child (a git operation that escapes the script's own internal
+    `timeout 10` guard) fails fast with a clear message instead of hanging the
+    runner."""
     try:
         return subprocess.run(
             ["bash", str(SCRIPT_PATH), *args],
@@ -109,17 +100,17 @@ def run_precheck(*args: str, cwd: Optional[Path] = None) -> subprocess.Completed
 # would fetch the runner's real upstream (network-dependent, slow on CI) and
 # resolve real plan artifacts. This builder stands up a throwaway repo with the
 # small surface this file needs: a branch named so its plan dir is predictable,
-# an in-sync upstream, and a writer for the stub plan file at that dir.
+# an in-sync upstream, and writers for the phase ledger and the single track file
+# at that dir — but NO implementation-plan.md (the plan-less minimal shape).
 #
-# It is intentionally a slimmer sibling of the full suite's GitFixture (which
-# also models divergence/drift/migrate fixtures this file does not exercise),
-# kept local for the no-cross-import reason above.
+# It is intentionally a slimmer sibling of the full suite's GitFixture, kept
+# local for the no-cross-import reason above.
 # ---------------------------------------------------------------------------
 
 
 GIT_ENV = {
-    # Deterministic identity + isolation from the host's global git config so
-    # the fixture behaves identically on any developer machine and on CI.
+    # Deterministic identity + isolation from the host's global git config so the
+    # fixture behaves identically on any developer machine and on CI.
     "GIT_AUTHOR_NAME": "precheck-stub-fixture",
     "GIT_AUTHOR_EMAIL": "precheck-stub@fixture.invalid",
     "GIT_COMMITTER_NAME": "precheck-stub-fixture",
@@ -129,14 +120,17 @@ GIT_ENV = {
 }
 
 
-class StubPlanFixture:
+class MinimalLedgerFixture:
     """A throwaway git repo whose branch name fixes the resolved plan dir, with
     an in-sync upstream so `--mode full` divergence detection runs hermetically.
+    Models the PLAN-LESS `minimal` shape: a phase ledger and an optional
+    `plan/track-1.md`, but no `implementation-plan.md`.
 
     Use as a context manager so the temp dir is always cleaned up:
 
-        with StubPlanFixture() as fx:
-            fx.write_plan(stub_body)
+        with MinimalLedgerFixture() as fx:
+            fx.write_ledger("[...] [ctx=safe] phase=C\\n")
+            fx.write_track_1(body, stamp=fx.head_sha())
             proc = run_precheck("--mode", "full", cwd=fx.path)
     """
 
@@ -147,10 +141,10 @@ class StubPlanFixture:
         self.path: Path = Path()  # set in __enter__
         self.bare_path: Optional[Path] = None
 
-    def __enter__(self) -> "StubPlanFixture":
-        # A unique temp prefix (mktemp -d under the hood) keeps concurrent test
-        # runs from colliding — satisfies the project's /tmp isolation rule.
-        self._tmp = tempfile.TemporaryDirectory(prefix="precheck-stub-")
+    def __enter__(self) -> "MinimalLedgerFixture":
+        # A unique temp prefix keeps concurrent test runs from colliding —
+        # satisfies the project's /tmp isolation rule.
+        self._tmp = tempfile.TemporaryDirectory(prefix="precheck-minimal-")
         root = Path(self._tmp.name)
         self.path = root / "work"
         self.path.mkdir()
@@ -185,9 +179,10 @@ class StubPlanFixture:
         )
 
     def head_sha(self) -> str:
-        """The current branch HEAD's full 40-hex SHA — stamped into the stub's
-        line-1 `workflow-sha` comment so the drift half of the same `full` run
-        is a clean all-stamped no-drift read rather than noise."""
+        """The current branch HEAD's full 40-hex SHA — stamped into the track
+        file so the drift half of the same `full` run is a clean all-stamped
+        no-drift read rather than noise (track-1.md is the drift anchor when the
+        plan is absent, D13)."""
         env = dict(os.environ)
         env.update(GIT_ENV)
         proc = subprocess.run(
@@ -206,81 +201,50 @@ class StubPlanFixture:
         """The plan dir the precheck resolves from the branch: docs/adr/<branch>."""
         return self.path / "docs" / "adr" / self.branch
 
-    def write_plan(self, body: str, *, commit: bool = True) -> Path:
-        """Write the stub plan to `<plan_dir>/_workflow/implementation-plan.md`
-        (the file the state walk reads) and commit it so the working tree is
-        clean for the divergence half of the same `full` run."""
-        path = self.plan_dir / "_workflow" / "implementation-plan.md"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(body, encoding="utf-8")
-        if commit:
-            rel = str(path.relative_to(self.path))
-            self._git("add", rel)
-            self._git("commit", "-q", "-m", "add implementation-plan.md")
-        return path
+    @property
+    def plan_file(self) -> Path:
+        """The implementation-plan.md path — used only to ASSERT its absence (the
+        plan-less minimal shape never writes it)."""
+        return self.plan_dir / "_workflow" / "implementation-plan.md"
 
-    def write_track_file(self, track_num: int, body: str) -> Path:
-        """Write a `plan/track-<N>.md` so the post-review walk resolves State C
-        (track file present) rather than State A (track file absent)."""
-        path = self.plan_dir / "_workflow" / "plan" / f"track-{track_num}.md"
+    def write_ledger(self, body: str) -> Path:
+        """Write the phase ledger verbatim and commit it so the working tree is
+        clean for the divergence half of the same `full` run. The ledger is
+        unstamped by design (D13) — it carries no `workflow-sha` line and is
+        excluded from the drift walk by omission."""
+        path = self.plan_dir / "_workflow" / "phase-ledger.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body, encoding="utf-8")
         rel = str(path.relative_to(self.path))
         self._git("add", rel)
-        self._git("commit", "-q", "-m", f"add track-{track_num}.md")
+        self._git("commit", "-q", "-m", "add phase-ledger.md")
+        return path
+
+    def write_track_1(self, body: str, *, stamp: str) -> Path:
+        """Write a stamped `plan/track-1.md` (the single track of the minimal
+        tier) so a ledger-driven State C resolves its `## Progress` sub-state. The
+        stamp keeps the drift half clean. `body`'s sections follow the line-1
+        stamp comment this method prepends."""
+        path = self.plan_dir / "_workflow" / "plan" / "track-1.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"<!-- workflow-sha: {stamp} -->\n{body}", encoding="utf-8")
+        rel = str(path.relative_to(self.path))
+        self._git("add", rel)
+        self._git("commit", "-q", "-m", "add track-1.md")
         return path
 
 
-# ---------------------------------------------------------------------------
-# The shape-complete `minimal` stub, byte-faithful to create-plan/SKILL.md's
-# `minimal` stub template (the plan-derivation block). The three state-bearing
-# sections each carry their first top-level checkbox; `_stub` lets each test
-# vary exactly the glyphs the transition under test flips, so the rest of the
-# template stays the spec the state machine reads.
-# ---------------------------------------------------------------------------
-
-
-def _stub(
-    *,
-    plan_review_glyph: str,
-    checklist_glyph: str,
-    final_artifacts_glyph: str,
-    stamp: str,
-) -> str:
-    """Render the `minimal` stub plan. Each `*_glyph` is the single checkbox
-    body for that section's decision checkbox (`" "` for `[ ]`, `"x"` for
-    `[x]`, etc.). `stamp` is the line-1 workflow-sha value (a real HEAD SHA so
-    the drift half of `full` reads clean). The section text outside the glyphs
-    matches the SKILL template verbatim, so this fixture pins the very template
-    the resume state machine depends on."""
-    return (
-        f"<!-- workflow-sha: {stamp} -->\n"
-        "# Adaptive tiering demo feature\n"
-        "\n"
-        "## High-level plan\n"
-        "\n"
-        "**Change tier:** minimal — matched categories: none\n"
-        "\n"
-        "## Checklist\n"
-        f"- [{checklist_glyph}] Track 1: the single track that carries the whole change\n"
-        "  > intro paragraph — high-level context; detailed description in plan/track-1.md\n"
-        "  > **Scope:** ~1 files covering the demo change\n"
-        "\n"
-        "## Plan Review\n"
-        f"- [{plan_review_glyph}] Plan review (consistency + structural) — autonomous;"
-        " runs as the first phase of `/execute-tracks`\n"
-        "\n"
-        "## Final Artifacts\n"
-        f"- [{final_artifacts_glyph}] Phase 4: Final artifacts (PR-description verdict"
-        " summary; no `docs/adr/` entry — Gate 2 is the durable-ADR boundary)\n"
-    )
+# A timestamp literal reused across the synthesized ledger lines; minute
+# precision with a trailing Z, matching the `date -u +%Y-%m-%dT%H:%MZ` the append
+# emits (the read is timestamp-agnostic, so a fixed value is fine).
+_TS = "2026-06-15T12:00Z"
 
 
 def _state(proc: subprocess.CompletedProcess) -> dict:
-    """Parse the `state` object from a `--mode full` run, asserting the run
-    exited 0 first so a script error surfaces as a clear message rather than a
-    downstream KeyError on the `state` key. The presence of a parseable JSON
-    `state` object is itself the 'readable state' the step calls for."""
+    """Parse the `state` object from a `--mode full` run, asserting the run exited
+    0 first so a script error surfaces as a clear message rather than a downstream
+    KeyError on the `state` key. The presence of a parseable JSON `state` object
+    is itself the 'readable state' the no-plan resume calls for."""
     assert proc.returncode == 0, (
         f"full mode should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
     )
@@ -294,130 +258,104 @@ def _state(proc: subprocess.CompletedProcess) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_minimal_stub_as_written_is_readable_state_0() -> None:
-    """The stub exactly as `/create-plan` writes it for the `minimal` tier
-    (`## Plan Review` `[ ]`, the single `## Checklist` track `[ ]`, `## Final
-    Artifacts` `[ ]`) parses to a readable state, and that state is State 0:
-    plan review has not passed, so resume routes to the autonomous-review gate.
-    This is the load-bearing premise — the unchanged precheck reads the stub's
-    decision checkboxes (not bare headings) and does not strand resume on a
-    parse failure."""
-    with StubPlanFixture() as fx:
-        body = _stub(
-            plan_review_glyph=" ",
-            checklist_glyph=" ",
-            final_artifacts_glyph=" ",
-            stamp=fx.head_sha(),
+def test_minimal_no_plan_ledger_phase_0_is_readable_state_0() -> None:
+    """A plan-less `minimal` branch whose ledger records `phase=0` (plan review
+    not yet passed) parses to a readable State 0 — resume routes to the
+    autonomous-review gate — with NO implementation-plan.md on disk. This is the
+    load-bearing premise of the minimal-drops-the-plan change: the ledger is the
+    resume signal, and its absence of a plan does not strand resume on a parse
+    failure."""
+    with MinimalLedgerFixture() as fx:
+        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=0 tier=minimal\n")
+        assert not fx.plan_file.exists(), (
+            "the plan-less minimal fixture must have no implementation-plan.md"
         )
-        fx.write_plan(body)
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
         assert state == {"phase": "0", "substate": None}, (
-            "an as-written minimal stub (Plan Review `[ ]`) must parse to a "
+            "a plan-less minimal branch with a phase=0 ledger must parse to a "
             f"readable State 0, got {state!r}"
         )
 
 
-def test_minimal_stub_plan_review_flipped_is_state_a_or_c() -> None:
-    """First post-review transition: with `## Plan Review` flipped to `[x]`
-    (review passed) and no track file on disk, the precheck walks the single
-    `## Checklist` track — the first `[ ]` track — and reports State A (track
-    file absent). With a `plan/track-1.md` present it would report State C; the
-    step's contract is State A OR C, so this asserts membership while pinning
-    the no-track-file case to A and exercising the track-file case to C in the
-    sibling test below."""
-    with StubPlanFixture() as fx:
-        body = _stub(
-            plan_review_glyph="x",  # review passed
-            checklist_glyph=" ",  # the single track is still the first [ ] track
-            final_artifacts_glyph=" ",
+def test_minimal_no_plan_ledger_phase_c_resolves_state_c_track_1() -> None:
+    """The mid-track resume: a ledger recording `phase=C` (the ledger names no
+    track, so the active track defaults to track-1 — there is no `## Checklist` to
+    walk) and a `plan/track-1.md` present resolve State C, reading the
+    within-track sub-state from the track file's `## Progress`. Decomposition is
+    done and the roster has a `[ ]` step, so the sub-state is steps-partial. This
+    is the no-plan analogue of the old stub's plan-review-flipped -> State C
+    transition."""
+    with MinimalLedgerFixture() as fx:
+        fx.write_ledger(f"[{_TS}] [ctx=info] phase=C tier=minimal\n")
+        fx.write_track_1(
+            "# Track 1\n\n## Progress\n"
+            "- [x] 2026-06-15T00:00Z [ctx=info] Review + decomposition complete\n"
+            "- [ ] Step implementation\n\n## Concrete Steps\n\n"
+            "1. the single minimal track — risk: high  [ ]\n",
             stamp=fx.head_sha(),
         )
-        fx.write_plan(body)
-        # No track file written, so the first [ ] track resolves to State A.
-        state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state["phase"] in ("A", "C"), (
-            "a passed Plan Review over the single open `## Checklist` track must "
-            f"resolve to State A or C, got {state!r}"
+        assert not fx.plan_file.exists(), (
+            "the plan-less minimal fixture must have no implementation-plan.md"
         )
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+        assert state == {"phase": "C", "substate": "steps-partial"}, (
+            "a plan-less minimal branch with a phase=C ledger and plan/track-1.md "
+            f"must resume State C (active track defaulted to 1), got {state!r}"
+        )
+
+
+def test_minimal_no_plan_ledger_phase_c_no_track_file_is_state_a() -> None:
+    """The pre-decomposition resume: a ledger recording `phase=C` but with NO
+    track file on disk yet resolves State A — a phase recorded as C cannot resolve
+    a within-track sub-state without a track file, so it falls back to the
+    pre-Phase-A State A, mirroring the legacy walk's
+    first-`[ ]`-track-without-a-file branch."""
+    with MinimalLedgerFixture() as fx:
+        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=C tier=minimal\n")
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
         assert state == {"phase": "A", "substate": None}, (
-            "with no plan/track-1.md on disk the post-review walk pins State A, "
+            "a phase=C ledger with no plan/track-1.md must resolve State A, "
             f"got {state!r}"
         )
 
 
-def test_minimal_stub_plan_review_flipped_with_track_file_is_state_c() -> None:
-    """The State C half of the post-review transition: `## Plan Review` `[x]`,
-    the single `## Checklist` track still `[ ]`, AND a `plan/track-1.md` present
-    on disk. The walk parses the track number from the checklist entry's
-    `Track <N>:` tail, finds the track file, and reports State C — the mid-track
-    resume. The track body carries no `## Progress` section, so the sub-state is
-    `decomposition-pending`; this test's focus is that the stub's single-track
-    `## Checklist` drives the State A/C decision to C when the track file is
-    present, completing the A-or-C contract from the sibling test."""
-    with StubPlanFixture() as fx:
-        body = _stub(
-            plan_review_glyph="x",
-            checklist_glyph=" ",
-            final_artifacts_glyph=" ",
-            stamp=fx.head_sha(),
+def test_minimal_no_plan_ledger_phase_done_is_done() -> None:
+    """The end-of-plan resume: a ledger whose tail records `phase=Done` (Phase 4
+    complete) resolves Done. The earlier `phase=C` line is overridden by
+    last-value-wins. This is the no-plan analogue of the old stub's
+    track-and-final-artifacts-flipped -> Done transition."""
+    with MinimalLedgerFixture() as fx:
+        fx.write_ledger(
+            f"[{_TS}] [ctx=safe] phase=C tier=minimal\n"
+            f"[{_TS}] [ctx=safe] phase=Done tier=minimal\n"
         )
-        fx.write_plan(body)
-        # The single checklist entry is track number 1, so author its
-        # plan/track-1.md to reach State C.
-        fx.write_track_file(1, "# track one\n")
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state["phase"] == "C", (
-            "the single open track with a track file present must resolve to "
-            f"State C, got {state!r}"
-        )
-
-
-def test_minimal_stub_track_and_final_artifacts_flipped_is_state_d_or_done() -> None:
-    """End-of-plan transition: with the single `## Checklist` track flipped to
-    `[x]` (no `[ ]` track left) AND `## Final Artifacts` flipped to `[x]`, the
-    precheck finds no open track, falls through to the Final-Artifacts decision,
-    and reports Done. A `[ ]`/`[>]` Final-Artifacts checkbox would report State
-    D (Phase 4 pending); the step's contract is State D OR Done, so this asserts
-    membership while pinning the `[x]` case to Done and the still-open Phase 4
-    case to D in the sibling test below. `## Plan Review` stays `[x]` because a
-    completed plan kept it passed."""
-    with StubPlanFixture() as fx:
-        body = _stub(
-            plan_review_glyph="x",
-            checklist_glyph="x",  # the single track is now done
-            final_artifacts_glyph="x",  # Phase 4 complete
-            stamp=fx.head_sha(),
-        )
-        fx.write_plan(body)
-        state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state["phase"] in ("D", "Done"), (
-            "a done single track with Final Artifacts flipped must resolve to "
-            f"State D or Done, got {state!r}"
-        )
         assert state == {"phase": "Done", "substate": None}, (
-            "with Final Artifacts `[x]` the end-of-plan walk pins Done, "
-            f"got {state!r}"
+            "a plan-less minimal branch whose ledger tail records phase=Done must "
+            f"resolve Done, got {state!r}"
         )
 
 
-def test_minimal_stub_track_done_final_artifacts_open_is_state_d() -> None:
-    """The State D half of the end-of-plan transition: the single `## Checklist`
-    track is `[x]` (no open track) but `## Final Artifacts` is still `[ ]`
-    (Phase 4 not yet done). The walk finds no open track and a not-`[x]`
-    Final-Artifacts checkbox, so it reports State D — the Phase-4-pending resume,
-    completing the D-or-Done contract from the sibling test."""
-    with StubPlanFixture() as fx:
-        body = _stub(
-            plan_review_glyph="x",
-            checklist_glyph="x",
-            final_artifacts_glyph=" ",  # Phase 4 still pending
+def test_minimal_no_plan_ledger_drift_clean_anchor_is_track_1() -> None:
+    """Dropping the plan does not weaken drift detection: with no
+    implementation-plan.md, `track-1.md` is the drift anchor (D13). A stamped
+    track-1.md plus the unstamped-by-design ledger is a clean all-stamped no-drift
+    read, and the unstamped ledger does NOT trip the unstamped-drift
+    short-circuit — it is excluded from the walk by omission."""
+    with MinimalLedgerFixture() as fx:
+        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=C tier=minimal\n")
+        fx.write_track_1(
+            "# Track 1\n\n## Progress\n- [ ] Review + decomposition\n",
             stamp=fx.head_sha(),
         )
-        fx.write_plan(body)
-        state = _state(run_precheck("--mode", "full", cwd=fx.path))
-        assert state == {"phase": "D", "substate": None}, (
-            "a done single track with Final Artifacts still `[ ]` must resolve to "
-            f"State D, got {state!r}"
+        proc = run_precheck("--mode", "full", cwd=fx.path)
+        assert proc.returncode == 0, (
+            f"full should exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        obj = json.loads(proc.stdout)
+        assert obj["drift"]["detected"] is False, (
+            "a stamped track-1.md anchor + unstamped ledger must be a clean "
+            f"no-drift read, got {obj['drift']!r}"
         )
 
 
@@ -427,17 +365,20 @@ def test_minimal_stub_track_done_final_artifacts_open_is_state_d() -> None:
 
 
 TESTS: List[Tuple[str, Callable[[], None]]] = [
-    ("minimal_stub_as_written_is_readable_state_0", test_minimal_stub_as_written_is_readable_state_0),
-    ("minimal_stub_plan_review_flipped_is_state_a_or_c", test_minimal_stub_plan_review_flipped_is_state_a_or_c),
+    ("minimal_no_plan_ledger_phase_0_is_readable_state_0", test_minimal_no_plan_ledger_phase_0_is_readable_state_0),
     (
-        "minimal_stub_plan_review_flipped_with_track_file_is_state_c",
-        test_minimal_stub_plan_review_flipped_with_track_file_is_state_c,
+        "minimal_no_plan_ledger_phase_c_resolves_state_c_track_1",
+        test_minimal_no_plan_ledger_phase_c_resolves_state_c_track_1,
     ),
     (
-        "minimal_stub_track_and_final_artifacts_flipped_is_state_d_or_done",
-        test_minimal_stub_track_and_final_artifacts_flipped_is_state_d_or_done,
+        "minimal_no_plan_ledger_phase_c_no_track_file_is_state_a",
+        test_minimal_no_plan_ledger_phase_c_no_track_file_is_state_a,
     ),
-    ("minimal_stub_track_done_final_artifacts_open_is_state_d", test_minimal_stub_track_done_final_artifacts_open_is_state_d),
+    ("minimal_no_plan_ledger_phase_done_is_done", test_minimal_no_plan_ledger_phase_done_is_done),
+    (
+        "minimal_no_plan_ledger_drift_clean_anchor_is_track_1",
+        test_minimal_no_plan_ledger_drift_clean_anchor_is_track_1,
+    ),
 ]
 
 

@@ -26,7 +26,7 @@
 | §`design-decision` — orchestrator escalates to the user | orchestrator | 2 | Findings that change design and require user choice. |
 | §Intent-axis pre-screen (consistency review only) | orchestrator,reviewer-plan | 2 | A pre-screen on the consistency pass to separate intent drift from wording. |
 | §Audit trail | orchestrator | 2 | Where the review decisions are recorded for later reference. |
-| §1. The `## Plan Review` section in the plan file | orchestrator | 2 | Recording the review outcome in the plan file's review section. |
+| §1. The `plan-review.md` document and the ledger review state | orchestrator | 2 | Recording the audit summary in `plan-review.md` and the review state in the phase ledger. |
 | §2. The workflow-update commit | orchestrator | 2 | Committing the review result as a workflow-update commit. |
 | §`design.md` is frozen — Phase 2 does not mutate it | orchestrator,reviewer-design | 2 | Design frozen after Phase 1; Phase 2 records design-touching findings, defers them to Phase 4, fixes only plan/track. |
 | §Replanning | orchestrator | 2 | When a Phase 2 finding forces a return to planning. |
@@ -35,10 +35,10 @@
 <!--Document index end-->
 
 > **Loaded on-demand.** This document is read only when the
-> `/execute-tracks` startup protocol detects **State 0** (the plan
-> file's `## Plan Review` checklist entry is `[ ]`), or when the user
-> manually invokes `/review-plan` to re-validate after inline
-> replanning. Non-State-0 sessions never load this file, so its
+> `/execute-tracks` startup protocol detects **State 0** (the phase
+> ledger records no `phase` boundary yet — plan review has not passed),
+> or when the user manually invokes `/review-plan` to re-validate after
+> inline replanning. Non-State-0 sessions never load this file, so its
 > length carries no per-session cost.
 
 ## Overview
@@ -62,11 +62,13 @@ sequence:
    and contradiction findings classify as `design-decision`. Same
    autonomous flow.
 
-After both steps pass, the orchestrator marks `## Plan Review` as `[x]` in the
-plan file (with a brief audit summary), commits the workflow update, and ends
-the session. The next `/execute-tracks` invocation enters State A (pre-Phase-A
-— the Track Pre-Flight gate runs against Track 1, with Panel 1 skipped because
-no track has completed yet).
+After both steps pass, the orchestrator writes the audit summary to
+`plan-review.md` and records review state in the phase ledger by appending a
+`phase=A` boundary (the ledger advancing off State 0 is what "plan review
+passed" means now — D3/D7), commits the workflow update, and ends the session.
+The next `/execute-tracks` invocation reads `phase=A` from the ledger and enters
+State A (pre-Phase-A — the Track Pre-Flight gate runs against Track 1, with
+Panel 1 skipped because no track has completed yet).
 
 **Division of labor with the design mutation discipline.** Phase 2
 does **not** separately review the narrative quality of `design.md`
@@ -99,7 +101,7 @@ flowchart TD
     SR_ESC{"Any design-decision\nfindings?"}
     SR_USER["Batch-escalate to user"]
     SR_GATE["Gate verification"]
-    AUDIT["Write audit summary\nto ## Plan Review"]
+    AUDIT["Write audit summary to plan-review.md;\nappend phase=A to the ledger"]
     DONE["Phase 2 PASS\nCommit + push\nEnd session"]
 
     START --> CR
@@ -126,21 +128,23 @@ flowchart TD
 Phase 2 has two entry points:
 
 1. **Autonomous (default).** Triggered by `/execute-tracks` when the startup
-   protocol detects State 0 (plan file's `## Plan Review` entry is `[ ]` or
-   missing). The orchestrator loads this document on-demand and runs the flow
-   below.
+   protocol detects State 0 (the phase ledger records no `phase` boundary
+   yet — plan review has not passed). The orchestrator loads this document
+   on-demand and runs the flow below.
 2. **Manual re-run.** The user runs `/review-plan` to re-validate the plan
    after inline replanning produced a revised plan, or to audit the plan
    independently. The skill at `.claude/skills/review-plan/SKILL.md` loads
-   this document and runs the same flow regardless of the current `## Plan
-   Review` checkbox state.
+   this document and runs the same flow regardless of the current ledger
+   review state.
 
 Both entry points share the same orchestration. The only difference is what
 the orchestrator does after the flow completes:
-- Autonomous entry: marks `## Plan Review` as `[x]`, commits, ends the
-  session so the next `/execute-tracks` enters Phase A of Track 1.
-- Manual re-entry: marks `## Plan Review` as `[x]` (re-stamping with the
-  fresh iteration count), commits, ends the session.
+- Autonomous entry: writes the audit summary to `plan-review.md`, appends a
+  `phase=A` ledger boundary, commits, ends the session so the next
+  `/execute-tracks` enters Phase A of Track 1.
+- Manual re-entry: appends the fresh verdict (with its iteration count) to
+  `plan-review.md` and re-appends the `phase=A` ledger boundary, commits,
+  ends the session.
 
 ### Precondition (both entry points)
 <!-- roles=orchestrator phases=2 summary="State that must hold before either entry point starts." -->
@@ -149,9 +153,10 @@ the orchestrator does after the flow completes:
 `docs/adr/<dir-name>/_workflow/handoff-state0.md` exists, complete
 mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 §Resume protocol
 (including the resolution commit) BEFORE running the clean-tree check
-below. The resolution commit deletes the handoff file and the PAUSED
-marker line in `implementation-plan.md`, so leaving it for after the
-check would dirty the very file the check is gating on.
+below. The resolution commit deletes the handoff file (the pause boundary
+is now a ledger `paused` event, not a marker line in the plan — D8), so
+leaving it for after the check would dirty the handoff path the check is
+gating on.
 
 Once any handoff is resolved (or there was none), check that the
 plan-review files have no uncommitted changes:
@@ -159,16 +164,19 @@ plan-review files have no uncommitted changes:
 ```bash
 git status --porcelain \
   docs/adr/<dir-name>/_workflow/implementation-plan.md \
+  docs/adr/<dir-name>/_workflow/plan-review.md \
+  docs/adr/<dir-name>/_workflow/phase-ledger.md \
   docs/adr/<dir-name>/_workflow/plan/ \
   docs/adr/<dir-name>/_workflow/design.md \
   docs/adr/<dir-name>/_workflow/design-mechanics.md \
   docs/adr/<dir-name>/_workflow/design-mutations.md
 ```
 
-The last two paths are checked when present — `design-mechanics.md`
-exists only when the length trigger has fired, and `design-mutations.md`
-is created on the first `edit-design` run. Non-existent paths produce
-no output, so listing them is safe.
+`implementation-plan.md` is absent under `minimal` (no plan) and
+`design.md` / `design-mechanics.md` / `design-mutations.md` are absent under
+`lite`/`minimal`; `design-mechanics.md` exists only when the length trigger
+has fired and `design-mutations.md` is created on the first `edit-design` run.
+Non-existent paths produce no output, so listing them is safe in every tier.
 
 If the output is non-empty, halt and ask the user to commit (or stash)
 those edits first — uncommitted changes to these files would otherwise
@@ -183,14 +191,17 @@ ignore (the audit-trail `git add` is path-scoped to the files above).
 
 Which Phase-2 passes run, and in what shape, is keyed off the **confirmed
 tier** (D9), not off a step-count axis. Before launching Step 1, read the
-**D18 tier line** from `implementation-plan.md`, the single change-level
-line `create-plan` writes at confirmation, carrying the tier
+tier **ledger-first**: the phase ledger's `tier` field
+(`_workflow/phase-ledger.md`, last value wins); when no `phase-ledger.md`
+exists (an in-flight pre-ledger `lite`/`full` plan), fall back to the **D18
+tier line** in `implementation-plan.md`, the single change-level line
+`create-plan` writes at confirmation, carrying the tier
 (`full` / `lite` / `minimal`) and its centrally-matched HIGH-risk
-categories. The tier line is always present (the aggregator plan is
-shape-complete in every tier, D1), and the Phase-2 consistency review
-flags a plan that lacks it. The same line is read on every entry — a
-fresh `/execute-tracks` State-0 session and a manual `/review-plan` re-run
-both read it from the always-present plan.
+categories. The ledger `tier` field is present in every tier (D4), so the
+read resolves even under `minimal`, which has no plan to carry a tier line;
+the develop-era plan tier line is the pre-ledger fallback only. The same
+read happens on every entry — a fresh `/execute-tracks` State-0 session and a
+manual `/review-plan` re-run both resolve the tier the same way.
 
 **Per-tier pass selection.** Each Phase-2 pass either runs as today,
 narrows, or drops (the change-level half of the design's Part-6 review
@@ -199,17 +210,17 @@ matrix):
 | Pass | `full` | `lite` | `minimal` |
 |---|---|---|---|
 | Step 1 consistency | full (design + plan + tracks + code) | drops the design half (plan + tracks + code) | drops the design half **and** the plan-content cross-check (track + code only) |
-| Step 2 structural | runs | runs | **dropped** (the stub plan has nothing to check) |
+| Step 2 structural | runs | runs | **dropped** (`minimal` has no plan, so there is no plan-file shape to validate) |
 
 The two narrowings are independent. The **design half** of the
 consistency review is dropped whenever no `design.md` exists — that is, in
 `lite` and `minimal`. The **plan-content cross-check** is additionally
-dropped in `minimal` only, because the `minimal` stub plan is ~10 lines
-with one checklist entry and no decision content to cross-check; the
-`minimal` consistency pass cross-checks track-vs-code only. `minimal` also
-**drops the Step 2 structural pass** entirely: a stub plan has one
-checklist entry, no decision records, and no ordering, so a structural
-pass has nothing to validate.
+dropped in `minimal` only, because `minimal` has no plan (D2): with no
+`implementation-plan.md` on disk there is no plan content to cross-check, so
+the `minimal` consistency pass cross-checks track-vs-code only. `minimal` also
+**drops the Step 2 structural pass** entirely: with no plan file there are no
+decision records and no ordering to validate, so the structural pass has no
+plan-file shape to check.
 
 **Design-presence guard.** The two narrowings reduce to one mechanical
 test the orchestrator and the sub-agent both apply: **does
@@ -281,8 +292,8 @@ in `full`. In `lite`/`minimal` the design-presence guard (see
 §"Tier-driven pass selection") skips them, and the review reads plan +
 tracks + code (`lite`) or track + code (`minimal`). The **Plan ↔ Code**
 and **Track ↔ Code** bullets are the plan-content and track-content
-cross-checks: `minimal` also drops the plan-content cross-check (the stub
-plan has no content to verify), running **Track ↔ Code** only.
+cross-checks: `minimal` also drops the plan-content cross-check (`minimal`
+has no plan to verify, per D2), running **Track ↔ Code** only.
 
 Each pending track's detailed description lives in that track's
 track file (`plan/track-N.md`, written by `create-plan` at Phase 1)
@@ -381,8 +392,8 @@ durable trace is:
 - The committed review file under `plan/track-N/reviews/`.
 - The resulting plan/design state.
 - The gate-PASS commit.
-- The audit summary written into the plan file's `## Plan Review`
-  section (see §Audit trail below).
+- The audit summary written into `plan-review.md`, with review state
+  recorded in the phase ledger (see §Audit trail below).
 
 ### Strategic review output path
 <!-- roles=orchestrator phases=2 summary="The per-spawn review_file_path the orchestrator injects at the Phase 2 dispatch sites and partial-fetches from." -->
@@ -427,8 +438,8 @@ orchestrator/planner owns the strategic fallback per `§2.5`).
 
 Runs **automatically** after the consistency review passes, **except under
 `minimal`** — the `minimal` tier drops the structural pass entirely (see
-§"Tier-driven pass selection"), because a stub plan has one checklist
-entry, no decision records, and no ordering for a structural pass to
+§"Tier-driven pass selection"), because `minimal` has no plan (D2) — no
+plan file, no decision records, no ordering for the structural pass to
 validate. Under `full` and `lite` the structural pass runs. Validates
 plan-internal structure without reading the codebase.
 
@@ -503,7 +514,7 @@ committed `review_file_path` file (see §Strategic review output path
 above) and the orchestrator partial-fetches `## Findings` during the
 loop; the durable trace is the committed review file, the plan-file
 edits, the gate-PASS commit, and the audit-summary entry in
-`## Plan Review`.
+`plan-review.md` (with review state in the phase ledger).
 
 ---
 
@@ -607,43 +618,52 @@ finding.
 
 Two durable traces survive the autonomous flow:
 
-### 1. The `## Plan Review` section in the plan file
-<!-- roles=orchestrator phases=2 summary="Recording the review outcome in the plan file's review section." -->
+### 1. The `plan-review.md` document and the ledger review state
+<!-- roles=orchestrator phases=2 summary="Recording the audit summary in plan-review.md and the review state in the phase ledger." -->
 
-Before Phase 2 runs (or after `/create-plan` produced the initial
-plan), the section reads:
+The audit splits into two homes (D7): the multi-line review *summary*
+goes to `plan-review.md` (a cold record rarely read during development),
+and the review *state* — "plan review passed" — is recorded in the phase
+ledger so the resume hot path stays terse for `determine_state` to grep.
+`plan-review.md` is present in every tier, so a `minimal` change with no
+plan still has a review-fact home.
+
+After Phase 2 passes, the orchestrator writes `plan-review.md` with the
+audit summary:
 
 ```markdown
-## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
-```
-
-After Phase 2 passes, the orchestrator overwrites the section with:
-
-```markdown
-## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration <N>
+# Plan Review
+- Plan review (consistency + structural) — passed at iteration <N>
 
 **Auto-fixed (mechanical)**: <CR/S finding IDs with one-line summaries>.
 
 **Escalated (design decisions)**: <CR/S finding IDs with one-line user resolutions, or "none">.
 ```
 
-If the user re-runs `/review-plan` later, the orchestrator overwrites
-this section again with the new iteration's audit. The `[x]` checkbox
-is what the startup protocol's State 0 detection reads.
+and records review state in the ledger by appending a `phase=A` boundary:
 
-If the section is missing entirely (a pre-existing plan from before
-this convention), the orchestrator treats it as `[ ]` and runs the
-autonomous flow, then writes the section for the first time at the
-end. Pre-existing plans don't break.
+```bash
+.claude/scripts/workflow-startup-precheck.sh --append-ledger --phase A
+```
+
+The ledger advancing off State 0 (an empty/absent `phase` is State 0; a
+`phase=A` is "plan review passed") is what the startup protocol's State 0
+detection reads now (D3) — there is no plan checkbox to flip. The two
+writes are paired: the summary in `plan-review.md` is the human record,
+the `phase=A` ledger boundary is the machine signal that drives resume.
+
+If the user re-runs `/review-plan` later, the orchestrator appends the
+new iteration's verdict to `plan-review.md` and re-appends the `phase=A`
+ledger boundary (the ledger is append-only and last-value-wins, so a
+re-append simply re-confirms the passed state).
 
 ### 2. The workflow-update commit
 <!-- roles=orchestrator phases=2 summary="Committing the review result as a workflow-update commit." -->
 
-After Phase 2 passes, the orchestrator stages the plan and the track
-files (no design files — `design.md` is frozen and Phase 2 does not
-touch it), and commits with the message:
+After Phase 2 passes, the orchestrator stages `plan-review.md`, the
+phase ledger, and any plan / track files the review touched (no design
+files — `design.md` is frozen and Phase 2 does not touch it), and commits
+with the message:
 
 ```
 Plan review autonomous fixes for <plan-name>
@@ -710,10 +730,12 @@ within the session. A separate phase would add unnecessary context loss.
 4. Spawns a structural review sub-agent to validate the revised plan
    (uses the same prompt as Phase 2 Step 2; classifier still applies).
 5. On review PASS — updates the plan file with the revised plan and
-   ends the session. Sets `## Plan Review` back to `[ ]` so the next
-   `/execute-tracks` re-runs the full Phase 2 flow against the revised
-   plan, picking up any new consistency issues introduced by the
-   replan.
+   ends the session. Resets review state to State 0 (the replan invalidates
+   the prior `phase=A` boundary) so the next `/execute-tracks` re-runs the
+   full Phase 2 flow against the revised plan, picking up any new consistency
+   issues introduced by the replan. The reset mechanics (append `phase=0` to
+   the ledger) live in inline-replanning.md:orchestrator:3A,3C § Process
+   step 6.
 6. On review FAIL with persistent blockers — advises user to restart
    from Phase 1 (`/create-plan`) with accumulated episodes as input.
 
@@ -727,17 +749,21 @@ broken that incremental revision cannot fix it.
 
 When both reviews pass:
 
-1. Update `## Plan Review` with the audit summary (see §Audit trail).
-2. Stage and commit the plan and track-file changes. Stage every
-   track file the review actually touched (use `git status --porcelain
-   docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
+1. Write the audit summary to `plan-review.md` and append the `phase=A`
+   ledger boundary (see §Audit trail).
+2. Stage and commit the audit-trail changes. Stage `plan-review.md`, the
+   phase ledger, the plan file (when present — absent under `minimal`),
+   and every track file the review actually touched (use `git status
+   --porcelain docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
    modified path explicitly rather than the whole `plan/` directory
    so unrelated files don't sneak in). No design files are staged —
    `design.md` is frozen after Phase 1 and Phase 2 does not touch it,
    so any `design.md` correction surfaced by the review is recorded as a
    finding and deferred to the Phase-4 `design-final.md` reconciliation:
    ```bash
-   git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+   git add docs/adr/<dir-name>/_workflow/plan-review.md \
+           docs/adr/<dir-name>/_workflow/phase-ledger.md \
+           docs/adr/<dir-name>/_workflow/implementation-plan.md \
            docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
            ... (one path per modified track file)
    git commit -m "Plan review autonomous fixes for <plan-name>
