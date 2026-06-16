@@ -23,7 +23,7 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-12T08:56Z [ctx=info] Review + decomposition complete
@@ -32,6 +32,12 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
 - [x] 2026-06-16T10:05Z [ctx=info] Steps 3-5 complete via the model-C pivot
   (multi-alias MATCH served by a class-scoped version gate, not per-tuple
   reconciliation). See Episodes §Steps 3-5 (model C).
+- [x] 2026-06-16T11:30Z [ctx=info] Track-level code review (11 dimensional
+  reviewers): 1 blocker + several should-fix, all addressed. Blocker was a
+  subclass-closure invalidation test gap; should-fix were further test gaps
+  (edge DELETE, bare `.out()`->E, strike threshold, cross-join), the stale
+  `ShapeClassifier` Javadoc, and a doubled `effectiveFromClasses` compute on the
+  miss path. See Episodes §Steps 3-5 code-review fixes.
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -438,7 +444,7 @@ resolves the sort key on the underlying record. One optional left for later: the
 ### Steps 3-5 (model C) — 2026-06-16T10:05Z [ctx=info]
 **What was done:** Shipped the multi-alias MATCH (`MATCH_TUPLE_MULTI`) path as a
 class-scoped version gate, not the design's per-tuple `reverseIndex`
-reconciliation. Five surgical changes, no new step class or view code:
+reconciliation. Five changes, no new step class or view code:
 - `CachedEntry.computeMatchEffectiveFromClasses(aliasClasses, edgeClasses)`: the
   union of every alias class and traversal-edge class with subclass closures.
 - `DatabaseSessionEmbedded.effectiveFromClasses` gained a multi-alias branch
@@ -466,7 +472,8 @@ through the existing K0_NONE path (`buildView` yields `delta == null`), so
 b.name as b`) carries scalars under the projection keys and no bound record under
 `getProperty(alias)` (confirmed against `MatchStatementExecutionNewTest:2835`), so
 the design's per-tuple population was structurally unbuildable for the dominant
-shape, not just costly. The class-scoped gate sidesteps it by reading the mutation
+shape (no bound record on the projected row to rebuild tuples from). The
+class-scoped gate sidesteps it by reading the mutation
 op's own class. The `String.valueOf(getProperty(...))` generic-overload trap (the
 compiler infers `char[]` and inserts a bad cast) reappeared in the test snapshot
 helper, fixed by binding to `Object` first.
@@ -479,7 +486,7 @@ cross-alias patterns already route to K0_NONE. Steps 3-5's model-B deliverables
 (`MatchMultiDelta`, two-pass `buildForMatchMulti`, `reverseIndex` /
 `contributingRids`, tombstone evict, the per-tuple view path) were not built.
 **Phase 4 must reconcile `design.md` §"MATCH multi-alias (partial Etap B in v1)"
-and `design-mechanics.md` §"MATCH multi-alias"**: both describe the per-tuple
+and `design-mechanics.md` §"MATCH multi-alias (partial Etap B in v1)"**: both describe the per-tuple
 `reverseIndex` / two-pass tombstone design, which the as-built code replaces with
 the class-scoped gate. The deferred-ADR note (full Etap B CREATE-discovery,
 incremental edge-DELETE) still holds; model C is a coarser v1 floor than the
@@ -494,6 +501,47 @@ partial Etap B the design assumed.
 - `MatchMultiAliasCacheTest.java` (new — 8 tests: field-projection replay,
   vertex/edge mutation invalidation equivalence, unrelated-class survival via
   metrics, vertex+edge closure folding)
+
+### Steps 3-5 code-review fixes — 2026-06-16T11:30Z [ctx=info]
+**What was done:** Addressed the track-level code review (11 dimensional
+reviewers, one iteration; security / test-concurrency / context-budget clean).
+- Blocker (test-completeness): added a subclass-closure invalidation test. The
+  `getAllSubclasses()` expansion in `computeMatchEffectiveFromClasses` was
+  exercised by no test, since every prior seed used direct `MmPerson` / `MmKnows`
+  records. The new test creates `MmEmployee EXTENDS MmPerson`, binds an
+  `MmEmployee` instance into the pattern, and asserts a mutation on it invalidates.
+- Should-fix (test-completeness): added edge-DELETE, bare-`.out()`-to-`E`
+  base-class-closure, strike-threshold-to-non-cacheable, and two-expression
+  cross-join tests.
+- Should-fix (test-behavior): the equivalence harness was one-directional (it
+  caught stale replay but not a silently-disabled cache). `runScenario` now
+  records the cache-on invalidation and hit deltas, and `assertEquivalent` asserts
+  the expected invalidation count per mutation kind plus a true-hit check on the
+  zero-invalidation cases. The standalone metrics test folded into this and was
+  removed. Mutation builders moved from `Consumer<FrontendTransactionImpl>` to
+  `Runnable` (the tx argument was always ignored); the closure-folding assertion
+  tightened to exact-set equality; seed names promoted to constants.
+- Should-fix (code-quality): updated the stale `ShapeClassifier` Javadoc (it still
+  described the abandoned per-tuple delta floor) to the class-scoped gate, and
+  cross-referenced the `stripLabelQuotes` / `STATIC_LABEL` rendered-form coupling.
+- Should-fix (code-quality / performance): `effectiveFromClasses` was computed
+  twice on a multi-alias MATCH miss; `serveThroughCache` now computes it once and
+  threads it into `populateAndBuildView`.
+- Suggestion (bugs-concurrency): a stale multi-alias hit was double-counted as
+  hit + invalidation (the gate runs after `lookup` booked the hit, unlike the
+  K0_NONE gate). `lookup` now defers the MATCH hit count to the caller, which
+  records it via `QueryResultCache.recordHit` only on the served branch.
+
+Deferred as won't-fix-now: renaming the shared `incrementK0Invalidations` /
+`k0Strikes` to a gate-neutral name (touches the global metric bridge; the reuse is
+documented and sound); decoding escaped edge labels in `stripLabelQuotes` (edge /
+class names are bare identifiers, so a label needing unescaping is not a resolvable
+class name and is dropped). The model-B narrative still in the plan's Plan-of-Work
+and mermaid is Phase-4 reconciliation, not a code-review item.
+
+**Key files:** `ShapeClassifier.java`, `DatabaseSessionEmbedded.java`,
+`QueryResultCache.java` (all modified), `MatchMultiAliasCacheTest.java` (now 12
+tests).
 
 ## Validation and Acceptance
 

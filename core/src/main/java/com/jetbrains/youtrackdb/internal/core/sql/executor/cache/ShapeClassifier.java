@@ -49,11 +49,13 @@ import javax.annotation.Nullable;
  *       aggregate side-tap can never reach, so it also routes to {@code K0_NONE}; a {@code COUNT(*)}
  *       with a (non-indexed) WHERE does build the aggregation step and stays {@code AGGREGATE_COUNT}.
  *   <li><b>MATCH &rarr; {@link CacheableShape#RECORD}, {@link CacheableShape#MATCH_TUPLE_MULTI}, or
- *       {@link CacheableShape#K0_NONE}.</b> A MATCH statement routes to {@code K0_NONE} when any shape
- *       the per-tuple delta floor cannot reconcile is present (see {@link #classifyMatch}). Otherwise
- *       a single-alias MATCH (one bound alias, no traversal edge, record-local ORDER BY) folds onto
- *       the {@code RECORD} delta path via a stored {@code returnProjector} (Etap A), and every other
- *       MATCH stays {@code MATCH_TUPLE_MULTI} for the per-tuple delta floor.
+ *       {@link CacheableShape#K0_NONE}.</b> A MATCH statement routes to {@code K0_NONE} when its
+ *       result cannot be reconciled by the multi-alias class-scoped version gate (see {@link
+ *       #classifyMatch}). Otherwise a single-alias MATCH (one bound alias, no traversal edge,
+ *       record-local ORDER BY) folds onto the {@code RECORD} delta path via a stored {@code
+ *       returnProjector} (Etap A), and every other MATCH is {@code MATCH_TUPLE_MULTI}: its projected
+ *       RETURN tuples are frozen and replayed verbatim until a post-populate mutation touches one of
+ *       the pattern's read classes, which invalidates the entry and forces a fresh re-execution.
  *   <li><b>Everything else &rarr; {@link CacheableShape#K0_NONE}.</b> GROUP BY, LET, UNWIND,
  *       subquery target, expression aggregates — deterministically reproducible but not
  *       record-by-record reconcilable.
@@ -168,14 +170,16 @@ public final class ShapeClassifier {
 
   /**
    * Classifies a MATCH statement into {@link CacheableShape#RECORD} (the single-alias Etap-A fold),
-   * {@link CacheableShape#MATCH_TUPLE_MULTI}, or {@link CacheableShape#K0_NONE}. The {@code
-   * MATCH_TUPLE_MULTI} delta floor reconciles vertex DELETE and
-   * pass&rarr;fail UPDATE incrementally and tombstones the rest; it carries no mutation-version
-   * backstop, so any MATCH shape the floor cannot reconcile must route to the version-gated {@code
-   * K0_NONE} path here. A missed gate would silently serve a stale tuple set, so the gate is
-   * deliberately broad: every check below over-approximates toward {@code K0_NONE} (which always
-   * re-executes on any mutation and is therefore correctness-safe) rather than risk admitting an
-   * unreconcilable shape.
+   * {@link CacheableShape#MATCH_TUPLE_MULTI}, or {@link CacheableShape#K0_NONE}. A {@code
+   * MATCH_TUPLE_MULTI} entry freezes its projected RETURN tuples and replays them under a class-scoped
+   * version gate: it is invalidated and re-executed when a post-populate mutation touches any class in
+   * the pattern's read-class closure (alias classes plus traversal-edge classes), and replayed verbatim
+   * otherwise. The closure is the entry's only backstop, so a shape whose result depends on state
+   * outside it (chiefly a link-path-dereference or cross-alias WHERE, whose out-of-pattern class never
+   * enters the closure) must route to the version-gated {@code K0_NONE} path, whose gate fires on any
+   * mutation. A missed gate would silently serve a stale tuple set, so every check below over-
+   * approximates toward {@code K0_NONE} (always correctness-safe) rather than risk admitting a shape the
+   * class-scoped gate cannot cover.
    *
    * <p>This method is schema-free: it reads the parsed AST only, with no session or schema lookup, so
    * it can run on the {@code query()} hot path. Checks that need schema resolution or populate-time

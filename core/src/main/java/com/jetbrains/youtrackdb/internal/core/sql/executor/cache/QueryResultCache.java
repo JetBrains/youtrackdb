@@ -136,11 +136,29 @@ public final class QueryResultCache {
         }
         return null;
       }
+      if (entry.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
+        // A multi-alias MATCH hit is only confirmed after the caller's class-scoped staleness gate runs
+        // (it needs the transaction's record operations, which lookup does not carry). The caller counts
+        // the hit via recordHit() on the served branch, or an invalidation via invalidateMatchMulti() on
+        // the stale branch. Counting a hit here would double-count a stale hit as hit + invalidation,
+        // diverging from the K0_NONE gate, which decides inside lookup and counts only the invalidation.
+        return entry;
+      }
       metrics.incrementHits();
       return entry;
     } finally {
       inFlightLookup = false;
     }
+  }
+
+  /**
+   * Records a cache hit whose decision is made outside {@link #lookup}: the multi-alias MATCH
+   * class-scoped gate, which returns a tentative entry from {@code lookup} and confirms it is served
+   * only after the staleness scan. Keeps multi-alias MATCH hit accounting consistent with every other
+   * shape (one hit per served query) without double-counting a stale hit.
+   */
+  public void recordHit() {
+    metrics.incrementHits();
   }
 
   /**

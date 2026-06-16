@@ -810,7 +810,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         } else {
           // Hit: the stored entry was proven deterministic and a wired shape at populate, so neither
           // the non-determinism walk nor the shape classifier runs again; the entry carries its shape.
-          // A multi-alias MATCH reaching here had no pattern-class mutation since populate.
+          // A multi-alias MATCH reaching here had no pattern-class mutation since populate. lookup()
+          // defers its hit count to here so a stale MATCH hit is not double-counted as hit+invalidation.
+          if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
+            cache.recordHit();
+          }
           return buildView(hit, tx, args);
         }
       }
@@ -840,17 +844,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         // Multi-alias MATCH caches via a class-scoped version gate: replay verbatim while no pattern-
         // class mutation has happened, re-execute once one has. The gate can fire only if the entry
         // knows its read-class closure; an empty closure (no resolvable pattern class) would replay a
-        // stale tuple set forever after any mutation, so refuse to cache it and run uncached.
-        if (effectiveFromClasses(statement).isEmpty()) {
+        // stale tuple set forever after any mutation, so refuse to cache it and run uncached. Compute
+        // the closure once here and thread it into the populate so it is not re-walked when the entry
+        // is built.
+        var matchClasses = effectiveFromClasses(statement);
+        if (matchClasses.isEmpty()) {
           return executeUncached(statement, args);
         }
-        return populateAndBuildView(statement, args, key, shape, tx, cache);
+        return populateAndBuildView(statement, args, key, shape, tx, cache, matchClasses);
       }
       if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
         // Any other not-yet-wired shape bypasses the cache uncached.
         return executeUncached(statement, args);
       }
-      return populateAndBuildView(statement, args, key, shape, tx, cache);
+      return populateAndBuildView(statement, args, key, shape, tx, cache, null);
     } finally {
       // Always release the synchronous-scope guard. A returned view holds no guard of its own; it
       // re-enters the bracket per row during iteration (CachedResultSetView.hasNext), so it cannot
@@ -890,7 +897,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       @Nonnull CacheKey key,
       @Nonnull CacheableShape shape,
       @Nonnull FrontendTransactionImpl tx,
-      @Nonnull QueryResultCache cache) {
+      @Nonnull QueryResultCache cache,
+      @Nullable Set<String> precomputedEffectiveFromClasses) {
     // Stamp before execution: the LocalResultSet constructor calls plan.start(), so the populate
     // version must be captured first so the delta builder later filters in only post-populate ops.
     var populateMutationVersion = tx.getMutationVersion();
@@ -939,9 +947,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     // owner, not a live double-close path.
     localResult.setStream(wrapped);
 
+    // Reuse the closure the caller already computed (the multi-alias MATCH miss path), else compute it.
+    var entryEffectiveFromClasses = precomputedEffectiveFromClasses != null
+        ? precomputedEffectiveFromClasses
+        : effectiveFromClasses(statement);
     var entry = new CachedEntry(
         shape,
-        effectiveFromClasses(statement),
+        entryEffectiveFromClasses,
         whereClauseOf(statement),
         orderByOf(statement),
         wrapped,
@@ -1405,6 +1417,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * the step method's parameters (the parser folds a bare {@code out()} to the literal {@code "E"}, so a
    * traversal step always carries at least one label parameter); a multi-label step contributes each.
    * A string-literal label is rendered with surrounding quotes, so they are stripped before resolution.
+   *
+   * <p>This reads the label from {@code param.toString()}, the same rendered form {@link
+   * ShapeClassifier} tests with its {@code STATIC_LABEL} pattern. The two are coupled by that rendering:
+   * the classifier runs first and routes any non-statically-resolvable label (parameterized, computed)
+   * to {@code K0_NONE}, so every label reaching this extraction is a bare identifier or a single
+   * string literal. A non-resolvable name still resolves to {@code null} here and is dropped.
    */
   private void addMatchEdgeClasses(@Nullable SQLMethodCall method, @Nonnull List<SchemaClass> out) {
     if (method == null) {
@@ -1423,7 +1441,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
   }
 
-  /** Strips a single pair of surrounding single or double quotes from a rendered edge label. */
+  /**
+   * Strips a single pair of surrounding single or double quotes from a rendered edge label. Edge and
+   * class names are bare identifiers, so the stripped content needs no further unescaping; a label that
+   * would require it is not a resolvable class name and resolves to {@code null} at the call site.
+   */
   private static String stripLabelQuotes(@Nonnull String rendered) {
     if (rendered.length() >= 2) {
       var first = rendered.charAt(0);
