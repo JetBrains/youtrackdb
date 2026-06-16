@@ -337,6 +337,11 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > Plan of Work.
   >
   > **Track file:** `plan/track-1.md` (1 step, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no downstream impact detected. Track 1
+  > confirmed the lazy-consult replay prerequisite (D10) that Track 4's I-A1
+  > crash-recovery tests rest on; no Component Map, Decision Record, or
+  > inter-track dependency for the remaining tracks changed.
 
 - [ ] Track 2: Per-class schema records (D14)
   > Replace the single monolithic schema record with a root record that links to
