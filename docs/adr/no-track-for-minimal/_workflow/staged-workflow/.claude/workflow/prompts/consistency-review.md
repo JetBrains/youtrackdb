@@ -65,14 +65,15 @@ mechanical test: **does
 - **`lite`** (no design): skip every axis and gap that reads `design.md`
   (the **DESIGN ↔ CODE** and **DESIGN ↔ PLAN** axes, and the design half
   of **GAPS**). Compare plan + tracks + code.
-- **`minimal`** (no design, stub plan): additionally skip the
-  **plan-content cross-check** — the `minimal` aggregator plan is a
-  ~10-line stub with one checklist entry and no decision content to
-  verify. The **PLAN ↔ CODE** axis runs only its track-reference bullet;
-  see that axis below (§PLAN ↔ CODE CONSISTENCY) for exactly which
-  bullets drop. Do not raise findings against the stub plan's absent
-  content, **except** the tier-line-presence check below, which runs in
-  every tier.
+- **`minimal`** (no design, no plan): `minimal` drops the plan outright
+  (D2), so there is no `implementation-plan.md`. Drop the **PLAN ↔ CODE**
+  axis entirely — there is no plan file to compare against, and the only
+  plan-vs-code obligation that survives is whatever reads the track files
+  directly (see §PLAN ↔ CODE CONSISTENCY below for the track-reference
+  bullets that still run against the track files). Do not raise findings
+  against a plan file that does not exist, **except** the
+  tier-line-presence check below, which runs in every tier (the tier home
+  under `minimal` is the ledger `tier` field, not a plan line).
 
 **Tier-presence check (runs in every tier).** Reading the confirmed tier
 is the precondition for the tier selection above, so its absence is a

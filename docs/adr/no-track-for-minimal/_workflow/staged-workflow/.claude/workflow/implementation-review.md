@@ -210,17 +210,17 @@ matrix):
 | Pass | `full` | `lite` | `minimal` |
 |---|---|---|---|
 | Step 1 consistency | full (design + plan + tracks + code) | drops the design half (plan + tracks + code) | drops the design half **and** the plan-content cross-check (track + code only) |
-| Step 2 structural | runs | runs | **dropped** (the stub plan has nothing to check) |
+| Step 2 structural | runs | runs | **dropped** (`minimal` has no plan, so there is no plan-file shape to validate) |
 
 The two narrowings are independent. The **design half** of the
 consistency review is dropped whenever no `design.md` exists — that is, in
 `lite` and `minimal`. The **plan-content cross-check** is additionally
-dropped in `minimal` only, because the `minimal` stub plan is ~10 lines
-with one checklist entry and no decision content to cross-check; the
-`minimal` consistency pass cross-checks track-vs-code only. `minimal` also
-**drops the Step 2 structural pass** entirely: a stub plan has one
-checklist entry, no decision records, and no ordering, so a structural
-pass has nothing to validate.
+dropped in `minimal` only, because `minimal` has no plan (D2): with no
+`implementation-plan.md` on disk there is no plan content to cross-check, so
+the `minimal` consistency pass cross-checks track-vs-code only. `minimal` also
+**drops the Step 2 structural pass** entirely: with no plan file there are no
+decision records and no ordering to validate, so the structural pass has no
+plan-file shape to check.
 
 **Design-presence guard.** The two narrowings reduce to one mechanical
 test the orchestrator and the sub-agent both apply: **does

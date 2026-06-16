@@ -1434,12 +1434,16 @@ stamp-advance lands.
 
 The three Phase-3A criteria-switch blocks (the "Workflow-machinery
 criteria" block in `technical-review.md`, `risk-review.md`, and
-`adversarial-review.md`) fire when the plan's `### Constraints` carries
-**either** the (b) workflow-modifying marker prefix **or** the (k)
-opt-out marker prefix. Both markers signal that the track edits workflow
-prose, so both re-point the review onto the prose criteria (path/anchor
-reference checks plus the five prose lenses) and away from the
-Java-oriented lenses.
+`adversarial-review.md`) fire when the branch is in §1.7(b) staging mode
+**or** the (k) opt-out mode — read ledger-first: the phase ledger's
+`s17` field (`_workflow/phase-ledger.md`, last value wins) equals
+**either** the workflow-modifying token **or** the opt-out token; when no
+`phase-ledger.md` exists, fall back to the plan's `### Constraints`
+carrying **either** the (b) workflow-modifying marker prefix **or** the
+(k) opt-out marker prefix. Both markers signal that the track edits
+workflow prose, so both re-point the review onto the prose criteria
+(path/anchor reference checks plus the five prose lenses) and away from
+the Java-oriented lenses.
 
 The separate "Staged-read precedence" block in each of the three prompts
 stays gated on the workflow-modifying marker **only**. Under the opt-out

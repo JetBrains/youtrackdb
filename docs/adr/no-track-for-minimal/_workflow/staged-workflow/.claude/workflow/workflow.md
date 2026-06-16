@@ -270,7 +270,10 @@ then drift, then handoffs, then state routing.
    mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 and follow
    its §Resume protocol: re-present the pending decision (or research
    findings) to the user, delete resolved handoff files and their
-   secondary PAUSED markers, then return to state routing. **While any
+   secondary pause pointers (the track-Progress `**PAUSED` line for
+   A/B/C; for State 0 / Phase 4 the handoff-file deletion is itself the
+   clear, since the ledger `paused=` event is append-only), then return
+   to state routing. **While any
    handoff is unresolved, the orchestrator MUST NOT spawn sub-agents,
    re-run gate-checks, or recompile episodes** — the resume freeze
    holds until the handoff set is drained. See `mid-phase-handoff.md`
@@ -499,9 +502,10 @@ yet.
 
      The handoff file goes under
      `docs/adr/<dir-name>/_workflow/handoff-<phase>.md`, paired with
-     a `**PAUSED ...**` marker in the natural progress-tracking file
-     (skipped for Phase 0 / 1 — see `mid-phase-handoff.md`
-     §Secondary marker) and a cross-reference in `MEMORY.md`. All
+     a secondary pause pointer (a track-Progress `**PAUSED` line for
+     A/B/C; a ledger `paused=` event for State 0 / Phase 4; skipped for
+     Phase 0 / 1 — see `mid-phase-handoff.md` §Secondary marker) and a
+     cross-reference in `MEMORY.md`. All
      channels are written in a single commit with a bare imperative
      message such as `Pause <phase> for context refresh — write
      handoff`.

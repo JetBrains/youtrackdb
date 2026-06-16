@@ -173,10 +173,11 @@ them in this order:
    every Phase-2/3A/4 selector reads ledger-first from the next State-0
    re-run onward (step 6 below resets review state, routing the next
    `/execute-tracks` session through Phase 2). The materialize-then-write
-   order matters: appending the upgraded tier before the plan exists would
-   route the next selector to read a plan that is not yet on disk. A
-   `full` upgrade that crosses the §1.7 staging line also appends the `s17`
-   field on the same or a following boundary.
+   order keeps the same-commit set internally consistent: the materialized
+   plan and the `tier` append land together in the step-6 commit, so the
+   committed pair never shows an upgraded tier pointing at a plan that is
+   not yet written. A `full` upgrade that crosses the §1.7 staging line
+   also appends the `s17` field on the same or a following boundary.
 
 Without the materialize step, the re-entered selectors would resolve the
 new tier from the ledger but find no plan or design to drive the wider
@@ -187,6 +188,12 @@ normally a `create-plan`-owned ledger write at confirmation (it is read-only
 for every execution-time consumer), and the upgrade is the one
 execution-time exception: the ESCALATE replan owns this single tier append,
 the same way it owns the revised Decision Records it lands.
+
+Neither the materialized artifacts nor the `tier` append is committed until
+the step-6 commit, so an escalation interrupted anywhere before that commit
+is recoverable with the standard `git reset --hard HEAD`: the reset reverts
+the uncommitted plan/design and the ledger `tier` append together, restoring
+the pre-upgrade `minimal` state.
 
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See

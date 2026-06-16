@@ -203,7 +203,7 @@ above cannot recover them):
 grep -nE '(^| )paused=[^ ]+' docs/adr/<dir-name>/_workflow/phase-ledger.md
 ```
 
-**Clear-on-resolution.** The ledger is append-only — there is no unpause
+**Clear-on-resolution.** The ledger is append-only: there is no unpause
 op, so a resolved pause's `paused=` event is never deleted. The recovery
 scan therefore treats a `paused=` event as **live only while its handoff
 file is still present**: the handoff-file deletion the §Per-handoff loop
