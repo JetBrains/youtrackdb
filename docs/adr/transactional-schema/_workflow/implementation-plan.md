@@ -306,13 +306,37 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
 
 ## Checklist
 
-- [ ] Track 1: WAL replay lazy-consult fix (prerequisite)
+- [x] Track 1: WAL replay lazy-consult fix (prerequisite)
   > Fix the lazy-consult WAL replay path so a crash between an atomic operation's
   > end record becoming durable and its physical apply completing no longer aborts
   > the restore of a committed file-creating unit and discards all later units.
   > This is the prerequisite the reconciliation crash-recovery claim (I-A1, D10)
   > rests on; it shares no files with the schema or index subsystems.
-  > **Scope:** ~4 files covering the WAL restore/replay path and a crash-replay regression test.
+  >
+  > **Track episode:**
+  > Closed the F55 lazy-consult abort in the shared WAL replay path.
+  > `AbstractStorage.restoreAtomicUnit` routes both the `UpdatePageRecord` and
+  > `PageOperation` missing-file redos through a new private helper,
+  > `ensureFileForReplay`: it scans the current atomic unit forward for the
+  > matching `FileCreatedWALRecord` and materializes the file via
+  > `readCache.addFile`, then falls back to the preserved non-null
+  > `restoreFileById` path, and only throws for a genuinely-incomplete unit whose
+  > end record never became durable. A committed file-creating unit whose physical
+  > apply was lost to a crash now replays, and every later committed unit survives
+  > instead of being discarded by the `catch (RuntimeException)` in `restoreFrom`.
+  > The unit's own later `FileCreatedWALRecord` replays as an idempotent no-op
+  > only because `writeCache.exists` flips true once `readCache.addFile` runs;
+  > that transition is now confirmed. `ensureFileForReplay` is the single
+  > reconciliation point for a missing-file page redo and is reached by both
+  > `restoreFrom` callers (open-time `restoreFromBeginning` and incremental-backup
+  > `DiskStorage.restoreFromIncrementalBackup`), so the IBU restore path recovers
+  > lazily too; Track 4's I-A1 reconciliation crash-recovery tests can now assume
+  > this prerequisite has landed. The crash-replay regression was settled toward
+  > the existing Mockito unit harness (`RestoreAtomicUnitPageOperationTest`, two
+  > units in sequence) over a restart IT, with no production divergence from the
+  > Plan of Work.
+  >
+  > **Track file:** `plan/track-1.md` (1 step, 0 failed)
 
 - [ ] Track 2: Per-class schema records (D14)
   > Replace the single monolithic schema record with a root record that links to

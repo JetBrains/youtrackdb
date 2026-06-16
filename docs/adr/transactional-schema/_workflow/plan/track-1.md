@@ -20,10 +20,11 @@ the front of the series.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, fully reviewed in Phase B)
+- [x] Track completion
 - [x] 2026-06-16T10:58Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-16T12:02Z [ctx=safe] Step 1 complete (commit 03a23a0139)
+- [x] 2026-06-16T12:51Z [ctx=safe] Track complete (single-step, code review skipped)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
