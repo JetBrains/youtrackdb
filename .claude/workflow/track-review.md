@@ -14,7 +14,7 @@
 | §Inputs passed to Phase A review sub-agents | orchestrator | 3A | The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope). |
 | §Track-scoped technical review | reviewer-technical | 3A | The track-scoped technical review and its prompt file. |
 | §Track-scoped risk review | reviewer-risk | 3A | The track-scoped risk review and its prompt file. |
-| §Track-scoped adversarial review | reviewer-adversarial | 3A | The track-scoped adversarial review and its prompt file. |
+| §Track-scoped adversarial review | reviewer-adversarial | 3A | The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the D14 tier model/effort pin. |
 | §Review gate verification | orchestrator | 3A | Re-run the Phase A reviews against applied fixes via the review-gate-verification prompt. |
 | §Review iteration protocol | orchestrator | 3A | Phase A reviews follow the shared review iteration protocol (max 3 iterations, cumulative IDs). |
 | §Step Decomposition | decomposer | 3A | Decompose the track into a roster of risk-tagged steps; sizing, cross-cutting, and parallel-annotation rules. |
@@ -481,8 +481,11 @@ review-mode rounds.
    subsection committed by the gate above; both phases of consumption
    route through the same file.
 
-2. **Read the confirmed tier** (the tier line in
-   `implementation-plan.md`) to select which reviews to run (see
+2. **Read the confirmed tier** — ledger-first: the phase ledger's
+   `tier` field (`_workflow/phase-ledger.md`, last value wins); when no
+   `phase-ledger.md` exists (an in-flight pre-ledger `lite`/`full`
+   plan), fall back to the tier line in `implementation-plan.md` — to
+   select which reviews to run (see
    §Tier-driven review selection below).
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
@@ -598,7 +601,9 @@ review-mode rounds.
 <!-- roles=orchestrator,decomposer phases=3A summary="Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only." -->
 
 The **confirmed tier** (D9), not step count, selects the Phase-3A panel
-at the change level. Read the tier line in `implementation-plan.md`. This
+at the change level. Read the tier ledger-first: the phase ledger's
+`tier` field (last value wins); when no `phase-ledger.md` exists, fall
+back to the tier line in `implementation-plan.md`. This
 replaces the former Simple / Moderate / Complex step-count axis as the
 change-level selector. The selection reads **no per-step risk signal**
 (S4): the tier is the change-level driver; the per-step `risk:` tag stays

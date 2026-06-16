@@ -10,8 +10,8 @@
 | §How sub-agents use it | orchestrator | 3B,3C | The sub-agent prompt points at the snapshot path with a full-plan fallback; the resolved PID is baked into the prompt. |
 | §Rendering rule | orchestrator | 3B,3C | Keep pre-Checklist content and [ ] tracks verbatim; collapse [x] and [~] entries to title + intro + episode. |
 | §Example — before and after | orchestrator | 3B,3C | A worked before/after pair showing a completed track collapsing to the slim form. |
-| §Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**`, `**Depends on:**`, and `**Track file:**` lines) | orchestrator | 3B,3C | The pre-collapse on-disk entry carrying Scope, Depends on, and Track file lines. |
-| §After (slim render) | orchestrator | 3B,3C | The same entry after the slim transform drops Scope, Depends on, and Track file lines. |
+| §Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**` and `**Depends on:**` lines) | orchestrator | 3B,3C | The pre-collapse on-disk entry carrying Scope and Depends on lines. |
+| §After (slim render) | orchestrator | 3B,3C | After the slim transform: Scope and Depends-on dropped, episode summary, Track file pointer, and Strategy refresh kept. |
 | §How to identify the "intro paragraph" | orchestrator | 3B,3C | The intro paragraph is the blockquote content before the first **Keyword**: marker line. |
 | §Interaction with the on-disk collapse | orchestrator | 3B,3C | Track completion collapses the on-disk description to this same slim form; the rendering rule is then idempotent. |
 | §Slim-track rendering | orchestrator | 3A,3B,3C | Render a track inline for sub-agents: keep the inline Decision Log, drop high-cadence logs; consumer rewiring deferred. |
@@ -114,9 +114,11 @@ sub-agent to Read it:
 Read the slim plan snapshot at:
   /tmp/claude-code-plan-slim-{PPID}.md
 
-This is a filtered view of the full plan — completed and skipped tracks
-appear as title + intro paragraph + track episode (or Skipped reason) +
-the on-disk `**Strategy refresh:**` line only; the current track and
+This is a filtered view of the full plan — a completed track appears as
+title + intro paragraph + the one-line `**Track episode:**` summary and
+its pointer + the `**Track file:**` pointer + the on-disk
+`**Strategy refresh:**` line; a skipped track as title + intro paragraph +
+Skipped reason + `**Strategy refresh:**` line. The current track and
 other not-started tracks keep their title, intro paragraph,
 `**Scope:**`, and `**Depends on:**`.
 If this file is missing, fall back to
@@ -134,10 +136,19 @@ Sub-agents run in separate processes and don't inherit the main agent's
 ## Rendering rule
 <!-- roles=orchestrator phases=3B,3C summary="Keep pre-Checklist content and [ ] tracks verbatim; collapse [x] and [~] entries to title + intro + episode." -->
 
-1. **Keep the pre-Checklist content verbatim.** Feature name, Design
-   Document link, High-level plan (Goals, Constraints, Architecture Notes,
-   Decision Records, Component Map, Invariants, Integration Points,
-   Non-Goals) — all strategic and needed by every sub-agent.
+1. **Keep the pre-Checklist content verbatim.** Under the thinned
+   `lite`/`full` plan (D5/D9) the pre-Checklist content is only the feature
+   name, the `## Design Document` link (`full` only — absent in `lite`,
+   which has no `design.md`), and the thin cross-track `## Component Map` —
+   all strategic and needed by every sub-agent for cross-track impact
+   assessment. The plan no longer carries `### Goals`, `### Constraints`,
+   the full `### Architecture Notes` (Decision Records, Invariants,
+   Integration Points), or `## Non-Goals`: those moved to the track files
+   (Decision Records → each track's `## Decision Log`, invariants and
+   constraints → the combined `## Invariants & Constraints`, integration
+   points → `## Interfaces and Dependencies`) or were dropped (Goals/
+   Non-Goals — the aim lives in the research log and the PR Motivation), so
+   there is nothing of theirs to render here.
 
 2. **Keep the `## Checklist` header.**
 
@@ -149,8 +160,19 @@ Sub-agents run in separate processes and don't inherit the main agent's
    | Status | Keep | Drop |
    |---|---|---|
    | `[ ]` (not started or in-progress current track) | Everything in the entry verbatim — title line, intro paragraph, `**Scope:**`, optional `**Depends on:**`. The detailed track-level content lives in the track file's four track-level sections under `plan/track-N.md` (`## Purpose / Big Picture` BLUF + ADDED/MODIFIED/REMOVED triad, `## Context and Orientation` current-state framing, `## Plan of Work` step sequencing, `## Interfaces and Dependencies` in-scope / out-of-scope and inter-track dependencies), not in the plan-file entry; the transform is a no-op. | Nothing |
-   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), **Track episode**, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line, **Track file** pointer line |
+   | `[x]` (completed) | Title line, **intro paragraph** (the first quoted block before any `**Keyword**:` subsection), the one-line `**Track episode:**` summary + pointer, the `**Track file:**` pointer, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line |
    | `[~]` (skipped) | Title line, **intro paragraph**, **Skipped:** reason, **Strategy refresh** line (if present) | **Scope** line, **Depends on** line |
+
+   **Completed-track entry is already one line of episode (D5/D7).** Under
+   the carrier flip the full completion episode is canonical in the track
+   file's `## Episodes` (`### Track completion` block); the `lite`/`full`
+   plan entry is collapsed at Phase C to a one-line `**Track episode:**`
+   summary followed by a pointer to that block, plus the `**Track file:**`
+   line (see track-code-review.md:orchestrator:3C §Track Completion step 4).
+   So this render keeps that one-line summary + pointer **as-is** — there is
+   no full episode prose left in the plan entry to shed. The `**Track file:**`
+   pointer is now **kept** (the on-disk collapse retains it as the path to
+   the canonical episode), where the develop-era rule dropped it.
 
    **Current track exception:** The track currently being executed is
    always `[ ]` in the plan file (it is not marked `[x]` until Phase C
@@ -159,15 +181,26 @@ Sub-agents run in separate processes and don't inherit the main agent's
    "current track rendered in full" contract that sub-agents rely on
    for tactical context.
 
-4. **Keep the `## Final Artifacts` section verbatim.**
+4. **No `## Final Artifacts` section to render.** The thinned plan does
+   not carry a `## Final Artifacts` section (D7): Phase-4 progress and the
+   review state live in the phase ledger, the Phase-2 audit summary lives in
+   `plan-review.md`, and the tier-keyed durable carrier is governed by the
+   per-tier artifact set (`conventions.md` §Per-tier artifact set). So the
+   render stops after the `## Checklist`; there is no trailing section to
+   copy verbatim.
 
 ---
 
 ## Example — before and after
 <!-- roles=orchestrator phases=3B,3C summary="A worked before/after pair showing a completed track collapsing to the slim form." -->
 
-### Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**`, `**Depends on:**`, and `**Track file:**` lines)
-<!-- roles=orchestrator phases=3B,3C summary="The pre-collapse on-disk entry carrying Scope, Depends on, and Track file lines." -->
+### Before (pre-collapse on-disk form — completed track entry still carries `**Scope:**` and `**Depends on:**` lines)
+<!-- roles=orchestrator phases=3B,3C summary="The pre-collapse on-disk entry carrying Scope and Depends on lines." -->
+
+The on-disk completed entry already carries a one-line `**Track episode:**`
+summary plus a pointer (the full episode is canonical in the track file's
+`## Episodes`, D5/D7), so the only lines the slim transform drops are
+`**Scope:**` and `**Depends on:**`:
 
 ```markdown
 - [x] Track 2: Direct Buffer Write Infrastructure
@@ -180,18 +213,18 @@ Sub-agents run in separate processes and don't inherit the main agent's
   >
   > **Depends on:** Track 1
   >
-  > **Track episode:**
-  > Built direct-buffer write path with applyRollback entry point.
-  > Discovered CachePointer lock lifecycle needed extension for
-  > cross-component-op undo ordering — see Step 5 episode.
+  > **Track episode:** Direct-buffer write path with applyRollback entry
+  > point; cross-component-op undo ordering needed a CachePointer lock
+  > lifecycle extension — see `plan/track-2.md` `## Episodes` § Track
+  > completion. (8 steps, 0 failed)
   >
-  > **Track file:** `plan/track-2.md` (8 steps, 0 failed)
+  > **Track file:** `plan/track-2.md`
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 ```
 
 ### After (slim render)
-<!-- roles=orchestrator phases=3B,3C summary="The same entry after the slim transform drops Scope, Depends on, and Track file lines." -->
+<!-- roles=orchestrator phases=3B,3C summary="After the slim transform: Scope and Depends-on dropped, episode summary, Track file pointer, and Strategy refresh kept." -->
 
 ```markdown
 - [x] Track 2: Direct Buffer Write Infrastructure
@@ -199,10 +232,12 @@ Sub-agents run in separate processes and don't inherit the main agent's
   > alongside the existing overlay mode, with a per-file flag controlling
   > which path is used.
   >
-  > **Track episode:**
-  > Built direct-buffer write path with applyRollback entry point.
-  > Discovered CachePointer lock lifecycle needed extension for
-  > cross-component-op undo ordering — see Step 5 episode.
+  > **Track episode:** Direct-buffer write path with applyRollback entry
+  > point; cross-component-op undo ordering needed a CachePointer lock
+  > lifecycle extension — see `plan/track-2.md` `## Episodes` § Track
+  > completion. (8 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-2.md`
   >
   > **Strategy refresh:** CONTINUE — no downstream impact detected.
 ```

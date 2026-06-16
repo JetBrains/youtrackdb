@@ -32,7 +32,9 @@ Read and follow the workflow for Phase 2 (Implementation Review).
 
 > **Manual override.** Phase 2 normally runs autonomously as the first
 > phase of `/execute-tracks` when the startup protocol detects State 0
-> (`## Plan Review` is `[ ]`). This skill is a manual entry point for
+> (the phase ledger has no `phase` boundary yet — D3; there is no plan
+> `## Plan Review` checkbox under the thinned plan). This skill is a
+> manual entry point for
 > re-running the same review — useful after inline replanning has
 > produced a revised plan, or when you want to explicitly re-validate
 > the plan against current code without going through `/execute-tracks`.
@@ -82,8 +84,9 @@ path as the `plan_dir` argument on each sub-agent spawn.
 1. Run the clean-tree precondition from
    implementation-review.md:orchestrator,reviewer-plan:2
    § How to run > Precondition — path-scoped to the workflow files
-   the audit-trail commit will touch (plan, every track file under
-   `plan/`, design, design-mechanics, design-mutations). Halt and ask
+   the audit-trail commit will touch (plan, `plan-review.md`, the phase
+   ledger, every track file under `plan/`, design, design-mechanics,
+   design-mutations). Halt and ask
    the user to commit or stash if any of those are dirty. Other dirty
    paths in the working tree are safe to ignore.
 2. Load implementation-review.md:orchestrator,reviewer-plan:2 and follow its
@@ -94,10 +97,18 @@ path as the `plan_dir` argument on each sub-agent spawn.
    `edit-design` skill (`design.md` — mutation discipline).
 4. Batch-escalate any `design-decision` findings to the user once per
    step. Apply user-resolved fixes the same way.
-5. After both reviews pass, overwrite the plan file's `## Plan Review`
-   section with the audit summary (`[x]` + auto-fixed/escalated
-   listings) per implementation-review.md:orchestrator,reviewer-plan:2 § Audit trail.
-6. Commit the plan / track-file / design updates with the message
+5. After both reviews pass, write the audit summary to `plan-review.md`
+   (auto-fixed/escalated listings) and record review state in the phase
+   ledger by appending a `phase=A` boundary
+   (`.claude/scripts/workflow-startup-precheck.sh --append-ledger --phase A`)
+   per implementation-review.md:orchestrator,reviewer-plan:2 §"The
+   `plan-review.md` document and the ledger review state" (D7). There is
+   no plan `## Plan Review` section to overwrite under the thinned plan;
+   `plan-review.md` exists in every tier, so a `minimal` change with no
+   plan still has a review-fact home, and a re-run appends the new verdict
+   there and re-appends the `phase=A` boundary.
+6. Commit `plan-review.md`, the phase ledger, and any plan / track-file /
+   design updates the review touched with the message
    `Plan review autonomous fixes for <plan-name>` and push.
 7. End the session.
 

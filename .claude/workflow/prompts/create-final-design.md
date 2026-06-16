@@ -38,8 +38,11 @@ Read:
   **`full`-tier only — absent in `lite`/`minimal`.** A `design.md` exists
   only when the plan's confirmed tier is `full` (Step 3's tier table keys
   artifact production off this). Skip this read when the file does not
-  exist; read the D18 tier line in `implementation-plan.md` first if
-  unsure which tier you are in.
+  exist; read the confirmed tier ledger-first if
+  unsure which tier you are in — the phase ledger's `tier` field
+  (`_workflow/phase-ledger.md`, last value wins); when no
+  `phase-ledger.md` exists, fall back to the D18 tier line in
+  `implementation-plan.md`.
 - `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all track files with step
   episodes. Each track file carries the track's original description
   across its `## Purpose / Big Picture`, `## Context and Orientation`,
@@ -84,7 +87,10 @@ authoritative source for edge cases.
 **Step 3 — Produce the per-tier final artifacts.**
 
 **Which artifacts to produce is keyed off the confirmed tier (D16).** Read
-the tier line in `implementation-plan.md` first, then produce:
+the confirmed tier ledger-first — the phase ledger's `tier` field
+(`_workflow/phase-ledger.md`, last value wins); when no `phase-ledger.md`
+exists, fall back to the tier line in `implementation-plan.md` — first,
+then produce:
 
 | Tier | Artifacts | Verdict fold lands in |
 |---|---|---|
@@ -414,12 +420,15 @@ workflow-modifying `minimal` branch, the Step 4 promotion still runs first).
 
 **Step 4 — Promote staged workflow changes (workflow-modifying plans only).**
 
-Workflow-modifying plans accumulate every `.claude/workflow/**` and
-`.claude/skills/**` edit under `<dir-name>/_workflow/staged-workflow/`
+Workflow-modifying plans accumulate every `.claude/workflow/**`,
+`.claude/skills/**`, `.claude/agents/**`, and `.claude/scripts/**` edit
+under `<dir-name>/_workflow/staged-workflow/`
 throughout Phase B and Phase C per
 conventions.md:final-designer:4 `§1.7`; this step copies the
 staged subtree onto the live tree in one commit before the
-final-artifacts commit. The promotion is additive only per
+final-artifacts commit. The divergence check and `git add` below
+include `.claude/scripts` (D14) so a promoted startup script reaches
+develop. The promotion is additive only per
 `../conventions.md` `§1.7(e)`; plans that need to delete live workflow
 files land the deletion outside staging. Non-workflow-modifying plans
 have no staged subtree on disk and the step is a silent no-op for them
@@ -447,14 +456,14 @@ STAGED_DIR="$PLAN_DIR/_workflow/staged-workflow"
 
 if [ -d "$STAGED_DIR/.claude" ]; then
   git fetch origin develop --quiet
-  DIVERGENCE=$(git log "$(git merge-base origin/develop HEAD)..origin/develop" -- .claude/workflow .claude/skills .claude/agents)
+  DIVERGENCE=$(git log "$(git merge-base origin/develop HEAD)..origin/develop" -- .claude/workflow .claude/skills .claude/agents .claude/scripts)
   if [ -n "$DIVERGENCE" ]; then
-    echo "ERROR: origin/develop carries .claude/workflow, .claude/skills, or .claude/agents commits this branch has not absorbed."
+    echo "ERROR: origin/develop carries .claude/workflow, .claude/skills, .claude/agents, or .claude/scripts commits this branch has not absorbed."
     echo "Rebase the branch onto current origin/develop before promotion (conventions.md §1.7(f))."
     exit 1
   fi
   cp -r "$STAGED_DIR/.claude/." .claude/
-  git add .claude/workflow .claude/skills .claude/agents
+  git add .claude/workflow .claude/skills .claude/agents .claude/scripts
   git diff --cached --quiet || git commit -m "Promote workflow changes from $STAGED_DIR"
   git push
 fi

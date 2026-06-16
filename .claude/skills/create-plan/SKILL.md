@@ -131,26 +131,45 @@ files; the Phase 4 cleanup commit removes it before merge (see
 **Step 1c — Tier-aware resume check (before the aim prompt).**
 
 After Step 1.5 (drift) and Step 1a (handoff) have cleared, check the
-two design-first artifacts on disk:
+design-first artifacts plus the phase ledger and the single-track glob on
+disk:
 
 ```bash
-ls docs/adr/<dir-name>/_workflow/design.md docs/adr/<dir-name>/_workflow/implementation-plan.md 2>/dev/null
+ls docs/adr/<dir-name>/_workflow/design.md \
+   docs/adr/<dir-name>/_workflow/implementation-plan.md \
+   docs/adr/<dir-name>/_workflow/phase-ledger.md \
+   docs/adr/<dir-name>/_workflow/plan/track-1.md 2>/dev/null
 ```
 
-The branch added for tier-adaptive Phase 1 is the **no-design tier**: in
-`lite` and `minimal` there is no `design.md` by design (`planning.md`
-§Tier classification), so a no-design tier interrupted mid-planning must
-not route back to Step 4a design authoring on resume the way the old
-bare-presence routing would. The disambiguator is `implementation-plan.md`
-**presence and its tier line** (D18) — never a fresh read of the research
-log, which would be a third decision-content read site and break S2. The
-tier line is the one Step-4 writes into the plan (see Step 4 / the
-aggregator-plan template). The plan stub is shape-complete from the moment
-Step 4 writes it (D1), so the no-design-tier-in-progress case fires only
-when `implementation-plan.md` is present (its tier line readable there)
-and `design.md` is absent.
+The routing signal is **tier-dependent** (D10). `minimal` has **no plan**
+(D2), so `implementation-plan.md` presence cannot disambiguate it; the
+**phase ledger** is the signal for `minimal` — when the ledger is present
+and its `tier` line reads `minimal`, an interrupted `minimal` session
+resumes off the ledger, with the `plan/track-1.md` glob as the secondary
+signal that the one track file was written. For `lite`/`full`,
+`implementation-plan.md` **presence** stays the routing signal (the plan is
+present in those tiers), and the tier is read from the **ledger** `tier`
+field, never from a plan line (the plan no longer carries a tier line; it
+moved to the ledger per D4) and never from a fresh read of the research log,
+which would be a third decision-content read site and break S2.
 
-Route on what exists:
+Read the tier from the ledger once before routing — the same
+last-value-wins `tier` field the script's `--append-ledger` seeds at
+Phase 1 (`conventions.md` `§1.1` *Phase ledger*):
+
+```bash
+# Tier from the ledger (last value wins); empty if no ledger or no tier line.
+LEDGER_TIER="$(sed -n 's/.* tier=\([a-z]*\).*/\1/p' \
+    docs/adr/<dir-name>/_workflow/phase-ledger.md 2>/dev/null | tail -n 1)"
+```
+
+Route on what exists. Evaluate the branches in order; the first whose
+condition holds wins. The `design.md`-keyed branches are mutually exclusive
+with the no-design branches by file presence, but the `minimal` resume branch
+and the fresh-start branch both describe the no-plan/no-design state, so the
+order matters: the more-specific `minimal` resume is reached first and the
+fresh-start branch is the catch-all that fires only when no earlier branch
+matched.
 
 - **`design.md` exists, `implementation-plan.md` does not** — `full` tier
   mid-authoring (only `full` writes a `design.md`). The design seed may be
@@ -183,29 +202,57 @@ Route on what exists:
     from it. Re-entering the loop on an already-good design is idempotent
     and harmless, so this branch is safe even on a false alarm (e.g., a
     stray editor write left the file dirty).
-- **`implementation-plan.md` exists, `design.md` does not** — read the
-  plan's tier line (D18; the format is fixed in Step 4 / the
-  aggregator-plan template). Two sub-cases, both keyed on the tier line
-  already on disk, never on a new log read:
-  - **Tier line says `lite` or `minimal`** — this is a no-design tier whose
-    plan is already derived; the missing `design.md` is by design, not a
-    sign of an interrupted Step 4a. This is a normal resume, not a Step-4
-    entry: the drift / handoff / state routing above already handled it; do
-    not re-run Step 4 and do not route to design authoring. Proceed to
-    Step 2 only if the user explicitly asks to start a new aim against the
-    same dir (rare).
-  - **Tier line says `full` (or is absent / unreadable)** — a `full`-tier
-    plan with no `design.md` is malformed (the design should have been
-    authored and committed first); an absent tier line means the plan
-    predates the tier scheme. Treat it as the **Both files exist** normal
-    resume below and surface the inconsistency to the user rather than
-    silently re-deriving — do not re-run Step 4.
-- **Neither file exists** — fresh start. Proceed to Step 2 (aim), then
-  Step 3 (research), then Step 4 (the tier classifier + adversarial gate,
-  then per-tier Step 4a/4b). This also covers the narrow `/clear` window
-  where Step 4's gate cleared but the plan stub was not written yet: with
-  no `implementation-plan.md` on disk there is no tier line to read, so the
-  resume correctly reads as a fresh start and Step 4's classifier re-runs,
+- **`implementation-plan.md` exists, `design.md` does not** — a `lite` or
+  `full` tier whose plan is already derived (`minimal` has no plan, so it
+  never reaches this branch). Read the tier from the ledger `LEDGER_TIER`
+  parsed above. Two sub-cases:
+  - **Ledger tier `lite`** — a no-design tier whose plan is already derived;
+    the missing `design.md` is by design, not a sign of an interrupted
+    Step 4a. This is a normal resume, not a Step-4 entry: the drift /
+    handoff / state routing above already handled it; do not re-run Step 4
+    and do not route to design authoring. Proceed to Step 2 only if the user
+    explicitly asks to start a new aim against the same dir (rare).
+  - **Ledger tier `full` (or absent / unreadable)** — a `full`-tier plan
+    with no `design.md` is malformed (the design should have been authored
+    and committed first); an absent ledger tier means the branch predates
+    the ledger scheme. Treat it as the **Both files exist** normal resume
+    below and surface the inconsistency to the user rather than silently
+    re-deriving — do not re-run Step 4.
+- **`minimal` resume — ledger present with `tier=minimal`, `plan/track-1.md`
+  present, no `implementation-plan.md`, no `design.md`** — a `minimal`
+  session whose single track file is already written (D10). The ledger, not
+  a plan, is the resume signal here; the `plan/track-1.md` glob is the
+  secondary signal that the track file landed. This is a normal resume, not
+  a Step-4 entry: the drift / handoff / state routing above already handled
+  it; do not re-run Step 4 and do not author a plan (`minimal` has none).
+  Proceed to Step 2 only if the user explicitly asks to start a new aim
+  against the same dir (rare).
+- **Ledger absent, `plan/track-1.md` present, no `implementation-plan.md`,
+  no `design.md`** — a `minimal` Phase-1 session interrupted between the
+  track-file write and the ledger seed (the seed runs after the track file
+  is written; Step "Seed the phase ledger"). The durable Phase-1 artifact
+  in `minimal` is the track file, and it landed, so this is **not** a fresh
+  start: re-authoring `plan/track-1.md` would clobber work already on disk.
+  Resume by seeding the ledger (`--phase 0 --tier minimal`, plus the
+  matched categories and any `§1.7` staging mode) and continuing from the
+  recorded state, not by re-running research, tier classification, or the
+  Step-4b track-file Write. (`lite`/`full` cannot reach this branch: their
+  durable Phase-1 artifact is `implementation-plan.md`, whose presence is
+  matched by an earlier branch above.)
+- **Neither `implementation-plan.md` nor `design.md` exists, and no
+  `minimal` resume signal is present** — fresh start. The "no `minimal`
+  resume signal" condition is the OR of three testable arms, evaluated
+  against the same `LEDGER_TIER` value parsed at the top of this step: the
+  ledger is **absent**; OR the ledger is present but its `tier` field is
+  **empty or unreadable** (`LEDGER_TIER` blank); OR the ledger reads
+  `tier=minimal` but `plan/track-1.md` has **not** been written yet (the
+  branch immediately above already claimed the case where the track file
+  exists). Proceed to Step 2 (aim), then Step 3 (research), then Step 4 (the
+  tier classifier + adversarial gate, then per-tier Step 4a/4b). This also
+  covers the narrow `/clear` window where Step 4's gate cleared but no
+  artifact was written yet: with no plan, no `design.md`, no seeded ledger
+  tier, and no track file on disk there is no resume signal, so the resume
+  correctly reads as a fresh start and Step 4's classifier re-runs,
   re-deriving the tier from the now-populated log through its existing
   sanctioned authoring read — no extra read site, S2 intact.
 - **Both files exist** — the plan is already derived (`full` tier, design
@@ -218,12 +265,14 @@ Route on what exists:
 This check has a defined resume path for every artifact combination, so a
 **committed, clean** `design.md` with no plan is never a dead end — it
 always routes to Step 4b, an uncommitted or dirty one routes back to
-Step 4a to finish authoring, and a no-design tier with a derived plan
-resumes normally without re-entering design authoring. The check runs
-**after** the drift and handoff gates so a pending migration or handoff
-resolves first (those can change what is on disk), and **before** the aim
-prompt so a Step-4b resume does not re-ask for an aim already captured in
-the design or the research log.
+Step 4a to finish authoring, a `lite`/`full` derived plan resumes normally
+without re-entering design authoring, and a plan-less `minimal` session
+resumes off the ledger and its single track file (or, when the seed had
+not yet run, by seeding the ledger and continuing) rather than reading as a
+fresh start. The check runs **after** the drift and handoff gates so a
+pending migration or handoff resolves first (those can change what is on
+disk), and **before** the aim prompt so a Step-4b resume does not re-ask
+for an aim already captured in the design or the research log.
 
 **Step 2 — Ask the user for the aim, then seed the research log.**
 
@@ -296,7 +345,8 @@ artifact is authored:
    research log as a gate (loop on blockers, gate on should-fix, no
    `skip`), domain-primed by the confirmed tier's matched categories.
 3. **Per-tier transition** — branch to Step 4a (design-first, `full` only)
-   or straight to Step 4b (plan + tracks, `lite`/`minimal`).
+   or straight to Step 4b (thinned plan + tracks in `lite`, one track file
+   in `minimal`).
 
 **Step 4 part 1 — The two-gate tier classifier.**
 
@@ -453,14 +503,15 @@ After the gate clears, branch on the confirmed tier:
 
 - **`full`** — design-first, two sessions across a mandatory boundary
   (Step 4a then Step 4b), exactly as the rest of this Step describes.
-- **`lite`** — no `design.md`. Author the aggregator plan and the
-  multi-track files directly from the research log in a **single Phase-1
+- **`lite`** — no `design.md`. Author the thinned derived-mirror plan and
+  the multi-track files directly from the research log in a **single Phase-1
   session** (Step 4b only); the track files carry the full inline Decision
   Records, with no design seed to derive from.
-- **`minimal`** — no `design.md`. Author the **shape-complete stub** plan
-  (the stub spec lives in the Step-4b template below) and **one**
+- **`minimal`** — no `design.md` and **no plan** (D2). Author **one**
   self-contained track file from the research log in a **single Phase-1
-  session** (Step 4b only).
+  session** (Step 4b only). Resume state lives in the phase ledger
+  (`conventions.md` `§1.2` *Per-tier artifact set*), so `minimal` produces
+  no `implementation-plan.md`.
 
 The `full`-tier design-first split mirrors the boundary already enforced
 between Phases A, B, and C:
@@ -551,7 +602,8 @@ Then derive the plan and track files. **The decision seed is tier-keyed**
 (S2): in `full`, seed Decision Records from the frozen `design.md` seed's
 D-records; in `lite`/`minimal`, Step-4b authoring is itself the research
 log's sanctioned read point, so the track Decision Records absorb the log's
-load-bearing decisions directly. The aggregator plan, track Decision
+load-bearing decisions directly. The thinned plan (in `lite`/`full`; absent
+in `minimal`), the track Decision
 Records, and track files **must** incorporate findings and decisions from
 the research phase (and, in `full`, the frozen design):
 - Track Decision Records reflect alternatives explored during research,
@@ -602,6 +654,16 @@ Help the user develop the plan:
      the live authority in every tier; in `full`, the `design.md` seed copy
      is historical provenance with an optional `**Full design**` line into
      the seed's mechanism — it never substitutes for the inline record.
+   - Populate each track file's combined **`## Invariants & Constraints`**
+     section (D9) with the track's testable technical / performance /
+     compatibility constraints and the testable invariants the plan's
+     Architecture Notes used to carry — they share this home because both
+     are a property that must hold, backed by a test (each invariant becomes
+     a test assertion in the relevant step). A process-only, non-testable
+     constraint goes to `## Context and Orientation` or `## Decision Log`
+     instead; Integration Points fold into `## Interfaces and Dependencies`,
+     and Non-Goals move to the research log and the PR `## Motivation` (and
+     `design.md` in `full`).
    - Include a track-level Mermaid component diagram inside the
      track file's `## Context and Orientation` section when the
      track has 3+ internal components with non-trivial interactions.
@@ -733,43 +795,47 @@ template here; the idempotency guard covers both the
 `/create-plan`-driven dual seed and a direct `edit-design
 phase1-creation` invocation outside `/create-plan`.
 
-Write the implementation plan to
-`docs/adr/<dir-name>/_workflow/implementation-plan.md` AND one track
-file per planned track at
-`docs/adr/<dir-name>/_workflow/plan/track-N.md` using the structures
-below. **The plan template is tier-keyed:** `full` and `lite` write the
-full aggregator plan (Goals, Constraints, Architecture Notes, Decision
-Records, multi-track Checklist); `minimal` writes the **shape-complete
-stub** (the dedicated stub template after the full one). The plan carries
-strategic context plus a thin checklist; each track file carries that
-track's detail spread across the four homes — `## Purpose / Big Picture`
-(intro paragraph), `## Context and Orientation` (codebase state and any
+In `lite`/`full`, write the **thinned derived-mirror plan** to
+`docs/adr/<dir-name>/_workflow/implementation-plan.md`; in `minimal` there
+is **no plan** (D2) — skip it and the template below. In every tier, write
+one track file per planned track at
+`docs/adr/<dir-name>/_workflow/plan/track-N.md` using the structure below.
+The plan is a **derived-mirror plan** (D1): a cross-track summary that holds
+no fact a track file does not already own — the `## Checklist` plus a thin
+cross-track Component Map. Each track file carries that track's detail
+spread across the four homes — `## Purpose / Big Picture` (intro
+paragraph), `## Context and Orientation` (codebase state and any
 track-level Mermaid diagram), `## Plan of Work` (prose sequence of edits
 and additions), and `## Interfaces and Dependencies`
 (in-scope/out-of-scope file boundaries, inter-track dependencies,
 library/function signatures) — plus the full inline Decision Records in
-`## Decision Log` (the track-canonical live carrier, D7). Keeping
-per-track detail out of the plan keeps `/execute-tracks` startup context
-small (see `.claude/workflow/conventions.md` `§1.2` for the directory
-layout under `_workflow/` and the `§1.2` *Per-tier artifact set*, and
-`conventions-execution.md` `§2.1` for the track-file shape and section
-lifecycle).
+`## Decision Log` (the track-canonical live carrier, D7) and the combined
+`## Invariants & Constraints` (D9). Keeping per-track detail out of the plan
+keeps `/execute-tracks` startup context small (see
+`.claude/workflow/conventions.md` `§1.2` for the directory layout under
+`_workflow/`, the `§1.2` *Per-tier artifact set*, and the `§1.2` thinned
+`lite`/`full` plan content, and `conventions-execution.md` `§2.1` for the
+track-file shape and section lifecycle).
 
-**The tier line (D18).** Every tier's plan — the full aggregator and the
-`minimal` stub alike — carries a tier line directly under
-`## High-level plan`, so every fresh `/execute-tracks` session and the
-Step 1c resume check read the confirmed tier and its matched categories
-from the one artifact present in every tier:
+**No tier line in the plan.** The confirmed tier and its matched categories
+live in the **phase ledger** `tier` / `categories` fields (D4,
+`conventions.md` `§1.1` *Phase ledger*), seeded at Phase 1 below — not in a
+plan line. Every fresh `/execute-tracks` session and the Step 1c resume
+check read the tier from the ledger, the one artifact present in every tier
+(including plan-less `minimal`), so the plan no longer carries a
+`**Change tier:**` line.
 
-```
-**Change tier:** <full | lite | minimal> — matched categories: <comma-separated centrally-matched HIGH-risk categories, or "none">
-```
+Before writing the thinned-plan template, substitute the resolved
+40-character SHA into the `$WORKFLOW_SHA` placeholder on line 1.
 
-Before writing either template, substitute the resolved 40-character
-SHA into the `$WORKFLOW_SHA` placeholder on line 1.
-
-**Full aggregator plan (`full` / `lite`).** In `lite` there is no design,
-so omit the `## Design Document` link line:
+**Thinned derived-mirror plan (`full` / `lite`).** In `lite` there is no
+design, so omit the `## Design Document` block. The plan no longer carries
+`### Goals`, `### Constraints`, `### Architecture Notes` (the full Decision
+Records, Invariants, and Integration Points), `## Plan Review`, or
+`## Final Artifacts` (D5/D7): those move to the track files, the research
+log, or the ledger / `plan-review.md` per the disposition in
+`conventions.md` `§1.2`. The plan keeps only the thin cross-track Component
+Map and the Checklist:
 
 ```
 <!-- workflow-sha: $WORKFLOW_SHA -->
@@ -779,39 +845,13 @@ so omit the `## Design Document` link line:
 [design.md](design.md)
 <!-- omit the two lines above in `lite` — no design.md exists -->
 
-## High-level plan
-
-**Change tier:** <full | lite> — matched categories: <comma-separated, or "none">
-
-### Goals
-<what this feature achieves and why>
-
-### Constraints
-<technical, performance, compatibility, or process constraints>
-
-### Architecture Notes
-
-#### Component Map
+## Component Map
+<!-- Thin cross-track Component Map only: the slice of the system the change
+     touches, for cross-track impact assessment. Per-track detail, Decision
+     Records, invariants, and constraints live in the track files, not here.
+     Mermaid diagram (when 3+ components) + annotated bullet list — see
+     planning.md §Architecture Notes format for the budget rules. -->
 <Mermaid diagram + annotated bullet list>
-
-#### D1: <Decision title>
-- **Alternatives considered**: <what else was on the table>
-- **Rationale**: <why this option won — trade-offs, constraints>
-- **Risks/Caveats**: <known downsides or things to watch>
-- **Implemented in**: Track X (step references added during execution)
-<!-- The full live Decision Record is inline in the owning track's
-     `## Decision Log` (D7). In `full`, the design.md seed keeps a copy as
-     historical provenance; the plan's Architecture Notes carry the
-     strategic DR view. -->
-
-#### Invariants
-<if applicable>
-
-#### Integration Points
-<if applicable>
-
-#### Non-Goals
-<if applicable>
 
 ## Checklist
 - [ ] Track 1: <title>
@@ -822,55 +862,20 @@ so omit the `## Design Document` link line:
   > <intro paragraph — high-level context; detailed description in plan/track-2.md>
   > **Scope:** ~N files covering A, B
   > **Depends on:** Track 1
-
-## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
-
-## Final Artifacts
-- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md` in `full`; `adr.md` in `lite`)
 ```
 
-**Shape-complete `minimal` stub (D1).** The `minimal` tier writes a stub
-plan, not the full aggregator. The stub is the spec the resume state
-machine reads, so it is **minimal but shape-complete** (S1,
-`conventions.md` `§1.2` *Per-tier artifact set*): the
-`workflow-startup-precheck.sh` script reads each section's first top-level
-checkbox to derive state, so a stub with bare headings (no checkbox) would
-strand resume in State 0. The stub carries exactly what the machinery reads
-— a `## Plan Review` section with its decision checkbox, a glyph-valid
-`## Checklist` with one track entry, a `## Final Artifacts` section with
-its decision checkbox — plus the D18 tier line. There is no `## Design
-Document` link (no design in `minimal`) and no Architecture Notes (the one
-track file is canonical for the whole change). The per-track completion
-episode is the one content block the stub later accumulates (written into
-the `## Checklist` entry at Phase C; D1):
-
-```
-<!-- workflow-sha: $WORKFLOW_SHA -->
-# <Feature Name>
-
-## High-level plan
-
-**Change tier:** minimal — matched categories: <comma-separated, or "none">
-
-## Checklist
-- [ ] Track 1: <title>
-  > <intro paragraph — high-level context; detailed description in plan/track-1.md>
-  > **Scope:** ~N files covering X, Y, Z
-
-## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
-
-## Final Artifacts
-- [ ] Phase 4: Final artifacts (PR-description verdict summary; no `docs/adr/` entry — Gate 2 is the durable-ADR boundary)
-```
+`minimal` has no plan (D2); the single `plan/track-1.md` is the whole
+change's canonical record and the ledger owns its resume state. Skip the
+template above entirely in `minimal` and write only the track file below.
 
 Each track file (`plan/track-N.md`) is created with the four
 plan-at-start homes (`## Purpose / Big Picture`,
 `## Context and Orientation`, `## Plan of Work`,
 `## Interfaces and Dependencies`) populated, the track's full inline
 Decision Records seeded into `## Decision Log` (the track-canonical live
-carrier, D7 — see item 4 above), and the track-level
+carrier, D7 — see item 4 above), the combined
+`## Invariants & Constraints` section populated with the track's testable
+constraints and invariants (D9), and the track-level
 prose in `## Validation and Acceptance` populated (per-step
 EARS/Gherkin lines are Phase A placeholders), the remaining continuous-log
 sections empty, and the Phase-A-populated sections
@@ -981,12 +986,71 @@ belong to one specific step. Per-step episode content lives in
 <In-scope and out-of-scope file boundaries, compatibility
 requirements, inter-track dependencies (which other tracks supply
 prerequisites; which downstream tracks consume this one's output),
-and library/function signatures relevant to this track.>
+library/function signatures relevant to this track, and the
+Integration Points the plan's Architecture Notes carried (D9 folds
+them here — entry points, SPIs, callbacks, event flows).>
+
+## Invariants & Constraints
+<!-- Plan-at-start, combined section (D9). Phase 1 writes both the
+per-track testable constraints (technical, performance, compatibility —
+the old plan `### Constraints`) and the testable invariants the plan's
+Architecture Notes carried; they share this home because they are the
+same shape — a property that must hold, backed by a test (each invariant
+becomes a test assertion in the relevant step). A process-only,
+non-testable constraint goes to `## Context and Orientation`, or to
+`## Decision Log` when it is a real decision — not here. Non-Goals move to
+the research log and the PR `## Motivation` (and `design.md` in `full`);
+per-track out-of-scope already lives in `## Interfaces and Dependencies`. -->
+- <Invariant or constraint that must hold> — verified by <test>.
 ````
 
 The `## Base commit` section is added by Phase B at session start
 and is omitted from the Phase 1 skeleton. Full lifecycle for every
 section above is tabulated in `conventions-execution.md` `§2.1`.
+
+**Seed the phase ledger (every tier; D6/D10).** After the track files (and,
+in `lite`/`full`, the plan) are written and before the Step 5 commit, seed
+the phase ledger with the Phase-1 boundary so a later `/execute-tracks`
+session resumes off the ledger rather than re-running research and tier
+classification. The ledger is the resume-state home in every tier — the one
+artifact `minimal` keeps now that it has no plan (D2/D3). Append one event
+line with `workflow-startup-precheck.sh --append-ledger`, recording the
+confirmed tier, its matched categories, and (when the plan declares
+workflow-modifying) the `§1.7` staging mode; the phase is `0` because the
+next gate is the State-0 autonomous plan review, which has not yet run
+(`workflow.md` § Startup Protocol, `phase == "0"`):
+
+```bash
+# Parse the `level=` token from the statusline file (the same read the
+# `## Progress` / `## Episodes` writers use per conventions-execution.md §2.1);
+# default to `safe` when the file is missing.
+CTX_LEVEL="$(sed -n 's/.*level=\([a-z]*\).*/\1/p' \
+    "/tmp/claude-code-context-usage-$PPID.txt" 2>/dev/null)"
+[ -n "$CTX_LEVEL" ] || CTX_LEVEL="safe"
+
+.claude/scripts/workflow-startup-precheck.sh --append-ledger \
+    --ctx "$CTX_LEVEL" \
+    --phase 0 \
+    --tier "<full | lite | minimal>" \
+    --categories "<comma-separated centrally-matched HIGH-risk categories, or empty>"
+    # add --s17 with the staging-mode token only when the plan declares
+    # workflow-modifying or takes the §1.7 prose-rule opt-out (conventions.md
+    # §1.7(b)/(k) — the marker home is this ledger field, D4). Omit otherwise.
+```
+
+The `--ctx` value is the current context level (`safe` / `info` / `warning`
+/ `critical`) parsed from the statusline file; omit `--ctx` to let the
+script default it to `safe`. The append is atomic (temp-file-plus-rename) and
+**loud**: a malformed field value exits 3 and a write error exits non-zero
+with a stderr diagnostic, so check the exit status — a zero exit means the
+boundary is recorded (`conventions.md` `§1.1` *Phase ledger*; the grammar
+and key set `{ phase, track, tier, categories, s17, paused }` are pinned in
+the script header). The phase vocabulary is exactly `{0, A, C, D, Done}`;
+`create-plan` only ever writes `phase 0`. Track is omitted at Phase 1 (the
+ledger names no active track until Phase C; the plan-less `minimal` resume
+defaults the active track to `track-1`). The ledger file itself
+(`_workflow/phase-ledger.md`) is unstamped (D13, `§1.6(f)`) and is swept
+into the Step 5 commit by the blanket `git add docs/adr/<dir-name>/_workflow/`.
 
 In Step 4a (`full` only), write the design document to
 `docs/adr/<dir-name>/_workflow/design.md` using this structure (via
@@ -1132,14 +1196,16 @@ not yet committed.
   clean, the plan was persisted on a prior attempt; skip the commit and
   proceed to push/end.
 - **`lite` / `minimal`, single Phase-1 session** — there is no `design.md`
-  and no session boundary: the research log, the plan (stub in `minimal`),
-  and the track files were produced in one session. Commit them together
+  and no session boundary: the research log, the phase ledger, the thinned
+  plan (`lite` only — `minimal` has no plan, D2), and the track files were
+  produced in one session. Commit them together
   with the message `Add initial implementation plan`, push **with `-u`**
   (this is the first push on the branch, so the upstream and draft PR are
   opened here, sub-steps 4-7), and end the session. The same draft-PR-exists
   and idempotency guards apply: skip the PR-open sub-steps if `gh pr view`
-  already shows a draft PR, and skip the commit if `implementation-plan.md`
-  is already committed and clean.
+  already shows a draft PR, and skip the commit when the tier's primary
+  Phase-1 artifact is already committed and clean — `implementation-plan.md`
+  in `lite`, `plan/track-1.md` in `minimal` (which has no plan).
 
 Once the user confirms the files this session produced look right, persist
 the work to GitHub so it survives local-disk loss and is visible to
@@ -1185,13 +1251,16 @@ teammates as a draft PR:
    - With a prefix `<P>`: `[<P>] <feature title>` — e.g.
      `[YTDB-123] Index histogram for selective range scans`
    - Without a prefix: `<feature title>`
-6. Compose the PR body from the plan: `## Motivation` (the plan's
-   Goals + Constraints — in `minimal`, the change's aim from the research
-   log's `## Initial request` — distilled into prose; apply the Ephemeral
+6. Compose the PR body: `## Motivation` (the change's aim and constraints
+   from the research log's `## Initial request` and `## Decision Log` —
+   under the derived-mirror model the plan no longer carries `### Goals` /
+   `### Constraints`, so the aim is sourced from the research log in every
+   tier — distilled into prose; apply the Ephemeral
    identifier rule from `conventions-execution.md` `§2.3` to the body
-   since PR titles and descriptions are durable), `## Plan` (one
-   line per track from the checklist, no internal IDs — a single line in
-   `minimal`), and a `## Status` line stating *"Draft — workflow
+   since PR titles and descriptions are durable), `## Plan` (one line per
+   track — from the `lite`/`full` plan `## Checklist`, or from the single
+   `plan/track-1.md` in plan-less `minimal` — no internal IDs, a single
+   line in `minimal`), and a `## Status` line stating *"Draft — workflow
    scaffolding under `docs/adr/<dir-name>/_workflow/` will be removed in
    the Phase 4 cleanup commit before merge."* In `minimal`, the PR
    description is also the **durable verdict carrier**: Phase 4 folds the

@@ -53,8 +53,11 @@ code to find gaps and inconsistencies between the four artifacts:
 4. **Actual codebase**
 
 **Tier and the design-presence guard.** The set of artifacts you compare
-depends on the plan's confirmed tier (read the tier line in
-`implementation-plan.md`). Apply one mechanical test: **does
+depends on the plan's confirmed tier — read ledger-first: the phase
+ledger's `tier` field (`_workflow/phase-ledger.md`, last value wins);
+when no `phase-ledger.md` exists (an in-flight pre-ledger `lite`/`full`
+plan), fall back to the tier line in `implementation-plan.md`. Apply one
+mechanical test: **does
 `design.md` exist?**
 
 - **`full`** (design present): compare all four artifacts — the full
@@ -62,29 +65,34 @@ depends on the plan's confirmed tier (read the tier line in
 - **`lite`** (no design): skip every axis and gap that reads `design.md`
   (the **DESIGN ↔ CODE** and **DESIGN ↔ PLAN** axes, and the design half
   of **GAPS**). Compare plan + tracks + code.
-- **`minimal`** (no design, stub plan): additionally skip the
-  **plan-content cross-check** — the `minimal` aggregator plan is a
-  ~10-line stub with one checklist entry and no decision content to
-  verify. The **PLAN ↔ CODE** axis runs only its track-reference bullet;
-  see that axis below (§PLAN ↔ CODE CONSISTENCY) for exactly which
-  bullets drop. Do not raise findings against the stub plan's absent
-  content, **except** the tier-line-presence check below, which runs in
-  every tier.
+- **`minimal`** (no design, no plan): `minimal` drops the plan outright
+  (D2), so there is no `implementation-plan.md`. Drop the **PLAN ↔ CODE**
+  axis entirely — there is no plan file to compare against, and the only
+  plan-vs-code obligation that survives is whatever reads the track files
+  directly (see §PLAN ↔ CODE CONSISTENCY below for the track-reference
+  bullets that still run against the track files). Do not raise findings
+  against a plan file that does not exist, **except** the
+  tier-line-presence check below, which runs in every tier (the tier home
+  under `minimal` is the ledger `tier` field, not a plan line).
 
-**Tier-line-presence check (runs in every tier).** Reading the tier line
+**Tier-presence check (runs in every tier).** Reading the confirmed tier
 is the precondition for the tier selection above, so its absence is a
-finding, not stub-content drift. If `implementation-plan.md` has no D18
-tier line, emit a finding (the tier line is required in every tier per
-D18; the `minimal` stub template must include it) and treat the plan as
+finding, not stub-content drift. If the tier resolves from neither
+source — no `tier` field in the phase ledger and (for a pre-ledger
+`lite`/`full` plan) no D18 tier line in `implementation-plan.md` — emit
+a finding (the tier is required in every tier per
+D18; a `lite`/`full` plan's tier line and the ledger `tier` field are
+the two homes) and treat the plan as
 malformed. This check is carved out of the `minimal` "do not raise
 findings against the stub plan's absent content" suppression: the
-suppression covers decision and ordering content, never the tier line.
+suppression covers decision and ordering content, never the tier.
 
-**Degenerate case — tier line unreadable.** If the tier line cannot be
-read, do not guess a tier. Fall back to the design-presence test alone
+**Degenerate case — tier unreadable.** If the tier cannot be
+read from either source, do not guess a tier. Fall back to the
+design-presence test alone
 for axis selection: compare against whatever artifacts exist on disk
 (`design.md` present or not), run the track-vs-code check, and raise the
-tier-line-presence finding above. This keeps the run deterministic while
+tier-presence finding above. This keeps the run deterministic while
 that finding stands, instead of proceeding in an unspecified shape.
 
 When `design.md` is absent, emit no finding that opens, cites, or routes a
@@ -164,7 +172,7 @@ Inputs:
 - Design document: {design_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
-**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the branch is in `§1.7(b)` staging mode — read ledger-first: the phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value wins) equals the workflow-modifying token; when no `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying branch), fall back to the plan's `### Constraints` carrying the canonical `§1.7(b)` workflow-modifying marker sentence — resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or `.claude/scripts/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 ---
 

@@ -125,17 +125,18 @@ three reachable tiers:
 
 | Tier | Gate 1 | Gate 2 | Phase-1 artifacts |
 |---|---|---|---|
-| `full` | design = yes | multi | research log + `design.md` + aggregator plan + track files |
-| `lite` | design = no | multi | research log + aggregator plan + track files (no design) |
-| `minimal` | design = no | single | research log + shape-complete stub plan + one self-contained track file |
+| `full` | design = yes | multi | research log + phase ledger + plan-review doc + `design.md` + thinned plan + track files |
+| `lite` | design = no | multi | research log + phase ledger + plan-review doc + thinned plan + track files (no design) |
+| `minimal` | design = no | single | research log + phase ledger + plan-review doc + one self-contained track file (no plan) |
 
 The tier names are deliberately distinct from the per-step **risk tag**
 (`low`/`medium`/`high`) and the Phase-3A step-count axis
 (Simple/Moderate/Complex) so the three vocabularies never collide
-(`conventions.md` `§1.1` glossary). The confirmed tier persists as a line
-in `implementation-plan.md` (present in every tier, `conventions.md`
-`§1.2` *Per-tier artifact set*) so every fresh `/execute-tracks` session
-reads it.
+(`conventions.md` `§1.1` glossary). The confirmed tier persists as a field
+in the **phase ledger** (`_workflow/phase-ledger.md`, present in every
+tier; D4, `conventions.md` `§1.2` *Per-tier artifact set*) so every fresh
+`/execute-tracks` session reads it — the ledger, not a plan line, is the
+resume-state and tier home, which is what lets `minimal` drop the plan.
 
 **Gate 1 criteria — one source of truth with risk-tagging.** Gate 1's
 "needs a design" test reuses the HIGH-risk category list in
@@ -156,21 +157,24 @@ prime the relocated adversarial review's lenses
 
 - `full` — design-first, exactly as §Goal and §Design Document describe:
   `design.md` is authored and reviewed in its own Step-4a session, freezes
-  when its review passes, and the plan plus track files derive from that
-  frozen seed in a separate Step-4b session.
-- `lite` — no `design.md`. The aggregator plan and the track files are
+  when its review passes, and the thinned plan plus track files derive from
+  that frozen seed in a separate Step-4b session.
+- `lite` — no `design.md`. The thinned plan and the track files are
   authored in a single Phase-1 session (Step 4b only); the track files
   carry the full inline Decision Records directly, with no design seed to
   derive from.
-- `minimal` — no `design.md`. A shape-complete **stub** plan
-  (`conventions.md` `§1.2` *Per-tier artifact set*; the stub spec lives in
-  the `create-plan` template) and **one** self-contained track file,
-  authored in a single Phase-1 session.
+- `minimal` — no `design.md` and **no plan** (D2). **One** self-contained
+  track file, authored in a single Phase-1 session, carries the whole
+  change; resume state lives in the phase ledger
+  (`conventions.md` `§1.2` *Per-tier artifact set*).
 
-**The aggregator plan and the inline-DR carrier (every tier).** The
-`implementation-plan.md` aggregator is present in every tier so the resume
-state machine, the drift gate, and Phase-2 routing keep working unchanged
-— in `minimal` it shrinks to the shape-complete stub. The **live decision
+**The phase ledger and the inline-DR carrier (every tier).** The resume
+state machine, the drift gate, and Phase-2 routing read the **phase
+ledger** (`_workflow/phase-ledger.md`, present in every tier; D3) for
+branch-level state, so dropping the `minimal` plan does not break the
+machinery. The `implementation-plan.md`, where present (`lite`/`full`), is
+a **derived-mirror plan** (D1): a cross-track summary that holds no fact a
+track file does not already own. The **live decision
 carrier is the track file** in every tier: each track's `## Decision Log`
 carries the full inline Decision Record (D7, the track-canonical live
 decision, `conventions.md` `§1.1` glossary). In `full`, the frozen `design.md` keeps a seed
@@ -211,9 +215,18 @@ change tier produces. The key points:
 - `docs/adr/<dir-name>/_workflow/research-log.md` — the durable Phase-0/1
   decision ledger, produced in every tier (see `research.md` §The research
   log)
-- `docs/adr/<dir-name>/_workflow/implementation-plan.md` — strategic: goals, architecture,
-  tracks, track-level episodic summaries (present in every tier; a
-  shape-complete stub in `minimal`)
+- `docs/adr/<dir-name>/_workflow/phase-ledger.md` — the append-only,
+  unstamped event log that owns branch-level resume state (phase, active
+  track, tier + matched categories, `§1.7` staging mode, pause events),
+  produced in every tier; last-value-wins on read (D3/D6,
+  `conventions.md` `§1.1` *Phase ledger*)
+- `docs/adr/<dir-name>/_workflow/plan-review.md` — the Phase-2 consistency
+  and structural audit summary, produced in every tier; a cold record the
+  review state in the ledger points at (D7)
+- `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the
+  **derived-mirror plan**: a cross-track summary (the `## Checklist` plus a
+  thin cross-track Component Map) that mirrors content the track files own
+  (`lite`/`full` only; `minimal` drops it — D1/D2)
 - `docs/adr/<dir-name>/_workflow/design.md` — design-level: class diagrams, workflow
   diagrams, dedicated sections for complex/opaque parts (`full` tier only)
 - `docs/adr/<dir-name>/_workflow/plan/track-N.md` — per-track ExecPlan, created at
@@ -248,8 +261,38 @@ only track-level or decision-level changes require escalation.
 ## Architecture Notes format
 <!-- roles=planner phases=1 summary="Architecture Notes carry the strategic shape of the design; the section's per-component budgets keep the plan file lean." -->
 
-Architecture notes document the structural context and design decisions for the plan.
-They live in the `## High-level plan > ### Architecture Notes` section of the plan file.
+**Disposition under the derived-mirror plan (D5).** The plan no longer
+carries a full `### Architecture Notes` block. Each old part has a new
+home, and the plan keeps only the thin cross-track Component Map:
+
+- **`### Goals`** — dropped from the plan. The aim lives in the research
+  log's `## Initial request` and the PR `## Motivation`.
+- **Component Map** — stays in the plan as the thin **cross-track**
+  Component Map (`## Component Map`), for cross-track impact assessment.
+  The format and budget rules below still apply to it.
+- **Decision Records** — track-canonical (D7): each track's
+  `## Decision Log` carries the full inline DR. The plan no longer holds
+  them. In `full`, the frozen `design.md` keeps the seed copy. The DR
+  format below is the shape those track-file records take.
+- **`### Constraints` + Invariants** — move to each track's combined
+  `## Invariants & Constraints` section (D9). The Invariants format
+  below is the shape they take there.
+- **Integration Points** — move to each track's `## Interfaces and
+  Dependencies` (D9). The format below is their shape there.
+- **Non-Goals** — move to the research log and the PR `## Motivation`
+  (and `design.md` in `full`).
+
+The sub-sections below are retained as the **format reference** for these
+parts in their new homes (the DR four-bullet shape, the invariant and
+integration-point budgets); they no longer describe a single in-plan
+`### Architecture Notes` block. The remainder of this section reads as the
+format/budget rules wherever the content now lives.
+
+Architecture notes document the structural context and design decisions for the change.
+Under the derived-mirror model the thin cross-track Component Map lives in
+the plan file's `## Component Map` section; Decision Records, invariants,
+constraints, and integration points live in the track files (see the
+disposition above).
 
 ### Boundary with `design.md` and track files
 <!-- roles=planner phases=1 summary="Architecture Notes hold strategic shape only; long-form material belongs in the design doc or track narrative." -->
@@ -536,6 +579,16 @@ never substitutes for the inline record. The write-time cold-read
 (`prompts/design-review.md` §Track-scoped cold-read) checks at authoring
 time that every load-bearing research-log decision in the track's scope is
 absorbed into this section (and, in `full`, stays faithful to its seed).
+
+Phase 1 also populates the track's combined **`## Invariants &
+Constraints`** section (D9, the 15th track-file section): the per-track
+testable constraints (technical, performance, compatibility) and the
+testable invariants that the plan's Architecture Notes used to carry. Each
+invariant becomes a test assertion in the relevant step. A process-only,
+non-testable constraint goes to `## Context and Orientation` or the
+`## Decision Log` instead; Integration Points go to `## Interfaces and
+Dependencies`; Non-Goals to the research log and the PR `## Motivation`.
+The section format and lifecycle are in `conventions-execution.md` `§2.1`.
 
 The file format and template for both files are defined in
 `conventions.md` `§1.2` and the track-file template in

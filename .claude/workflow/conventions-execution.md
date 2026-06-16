@@ -4,9 +4,9 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §2.1 Plan File — Execution Additions | orchestrator,decomposer,implementer | 3A,3B,3C | Execution-time additions to the plan file: the 14-section track file shape, lifecycle, and risk/base-commit rules. |
+| §2.1 Plan File — Execution Additions | orchestrator,decomposer,implementer | 3A,3B,3C | Execution-time additions to the plan file: the 15-section track file shape, lifecycle, and risk/base-commit rules. |
 | §Session state detection | orchestrator | 3A,3B,3C | Moved to the Startup Protocol — the only place where state detection is used. |
-| §Track file content (`plan/track-N.md`) | orchestrator,decomposer | 3A,3B,3C | The 14-section track file template (12 ExecPlan sections plus Episodes and Base commit) and its continuous-log ordering. |
+| §Track file content (`plan/track-N.md`) | orchestrator,decomposer | 3A,3B,3C | The 15-section track file template (12 ExecPlan + Invariants & Constraints + Episodes + Base commit) and log ordering. |
 | §2.2 Episode Formats | orchestrator | 3A,3B,3C | The three episode types (step completion, step failed, track episode) and their field sets; full rules elsewhere. |
 | §2.3 Ephemeral identifier rule — pointer | implementer,final-designer | 3B,3C,4 | Quick recap of the ephemeral-identifier rule plus the pre-commit gate regex; full rule in the dedicated file. |
 | §2.4 Commit messages, code review, complexity, decomposition | orchestrator | 3A,3B,3C | On-demand pointers to commit conventions, the code-review protocol, complexity tiers, and decomposition rules. |
@@ -26,7 +26,7 @@ conventions.md:any:any.
 ---
 
 ## 2.1 Plan File — Execution Additions
-<!-- roles=orchestrator,decomposer,implementer phases=3A,3B,3C summary="Execution-time additions to the plan file: the 14-section track file shape, lifecycle, and risk/base-commit rules." -->
+<!-- roles=orchestrator,decomposer,implementer phases=3A,3B,3C summary="Execution-time additions to the plan file: the 15-section track file shape, lifecycle, and risk/base-commit rules." -->
 
 These subsections extend the plan file structure defined in
 `conventions.md` `§1.2`.
@@ -52,16 +52,19 @@ Moved to `workflow.md` §Startup Protocol — the only place where state
 detection is used.
 
 ### Track file content (`plan/track-N.md`)
-<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="The 14-section track file template (12 ExecPlan sections plus Episodes and Base commit) and its continuous-log ordering." -->
+<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="The 15-section track file template (12 ExecPlan + Invariants & Constraints + Episodes + Base commit) and log ordering." -->
 
 Each track file uses the 12-section OpenAI ExecPlan template (verbatim
-section names and order) plus two workflow-specific siblings:
+section names and order) plus the combined `## Invariants & Constraints`
+section (D9) and two workflow-specific siblings:
 `## Episodes` (per-step blocks) and `## Base commit` (Phase B → C
-housekeeping). 14 sections total. The continuous-log sections — Progress,
+housekeeping). 15 sections total. The continuous-log sections — Progress,
 Surprises & Discoveries, Decision Log, Outcomes & Retrospective — come
 first so a restart-from-cold reader sees current state before static
 plan; Episodes sits adjacent to its plan-at-start partner (Concrete
 Steps) so per-step roster and per-step result are physically co-located.
+`## Invariants & Constraints` sits with the plan-at-start contract group,
+beside `## Interfaces and Dependencies`.
 (`## Decision Log` is plan-at-start **and** continuous per D7 — Phase 1
 seeds it with the track's full inline Decision Records and execution
 appends to the same section; it sits with the continuous-log group so the
@@ -75,7 +78,7 @@ placeholder comments. Each section's writer/reader split across phases
 is tabulated in the *Section lifecycle* subsection below.
 
 #### Sections in order
-<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="The 14 track-file sections in order, each with its Phase 1 seed content and per-phase writer." -->
+<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="The 15 track-file sections in order, each with its Phase 1 seed content and per-phase writer." -->
 
 1. **`## Purpose / Big Picture`** — Phase 1 writes a one-line BLUF
    stating the user-visible behavior gained after this track lands,
@@ -203,10 +206,39 @@ is tabulated in the *Section lifecycle* subsection below.
     writes file-scope and contract boundaries (in-scope / out-of-scope
     file lists), inter-track dependencies (which tracks supply
     prerequisites; which downstream tracks consume this one's output),
-    and library / function signatures relevant to this track. Folds in
-    today's `**Constraints**:` and `**Interactions**:` subsections.
+    library / function signatures relevant to this track, and the
+    **Integration Points** that the plan's Architecture Notes carried
+    (D9 folds them here — entry points, SPIs, callbacks, event flows).
+    Folds in today's `**Constraints**:` and `**Interactions**:`
+    subsections.
 
-14. **`## Base commit`** — workflow housekeeping, not part of the
+14. **`## Invariants & Constraints`** — plan-at-start, combined section
+    (D9). Phase 1 writes both the per-track testable constraints
+    (technical, performance, compatibility — the plan's old
+    `### Constraints`) and the testable invariants the plan's
+    Architecture Notes `Invariants & Contracts` list carried; the two
+    share this home because they are the same shape — a property that
+    must hold, backed by a test (each invariant becomes a test assertion
+    in the relevant step). A **process-only, non-testable** constraint
+    (for example "use the IDE refactor engine") goes to `## Context and
+    Orientation`, or to `## Decision Log` when it is a real decision —
+    not here. Non-Goals are not a track-file section: they move to the
+    research log and the PR `## Motivation` (and `design.md` in `full`);
+    per-track out-of-scope already lives in `## Interfaces and
+    Dependencies`. The section is additive — the rest of the template is
+    unchanged.
+
+    ```markdown
+    ## Invariants & Constraints
+    - Histogram updates must occur inside the same WAL atomic operation
+      as the index update (no partial state on crash recovery) — verified
+      by <test>.
+    - Histogram read path must not acquire write locks — verified by <test>.
+    - The serialized record form stays byte-compatible with the prior
+      version — verified by <test>.
+    ```
+
+15. **`## Base commit`** — workflow housekeeping, not part of the
     12-section ExecPlan. Phase B writes the SHA of `HEAD` once at
     session start; Phase C reads it to compute the cumulative track
     diff. Readers must verify the recorded SHA is a HEAD-ancestor
@@ -237,7 +269,7 @@ per D6 and D10:
   holds real Decision Records before Phase A, not an empty placeholder.
 
 #### Section lifecycle
-<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="Per-section writer/reader matrix across Phase 1/A/B/C for each of the 14 track-file sections." -->
+<!-- roles=orchestrator,decomposer phases=3A,3B,3C summary="Per-section writer/reader matrix across Phase 1/A/B/C for each of the 15 track-file sections." -->
 
 | Section | Phase 1 writer | Phase A writer | Phase B writer | Phase C writer | Readers |
 |---|---|---|---|---|---|
@@ -253,7 +285,8 @@ per D6 and D10:
 | `## Validation and Acceptance` | track-level acceptance + Phase A placeholder for per-step lines + Move 3 placeholder | per-step EARS/Gherkin lines (when decomposition surfaces them) | — | — | Phase B implementer; Phase C track review; Phase 4 |
 | `## Idempotence and Recovery` | Phase A placeholder | per-step recovery paths | — | — | Phase B/C orchestration; Phase 4 |
 | `## Artifacts and Notes` | (empty) | (rare) | (rare — cross-step artifact reference) | review-iteration logs that span multiple steps | Phase C track review; Phase 4 |
-| `## Interfaces and Dependencies` | file boundaries + inter-track deps + signatures | — | — | — | Phase B implementer; Phase C track review; Phase 4 |
+| `## Interfaces and Dependencies` | file boundaries + inter-track deps + signatures + Integration Points (D9) | — | — | — | Phase B implementer; Phase C track review; Phase 4 |
+| `## Invariants & Constraints` | per-track constraints + testable invariants (D9; each invariant → a test assertion) | — | — | inline-replan may revise a constraint when scope changes | Phase A reviews; Phase B implementer; Phase C track review; Phase 4 |
 | `## Base commit` | (empty) | (empty) | SHA at session start | discrepancy note on stale-recompute | Phase B implementer; Phase C track review |
 
 Phase B writes to `## Concrete Steps` (status flip), `## Episodes`
@@ -271,6 +304,15 @@ cross-track propagation duty's revised Decision Records — see
 inline-replanning.md:orchestrator:3A,3C §Process step 3 and §Updating
 plan and track files cases 2-4); otherwise plan-at-start sections are
 stable after Phase A.
+
+**The track-completion episode is canonical in the track file** (D5).
+Under the derived-mirror plan model the plan no longer carries a
+per-track completion episode; the Phase-C track-completion summary lives
+in this track file (`## Outcomes & Retrospective` for the summary,
+`## Episodes` for the per-step compile). The Phase-C consumer that writes
+the completion summary is re-pointed off the plan and onto the track file
+by Track 2 (the `track-code-review.md` relocation); this section records
+where the episode now lives.
 
 The Track Pre-Flight gate (see track-review.md:orchestrator:3A
 §Track Pre-Flight) may amend `## Purpose / Big Picture`,

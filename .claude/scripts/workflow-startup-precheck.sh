@@ -15,12 +15,20 @@
 # Usage:
 #   workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} \
 #       [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
+#   workflow-startup-precheck.sh --append-ledger \
+#       [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] \
+#       [--categories <text>] [--s17 <token>] [--paused <event>]
 #
 # Modes:
 #   full              Full startup detection: {divergence, drift, handoffs,
 #                     state, actions_taken}.
 #   divergence-only   A cheap mid-session re-check: {divergence, actions_taken}.
 #   migrate-range     The migration stamp-fold range and per-artifact pairs.
+#   append-ledger     Append one event line to the phase ledger
+#                     (`<plan_dir>/_workflow/phase-ledger.md`) and exit. This is
+#                     the only mode that mutates a workflow artifact and the only
+#                     mode that emits no JSON. It is selected by the standalone
+#                     `--append-ledger` flag, not `--mode append-ledger`.
 #
 # --bootstrap-sha applies only to migrate-range (folded into the range when
 # supplied). --exclude-sha also applies only to migrate-range and is
@@ -31,6 +39,47 @@
 # never prompts, never force-pushes, and never resets — those mutations stay
 # agent-side and user-gated (the no-prompt invariant: no mode reads stdin or
 # asks the user).
+#
+# --- The phase ledger (the Track-2 consumer contract) -----------------------
+#
+# `--append-ledger` appends ONE event line per phase boundary to
+# `<plan_dir>/_workflow/phase-ledger.md`, an append-only, unstamped event log
+# (conventions.md § 1.6(f) exclusion). The orchestrator calls it at the same
+# boundaries it flips plan checkboxes today. The grammar is fixed and is the
+# contract `determine_state` greps and Track 2's runtime consumers read:
+#
+#   [<ISO>] [ctx=<level>] phase=<v> track=<v> tier=<v> categories="<v>" s17=<v> paused=<v>
+#
+#   * One entry per line; the leading `[<ISO>]` timestamp and `[ctx=<level>]`
+#     marker are always present, then the `key=value` fields that the append
+#     was given (an unsupplied key is simply omitted from that line).
+#   * The key set is exactly { phase, track, tier, categories, s17, paused }.
+#     `categories` is the one quoted value (it may carry spaces and commas, e.g.
+#     `categories="Workflow machinery,Architecture"`); every other value is a
+#     bare metacharacter-free token.
+#   * Values are VALIDATED on append, mirroring the read path's loud-reject
+#     posture: a newline in any field, a space in a bare-token field
+#     (phase/track/tier/s17/paused/ctx), or a double quote in `categories` is
+#     rejected with a stderr diagnostic and exit 3, because each would split or
+#     truncate the line and silently corrupt last-value-wins resolution. The
+#     orchestrator is the sole caller and passes controlled tokens, but the
+#     grammar is the contract other tracks build on, so a malformed value fails
+#     loudly rather than corrupting the tail.
+#   * Read semantics are LAST-VALUE-WINS PER KEY across the whole file: a reader
+#     scans every line and keeps the most recent value seen for each key, so a
+#     mid-flight tier or phase change is recorded by APPENDING a new line rather
+#     than rewriting an old one. `phase` and `track` feed determine_state's
+#     two-level resume (the ledger owns the top-level phase and the active
+#     track; the track file's `## Progress` owns the within-track sub-state).
+#   * The append is atomic via temp-file-plus-rename: the new line is written to
+#     a sibling temp file holding `(old contents)+(new line)`, then `mv`'d over
+#     the ledger. A crash mid-write leaves either the prior ledger or the
+#     temp file, never a torn ledger, so a torn append leaves the prior tail
+#     intact and determine_state resolves the prior state. A RETURN trap reaps
+#     the temp file on a failure path so a failed append leaves no orphan.
+#   * A failed mkdir / temp write / rename surfaces as a NON-ZERO exit with a
+#     stderr diagnostic — a lost append never masquerades as a recorded boundary
+#     (the orchestrator treats a 0 exit as "the boundary is recorded").
 #
 # No global `set -e`: matching statusline-command.sh and the byte-source
 # detection blocks, the detection paths rely on defensive `|| true` rather
@@ -49,10 +98,26 @@ BOOTSTRAP_SHA=""
 # dropped from the migrate-range fold input by detect_migrate_range.
 EXCLUDE_SHAS=""
 
+# --append-ledger selector + its per-key field accumulators. The flag is
+# standalone (not a --mode value) so a caller cannot accidentally mix a JSON
+# reporting mode with the ledger mutation. LEDGER_* default to the empty string;
+# an empty field is omitted from the appended line (an append never emits an
+# empty `key=` token). LEDGER_CTX defaults to "safe" so an entry always carries a
+# `[ctx=…]` marker even when the caller forgets to pass one.
+APPEND_LEDGER="0"
+LEDGER_CTX=""
+LEDGER_PHASE=""
+LEDGER_TRACK=""
+LEDGER_TIER=""
+LEDGER_CATEGORIES=""
+LEDGER_S17=""
+LEDGER_PAUSED=""
+
 usage() {
   # Usage text goes to stderr so it never contaminates the JSON on stdout.
   cat >&2 <<'USAGE'
 Usage: workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
+       workflow-startup-precheck.sh --append-ledger [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] [--categories <text>] [--s17 <token>] [--paused <event>]
 USAGE
 }
 
@@ -71,6 +136,40 @@ while [ "$#" -gt 0 ]; do
       EXCLUDE_SHAS="$EXCLUDE_SHAS $2"
       shift 2
       ;;
+    --append-ledger)
+      # Standalone selector — no value follows. Selects the ledger-append
+      # mutation mode; the --phase/--track/... flags below carry the event.
+      APPEND_LEDGER="1"
+      shift 1
+      ;;
+    --ctx)
+      LEDGER_CTX="$2"
+      shift 2
+      ;;
+    --phase)
+      LEDGER_PHASE="$2"
+      shift 2
+      ;;
+    --track)
+      LEDGER_TRACK="$2"
+      shift 2
+      ;;
+    --tier)
+      LEDGER_TIER="$2"
+      shift 2
+      ;;
+    --categories)
+      LEDGER_CATEGORIES="$2"
+      shift 2
+      ;;
+    --s17)
+      LEDGER_S17="$2"
+      shift 2
+      ;;
+    --paused)
+      LEDGER_PAUSED="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       usage
@@ -79,17 +178,28 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# Unknown / missing mode: exit non-zero with usage and emit NO JSON. A caller
-# that mistypes the mode must see a hard failure on stderr, not a silently
-# valid-but-empty JSON blob on stdout.
-case "$MODE" in
-  full | divergence-only | migrate-range) ;;
-  *)
-    echo "Unknown mode: '${MODE}'" >&2
+# Mode selection. --append-ledger is mutually exclusive with --mode: the ledger
+# append is a mutation that emits no JSON, the --mode values are JSON reporters.
+# Mixing them is a caller error.
+if [ "$APPEND_LEDGER" = "1" ]; then
+  if [ -n "$MODE" ]; then
+    echo "--append-ledger and --mode are mutually exclusive" >&2
     usage
     exit 2
-    ;;
-esac
+  fi
+else
+  # Unknown / missing mode: exit non-zero with usage and emit NO JSON. A caller
+  # that mistypes the mode must see a hard failure on stderr, not a silently
+  # valid-but-empty JSON blob on stdout.
+  case "$MODE" in
+    full | divergence-only | migrate-range) ;;
+    *)
+      echo "Unknown mode: '${MODE}'" >&2
+      usage
+      exit 2
+      ;;
+  esac
+fi
 
 # ---------------------------------------------------------------------------
 # Branch-divergence detection.
@@ -1375,6 +1485,204 @@ step_num_in_progress() {
 #      `[ ]` by construction — the Checklist walk reached State C on the first
 #      `[ ]` track, which is this track).
 #
+# ---------------------------------------------------------------------------
+# The phase ledger — the append primitive and the last-value-wins tail reader.
+#
+# The ledger is `<plan_dir>/_workflow/phase-ledger.md`, an append-only event log
+# whose grammar is fixed in the file header. These two functions are the only
+# code that writes or reads it: append_ledger composes and atomically appends
+# one event line; ledger_tail_value resolves the latest value of one key for
+# determine_state. Both resolve the plan dir from the current branch the same
+# way detect_drift / determine_state do (§ 1.6(g)).
+# ---------------------------------------------------------------------------
+
+# Resolve the phase-ledger path for the current branch. Echoes the path; the
+# caller decides whether the file must already exist.
+ledger_path() {
+  local branch
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  printf '%s' "docs/adr/${branch}/_workflow/phase-ledger.md"
+}
+
+# Append one event line to the phase ledger, atomically. Reads the LEDGER_*
+# accumulators the arg parser filled. The line always carries the `[<ISO>]`
+# timestamp and `[ctx=<level>]` marker; each non-empty LEDGER_* field is appended
+# as a `key=value` token (an empty field is omitted, never written as `key=`).
+# `categories` is the one quoted value because it may carry spaces and commas.
+#
+# Atomicity: the new contents (existing ledger, if any, plus the new line) are
+# written to a sibling temp file, then `mv`'d over the ledger. `mv` within one
+# directory is a rename, which is atomic on POSIX filesystems, so a crash leaves
+# either the prior ledger or the temp file — never a torn ledger. A torn append
+# therefore leaves the prior tail intact and determine_state resolves the prior
+# state (D3 / D6).
+# Reject a LEDGER_* value that would break the pinned grammar, mirroring the
+# loud-reject posture the read path takes for an unrecognized `phase`. A
+# malformed value would otherwise silently corrupt the tail rather than failing,
+# and this primitive is the resume state machine whose grammar is the contract
+# Track 2 consumes. Two value classes are rejected (exit 3, the parse_error code,
+# with a stderr diagnostic):
+#
+#   * a NEWLINE in ANY field — a newline writes a second physical line, and the
+#     last-value-wins reader would treat the smuggled `phase=Done` tail of that
+#     line as the resolved phase, routing resume to the wrong state;
+#   * a SPACE in any BARE-token field (phase/track/tier/s17/paused/ctx) — the
+#     reader splits a bare value at the first space, so a space would truncate
+#     the value or spawn a spurious key=value token. `categories` is the one
+#     field that may carry spaces, so it is exempt from the space check;
+#   * a DOUBLE-QUOTE in `categories` — `categories` is the one quoted value, so
+#     an embedded `"` closes its span early and the reader's `%%\"*` truncates
+#     it. A `"` is outside the documented "spaces and commas" alphabet.
+#
+# Args: $1 = field name (for the diagnostic); $2 = the value; $3 = "bare" for a
+# bare-token field (space-rejecting) or "quoted" for the categories field.
+reject_bad_ledger_value() {
+  local name="$1" value="$2" kind="$3"
+  # A literal newline held in a variable; a command substitution `$(printf '\n')`
+  # cannot carry one (it strips trailing newlines), so use ANSI-C quoting.
+  local nl=$'\n'
+  case "$value" in
+    *"$nl"*)
+      echo "append-ledger: $name value must not contain a newline" >&2
+      exit 3
+      ;;
+  esac
+  if [ "$kind" = "bare" ]; then
+    case "$value" in
+      *" "*)
+        echo "append-ledger: $name value must be a bare token (no spaces)" >&2
+        exit 3
+        ;;
+    esac
+  elif [ "$kind" = "quoted" ]; then
+    case "$value" in
+      *'"'*)
+        echo "append-ledger: $name value must not contain a double quote" >&2
+        exit 3
+        ;;
+    esac
+  fi
+}
+
+append_ledger() {
+  local ledger dir tmp ts line ctx
+  ledger="$(ledger_path)"
+  dir="$(dirname "$ledger")"
+
+  # WH1: validate every field before building the line so a malformed value
+  # fails loudly (exit 3) rather than silently splitting or truncating the tail.
+  # ctx and the bare-token fields reject spaces and newlines; categories rejects
+  # a newline and an embedded double quote.
+  ctx="${LEDGER_CTX:-safe}"
+  reject_bad_ledger_value "ctx"        "$ctx"               bare
+  reject_bad_ledger_value "phase"      "$LEDGER_PHASE"      bare
+  reject_bad_ledger_value "track"      "$LEDGER_TRACK"      bare
+  reject_bad_ledger_value "tier"       "$LEDGER_TIER"       bare
+  reject_bad_ledger_value "s17"        "$LEDGER_S17"        bare
+  reject_bad_ledger_value "paused"     "$LEDGER_PAUSED"     bare
+  reject_bad_ledger_value "categories" "$LEDGER_CATEGORIES" quoted
+
+  # The plan `_workflow/` dir is created by /create-plan before the first
+  # append; mkdir -p makes the append self-sufficient and idempotent. WH2: a
+  # failed mkdir (unwritable parent) must surface, not silently no-op a lost
+  # append into an exit 0.
+  if ! mkdir -p "$dir"; then
+    echo "append-ledger: failed to create $dir" >&2
+    return 1
+  fi
+
+  # ISO 8601 UTC, minute precision, matching the `## Progress` entry timestamps
+  # (e.g. 2026-06-15T16:42Z). `-u` forces UTC regardless of the host TZ.
+  ts="$(date -u +%Y-%m-%dT%H:%MZ)"
+
+  line="[$ts] [ctx=$ctx]"
+  [ -n "$LEDGER_PHASE" ]      && line="$line phase=$LEDGER_PHASE"
+  [ -n "$LEDGER_TRACK" ]      && line="$line track=$LEDGER_TRACK"
+  [ -n "$LEDGER_TIER" ]       && line="$line tier=$LEDGER_TIER"
+  [ -n "$LEDGER_CATEGORIES" ] && line="$line categories=\"$LEDGER_CATEGORIES\""
+  [ -n "$LEDGER_S17" ]        && line="$line s17=$LEDGER_S17"
+  [ -n "$LEDGER_PAUSED" ]     && line="$line paused=$LEDGER_PAUSED"
+
+  # Build the new contents in a temp file in the SAME directory (so the final mv
+  # is a same-filesystem rename, not a cross-device copy that would not be
+  # atomic). The temp name carries the PID so concurrent appends — which the
+  # orchestrator never issues, but a stray re-invocation might — cannot collide.
+  tmp="$dir/.phase-ledger.$$.tmp"
+  # WH3: reap the temp on any return so a failure between creation and the rename
+  # leaves no orphan in `_workflow/`. On the success path the rename consumes the
+  # temp before this fires, so the trap's `rm -f` is a harmless no-op — atomicity
+  # is preserved (the cleanup never runs between a successful rename and publish,
+  # because the rename IS the publish and leaves no temp to remove).
+  trap 'rm -f "$tmp"' RETURN
+
+  # WH2: each write step is guarded so a disk-full / unwritable failure surfaces
+  # as a non-zero return + diagnostic instead of a silently incomplete append.
+  if [ -f "$ledger" ]; then
+    if ! cat "$ledger" > "$tmp"; then
+      echo "append-ledger: failed to stage existing ledger into $tmp" >&2
+      return 1
+    fi
+  else
+    if ! : > "$tmp"; then
+      echo "append-ledger: failed to create $tmp" >&2
+      return 1
+    fi
+  fi
+  if ! printf '%s\n' "$line" >> "$tmp"; then
+    echo "append-ledger: failed to write the new entry to $tmp" >&2
+    return 1
+  fi
+  if ! mv -f "$tmp" "$ledger"; then
+    echo "append-ledger: failed to publish $ledger" >&2
+    return 1
+  fi
+}
+
+# Set LEDGER_VALUE to the LAST (most-recent) value of $key across every line of
+# the phase ledger, or the empty string when the key never appears (or the
+# ledger is absent). This is the last-value-wins read the header contract
+# defines: a mid-flight change appends a new value, and the reader keeps the
+# final one. The match is a per-line ` key=` / `^key=` token scan; the value is
+# everything after the first `=` up to the next space, with surrounding double
+# quotes stripped so a quoted `categories="a,b"` reads back as `a,b`.
+#
+# Sets a script-scoped variable (no command substitution) to stay consistent
+# with the other inline parse helpers above. Args: $1 = the key name.
+LEDGER_VALUE=""
+ledger_tail_value() {
+  local key="$1" ledger line rest val
+  LEDGER_VALUE=""
+  ledger="$(ledger_path)"
+  [ -f "$ledger" ] || return
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Anchor the key at a token boundary: either at line start (`key=`) or
+    # after a space (` key=`), so `track=` never matches inside `xtrack=`. The
+    # scan takes the FIRST ` $key=` token on the line and stops; it does not
+    # loop or re-examine the rest. A decoy `phase=` inside a quoted
+    # `categories="…phase=…"` span is therefore avoided only because the emitter
+    # (`append_ledger` above) writes every bare read-key — `phase`, `track` —
+    # BEFORE the quoted `categories` field, so the real bare token is always the
+    # first match. The safety invariant is that emit order, NOT a quoted-span
+    # skip: a key emitted AFTER `categories` would let a same-named decoy inside
+    # the quoted value win, so keep every reader-consumed key ahead of it.
+    case " $line" in
+      *" $key="*)
+        # Strip everything up to and including the first ` $key=`.
+        rest="${line#*" $key="}"
+        if [ "${rest#\"}" != "$rest" ]; then
+          # Quoted value: take everything between this `"` and the next `"`.
+          rest="${rest#\"}"
+          val="${rest%%\"*}"
+        else
+          # Bare token: everything up to the next space.
+          val="${rest%% *}"
+        fi
+        LEDGER_VALUE="$val"
+        ;;
+    esac
+  done < "$ledger"
+}
+
 # Args: $1 = track file path; $2 = the plan-file track checkbox token for this
 # track (the classify_marker token the Checklist walk read; "todo" here by
 # construction, passed for explicitness and future use).
@@ -1436,7 +1744,79 @@ determine_c_substate() {
   fi
 }
 
+# Two-level resume from the phase ledger: the ledger owns the top-level phase
+# and the active track; the track file's `## Progress` owns the within-track
+# sub-state. Sets STATE_JSON and returns 0 when the ledger resolves the state;
+# returns 1 (without touching STATE_JSON) when there is no ledger, so the caller
+# falls back to the legacy plan-checkbox walk. This is the D3/D10 path: a
+# plan-less `minimal` branch resumes from its ledger instead of restarting, and
+# the active track is `track-1` by construction (single-track tier, D10's
+# `plan/track-1.md` secondary signal) when the ledger names no track.
+determine_state_from_ledger() {
+  local branch plan_dir ledger phase track track_file
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  plan_dir="docs/adr/${branch}"
+  ledger="$plan_dir/_workflow/phase-ledger.md"
+  [ -f "$ledger" ] || return 1
+
+  # Top-level phase (last value wins). An absent / empty phase means the ledger
+  # exists but recorded no phase boundary yet — treat it as State 0 (nothing
+  # durable has crossed the plan-review gate), the same conservative default the
+  # legacy walk gives an unreviewed plan.
+  ledger_tail_value "phase"
+  phase="$LEDGER_VALUE"
+  if [ -z "$phase" ]; then
+    STATE_JSON='{"phase":"0","substate":null}'
+    return 0
+  fi
+
+  case "$phase" in
+    0 | A | D | Done)
+      # These phases carry no within-track sub-state, so emit directly with a
+      # null substate (jq escapes the phase token by construction). A is the
+      # pre-Phase-A no-track-file state; D is Phase-4-pending; Done is complete.
+      STATE_JSON="$(jq -nc --arg p "$phase" '{phase:$p, substate:null}')"
+      return 0
+      ;;
+    C)
+      # Execution resume: the ledger owns the active track, the track file owns
+      # the within-track sub-state. Default the active track to 1 for the
+      # single-track `minimal` tier whose ledger names no track (D10).
+      ledger_tail_value "track"
+      track="$LEDGER_VALUE"
+      [ -n "$track" ] || track="1"
+      track_file="$plan_dir/_workflow/plan/track-${track}.md"
+      if [ -f "$track_file" ]; then
+        determine_c_substate "$track_file" "todo"
+        STATE_JSON="$(jq -nc --arg s "$C_SUBSTATE" '{phase:"C", substate:$s}')"
+      else
+        # Phase recorded as C but no track file on disk yet — pre-decomposition
+        # State A, mirroring the legacy walk's first-`[ ]`-track-without-a-file
+        # branch.
+        STATE_JSON='{"phase":"A","substate":null}'
+      fi
+      return 0
+      ;;
+    *)
+      # An unrecognized phase token is a malformed ledger. Reuse parse_error so a
+      # corrupt ledger fails loudly (exit 3 before any JSON) rather than silently
+      # routing to a wrong state.
+      parse_error "phase-ledger.md" "phase=$phase"
+      ;;
+  esac
+}
+
 determine_state() {
+  # Two-level resume: prefer the phase ledger (D3) when present, which is the
+  # only resume signal a plan-less `minimal` branch has. When no ledger exists —
+  # an existing in-flight `lite`/`full` plan created before the ledger, or a
+  # fresh checkout — fall back to the legacy plan-checkbox walk below so those
+  # plans resume without regression (the two-level lookup keeps the track-file
+  # sub-state walk unchanged).
+  if determine_state_from_ledger; then
+    return
+  fi
+
   # Resolve the active plan dir from the current branch per § 1.6(g), the same
   # resolution detect_drift / scan_handoffs use.
   local branch
@@ -1717,6 +2097,18 @@ emit_json() {
       ;;
   esac
 }
+
+# --append-ledger is the one mutation mode and emits no JSON: append the event
+# line atomically and exit before the JSON dispatch below. Handled first so the
+# JSON-reporter dispatch never runs for it. WH2: propagate append_ledger's exit
+# status rather than unconditionally exiting 0 — a failed mkdir / write / rename
+# returns non-zero, so a lost append surfaces to the orchestrator instead of
+# masquerading as a recorded boundary. (A rejected field value exits 3 from
+# inside append_ledger before reaching here.)
+if [ "$APPEND_LEDGER" = "1" ]; then
+  append_ledger
+  exit $?
+fi
 
 # Run the detection each mode needs, then emit. `full` and `divergence-only`
 # both report `divergence`, so they run detect_divergence; `full` additionally

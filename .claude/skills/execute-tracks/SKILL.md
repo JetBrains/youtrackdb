@@ -86,7 +86,7 @@ then load the phase-specific workflow document from the map above and
 execute that one phase only.
 
 Each session handles exactly ONE PHASE of one track (or Phase 4 / State 0):
-- State 0 (autonomous plan review) → end session after `## Plan Review` is `[x]`
+- State 0 (autonomous plan review) → end session after the audit summary lands in `plan-review.md` and the phase ledger records the `phase=A` boundary (D3/D7 — there is no plan `## Plan Review` checkbox under the thinned plan)
 - Phase A → end session
 - Phase B → end session (or mid-phase checkpoint if 5+ steps done)
 - Phase C → end session

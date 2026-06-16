@@ -7,7 +7,7 @@
 | §When this protocol fires | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Fire a handoff at warning/critical context when WIP has not yet landed in durable files; examples and counter-examples. |
 | §File location | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The handoff file path, the per-phase naming convention, multi-pause handling, and collision-suffix rules. |
 | §Detection at session start | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Both startup commands list handoffs early; the file is the authoritative pause signal over the in-file marker. |
-| §Secondary marker (defense-in-depth) | orchestrator | 2,3A,3B,3C,4 | Leave a greppable **PAUSED line in the natural progress file as a defense-in-depth pointer to the handoff. |
+| §Secondary marker (defense-in-depth) | orchestrator | 2,3A,3B,3C,4 | Leave a greppable secondary pause pointer: a PAUSED line in track Progress, or a ledger event for State 0 / Phase 4. |
 | §`MEMORY.md` cross-reference | orchestrator,planner | 0,1,2,3A,3B,3C,4 | Add or update a per-branch memory-index entry after writing the handoff; it is supplemental to the on-disk file. |
 | §Templates | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header plus the research-shaped and decision-shaped body templates; pick by pause shape, not phase. |
 | §Header (both templates) | orchestrator,planner | 0,1,2,3A,3B,3C,4 | The shared handoff header fields: paused date, phase, context level, branch, HEAD, unpushed count. |
@@ -148,20 +148,23 @@ the next `/execute-tracks` invocation; `/review-plan` itself does not
 need a handoff-detection step at the top of its skill instructions.
 
 ## Secondary marker (defense-in-depth)
-<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Leave a greppable **PAUSED line in the natural progress file as a defense-in-depth pointer to the handoff." -->
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="Leave a greppable secondary pause pointer: a PAUSED line in track Progress, or a ledger event for State 0 / Phase 4." -->
 
-In addition to writing the handoff file, leave a single line marker
-inside the natural progress-tracking file for the phase:
+In addition to writing the handoff file, leave a secondary pause pointer
+keyed to the phase. The natural progress file differs by phase, and two
+phases lost their host when the plan shed `## Plan Review` and
+`## Final Artifacts` (D5/D7), so those route to a phase ledger `paused`
+event instead:
 
 | Phase | Marker location |
 |---|---|
-| 0 / 1 | none — `implementation-plan.md` may not exist yet during early Phase 0, and the handoff file + `MEMORY.md` cross-reference are sufficient signals |
-| 2 (State 0) | beneath `## Plan Review` heading in `implementation-plan.md` |
+| 0 / 1 | none — `implementation-plan.md` may not exist yet during early Phase 0 (and never exists under `minimal`), and the handoff file + `MEMORY.md` cross-reference are sufficient signals |
+| 2 (State 0) | phase ledger `paused` event (the former `## Plan Review` host is gone — D7) |
 | A / B / C | track file Progress section (`plan/track-N.md`) |
-| 4 | beneath `## Final Artifacts` heading in `implementation-plan.md` |
+| 4 | phase ledger `paused` event (the former `## Final Artifacts` host is gone — D7) |
 | Ad-hoc research | none — the handoff file is the sole signal |
 
-Marker format:
+**Marker format for A / B / C** (the track Progress host):
 
 ```
 **PAUSED <YYYY-MM-DD> at <phase-state> pending <decision-or-action>**
@@ -172,6 +175,46 @@ The literal `**PAUSED ` prefix is greppable; if a regression in
 the resume protocol misses the `ls handoff-*.md` check, a follow-up
 `grep -rn '^\*\*PAUSED ' docs/adr/<dir-name>/_workflow/` recovers the
 pointer.
+
+**Ledger `paused` event for State 0 / Phase 4** (no in-file host). The
+ledger `paused` field is a bare space-rejecting token, so it cannot hold
+the literal `**PAUSED ` prefix or a free-form `at <phase-state> pending …`
+clause (D8 Risks/Caveats). Record the pause with a phase-tagged bare token
+that names which boundary paused:
+
+```bash
+.claude/scripts/workflow-startup-precheck.sh --append-ledger --paused state0
+.claude/scripts/workflow-startup-precheck.sh --append-ledger --paused phase4
+```
+
+The event is the defense-in-depth pointer; the **handoff file** (found by
+the `ls handoff-*.md` scan and named per §File location) carries the
+re-present text and is the authoritative signal. The recovery scan below
+extends the greppable-recovery property to these two phases by scanning the
+ledger for `paused=` events.
+
+**Recovery scan — extend the grep to the ledger.** If a regression in the
+resume protocol misses both the `ls handoff-*.md` check and the track-Progress
+`**PAUSED ` grep, scan the ledger for `paused=` events as the State-0 /
+Phase-4 recovery (these phases write no `**PAUSED ` line, so the prefix grep
+above cannot recover them):
+
+```bash
+grep -nE '(^| )paused=[^ ]+' docs/adr/<dir-name>/_workflow/phase-ledger.md
+```
+
+**Clear-on-resolution.** The ledger is append-only: there is no unpause
+op, so a resolved pause's `paused=` event is never deleted. The recovery
+scan therefore treats a `paused=` event as **live only while its handoff
+file is still present**: the handoff-file deletion the §Per-handoff loop
+does on resolution (and the Phase 4 cleanup commit) is the clear signal.
+Equivalently, a `paused=` event followed by a later **forward-phase append**
+(a `phase=` boundary that advances past the paused boundary) is superseded
+and no longer live. A recovery scan that finds a `paused=state0` or
+`paused=phase4` event MUST confirm the matching handoff file still exists
+(and that no later forward-phase append supersedes it) before treating it as
+an active pause — otherwise a resolved pause re-discovers next session as a
+recurring false Abort.
 
 ## `MEMORY.md` cross-reference
 <!-- roles=orchestrator,planner phases=0,1,2,3A,3B,3C,4 summary="Add or update a per-branch memory-index entry after writing the handoff; it is supplemental to the on-disk file." -->
@@ -357,16 +400,21 @@ the trigger conditions in §When this protocol fires are met:
    explicit about the verbatim re-present text and the durable-
    artifact list — re-deriving them in the next session burns
    context and may drift.
-3. **Add the secondary PAUSED marker** to the natural progress-
-   tracking file (see §Secondary marker table). Skip this step for
-   Phase 0 / 1 and ad-hoc interludes — those rows have no marker.
+3. **Add the secondary pause pointer** (see §Secondary marker table).
+   For A / B / C, add the `**PAUSED ` line to the track Progress
+   section. For State 0 and Phase 4, append a `paused=state0` /
+   `paused=phase4` event to the phase ledger instead (the in-file host
+   is gone — D7). Skip this step for Phase 0 / 1 and ad-hoc interludes —
+   those rows have no marker.
 4. **Add or update the `MEMORY.md` cross-reference** for this branch
    per §`MEMORY.md` cross-reference (append under existing branch
    heading if one is already present).
 5. **Commit all changes together** with a bare imperative message,
    e.g. `Pause Phase C for context refresh — write handoff`. Stage
-   explicit paths only (the handoff file, the marker host file if
-   applicable, and the `MEMORY.md` update); never `git add -A`.
+   explicit paths only (the handoff file, the marker host — the track
+   Progress file for A / B / C, or `phase-ledger.md` for the State-0 /
+   Phase-4 `paused=` append — and the `MEMORY.md` update); never
+   `git add -A`.
 5a. **If the commit fails** (pre-commit hook rejection, dirty
     unrelated paths picked up by the hook): fix the underlying
     issue, re-stage, and create a **new** commit. Do NOT `--amend`
@@ -424,9 +472,14 @@ orchestrator MUST:
        `pause again` (the research has no pending decision, so the
        agent needs explicit guidance on how to proceed).
 4. **After resolution** (per file):
-   - Delete the handoff file.
-   - Remove the matching PAUSED marker line from the step / plan
-     file (skip if the marker row was "none" for this phase).
+   - Delete the handoff file. For a State-0 / Phase-4 pause this
+     deletion is itself the clear: the ledger `paused=` event is
+     append-only and cannot be removed, so the recovery scan treats it
+     as resolved once the handoff file is gone (see §Secondary marker →
+     "Clear-on-resolution"). No ledger edit is needed or possible.
+   - Remove the matching `**PAUSED ` marker line from the track Progress
+     file for an A / B / C pause (skip if the marker row was "none" or a
+     ledger event for this phase).
    - Remove the `MEMORY.md` cross-reference bullets that carry this
      handoff's filename in their parenthetical. If they were the
      last bullets under the `## Branch:` heading, remove the

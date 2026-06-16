@@ -255,18 +255,24 @@ rules:
   any IDE-routed action; do not re-probe.
 - **Path mapping for workflow-modifying plans.** Workflow-modifying
   plans accumulate their `.claude/workflow/**`, `.claude/skills/**`,
-  and `.claude/agents/**` edits under a plan-scoped staged subtree so
+  `.claude/agents/**`, and `.claude/scripts/**` edits under a plan-scoped
+  staged subtree so
   the branch's live workflow stays at develop's state through Phase B
   and Phase C. The
-  implementer detects the mode per-spawn by reading the plan file's
-  `### Constraints` section and matching on the stable marker prefix
-  defined in conventions.md:any:any `§1.7(b)`:
+  implementer detects the mode per-spawn **ledger-first**: read the
+  phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value
+  wins) and match the workflow-modifying token. When no
+  `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying
+  branch), fall back to reading the plan file's `### Constraints`
+  section and matching on the stable marker prefix defined in
+  conventions.md:any:any `§1.7(b)`:
 
   ```
   This plan is workflow-modifying:
   ```
 
-  The match is on the stable prefix only — the trailing path-prefix
+  In the fallback, the match is on the stable prefix only — the trailing
+  path-prefix
   list after the colon (`.claude/workflow/** or .claude/skills/**`, or
   any future enumeration) is not part of the match. A plan whose
   `### Constraints` marker still carries the develop-state two-prefix
@@ -275,8 +281,8 @@ rules:
   even as the canonical definition in `§1.7(b)` grows new prefixes.
 
   When the marker is present, route every write whose target path
-  begins with `.claude/workflow/`, `.claude/skills/`, or
-  `.claude/agents/` to the corresponding staged path under
+  begins with `.claude/workflow/`, `.claude/skills/`, `.claude/agents/`,
+  or `.claude/scripts/` to the corresponding staged path under
   `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/...`. Staged
   paths mirror the live relative path under the `.claude/` prefix
   byte-for-byte. A write to `.claude/workflow/X.md` rewrites to
@@ -385,26 +391,32 @@ gate applies on every spawn including `mode=FIX_REVIEW_FINDINGS`
 respawns.
 
 **Pre-commit gate, live-workflow-path check.** Workflow-modifying
-plans route every `.claude/workflow/**`, `.claude/skills/**`, and
-`.claude/agents/**` write to the staged subtree per Sub-step 1's
+plans route every `.claude/workflow/**`, `.claude/skills/**`,
+`.claude/agents/**`, and `.claude/scripts/**` write to the staged
+subtree per Sub-step 1's
 Path-mapping rule
 above. The gate catches bypass shapes — an absolute live path
 passed to a tool, a `Bash` redirection that the implementer
 forgot to rewrite — at commit time, before the bypass lands in
-history. The gate fires only when the active plan declares
-workflow-modifying in its `### Constraints` section per
-conventions.md:any:any `§1.7(b)`; on plans without the
-marker, the staging convention does not apply and the gate is a
+history. The gate fires only when the branch is in `§1.7(b)` staging
+mode — detected ledger-first per the Path-mapping rule above (the
+phase ledger's `s17` field equals the workflow-modifying token; the
+plan's `### Constraints` marker per conventions.md:any:any `§1.7(b)`
+is the pre-ledger fallback); on a branch in neither staging mode the
+staging convention does not apply and the gate is a
 no-op.
 
 After staging and before `git commit`, run:
 
 ```bash
-git diff --cached --name-only -- .claude/workflow/ .claude/skills/ .claude/agents/
+git diff --cached --name-only -- .claude/workflow/ .claude/skills/ .claude/agents/ .claude/scripts/
 ```
 
 Non-empty output means the staged diff contains live workflow
-paths, which is the bypass shape the gate refuses.
+paths, which is the bypass shape the gate refuses. `.claude/scripts/`
+is in the pathspec per D14 — a live edit to the startup script or its
+tests on a workflow-modifying branch is the same bypass shape and is
+refused identically.
 
 The gate's allow-clause is the Phase 4 promotion commit. The
 implementer reads the prepared commit message from the `-m`

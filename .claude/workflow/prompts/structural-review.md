@@ -17,7 +17,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Workflow Context | reviewer-plan | 2 | Phase 2 structural review: plan-quality check (no code read) across plan file, track files, and design document. |
 | §Classification rules | reviewer-plan | 2 | Each finding is mechanical (orchestrator auto-applies) or design-decision (escalate to user); orthogonal to severity. |
-| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, seed↔track fidelity, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
+| §`mechanical` — orchestrator applies the fix without asking | reviewer-plan | 2 | Bloat, duplication, superseded-DR, scope-format, and obvious-typo findings the orchestrator fixes without asking. |
 | §`design-decision` — orchestrator escalates to the user | reviewer-plan | 2 | Track ordering, sizing, contradiction, missing-DR, and implausible-scope findings the user must resolve. |
 
 <!--Document index end-->
@@ -91,10 +91,11 @@ descriptions, oversized tracks, contradictions — directly impair execution.
 - **Execution agent**: The agent that implements tracks during Phase 3. It
   reads the plan and design document to guide implementation. It decomposes
   scope indicators into concrete steps, implements them, and writes episodes.
-- **Decision Records**: Design choices in the plan's Architecture Notes
-  section. Each must include: alternatives considered, rationale, risks/
-  caveats, and track references (which track(s) implement this decision).
-  Immutable during execution — changes require formal replanning.
+- **Decision Records**: Design choices recorded in each track's
+  `## Decision Log` (track-canonical under D7; the plan no longer carries
+  them). Each must include: alternatives considered, rationale, risks/
+  caveats, and the implementing track. In `full`, the frozen `design.md`
+  keeps a seed copy as provenance.
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components the plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true. Can be ENFORCED (code
@@ -124,7 +125,7 @@ Inputs:
 - Workflow rules: {workflow_path}
 - Previous findings: {previous_findings or "None — this is the first pass"}
 
-**Staged-read precedence (workflow-modifying plans):** When the plan's `### Constraints` carries the canonical `§1.7(b)` workflow-modifying marker sentence, resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, or `.claude/agents/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
+**Staged-read precedence (workflow-modifying plans):** When the branch is in `§1.7(b)` staging mode — read ledger-first: the phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value wins) equals the workflow-modifying token; when no `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying branch), fall back to the plan's `### Constraints` carrying the canonical `§1.7(b)` workflow-modifying marker sentence — resolve every read of a `.claude/workflow/**`, `.claude/skills/**`, `.claude/agents/**`, or `.claude/scripts/**` file through `§1.7(d)`, taking the staged copy under `_workflow/staged-workflow/` when present and the live file otherwise.
 
 **Where track descriptions live:** For each **pending** track (`[ ]`),
 read the track's detailed description (what/how/constraints/interactions
@@ -140,6 +141,18 @@ severity as defects in the plan file. Per-entry annotations on
 individual criterion bullets below (tagged `*(cross-file: …)*` or
 `*(track file for pending, plan-file for completed/skipped)*`) route
 each check to the right source.
+
+**Tier guard — this pass does not run under `minimal`.** The structural
+pass is dropped entirely in `minimal`: under D2 the `minimal` tier has no
+`implementation-plan.md` at all, so there is no Component Map, no track
+ordering, and no plan-file section shape for a structural pass to validate
+(the single track's detail lives in `plan/track-1.md`, which Phase-A review
+covers). The orchestrator does not spawn this review under `minimal` — see
+implementation-review.md:orchestrator,reviewer-plan:2 §"Tier-driven pass
+selection". This prompt therefore only ever runs under `full` and `lite`,
+both of which carry a thinned `implementation-plan.md`. The DESIGN DOCUMENT
+block below adds a second, within-pass guard for the no-design case (`lite`),
+which is independent of this `minimal` pass-skip.
 
 Review the plan against these criteria:
 
@@ -237,21 +250,30 @@ TRACK SIZING
   pending tracks / plan-file entry for completed/skipped tracks —
   read both halves before concluding.)*
 
-ARCHITECTURE NOTES *(plan-file only — Component Map, Decision Records,
-Invariants, Integration Points, and Non-Goals all live in the plan per
-`conventions.md` `§1.2`)*
-- Is there a top-level Component Map?
+ARCHITECTURE NOTES *(mixed source under the thinned plan — the plan keeps
+only the thin cross-track Component Map; Decision Records, Invariants, and
+Integration Points are track-canonical under D7/D9 and live in the track
+files; Goals/Non-Goals are dropped from the plan under D5. See
+`conventions.md` §"Plan file content" and §"Per-tier artifact set".)*
+- Is there a top-level Component Map in the plan? *(plan-file — the thin
+  cross-track Component Map for impact assessment)*
 - Does it include only touched components plus immediate neighbors?
 - Is every component annotated with what changes and why?
-- Is there at least one Decision Record?
-- Does every Decision Record include: alternatives, rationale, risks,
-  track references?
-- Are Invariants listed where applicable? Do they map to testable assertions?
-- Are Integration Points documented?
-- Are Non-Goals stated where the scope boundary could be ambiguous?
+- Does each pending track carry at least one Decision Record in its
+  `## Decision Log`? *(track-file — Decision Records are track-canonical
+  under D7)*
+- Does every track Decision Record include: alternatives, rationale, risks,
+  track references? *(track-file)*
+- Are Invariants listed where applicable, in each track's combined
+  `## Invariants & Constraints` section, and do they map to testable
+  assertions? *(track-file — D9)*
+- Are Integration Points documented in each track's `## Interfaces and
+  Dependencies`? *(track-file — D9)*
 
-DESIGN DOCUMENT *(design-file for diagram/prose checks; plan-file for
-the Architecture-Notes/Decision-Records cross-reference. The final
+DESIGN DOCUMENT *(design-file for diagram/prose checks; the
+Decision-Records cross-reference reads each pending track's `## Decision
+Log` (track-canonical under D7), and the plan's thin Component Map. The
+final
 bullet's "track descriptions" half is sourced from the track file
 `## Purpose / Big Picture` + `## Context and Orientation` +
 `## Plan of Work` + `## Interfaces and Dependencies` sections for
@@ -279,15 +301,17 @@ not the `minimal` pass-skip. Run the whole block unchanged under `full`.
   Specifically: concurrency/locking strategies, crash recovery/durability,
   performance-critical paths, non-obvious invariants must have dedicated
   sections if they appear in the plan.
-- Is the design document consistent with the Architecture Notes (Component Map,
-  Decision Records) and track descriptions in the implementation plan?
+- Is the design document consistent with the plan's thin cross-track
+  Component Map and with each track's `## Decision Log` Decision Records
+  (track-canonical under D7) and track descriptions?
 
-DECISION TRACEABILITY *(plan-file only — Decision Records and their
-track references live in the plan's Architecture Notes)*
-- Does every Decision Record reference the track(s) that implement it?
-  (Step references are added during execution, not at planning time.)
-- Does every track that implements a non-obvious choice have a corresponding
-  Decision Record?
+DECISION TRACEABILITY *(track-file — Decision Records are track-canonical
+under D7 and live in each pending track's `## Decision Log`)*
+- Does every track Decision Record name the track that implements it (the
+  `**Implemented in**` field)? (Step references are added during execution,
+  not at planning time.)
+- Does every track that implements a non-obvious choice carry a corresponding
+  Decision Record in its `## Decision Log`?
 
 CONSISTENCY
 - Do track descriptions, decision records, component maps, and scope
@@ -305,13 +329,22 @@ CONSISTENCY
   `## Interfaces and Dependencies` sections for pending, plan-file
   for completed/skipped.)*
 
-BLOAT *(plan-file only for the per-section length checks; the
-seed↔track fidelity check is cross-file between `design.md` and the
-track files, `full`-tier only)* — these checks are mechanical
-line-count and pattern-match. The plan file is loaded at every
-`/execute-tracks` session startup, so each budget-exceedance is paid
-by every Phase A/B/C session for the rest of the plan's life. Bloat is
-a first-class structural defect, not a stylistic concern.
+BLOAT *(mixed source under the thinned plan — see the per-check tags
+below)* — these checks are mechanical line-count and pattern-match. Under
+the thinned `lite`/`full` plan (D5/D9), the plan file no longer carries the
+full Decision Records, Invariants, or Integration Points: those moved to
+each track file's `## Decision Log`, combined `## Invariants & Constraints`,
+and `## Interfaces and Dependencies` respectively, and the plan keeps only
+the thin cross-track **Component Map** plus the `## Checklist`. So the
+length checks split by source: the **component-intent** and **plan-file
+total** checks read the plan file; the **DR / invariant / integration-point
+/ superseded-DR** checks read each pending track's track file; the
+**seed↔track fidelity** check is cross-file between `design.md` and the
+track files (`full`-tier only). The plan file is loaded at every
+`/execute-tracks` session startup and every pending track file is read on
+demand at Phase A/B/C, so each budget-exceedance is paid for the rest of the
+plan's life. Bloat is a first-class structural defect, not a stylistic
+concern.
 
 **Bloat-fix destination — track sections in every tier (D10).** The four
 length-bloat fixes below move long-form material **to the matching track
@@ -323,7 +356,9 @@ unmaintainable after the first replan. In `full`, a trimmed DR's
 `**Full design**` line still points at the frozen seed's mechanism section
 as on-demand provenance, but the live record stays in the track.
 
-- **DR length:** does any Decision Record body exceed ~30 lines? Count
+- **DR length** *(track-file: each pending track's `## Decision Log` — the
+  plan no longer carries Decision Records under D7)*: does any Decision
+  Record body exceed ~30 lines? Count
   from `#### D<N>: <title>` through the final bullet line of that DR
   (exclude trailing blank lines and the next `#### ...` heading). The
   four-bullet form (alternatives / rationale / risks / implemented-in)
@@ -332,33 +367,41 @@ as on-demand provenance, but the live record stays in the track.
   material that belongs elsewhere. **Severity: should-fix.** **Fix:**
   trim the DR back to the four-bullet form and move the long-form
   material (worked examples, audit findings, layered diagrams,
-  edit-by-edit guidance, crash-scenario walk-throughs) to the matching
-  track's `## Decision Log` record. In `full`, link the frozen seed's
-  mechanism section from the DR's `**Full design**` line as on-demand
-  provenance.
-- **Invariant length:** does any invariant entry exceed ~5 lines?
+  edit-by-edit guidance, crash-scenario walk-throughs) into the same
+  track's `## Decision Log` record as a separate prose passage, or out of
+  the record entirely when it duplicates committed code. In `full`, link
+  the frozen seed's mechanism section from the DR's `**Full design**` line
+  as on-demand provenance.
+- **Invariant length** *(track-file: each pending track's combined
+  `## Invariants & Constraints` section — invariants moved off the plan
+  under D9)*: does any invariant entry exceed ~5 lines?
   Count from the bullet's `-` through its final continuation line.
   **Severity: should-fix.** **Fix:** state the rule as a one-paragraph
   bullet; move multi-paragraph derivations of invariant semantics to
-  the matching track's `## Interfaces and Dependencies` (or
+  the same track's `## Interfaces and Dependencies` (or
   `## Decision Log` when the derivation is decision rationale).
-- **Integration-point length:** does any integration-point bullet
+- **Integration-point length** *(track-file: each pending track's
+  `## Interfaces and Dependencies` — integration points moved off the plan
+  under D9)*: does any integration-point bullet
   exceed ~3 lines? **Severity: should-fix.** **Fix:** name the
   connection point in one short bullet; move multi-step workflow
-  walk-throughs ("Step 1 / Step 2 / Step 3 ...") to the matching
-  track's `## Interfaces and Dependencies` / `## Plan of Work`.
-- **Component-intent length:** does any component's intent bullet (in
+  walk-throughs ("Step 1 / Step 2 / Step 3 ...") to the same
+  track's `## Interfaces and Dependencies` body / `## Plan of Work`.
+- **Component-intent length** *(plan-file: the thin cross-track Component
+  Map is the one structural section still carried by the plan)*: does any
+  component's intent bullet (in
   the Component Map's annotated bullet list) exceed ~5 lines?
   **Severity: should-fix.** **Fix:** keep the intent to one short
   paragraph; move design-level descriptions of that component's
   behavioral change to the matching track's `## Context and
   Orientation`.
-- **Superseded DR retained:** is any DR explicitly marked
+- **Superseded DR retained** *(track-file: each pending track's
+  `## Decision Log`)*: is any DR explicitly marked
   `(SUPERSEDED ...)` or "see DN" still present as a `#### D<N>` block?
-  **Severity: blocker.** The plan must reflect the *current* decision
-  set, not the history. **Fix:** delete the superseded DR entirely;
-  document the supersession in the replacing DR's rationale ("This
-  replaces an earlier approach where...").
+  **Severity: blocker.** The track's `## Decision Log` must reflect the
+  *current* decision set, not the history. **Fix:** delete the superseded
+  DR entirely; document the supersession in the replacing DR's rationale
+  ("This replaces an earlier approach where...").
 - **Seed↔track fidelity** *(`full`-tier only, authoring-time only —
   replaces the former plan/design duplication check)*: at Step 4b
   authoring, iterate the **`design.md` seed D-records only**; for each,
@@ -375,13 +418,19 @@ as on-demand provenance, but the live record stays in the track.
   run during execution: post-authoring divergence is owned by the
   cross-track propagation duty (inline-replanning.md:orchestrator:3A,3C).
   Borderline title matches are flagged for human review, not auto-resolved.
-- **Plan-file total length:** does the plan file exceed ~1,500 lines
-  or ~30K tokens? **Severity: should-fix.** **Fix:** identify which
-  sections are over their per-section budget (the findings above will
-  already cite the per-section ones); if cumulative bloat across many
-  sections is the cause and no single section is dramatically
-  oversized, recommend a global trim pass against the per-section
-  budgets.
+- **Plan-file total length** *(plan-file)*: does the plan file exceed
+  ~1,500 lines or ~30K tokens? **Severity: should-fix.** Under the thinned
+  `lite`/`full` plan the file holds only the `## Design Document` link
+  (`full`), the thin cross-track `## Component Map`, and the `## Checklist`,
+  so this budget is rarely the binding constraint — a thinned plan that
+  approaches it usually has an oversized Component Map or completed-track
+  entries that were never collapsed. **Fix:** if the Component Map is the
+  cause, apply the component-intent fix above; if uncollapsed completed-track
+  entries are the cause, collapse them to the one-line `**Track episode:**`
+  summary + pointer form (track-code-review.md:orchestrator:3C §Track
+  Completion). The per-track DR / invariant / integration-point bloat the
+  findings above cite is paid in the track files, not here, so it does not
+  feed this plan-file roll-up.
 
 **Output mode — file when handed a path, inline otherwise.** When the
 spawn supplies an output path, persist the structured output to a file in
@@ -489,10 +538,12 @@ ANY of these triggers `design-decision`:
 - **Implausible scope indicator** — the description implies more work
   than the scope claims. Either the description scopes down or the
   indicator scopes up; the user decides which.
-- **Architecture Notes gaps** — missing Component Map, missing
-  Invariants, missing Integration Points, missing Non-Goals where
-  the scope boundary is ambiguous. Filling these requires the user's
-  rationale.
+- **Architecture Notes gaps** — a missing plan Component Map, or a track
+  missing Invariants (in its `## Invariants & Constraints`) or Integration
+  Points (in its `## Interfaces and Dependencies`) where the scope boundary
+  is ambiguous. Under the thinned plan the plan keeps only the Component
+  Map; the invariant/integration content is track-canonical (D9), so the
+  gap is checked per track. Filling these requires the user's rationale.
 - **Design document gaps** (`full`-tier only — skipped when `design.md`
   is absent per the DESIGN DOCUMENT block's design-presence guard) —
   missing Overview, missing class diagram when 2+ new classes are

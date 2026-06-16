@@ -147,20 +147,53 @@ an earlier session already skipped, and a downgrade is likewise not
 automatic — a completed review cannot be un-run. No dedicated
 tier-upgrade mechanism exists; the ESCALATE replan is the carrier.
 
-The first artifact an upgrade lands is the **D18 tier line rewrite**. The
-Phase-2/3A/4 selectors all read the tier line in `implementation-plan.md`
-to pick their per-tier shape, so the upgrade rewrites that line to the new
-tier before the next State-0 re-run (step 6 below resets `## Plan Review`,
-routing the next `/execute-tracks` session through Phase 2). Without the
-rewrite, every re-entered selector would read the stale pre-upgrade tier
-and keep running the lighter tier's passes, so the upgrade would be
-announced but never take effect downstream. The tier line is normally a
-`create-plan`-owned write (it is read-only for every execution-time
-consumer), and the upgrade is the one execution-time exception: the
-ESCALATE replan owns this single write to the line, the same way it owns
-the revised Decision Records it lands. A `lite`→`full` upgrade that also
-gains a `design.md` writes the new design seed alongside the tier-line
-rewrite.
+**Materialize first, then write the upgraded tier (D11).** A `minimal`
+upgrade is the demanding case: under D2 the `minimal` tier has no
+`implementation-plan.md` and no `design.md`, so the upgrade carrier must
+**materialize** the dropped artifacts before it records the new tier. Land
+them in this order:
+
+1. **Materialize the artifacts the source tier never had.** A
+   `minimal`→`lite` (or `minimal`→`full`) upgrade writes a thinned
+   `implementation-plan.md` (the derived-mirror plan `lite`/`full` carry but
+   `minimal` does not); a `*`→`full` upgrade additionally writes the
+   `design.md` seed. A `lite`→`full` upgrade only adds the `design.md` seed,
+   since `lite` already has a plan. Seed each artifact from the existing
+   research log and the track files, the same sources `create-plan` reads at
+   confirmation.
+2. **Append the upgraded tier as a ledger event.** The tier home is the
+   phase ledger's `tier` field (D4), not a plan line, so the upgrade records
+   the new tier by appending a boundary:
+
+   ```bash
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger --tier <new-tier>
+   ```
+
+   The ledger is last-value-wins, so the appended `tier=<new-tier>` is what
+   every Phase-2/3A/4 selector reads ledger-first from the next State-0
+   re-run onward (step 6 below resets review state, routing the next
+   `/execute-tracks` session through Phase 2). The materialize-then-write
+   order keeps the same-commit set internally consistent: the materialized
+   plan and the `tier` append land together in the step-6 commit, so the
+   committed pair never shows an upgraded tier pointing at a plan that is
+   not yet written. A `full` upgrade that crosses the `§1.7` staging line
+   also appends the `s17` field on the same or a following boundary.
+
+Without the materialize step, the re-entered selectors would resolve the
+new tier from the ledger but find no plan or design to drive the wider
+tier's passes; without the ledger append, every selector would keep reading
+the stale pre-upgrade tier and run the lighter tier's passes, so the upgrade
+would be announced but never take effect downstream. The tier field is
+normally a `create-plan`-owned ledger write at confirmation (it is read-only
+for every execution-time consumer), and the upgrade is the one
+execution-time exception: the ESCALATE replan owns this single tier append,
+the same way it owns the revised Decision Records it lands.
+
+Neither the materialized artifacts nor the `tier` append is committed until
+the step-6 commit, so an escalation interrupted anywhere before that commit
+is recoverable with the standard `git reset --hard HEAD`: the reset reverts
+the uncommitted plan/design and the ledger `tier` append together, restoring
+the pre-upgrade `minimal` state.
 
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
@@ -209,31 +242,40 @@ preview — they will appear in the next-session State 0 re-run.
 **6. Resume or exit:**
 
 - **Review PASS** — update the plan file with the revised plan **and
-  reset the `## Plan Review` section** to
-  `- [ ] Plan review (consistency + structural) — autonomous; runs as
-  the first phase of /execute-tracks`. The reset routes the next
-  `/execute-tracks` session through State 0, which re-runs Phase 2
-  against the revised plan and catches any consistency drift the
-  replan introduced (see
-  implementation-review.md:orchestrator,reviewer-plan:2 § Replanning
-  for the contract). Then commit and push the workflow changes
-  immediately so the next implementer spawn doesn't lose them via
-  `git reset --hard HEAD`:
+  reset review state to State 0** by appending a `phase=0` boundary to the
+  phase ledger:
 
   ```bash
-  git add docs/adr/<dir-name>/_workflow/implementation-plan.md \
+  .claude/scripts/workflow-startup-precheck.sh --append-ledger --phase 0
+  ```
+
+  The ledger is append-only and last-value-wins, so a `phase=0` appended
+  after the prior `phase=A` makes `0` the resolved phase; `determine_state`
+  reads it as State 0 (the replan invalidates the earlier passed verdict).
+  The reset routes the next `/execute-tracks` session through State 0, which
+  re-runs Phase 2 against the revised plan and catches any consistency drift
+  the replan introduced (see
+  implementation-review.md:orchestrator,reviewer-plan:2 § Replanning for the
+  contract). Then commit and push the workflow changes immediately so the
+  next implementer spawn doesn't lose them via `git reset --hard HEAD`:
+
+  ```bash
+  git add docs/adr/<dir-name>/_workflow/phase-ledger.md \
+          docs/adr/<dir-name>/_workflow/implementation-plan.md \
           docs/adr/<dir-name>/_workflow/plan/track-*.md
   git commit -m "Inline replan after Track <N>"
   git push
   ```
 
-  Stage only the paths that the revision actually touched (the
-  enumeration in
-  [§Updating plan and track files](#updating-plan-and-track-files)
-  tells you which files apply per case). A replan never touches
-  `design.md` (it is frozen after Phase 1 — see step 3's "Design
-  intent stays in the plan" rule), so the staged set is the plan
-  file and the affected track files only.
+  Stage the phase ledger (always — the `phase=0` reset, and the `tier`
+  append on a tier upgrade), plus only the other paths the revision actually
+  touched (the enumeration in
+  [§Updating plan and track files](#updating-plan-and-track-files) tells you
+  which files apply per case). A `minimal` upgrade additionally stages the
+  newly-materialized `implementation-plan.md` (and `design.md` for `full`)
+  from the materialize-then-write step above. Outside a `full` upgrade a
+  replan never touches `design.md` (it is frozen after Phase 1 — see step 3's
+  "Design intent stays in the plan" rule).
 
   This is a Workflow update commit (single-commit-per-replan; per
   the table in `commit-conventions.md` § Commit type prefixes).
