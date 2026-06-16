@@ -11,13 +11,14 @@ This track builds the generator that produces a book about the YouTrackDB develo
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T08:47Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-16T09:43Z [ctx=safe] Step 1 complete (commit e4ef1c6916)
 - [x] 2026-06-16T09:49Z [ctx=safe] Step 2 complete (commit e796695b8d)
 - [x] 2026-06-16T09:49Z [ctx=safe] Step implementation complete (Phase B)
 - [x] 2026-06-16T10:22Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-16T10:27Z [ctx=safe] Track-level code review PASS (iteration 1; all 12 findings VERIFIED, 0 deferred)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -100,6 +101,7 @@ the research log. One block per decision: -->
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
 - [x] Technical: PASS at iteration 1 (1 finding, 1 accepted) — 0 blockers. T1 (should-fix): corpus-size figure corrected from "about 1.3 MB" to "about 1.0 MB" for the 31 workflow docs (measured 0.99 MB; counts 31/11/20/16 verified exact). Risk and Adversarial dropped under `minimal` tier.
+- [x] Phase C track-level code review: PASS at iteration 1, 0 blockers. The diff is prose machinery plus one never-run operator script, so the four code/test baselines and context-budget were skipped (nothing is always-loaded); five workflow-dimension reviewers ran (consistency, hook-safety, instruction-completeness, prompt-design, writing-style). 12 findings (0 blocker, 5 should-fix, 7 suggestion), all in-scope, applied in one fix iteration (commit 873d36e581), all 12 VERIFIED at gate-check. The should-fixes closed real gaps in `PIPELINE.md`: the technical-reviewer wave gained a re-verification loop with a two-iteration cap and operator escalation (WI1/WP1), the author flags gained a reconcile step and named output channel (WI2/WP3), and the SVG figure naming drifted across four files until aligned on the `fig-<name>.svg` stem the render script emits (WC1). No findings deferred; no plan corrections.
 
 ## Context and Orientation
 This track produces two directory trees that, together, form a generator and an empty home for what it generates. The first tree, `workflow-book-builder/`, is the machinery: prose prompts and briefs an operator pastes into an agent and drives by hand. The second tree, `docs/workflow-book/`, is the book target: where a later run of the machinery writes the actual reading material. The split is the user's explicit requirement — reading material belongs under `docs/`, production machinery does not (D3) — and is the one place this design departs from its model.
