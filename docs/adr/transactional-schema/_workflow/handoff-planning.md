@@ -1,17 +1,18 @@
-# Handoff: Phase 1 (Step 4a→4b boundary) — design frozen, awaiting review + draft PR
+# Handoff: Phase 1 — readability pass mid-flight (pass-1 committed, code-grounded pass-2 pending), then review + draft PR + Step 4b
 
-**Paused:** 2026-06-15
-**Phase:** 1 (Step 4a complete; Step 4b pending)
-**Context level at pause:** warning
+**Paused:** 2026-06-16 (user-requested handoff — readability pass mid-flight)
+**Phase:** 1 (Step 4a complete; doc-wide readability pass before PR / Step 4b)
+**Context level at pause:** user-requested, not context-forced
 **Branch:** transactional-schema
-**HEAD:** 57ffe11282 "Add initial design"
-**Unpushed:** 0 commits
+**HEAD:** 387f37bec8 "Apply cold-author readability pass to design.md (Mutation 3)"
+**Unpushed:** the Mutation-3 commit plus this handoff commit — pushed on handoff write
 
 ## Durable artifacts on disk
-- `docs/adr/transactional-schema/_workflow/design.md` — frozen Phase-1 seed design (796 lines, 15 `##` sections, 4 Parts), committed `57ffe11282`, cold-read PASS. Single file, no design-mechanics companion.
+- `docs/adr/transactional-schema/_workflow/design.md` — Phase-1 seed design, now carrying the cold-author readability pass-1 (889 lines, 15 `##` sections, 4 Parts), committed `387f37bec8` (Mutation 3). Single file, no design-mechanics companion. Semantics verified unchanged vs the `a5ec4b1e89` frozen text (four-lock order, Dekker handshake, drop-detection source, I-P2/F66 split, freezer windows all intact).
 - `docs/adr/transactional-schema/_workflow/research-log.md` — consolidated: `## Invariants and Test Requirements` (25 I-* invariants) + `## Delegated to implementation` (12 entries); `## Adversarial gate record` shows the Phase-0→1 gate CLEARED (iter-3 PASS).
-- `docs/adr/transactional-schema/_workflow/design-mutations.md` — Mutation 1 (phase1-creation) logged.
+- `docs/adr/transactional-schema/_workflow/design-mutations.md` — Mutations 1 (phase1-creation), 2 (review-hold clarifications, `a5ec4b1e89`), 3 (cold-author readability pass-1, `387f37bec8`) logged. Mutation 4 (code-grounded pass-2) is next session's output.
 - `docs/adr/transactional-schema/_workflow/reviews/research-log-adversarial-iter{1,2,3}.md` — the gate review trail.
+- `docs/adr/transactional-schema/_workflow/reviews/readability-feedback-design.md` — the first cold audit (55 findings vs the frozen text, 0 GAPs). Its line numbers are for the pre-pass-1 frozen doc; pass-2 re-audits the committed pass-1 doc for a fresh worklist.
 - No `implementation-plan.md` and no `plan/track-N.md` yet — those are Step 4b's output.
 
 ## Pending decision
@@ -26,10 +27,28 @@ The user is **reviewing the frozen `design.md`** before authorizing the draft PR
 
 ## Resume notes
 - **CRITICAL ROUTING.** A fresh `/create-plan` session's Step 1c will see `design.md` committed-and-clean + no `implementation-plan.md` and **auto-resume into Step 4b** (plan derivation). Do NOT let it barrel into Step 4b before the user's design review is resolved. Order on resume: surface this handoff → let the user finish reviewing / state any changes → open the draft PR on their OK → only then derive Step 4b.
-- **NEXT-SESSION TASK (user-scheduled 2026-06-16) — do this BEFORE the PR / Step 4b.** Run `/readability-feedback` on `design.md` and fix all found observations. The skill audits the doc for hard-to-read paragraphs and proposes house-style rule changes, but it **reports** the doc's violations and does not rewrite the doc, so fixing the observations is two streams: (a) flagged doc paragraphs → fix via `edit-design` (content-edit clarifications, the Mutation 2 shape); (b) any house-style rule hardening it proposes → §1.7-staged workflow-machinery change, applied on user approval. This is the live calibration the Part-3 terseness reflection pointed at; YTDB-1130 carries the longer-term author/cold-read-loop idea.
+- **NEXT-SESSION TASK — code-grounded readability pass-2 (Mutation 4), BEFORE the PR / Step 4b.** Pass-1 (a cold author reading only the doc + `house-style.md`) hit a ~54-finding floor. The user diagnosed the cause: a large share of the residual is "the passage needs current-system grounding the doc never states", and a prose-only author cannot add it. Pass-2 gives the author the audit findings **plus codebase access** and a TRANSLATE mandate, so it grounds each claim in real current behavior (current-state-then-change). Procedure:
+  1. **mcp-steroid preflight** (CLAUDE.md): `steroid_list_projects`; confirm the `transactional-schema` project is open and matches the worktree. The author uses PSI for reference-accuracy; if unreachable / cwd-mismatch, it falls back to grep + `Read` with documented caveats.
+  2. **Re-audit** the committed pass-1 `design.md` (889 lines) with the 5-range cold-auditor contract (read only `house-style.md` + the doc; enumerate every passage a context-free reader cannot reconstruct; classify CAUGHT/GAP). Re-derive the 5 range boundaries from the current `# Part` / `## ` headings. The result is the pass-2 worklist.
+  3. **Spawn the code-grounded author** (general-purpose) on the committed pass-1 doc, with the prompt below.
+  4. **Re-audit** (the verify-half). Compare the count to the ~54 floor — code-grounding should beat it where prose-reshaping could not.
+  5. **Verify (orchestrator, expanded):** semantic preservation AND **accuracy of the new code-sourced current-state claims** — a confident-but-wrong "how it works today" is worse than an obscure-but-correct line. Use mcp-steroid PSI for any load-bearing symbol fact; spot-read the source for the current-state additions.
+  6. **Loop** until the count stabilizes / no fixable tells remain (NOT zero — inherent concurrency density is a floor). Budget ~2-3 author rounds.
+  7. **Finalize:** write **Mutation 4** in `design-mutations.md`; commit `design.md` + log; **post the held YTDB-1130 comment** (the three-pass data 55 / 57 / 54 plus whether code-grounding beat the floor — that is the real data point for YTDB-1130's "does the loop converge?" question, which the user already approved posting); update the auto-memory branch entry.
+  8. **Then the original flow:** present the refined design → user finishes review → open the draft PR (prefix `YTDB-382` offered; user chose HOLD) → fresh `/create-plan` auto-resumes Step 4b.
+
+  **The code-grounded author prompt (use ~verbatim):**
+  - **Role:** the design-doc author in the YTDB-1130 two-role loop; a cold auditor verifies. Build on the committed pass-1 `design.md` (do not revert it).
+  - **Read:** `house-style.md` in full; `design.md`; the re-audit findings (the worklist).
+  - **Code access:** grep + `Read` for "what does X do today" (find the class, read the method, describe current behavior); **mcp-steroid PSI explicitly for any reference-accuracy claim** (callers, overrides, "is this the only consumer") — sub-agents default to grep, so this MUST be stated in the spawn. The doc names real symbols (`SchemaShared`, `ClassIndexManager`, `stateLock`, the non-WAL-safe rename path) it can look up.
+  - **TRANSLATE mandate:** for each flagged passage, establish the current-state baseline (grounded in code) and then the change, at the reader's level — behavior explained, not code dumps, not file:line asides.
+  - **Guardrails:** additive only — may add current-state context and glosses, must not change any decision, invariant, mechanism, or the four-lock order; new content must be faithful to the code (preserve verbatim if the code is ambiguous, never guess); spend the length budget where the auditor flagged a gap, **not uniformly**; keep the Overview ≤40 lines; do not touch Mermaid bodies, `### Decisions & invariants` lists, or headings.
+  - **Open sub-question (unresolved — default chosen):** how aggressively to add current-state — every flagged passage vs only where a reader is genuinely blocked. Default to **only where genuinely blocked / where flagged**, not uniformly, so the enrichment does not bloat the doc. The user may want to revisit this at pass-2 start.
+
+  **Caveat the user put on record:** this makes the author an *enricher*, not a polisher — the doc grows (current-state-then-change is more text) and verification expands to checking code-sourced claims for accuracy. It should beat the ~54 floor but will not reach a zero auditor count (a Dekker handshake stays hard).
 - **On approve-as-is:** open the draft PR (`gh pr create --draft --base develop`, title `[YTDB-382] Transactional schema operations` or the user's prefix, body distilled from the design Overview, `## Status` line noting `_workflow/` is removed in the Phase 4 cleanup). Then derive Step 4b: read `planning.md`, author `implementation-plan.md` (full-tier aggregator, tier line `full`) + one `plan/track-N.md` per track, seed the track `## Decision Log` records from the frozen design's D-records, run the Step-4b cold-read (`target=tracks`), commit `Add initial implementation plan`, push.
 - **On changes requested:** route through `edit-design` (mutation discipline; design is frozen). The D15 review-hold window is OPEN (design presented, outcome PASS) — batch findings per `create-plan` Step 4 review-hold batching; decision-shaped findings re-enter the Phase-0→1 adversarial gate before applying.
-- **Do NOT redo:** the consolidation pass (`c455ca35cf`), the 3-iteration adversarial gate (CLEARED, `7109eb7b01`), the design authoring + cold-read (`57ffe11282`), and the Phase-1 review-hold clarifications (design Mutation 2, `a5ec4b1e89`: index-overlay wording + I-P2/I-P4 cross-ref, mutex handshake gloss + Mermaid diagram, freezer gloss) — all committed and pushed. Do NOT re-attack settled D1-D20 / F1-F129 ground, the cleared gate, or re-apply the flushed clarifications.
+- **Do NOT redo:** the consolidation pass (`c455ca35cf`), the 3-iteration adversarial gate (CLEARED, `7109eb7b01`), the design authoring + cold-read (`57ffe11282`), the Phase-1 review-hold clarifications (design Mutation 2, `a5ec4b1e89`), and the **cold-author readability pass-1 (Mutation 3, `387f37bec8`)** — all committed. Do NOT re-attack settled D1-D20 / F1-F129 ground, the cleared gate, or re-apply the flushed clarifications. **Do NOT revert pass-1** — build pass-2 on it. **Do NOT re-run a prose-only author or the discarded warm main-agent self-edit** — both proved to flatten at the ~54 floor; only the code-grounded author (pass-2) is expected to beat it.
 - **Env note:** model `fable` (D14's full-tier adversarial-spawn choice) is **unavailable in this environment** — every gate and cold-read spawn this session fell back to `opus` (session default). Re-confirm fable availability next session before relying on the D14 model pin; if still unavailable, the opus fallback stands.
 
 ## Review-hold queue (D15)
