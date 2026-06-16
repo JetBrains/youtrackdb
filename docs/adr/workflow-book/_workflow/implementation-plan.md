@@ -24,7 +24,11 @@
   > (README, TOC, empty chapters and diagram-asset dirs).
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency; structural dropped under `minimal` tier) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: none. The consistency review (track-vs-code, the only pass `minimal` runs) returned 0 findings; all 14 verification certificates were MATCHES (corpus counts, baseline SHA, `d2`/`mmdc`/`node` tooling presence, and the sibling internals-book's structure all verified against the real filesystem). Record: `plan/track-1/reviews/consistency-iter1.md`.
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (PR-description verdict summary; no `docs/adr/` entry — Gate 2 is the durable-ADR boundary)
