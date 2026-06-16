@@ -20,12 +20,13 @@ defines.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T06:28Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-16T07:19Z [ctx=safe] Step 1 complete (commit 9bba7b62a6)
 - [x] 2026-06-16T07:38Z [ctx=safe] Step 2 complete (commit a7fd6b7864)
+- [x] 2026-06-16T07:52Z [ctx=safe] Step 3 complete (commit 824c01d43d)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -57,6 +58,12 @@ discovered" when the finding affects future steps or other tracks. -->
   is canonical in the track file), so Step 3's `plan-slim-rendering.md`
   render-rule adaptation must render the collapsed entry, not the full episode.
   See Episodes §Step 2.
+- 2026-06-16T07:52Z Step 3 discovered: `prompts/structural-review.md` presence
+  checks (ARCHITECTURE NOTES / DECISION TRACEABILITY / DESIGN DOCUMENT) still
+  named the plan as the home for Decision Records / Invariants / Integration
+  Points; re-pointed them to the track-canonical homes so a thinned plan does
+  not draw false "missing Decision Record" findings. Phase C should confirm this
+  reached slightly past the literal "bloat checks" scope. See Episodes §Step 3.
 
 ## Decision Log
 
@@ -384,7 +391,7 @@ growth, which the token does not need (it carries no path list).
    precheck, so these are bounded dispatch/render-prose re-points. — risk: medium
    (workflow machinery, behavioral but bounded: review-dispatch and render-rule
    prose) — size: ~5 files; no mergeable low/medium work fits (the rest of the
-   track is high)  [ ]
+   track is high)  [x] commit: 824c01d43dbb7928572bf17756e80c20d3b19f66
 
 Steps are sequential: Step 1 establishes the ledger-first read pattern and the
 `conventions.md` §1.7(c) spec the implementer gate cites; Step 2 applies the same
@@ -494,6 +501,60 @@ first, and re-pointing it would exceed this step's three-item scope
 - `.claude/workflow/mid-phase-handoff.md` (new staged copy)
 - `.claude/workflow/workflow.md` (modified)
 - `.claude/workflow/workflow-drift-check.md` (new staged copy)
+
+### Step 3 — commit 824c01d43dbb7928572bf17756e80c20d3b19f66, 2026-06-16T07:52Z [ctx=safe]
+**What was done:** Re-pointed the Phase-2 audit-summary dispatch and the
+slim-plan render prose onto Track 1's thinned-plan / `plan-review.md` /
+ledger model across five staged workflow docs (all newly staged this
+step). `prompts/structural-review.md` gained the `minimal`-tier guard
+(no plan, so the structural pass is dropped) and adapted the bloat
+checks to the thinned plan: the Decision-Record, invariant,
+integration-point, and superseded-DR length checks now measure the track
+files (those sections moved off the plan under D7/D9), while
+component-intent and plan-file-total stay plan-side.
+`workflow/structural-review.md` re-points the durable audit trace from
+the removed plan `## Plan Review` section to `plan-review.md` plus the
+ledger `phase=A` boundary. `skills/review-plan/SKILL.md` (the D7 write
+side) writes the audit to `plan-review.md` and the review state to the
+ledger instead of overwriting the plan section.
+`skills/execute-tracks/SKILL.md` re-points its State-0 end-session read
+off the `## Plan Review` checkbox onto `plan-review.md` plus the ledger.
+`plan-slim-rendering.md` drops the "Keep `## Final Artifacts` verbatim"
+rule, adapts the pre-Checklist content list to the thinned plan, and
+reshapes the completed-track render to the one-line Track-episode summary
+plus pointer that Step 2 wrote on disk.
+
+**What was discovered:** `prompts/structural-review.md` needed coherence
+work past the literal "bloat checks" scope. Its ARCHITECTURE NOTES,
+DECISION TRACEABILITY, and DESIGN DOCUMENT presence-check blocks still
+asserted that Decision Records, Invariants, and Integration Points "all
+live in the plan per §1.2" — develop-state text that contradicts the
+thinned-plan bloat-check edits and would make the structural reviewer
+emit false "missing Decision Record in the plan" findings against a
+thinned plan that legitimately carries none. The presence-check source
+tags were re-pointed onto the track-canonical homes (`## Decision Log`,
+`## Invariants & Constraints`, `## Interfaces and Dependencies`), the
+same within-file coherence fix Step 1 made for co-resident marker reads.
+The model is already fully decided in staged `conventions.md`, so this
+only makes the consumer agree. The Non-Goals glossary definition (a
+concept, not a location claim) was left in place.
+
+**What changed from the plan:** none material, and no future step is
+affected (Step 3 is the last in Track 2). The structural-review
+presence-check re-point above was a coherence consequence of "adapt the
+bloat checks to the thinned plan" that the step description did not name
+explicitly; it is flagged for Phase C to confirm the boundary call. Per
+the spawn instruction, `conventions.md` §1.7(l)'s "carries either
+marker" wording lag was left out of scope (`conventions.md` is carved to
+the §1.7(c) read-side only); that item stays deferred to a Phase C
+finding or plan correction.
+
+**Key files:** (all under `_workflow/staged-workflow/`)
+- `.claude/workflow/prompts/structural-review.md` (new staged copy)
+- `.claude/workflow/structural-review.md` (new staged copy)
+- `.claude/skills/review-plan/SKILL.md` (new staged copy)
+- `.claude/skills/execute-tracks/SKILL.md` (new staged copy)
+- `.claude/workflow/plan-slim-rendering.md` (new staged copy)
 
 ## Validation and Acceptance
 
