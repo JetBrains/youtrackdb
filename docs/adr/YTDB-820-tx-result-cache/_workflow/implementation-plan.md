@@ -466,22 +466,60 @@ Full statements and per-shape test matrices: design.md §"Invariants".
   > FunctionDeterminismEnumerationTest build gate) are confined to the
   > aggregate path and do not touch MATCH.
 
-- [ ] Track 3: MATCH shapes — Etap A composition, partial Etap B, tombstone floor
+- [x] Track 3: MATCH shapes — Etap A composition, multi-alias class-scoped gate
   > Adds MATCH caching: Etap A (single-alias) folds to RECORD shape via a stored
-  > `returnProjector`; `MATCH_TUPLE_MULTI` carries per-tuple bookkeeping
-  > (`aliasClasses`, `traversalEdgeClasses`, `contributingRids`, `reverseIndex`)
-  > and the two-pass `DeltaBuilder.buildForMatchMulti` with the tombstone floor
-  > (any CREATE, edge-class DELETE, UPDATE-into-match) plus incremental vertex-
-  > DELETE and pass→fail UPDATE. Carries the MATCH `effectiveFromClasses` edge-
-  > class folding and the lookup-time tombstone eviction.
-  > **Scope:** ~9 files covering `MatchMultiDelta`, `DeltaBuilder` (match path),
-  > `ShapeClassifier`/`CachedResultSetView`/`CachedEntry` MATCH branches,
-  > tombstone handling in `QueryResultCache`, and the I4 MATCH test matrix
-  > (vertex + edge CREATE/DELETE/UPDATE, update-into-match, cross-class deref).
+  > `returnProjector`; multi-alias MATCH (`MATCH_TUPLE_MULTI`) is served by a
+  > class-scoped version gate. Carries the MATCH `effectiveFromClasses` alias +
+  > edge-class folding.
+  > **Scope:** `ShapeClassifier` (MATCH K0_NONE gate + single/multi split),
+  > `CachedEntry`/`DatabaseSessionEmbedded` (Etap-A fold, multi-alias closure),
+  > `DeltaBuilder`/`QueryResultCache` (class-scoped staleness + invalidation),
+  > and the MATCH test matrix.
   > **Depends on:** Track 1, Track 2
-  > **Carried from Track-1 Phase C review:** the same `recordPulledRow`
-  > cap-routing, `inFlightLookup`-liveness, and `exitCacheCodeUnchecked`
-  > cautions as Track 2 apply to the MATCH view and cursor paths.
+  >
+  > **Track episode:**
+  > Steps 1-2 shipped the MATCH K0_NONE classify gate and the single-alias Etap-A
+  > RECORD fold (`returnProjector`, store-raw-records-project-at-emit). Steps 3-5
+  > pivoted multi-alias MATCH from the planned per-tuple `reverseIndex`
+  > reconciliation (model B) to a class-scoped version gate (model C), escalated
+  > and user-approved. Root cause: the design populated `reverseIndex` by reading
+  > `getProperty(alias)` off each cached row, but a field-projection RETURN
+  > (`RETURN a.name as a, b.name as b`, the dominant shape) carries scalars, not
+  > the bound records, so per-alias RIDs are unrecoverable; a pre-projection
+  > side-tap could recover them but is over-engineered for the read-mostly target
+  > (bookkeeping built every populate, paid back only on in-pattern vertex-DELETE /
+  > pass-fail, while CREATE / edge-DELETE / update-into-match tombstone regardless).
+  > Model C freezes the projected tuples and at lookup invalidates the entry when a
+  > post-populate mutation touches any class in `effectiveFromClasses` (alias +
+  > traversal-edge classes, with subclass closures), else replays verbatim. It
+  > reads the mutation op's class, never `getProperty(alias)`, so the
+  > field-projection shape is correct by construction, and it is class-scoped (it
+  > survives mutations to classes outside the pattern, beating a global K0_NONE
+  > gate). The model-B deliverables (`MatchMultiDelta`, two-pass
+  > `buildForMatchMulti`, `reverseIndex` / `contributingRids`, tombstone evict, the
+  > per-tuple view path) were not built; the multi-alias entry replays through the
+  > existing K0_NONE view path (`delta == null`), so `CachedResultSetView` and
+  > `buildView` needed no change. As-built symbols:
+  > `CachedEntry.computeMatchEffectiveFromClasses`,
+  > `DatabaseSessionEmbedded.matchMultiEffectiveFromClasses` + `serveThroughCache`
+  > gate, `DeltaBuilder.matchMultiStale`, `QueryResultCache.invalidateMatchMulti`.
+  >
+  > Phase C track review (11 dimensional reviewers, one iteration; security /
+  > test-concurrency / context-budget clean): one blocker (untested subclass-closure
+  > invalidation) and several should-fix, all fixed — added subclass-closure,
+  > edge-DELETE, bare-`.out()`, strike-threshold, and cross-join tests; made the
+  > equivalence harness self-falsifying with per-mutation invalidation-count
+  > assertions; updated stale `ShapeClassifier` Javadoc; de-duplicated a doubled
+  > `effectiveFromClasses` compute; removed a stale multi-alias hit double-count.
+  > `MatchMultiAliasCacheTest` is 12 tests. Commits `617465fdd0` (implementation)
+  > and `373421d9ba` (review fixes).
+  >
+  > **Phase-4 reconciliation owed:** `design.md` §"MATCH multi-alias (partial Etap
+  > B in v1)" and `design-mechanics.md` §"MATCH multi-alias (partial Etap B in
+  > v1)" still describe the per-tuple model B; `design-final.md` reflects the
+  > as-built model C.
+  >
+  > **Strategy refresh:** COMPLETE — final shape track; no downstream consumers.
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1

@@ -24,7 +24,7 @@ delta-build because `MATCH_TUPLE_MULTI` has no version backstop.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-06-12T08:56Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-15T10:18Z [ctx=safe] Step 1 complete (commit 28fcf27642)
