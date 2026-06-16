@@ -374,7 +374,7 @@ graph TD
   > re-points Track 1 left flagged (the start/resume signal, the
   > When-to-end-a-session State-0 bullet, the implementation-review loader note).
 
-- [ ] Track 2: Rewire the runtime consumers onto the ledger
+- [x] Track 2: Rewire the runtime consumers onto the ledger
   > Re-point every consumer that reads branch-level facts or review state at the
   > new homes, and update the escalation, handoff, and episode paths. Moves the
   > Phase-2 audit summary into the new `plan-review.md` (review state stays in
@@ -383,16 +383,25 @@ graph TD
   > `minimal`→`lite`/`full` escalation materialize the dropped plan and design,
   > and moves the track completion episode into the track file. Depends on the
   > ledger format and conventions Track 1 defines.
-  > **Scope:** ~22 files covering `implementation-review.md`, the
-  > `consistency-review`/`structural-review`/`create-final-design`/`technical-review`/`risk-review`/`adversarial-review`
-  > prompts, `step-implementation.md`, `implementer-rules.md`, `track-review.md`,
-  > `inline-replanning.md`, `mid-phase-handoff.md`, `track-code-review.md`,
-  > `workflow.md`, and (added by the Phase-A review as missed consumers of the
-  > removed plan sections) `workflow-drift-check.md`, the `execute-tracks` /
-  > `review-plan` SKILLs, the `structural-review.md` orchestration doc,
-  > `plan-slim-rendering.md`, and a narrow `conventions.md` §1.7(c) read-side
-  > amendment.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Re-pointed all ~22 consumers off the removed plan sections onto Track 1's
+  > phase ledger and the new `plan-review.md`, ledger-first with a
+  > `### Constraints` fallback for in-flight pre-ledger branches. Step 1 took the
+  > §1.7(b)/(c)/(l) marker and tier reads (11 files) plus the D14 script
+  > gate/promotion half; Step 2 the auto-resume / review-state / escalation /
+  > completion reads (6 files: D11 materialize-then-write, D8 pause-as-ledger-event
+  > with clear-on-resolution); Step 3 the Phase-2 audit relocation and slim-plan
+  > render prose (5 files). Phase-C review caught one blocker — `structural-review.md`'s
+  > standalone §1.7(b) staged-read block was the last of seven sibling prompts
+  > left on the develop-era `### Constraints`-only read, missing the ledger-first
+  > re-point and the `.claude/scripts/**` D14 prefix — plus the §1.7(l) wording lag
+  > (Track 1 had assigned the (l) re-point here) and a D2-contradicting "minimal
+  > stub plan" framing in four sites the step passes left behind. All resolved over
+  > two iterations; no findings deferred, no plan corrections, no cross-track impact
+  > (Track 2 is the last track).
+  >
+  > **Track file:** `plan/track-2.md` (3 steps, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1 (consistency iter 1, structural iter 1)
