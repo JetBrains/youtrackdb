@@ -10,11 +10,13 @@ This track builds the generator that produces a book about the YouTrackDB develo
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T08:47Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-16T09:43Z [ctx=safe] Step 1 complete (commit e4ef1c6916)
+- [x] 2026-06-16T09:49Z [ctx=safe] Step 2 complete (commit e796695b8d)
+- [x] 2026-06-16T09:49Z [ctx=safe] Step implementation complete (Phase B)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -143,7 +145,7 @@ Phase A decomposition produced two `low`-risk steps along the machinery/book-tar
 
 ## Concrete Steps
 1. Author the `workflow-book-builder/` machinery generator — `BOOK_BRIEF.md` (audience, voice, conventions, diagram rules, the four role definitions; D4/D5), `PIPELINE.md` (the embedded copy-paste START prompt then the unified evolution-aware pipeline with an explicit empty-vs-non-empty-baseline branch; D8/D10/D12), `DIAGRAMS.md` (hybrid ASCII + D2 convention, the enumerated bounded SVG figure set, the render step, the "how to add a figure" procedure, and the one-time `d2` install as an operator step; D5/D6), the four role prompts `prompts/{author,technical-reviewer,copy-editor,beta-reader}.md` (the expanded role definitions the pipeline spawns; D8), `scripts/render-diagrams.sh` (D2-source → committed SVG with the missing-`d2` guard that prints the install command; authored but not run, D1/D6), and the empty `reviews/` and `beta-feedback/` run-output dirs with `.gitkeep` (D11). — risk: low (default: prose machinery plus one operator-run helper script, neither under `.claude/**` (D2, non-workflow-modifying) nor executed by this plan (D1); no HIGH or MEDIUM trigger fires) — size: ~10 files; the only other low unit is Step 2 (book-target), and absorbing it reaches ~14 and trips the overblown split line (closed-set reason a)  [x] commit: e4ef1c6916
-2. Stamp the `docs/workflow-book/` book-target layout empty — `README.md` (production record + pinned baseline workflow-SHA `3e9c22298d` + evolution-history table; D10), `TOC.md` (the living chapter-map + cross-reference-matrix placeholder the first run fills; D7/D9), and the empty `chapters/` and `assets/diagrams/` directories with `.gitkeep` so the layout is visible in version control; no chapter and no rendered diagram is committed (D1). — risk: low (default: pure `docs/` prose plus empty `.gitkeep` placeholders; no HIGH or MEDIUM trigger fires) — size: ~4 files; the only other low unit is Step 1 (machinery, ~10 files), and merging into it reaches ~14 and trips the overblown split line (closed-set reason a)  [ ]
+2. Stamp the `docs/workflow-book/` book-target layout empty — `README.md` (production record + pinned baseline workflow-SHA `3e9c22298d` + evolution-history table; D10), `TOC.md` (the living chapter-map + cross-reference-matrix placeholder the first run fills; D7/D9), and the empty `chapters/` and `assets/diagrams/` directories with `.gitkeep` so the layout is visible in version control; no chapter and no rendered diagram is committed (D1). — risk: low (default: pure `docs/` prose plus empty `.gitkeep` placeholders; no HIGH or MEDIUM trigger fires) — size: ~4 files; the only other low unit is Step 1 (machinery, ~10 files), and merging into it reaches ~14 and trips the overblown split line (closed-set reason a)  [x] commit: e796695b8d
 
 ## Episodes
 <!-- Continuous-log. Phase B appends one block per completed step. Empty
@@ -165,6 +167,18 @@ at Phase 1. -->
 - `workflow-book-builder/scripts/render-diagrams.sh` (new)
 - `workflow-book-builder/reviews/.gitkeep` (new)
 - `workflow-book-builder/beta-feedback/.gitkeep` (new)
+
+### Step 2 — commit e796695b8d, 2026-06-16T09:49Z [ctx=safe]
+**What was done:** Stamped the `docs/workflow-book/` book-target layout empty (the book-target half of the D11 layout). `README.md` is the production record: it pins baseline workflow-SHA `3e9c22298d` in a source-tree-baseline table and seeds an empty evolution-history table (D10). `TOC.md` is the living-artifact placeholder carrying the chapter-map plus cross-reference-matrix shape the first run fills (D7/D9), marked explicitly empty. The `chapters/`, `assets/diagrams/`, and `maintenance/` directories each carry a `.gitkeep` so the layout is visible in version control. No chapter and no rendered diagram is committed (D1 — builder only). The README's section names match `PIPELINE.md`'s run-step wording so a later run can find and bump the baseline.
+
+**What was discovered:** `PIPELINE.md` (committed in Step 1) writes a drift report under `docs/workflow-book/maintenance/`, a path the roster's four-file list did not enumerate. Per the orientation's standing instruction to create any `docs/workflow-book/` run target `PIPELINE.md` references, `maintenance/.gitkeep` was added so no pipeline run target dangles; the model internals book carries the same directory. This is an in-scope completion of the layout, not a plan deviation.
+
+**Key files:**
+- `docs/workflow-book/README.md` (new)
+- `docs/workflow-book/TOC.md` (new)
+- `docs/workflow-book/chapters/.gitkeep` (new)
+- `docs/workflow-book/assets/diagrams/.gitkeep` (new)
+- `docs/workflow-book/maintenance/.gitkeep` (new)
 
 ## Validation and Acceptance
 A reviewer can check this track by inspection, because no chapter is produced and the renderer does not run (D1). The acceptance criteria are:
