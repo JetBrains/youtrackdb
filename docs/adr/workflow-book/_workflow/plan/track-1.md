@@ -184,3 +184,6 @@ Out of scope: no file under `.claude/**` (the branch stays non-workflow-modifyin
 This is a single-track plan, so there are no inter-track dependencies. The only intra-track ordering constraint is the authoring order in Plan of Work: `BOOK_BRIEF.md` precedes `PIPELINE.md` and the role prompts because the brief defines the roles they reference.
 
 The one machinery contract worth pinning is `scripts/render-diagrams.sh`. Its contract is D2 source in (the `.d2` sidecars under `docs/workflow-book/assets/diagrams/`), committed `fig-N.svg` out (D2 → committed SVG, D6). Because neither render tool ships in the current environment (`d2` not installed, `mmdc` not installed, only `node`/`npx` present), the script must check for the `d2` binary first and print the install command on a miss rather than failing opaquely. The script is authored here but not run here (D1).
+
+## Base commit
+d5dc3ac496e2dd00f7542a375a36c900c2b3a9f8
