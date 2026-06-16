@@ -5654,23 +5654,7 @@ public abstract class AbstractStorage
             continue;
           }
 
-          if (!writeCache.exists(fileId)) {
-            final var fileName = writeCache.restoreFileById(fileId);
-
-            if (fileName == null) {
-              throw new StorageException(name,
-                  "File with id "
-                      + fileId
-                      + " was deleted from storage, the rest of operations can not be restored");
-            } else {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Previously deleted file with name "
-                          + fileName
-                          + " was deleted but new empty file was added to continue restore process");
-            }
-          }
+          ensureFileForReplay(atomicUnit, fileId);
 
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -5728,25 +5712,7 @@ public abstract class AbstractStorage
             continue;
           }
 
-          if (!writeCache.exists(fileId)) {
-            final var fileName = writeCache.restoreFileById(fileId);
-
-            if (fileName == null) {
-              throw new StorageException(name,
-                  "File with id "
-                      + fileId
-                      + " was deleted from storage, the rest of operations"
-                      + " can not be restored");
-            } else {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Previously deleted file with name "
-                          + fileName
-                          + " was deleted but new empty file was added to continue"
-                          + " restore process");
-            }
-          }
+          ensureFileForReplay(atomicUnit, fileId);
 
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -5822,6 +5788,66 @@ public abstract class AbstractStorage
         }
       }
     }
+  }
+
+  /**
+   * Materializes a file a page-redo record references but the cache has not seen yet, so
+   * WAL replay can continue across atomic units. The caller has already applied the
+   * {@code deletedNonDurableFileIds} skip, so this is only reached for a genuinely missing
+   * file. The branch order is the lazy-consult sequence (see issue YTDB-1099):
+   *
+   * <ol>
+   *   <li><b>Pending-create consult.</b> A committed file-creating unit whose physical
+   *       {@code addFile} was lost (the crash landed between its durable end record and
+   *       the completion of its apply phase) leaves a later committed unit's page redo
+   *       pointing at a file the cache never created. Scan this unit forward for the
+   *       {@link FileCreatedWALRecord} that creates the file, matched on
+   *       {@code internalFileId} because backup/restore rewrites the external high bits,
+   *       and materialize the empty file through the same
+   *       {@code readCache.addFile(name, id, writeCache)} path the
+   *       {@code FileCreatedWALRecord} branch uses. The later {@code FileCreatedWALRecord}
+   *       then replays as an idempotent no-op. Without this, the redo would throw and
+   *       {@code restoreFrom}'s {@code catch (RuntimeException)} would discard every later
+   *       unit.</li>
+   *   <li><b>{@code restoreFileById} fallback.</b> A file deleted by a later, already-applied
+   *       unit is resurrected from its persisted negative name-id entry. Load-bearing -- kept
+   *       unchanged.</li>
+   *   <li><b>Throw.</b> Neither path recovered the file, so the unit is genuinely incomplete
+   *       (its create record was never made durable) and the rest of the restore is
+   *       abandoned, exactly as before the fix.</li>
+   * </ol>
+   */
+  private void ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId)
+      throws IOException {
+    if (writeCache.exists(fileId)) {
+      return;
+    }
+
+    final var internalId = writeCache.internalFileId(fileId);
+    for (final var record : atomicUnit) {
+      if (record instanceof FileCreatedWALRecord fileCreated
+          && writeCache.internalFileId(fileCreated.getFileId()) == internalId
+          && !writeCache.exists(fileCreated.getFileName())) {
+        readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
+        return;
+      }
+    }
+
+    final var fileName = writeCache.restoreFileById(fileId);
+    if (fileName != null) {
+      LogManager.instance()
+          .warn(
+              this,
+              "Previously deleted file with name "
+                  + fileName
+                  + " was deleted but new empty file was added to continue restore process");
+      return;
+    }
+
+    throw new StorageException(name,
+        "File with id "
+            + fileId
+            + " was deleted from storage, the rest of operations can not be restored");
   }
 
   @SuppressWarnings("unused")
