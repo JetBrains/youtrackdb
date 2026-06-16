@@ -19,15 +19,21 @@ the front of the series.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T10:58Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-16T12:02Z [ctx=safe] Step 1 complete (commit 03a23a0139)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- 2026-06-16T12:02Z Step 1 discovered: the replay idempotent-no-op rests on
+  `writeCache.exists` flipping to true after `readCache.addFile`, and
+  `ensureFileForReplay` is the single reconciliation point for a missing-file
+  page redo, reached by both `restoreFrom` callers, so Track 4 (I-A1) can
+  assume this prerequisite has landed. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -47,6 +53,7 @@ summary at Phase C. -->
 - [x] Risk: PASS at iteration 2 (3 findings, 3 accepted; 0 blocker / 2 should-fix / 1 suggestion). Named the IBU second caller of `restoreFrom` and the non-null `restoreFileById` keep-invariant.
 - [x] Adversarial: PASS at iteration 2 (6 findings, 6 accepted; 0 blocker / 3 should-fix / 3 suggestion). Cross-unit-only regression, code-observable discard assertion, non-durable-skip coordination.
 - Gate verification (consolidated technical+risk+adversarial, iteration 2): PASS — all 12 findings VERIFIED, 0 new, 0 regression; PSI re-confirmed two callers / zero overrides and the two throw branches.
+- Step 1 dimensional review (risk: high): PASS at iteration 2. Iter 1 surfaced 1 should-fix + 5 suggestions across bugs-concurrency / crash-safety / test-crash-safety / test-structure; all six applied in one `Review fix:` commit and VERIFIED at the iter-2 gate check (0 regressions, 0 new findings).
 
 ## Context and Orientation
 `AbstractStorage.restoreFrom` replays atomic operations from the last checkpoint
@@ -108,12 +115,51 @@ roster here: one entry per step with description, `risk:` tag, an
 optional `size:` clause, and a `[ ]` status checkbox. Per-step episodes
 do NOT live here; they live in `## Episodes` below. -->
 
-1. Fix the F55 lazy-consult abort in `AbstractStorage.restoreAtomicUnit`: change the `restoreFileById`-returns-`null` handling in the `UpdatePageRecord` and `PageOperation` arms so a committed file-creating unit whose file is not yet physically present is recovered and replay continues, instead of throwing `StorageException` and letting the `catch (RuntimeException)` in `restoreFrom` discard every later unit. Leave the non-null `restoreFileById` fallback, the `deletedNonDurableFileIds` skip machinery, and the genuinely-incomplete-unit discard untouched. Ship the cross-unit crash-replay regression with the fix (per `## Plan of Work` and `## Validation and Acceptance`): decide between a `restoreAtomicUnit` unit test (existing `RestoreAtomicUnitNonDurableSkipTest`/`RestoreAtomicUnitPageOperationTest` harness) and a `LocalPaginatedStorageRestoreFromWALIT` restart IT during implementation, and assert later-unit effects present + genuinely-incomplete-unit effects absent. — risk: high (crash-safety/durability: modifies WAL replay/recovery in `AbstractStorage`, shared by open-time and IBU restore)  [ ]
+1. Fix the F55 lazy-consult abort in `AbstractStorage.restoreAtomicUnit`: change the `restoreFileById`-returns-`null` handling in the `UpdatePageRecord` and `PageOperation` arms so a committed file-creating unit whose file is not yet physically present is recovered and replay continues, instead of throwing `StorageException` and letting the `catch (RuntimeException)` in `restoreFrom` discard every later unit. Leave the non-null `restoreFileById` fallback, the `deletedNonDurableFileIds` skip machinery, and the genuinely-incomplete-unit discard untouched. Ship the cross-unit crash-replay regression with the fix (per `## Plan of Work` and `## Validation and Acceptance`): decide between a `restoreAtomicUnit` unit test (existing `RestoreAtomicUnitNonDurableSkipTest`/`RestoreAtomicUnitPageOperationTest` harness) and a `LocalPaginatedStorageRestoreFromWALIT` restart IT during implementation, and assert later-unit effects present + genuinely-incomplete-unit effects absent. — risk: high (crash-safety/durability: modifies WAL replay/recovery in `AbstractStorage`, shared by open-time and IBU restore)  [x]  commit: 03a23a0139
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit 03a23a0139, 2026-06-16T12:02Z [ctx=safe]
+**What was done:** Fixed the F55 lazy-consult abort in
+`AbstractStorage.restoreAtomicUnit` behind a new private helper
+`ensureFileForReplay`, shared by the `UpdatePageRecord` and `PageOperation`
+arms. On a missing-file page redo the helper scans the current atomic unit
+forward for a matching `FileCreatedWALRecord` and materializes the file via
+`readCache.addFile` (the pending-create consult); failing that it falls
+through to the preserved non-null `restoreFileById` fallback; failing that
+it throws the original `StorageException` for a genuinely-incomplete unit.
+The `deletedNonDurableFileIds` skip stays first in each caller, untouched.
+Added regression coverage to `RestoreAtomicUnitPageOperationTest`: both
+arms' consult-recovery, cross-unit survival, the genuinely-incomplete unit
+still throwing, and the non-null fallback preserved.
+
+**What was discovered:** The cross-unit survival assertion holds only if the
+mock models the post-`addFile` state transition. After the consult calls
+`readCache.addFile`, `writeCache.exists` must flip to true, so the unit's
+own later `FileCreatedWALRecord` replays as the idempotent no-op the design
+names. This confirms that no-op claim is real and rests on `exists` flipping
+after `addFile`. The fix sits in shared replay code reached by both
+`restoreFrom` callers (open-time `restoreFromBeginning` and incremental-backup
+`DiskStorage.restoreFromIncrementalBackup`), so the IBU path now also recovers
+lazily, with no IBU regression in the WAL/restore spot-check. Track 4's I-A1
+crash-recovery tests can now assume this prerequisite has landed;
+`ensureFileForReplay` is the single reconciliation point for a missing-file
+page redo during replay.
+
+**What changed from the plan:** Settled the test-home choice toward the
+existing Mockito unit harness (`RestoreAtomicUnitPageOperationTest`) rather
+than a `LocalPaginatedStorageRestoreFromWALIT` restart IT. The harness drives
+`restoreAtomicUnit` directly and reproduces the cross-unit discard by running
+two units in sequence, which makes the later unit's survival code-observable
+without the heavy IT crash-injection. The track left this choice to
+implementation, and no production behavior diverges from the Plan of Work.
+
+**Key files:**
+- `AbstractStorage.java` (modified)
+- `RestoreAtomicUnitPageOperationTest.java` (modified)
 
 ## Validation and Acceptance
 - A committed file-creating atomic operation that crashes between its durable end
