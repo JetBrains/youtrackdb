@@ -5792,9 +5792,14 @@ public abstract class AbstractStorage
 
   /**
    * Materializes a file a page-redo record references but the cache has not seen yet, so
-   * WAL replay can continue across atomic units. The caller has already applied the
+   * WAL replay can continue across atomic units. The open-time caller has already applied the
    * {@code deletedNonDurableFileIds} skip, so this is only reached for a genuinely missing
-   * file. The branch order is the lazy-consult sequence (see issue YTDB-1099):
+   * file on that path. The incremental-backup caller
+   * ({@code DiskStorage.restoreFromIncrementalBackup}, the other of the two {@code restoreFrom}
+   * callers) reaches this helper with {@code deletedNonDurableFileIds} as the empty no-op set
+   * left behind by open-time recovery — incremental-backup restore has no non-durable-file
+   * concept, so the skip is simply inert there rather than a universal precondition. The branch
+   * order is the lazy-consult sequence (see issue YTDB-1099):
    *
    * <ol>
    *   <li><b>Pending-create consult.</b> A committed file-creating unit whose physical
@@ -5825,6 +5830,23 @@ public abstract class AbstractStorage
 
     final var internalId = writeCache.internalFileId(fileId);
     for (final var record : atomicUnit) {
+      // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
+      // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
+      // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
+      // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
+      // entry but absent file) would slip past it and make addFile throw. That window is not
+      // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
+      // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
+      // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
+      // consistency, the same assumption the sibling branch makes.
+      //
+      // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
+      // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
+      // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
+      // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
+      //
+      // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
+      // so this forward scan finds nothing for it and correctly falls through to restoreFileById.
       if (record instanceof FileCreatedWALRecord fileCreated
           && writeCache.internalFileId(fileCreated.getFileId()) == internalId
           && !writeCache.exists(fileCreated.getFileName())) {

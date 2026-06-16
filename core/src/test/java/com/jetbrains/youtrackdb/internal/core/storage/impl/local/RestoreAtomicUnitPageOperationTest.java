@@ -379,12 +379,7 @@ public class RestoreAtomicUnitPageOperationTest {
   public void testPageOperationConsultsPendingCreateInSameUnit() throws Exception {
     // The file does not exist yet (its physical addFile was lost in the crash window) and is not
     // recoverable via restoreFileById (the create was never persisted as a deleted-file entry).
-    when(writeCache.exists(CREATED_EXTERNAL_ID)).thenReturn(false);
-    when(writeCache.exists("created.dat")).thenReturn(false);
-    when(writeCache.internalFileId(CREATED_EXTERNAL_ID)).thenReturn(CREATED_INTERNAL_ID);
-    when(writeCache.externalFileId(CREATED_INTERNAL_ID)).thenReturn(CREATED_EXTERNAL_ID);
-    when(writeCache.restoreFileById(CREATED_EXTERNAL_ID)).thenReturn(null);
-    wireConsultMaterializes("created.dat", CREATED_EXTERNAL_ID);
+    wireMissingFileRecoverableViaConsult();
 
     var pageLsn = new LogSequenceNumber(0, 0);
     var walLsn = new LogSequenceNumber(1, 100);
@@ -419,12 +414,7 @@ public class RestoreAtomicUnitPageOperationTest {
    */
   @Test
   public void testUpdatePageRecordConsultsPendingCreateInSameUnit() throws Exception {
-    when(writeCache.exists(CREATED_EXTERNAL_ID)).thenReturn(false);
-    when(writeCache.exists("created.dat")).thenReturn(false);
-    when(writeCache.internalFileId(CREATED_EXTERNAL_ID)).thenReturn(CREATED_INTERNAL_ID);
-    when(writeCache.externalFileId(CREATED_INTERNAL_ID)).thenReturn(CREATED_EXTERNAL_ID);
-    when(writeCache.restoreFileById(CREATED_EXTERNAL_ID)).thenReturn(null);
-    wireConsultMaterializes("created.dat", CREATED_EXTERNAL_ID);
+    wireMissingFileRecoverableViaConsult();
 
     var pageLsn = new LogSequenceNumber(0, 0);
     var walLsn = new LogSequenceNumber(1, 100);
@@ -466,12 +456,7 @@ public class RestoreAtomicUnitPageOperationTest {
   @Test
   public void testLaterUnitSurvivesAfterRecoverableFileCreatingUnit() throws Exception {
     // Unit 1: recoverable file-creating unit.
-    when(writeCache.exists(CREATED_EXTERNAL_ID)).thenReturn(false);
-    when(writeCache.exists("created.dat")).thenReturn(false);
-    when(writeCache.internalFileId(CREATED_EXTERNAL_ID)).thenReturn(CREATED_INTERNAL_ID);
-    when(writeCache.externalFileId(CREATED_INTERNAL_ID)).thenReturn(CREATED_EXTERNAL_ID);
-    when(writeCache.restoreFileById(CREATED_EXTERNAL_ID)).thenReturn(null);
-    wireConsultMaterializes("created.dat", CREATED_EXTERNAL_ID);
+    wireMissingFileRecoverableViaConsult();
 
     var pageLsn = new LogSequenceNumber(0, 0);
     var unit1Lsn = new LogSequenceNumber(1, 100);
@@ -511,6 +496,18 @@ public class RestoreAtomicUnitPageOperationTest {
     verify(readCache).addFile("created.dat", CREATED_EXTERNAL_ID, writeCache);
     verify(unit1Op).redo(any(DurablePage.class));
     verify(unit2Op).redo(any(DurablePage.class));
+
+    // Survival is a durable page mutation, not just a redo() invocation: assert unit 2's page LSN
+    // actually advanced to its WAL LSN after replay. A refactor that still calls redo on the later
+    // unit but drops or misorders its durable effect (e.g. an inverted pageLsn guard, or setLsn
+    // removed) would leave the verify(...).redo(...) green while the later unit's page is silently
+    // not advanced — exactly the data-loss class this regression exists to catch. Mirrors
+    // testPageOperationRedoAppliedAndLsnUpdated's LSN read-back.
+    var unit2Buffer = unit2Entry.getCachePointer().getBuffer();
+    assertEquals(
+        "Later unit's page LSN must advance to its WAL LSN after replay (the survival effect)",
+        unit2Lsn,
+        DurablePage.getLogSequenceNumberFromPage(unit2Buffer));
   }
 
   /**
@@ -539,6 +536,14 @@ public class RestoreAtomicUnitPageOperationTest {
     assertThrows(
         StorageException.class,
         () -> storage.restoreAtomicUnit(atomicUnit, atLeastOnePageUpdate));
+
+    // Effect-absent postcondition: the incomplete unit must produce NO effect before throwing —
+    // no file materialized via the consult, no redo applied. The throw fires in the missing-file
+    // consult before loadOrAddForWrite and before any redo, so nothing leaks today; pinning the
+    // throw-before-apply ordering catches a future reorder that partially applied the incomplete
+    // unit (e.g. materialize the file, then fail later) while still passing assertThrows.
+    verify(readCache, never()).addFile(any(), anyLong(), any());
+    verify(pageOp, never()).redo(any(DurablePage.class));
   }
 
   /**
@@ -585,6 +590,24 @@ public class RestoreAtomicUnitPageOperationTest {
    * guard fails). Without this, the mock would keep reporting the file absent and the later
    * create record would call {@code addFile} a second time.
    */
+  /**
+   * Wires the CREATED_* file as present-but-unrecoverable and arms the consult's materialize
+   * transition, the shared Arrange shape for the three pending-create consult happy-path tests:
+   * the file does not exist (its physical {@code addFile} was lost in the crash window), its
+   * id mapping resolves both ways, {@code restoreFileById} returns {@code null} (the create was
+   * never persisted as a deleted-file entry), and {@code readCache.addFile} flips {@code exists}
+   * to true. Each caller then differs only in the WAL record list and the verification — the
+   * per-test delta the boilerplate would otherwise bury.
+   */
+  private void wireMissingFileRecoverableViaConsult() throws IOException {
+    when(writeCache.exists(CREATED_EXTERNAL_ID)).thenReturn(false);
+    when(writeCache.exists("created.dat")).thenReturn(false);
+    when(writeCache.internalFileId(CREATED_EXTERNAL_ID)).thenReturn(CREATED_INTERNAL_ID);
+    when(writeCache.externalFileId(CREATED_INTERNAL_ID)).thenReturn(CREATED_EXTERNAL_ID);
+    when(writeCache.restoreFileById(CREATED_EXTERNAL_ID)).thenReturn(null);
+    wireConsultMaterializes("created.dat", CREATED_EXTERNAL_ID);
+  }
+
   private void wireConsultMaterializes(String name, long externalId) throws IOException {
     doAnswer(
         inv -> {
