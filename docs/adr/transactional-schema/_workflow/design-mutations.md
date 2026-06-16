@@ -95,3 +95,53 @@ The section-length-cap exemption flagged in the queue was not needed — the
 expanded sections stayed under the cap (mechanical PASS). Suggestion 1 was a
 one-line cosmetic cross-ref fix; no full cold-read re-spawn (mechanical re-check
 confirmed PASS).
+
+## Mutation 3 — 2026-06-16 — content-edit (design.md)
+
+**Diff summary**: First half of the scheduled doc-wide readability pass — a cold
+prose rewrite by a dedicated author sub-agent, run as the YTDB-1130 two-role
+author/cold-auditor loop in place of the standard cold-read. A five-range cold
+audit (auditor contract: read only `house-style.md` and the doc, enumerate every
+passage a context-free reader cannot reconstruct) flagged 55 obscure passages, 0
+GAPs — the ruleset already catches every one, so the pass produced no rule
+hardening. An author sub-agent reading only the frozen `design.md` and
+`house-style.md`, prompted to write for a reader who has only the finished doc,
+rewrote the flagged prose holistically (prose, TL;DR, and Edge-cases bullets only;
+340 insertions, 298 deletions). Decisions, invariants, mechanisms, the four-lock
+order, the Dekker handshake, the drop-detection source, the I-P2/F66 two-source
+split, and the freezer windows are unchanged. Mermaid bodies, the `### Decisions &
+invariants` lists, and section headings were not touched. The orchestrator verified
+semantic preservation passage by passage from the diff; the author's added glosses
+are faithful and doc-grounded, with no decision drift.
+
+**Mechanical checks** (target=design): PASS (0 findings). Overview 39 lines (cap 40).
+
+**Cold-read** (scope: whole-doc): replaced by the YTDB-1130 cold-auditor verify-half
+(the auditor contract, not the standard verifying reviewer — which, per YTDB-1130,
+had passed this very doc at zero prose-density findings and is the wrong instrument
+for verifying a readability fix). Three-pass finding count: 55 (frozen original) →
+57 (a discarded warm main-agent self-edit pass, which introduced two new tells) →
+54 (this cold-author pass, kept). The loop converged to a domain-density floor, not
+to clean.
+
+**Findings**:
+- Floor at ~54. The residual findings are irreducible concurrency-mechanism
+  density, the cap-bound Overview inventory sentences, and the parallel
+  Core-Concepts noun-phrase form. The cold author removed the specific tells the
+  original carried (garden-paths, idioms, split predicates, missing copulas); the
+  flat aggregate is the floor, not a failed fix.
+- Two findings deliberately left: the Overview "four primitives" / "several
+  subsystems" inventories (a multi-line list breaches the 40-line cap) and the
+  Schema-write-mutex Core-Concept entry (a copula breaks the nine-entry parallel
+  glossary form). Both forward-point to fully-glossed downstream sections.
+- Root-cause diagnosis carried to Mutation 4 (next session): a large share of the
+  floor is "the passage needs current-system grounding the doc never states", which
+  a prose-only author cannot add. Mutation 4 gives the author the audit findings
+  plus codebase access (grep / `Read`, mcp-steroid PSI for reference-accuracy) and a
+  TRANSLATE mandate — establish current state then the change, grounded in code,
+  written at reader level.
+
+**Iterations**: 1 author round (PASS-by-floor; a second prose-only round judged
+low-value). Env: `fable` unavailable, so author and auditor spawns ran on the
+session default. The YTDB-1130 comment is deferred to Mutation 4, since the
+code-grounded result is the better data point.
