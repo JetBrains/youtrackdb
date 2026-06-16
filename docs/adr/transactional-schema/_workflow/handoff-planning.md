@@ -32,6 +32,9 @@ The user is **reviewing the frozen `design.md`** before authorizing the draft PR
 - **Env note:** model `fable` (D14's full-tier adversarial-spawn choice) is **unavailable in this environment** — every gate and cold-read spawn this session fell back to `opus` (session default). Re-confirm fable availability next session before relying on the D14 model pin; if still unavailable, the opus fallback stands.
 
 ## Review-hold queue (D15)
+
+> **FLUSHED 2026-06-16 — queue empty.** The four clarifications below were applied as one batch via `edit-design` (content-edit) in design `Mutation 2`: mechanical PASS, whole-doc cold-read PASS (2 non-blocking suggestions; one applied, one deferred to the doc-wide readability-feedback pass). Do NOT re-process on resume; the bullets are retained as the processed record.
+
 **Presented artifact:** design.md
 **Presentation outcome:** PASS (Step-4a cold-read passed; `57ffe11282`)
 **Escape-hatch findings already processed this hold:** none
