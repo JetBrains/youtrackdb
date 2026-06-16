@@ -292,8 +292,8 @@ in `full`. In `lite`/`minimal` the design-presence guard (see
 §"Tier-driven pass selection") skips them, and the review reads plan +
 tracks + code (`lite`) or track + code (`minimal`). The **Plan ↔ Code**
 and **Track ↔ Code** bullets are the plan-content and track-content
-cross-checks: `minimal` also drops the plan-content cross-check (the stub
-plan has no content to verify), running **Track ↔ Code** only.
+cross-checks: `minimal` also drops the plan-content cross-check (`minimal`
+has no plan to verify, per D2), running **Track ↔ Code** only.
 
 Each pending track's detailed description lives in that track's
 track file (`plan/track-N.md`, written by `create-plan` at Phase 1)
@@ -438,8 +438,8 @@ orchestrator/planner owns the strategic fallback per `§2.5`).
 
 Runs **automatically** after the consistency review passes, **except under
 `minimal`** — the `minimal` tier drops the structural pass entirely (see
-§"Tier-driven pass selection"), because a stub plan has one checklist
-entry, no decision records, and no ordering for a structural pass to
+§"Tier-driven pass selection"), because `minimal` has no plan (D2) — no
+plan file, no decision records, no ordering for the structural pass to
 validate. Under `full` and `lite` the structural pass runs. Validates
 plan-internal structure without reading the codebase.
 
