@@ -1,0 +1,393 @@
+<!-- workflow-sha: 3e9c22298dfe68d2980646704850c781f8af88d5 -->
+# Transactional Schema Operations (YTDB-382)
+
+## Design Document
+[design.md](design.md)
+
+## High-level plan
+
+**Change tier:** full — matched categories: Concurrency, Crash-safety / Durability, Architecture / cross-component coordination
+
+### Goals
+
+Make schema and index operations fully transactional — atomic, isolated, and
+rollback-free — and remove the per-property write amplification YTDB-382 exists
+to kill.
+
+Today storage leads a schema change: `createClass`, `dropClass`, `createIndex`
+and their siblings mutate storage structure first, then reflect the result into
+a single metadata record, each self-committing in its own micro-transaction. The
+whole schema lives in one record rewritten on every change, and a schema change
+cannot roll back with the transaction that made it. This plan inverts the
+dependency. During a transaction a schema or index change mutates only metadata
+records (ordinary transactional records, so rollback is free); at commit, storage
+diffs the committed metadata against the current structure and creates or drops
+the matching collections and engines inside the commit's own atomic operation, so
+the structural change is atomic with the record writes and recoverable from the
+WAL. A per-class record format replaces the monolithic schema record, so a
+one-class change writes one record instead of the whole schema.
+
+### Constraints
+
+- **Schema isolation must equal data-record isolation** — a transaction sees only
+  its own uncommitted schema; other sessions see committed state until commit.
+- **No optimistic schema concurrency.** A second schema transaction blocks on a
+  lock; it is never aborted or rolled back on contention (assignee constraint, D5).
+- **`stateLock` (`ScalableRWLock`) is non-reentrant.** A commit holding the write
+  lock must reconcile through lock-free inner primitives, never the public
+  structural methods, which re-acquire it and self-deadlock (D3, D19).
+- **The low schema-change rate is the load-bearing premise.** It is what makes
+  pessimistic serialization (D5/D7), the whole-commit exclusive lock (D19), and the
+  in-commit index build (D12) acceptable.
+- **Existing databases migrate by operator-driven export/import**, not an in-place
+  on-open migrator. New binaries reject an old-format database on a version check
+  and redirect to export/import (D14, D20).
+- **The whole-commit write lock must not become a read outage.** The two remaining
+  lock-based read sites convert to snapshot-first reads, and a schema commit aborts
+  loudly against an operator freeze rather than parking inside the lock window
+  (D19, I-freezer-1).
+- **The v1 in-commit index build is bounded to empty classes** (or a documented
+  size bound); the unbounded populated-class build moves to YTDB-1064 (D12).
+
+### Architecture Notes
+
+#### Component Map
+
+```mermaid
+flowchart TD
+    subgraph schema["Schema-side (per-session, during a schema tx)"]
+        Proxy["SchemaProxy / SchemaClassProxy / SchemaPropertyProxy<br/>(modified: route reads+writes to tx-local, name-binding)"]
+        TxState["TxSchemaState (new)<br/>tx-local SchemaShared copy + changed-class set + index overlay"]
+        Overlay["IndexOverlay (new)<br/>committed + tx-created − tx-dropped definitions"]
+        Proxy --> TxState
+        TxState --> Overlay
+    end
+    subgraph storage["Storage-side (at commit)"]
+        Commit["AbstractStorage.commit (modified)<br/>reconcile structure, promote schema, publish overlay"]
+        Mutex["MetadataWriteMutex (new)<br/>Semaphore(1), session-keyed holder"]
+        Freezer["OperationsFreezer (modified)<br/>freeze-kind taxonomy + kind-aware gate"]
+        Shared["SchemaShared (modified)<br/>per-class records, copyForTx, promote"]
+        IdxMgr["IndexManagerEmbedded (modified)<br/>per-session routing seam, overlay publish"]
+        Commit --> Mutex
+        Commit --> Freezer
+        Commit --> Shared
+        Commit --> IdxMgr
+    end
+    Proxy -. "engage on first schema write" .-> Mutex
+    TxState -. "promoted at commit" .-> Shared
+    Overlay -. "published at commit" .-> IdxMgr
+```
+
+- **SchemaProxy / SchemaClassProxy / SchemaPropertyProxy** (modified) — the routing
+  seam. Outside a schema transaction they resolve against committed `SchemaShared`;
+  inside one they route reads and writes to the session's `TxSchemaState` and
+  re-resolve proxy targets by name (three-tier resolution), so a captured pre-tx
+  proxy cannot hand a shared impl into the private copy.
+- **TxSchemaState** (new) — holds the tx-local `SchemaShared` copy (a `fromStream`
+  re-parse, not a field clone), the changed-class set that drives the per-class
+  commit, and the `IndexOverlay`.
+- **IndexOverlay** (new) — a lightweight overlay of index definitions, not a content
+  copy; index content stays in the storage-backed engine.
+- **AbstractStorage.commit** (modified) — where a schema-carrying commit reconciles
+  structure, promotes the tx-local schema, and publishes the overlay, under the
+  four-lock order and the whole-commit write lock.
+- **MetadataWriteMutex** (new) — the `Semaphore(1)` with a session-keyed holder that
+  serializes schema- and index-changing transactions.
+- **OperationsFreezer** (modified) — gains the freeze-kind taxonomy and the
+  kind-aware gate so a schema commit never turns a freeze into a read outage.
+- **SchemaShared** (modified) — per-class records, `copyForTx`, and commit-time
+  promotion into the existing shared instances.
+- **IndexManagerEmbedded** (modified) — the per-session routing seam and the
+  commit-time overlay publication.
+
+#### Decision Records
+
+The full live four-bullet Decision Records are inline in each owning track's
+`## Decision Log` (the track-canonical carrier). The records below are the
+strategic view; each links to its long-form seed in `design.md`.
+
+#### D1: Invert the dependency — metadata-first, storage reconciles at commit
+- **Alternatives considered**: keep storage-leading with eager allocate-then-reclaim on rollback.
+- **Rationale**: mutating only transactional metadata records during the tx makes rollback free and structural change atomic with record writes.
+- **Risks/Caveats**: every mutation entry point must be reworked to run inside an open tx (I-A7).
+- **Implemented in**: Track 3 (enablement), Track 4 (commit reconciles)
+- **Full design**: design.md §"Overview", §"Commit-time reconciliation"
+
+#### D2: Provisional collection ids, resolved at commit
+- **Alternatives considered**: allocate real collection ids eagerly at create time.
+- **Rationale**: a new collection carries a sentinel negative id (disjoint from the abstract-class `-1`, so `<= -2`), resolved to its real id at commit before any record serializes, mirroring temp RIDs.
+- **Risks/Caveats**: the `collectionId < 0` convention is tested in 11+ sites; the in-memory maps treat provisional ids as pending-real while file sites keep skipping negatives. A provisional id reaching durable bytes loses the class's collections.
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Commit-time reconciliation"
+
+#### D3: Commit ordering — structural reconciliation before record allocation
+- **Alternatives considered**: allocate then create structure.
+- **Rationale**: an engine must exist before any code looks it up by id, and a collection before a record position is allocated in it.
+- **Risks/Caveats**: reconciliation must call lock-free inner primitives under the held write lock, never the public structural methods (non-reentrant `stateLock`).
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Commit-time reconciliation"
+
+#### D4: Isolation is record-local, identical to data-record updates
+- **Alternatives considered**: eager `SchemaShared` mutation with in-memory revert.
+- **Rationale**: changing only the tx's own metadata-record copies gives free rollback and the same isolation model data already uses.
+- **Risks/Caveats**: requires the tx-local schema view (D8) and proxy name-binding.
+- **Implemented in**: Track 3
+- **Full design**: design.md §"The tx-local schema view and transactional enablement"
+
+#### D5: Single schema-writer enforced by locking, never by rollback
+- **Alternatives considered**: optimistic concurrency aborting a schema tx on conflict (rejected by the assignee).
+- **Rationale**: a second schema tx blocks on the mutex; the low schema-change rate makes blocking rare.
+- **Risks/Caveats**: a wedged owner keeps the mutex; cross-thread reaping is out of scope (YTDB-1114).
+- **Implemented in**: Track 3
+- **Full design**: design.md §"The schema-write mutex and lock order"
+
+#### D6: Commit-time delta via the diff approach, from existing tx tracking
+- **Alternatives considered**: a separate intent list of structural ops.
+- **Rationale**: the transaction already tracks changed records and per-property dirty marks; the delta reads from them with no new bookkeeping.
+- **Risks/Caveats**: drops are NOT in the changed-record set (a dropped class's record is deleted), so the structural create/drop set uses D9's set difference, not the property diff.
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Commit-time reconciliation"
+
+#### D7: A dedicated, transaction-scoped metadata-write mutex
+- **Alternatives considered**: hold `stateLock.writeLock` for the whole tx; reuse `SchemaShared.lock` for tx lifetime (both too coarse).
+- **Rationale**: one `Semaphore(1)` covering both schema and index changes, engaged above the shared locks on the first write, serializes schema txs without conflating per-op locks with tx lifetime.
+- **Risks/Caveats**: teardown, the permit handshake, and the freezer gate are the design's hardest concurrency work (see I-handshake-1, I-freezer-1).
+- **Implemented in**: Track 3 (primitive + engage), Track 7 (lifecycle handshake + freezer gate)
+- **Full design**: design.md §"The schema-write mutex and lock order", §"Mutex lifecycle and the permit handshake", §"The freezer gate"
+
+#### D8: Tx-local schema view via a per-session copy-on-first-write `SchemaShared`
+- **Alternatives considered**: an immutable committed base plus a changed-class overlay map (deferred — adds overlay-aware resolution and ripple recomputation to the correctness-critical read path).
+- **Rationale**: a full working `SchemaShared` copy reuses the existing mutation machinery, which recomputes the derived-state ripple (inheritance, `polymorphicCollectionIds`, subclass sets) for free; the copy is cheap and rare.
+- **Risks/Caveats**: the seed must be a `fromStream` re-parse (not a field clone), or fresh classes would still point at the shared `owner` and siblings.
+- **Implemented in**: Track 3 (copy + routing), Track 4 (promotion)
+- **Full design**: design.md §"The tx-local schema view and transactional enablement"
+
+#### D9: Diff over collection ids and index definitions, not class names
+- **Alternatives considered**: diff by class name (breaks on rename).
+- **Rationale**: collection id is the stable structural identity; a rename keeps its ids and so is structurally inert. Create/drop is the set difference over committed vs tx-local collection-id sets.
+- **Risks/Caveats**: the predicate must distinguish abstract (`-1`) from provisional (`<= -2`).
+- **Implemented in**: Track 4
+- **Full design**: design.md §"Commit-time reconciliation"
+
+#### D10: Structural revertibility via the existing atomic-operation WAL; no pool
+- **Alternatives considered**: a page-reuse / deletion pool.
+- **Rationale**: file create/delete is buffered intent applied only in `commitChanges`, which rollback skips, so a rolled-back or crashed-before-commit tx leaves files byte-for-byte unchanged. The pool's only correctness benefit is already free.
+- **Risks/Caveats**: the crash-recovery half is conditional on the F55 lazy-consult replay fix (Track 1, prerequisite).
+- **Implemented in**: Track 4 (+ Track 1 prerequisite)
+- **Full design**: design.md §"Commit-time reconciliation"
+
+#### D11: Artificial collection names, decoupled from class names
+- **Alternatives considered**: keep `<className>_<counter>` names.
+- **Rationale**: generating collection names from a counter alone makes a class rename touch zero collection files, removing the non-WAL-safe `writeCache.renameFile` path.
+- **Risks/Caveats**: contained to the name-generation site plus neutering `renameCollection`.
+- **Implemented in**: Track 6
+- **Full design**: design.md §"Base-keyed engine files and metadata-only rename"
+
+#### D12: Accept the index build under the exclusive commit lock for v1
+- **Alternatives considered**: off-lock / streamed / background build.
+- **Rationale**: an in-commit lock-free scan that emits zero extra WAL units is the simplest correct build; the low schema-change rate makes the stall acceptable.
+- **Risks/Caveats**: forward and recovery heap both scale with the unit size, so v1 bounds the eager build to empty classes (or a documented size bound); the unbounded case is YTDB-1064.
+- **Implemented in**: Track 5
+- **Full design**: design.md §"Index build and query-usability"
+
+#### D13: A tx-created index is not query-usable until commit; planner skips unbuilt indexes
+- **Alternatives considered**: make the new index usable mid-tx (its engine does not exist).
+- **Rationale**: the planner skips any index whose engine is not built and falls through to a full scan, which returns the correct merged tx view.
+- **Risks/Caveats**: the existing read-merge for already-built indexes must be preserved unchanged.
+- **Implemented in**: Track 5
+- **Full design**: design.md §"Index build and query-usability"
+
+#### D14: Split the schema into per-class records, killing write amplification
+- **Alternatives considered**: keep all classes in one EMBEDDEDSET record.
+- **Rationale**: a schema record that links to one record per class means a one-class change writes one record, mirroring the index-manager pattern. This is the write-amplification reduction YTDB-382 exists for.
+- **Risks/Caveats**: a format change that overturns the "no migration" assumption; the root record must be written when its non-link payload changes, or a property-create restarts into a null `globalRef` and a colliding collection name.
+- **Implemented in**: Track 2
+- **Full design**: design.md §"Per-class schema records"
+
+#### D15: Tx-local index-definition overlay, not a content copy of the IndexManager
+- **Alternatives considered**: a deep copy mirroring D8 (wrong — an index is a thin handle over a storage-backed engine).
+- **Rationale**: overlaying the two lookup maps (effective set = committed + tx-created − tx-dropped) gives isolation without copying engine content.
+- **Risks/Caveats**: the tx-local snapshot must force-rebuild on every mid-tx index change, or same-tx inserts into the new index are silently untracked; a committed membership change is its own tracked category.
+- **Implemented in**: Track 5
+- **Full design**: design.md §"Tx-local index overlay"
+
+#### D16: Stable-base-keyed engine files; index rename is metadata-only
+- **Alternatives considered**: id-keyed files for all engines plus migrate legacy files (re-introduces the non-WAL-safe rename path).
+- **Rationale**: every engine file base derives from the stable engine id; under D20's import-only migration no name-keyed file can exist, so the dual-base compat path is dropped and a rename never touches the engine.
+- **Risks/Caveats**: the data, null-bucket, and histogram files must all source the base.
+- **Implemented in**: Track 6
+- **Full design**: design.md §"Base-keyed engine files and metadata-only rename"
+
+#### D17: v1 does the metadata-only class-rename re-association; index-name rename deferred
+- **Alternatives considered**: ship the full inert index-name rename and `ALTER INDEX … RENAME` now.
+- **Rationale**: re-keying `classPropertyIndex` and updating each definition's `className` (commit-only) keeps the index accelerating under the new class name; the index's own name lagging is acceptable.
+- **Risks/Caveats**: the renaming tx's own queries fall back to an unaccelerated scan until commit; full index-name rename is YTDB-1066.
+- **Implemented in**: Track 6
+- **Full design**: design.md §"Base-keyed engine files and metadata-only rename"
+
+#### D18: Genesis bootstrap is two-phase — a schema tx, then a data tx
+- **Alternatives considered**: one unified genesis transaction.
+- **Rationale**: the schema tx builds and commits the `OUser.name` UNIQUE index before the data tx inserts users, so the user-creation code's direct index lookups hit a built engine; a unified tx would expose an unbuilt index to a direct lookup.
+- **Risks/Caveats**: restructures `SecurityShared.create` and the sibling metadata creators.
+- **Implemented in**: Track 8
+- **Full design**: design.md §"Genesis bootstrap"
+
+#### D19: Schema-carrying commits take the write lock from the start; pure-data commits keep the read-lock fast path
+- **Alternatives considered**: a mid-commit read→write upgrade (the F33 interleaving window).
+- **Rationale**: deciding at entry from the same schema-or-index signal that engages the mutex removes the upgrade and its window; an index-only tx takes the write-lock branch too.
+- **Risks/Caveats**: a schema commit excludes concurrent data commits for its duration (bounded by the low schema-change rate); the two lock-based read sites convert to snapshot-first.
+- **Implemented in**: Track 4
+- **Full design**: design.md §"The schema-write mutex and lock order"
+
+#### D20: Schema-format migration is operator-driven JSON export/import, not in-place
+- **Alternatives considered**: an in-place on-open migrator (carries partial-migration crash-safety burden).
+- **Rationale**: export reads the logical schema and import rebuilds through the schema API, so the new code never parses the old format and there is no partial-migration state to recover.
+- **Risks/Caveats**: export/import must be fail-closed and whole-or-nothing (manifest written last, whole-stream gzip validation, version reject-and-redirect gate, EXPORTER_VERSION 14→15).
+- **Implemented in**: Track 8
+- **Full design**: design.md §"Schema-format migration"
+
+#### Invariants
+
+Each invariant below maps to a testable assertion in the named track; the full
+statements, tests, and provenance live in `design.md` per-section "Decisions &
+invariants" blocks and in the research log's `## Invariants and Test Requirements`.
+
+- **I-A1 / I-A2 / I-A3 / I-A4** (Track 4) — structural change is atomic with the
+  commit and free to roll back; a provisional id never reaches durable bytes;
+  commit applies structure before it needs it; a failed commit leaves no phantom
+  registration.
+- **I-A5 / I-A6 / I-A7** (Track 3; I-A7 completes with Track 5's overlay routing) —
+  schema isolation is record-local; one schema writer at a time by locking; every
+  mutation entry point rides the user transaction (the self-commit membership leak
+  is the silent failure tested for).
+- **I-C1** (Track 4) — the four locks are taken in one acyclic order
+  (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`).
+- **I-C2 / I-C4** (Track 3) — the mutex engages above the shared locks, never
+  inside them; engaging on a thread that already holds it fails loudly.
+- **I-C3 / I-handshake-1 / I-freezer-1** (Track 7) — tx-scoped resources torn down
+  only on the owning thread; the mutex has exactly one releaser and never wedges;
+  a schema commit never turns a freeze into a read outage.
+- **I-P1** (Track 4) — commit promotes into the existing shared instances and
+  invalidates the snapshot once.
+- **I-P2 / I-P3 / I-P4** (Track 5) — indexes are overlaid, not copied, and the
+  snapshot rebuilds on mid-tx index change; a tx-created index is not query-usable
+  until commit; the build commits to exactly the transaction's final state.
+- **I-U1** (Track 2) — per-class records remove write amplification, and the root
+  is written exactly when its payload changes.
+- **I-U2 / I-U3** (Track 6) — class rename touches zero storage; engine files are
+  base-keyed and a rename keeps the index accelerating.
+- **I-U4** (Track 8) — genesis builds the schema before it inserts users.
+- **I-U5** (Track 4) — a schema-carrying commit takes the write lock from the
+  start; a pure-data commit keeps the read-lock fast path.
+- **I-migration-fail-closed / I-migration-isolation / I-migration-failfast**
+  (Track 8) — format migration is operator-driven export/import that fails loudly;
+  a record is exported whole or not at all; the new exporter promotes nothing on
+  failure.
+
+#### Integration Points
+
+- A schema or index mutation engages `MetadataWriteMutex` at the `SchemaProxy` /
+  index-routing layer on the transaction's first write (Track 3).
+- `AbstractStorage.commit` reads the unified schema-or-index signal at entry to
+  choose the write-lock branch and run reconciliation (Track 4).
+- The query planner reads the effective index set through the per-session routing
+  seam and skips unbuilt indexes (Track 5).
+- New binaries reject an old-format database on the schema version check at storage
+  open and redirect to export/import (Track 8).
+
+#### Non-Goals
+
+- Off-lock / streamed / empty-class-scoped optimization of the populated-class
+  index build (YTDB-1064).
+- Inert index-name rename and `ALTER INDEX … RENAME` (YTDB-1066).
+- Cross-thread reaping of a stranded schema transaction (YTDB-1114).
+- Closing the residual concurrent-data-commit-vs-new-index window (YTDB-1101).
+- An in-place on-open schema-format migrator (D20 replaces it with export/import).
+
+## Checklist
+
+- [ ] Track 1: WAL replay lazy-consult fix (prerequisite)
+  > Fix the lazy-consult WAL replay path so a crash between an atomic operation's
+  > end record becoming durable and its physical apply completing no longer aborts
+  > the restore of a committed file-creating unit and discards all later units.
+  > This is the prerequisite the reconciliation crash-recovery claim (I-A1, D10)
+  > rests on; it shares no files with the schema or index subsystems.
+  > **Scope:** ~4 files covering the WAL restore/replay path and a crash-replay regression test.
+
+- [ ] Track 2: Per-class schema records (D14)
+  > Replace the single monolithic schema record with a root record that links to
+  > one entity record per class, add the net-new per-class record-RID field bound
+  > at load, write only changed class records plus the root when its non-link
+  > payload changes, and bump the schema version into a reject-and-redirect gate.
+  > This is the persistence foundation and the write-amplification win; the
+  > tx-local seed (Track 3) binds the per-class RIDs it introduces.
+  > **Scope:** ~7 files covering `SchemaShared`/`SchemaClassImpl` serialization, the schema-record link set, the version constant, and serializer tests.
+  > **Depends on:** Track 1
+
+- [ ] Track 3: Tx-local schema view, transactional enablement, and the metadata-write mutex (D1, D4, D5, D7, D8)
+  > Seed a per-session tx-local `SchemaShared` (a `fromStream` re-parse) on the
+  > first schema write, route `SchemaProxy` reads and writes to it with three-tier
+  > proxy resolution, de-guard the throw-guard and self-commit mutation entry
+  > points so they ride the user transaction, and introduce the `MetadataWriteMutex`
+  > `Semaphore(1)` with its engage point above the shared locks and its same-thread
+  > loud-reject. Ships the mutex primitive and normal release; the abnormal-termination
+  > handshake is Track 7.
+  > **Scope:** ~16 files covering the proxy/routing classes, `TxSchemaState`, `SchemaShared.copyForTx`, the de-guarded entry points, the new mutex, and isolation/rollback tests.
+  > **Depends on:** Track 2
+
+- [ ] Track 4: Commit-time reconciliation and the schema-carrying commit lock (D1, D2, D3, D6, D9, D10, D19)
+  > Make the commit compute the structural delta as a set difference over committed
+  > versus tx-local collection-id sets, resolve provisional ids before any record
+  > serializes, reconcile in the correct order through lock-free inner primitives
+  > under a commit-local id allocator, take `stateLock.writeLock()` from the start
+  > under the four-lock order, promote the tx-local schema into the existing shared
+  > instances with one `forceSnapshot`, and convert the two remaining lock-based
+  > read sites to snapshot-first.
+  > **Scope:** ~15 files covering `AbstractStorage.commit`, the engine-primitive extraction, the provisional-id sites, promotion, the two read-site conversions, and commit/rollback/crash tests.
+  > **Depends on:** Track 1, Track 2, Track 3
+
+- [ ] Track 5: Tx-local index overlay, commit-time engine build, and query-usability (D12, D13, D15)
+  > Give indexes a tx-local definition overlay (committed + tx-created − tx-dropped)
+  > with the four categories and the per-session index-manager routing seam,
+  > force-rebuild the tx-local snapshot on every mid-tx index change, build a
+  > tx-created index's engine at commit through a lock-free scan plus final-state
+  > re-derivation (bounded to empty classes for v1), and make the planner skip an
+  > unbuilt index. Completes the I-A7 membership-ripple routing Track 3 de-guarded.
+  > **Scope:** ~15 files covering `IndexManagerEmbedded`, `ClassIndexManager`, the routing seam, the snapshot rebuild, the planner guard, the commit build, and overlay/build tests.
+  > **Depends on:** Track 3, Track 4
+
+- [ ] Track 6: Base-keyed engine files and metadata-only rename (D11, D16, D17)
+  > Generate collection names from a counter alone so a class rename touches zero
+  > collection files, derive every index-engine file base (data, null-bucket,
+  > histogram) from the stable engine id, and apply the commit-only class-rename
+  > re-association that re-keys `classPropertyIndex` and updates each definition's
+  > `className` so the index keeps accelerating under the new class name.
+  > **Scope:** ~11 files covering `StorageComponent`/`BTree` file basing, the collection-name generator, `renameCollection`, `IndexDefinition.className`, and rename/crash tests.
+  > **Depends on:** Track 4, Track 5
+
+- [ ] Track 7: Concurrency hardening — mutex permit handshake and the freezer gate (D7)
+  > Harden the mutex against pool-teardown wedges with a session-keyed
+  > compare-and-clear release, a `(session, ordinal, thread)` holder record,
+  > owner-thread-only teardown, and the Dekker engage/teardown handshake; and make
+  > a schema commit never turn a freeze into a read outage with a freeze-kind
+  > taxonomy, a kind-aware gate at the loop-top and park-decision sites, and the
+  > operator-arm cut-and-unpark. This is the design's hardest concurrency work.
+  > **Scope:** ~13 files covering the mutex lifecycle, `DatabaseSessionEmbedded` teardown, `OperationsFreezer`, the freeze registration sites, and interleaving stress tests.
+  > **Depends on:** Track 3, Track 4
+
+- [ ] Track 8: Genesis bootstrap and schema-format migration (D18, D20)
+  > Two terminal autonomous units packed under the footprint ceiling: restructure
+  > genesis into a schema transaction (building `OUser.name` at commit) followed by
+  > a data transaction that inserts the default users — the end-to-end smoke test of
+  > the Part-1 core — and add the operator-driven export/import migration (manifest
+  > written last, whole-stream gzip validation, version reject-and-redirect gate,
+  > EXPORTER_VERSION 14→15, per-record spill-to-temp). The two share no files; see
+  > the track file for the packing justification.
+  > **Scope:** ~14 files covering `SecurityShared` and the sibling metadata creators, `DatabaseExport`/`DatabaseImport`, the gzip-framing subclass, the open-time version gate, and genesis + migration tests.
+  > **Depends on:** Track 2, Track 4, Track 5
+
+## Plan Review
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+
+## Final Artifacts
+- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
