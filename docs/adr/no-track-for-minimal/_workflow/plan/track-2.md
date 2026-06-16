@@ -24,6 +24,7 @@ defines.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-16T06:28Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-16T07:19Z [ctx=safe] Step 1 complete (commit 9bba7b62a6)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -45,6 +46,11 @@ discovered" when the finding affects future steps or other tracks. -->
   consumers contradict. `conventions.md` is a Track-1 file, but the §1.7(c)
   read-side amendment is carved into this track's scope (narrowly) so the spec
   stays coherent with the consumers Track 2 re-points.
+- 2026-06-16T07:19Z Step 1 discovered: staged `conventions.md` §1.7(l) still
+  describes its criteria-switch trigger as the plan `### Constraints` "either
+  marker," which now lags the ledger-re-pointed prompt consumers. Left untouched
+  under the §1.7(c)-only conventions carve-out; bringing the (l) wording in line
+  is a Phase C decision (Step 3 touch or plan correction). See Episodes §Step 1.
 
 ## Decision Log
 
@@ -342,7 +348,7 @@ growth, which the token does not need (it carries no path list).
    pre-commit gate and the `create-final-design` Phase-4 divergence check +
    `git add` to cover `.claude/scripts/**`). Eleven files. — risk: high (workflow
    machinery: edits the §1.7 staging convention, a load-bearing control-flow
-   protocol)  [ ]
+   protocol)  [x] commit: 9bba7b62a6ad9adc30f62131f59b92cf3d704d44
 2. Auto-resume / review-state / escalation / completion control reads → ledger —
    `implementation-review.md` writes the audit to `plan-review.md` and the review
    *state* to the ledger and reads the tier from the ledger; `inline-replanning.md`
@@ -384,6 +390,54 @@ steps — all three share the ledger-first read contract Step 1 fixes.
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step. Empty at Phase 1. -->
+
+### Step 1 — commit 9bba7b62a6ad9adc30f62131f59b92cf3d704d44, 2026-06-16T07:19Z [ctx=safe]
+**What was done:** Re-pointed every §1.7(b)/(c)/(l) staging-mode marker
+read and every change-tier read off the plan `### Constraints` / tier
+line onto the phase ledger's `s17` and tier fields across 11 staged
+workflow files: the three §1.7(l) review prompts
+(technical/risk/adversarial), the two gate-recheck prompts
+(dimensional-review-gate-check, review-gate-verification), the
+implementer gate (step-implementation, implementer-rules), the three
+tier readers (track-review, consistency-review, create-final-design),
+and the `conventions.md` §1.7(c) read-side spec with its signal label
+re-framed from "Constraints declaration" to the ledger-`s17`-first read.
+Each re-pointed read is ledger-first with the develop-era plan read kept
+as the pre-ledger fallback. Implemented D14's script half: the
+implementer-rules live-path pre-commit gate and the create-final-design
+Phase-4 divergence check plus `git add` now cover `.claude/scripts/**`.
+Edits routed to the staged mirror — copy-then-edit on first touch for
+the 10 newly-staged files, direct edit of Track 1's already-staged
+`conventions.md`. Within-file coherence also required re-pointing the
+secondary §1.7(b) marker reads that co-reside in step-implementation.md
+(the dim-review delta-prep and staged-read context blocks) and
+consistency-review.md (its standalone staged-read block); leaving those
+on `### Constraints` would have left each file self-contradictory.
+
+**What was discovered:** The §1.7(l) spec block in staged
+`conventions.md` still describes its criteria-switch trigger as "the
+plan's `### Constraints` carries either marker," which now lags the
+ledger-re-pointed prompt consumers. The implementer left it untouched
+because Track 2's `conventions.md` scope is carved to the §1.7(c)
+read-side only, and §1.7(b)/(k) already name the ledger as the canonical
+marker home and state "Track 2 re-points the consumers," so the §1.7(l)
+phrasing reads as mode-shorthand rather than a read-source contract.
+Whether to bring the (l) wording in line is a Phase C focal point: a
+Step 3 touch or a small plan correction, since it sits outside the
+§1.7(c)-only carve-out.
+
+**Key files:** (all under `_workflow/staged-workflow/`)
+- `.claude/workflow/conventions.md` (modified — §1.7(c) read-side)
+- `.claude/workflow/implementer-rules.md` (new staged copy)
+- `.claude/workflow/step-implementation.md` (new staged copy)
+- `.claude/workflow/track-review.md` (new staged copy)
+- `.claude/workflow/prompts/technical-review.md` (new staged copy)
+- `.claude/workflow/prompts/risk-review.md` (new staged copy)
+- `.claude/workflow/prompts/adversarial-review.md` (new staged copy)
+- `.claude/workflow/prompts/consistency-review.md` (new staged copy)
+- `.claude/workflow/prompts/create-final-design.md` (new staged copy)
+- `.claude/workflow/prompts/dimensional-review-gate-check.md` (new staged copy)
+- `.claude/workflow/prompts/review-gate-verification.md` (new staged copy)
 
 ## Validation and Acceptance
 
