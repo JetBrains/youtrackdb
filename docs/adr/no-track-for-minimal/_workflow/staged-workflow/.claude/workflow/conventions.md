@@ -1053,12 +1053,19 @@ plan whose Plan-of-Work references `.claude/workflow/**`,
 The convention runs on two independent detection signals, each serving
 a distinct consumer:
 
-- **Constraints declaration** drives the implementer enforcement gate.
-  Per-spawn, the implementer reads `implementation-plan.md`'s
-  `### Constraints` section and checks for the marker sentence in
-  (b). When the marker is present, the path-mapping rule in (e) and
+- **Ledger `s17` declaration** drives the implementer enforcement gate.
+  Per-spawn, the implementer reads the §1.7 mode **ledger-first**: the
+  phase ledger's `s17` field (`_workflow/phase-ledger.md`, last value
+  wins) and checks for the workflow-modifying token. When no
+  `phase-ledger.md` exists (an in-flight pre-ledger workflow-modifying
+  branch), it falls back to reading `implementation-plan.md`'s
+  `### Constraints` section and checking for the marker sentence in
+  (b) — the same two-level pattern `determine_state` uses for the
+  resume phase. When the marker is present in either source, the
+  path-mapping rule in (e) and
   the pre-commit gate in `implementer-rules.md` activate; when the
-  marker is absent, the implementer writes to live paths normally.
+  marker is absent from both, the implementer writes to live paths
+  normally.
   This signal works from the first step of execution, before any
   staged content exists.
 - **`.claude/` subdirectory presence under
@@ -1072,13 +1079,15 @@ a distinct consumer:
   to promote into the live tree" rather than "is the implementer
   enforcement gate active."
 
-The two signals serve distinct purposes by construction. Constraints
-declaring workflow-modifying without any staged content is the legitimate
+The two signals serve distinct purposes by construction. An `s17`
+declaration of workflow-modifying (or its pre-ledger `### Constraints`
+fallback) without any staged content is the legitimate
 shape of a dry-run plan or an abandoned-work plan: the gate stays
 active throughout execution; Phase 4 produces a no-op promotion that
 the directory-presence guard skips silently; Phase 4's two-commit shape
 (final-artifacts + cleanup) remains intact. The inverse case, staged
-content without a Constraints declaration, is unreachable when the
+content without an `s17` (or fallback `### Constraints`) declaration, is
+unreachable when the
 implementer enforcement gate works as designed, because an undeclared
 plan has no gate to route writes into the staged subtree.
 
