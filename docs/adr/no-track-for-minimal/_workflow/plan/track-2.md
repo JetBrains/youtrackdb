@@ -25,6 +25,7 @@ defines.
 - [ ] Track completion
 - [x] 2026-06-16T06:28Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-16T07:19Z [ctx=safe] Step 1 complete (commit 9bba7b62a6)
+- [x] 2026-06-16T07:38Z [ctx=safe] Step 2 complete (commit a7fd6b7864)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -51,6 +52,11 @@ discovered" when the finding affects future steps or other tracks. -->
   marker," which now lags the ledger-re-pointed prompt consumers. Left untouched
   under the §1.7(c)-only conventions carve-out; bringing the (l) wording in line
   is a Phase C decision (Step 3 touch or plan correction). See Episodes §Step 1.
+- 2026-06-16T07:38Z Step 2 discovered: the `lite`/`full` plan's track entry now
+  carries a one-line completion-episode summary plus a pointer (the full episode
+  is canonical in the track file), so Step 3's `plan-slim-rendering.md`
+  render-rule adaptation must render the collapsed entry, not the full episode.
+  See Episodes §Step 2.
 
 ## Decision Log
 
@@ -364,7 +370,7 @@ growth, which the token does not need (it carries no path list).
    State-0 routing + loader-note re-points (`:310`, `:350`, `:417`, `:743`,
    `:768`); `workflow-drift-check.md` re-bases its Phase-4 migration-skip on the
    ledger `phase == "D"`/`"Done"` tail. Six files. — risk: high (workflow
-   machinery: edits the auto-resume state machine and the drift gate)  [ ]
+   machinery: edits the auto-resume state machine and the drift gate)  [x] commit: a7fd6b7864e1d3393258d03c52016d9766650c4a
 3. Phase-2 audit-summary relocation + review-dispatch / render prose adaptation —
    `prompts/structural-review.md` drops the `minimal` pass and adapts the bloat
    checks to the thinned plan; `workflow/structural-review.md` (the orchestration
@@ -438,6 +444,56 @@ Step 3 touch or a small plan correction, since it sits outside the
 - `.claude/workflow/prompts/create-final-design.md` (new staged copy)
 - `.claude/workflow/prompts/dimensional-review-gate-check.md` (new staged copy)
 - `.claude/workflow/prompts/review-gate-verification.md` (new staged copy)
+
+### Step 2 — commit a7fd6b7864e1d3393258d03c52016d9766650c4a, 2026-06-16T07:38Z [ctx=safe]
+**What was done:** Re-pointed every remaining auto-resume, review-state,
+escalation, and completion control read off the removed plan sections
+(`## Plan Review`, `## Final Artifacts`, the plan tier line) onto the
+phase ledger and `plan-review.md` across six staged workflow files.
+`implementation-review.md` writes the Phase-2 audit to `plan-review.md`,
+records review state as a `phase=A` ledger boundary, and reads the
+pass-matrix tier and State-0 detection ledger-first.
+`inline-replanning.md` makes a `minimal`→`lite`/`full` upgrade
+materialize the dropped `implementation-plan.md` (and `design.md` for
+`full`) before appending the upgraded `tier` ledger event, and turns the
+Plan-Review reset into a `phase=0` append. `track-code-review.md`
+re-points its standalone and delta-prep §1.7(b) `s17` marker reads
+ledger-first, makes the completion episode canonical in the track file's
+`## Episodes` (the `lite`/`full` plan keeps a one-line summary and
+pointer), and bases the deferred-write resume signal on the ledger
+`phase` tail for the `minimal` no-plan case. `mid-phase-handoff.md`
+routes the State-0/Phase-4 secondary markers to ledger `paused` events,
+extends the recovery grep to the ledger, and adds the D8
+clear-on-resolution rule. `workflow.md` finished the five Track-1-flagged
+re-points and removed the two remaining forward-pointers.
+`workflow-drift-check.md` re-based the Phase-4 migration-skip on the
+ledger `phase == "D"`/`"Done"` tail. Every re-pointed read is
+ledger-first with the develop-era plan read kept as the pre-ledger
+fallback, mirroring Step 1.
+
+**What was discovered:** `phase=0` is a valid ledger token that
+`determine_state` routes to State 0, so the Plan-Review reset is a clean
+`--append-ledger --phase 0` append under the append-only,
+last-value-wins model — no "remove the `phase=A` line" operation is
+needed. Track 1 had already wired the `workflow.md` State-C resume
+sub-state row and the `## Plan Review` removal prose to the ledger model,
+so the `track-code-review` deferred-write re-point lined up with the
+existing text rather than needing a cross-file reconciliation.
+
+**What changed from the plan:** none. The `track-code-review`
+Plan-Corrections "add a new track" path was deliberately left unchanged:
+under `minimal`, adding a track is a tier upgrade handled by
+inline-replanning (D11), so the path does not fire without an upgrade
+first, and re-pointing it would exceed this step's three-item scope
+(marker block, completion episode, deferred-write signal).
+
+**Key files:** (all under `_workflow/staged-workflow/`)
+- `.claude/workflow/implementation-review.md` (new staged copy)
+- `.claude/workflow/inline-replanning.md` (new staged copy)
+- `.claude/workflow/track-code-review.md` (new staged copy)
+- `.claude/workflow/mid-phase-handoff.md` (new staged copy)
+- `.claude/workflow/workflow.md` (modified)
+- `.claude/workflow/workflow-drift-check.md` (new staged copy)
 
 ## Validation and Acceptance
 
