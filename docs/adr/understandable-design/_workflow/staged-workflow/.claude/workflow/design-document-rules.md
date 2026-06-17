@@ -481,9 +481,10 @@ while mechanics evolves between syncs. The prose half of the
 human-reader checks (glossary-introduction, why-before-what,
 explanatory register, the prose half of audience-fit) and the
 prose AI-tell axis are the `readability-auditor` agent's on
-`design-sync`, the one prose owner per surface (S4); the exact
-`edit-design` wiring that spawns the auditor on `design-sync` is
-settled in the `edit-design` rework.
+`design-sync`, the one prose owner per surface (S4); `edit-design`
+Step 4 spawns that cold auditor pass on `design-sync` alongside its
+comprehension gate (`edit-design/SKILL.md` § Step 4 → Spawning the
+comprehension gate, the `design-sync` `readability-auditor` block).
 
 **Staleness reconciliation.** Because `design.md` is frozen
 between syncs while mechanics evolves, the user's feedback may

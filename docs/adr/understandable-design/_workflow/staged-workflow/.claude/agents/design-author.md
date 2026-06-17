@@ -1,6 +1,6 @@
 ---
 name: design-author
-description: "Code-grounded author for `design.md` and track files: reads the research log and the live codebase through PSI, never the authoring conversation, and drafts cold-readable prose for a reader who has only the finished document. Spawned by edit-design (design authoring) and create-plan Step 4b (track authoring). Returns a thin summary only, never the drafted content."
+description: "Code-grounded author for `design.md` and track files: grounds on the research log and live code via PSI, never the authoring conversation, and drafts cold-readable prose for a reader who has only the finished document. Spawned by edit-design (design authoring) and create-plan Step 4b (track authoring)."
 tools: Read, Write, Edit, Bash, mcp__localhost-6315__*
 model: opus
 ---

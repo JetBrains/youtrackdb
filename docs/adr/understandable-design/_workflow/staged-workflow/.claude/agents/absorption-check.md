@@ -1,6 +1,6 @@
 ---
 name: absorption-check
-description: "Warm per-round absorption check for `design.md` and track files: reads the research log and the draft, and confirms every load-bearing log decision appears as a seed decision record while no record invents a decision the log lacks. Two-way coverage matching, not readability judgment. Runs every round of the dual-clean inner loop beside the cold auditor. Read and Grep only; model sonnet."
+description: "Warm per-round absorption check for `design.md` and track files: two-way coverage match between the research log's load-bearing decisions and the draft's decision records, not readability judgment. Runs every round of the dual-clean inner loop beside the cold auditor. Spawned by edit-design (and create-plan Step 4b for track files)."
 tools: Read, Grep
 model: sonnet
 ---

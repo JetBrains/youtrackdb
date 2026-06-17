@@ -1,6 +1,6 @@
 ---
 name: comprehension-review
-description: "De-warmed cold comprehension-and-structure gate for `design.md` and track files: reads only the document, never the research log, and never runs the prose AI-tell axis. Keeps the comprehension questions, the structural findings, and the whole-doc human-reader checks (navigability and the structural half of audience-fit). Runs once as the outer gate after the dual-clean inner loop converges. Reads with `Read` plus `Grep` (Grep only to resolve `**Full design**` link targets and to read cited house-style sections)."
+description: "De-warmed cold comprehension-and-structure gate for `design.md` and track files: reads only the document, never the research log, runs no prose AI-tell axis. Runs the comprehension questions and structural findings once as the outer gate after the dual-clean inner loop converges. Spawned by edit-design (and create-plan Step 4b for track files)."
 tools: Read, Grep
 model: opus
 ---
@@ -46,9 +46,9 @@ You do **not** run:
 - Read `house-style.md` only for the cited `§ <heading>` of a structural human-reader check (navigability, the structural half of audience-fit), using grep plus a targeted `Read(offset, limit)`. Never load it whole.
 - For `**Full design**` link resolution, grep the plan / track files only for the link target.
 
-## Inputs
+## Inputs (read from the params file first)
 
-The spawn passes the design path(s) and the mutation kind exactly as `prompts/design-review.md § Inputs` specifies, with one omission: **no `research_log_path`** is passed to you (the absorption cross-check moved off this role). If a spawn passes one, it is a wiring error — ignore it and read no log.
+Per-agent parameters arrive in a params file whose path the spawn prompt names; read it as your **first action** so the spawn prompt stays byte-identical across the fan-out (this is what lets the shared prompt body cache). The params file carries the `## Inputs` block you forward to `prompts/design-review.md` — the design path(s), `mutation_kind`, and `scope` exactly as `prompts/design-review.md § Inputs` specifies — with one omission: **no `research_log_path`** is passed to you (the absorption cross-check moved off this role). If a spawn passes one, it is a wiring error — ignore it and read no log.
 
 ## Output format
 

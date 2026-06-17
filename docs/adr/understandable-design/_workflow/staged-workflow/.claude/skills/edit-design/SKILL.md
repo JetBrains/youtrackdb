@@ -37,7 +37,7 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 | §Step 8: Auto-suggest sync at N=5 (working mode only) | orchestrator,planner,final-designer | 1 | In working mode, suggest a design-sync once five mechanics edits have accumulated since the last sync. |
 | §Step 9: Present to the user | orchestrator,planner,final-designer | 1,4 | Present the merged result and surviving findings to the user as the mutation's final output. |
 | §Staleness reconciliation | orchestrator,planner,final-designer | 1,4 | The prompt shown when a request references a polished design that mechanics edits have since outpaced. |
-| §Tools used | orchestrator,planner,final-designer | 1,4 | The tools the skill invokes: the mechanical-check script, Edit/Write, and the cold-read sub-agent spawn. |
+| §Tools used | orchestrator,planner,final-designer | 1,4 | The tools the skill invokes: the mechanical-check script, Edit/Write, and the author and review-role spawns. |
 | §When NOT to use this skill | orchestrator,planner,final-designer | 1,4 | The cases that bypass the mutation discipline: non-design files and pure workflow-artifact edits. |
 | §Failure modes and recovery | orchestrator,planner,final-designer | 1,4 | How the skill recovers when a check fails, the cold read stalls, or the iteration budget is exhausted. |
 | §Examples | orchestrator,planner,final-designer | 1,4 | Worked examples of a content edit and a section rename run through the full mutation discipline. |
@@ -172,8 +172,10 @@ is gated. Two shapes run under one frame:
   Step 4a routes `phase1-creation`, `create-final-design.md` routes
   `phase4-creation`.
 - **Every other (interactive) mutation kind keeps the single-agent shape.**
-  Step 1 applies the edit inline; Step 4 spawns one cold-read; Step 6 iterates
-  on the merged findings. These kinds touch a frozen, already-reviewed
+  Step 1 applies the edit inline; Step 4 spawns the cold comprehension gate
+  (plus, on `design-sync` only, a cold `readability-auditor` prose pass so the
+  re-distilled human-facing prose keeps its one prose owner, S4); Step 6
+  iterates on the merged findings. These kinds touch a frozen, already-reviewed
   `design.md` post-publication, so the author spawn buys nothing and the lighter
   loop is correct.
 
@@ -456,11 +458,24 @@ sequencing that calls them. The review surface has two shapes:
   fidelity-check role and its `phase4-creation` wiring are built in the Phase 4
   track; this skill calls the same auditor and comprehension gate on both kinds
   and swaps only the second check).
-- **Interactive kinds run one review role** — the cold `comprehension-review`
-  gate alone. There is no author spawn (Step 1 edited inline), no auditor, and
-  no second check; the lighter single-pass cold-read is unchanged in substance,
+- **Interactive kinds run the cold `comprehension-review` gate** — no author
+  spawn (Step 1 edited inline), no inner loop, no second check. For every
+  interactive kind except `design-sync` the comprehension gate is the only
+  review role; the lighter single-pass cold-read is unchanged in substance,
   only re-pointed onto the `comprehension-review` agent definition (its
-  `Read`-only allow-list is the D13/D14 tool-surface cut).
+  `Read`,`Grep` allow-list is the D13/D14 tool-surface cut).
+- **`design-sync` also spawns a `readability-auditor` prose pass.** `design-sync`
+  re-distills the human-facing `design.md` from the mechanics companion, so its
+  freshly rewritten prose is judged on the prose AI-tell axis like any other
+  human-facing surface. The de-warmed comprehension gate runs that axis nowhere
+  (D9), so leaving `design-sync` on the comprehension gate alone would strand
+  the prose axis on neither reviewer — the "never neither" case S4 forbids.
+  `design-sync` therefore stays an interactive kind (no author spawn, no inner
+  loop, no absorption check) but gains one cold `readability-auditor` spawn
+  alongside its `comprehension-review` gate, so the auditor is the single prose
+  owner on `design-sync` (S4 holds), matching what `design-document-rules.md`
+  and `prompts/design-review.md` assert. The auditor's findings merge into the
+  same single-agent fix loop (Step 6) as the comprehension-gate findings.
 
 **Skip review entirely for `mechanics-edit`.** Mechanics is agent-targeted
 long-form content, not the human-facing summary; comprehension is not the
@@ -499,7 +514,10 @@ spawn prompt body stays **byte-identical** across the fan-out so the shared
 prompt body (including the injected `CLAUDE.md`, which cannot be skipped
 per-agent, D14) caches. Write each round's per-agent inputs — the auditor's
 slice `range`, each role's `target` / `target_path` / `output_path`, the
-author's `round` and `flagged_passages`, the absorption check's
+author's `target` / `research_log_path` / `output_path` / `design_path`
+(track/full seed) / `round` / `flagged_passages` (its full set matches
+`design-author.md § Inputs` key-for-key, so the round-1 author has the
+`research_log_path` it grounds from), the absorption check's
 `research_log_path` and `draft_path` — to a params file under
 `_workflow/plan/` (one file per spawn), and pass only that file's path in the
 spawn prompt. Each agent reads its params file as its first action (its agent
@@ -566,9 +584,11 @@ first pass or on any batch loop-back iteration.
 
 For the creation kinds, spawn the comprehension gate only after Step 6 reports
 the inner loop dual-clean and (for `phase1-creation`) the S3 gate is clear. For
-the interactive kinds, the comprehension read is the first and only review pass —
-there is no inner loop and no gate; spawn it once mechanical has zero blockers.
-Either way, spawn the `comprehension-review` agent via the `Agent` tool:
+the interactive kinds, the comprehension read is the cold-read pass (the only
+one, except on `design-sync`, which also runs the `readability-auditor` prose
+pass below) — there is no inner loop and no gate; spawn it once mechanical has
+zero blockers. Either way, spawn the `comprehension-review` agent via the
+`Agent` tool:
 
 - `subagent_type`: `comprehension-review`
 - `description`: `"Cold comprehension gate (<mutation_kind>)"`
@@ -609,6 +629,26 @@ For `design-sync`, also include in the params file body: *"This sync re-distills
 `design.md` from the current state of `design-mechanics.md`. Verify that every
 TL;DR and mechanism overview in `design.md` accurately summarizes the current
 mechanics file's content for the same-named section."*
+
+**Also spawn the `readability-auditor` for `design-sync` (the one prose owner,
+S4).** `design-sync` is the only interactive kind whose review surface adds a
+prose pass, because it rewrites the human-facing `design.md` prose. Spawn the
+cold `readability-auditor` over the re-distilled `design.md` so the prose
+AI-tell axis lands on exactly one reviewer (the auditor) and is never stranded
+on the de-warmed comprehension gate that runs it nowhere (D9/S4). This is a
+single cold prose pass, not the creation-kind inner loop: no author spawn, no
+absorption check, no per-round re-grounding, no cache warm-up (one auditor over
+the whole document). Spawn it via the `Agent` tool with `subagent_type:
+readability-auditor` and `description: "Readability audit (design-sync)"`,
+following the same params-file-plus-byte-identical-prompt contract. The
+auditor's params file carries `target=design`, `target_path=<design_path>`, and
+a whole-document `range` (the sync re-distills the whole `design.md`, so it is
+not range-sliced like a creation-kind fan-out); it names **no**
+`research_log_path` (S1 — the auditor never reads the log). The auditor's
+findings merge into the same single-agent fix loop (Step 6) as the
+comprehension-gate findings; the loop's inline fixes re-distill the flagged
+prose, and the loop re-runs the auditor on the next iteration like any other
+finding source.
 
 The comprehension gate returns a structured Markdown verdict per the prompt's
 output format, in one of two shapes split by whether `output_path` was injected
@@ -721,6 +761,16 @@ dual-clean exit, S5). Run each round in this order:
    `blocker`, iterate mechanical-first (re-spawn the author with the mechanical
    findings as flagged passages) before spending the round's auditor and
    second-check spawns — Step 4's blocker-skip applies to the per-round pair.
+   **A mechanical-first re-spawn consumes a round: decrement the iteration
+   budget (step 5's counter) and loop back to step 1.** This re-spawn skips the
+   pair (steps 3-4) but is not free — without the decrement an author that
+   cannot clear a mechanical blocker (a stamp-position check it cannot satisfy,
+   a link-resolution failure that is not the author's to fix) would re-spawn
+   forever, since steps 3-5 are never reached. With the decrement the
+   mechanical-first sub-loop is bounded by the same `iteration_budget` as the
+   rest of Step 6: when the budget reaches zero on a still-blocking mechanical
+   finding, exit to the user as a non-self-correcting mechanical failure rather
+   than re-spawning.
 
 3. **Spawn the per-round pair** per Step 4's contract: the readability-auditor
    fan-out (one spawn per slice, sequenced behind the cache warm-up) and the
@@ -755,8 +805,10 @@ passes, or the budget is spent.
 #### The single-agent fix loop (interactive kinds)
 
 For every interactive mutation kind, Step 6 is the single-agent fix loop, applied
-to the merged mechanical + comprehension-gate findings (Step 5). Each iteration
-runs in this order until the budget is exhausted or no findings remain:
+to the merged mechanical + comprehension-gate findings (Step 5), plus the
+`readability-auditor` prose findings on `design-sync` (the one prose owner, S4).
+Each iteration runs in this order until the budget is exhausted or no findings
+remain:
 
 1. **Address blockers first.** For each `blocker` finding:
    - **`auto_applicable: true`**: the script has flagged this finding as
@@ -772,10 +824,11 @@ runs in this order until the budget is exhausted or no findings remain:
    the same auto-vs-manual flow. `suggestion` findings are not retried —
    they are recorded in the review log only.
 3. **Re-run mechanical checks; then, if mechanical now passes, re-run the
-   comprehension-gate cold-read. Replace the prior findings list with the new
-   one.** No interactive mutation kind runs an in-skill adversarial sub-agent or
-   the S3 gate (those are `phase1-creation`-only). The loop's exit conditions
-   below are unchanged.
+   comprehension-gate cold-read — and on `design-sync`, re-run the
+   `readability-auditor` prose pass as well. Replace the prior findings list
+   with the new one.** No interactive mutation kind runs an in-skill adversarial
+   sub-agent or the S3 gate (those are `phase1-creation`-only). The loop's exit
+   conditions below are unchanged.
 4. **Decrement the iteration budget.** Stop when the budget reaches
    zero or all blocker + should-fix findings are gone.
 
@@ -924,7 +977,7 @@ delta between X and Y is incidental; default to (c) when the delta changes
 the meaning of the request.
 
 ## Tools used
-<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The tools the skill invokes: the mechanical-check script, Edit/Write, and the cold-read sub-agent spawn." -->
+<!-- roles=orchestrator,planner,final-designer phases=1,4 summary="The tools the skill invokes: the mechanical-check script, Edit/Write, and the author and review-role spawns." -->
 
 - `Read` — verify file state, read review log for mutation count and last
   sync point, read the research log's `## Adversarial gate record` for the S3
@@ -936,10 +989,12 @@ the meaning of the request.
   delay if the harness offers a non-blocking fixed-delay mechanism (the warm-up
   is disabled otherwise, see the fan-out warm-up paragraph).
 - `Agent` — spawn the review roles. On the interactive kinds, one
-  `comprehension-review` spawn (skipped for `mechanics-edit`). On the creation
-  kinds, the `design-author` (per round), the `readability-auditor` fan-out (per
-  round, per slice), the round's second check (`absorption-check` at
-  `phase1-creation`), and the post-loop `comprehension-review` gate.
+  `comprehension-review` spawn (skipped for `mechanics-edit`), plus one cold
+  `readability-auditor` prose pass on `design-sync` (the one prose owner, S4).
+  On the creation kinds, the `design-author` (per round), the
+  `readability-auditor` fan-out (per round, per slice), the round's second check
+  (`absorption-check` at `phase1-creation`), and the post-loop
+  `comprehension-review` gate.
 - `Edit` (append-mode via full-content read) — write the review-log entry.
 
 ## When NOT to use this skill

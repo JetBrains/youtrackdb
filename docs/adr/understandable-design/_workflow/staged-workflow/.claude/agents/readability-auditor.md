@@ -1,6 +1,6 @@
 ---
 name: readability-auditor
-description: "Cold readability auditor for `design.md` and track files: reads `house-style.md` and the document slice only, never the research log, and reports every passage a mid-level developer cannot reconstruct from the document alone. Owns the prose AI-tell axis and the prose half of the human-reader checks. Range-sliced fan-out reusing the readability-feedback audit contract; Read and Grep only."
+description: "Cold readability auditor for `design.md` and track files: reads house-style and the document slice only, never the research log, and reports every passage a mid-level developer cannot reconstruct from the document alone. Owns the prose AI-tell axis. Range-sliced fan-out. Spawned by edit-design (and create-plan Step 4b for track files)."
 tools: Read, Grep
 model: opus
 ---
