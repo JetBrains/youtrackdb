@@ -62,11 +62,11 @@ There is exactly one sanctioned moment where the log's contents get a structured
 
 When you say "create the plan", Phase 0 does not flow straight into writing artifacts. Three things happen at the Phase 0 to Phase 1 boundary, in order, before any plan or design line is authored.
 
-First, the agent does a quiet completeness check of its own log against the conversation, appending anything that was settled but not yet written down. The user-facing output of this step is a plain-language summary of the findings — the one sanctioned structured recap mentioned above. It is a summary of what was learned and decided, not a tour of the log's sections.
+First, the agent does a quiet completeness check of its own log against the conversation, appending anything that was settled but not yet written down. The user-facing output of this check is a plain-language summary of the findings — the one sanctioned structured recap mentioned above. It is a summary of what was learned and decided, not a tour of the log's sections.
 
 Second, the agent proposes a tier. This is the tier gate from [Chapter 3](03-tiers-and-the-tier-gate.md), run against the now-complete log: does the change need a design document, and does it span multiple tracks? The proposal comes to you for confirmation, and you can override the tier or adjust the review lenses before it proceeds.
 
-Third, and this is the step that makes Phase 0 more than note-taking, the workflow runs an *adversarial review* on the research log as a gate. A reviewer reads the log and attacks the decisions: are the `**Why:**` fields actually load-bearing, are the rejected alternatives genuinely worse, is anything assumed that the exploration never verified? Because the research log is the one artifact present in every tier, the gate runs on the log itself rather than on a tier-specific document. That is why the log carries its `**Why:**` and `**Alternatives rejected:**` fields in the structured form it does: those fields exist to be challenged here.
+Third, and this is the part that makes Phase 0 more than note-taking, the workflow runs an *adversarial review* on the research log as a gate. A reviewer reads the log and attacks the decisions: are the `**Why:**` fields actually load-bearing, are the rejected alternatives genuinely worse, is anything assumed that the exploration never verified? Because the research log is the one artifact present in every tier, the gate runs on the log itself rather than on a tier-specific document. That is why the log carries its `**Why:**` and `**Alternatives rejected:**` fields in the structured form it does: those fields exist to be challenged here.
 
 ```mermaid
 flowchart TD

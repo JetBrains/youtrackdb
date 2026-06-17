@@ -1,6 +1,6 @@
 # Chapter 1 — The workflow at a glance
 
-This project runs every non-trivial code change through a fixed sequence of steps: you research the problem, design and plan the change, get the plan checked, build it track by track, and write down what survives the merge. This chapter teaches that sequence and the one rule that holds it together: each step runs in its own session, with the context from the previous step cleared. You start here because nothing comes before it. By the end you will know the shape of a run and why it is shaped that way, which is what every later chapter builds on.
+This project runs every non-trivial code change through a fixed sequence of phases: you research the problem, design and plan the change, get the plan checked, build it track by track, and write down what survives the merge. This chapter teaches that sequence and the one rule that holds it together: each phase runs in its own session, with the context from the previous phase cleared. You start here because nothing comes before it. By the end you will know the shape of a run and why it is shaped that way, which is what every later chapter builds on.
 
 ## The problem the workflow solves
 

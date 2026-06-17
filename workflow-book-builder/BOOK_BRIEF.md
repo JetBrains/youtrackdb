@@ -48,6 +48,7 @@ The reader's goal is to run a change through the workflow end to end without a m
 
 - **File and concept names** in `monospace` (backticks). Always, for any workflow file or identifier.
 - **Defined terms** in *italics* on first use within a chapter; in **bold italics** if the term is in the glossary.
+- **Reserved terms keep their defined meaning.** The vocabulary the book defines — *phase*, *tier*, *track*, *step*, *episode*, *gate*, *drift* — each names one concept, and none of these words is used in a loose or generic sense that is not that concept. For a generic stage of a process, write "phase" (when it is one of the five), "stage", or "part" — never "step", which is the unit a track is decomposed into. The collision is worst before the defining chapter: an early chapter that calls the five phases "a sequence of steps" mis-trains the reader against the later definition.
 - **File paths** are relative to the repository root, with a section anchor when the citation depends on a specific section.
 - **Diagrams** captioned `**Figure N.K — caption.**` below the closing fence; tables `**Table N.K — caption.**` above the table. `N` is the chapter number, `K` the index within the chapter.
 - **Chapters** numbered with Arabic numerals; **parts** numbered with Roman numerals.
