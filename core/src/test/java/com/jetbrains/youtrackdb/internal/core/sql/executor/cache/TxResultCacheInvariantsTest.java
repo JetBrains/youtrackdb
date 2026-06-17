@@ -698,7 +698,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
       // The held view must still yield its full result: the one row already pulled plus the remaining
       // two, three rows total, with no loss to LRU pressure.
       var remaining = drainRows(held);
-      assertEquals("a pinned live view keeps its full result under LRU pressure (I9)", 2,
+      assertEquals("a pinned live view keeps its full result under LRU pressure)", 2,
           remaining.size());
       // Assert content, not just count: the pulled row plus the remaining two must be exactly the
       // seeded set {0, 1, 2} — eviction pressure must not drop a real row or replay a duplicate of the
