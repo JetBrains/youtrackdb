@@ -743,7 +743,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * The load-bearing classify-ordering guard (I10 depends on it): an {@code ORDER BY} + {@code LIMIT}
+   * The load-bearing classify-ordering guard: an {@code ORDER BY} + {@code LIMIT}
    * query must classify as K0_NONE, never RECORD, because the SKIP/LIMIT gate runs before the RECORD
    * branch. {@code OrderByStep} + LIMIT is a bounded-heap materialiser that discards rows past top-N,
    * so a cached top-N prefix could not promote row N+1 after an in-tx delete; treating it as RECORD
@@ -977,7 +977,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // Flag-off transparency floor
   // ===========================================================================
 
-  /** With the flag off no cache is allocated and repeated queries behave exactly as before (I10). */
+  /** With the flag off no cache is allocated and repeated queries behave exactly as before. */
   @Test
   public void flagOff_noCacheAllocatedAndBehaviourUnchanged() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
