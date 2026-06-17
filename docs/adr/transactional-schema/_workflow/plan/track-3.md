@@ -19,13 +19,14 @@ permit handshake and the freezer gate are Track 7.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-17T07:40Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-17T08:41Z [ctx=safe] Step 1 complete (commit a760ab91a7)
 - [x] 2026-06-17T10:04Z [ctx=safe] Step 2 complete (commit f465ad7ef6)
 - [x] 2026-06-17T11:12Z [ctx=info] Step 3 complete (commit ce946a47ec)
+- [x] 2026-06-17T12:30Z [ctx=info] Step 4 complete (commit 1e99e6dc73)
 
 ## Surprises & Discoveries
 - **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
@@ -64,6 +65,17 @@ permit handshake and the freezer gate are Track 7.
   (not the read-only write-view probe), so the Step 4 mutex engage must sit above the
   seed on every de-guarded path, including the direct index-manager entry points. See
   Episodes §Step 3.
+- 2026-06-17T12:30Z Step 4 set the mutex's cross-track contracts: Track 7 widens the
+  Holder to `(session, ordinal, thread)` and its compare-and-clear must stay
+  session(+ordinal)-keyed so it never double-releases against the normal `close()`
+  release shipped here; the mutex is orthogonal to data commits and snapshot reads,
+  which D19's whole-commit write-lock work (Track 4) must preserve; the in-tx
+  null-class membership branch now throws a loud `IndexException`, which Track 5
+  should revisit once the index overlay lands. See Episodes §Step 4.
+- 2026-06-17T12:30Z Phase B handoff: the Track 3 cumulative code diff is ~2461
+  insertions / 215 deletions across 20 files (~873 test lines) — over the ~2,000
+  review-burden soft flag, well under the ~4,000 split threshold. Phase C reviews the
+  full cumulative diff; all four steps are `high`, so they are its focal points.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -232,7 +244,7 @@ preservation through the round-trip serializer.
 1. Tx-local schema view foundation: add `TxSchemaState` (the tx-local `SchemaShared` copy plus the changed-class set, held per session/transaction) and `SchemaShared.copyForTx`, which seeds the copy by `new SchemaShared(); copy.fromStream(session, committed.toStream(session))` under the committed `SchemaShared.lock` write lock, preserving each class's per-class record RID and the recomputed cross-class derived state through the round trip — risk: high (architecture / cross-component coordination: introduces the tx-local schema abstraction)  [x]  commit: a760ab91a7
 2. Three-tier proxy routing seam: funnel every `SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one `resolve()` helper on `ProxedResource` (tier 1 snapshot reads untouched; tier 2 captured-`delegate` fast path when no schema-tx write-view; tier 3 name-rebind into the tx-local copy during the session's schema tx), seed the tx-local copy on the first routed write, route proxies minted mid-tx (e.g. via `SchemaProxy.getClass`) the same way, and re-resolve impl-typed arguments by name before linking so no shared impl enters the tx-local graph — risk: high (architecture / cross-component coordination: changes the schema proxy resolution model; isolation-critical)  [x]  commit: f465ad7ef6
 3. De-guard the mutation entry points: convert the throw-guards (`SchemaShared` schema-record save, `dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to write into the tx-local copy when a tx is active, and replace the `executeInTxInternal` body at `IndexManagerEmbedded.addCollectionToIndex` / `removeCollectionFromIndex` so the polymorphic membership ripple records into the tx-local changed-class set instead of the eager shared `Index.collectionsToIndex` apply — risk: high (architecture / cross-component coordination: changes transactional schema-mutation control flow; the I-A7 silent-leak surface)  [x]  commit: ce946a47ec
-4. Add the `MetadataWriteMutex` `Semaphore(1)` with a holder recording the owning `session` and acquiring `thread`, engage it at the write-routing decision point strictly above any shared metadata lock and before the tx-local seed (asserting no shared metadata lock is yet held by this thread), throw the same-thread loud-reject when the current thread already holds the permit through a different session, and release the permit once the outermost transaction frame closes (idempotent against Track 7's later compare-and-clear) — risk: high (concurrency: new Semaphore, lock-acquisition ordering, shared session/thread holder, same-thread reject)  [ ]
+4. Add the `MetadataWriteMutex` `Semaphore(1)` with a holder recording the owning `session` and acquiring `thread`, engage it at the write-routing decision point strictly above any shared metadata lock and before the tx-local seed (asserting no shared metadata lock is yet held by this thread), throw the same-thread loud-reject when the current thread already holds the permit through a different session, and release the permit once the outermost transaction frame closes (idempotent against Track 7's later compare-and-clear) — risk: high (concurrency: new Semaphore, lock-acquisition ordering, shared session/thread holder, same-thread reject)  [x]  commit: 1e99e6dc73
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -445,6 +457,63 @@ promote a tx-deferred index (build the engine and register it at commit). The
 eager structural collection allocation on an in-tx `createClass` is still NOT
 inverted (Track 4 / D2), so a rolled-back in-tx create can leave a stray
 collection on disk — a known Track-4-owned intermediate state.
+
+### Step 4 — commit 1e99e6dc73, 2026-06-17T12:30Z [ctx=info]
+**What was done:** Added the storage-scoped `MetadataWriteMutex` (`Semaphore(1)`
+plus a `(session, thread)` Holder) on `SharedContext`, one per storage. Engage
+runs inside `DatabaseSessionEmbedded.ensureTxSchemaState` — the single seam every
+de-guarded write path (proxy `resolveForWrite` plus the three
+`IndexManagerEmbedded` de-guards) funnels through — strictly before the
+`copyForTx` seed and above any shared metadata lock. The engage-order assert
+checks the current thread holds neither `SchemaShared.lock` nor the index-manager
+write lock at engage (new `isWriteLockHeldByCurrentThread` accessors; the
+index-manager lock field was retyped to `ReentrantReadWriteLock`). `engage()`
+throws the same-thread loud-reject when the thread already holds the permit
+through a different session. The normal release fires in
+`FrontendTransactionImpl.close()` (the single outermost-frame teardown both commit
+and rollback reach), gated on a `volatile` session field `metadataMutexEngaged`
+that survives the tx custom-data wipe, via a session-keyed compare-and-clear
+(`releaseFor`) idempotent against Track 7's later abnormal-release. The engage→seed
+window is wrapped so a seed failure releases the permit before rethrowing.
+`MetadataWriteMutexTest` (6 tests) covers two-tx serialization-without-abort,
+held-mutex orthogonality to data commits and snapshot reads, the same-thread
+reject, foreign-thread parking until release, and the engage-order assert for both
+the schema and index-manager locks; the blocking proofs observe the parked thread
+state (WAITING on the permit) deterministically, not via `Thread.sleep`. The full
+core suite ran green (~18604 tests).
+
+**What was discovered:** The release marker cannot live in the transaction's
+custom-data map — `FrontendTransactionImpl.clear()` (reached from both `close()`
+and `rollbackInternal`) wipes `userData` before the outermost `close()` release
+runs, so a marker stored there would be gone at release time. It is held as a
+`volatile` `DatabaseSessionEmbedded` field instead, the surviving session-side
+record the mutex-lifecycle design calls for. The engage-above-the-shared-locks
+invariant is what makes the second schema writer park on the permit (not an
+intermediate lock) first, which the deterministic blocking test relies on. The
+Step 3 episode's "2043" was a subset count; the full core unit suite is ~18604.
+
+**What changed from the plan:** None. Scope matches D7 — primitive, engage,
+same-thread reject, and normal idempotent release; the abnormal-termination
+handshake, the acquire ordinal, and the freezer gate are deferred to Track 7 as
+planned.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutex.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/SharedContext.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/tx/FrontendTransactionImpl.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/MetadataWriteMutexTest.java` (new)
+
+**Critical context:** The Holder is currently `(session, thread)`; Track 7 widens
+it to `(session, ordinal, thread)` and its compare-and-clear must stay
+session(+ordinal)-keyed so it never double-releases against the normal `close()`
+release shipped here. The mutex deliberately does NOT block data commits or
+snapshot-based schema reads (the orthogonality property) — D19's whole-commit
+write-lock work must preserve this. The in-tx null-class membership branch now
+throws a loud `IndexException` (the BC3 fix); Track 5 (index overlay routing)
+should confirm whether that branch should exist at all once the overlay lands.
 
 ## Idempotence and Recovery
 - **Engage-order assert.** A Java `assert` at the engage point states that when a
