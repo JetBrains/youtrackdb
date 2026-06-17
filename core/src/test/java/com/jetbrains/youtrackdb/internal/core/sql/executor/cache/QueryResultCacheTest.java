@@ -19,10 +19,10 @@ import org.junit.experimental.categories.Category;
 
 /**
  * Verifies the lookup/eviction/invalidation contract of {@link QueryResultCache}: the access-order
- * LRU bound with live-view pinning (I9), the K0_NONE mutation-version gate with strike-based routing
+ * LRU bound with live-view pinning, the K0_NONE mutation-version gate with strike-based routing
  * to the non-cacheable set, the two re-entrancy guards' lookup-level boolean, the
- * snapshot-before-iterate close paths, and the idempotent transaction-end {@code clear()} (I6) that
- * closes every entry's paused stream (I3).
+ * snapshot-before-iterate close paths, and the idempotent transaction-end {@code clear()} that
+ * closes every entry's paused stream.
  *
  * <p>The cache reads {@code maxEntries} and {@code k0NoneInvalidationThreshold} from {@link
  * GlobalConfiguration} at construction, so each test sets a small, known bound before constructing
@@ -111,7 +111,7 @@ public class QueryResultCacheTest extends DbTestBase {
 
   /**
    * With {@code maxEntries == 1}, putting a second unpinned entry must evict the least-recently-used
-   * one: its stream is closed (I3), an overflow is counted, and its key is routed to the
+   * one: its stream is closed, an overflow is counted, and its key is routed to the
    * non-cacheable set so it does not immediately re-populate. The surviving entry stays
    * reachable.
    */
