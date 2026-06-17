@@ -455,7 +455,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * Commit runs the transaction-end clear sink and wipes the cache (I1). The reference is captured
+   * Commit runs the transaction-end clear sink and wipes the cache. The reference is captured
    * before commit because the transaction state is reset by the end path.
    */
   @Test
@@ -470,7 +470,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
     assertEquals("commit clears the cache", 0, cache.size());
   }
 
-  /** Rollback runs the same tx-end clear sink and wipes the cache (I1). */
+  /** Rollback runs the same tx-end clear sink and wipes the cache. */
   @Test
   public void i1_rollbackClearsCache() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
