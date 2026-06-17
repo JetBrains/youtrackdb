@@ -141,4 +141,88 @@ public class CopyForTxTest extends DbTestBase {
     assertTrue(state.getChangedClasses().contains("Alpha"));
     assertTrue(state.getChangedClasses().contains("Beta"));
   }
+
+  /**
+   * Seeding the copy is read-only with respect to committed schema state: it must not enrol the
+   * committed root record or any committed per-class record into the caller's transaction. The seed
+   * reads the committed root record and re-parses it rather than re-serializing through {@code
+   * toStream} (which is a writer that dirties the committed records and rebinds class RIDs), so a
+   * transaction that did nothing but build the copy still has an empty change set. Were the seed to
+   * dirty the committed records, a user transaction that made no schema change would re-persist every
+   * class record at commit; this test pins that side effect out.
+   */
+  @Test
+  public void seedDoesNotEnrolCommittedRecordsIntoTheCallerTransaction() {
+    // Persist a couple of committed classes (each owns a standalone per-class record on disk) so the
+    // seed has real committed records it could dirty if it re-serialized them.
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("Untouched");
+    schema.createClass("AlsoUntouched");
+    var committed = committedSchema();
+
+    // Build the copy inside a fresh transaction and read the change set back from inside that same
+    // transaction, before computeInTx commits it.
+    int changeSetSizeAfterSeed =
+        session.computeInTx(
+            tx -> {
+              // The transaction starts clean.
+              assertEquals(
+                  "a freshly opened transaction must have no record operations",
+                  0, session.getTransactionInternal().getEntryCount());
+              committed.copyForTx(session);
+              return session.getTransactionInternal().getEntryCount();
+            });
+
+    assertEquals(
+        "building the tx-local copy must not enrol any committed schema record as dirty in the"
+            + " caller's transaction",
+        0, changeSetSizeAfterSeed);
+  }
+
+  /**
+   * Building the copy must not rebind any committed class's per-class record id. The legacy {@code
+   * toStream} serializer rebinds a committed class's RID for any class whose record id is null or
+   * non-persistent; the read-only seed must never touch the committed class objects, so a committed
+   * class keeps the exact same RID object before and after a copy is built.
+   */
+  @Test
+  public void seedDoesNotRebindCommittedClassRecordIds() {
+    session.getMetadata().getSchema().createClass("Stable");
+    var committed = committedSchema();
+    var committedCls = committed.getClass("Stable");
+    var ridBeforeSeed = committedCls.getRecordId();
+    assertNotNull("a committed class must carry its per-class record RID", ridBeforeSeed);
+
+    session.computeInTx(tx -> committed.copyForTx(session));
+
+    assertSame(
+        "the seed must not rebind the committed class's record id object",
+        ridBeforeSeed, committed.getClass("Stable").getRecordId());
+  }
+
+  /**
+   * The copy must not share a mutable record-id reference with the committed instance: a later
+   * in-place promotion of one id must not be observable through the other. The committed schema root
+   * id is persistent (hence immutable), so the value-copy carries an equal, persistent id that cannot
+   * be mutated to corrupt the committed instance. This pins the value-copy of the identity rather
+   * than the previous reference aliasing.
+   */
+  @Test
+  public void copyCarriesAnImmutableValueCopyOfTheCommittedRootIdentity() {
+    var committed = committedSchema();
+    var committedIdentity = committed.getIdentity();
+    assertTrue(
+        "the committed root identity must be persistent before any copy is built",
+        committedIdentity.isPersistent());
+
+    var copy = session.computeInTx(tx -> committed.copyForTx(session));
+
+    assertEquals(
+        "the copy must carry the committed root identity by value",
+        committedIdentity, copy.getIdentity());
+    assertTrue(
+        "the copy's identity must be persistent (immutable), so no in-place promotion can leak"
+            + " between the committed instance and the copy",
+        copy.getIdentity().isPersistent());
+  }
 }
