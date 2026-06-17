@@ -35,9 +35,9 @@ import org.junit.Test;
 
 /**
  * Verifies {@link CachedResultSetView} — the consumer-facing {@code ResultSet} that reconstructs the
- * rows a fresh uncached execution would return (I10) by sorted-merging a {@link CachedEntry}'s frozen
- * output with a {@link TxDeltaCursor}, and by pinning the entry against eviction while it iterates
- * (I9). The view is unit-tested directly against synthetic entries and cursors (the session wiring
+ * rows a fresh uncached execution would return by sorted-merging a {@link CachedEntry}'s frozen
+ * output with a {@link TxDeltaCursor}, and by pinning the entry against eviction while it iterates.
+ * The view is unit-tested directly against synthetic entries and cursors (the session wiring
  * lands in a later step), so each test stages a known {@code (cache rows, skipSet, injectList)} shape
  * and asserts the merged emission order, the pin refcount, and the idempotent close.
  *
