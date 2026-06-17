@@ -708,3 +708,10 @@ develop baseline the staged workflow forks from, filled as the baseline is
 established during planning. -->
 
 ## Adversarial gate record
+
+### Adversarial review of this log (2026-06-17T07:37Z) — NEEDS REVISION: 0 blocker, 6 should-fix, 3 suggestion
+Review file: `_workflow/reviews/research-log-adversarial-iter1.md`. Two load-bearing
+open questions still open (A1 prose-axis landing site, A2 dual-clean loop
+convergence/cost); A3–A6 are decisions that survive with under-stated rationale; A7–A9
+are suggestions. Resolutions appended to the Decision Log this iteration; re-challenge
+at iteration 2.
