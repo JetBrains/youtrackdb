@@ -25,8 +25,7 @@ import javax.annotation.Nullable;
  * aggregate side-tap, which {@link #observe}s every contributing record before the aggregation step
  * collapses them into a scalar; at view construction the delta builder {@link #copy copies} it and
  * {@link #applyMutation replays} the transaction's post-populate mutations onto the copy, so {@link
- * #toResult} returns exactly the scalar a fresh uncached execution would compute at that moment
- * (invariant I4).
+ * #toResult} returns exactly the scalar a fresh uncached execution would compute at that moment.
  *
  * <p><b>Storage parity.</b> SUM and AVG fold their values through the same {@link
  * PropertyTypeInternal#increment} call storage's {@code SQLFunctionSum.sum} / {@code
