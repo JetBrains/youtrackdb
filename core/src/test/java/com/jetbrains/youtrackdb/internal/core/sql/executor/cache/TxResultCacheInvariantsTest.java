@@ -517,7 +517,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // I6 — idempotent clear
   // ===========================================================================
 
-  /** A second {@code clear()} after the tx-end clear is a no-op: the cache stays empty (I6). */
+  /** A second {@code clear()} after the tx-end clear is a no-op: the cache stays empty. */
   @Test
   public void i6_secondClearIsNoOp() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
