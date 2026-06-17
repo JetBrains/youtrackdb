@@ -286,9 +286,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * is wiped by the transaction's {@code clear()} before the outermost teardown runs the release, so
    * a marker living there would be gone by release time. This session-side marker survives that wipe
    * and is the record the normal release reads, mirroring the design's surviving session-side record
-   * (the later track adds the acquire ordinal alongside it).
+   * (the later track adds the acquire ordinal alongside it). It is {@code volatile} because the
+   * release runs from the transaction's outermost teardown, which a pool-reaper thread can drive
+   * cross-thread on pool shutdown (the engaging owner thread may be gone); the volatile read gives
+   * the reaper a happens-before edge to the owner's engage-time write so a needed release is never
+   * skipped on a stale {@code false}.
    */
-  private boolean metadataMutexEngaged = false;
+  private volatile boolean metadataMutexEngaged = false;
 
   private boolean prefetchRecords;
 
@@ -3467,11 +3471,23 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     // path funnels through (the proxy resolveForWrite and the index-manager paths all reach seeding
     // here), so engaging here covers every write path with one placement.
     engageMetadataWriteMutex();
-
-    SchemaShared committed = getSharedContext().getSchema();
-    var state = new TxSchemaState(committed.copyForTx(this));
-    tx.setCustomData(TX_SCHEMA_STATE_KEY, state);
-    return state;
+    try {
+      SchemaShared committed = getSharedContext().getSchema();
+      var state = new TxSchemaState(committed.copyForTx(this));
+      tx.setCustomData(TX_SCHEMA_STATE_KEY, state);
+      return state;
+    } catch (RuntimeException | Error e) {
+      // The seed loads and re-parses records and can throw (record-not-found, I/O, a malformed
+      // per-class record, a non-persistent linked id). The custom-data marker that records "the seed
+      // exists" has not been written yet, so undo the engage before rethrowing: otherwise the permit
+      // would be stranded if the transaction is later abandoned, and a same-tx retry of the schema
+      // write would re-enter here with no seed recorded and call engage() again on the same thread
+      // that already holds the single permit, parking forever. releaseMetadataWriteMutexForTx clears
+      // the marker and the permit and is idempotent, so the normal teardown release that still fires
+      // on close() is a no-op.
+      releaseMetadataWriteMutexForTx();
+      throw e;
+    }
   }
 
   /**
