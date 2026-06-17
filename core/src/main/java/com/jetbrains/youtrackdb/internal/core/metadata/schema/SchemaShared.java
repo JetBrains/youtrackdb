@@ -72,6 +72,15 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
+  /**
+   * Whether the current thread holds this schema's write lock. Used by the metadata-write mutex
+   * engage-order assertion to prove the mutex is engaged strictly above this shared metadata lock
+   * (never from inside its acquisition), which is what keeps the four-lock order acyclic.
+   */
+  public boolean isWriteLockHeldByCurrentThread() {
+    return lock.isWriteLockedByCurrentThread();
+  }
+
   protected final Map<String, SchemaClassImpl> classes = new HashMap<>();
   protected final Int2ObjectOpenHashMap<SchemaClassImpl> collectionsToClasses =
       new Int2ObjectOpenHashMap<>();

@@ -41,7 +41,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -57,7 +56,16 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
   protected final AtomicInteger writeLockNesting = new AtomicInteger();
 
-  private final ReadWriteLock lock = new ReentrantReadWriteLock();
+  private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+
+  /**
+   * Whether the current thread holds the index manager's write lock. Used by the metadata-write
+   * mutex engage-order assertion to prove the mutex is engaged strictly above this shared metadata
+   * lock (never from inside its acquisition), which is what keeps the four-lock order acyclic.
+   */
+  public boolean isWriteLockHeldByCurrentThread() {
+    return lock.isWriteLockedByCurrentThread();
+  }
 
   public IndexManagerEmbedded(AbstractStorage storage) {
     super(storage);
