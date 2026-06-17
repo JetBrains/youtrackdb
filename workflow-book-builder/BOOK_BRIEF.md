@@ -51,6 +51,7 @@ The reader's goal is to run a change through the workflow end to end without a m
 - **File paths** are relative to the repository root, with a section anchor when the citation depends on a specific section.
 - **Diagrams** captioned `**Figure N.K — caption.**` below the closing fence; tables `**Table N.K — caption.**` above the table. `N` is the chapter number, `K` the index within the chapter.
 - **Chapters** numbered with Arabic numerals; **parts** numbered with Roman numerals.
+- **Chapter cross-references are links.** When the prose refers to another chapter by number, write it as a relative Markdown link to that chapter's file: `[Chapter 3](03-tiers-and-the-tier-gate.md)`. In a range or a list, link each numeral: `Chapters [4](04-phase-0-research.md) through [6](06-phase-1-plan-and-tracks.md)`. Do not link a non-numbered reference ("the next chapter", "later chapters"), a chapter's reference to its own number, a Figure or Table reference, a source-file citation in *Further reading*, or a chapter number inside a Mermaid node label — a link there renders as literal text and corrupts the diagram.
 - **House style applies.** All book prose follows the project house style at `.claude/output-styles/house-style.md`: BLUF lead, the banned-vocabulary list, em-dash discipline, and the structural rules. The book is a durable artifact under `docs/`, so it is in scope for the full rule set.
 
 ## What the book is *not*

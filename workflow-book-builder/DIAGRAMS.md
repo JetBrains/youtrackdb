@@ -22,6 +22,7 @@ When two types both fit, choose the one that carries the figure's one idea (`BOO
 - **Quote labels with special characters.** Wrap a label in double quotes when it contains characters Mermaid would otherwise parse, such as parentheses, a slash, a colon, or `full`/`lite`/`minimal` written with backticks-as-text. For example `A["Phase 0: research"]` rather than `A[Phase 0: research]`.
 - **Caption every figure.** Below the closing fence, write `**Figure N.K — caption.**`, where `N` is the chapter number and `K` the index within the chapter. The caption states the one idea the figure carries.
 - **One idea per figure.** A diagram that restates the prose earns nothing; delete one of them (`BOOK_BRIEF.md` rule 7). If a figure needs a second idea, it is two figures.
+- **No links inside labels.** A node or edge label is plain text. A Markdown link inside a label — including a chapter cross-reference like `[Chapter 3](03-...md)` — renders as the literal characters `[...]( ...)` and corrupts the diagram. Name the chapter in the surrounding prose, not in the label.
 
 ## How to add a figure
 
