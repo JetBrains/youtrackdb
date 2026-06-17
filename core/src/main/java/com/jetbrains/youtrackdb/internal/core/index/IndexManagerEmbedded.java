@@ -195,6 +195,16 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     if (!session.getTransactionInternal().isActive()) {
       return false;
     }
+    if (session.isSeedingTxSchemaState()) {
+      // The tx-local schema copy is mid-seed: its copyForTx re-parse rebuilds the committed
+      // inheritance tree, which ripples a subclass's collection into a superclass index and lands
+      // here. Recording it would re-enter ensureTxSchemaState before its marker is set (re-engaging
+      // the single-permit mutex on the seeding thread and self-deadlocking) and would pollute the
+      // changed-class set with committed classes the seed merely reconstructs. The shared Index is
+      // untouched and already carries these committed memberships, so a handled no-op is correct:
+      // return true so the caller skips the eager shared apply too.
+      return true;
+    }
     // Resolve the index's owning class BEFORE seeding the tx-local state so the engage does not run
     // when the change cannot be routed into the tx-local view. The shared read lock here is a read,
     // not a shared-state mutation, so it does not break the in-tx isolation the seam protects.

@@ -1,6 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -8,6 +10,9 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -302,5 +307,94 @@ public class SchemaProxyRoutingTest extends DbTestBase {
 
     assertNull("a null property argument must stay null",
         SchemaProxedResource.reresolvePropertyImpl(copy, null));
+  }
+
+  /**
+   * Seeding the tx-local schema copy for a committed schema whose indexed class already owns a
+   * subclass must complete without self-deadlocking or tripping the engage-order guard, and must not
+   * record the reconstructed committed classes as changed. The seed's {@code copyForTx} re-parse
+   * rebuilds the committed inheritance tree, which ripples the subclass's collection into the
+   * indexed superclass and routes through the index-manager's tx-local seam. Before the seeding
+   * guard existed, that ripple re-entered {@code ensureTxSchemaState} on the seeding thread (the seed
+   * marker is written only after the copy is built), engaging the single-permit mutex a second time
+   * and parking forever under disabled assertions, or tripping the engage-order guard with
+   * assertions on because the seed holds the committed schema write lock. The committed schema here
+   * deliberately has the polymorphic-index shape (an indexed superclass with a subclass) that the
+   * other routing tests lack, which is why only this scenario exercises the ripple. The seed runs on
+   * a bounded watchdog thread so a regression surfaces as a timeout or a captured throwable rather
+   * than hanging the test JVM.
+   */
+  @Test
+  public void seedingWithIndexedSuperclassAndSubclassDoesNotReEnterEngageOrPolluteChangedClasses()
+      throws InterruptedException {
+    var schema = session.getMetadata().getSchema();
+    // Committed schema (built at the top level, outside any transaction): an indexed superclass with
+    // a subclass. The subclass's collection is a polymorphic member of the superclass index, so the
+    // copyForTx re-parse will ripple it into that index during inheritance rebuild.
+    var base = schema.createClass("IndexedBase");
+    base.createProperty("key", PropertyType.STRING);
+    base.createIndex("IndexedBase.key", SchemaClass.INDEX_TYPE.UNIQUE, "key");
+    schema.createClass("IndexedSub", base);
+
+    var seeded = new AtomicReference<TxSchemaState>();
+    var changedAtSeed = new AtomicReference<java.util.Set<String>>();
+    var failure = new AtomicReference<Throwable>();
+
+    // Run the seed on a separate thread with its own session: a regression that re-engages the
+    // single permit parks the seeding thread forever, so the bounded join below converts that hang
+    // into a test failure instead of stalling the surefire JVM. A daemon thread cannot keep the JVM
+    // alive if it leaks. The worker opens its own session (the committed IndexedBase/IndexedSub
+    // schema is visible to it because the top-level creates above are committed to shared storage);
+    // a session is thread-confined, so it must be opened and activated on the worker thread rather
+    // than reusing the test thread's session.
+    var worker =
+        new Thread(
+            () -> {
+              try (var workerSession = openDatabase()) {
+                workerSession.activateOnCurrentThread();
+                workerSession.executeInTx(
+                    tx -> {
+                      // First schema write of the transaction: this seeds the tx-local copy, which
+                      // re-parses the committed schema and ripples the polymorphic index membership.
+                      var state = workerSession.ensureTxSchemaState();
+                      seeded.set(state);
+                      // Snapshot the changed-class set right after the seed: it must be empty, proving
+                      // the committed classes reconstructed during the re-parse were not recorded as
+                      // changes of this transaction.
+                      changedAtSeed.set(new java.util.HashSet<>(state.getChangedClasses()));
+                    });
+              } catch (Throwable t) {
+                failure.set(t);
+              }
+            },
+            "seed-worker");
+    worker.setDaemon(true);
+    worker.start();
+    worker.join(15_000);
+
+    if (worker.isAlive()) {
+      worker.interrupt();
+      throw new AssertionError(
+          "seeding the tx-local copy for an indexed superclass with a subclass did not complete"
+              + " within 15s: the seed-time membership ripple re-entered the engage and parked on"
+              + " the single-permit mutex");
+    }
+    if (failure.get() != null) {
+      throw new AssertionError(
+          "seeding the tx-local copy threw instead of completing (an engage-order trip or a"
+              + " re-entrant engage): "
+              + failure.get(),
+          failure.get());
+    }
+
+    assertNotNull("the seed must produce a tx-local schema state", seeded.get());
+    assertTrue(
+        "the seed must reconstruct the indexed superclass into the tx-local copy",
+        seeded.get().getTxLocalSchema().existsClass("IndexedBase"));
+    assertEquals(
+        "the seed must not record the committed classes reconstructed during the re-parse as"
+            + " changed; the changed-class set must be empty right after seeding",
+        java.util.Collections.emptySet(),
+        changedAtSeed.get());
   }
 }
