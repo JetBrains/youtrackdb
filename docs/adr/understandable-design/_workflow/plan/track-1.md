@@ -451,3 +451,6 @@ live Agent-tool docs rather than copying a precedent (T2).
 - Constraint (D12): the author emits Mermaid diagrams; no SVG or ASCII diagram toolchain enters the branch.
 - Constraint (by-reference): author spawns return a thin summary only, never the drafted content.
 - Constraint (cross-track `target=tracks` seam, R1 / A1): de-warming `design-review.md` removes the prose AI-tell axis from the `target=tracks` surface, whose only spawner (`create-plan` Step 4b) is a Track 2 file; Track 1 leaves that spawn for Track 2 to migrate alongside the track-path auditor (D9). Because every edit stays staged until the single Phase 4 promotion (S7), the live workflow never runs `target=tracks` without a prose owner; the gap is a staged-tree-only intermediate that both tracks close together at promotion.
+
+## Base commit
+4d3962c97441218d8a78272e92f18b83955bef37
