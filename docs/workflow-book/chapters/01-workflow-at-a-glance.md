@@ -58,9 +58,9 @@ This raises an obvious question, and the workflow has an answer for it. If the s
 
 ## What to read next
 
-You now have the shape of a run: five phases in order, two skills that drive them, and one session per phase so context never carries across a boundary. What you do not yet have is the feel of an actual change moving through that shape. Chapter 2 supplies it. It walks one small change from the first request to the merge, through a short plan, the implement-test-commit loop, a review, and the close-out, at low altitude and without opening any phase in depth. Once you have a whole run in your head, the later chapters that open each phase will have somewhere to attach.
+You now have the shape of a run: five phases in order, two skills that drive them, and one session per phase so context never carries across a boundary. What you do not yet have is the feel of an actual change moving through that shape. [Chapter 2](02-minimal-change-end-to-end.md) supplies it. It walks one small change from the first request to the merge, through a short plan, the implement-test-commit loop, a review, and the close-out, at low altitude and without opening any phase in depth. Once you have a whole run in your head, the later chapters that open each phase will have somewhere to attach.
 
-If all you need right now is to ship one small change, the short route is Chapter 2 and then Chapter 3, which teaches the tier gate that decides how much of the rest applies to your change. Come back for the deeper machinery when a change is large enough to need it.
+If all you need right now is to ship one small change, the short route is [Chapter 2](02-minimal-change-end-to-end.md) and then [Chapter 3](03-tiers-and-the-tier-gate.md), which teaches the tier gate that decides how much of the rest applies to your change. Come back for the deeper machinery when a change is large enough to need it.
 
 ## Further reading
 

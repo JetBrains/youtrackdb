@@ -2,13 +2,13 @@
 
 This chapter runs one small change all the way through the workflow, at low altitude, so the five phases stop being a list and become a shape you can hold in your head. You will not learn the internals of any phase here. You will learn what happens, in what order, from "I have a change to make" to "it is merged".
 
-Chapter 1 gave you the map: a change moves through five phases (research, planning, plan review, execution, and final artifacts), and each phase runs in its own session so context never bleeds across a boundary. That map is abstract until you have walked it once. So before any phase is opened in depth, watch a single change travel the whole distance. The deep dives in later chapters will then have somewhere to attach.
+[Chapter 1](01-workflow-at-a-glance.md) gave you the map: a change moves through five phases (research, planning, plan review, execution, and final artifacts), and each phase runs in its own session so context never bleeds across a boundary. That map is abstract until you have walked it once. So before any phase is opened in depth, watch a single change travel the whole distance. The deep dives in later chapters will then have somewhere to attach.
 
 ## The change we will follow
 
 Take a concrete, deliberately small change. A configuration default is wrong: the WAL segment size ships at a value that no longer matches how the engine is tuned, and the fix is to change one default and adjust the test that pins it. There is no new behavior to design, no API to shape, no second component to touch. It is the kind of change you would normally open an editor for, fix in two minutes, and push.
 
-The workflow still applies. What it does with a change this small is shed almost all of its machinery and run a stripped path. The reason it sheds, a gate that sizes a change and decides how much workflow it earns, is Chapter 3's subject. For now, take it on faith: because this change is tiny, with no design question and a single thread of work, it takes the lightest of the three tiers. The book calls that tier *`minimal`*. The rest of this chapter is what a `minimal` run looks like end to end.
+The workflow still applies. What it does with a change this small is shed almost all of its machinery and run a stripped path. The reason it sheds, a gate that sizes a change and decides how much workflow it earns, is [Chapter 3](03-tiers-and-the-tier-gate.md)'s subject. For now, take it on faith: because this change is tiny, with no design question and a single thread of work, it takes the lightest of the three tiers. The book calls that tier *`minimal`*. The rest of this chapter is what a `minimal` run looks like end to end.
 
 ## Phase 0 and Phase 1: research, then a short plan
 
@@ -47,7 +47,7 @@ The agent makes the edit: it changes the default and updates the test that pins 
 
 Each unit of work also writes an *episode*, a short durable note of what was done and what was learned, into the track file. For our change the episode is one entry: the default moved, the test was updated, the test passed. The episode is what a fresh session reads to understand what already happened, since the session that did the work is gone by then.
 
-After the work is implemented, the track is reviewed. The workflow runs a code review over the changes the track produced. For a change this small the review is light and turns up nothing, and the track is marked complete. Larger changes route a track through several specialized review agents at this point; that machinery is Chapter 11's subject, and a `minimal` change barely touches it.
+After the work is implemented, the track is reviewed. The workflow runs a code review over the changes the track produced. For a change this small the review is light and turns up nothing, and the track is marked complete. Larger changes route a track through several specialized review agents at this point; that machinery is [Chapter 11](11-dimensional-review-agents.md)'s subject, and a `minimal` change barely touches it.
 
 ```mermaid
 flowchart LR
@@ -74,7 +74,7 @@ The workflow stops there. It does not flip the PR to "ready for review" — you 
 
 You have watched a whole run. A request became a recorded research pass, then a sized plan, then a reviewed plan, then an implemented-and-tested track committed beat by beat to a draft PR, then a closed-out merge. You have met the words the rest of the book will define properly (research log, tier, track, episode, phase ledger, draft PR) by seeing the job each one does. None of them is yet defined in depth, and that is intentional.
 
-The one thing this run took on faith is the decision that made it so light: why a one-line change sheds almost all the machinery while a durability rework keeps it. That decision is the *tier gate*, and it runs before any of the phases you just watched. Chapter 3 opens it: the two questions the workflow asks about a change, and how their answers route it to the `full`, `lite`, or `minimal` tier — so that by the end of it you can place your own change in a tier and predict which of the later chapters apply to it.
+The one thing this run took on faith is the decision that made it so light: why a one-line change sheds almost all the machinery while a durability rework keeps it. That decision is the *tier gate*, and it runs before any of the phases you just watched. [Chapter 3](03-tiers-and-the-tier-gate.md) opens it: the two questions the workflow asks about a change, and how their answers route it to the `full`, `lite`, or `minimal` tier — so that by the end of it you can place your own change in a tier and predict which of the later chapters apply to it.
 
 ## Further reading
 
