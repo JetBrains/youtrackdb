@@ -1025,6 +1025,13 @@ public class FrontendTransactionImpl implements
     }
     session.setNoTxMode();
     status = TXSTATUS.INVALID;
+
+    // Outermost transaction frame is now closed (close() is reached only at the base nesting level,
+    // from both the commit and the rollback paths, so this fires exactly once per transaction). If
+    // this transaction engaged the metadata-write mutex on its first schema/index write, release the
+    // permit now. The release is a no-op when nothing was engaged and is idempotent against the
+    // later track's abnormal-termination compare-and-clear, so it never double-releases the permit.
+    session.releaseMetadataWriteMutexForTx();
   }
 
   private void clear() {

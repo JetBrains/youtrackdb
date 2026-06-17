@@ -47,6 +47,15 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
   protected StringCache stringCache;
   protected IndexManagerEmbedded indexManager;
 
+  /**
+   * The storage-scoped serialization point for schema- and index-changing transactions. One per
+   * storage, shared by every session on it: a schema transaction engages it on its first schema or
+   * index write and a second schema transaction blocks on it (single-writer by locking). It is not
+   * re-created across {@link #reInit}/{@link #close} because it serializes live in-flight schema
+   * transactions, which do not span a storage re-init.
+   */
+  private final MetadataWriteMutex metadataWriteMutex = new MetadataWriteMutex();
+
   private final ReentrantLock lock = new ReentrantLock();
 
   public SharedContext(AbstractStorage storage, YouTrackDBInternalEmbedded youtrackDB) {
@@ -278,6 +287,10 @@ public class SharedContext extends ListenerManger<MetadataUpdateListener> {
 
   public IndexManagerEmbedded getIndexManager() {
     return indexManager;
+  }
+
+  public MetadataWriteMutex getMetadataWriteMutex() {
+    return metadataWriteMutex;
   }
 
   public synchronized <T> T getResource(final String name, final Callable<T> factory) {
