@@ -24,6 +24,7 @@ built here at the two other authoring points.
 
 ## Progress
 - [x] 2026-06-17T12:49Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-17T13:28Z [ctx=safe] Step 1 complete (commit 88718402b2)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -32,6 +33,7 @@ built here at the two other authoring points.
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- 2026-06-17T13:28Z Step 1 fixed the four design-authoring agent basenames Track 2 spawns by reference: `design-author`, `readability-auditor`, `absorption-check`, `comprehension-review`. The author's PSI tool entry is the wildcard `mcp__localhost-6315__*`. `conventions.md` needs no read-scope edit (its cross-refs name the two read sites, not the readers — CR3 confirmed against the file text). See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -327,11 +329,25 @@ boundary collapse (D15), which regresses to retaining the boundary if
 by-reference cannot hold.
 
 ## Concrete Steps
-1. Author the four staged agent definitions — the code-grounded author (`Read`, `Write`, `Edit`, `Bash`, mcp-steroid PSI), the cold readability auditor (`Read`, `Grep`), the warm absorption check (`Read`, `Grep`; `model: sonnet`), and the de-warmed comprehension reviewer (`Read`) — and realize the `design-review.md` de-warm the comprehension reviewer depends on (remove the § Prose AI-tell block, the `phase1-creation` bullet (c) absorption cross-check, and the `research_log_path` § Inputs / § Reading-rules entries plus the § Output-format / § Tone-and-depth pointers to both; split the five human-reader checks per D8), plus the S2/S3/S4 read-scope wording in `research.md` and `design-document-rules.md` (and `conventions.md` only if a cross-ref becomes inaccurate). — risk: medium (workflow machinery: review-agent specs plus multi-file agent-observable-behavior prose; behavioral but drives no gate and runs nothing automatically) — size: ~8 files; no mergeable low/medium work fits (the rest of the track is the high edit-design rework)  [ ]
+1. Author the four staged agent definitions — the code-grounded author (`Read`, `Write`, `Edit`, `Bash`, mcp-steroid PSI), the cold readability auditor (`Read`, `Grep`), the warm absorption check (`Read`, `Grep`; `model: sonnet`), and the de-warmed comprehension reviewer (`Read`) — and realize the `design-review.md` de-warm the comprehension reviewer depends on (remove the § Prose AI-tell block, the `phase1-creation` bullet (c) absorption cross-check, and the `research_log_path` § Inputs / § Reading-rules entries plus the § Output-format / § Tone-and-depth pointers to both; split the five human-reader checks per D8), plus the S2/S3/S4 read-scope wording in `research.md` and `design-document-rules.md` (and `conventions.md` only if a cross-ref becomes inaccurate). — risk: medium (workflow machinery: review-agent specs plus multi-file agent-observable-behavior prose; behavioral but drives no gate and runs nothing automatically) — size: ~8 files; no mergeable low/medium work fits (the rest of the track is the high edit-design rework)  [x] commit: 88718402b2
 2. Rework `edit-design/SKILL.md` Steps 1/4/6 into the dual-clean multi-agent loop — Step 1 spawns the author instead of authoring inline, Step 4 spawns the per-round auditor-plus-absorption pair then the post-loop cold comprehension gate, Step 6 is the dual-clean exit (both checks clean or the iteration budget spent, S5) — with the D13 cost levers (fan-out cache warm-up as a tunable cost lever with a measured fallback, ground-once-with-targeted-re-grounding, params-in-file byte-identical spawns) and the absorption-move (drop the `phase1-creation` `research_log_path` injection from the comprehension spawn at `SKILL.md:478`, moving it to the absorption spawn), keeping the S3 freeze-order gate on the loop. *(depends on Step 1)* — risk: high (workflow machinery: drives the design-authoring control-flow loop and the S3 freeze-order gate; a defect reaches every design-authoring session)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
+
+### Step 1 — commit 88718402b2, 2026-06-17T13:28Z [ctx=safe]
+**What was done:** Added the four staged design-authoring agent definitions and de-warmed the cold-read reviewer. The agents are `design-author` (`Read, Write, Edit, Bash, mcp__localhost-6315__*`; `model: opus`), `readability-auditor` (`Read, Grep`), `absorption-check` (`Read, Grep`; `model: sonnet`), and `comprehension-review` (`Read`). The `design-review.md` de-warm touched several sites: it dropped the prose AI-tell axis, the `phase1-creation` absorption cross-check, the `research_log_path` input and reading-rule, the both-targets absorption note, and the output-format and tone pointers. It also split the five human-reader checks so the whole-doc pair stays on the reviewer and the prose half moves to the auditor. The S2 read-scope statement in `research.md` and its `design-document-rules.md` restatement now name the warm absorption agent as a sanctioned reader under the existing authoring site, holding the site count at two; the `phase1-creation` review-order and `design-sync` cold-read wording were updated to match.
+
+**What was discovered:** The author's mcp-steroid PSI access is the wildcard `tools: mcp__localhost-6315__*`, the only allow-list form covering `steroid_execute_code` (PSI), `steroid_list_projects` (preflight), and `steroid_fetch_resource`. `conventions.md` needed no edit: its two read-scope cross-refs name the two sanctioned read sites, not the readers, so they stay accurate after the absorption-reader addition (confirms CR3 against the file text). T2 resolved against the live Agent-tool docs: `tools:` is a comma-separated frontmatter string, omitting it inherits all tools, and `model:` takes short aliases. The four agent file basenames `design-author.md`, `readability-auditor.md`, `absorption-check.md`, `comprehension-review.md` are the names Step 2 and Track 2 spawn by reference.
+
+**Key files** (all under `_workflow/staged-workflow/`):
+- `.claude/agents/design-author.md` (new)
+- `.claude/agents/readability-auditor.md` (new)
+- `.claude/agents/absorption-check.md` (new)
+- `.claude/agents/comprehension-review.md` (new)
+- `.claude/workflow/prompts/design-review.md` (new — staged de-warmed copy)
+- `.claude/workflow/research.md` (new — staged copy, S2 extended)
+- `.claude/workflow/design-document-rules.md` (new — staged copy, S2 restatement, review-order, and design-sync wording)
 
 ## Validation and Acceptance
 Track-level acceptance:
