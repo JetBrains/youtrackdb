@@ -25,7 +25,8 @@ built here at the two other authoring points.
 ## Progress
 - [x] 2026-06-17T12:49Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-17T13:28Z [ctx=safe] Step 1 complete (commit 88718402b2)
-- [ ] Step implementation
+- [x] 2026-06-17T13:54Z [ctx=info] Step 2 complete (commit 339c7f924c)
+- [x] 2026-06-17T13:54Z [ctx=info] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -158,6 +159,12 @@ historical seed copy. -->
 - **Risks/Caveats**: PR-description readability stays a non-goal of this branch, tracked by a separate issue; the branch's `## Motivation` carries that exclusion.
 - **Implemented in**: this track (the branch-scope boundary the loop is built within).
 - **Full design**: design.md §"Staging and the dogfood plan".
+
+#### D20 (Step-2 divergence): the comprehension-review allow-list is `Read, Grep`, not `Read`-only
+- **Alternatives considered**: keep the gate `Read`-only as D8 and the per-step acceptance state, and strip the grep instruction from its reading rules so it reads whole files instead.
+- **Rationale**: the de-warmed `design-review.md` § Reading rules and the `comprehension-review.md` definition both instruct grep for `**Full design**` link resolution and for reading cited `house-style.md § <heading>` sections, the same grep-a-cited-section pattern the sibling cold roles (`readability-auditor`, `absorption-check`) already carry as `Read, Grep`. A `Read`-only gate cannot run its own structural checks. Adding `Grep` is a read-only expansion that violates no invariant — S1 governs the auditor not reading the research log, not the comprehension gate's tools — so the step-level review applied the reviewer's recommended fix rather than degrading the role to whole-file reads.
+- **Risks/Caveats**: this diverges from the frozen `design.md` D8 and the track per-step acceptance, both of which still say `Read`. It is a Phase 4 `design-final` reconciliation item: the durable design must record `Read, Grep` with this rationale, or the §1.7(f) divergence check will surface the mismatch.
+- **Implemented in**: this track, Step 2 (the `comprehension-review.md` frontmatter and the `edit-design/SKILL.md` spawn-contract row). See Episodes §Step 2.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -330,7 +337,7 @@ by-reference cannot hold.
 
 ## Concrete Steps
 1. Author the four staged agent definitions — the code-grounded author (`Read`, `Write`, `Edit`, `Bash`, mcp-steroid PSI), the cold readability auditor (`Read`, `Grep`), the warm absorption check (`Read`, `Grep`; `model: sonnet`), and the de-warmed comprehension reviewer (`Read`) — and realize the `design-review.md` de-warm the comprehension reviewer depends on (remove the § Prose AI-tell block, the `phase1-creation` bullet (c) absorption cross-check, and the `research_log_path` § Inputs / § Reading-rules entries plus the § Output-format / § Tone-and-depth pointers to both; split the five human-reader checks per D8), plus the S2/S3/S4 read-scope wording in `research.md` and `design-document-rules.md` (and `conventions.md` only if a cross-ref becomes inaccurate). — risk: medium (workflow machinery: review-agent specs plus multi-file agent-observable-behavior prose; behavioral but drives no gate and runs nothing automatically) — size: ~8 files; no mergeable low/medium work fits (the rest of the track is the high edit-design rework)  [x] commit: 88718402b2
-2. Rework `edit-design/SKILL.md` Steps 1/4/6 into the dual-clean multi-agent loop — Step 1 spawns the author instead of authoring inline, Step 4 spawns the per-round auditor-plus-absorption pair then the post-loop cold comprehension gate, Step 6 is the dual-clean exit (both checks clean or the iteration budget spent, S5) — with the D13 cost levers (fan-out cache warm-up as a tunable cost lever with a measured fallback, ground-once-with-targeted-re-grounding, params-in-file byte-identical spawns) and the absorption-move (drop the `phase1-creation` `research_log_path` injection from the comprehension spawn at `SKILL.md:478`, moving it to the absorption spawn), keeping the S3 freeze-order gate on the loop. *(depends on Step 1)* — risk: high (workflow machinery: drives the design-authoring control-flow loop and the S3 freeze-order gate; a defect reaches every design-authoring session)  [ ]
+2. Rework `edit-design/SKILL.md` Steps 1/4/6 into the dual-clean multi-agent loop — Step 1 spawns the author instead of authoring inline, Step 4 spawns the per-round auditor-plus-absorption pair then the post-loop cold comprehension gate, Step 6 is the dual-clean exit (both checks clean or the iteration budget spent, S5) — with the D13 cost levers (fan-out cache warm-up as a tunable cost lever with a measured fallback, ground-once-with-targeted-re-grounding, params-in-file byte-identical spawns) and the absorption-move (drop the `phase1-creation` `research_log_path` injection from the comprehension spawn at `SKILL.md:478`, moving it to the absorption spawn), keeping the S3 freeze-order gate on the loop. *(depends on Step 1)* — risk: high (workflow machinery: drives the design-authoring control-flow loop and the S3 freeze-order gate; a defect reaches every design-authoring session)  [x] commit: 339c7f924c
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -348,6 +355,17 @@ by-reference cannot hold.
 - `.claude/workflow/prompts/design-review.md` (new — staged de-warmed copy)
 - `.claude/workflow/research.md` (new — staged copy, S2 extended)
 - `.claude/workflow/design-document-rules.md` (new — staged copy, S2 restatement, review-order, and design-sync wording)
+
+### Step 2 — commit 339c7f924c, 2026-06-17T13:54Z [ctx=info]
+**What was done:** Reworked the staged `edit-design/SKILL.md` Steps 1/4/6 into the dual-clean multi-agent loop. Step 1 spawns the `design-author` for the creation kinds and keeps inline editing for the interactive kinds. Step 4 splits into a creation shape (per-round `readability-auditor` plus the second check, then the post-loop cold `comprehension-review` gate) and an interactive shape (one comprehension read), sharing a spawn contract that carries the D13 cost levers: minimal-tool agent definitions, the fan-out cache warm-up as a tunable with a measured fallback, and params-in-file byte-identical spawns. The `research_log_path` injection moved off the comprehension spawn onto the per-round `absorption-check`. Step 6 is the bounded dual-clean exit (a round passes only when both the auditor and the second check are clean, S5), with the post-loop comprehension gate behind the S3 freeze-order gate. The step-level `workflow-prompt-design` review ran and passed at iteration 3 (WP1 should-fix, WP2 suggestion, both resolved over two `Review fix:` commits).
+
+**What was discovered:** The cold `comprehension-review` gate's own reading rules need `Grep` to resolve `**Full design**` links and read cited `house-style.md § <heading>` sections, the same grep-a-cited-section pattern the sibling cold roles use. The fan-out warm-up cannot name a concrete wait mechanism in this harness (`Bash` cannot hold a foreground delay), so the prompt defers the wait to wiring (gate A7) with a "disable and pay N cold prefixes" fallback. The `phase4-creation` fidelity-check second check and the `target=tracks` auditor are referenced by role name only; Track 2 builds them, then the forward references resolve. The warm-up's byte-identical-prompt assumption still needs a live `Agent`-tool prompt-assembly confirmation when the loop is wired.
+
+**What changed from the plan:** The `comprehension-review` allow-list diverged from the frozen design's `Read`-only spec (D8 and the track per-step acceptance) to `Read, Grep`. `Grep` is read-only and touches no invariant — S1 governs the auditor not reading the log, not the comprehension gate's tools — and the role's reading rules demonstrably require it, so the review applied the reviewer's recommended fix rather than stripping the grep instruction. This is a Phase 4 design-final reconciliation item: `design.md` D8 still says `Read`. See Decision Log §Step-2 divergence.
+
+**Key files:**
+- `.claude/skills/edit-design/SKILL.md` (new — staged, the reworked dual-clean loop)
+- `.claude/agents/comprehension-review.md` (modified — allow-list `Read` → `Read, Grep`)
 
 ## Validation and Acceptance
 Track-level acceptance:
