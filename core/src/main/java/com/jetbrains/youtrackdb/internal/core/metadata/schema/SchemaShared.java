@@ -94,6 +94,16 @@ public abstract class SchemaShared implements CloseableInStorage {
   private volatile RecordIdInternal identity;
   protected volatile ImmutableSchema snapshot;
 
+  /**
+   * True only for a transaction-local copy built by {@link #copyForTx}. A tx-local copy is the
+   * private working schema a schema-changing transaction mutates in isolation; its mutations defer
+   * to the user transaction's commit instead of persisting eagerly. The de-guarded mutation entry
+   * points read this flag to decide whether to take the legacy top-level save path (committed
+   * instance, no active transaction) or the transaction-local path (record the change and let the
+   * commit promote it). The committed shared instance leaves this {@code false}.
+   */
+  protected boolean txLocal;
+
   private final ReentrantLock snapshotLock = new ReentrantLock();
 
   protected static Set<String> internalClasses = new HashSet<>();
@@ -175,6 +185,10 @@ public abstract class SchemaShared implements CloseableInStorage {
       assert committedRoot.getProperty("globalProperties") != null
           : "copyForTx requires a bootstrapped committed schema carrying global properties";
       final var copy = newInstanceForCopy();
+      // Mark the copy tx-local before re-parsing so the de-guarded mutation entry points reached
+      // during fromStream (and every later mutation against the copy) take the transaction-local
+      // path instead of the legacy eager-persist path.
+      copy.txLocal = true;
       // Copy the committed root identity by value before the re-parse: the copy must serialize back
       // to the same root record at commit, and value-copying avoids sharing a mutable record-id
       // reference whose in-place promotion would otherwise be observed by both instances.
@@ -966,6 +980,14 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   private void saveInternal(DatabaseSessionEmbedded session) {
+
+    if (txLocal) {
+      // A mutation against the transaction-local copy must not persist eagerly: the change rides
+      // the user transaction and is promoted to the committed schema at commit (the commit-time
+      // reconciliation builds the matching per-class records and structure). Persisting here would
+      // both break isolation and reintroduce the active-transaction conflict the de-guard removes.
+      return;
+    }
 
     var tx = session.getTransactionInternal();
     if (tx.isActive()) {
