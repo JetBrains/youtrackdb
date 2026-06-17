@@ -504,16 +504,23 @@ public final class SchemaClassProxy extends SchemaProxedResource<SchemaClassImpl
   public boolean isSubClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
     var cls = resolve();
+    // Read predicate: tolerate an argument class absent from the resolved (tx-local or committed)
+    // schema by re-resolving it through the read-tolerant helper, which yields null for an absent
+    // class; isSubClassOf(null) answers false, preserving the historical total-read contract.
     return cls.isSubClassOf(
-        reresolveClassImpl(cls.getOwner(), ((SchemaClassInternal) iClass).getImplementation()));
+        reresolveClassImplForRead(
+            cls.getOwner(), ((SchemaClassInternal) iClass).getImplementation()));
   }
 
   @Override
   public boolean isSuperClassOf(SchemaClass iClass) {
     assert session.assertIfNotActive();
     var cls = resolve();
+    // Read predicate: an absent argument class re-resolves to null and isSuperClassOf(null) answers
+    // false, so an unrelated or dropped argument never raises rather than returning false.
     return cls.isSuperClassOf(
-        reresolveClassImpl(cls.getOwner(), ((SchemaClassInternal) iClass).getImplementation()));
+        reresolveClassImplForRead(
+            cls.getOwner(), ((SchemaClassInternal) iClass).getImplementation()));
   }
 
   @Override
