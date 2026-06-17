@@ -36,8 +36,9 @@ flowchart TD
 
 - **Track 1** builds the four inner-loop / gate roles (author, readability
   auditor, absorption check, de-warmed comprehension review) and wires them
-  into `edit-design`. It also extends the `conventions.md` read-scope
-  invariants the new log reader implies. This is the dependency root.
+  into `edit-design`. It also extends the read-scope invariants the new log
+  reader implies (S2 at its `research.md` canonical home, restated in
+  `design-document-rules.md`). This is the dependency root.
 - **Track 2** reuses Track 1's author, auditor, and absorption roles at two
   more authoring points — `create-plan` Step 4b (track files) and
   `create-final-design.md` (Phase 4) — adds the one new role the Phase 4 path
@@ -56,11 +57,12 @@ flowchart TD
   > loop inside `edit-design`. De-warm the comprehension reviewer
   > (`design-review.md`) so its verdict is finally cold, realize all four roles
   > as agent definitions with minimal tool allow-lists, and update the
-  > `conventions.md` read-scope invariants. Detailed description in
-  > plan/track-1.md.
+  > read-scope invariants (S2 at its `research.md` canonical home, restated in
+  > `design-document-rules.md`). Detailed description in plan/track-1.md.
   > **Scope:** ~9 files covering 4 agent definitions, `design-review.md`
-  > de-warm, `edit-design/SKILL.md` rework, and `conventions.md` S2/S3/S4
-  > wording (all staged).
+  > de-warm (incl. the S4 one-owner prose axis), `edit-design/SKILL.md` rework,
+  > and the `research.md` / `design-document-rules.md` S2/S3 read-scope wording
+  > (all staged).
 
 - [ ] Track 2: Reuse the loop at track authoring and Phase 4; collapse the 4a/4b boundary
   > Wire the Track 1 loop into `create-plan` Step 4b (so `lite` / `minimal`

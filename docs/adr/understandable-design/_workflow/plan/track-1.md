@@ -17,8 +17,9 @@ and the research-log read, so its "could a cold reader follow this" verdict is
 finally given by a reader who is actually cold. All four roles become agent
 definitions with minimal tool allow-lists so the per-spawn tool surface stays
 bounded. The track wires this loop into `edit-design`, the orchestrator both
-design-creation kinds already route through, and updates the `conventions.md`
-read-scope invariants the new log reader implies. Track 2 reuses everything
+design-creation kinds already route through, and updates the read-scope
+invariants the new log reader implies (S2 at its `research.md` canonical home,
+restated in `design-document-rules.md`). Track 2 reuses everything
 built here at the two other authoring points.
 
 ## Progress
@@ -142,11 +143,11 @@ historical seed copy. -->
 - **Implemented in**: this track (the Phase 3 dogfood acceptance criterion in `## Validation and Acceptance`).
 - **Full design**: design.md §"Staging and the dogfood plan".
 
-#### D18: Extend S2 to name the warm absorption agent as a sanctioned log reader; bind the conventions.md wording update as a deliverable
+#### D18: Extend S2 to name the warm absorption agent as a sanctioned log reader; bind the research.md wording update (and the design-document-rules.md restatement) as a deliverable
 - **Alternatives considered**: leave S2's prose unchanged and treat the absorption agent as implicitly covered by the "Step 4a/4b artifact authoring" read site.
-- **Rationale**: today S2 names the authoring read as the author or the cold-read reviewer, not a separate absorption-only spawn. Without an explicit update, a later reader (or the Phase 2 consistency review) who reads S2 literally would see a third log-reading agent as a violation. So this branch extends S2 to name the absorption agent as a sanctioned reader, and the `conventions.md` wording edit is a stated deliverable, not an implicit reinterpretation.
+- **Rationale**: today S2 names the authoring read as the author or the cold-read reviewer, not a separate absorption-only spawn. Without an explicit update, a later reader (or the Phase 2 consistency review) who reads S2 literally would see a third log-reading agent as a violation. So this branch extends S2 to name the absorption agent as a sanctioned reader, and the wording edit is a stated deliverable, not an implicit reinterpretation. The canonical S2 statement lives in `research.md` §"Read-scope discipline (S2)" with a restatement in `design-document-rules.md`; `conventions.md` carries no `S2` label and only descriptive cross-refs to "the two sanctioned read points", so the deliverable targets those two files and leaves the conventions.md cross-refs alone (CR3, resolved with the user).
 - **Risks/Caveats**: the auditor and the de-warmed comprehension reviewer read no log, which is what keeps the S2 site count at two (authoring, with absorption named under it; and Phase 2 consistency).
-- **Implemented in**: this track (the `conventions.md` S2 wording edit).
+- **Implemented in**: this track (the `research.md` S2 wording edit and the `design-document-rules.md` restatement).
 - **Full design**: design.md §"The S2 and S3 read-scope invariants".
 
 #### D19: Branch scope is the full two-role loop; the YTDB-1128 / YTDB-1129 house-style rules move to a separate PR
@@ -180,16 +181,21 @@ What is there today:
   absorption cross-check (which makes it read the research log), and a
   § Prose AI-tell additions block. This is the reviewer the track de-warms.
 - `.claude/agents/*.md` are the existing agent definitions (the `/code-review`
-  dimensions and others) with `tools:` and `model:` frontmatter and minimal
-  allow-lists. There is no agent definition for the design-authoring roles
-  today; the design reviewers are prompt files spawned as `general-purpose`.
+  dimensions and others), each carrying `name` / `description` / `model`
+  frontmatter; none currently carries a `tools:` allow-list, though the `Agent`
+  tool supports one (the lever D13/D14 add). There is no agent definition for
+  the design-authoring roles today; the design reviewers are prompt files
+  spawned as `general-purpose`.
 - `.claude/skills/readability-feedback/SKILL.md` already encodes the audit
   contract the auditor reuses (range-sliced fan-out, enumerate-every-finding),
   but for rule-hardening from a finished doc, not for in-loop creation.
-- `conventions.md` S1/S2/S3 are the read-scope invariants. S2 today reads "the
+- The read-scope invariants are stated canonically in
+  `.claude/workflow/research.md` §"Read-scope discipline (S2)", which reads "the
   log is read for decision content in exactly two places: at Step 4a/4b
-  artifact authoring … and by the Phase 2 consistency review", naming the
-  author or the cold-read reviewer as the authoring reader.
+  artifact authoring … and by the Phase-2 consistency review", naming the author
+  or the cold-read reviewer as the authoring reader. `design-document-rules.md`
+  restates the same rule; `conventions.md` carries only descriptive cross-refs
+  to "the two sanctioned read points" and never uses the `S2` label.
 
 Non-obvious terminology used below (all defined in design.md §"Core Concepts"):
 **code-grounded author**, **cold readability auditor**, **reconstructibility
@@ -255,15 +261,20 @@ Phase A; the ordering below keeps each step independently testable.
    freeze-order gate (S3) on the loop, since the author and the absorption
    check read the log; the `phase1-creation` review is cold-read-only behind
    the research-log gate.
-4. **Update `conventions.md` S2** to name the warm absorption agent as a
-   sanctioned log reader (D18), and touch S3/S4 wording where the de-warm and
-   the one-owner-per-surface rule require it.
+4. **Update the canonical S2 statement in `research.md`** §"Read-scope
+   discipline (S2)" (and its `design-document-rules.md` restatement) to name the
+   warm absorption agent as a sanctioned log reader (D18). Touch S3/S4 wording
+   at its stated sites where the de-warm and the one-owner-per-surface rule
+   require it — S3 freeze-order lives in `research.md` / `design-document-rules.md`,
+   and the S4 one-owner prose axis is realized in the de-warmed
+   `design-review.md`; exact sites settled at Phase A.
 
 Ordering constraints: the agent definitions (step 1) and the de-warmed prompt
 (step 2) are prerequisites for the `edit-design` rework (step 3), which spawns
-them. The `conventions.md` edit (step 4) is independent and can land in any
-order, but its S2 wording must be present before the absorption agent is
-described as sanctioned in any merged review. Invariant to preserve throughout:
+them. The read-scope wording edit (step 4, in `research.md` /
+`design-document-rules.md`) is independent and can land in any order, but its
+S2 wording must be present before the absorption agent is described as
+sanctioned in any merged review. Invariant to preserve throughout:
 the auditor never reads the research log (S1) — keep it a separate spawn from
 the absorption check.
 
@@ -325,11 +336,17 @@ Track-level acceptance:
   out or inline them in the definitions).
 - `.claude/skills/edit-design/SKILL.md` — Steps 1, 4, 6 reworked into the
   multi-agent loop, plus the fan-out cache warm-up plumbing.
-- `.claude/workflow/conventions.md` — S2 wording extension (D18); S3/S4 wording
-  touch-ups.
-- `.claude/workflow/design-document-rules.md` — the review-ordering note (now
-  cold-read-only behind the research-log gate); touch only if its § Working /
-  sync text references the retired warm-reviewer ordering.
+- `.claude/workflow/research.md` — S2 read-scope statement (canonical home,
+  §"Read-scope discipline (S2)") extended to name the warm absorption agent
+  (D18); S3 freeze-order wording touched only if the de-warm requires it.
+- `.claude/workflow/conventions.md` — descriptive read-scope cross-refs touched
+  only if the changed reader set makes one inaccurate (the cross-refs name the
+  two sites, not the readers, so likely untouched); S4 one-owner wording if any
+  cross-ref needs it.
+- `.claude/workflow/design-document-rules.md` — the S2 restatement updated to
+  name the warm absorption agent (D18); the review-ordering note (now
+  cold-read-only behind the research-log gate); touch its § Working / sync text
+  only if it references the retired warm-reviewer ordering.
 
 **Out-of-scope** (Track 2 or separate PRs):
 
@@ -361,7 +378,7 @@ for cache sharing (D13/D14).
 
 ## Invariants & Constraints
 - S1: the cold readability auditor never reads the research log — verified by the auditor agent definition's tool allow-list and prompt naming no research-log path, and a check that auditor and absorption are separate spawns.
-- S2: the research log is read for decision content only at the sanctioned sites (Step 4a/4b artifact authoring — now naming the warm absorption agent — and the Phase 2 consistency review) — verified by the updated `conventions.md` S2 prose and a review that no other agent reads the log for decision content.
+- S2: the research log is read for decision content only at the sanctioned sites (Step 4a/4b artifact authoring — now naming the warm absorption agent — and the Phase 2 consistency review) — verified by the updated S2 statement in `research.md` §"Read-scope discipline (S2)" (and the `design-document-rules.md` restatement) and a review that no other agent reads the log for decision content.
 - S3: the cold-read comprehension gate does not run while a log-adversarial gate entry is open — verified by the freeze-order gate in the `edit-design` loop and an ordering check on `phase1-creation`.
 - S4: no surface runs the prose AI-tell axis on both the auditor and the comprehension reviewer — verified by the de-warmed `design-review.md` carrying no prose axis and a per-surface check that the prose axis lands on exactly one reviewer.
 - S5: the dual-clean inner loop exits only when both the readability auditor and the absorption check are clean, or the iteration budget is spent — verified by the `edit-design` Step 6 exit condition and a test of the dual-clean gate.

@@ -77,9 +77,10 @@ What is there today:
   Step 4a today ends the session once `design.md` is frozen; the user
   re-invokes `/create-plan` and the startup protocol auto-resumes into Step 4b.
 - `.claude/workflow/prompts/create-final-design.md` is the Phase 4 final-design
-  prompt. It routes `phase4-creation` through `edit-design` and runs a
-  diagram-to-code verification; its second check today is the absorption-style
-  comparison rather than a fidelity check against episodes.
+  prompt. It routes `phase4-creation` through `edit-design` and its build-time
+  check today is a PSI diagram-to-code verification against the as-built code,
+  not a fidelity check against episodes (no absorption check runs at Phase 4
+  today).
 - The step and track **episodes** (per-step and per-track as-built records under
   the track files' `## Episodes` sections) carry what was built and why it
   diverged from the plan — the fidelity check's primary source.
@@ -208,7 +209,7 @@ Track-level acceptance:
 
 - The author, readability auditor, absorption check, and de-warmed
   comprehension reviewer agent definitions, the `edit-design` loop, and the
-  `conventions.md` S2 wording — all Track 1.
+  `research.md` / `design-document-rules.md` S2 wording — all Track 1.
 - The YTDB-1128 / YTDB-1129 house-style rules and PR-description readability —
   separate PR / issue (Track 1 D19, design non-goals).
 
