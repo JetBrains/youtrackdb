@@ -26,7 +26,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 /**
- * End-to-end cache-vs-fresh equivalence for the Etap-A single-alias MATCH fold (I4 / I10). A
+ * End-to-end cache-vs-fresh equivalence for the Etap-A single-alias MATCH fold. A
  * single-alias MATCH classifies as RECORD and replays through the record delta path: the entry stores
  * the raw, RID-identifiable bound records and a {@code returnProjector} reproduces the RETURN tuple at
  * the view emit boundary, so the RID-keyed skip-set / sorted-merge stay correct across in-transaction

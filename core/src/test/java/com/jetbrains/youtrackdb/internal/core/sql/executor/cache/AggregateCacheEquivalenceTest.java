@@ -24,7 +24,7 @@ import org.junit.Test;
 import org.junit.experimental.categories.Category;
 
 /**
- * End-to-end cache-vs-fresh equivalence for the {@code AGGREGATE_*} cache path (I4 / I10): every
+ * End-to-end cache-vs-fresh equivalence for the {@code AGGREGATE_*} cache path: every
  * cacheable aggregate scenario runs twice through the live {@code query()} path — once with the cache
  * off (a fresh uncached execution, the source of truth) and once with it on (forcing a side-tap
  * populate, then a post-mutation second query served through the replayed {@link AggregateState} view)
