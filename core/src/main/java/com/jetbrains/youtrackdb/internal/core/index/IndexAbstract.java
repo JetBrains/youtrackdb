@@ -224,7 +224,11 @@ public abstract class IndexAbstract implements Index {
     try {
       // A transaction-deferred create: record the definition so the handle answers metadata and
       // size() queries on the public path, but do not build or load a storage engine. indexId
-      // stays -1 (unbuilt); the engine build and shared registration happen at commit.
+      // stays -1 (unbuilt); the engine build and shared registration happen at commit. A deferred
+      // handle answers name/definition/collection queries, size() (zero), and value lookups
+      // (get()/getRids(), which short-circuit to no rids); any other engine-backed read (the range
+      // streams, statistics, the histogram) is unsupported until commit builds the engine, because
+      // indexId = -1 cannot be dereferenced by the storage layer.
       this.im = indexMetadata;
       var deferredCollections = indexMetadata.getCollectionsToIndex();
       this.collectionsToIndex =

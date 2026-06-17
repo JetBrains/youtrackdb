@@ -3,10 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -327,6 +329,52 @@ public class SchemaDeguardTest extends DbTestBase {
               "InTxDeferredHandle", deferred.getDefinition().getClassName());
           assertEquals("an unbuilt deferred index must report a zero size, not crash",
               0L, deferred.size(session));
+
+          // The deferred handle must report the collection membership derived from its definition's
+          // collection ids, not an empty set. markDeferred copies findCollectionsByIds(...) into
+          // collectionsToIndex; this asserts that copy survived rather than being dropped. The
+          // expected set is the owning class's polymorphic collections resolved to names exactly as
+          // production resolves them, so an empty-set markDeferred regression fails here (the size()
+          // and metadata assertions above would still pass under that regression).
+          var expectedCollections = new java.util.HashSet<String>();
+          for (var collectionId : cls.getPolymorphicCollectionIds()) {
+            expectedCollections.add(session.getCollectionNameById(collectionId));
+          }
+          assertFalse(
+              "an index over a class that owns collections must carry a non-empty membership",
+              expectedCollections.isEmpty());
+          assertEquals(
+              "the deferred handle must report the collections derived from its definition's"
+                  + " collection ids",
+              expectedCollections, Set.copyOf(deferred.getCollections()));
+
+          // A value lookup on the unbuilt deferred handle must answer "no rids" instead of
+          // dereferencing the absent engine (indexId = -1). This pins the documented contract that a
+          // deferred handle answers get()/getRids() sensibly, not just size(): the engine-less read
+          // short-circuits to an empty stream rather than passing indexId = -1 to the storage layer.
+          // The NOTUNIQUE handle above is multi-value; a UNIQUE deferred handle exercises the
+          // one-value guard, so both index-value families are covered.
+          try (var rids = deferred.getRids(session, "anything")) {
+            assertEquals(
+                "a value lookup on an unbuilt multi-value deferred handle must find no rids",
+                0L, rids.count());
+          }
+          var uniqueDeferred =
+              indexManager.createIndex(
+                  session,
+                  "InTxDeferredHandle.unique",
+                  SchemaClass.INDEX_TYPE.UNIQUE.name(),
+                  new PropertyIndexDefinition(
+                      "InTxDeferredHandle", "name", PropertyTypeInternal.STRING),
+                  cls.getPolymorphicCollectionIds(),
+                  null,
+                  null);
+          try (var rids = uniqueDeferred.getRids(session, "anything")) {
+            assertEquals(
+                "a value lookup on an unbuilt one-value deferred handle must find no rids",
+                0L, rids.count());
+          }
+
           assertFalse(
               "the deferred handle must not be registered in the shared manager during the tx",
               indexManager.existsIndex(indexName));
@@ -335,5 +383,90 @@ public class SchemaDeguardTest extends DbTestBase {
     assertFalse("after commit the deferred-only index must remain unregistered until a later track"
         + " builds it",
         indexManager.existsIndex(indexName));
+  }
+
+  /**
+   * Creating an index inside a transaction whose name already exists in the shared registry does not
+   * throw and does not eagerly register a second index: the de-guarded create records the owning
+   * class into the tx-local changed-class set and returns a deferred handle, deferring collision
+   * detection to the commit-time reconciliation a later track owns. This is the intentional
+   * divergence from the legacy top-level path, which rejects a duplicate name loudly. The test pins
+   * both halves so a later track that moves the collision check is a deliberate, test-visible change
+   * rather than a silent contract drift: the legacy path still throws, the in-transaction path still
+   * defers.
+   */
+  @Test
+  public void duplicateIndexNameInsideTransactionDefersInsteadOfThrowing() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("DupIdx");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "DupIdx.name";
+    // Committed, top-level: the index now exists in the shared registry.
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertTrue("the index must exist on the committed path before the test",
+        indexManager.existsIndex(indexName));
+
+    // The legacy top-level path rejects the duplicate name loudly: re-creating it outside a
+    // transaction throws. This is the contract the in-transaction path deliberately diverges from.
+    assertThrows(
+        "re-creating an existing index name outside a transaction must be rejected loudly",
+        IndexException.class,
+        () -> cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
+
+    session.begin();
+    // Inside a transaction the duplicate name does not throw: the create is routed into the tx-local
+    // view and collision detection is deferred to commit (a later track). It records the owning class
+    // as changed and leaves the shared registry untouched.
+    var deferred =
+        indexManager.createIndex(
+            session,
+            indexName,
+            SchemaClass.INDEX_TYPE.NOTUNIQUE.name(),
+            new PropertyIndexDefinition("DupIdx", "name", PropertyTypeInternal.STRING),
+            cls.getPolymorphicCollectionIds(),
+            null,
+            null);
+    assertNotNull(
+        "a duplicate-name create inside a transaction must defer (return a handle), not throw",
+        deferred);
+    var state = session.getTxSchemaState();
+    assertNotNull("the duplicate-name in-transaction create must have seeded the tx-local state",
+        state);
+    assertTrue("the duplicate-name create must record the owning class as changed",
+        state.getChangedClasses().contains("DupIdx"));
+    session.rollback();
+
+    // The shared registry still holds exactly the original committed index; the deferred duplicate
+    // was never registered.
+    assertTrue("the original committed index must remain registered after rollback",
+        indexManager.existsIndex(indexName));
+  }
+
+  /**
+   * Dropping an index by a name that does not exist while a transaction is open does not throw and
+   * records no changed class: the de-guarded {@code dropIndex} seeds the tx-local state but, finding
+   * no matching index, marks nothing changed and returns. This pins the silent-no-op contract (the
+   * divergence from the legacy path's behaviour for an unknown name) so a later track that makes an
+   * unknown-name drop loud is a deliberate change, and documents that the seed/engage still happens
+   * for the no-op write.
+   */
+  @Test
+  public void dropUnknownIndexInsideTransactionDoesNotThrowAndRecordsNoChangedClass() {
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    session.begin();
+    // Must not throw for an unknown index name.
+    indexManager.dropIndex(session, "DoesNotExist.nope");
+
+    var state = session.getTxSchemaState();
+    // The drop still seeds the tx-local state (and engages the mutex) even though it is a no-op for
+    // the unknown name — the seed is the side effect of routing any de-guarded write.
+    assertNotNull("an in-transaction dropIndex seeds the tx-local state even for an unknown name",
+        state);
+    assertTrue("an unknown-index drop must record no changed class",
+        state.getChangedClasses().isEmpty());
+    session.rollback();
   }
 }
