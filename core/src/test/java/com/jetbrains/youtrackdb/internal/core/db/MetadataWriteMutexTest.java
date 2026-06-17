@@ -45,6 +45,26 @@ public class MetadataWriteMutexTest extends DbTestBase {
     return t;
   }
 
+  /**
+   * Spin until {@code worker} settles into a parked state (WAITING/TIMED_WAITING — the states a
+   * thread blocked on {@code Semaphore.acquireUninterruptibly} reports) or the timeout elapses,
+   * returning the last observed state. Used to prove a worker is parked on the mutex permit by
+   * observing its thread state rather than inferring blocking from absence of progress after a sleep,
+   * so the blocking proof fails closed if a regression lets the worker through instead of parking it.
+   */
+  private static Thread.State awaitThreadParked(Thread worker, long timeoutMillis) {
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+    Thread.State state = worker.getState();
+    while (System.nanoTime() < deadline) {
+      state = worker.getState();
+      if (state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING) {
+        return state;
+      }
+      Thread.onSpinWait();
+    }
+    return state;
+  }
+
   @After
   public void joinSpawnedWorkers() throws InterruptedException {
     var leaked = new java.util.ArrayList<String>();
@@ -77,6 +97,8 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var secondCreatedClass = new AtomicBoolean(false);
     var secondAborted = new AtomicBoolean(false);
     var secondError = new AtomicReference<Throwable>();
+    var secondAboutToEngage = new CountDownLatch(1);
+    var secondThreadRef = new AtomicReference<Thread>();
 
     // First session: open a schema tx, engage the mutex by creating a class, then park holding it
     // until the test releases it. Runs on its own thread so its session activation does not collide
@@ -104,6 +126,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
         second.activateOnCurrentThread();
         second.begin();
         try {
+          // Publish this worker's thread and signal that the very next call is the blocking schema
+          // write, so the test can observe this thread park on the permit deterministically.
+          secondThreadRef.set(Thread.currentThread());
+          secondAboutToEngage.countDown();
           second.getMetadata().getSchema().createClass("SecondSchemaTx");
           secondCreatedClass.set(true);
           second.commit();
@@ -118,9 +144,19 @@ public class MetadataWriteMutexTest extends DbTestBase {
       }
     }, "mutex-second-writer");
 
-    // Give the second writer time to reach (and block on) the mutex. While the first still holds it,
-    // the second must not have created its class.
-    Thread.sleep(500);
+    // Wait until the second worker is about to make its blocking schema write, then observe it
+    // actually park on the permit (WAITING/TIMED_WAITING) rather than inferring blocking from a
+    // sleep. The full-path latch only proves the worker reached the call; the thread-state poll
+    // proves the call is parked on the semaphore, so this fails closed if a regression let the
+    // second writer through instead of blocking it.
+    assertTrue("the second worker must reach its blocking schema write",
+        secondAboutToEngage.await(5, TimeUnit.SECONDS));
+    var secondThread = secondThreadRef.get();
+    assertNotNull("the second worker thread must have been published", secondThread);
+    var parkedState = awaitThreadParked(secondThread, 5_000);
+    assertTrue("the second schema tx must park on the mutex while the first holds it, observed in"
+        + " thread state " + parkedState,
+        parkedState == Thread.State.WAITING || parkedState == Thread.State.TIMED_WAITING);
     assertFalse("the second schema tx must block on the mutex while the first holds it",
         secondCreatedClass.get());
     assertFalse("the second schema tx must not be aborted by contention — it blocks instead",
@@ -262,6 +298,8 @@ public class MetadataWriteMutexTest extends DbTestBase {
     var foreignEngaged = new CountDownLatch(1);
     var foreignError = new AtomicReference<Throwable>();
     var foreignSession = new AtomicReference<DatabaseSessionEmbedded>();
+    var foreignThreadRef = new AtomicReference<Thread>();
+    var foreignAboutToEngage = new CountDownLatch(1);
 
     mutex.engage(session);
     try {
@@ -270,6 +308,10 @@ public class MetadataWriteMutexTest extends DbTestBase {
         foreignSession.set(other);
         try {
           other.activateOnCurrentThread();
+          // Publish this worker's thread and signal that the next call blocks, so the test can
+          // observe this thread park on the permit deterministically.
+          foreignThreadRef.set(Thread.currentThread());
+          foreignAboutToEngage.countDown();
           // Blocks here until the test thread releases the permit.
           mutex.engage(other);
           foreignEngaged.countDown();
@@ -279,9 +321,18 @@ public class MetadataWriteMutexTest extends DbTestBase {
         }
       }, "mutex-foreign-parker");
 
-      // While the test thread holds the permit, the foreign thread must not have engaged.
-      assertFalse("a foreign thread must park on the held mutex",
-          foreignEngaged.await(500, TimeUnit.MILLISECONDS));
+      // While the test thread holds the permit, the foreign thread must park on it. Observe the
+      // parked thread state deterministically rather than inferring parking from a negative await.
+      assertTrue("the foreign worker must reach its blocking engage",
+          foreignAboutToEngage.await(5, TimeUnit.SECONDS));
+      var foreignThread = foreignThreadRef.get();
+      assertNotNull("the foreign worker thread must have been published", foreignThread);
+      var parkedState = awaitThreadParked(foreignThread, 5_000);
+      assertTrue("a foreign thread must park on the held mutex, observed in thread state "
+          + parkedState,
+          parkedState == Thread.State.WAITING || parkedState == Thread.State.TIMED_WAITING);
+      assertFalse("the foreign engage must not have completed while the permit is held",
+          foreignEngaged.getCount() == 0);
     } finally {
       mutex.releaseFor(session);
     }

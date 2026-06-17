@@ -195,7 +195,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     if (!session.getTransactionInternal().isActive()) {
       return false;
     }
-    var txState = session.ensureTxSchemaState();
+    // Resolve the index's owning class BEFORE seeding the tx-local state so the engage does not run
+    // when the change cannot be routed into the tx-local view. The shared read lock here is a read,
+    // not a shared-state mutation, so it does not break the in-tx isolation the seam protects.
     acquireSharedLock();
     final String changedClass;
     try {
@@ -208,13 +210,19 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       releaseSharedLock();
     }
     if (changedClass == null) {
-      // We could not resolve the index's owning class, so there is no changed-class entry to
-      // record. Recording nothing while claiming the change was captured would silently drop the
-      // membership change from the commit delta. Fall through to the legacy eager apply instead so
-      // the change is never lost without a trace. This is not reachable for a real class index (its
-      // definition always carries a class name); a class-less index here is a regression.
-      return false;
+      // A real class index always carries a class name, so a null here inside an active transaction
+      // is a regression. Falling through to the legacy eager apply would mutate the shared Index
+      // while the transaction holds the metadata-write mutex (the eager apply takes the write lock
+      // and edits the shared collectionsToIndex) — the exact shared-state-in-transaction leak this
+      // seam exists to prevent. Fail loudly instead so the broken index surfaces rather than
+      // silently corrupting shared schema state mid-transaction.
+      throw new IndexException(session,
+          "Index " + indexName + " has no owning class to record the membership change against"
+              + " inside a transaction; a class index must carry a class name");
     }
+    // The membership change is itself a schema write: seed the tx-local schema state (engaging the
+    // metadata-write mutex on the first such write) only once the change is known to be routable.
+    var txState = session.ensureTxSchemaState();
     txState.markClassChanged(changedClass);
     return true;
   }
