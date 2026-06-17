@@ -448,9 +448,12 @@ public interface Index extends Comparable<Index> {
   /**
    * Populates this handle with its definition metadata without building a storage engine. Used for
    * an index created inside a user transaction: the definition is recorded so the handle answers
-   * name/definition/collection queries and {@link #size(DatabaseSessionEmbedded)} sensibly, but the
-   * engine build and shared registration are deferred to commit. The handle stays absent from the
-   * shared index registry and is not query-usable until commit promotes it.
+   * name/definition/collection queries, {@link #size(DatabaseSessionEmbedded)} (zero), and value
+   * lookups ({@code get} / {@code getRids}, which short-circuit to no rids) sensibly, but the engine
+   * build and shared registration are deferred to commit. Any other engine-backed read (the range
+   * streams, statistics, the histogram) is unsupported on a deferred handle until commit builds the
+   * engine. The handle stays absent from the shared index registry and is not query-usable until
+   * commit promotes it.
    */
   void markDeferred(IndexMetadata metadata);
 

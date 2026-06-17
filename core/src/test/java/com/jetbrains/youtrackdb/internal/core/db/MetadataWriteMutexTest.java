@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.db;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -425,5 +426,129 @@ public class MetadataWriteMutexTest extends DbTestBase {
     }
     assertFalse("the mutex must be released once the outermost frame closes",
         session.getSharedContext().getMetadataWriteMutex().isEngagedBy(session));
+  }
+
+  /**
+   * The same-thread second-session reject fires through the real production seam — a schema write
+   * routed via {@code ensureTxSchemaState} — not just against bare {@code mutex.engage} calls. The
+   * test thread opens a schema transaction on the outer session (engaging the mutex by creating a
+   * class), then opens a second session on the same thread and attempts a schema write through it;
+   * that write must throw loudly rather than self-deadlock on a permit its own thread already holds.
+   * Driving the reject through {@code createClass} (not a direct {@code engage}) makes the wiring
+   * load-bearing: if {@code ensureTxSchemaState} ever stopped engaging the mutex, this test fails
+   * where the primitive-only reject test would not. After the outer transaction's outermost frame
+   * closes, the permit must be released through the real {@code close()} teardown.
+   */
+  @Test
+  public void sameThreadSecondSessionSchemaWriteThrowsThroughProductionPath() {
+    var outer = session;
+    outer.begin();
+    // First schema write engages the mutex through the production seam (ensureTxSchemaState).
+    outer.getMetadata().getSchema().createClass("OuterTxClass");
+    assertTrue("the outer schema write must engage the mutex through the production seam",
+        outer.getSharedContext().getMetadataWriteMutex().isEngagedBy(outer));
+
+    var inner = openDatabase();
+    try {
+      inner.activateOnCurrentThread();
+      inner.begin();
+      // The inner session's first schema write reaches engage on a thread that already holds the
+      // permit through the outer session — it must throw the same-thread different-session reject
+      // rather than park forever on the single permit.
+      var ex =
+          assertThrows(
+              "a same-thread second session's schema write must throw rather than self-deadlock",
+              IllegalStateException.class,
+              () -> inner.getMetadata().getSchema().createClass("InnerTxClass"));
+      assertTrue("the reject must name the same-thread different-session cause: " + ex.getMessage(),
+          ex.getMessage() != null && ex.getMessage().contains("different session"));
+      inner.rollback();
+    } finally {
+      inner.activateOnCurrentThread();
+      inner.close();
+      outer.activateOnCurrentThread();
+      // The outer rollback's close() must release the permit through the real teardown path.
+      outer.rollback();
+    }
+    assertFalse("the outer rollback's close() must release the permit through the real teardown",
+        outer.getSharedContext().getMetadataWriteMutex().isEngagedBy(outer));
+  }
+
+  /**
+   * A failed seed releases the permit so the next schema writer is not stranded. When the first
+   * schema write of a transaction engages the mutex and the subsequent tx-local copy seed throws,
+   * {@code ensureTxSchemaState} releases the permit in its catch arm before rethrowing. Without that
+   * release the single permit would be held forever (the custom-data marker that records "the seed
+   * exists" was never written, so a same-tx retry would re-engage on the holding thread and a
+   * foreign thread would park forever). This test forces the seed to throw by stubbing the committed
+   * schema's {@code copyForTx} to fail, asserts the throw surfaces, then proves the concurrency
+   * consequence the release prevents: a second schema transaction on another thread engages promptly
+   * rather than parking on a leaked permit.
+   */
+  @Test
+  public void seedFailureReleasesPermitSoTheNextWriterIsNotStranded() throws Exception {
+    var sharedContext = session.getSharedContext();
+    var mutex = sharedContext.getMetadataWriteMutex();
+    var realSchema = sharedContext.getSchema();
+
+    // Stub copyForTx to throw so the seed fails after the mutex is engaged but before the marker is
+    // written — exactly the engage-then-failed-seed window the catch-arm release covers. A spy keeps
+    // every other schema read delegating to the real instance, so only the seed path fails.
+    var failingSchema = org.mockito.Mockito.spy(realSchema);
+    org.mockito.Mockito.doThrow(new RuntimeException("forced seed failure"))
+        .when(failingSchema)
+        .copyForTx(org.mockito.ArgumentMatchers.any());
+
+    var schemaField =
+        com.jetbrains.youtrackdb.internal.core.db.SharedContext.class.getDeclaredField("schema");
+    schemaField.setAccessible(true);
+    schemaField.set(sharedContext, failingSchema);
+    try {
+      session.begin();
+      try {
+        var thrown =
+            assertThrows(
+                "a seed whose copyForTx fails must rethrow",
+                RuntimeException.class,
+                session::ensureTxSchemaState);
+        assertNotNull("the rethrown seed failure must carry its cause", thrown);
+        // The catch arm must have released the permit before rethrowing.
+        assertFalse("a failed seed must not strand the permit on the failing session",
+            mutex.isEngagedBy(session));
+      } finally {
+        session.rollback();
+      }
+    } finally {
+      // Restore the real schema before exercising the next writer, so its seed succeeds.
+      schemaField.set(sharedContext, realSchema);
+    }
+
+    assertFalse("after the failed seed and rollback the permit must be free",
+        mutex.isEngagedBy(session));
+
+    // The concurrency consequence: a fresh schema transaction on another thread must engage and
+    // commit promptly. If the failed seed had stranded the permit, this worker would park forever on
+    // engage and the bounded join below would leave it alive, failing the test.
+    var workerError = new AtomicReference<Throwable>();
+    var worker =
+        spawn(
+            () -> {
+              try (var next = openDatabase()) {
+                next.activateOnCurrentThread();
+                next.begin();
+                next.getMetadata().getSchema().createClass("AfterSeedFailure");
+                next.commit();
+              } catch (Throwable t) {
+                workerError.compareAndSet(null, t);
+              }
+            },
+            "post-seed-failure-writer");
+    worker.join(5_000);
+    assertFalse("the next schema writer must not be stranded behind a leaked permit",
+        worker.isAlive());
+    if (workerError.get() != null) {
+      throw new AssertionError("the next schema writer must engage and commit after a failed seed",
+          workerError.get());
+    }
   }
 }

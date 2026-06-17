@@ -84,6 +84,12 @@ public abstract class IndexMultiValues extends IndexAbstract {
     Stream<RID> backedStream;
     acquireSharedLock();
     try {
+      if (indexId < 0) {
+        // Unbuilt, transaction-deferred index: no engine yet, so a value lookup finds nothing.
+        // Returning an empty stream keeps get()/getRids() on a deferred handle NPE-free and
+        // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
+        return Stream.empty();
+      }
       Stream<RID> stream;
       while (true) {
         try {
