@@ -23,7 +23,7 @@ restated in `design-document-rules.md`). Track 2 reuses everything
 built here at the two other authoring points.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-06-17T12:49Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -145,7 +145,7 @@ historical seed copy. -->
 
 #### D18: Extend S2 to name the warm absorption agent as a sanctioned log reader; bind the research.md wording update (and the design-document-rules.md restatement) as a deliverable
 - **Alternatives considered**: leave S2's prose unchanged and treat the absorption agent as implicitly covered by the "Step 4a/4b artifact authoring" read site.
-- **Rationale**: today S2 names the authoring read as the author or the cold-read reviewer, not a separate absorption-only spawn. Without an explicit update, a later reader (or the Phase 2 consistency review) who reads S2 literally would see a third log-reading agent as a violation. So this branch extends S2 to name the absorption agent as a sanctioned reader, and the wording edit is a stated deliverable, not an implicit reinterpretation. The canonical S2 statement lives in `research.md` §"Read-scope discipline (S2)" with a restatement in `design-document-rules.md`; `conventions.md` carries no `S2` label and only descriptive cross-refs to "the two sanctioned read points", so the deliverable targets those two files and leaves the conventions.md cross-refs alone (CR3, resolved with the user).
+- **Rationale**: today S2 names the authoring read *site* ("Step 4a/4b artifact authoring, to seed the carriers"), not a reader role, so a separate absorption-only spawn is named nowhere. Without an explicit update, a later reader (or the Phase 2 consistency review) who reads S2 literally and then sees a distinct absorption-only spawn reading the log could count it as a third read site. So this branch extends S2 to name the absorption agent as a sanctioned reader **under the existing authoring site**, keeping the site count at two. The wording edit is a stated deliverable, not an implicit reinterpretation. The canonical S2 statement lives in `research.md` §"Read-scope discipline (S2)" with a restatement in `design-document-rules.md`; `conventions.md` carries no `S2` label and only descriptive cross-refs to "the two sanctioned read points", so the deliverable targets those two files and leaves the conventions.md cross-refs alone (CR3, resolved with the user).
 - **Risks/Caveats**: the auditor and the de-warmed comprehension reviewer read no log, which is what keeps the S2 site count at two (authoring, with absorption named under it; and Phase 2 consistency).
 - **Implemented in**: this track (the `research.md` S2 wording edit and the `design-document-rules.md` restatement).
 - **Full design**: design.md §"The S2 and S3 read-scope invariants".
@@ -160,6 +160,9 @@ historical seed copy. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (2 findings — 1 should-fix T1 + 1 suggestion T2, both accepted and gate-verified; review verdict was already PASS at iter 1, no blockers).
+- [x] Risk: PASS at iteration 2 (4 findings — 2 should-fix R1/R2 + 2 suggestion R3/R4, all accepted and gate-verified; gate surfaced 1 new suggestion R5, a self-introduced dangling pointer, fixed in place).
+- [x] Adversarial: PASS at iteration 2 (7 findings — 3 should-fix A1/A2/A3 + 4 suggestion A4/A5/A6/A7; A1–A6 accepted and gate-verified, A7 rejected as sound — the auditor agent definition is load-bearing for the D13/D14 tool-surface cut). Narrowed to track realization (scope/sizing + invariant-violation); cross-track-episode challenge dropped per the Track-1 exception. Ran on opus (D14 fable pin degraded, env-unavailable; per D14's documented caveat this does not reopen the decision).
 
 ## Context and Orientation
 Every artifact this track touches lives under `.claude/`. Because the branch is
@@ -192,10 +195,13 @@ What is there today:
 - The read-scope invariants are stated canonically in
   `.claude/workflow/research.md` §"Read-scope discipline (S2)", which reads "the
   log is read for decision content in exactly two places: at Step 4a/4b
-  artifact authoring … and by the Phase-2 consistency review", naming the author
-  or the cold-read reviewer as the authoring reader. `design-document-rules.md`
-  restates the same rule; `conventions.md` carries only descriptive cross-refs
-  to "the two sanctioned read points" and never uses the `S2` label.
+  artifact authoring (to seed the carriers) and by the Phase-2 consistency
+  review (as a cross-check)". It names the authoring read *site*, not a reader
+  role; there is no "author or cold-read reviewer" enumeration to edit, so D18's
+  deliverable adds an explicitly named sanctioned reader (the warm absorption
+  agent) under that existing site. `design-document-rules.md` restates the same
+  site-named rule; `conventions.md` carries only descriptive cross-refs to "the
+  two sanctioned read points" and never uses the `S2` label.
 
 Non-obvious terminology used below (all defined in design.md §"Core Concepts"):
 **code-grounded author**, **cold readability auditor**, **reconstructibility
@@ -242,25 +248,61 @@ Phase A; the ordering below keeps each step independently testable.
    definition points at is a Phase A realization detail. Each carries the
    reconstructibility-bar stopping rules (D1, D2) for the auditor and the
    code-grounding mandate (D3) for the author.
-2. **De-warm `design-review.md`.** Drop the § Prose AI-tell additions block and
-   the research-log read; keep the comprehension questions, the structural
-   findings (TL;DR / References / length / Mechanics and Full-design link
-   resolution), and the whole-doc human-reader items (navigability and the
-   structural "does the Overview name a reader" half of audience fit). Split
-   the five human-reader checks per D8. Realize the comprehension review as a
-   `Read`-only spawn (agent definition or tool-restricted spawn of the
-   de-warmed prompt — Phase A settles which).
+2. **De-warm `design-review.md`** (a multi-site edit, not a single-block
+   excision). The prose axis and the research-log read thread through the prompt
+   at more than the named block, so Phase B enumerates and removes every site
+   (A2): the § Prose AI-tell additions block; the absorption-completeness
+   cross-check the `phase1-creation` bullet (c) owns; the `research_log_path`
+   § Inputs and § Reading-rules entries that only the absorption check needs; the
+   header "Both targets carry the absorption cross-check" note; and the
+   § Output-format and § Tone-and-depth pointers to both. Keep the comprehension
+   questions, the structural findings (TL;DR / References / length / Mechanics
+   and Full-design link resolution), and the whole-doc human-reader items
+   (navigability and the structural "does the Overview name a reader" half of
+   audience fit). Split the five human-reader checks per D8. Realize the
+   comprehension review as a `Read`-only spawn; whether that is a fresh agent
+   definition or a tool-restricted spawn of the de-warmed prompt is a Phase B
+   choice.
+
+   **Cross-track `target=tracks` seam (R1 / A1).** The § Prose AI-tell additions
+   block's applies-to set names `target=tracks` as well as the three
+   `target=design` kinds, and `target=tracks` is spawned only by `create-plan`
+   Step 4b, a Track 2 file. Removing the block therefore de-warms the track
+   surface too, with no auditor owner there until Track 2. Staging keeps the
+   whole branch non-live until one Phase 4 promotion (S7), so the live workflow
+   never sees a no-prose-axis window; the gap lives only in the staged tree
+   between the two tracks. Track 1 removes the prose axis from the
+   `target=design` kinds and leaves the `create-plan` Step 4b `target=tracks`
+   spawn for Track 2 to migrate alongside the track-path auditor (D9). The
+   co-promotion constraint is recorded in `## Invariants & Constraints`; the
+   staged-tree intermediate inconsistency is a known stacked-diff seam a
+   Track-1-only reviewer should expect.
+
+   **`design-sync` one-owner (A3).** The block also applies to `design-sync`, a
+   live mutation kind that re-distills human-facing `design.md` prose. The
+   de-warm must not leave `design-sync` with the prose axis on neither reviewer.
+   Whether the full auditor loop runs on `design-sync` or `design-sync` keeps a
+   scoped prose block on the comprehension reviewer is a Phase B wiring choice,
+   but it lands at exactly one owner (S4, tightened below).
 3. **Rework `edit-design/SKILL.md` Steps 1, 4, 6.** Step 1 spawns the author
    instead of authoring inline. Step 4 spawns the per-round auditor-plus-
    absorption pair, then the cold comprehension gate after the loop converges.
-   Step 6 is the dual-clean inner loop: it exits only when both checks are
-   clean or the iteration budget (default 3) is spent, escalating to the user
-   on exhaustion exactly as today's Step 6 does (S5). Implement the cost levers
-   (D13): the fan-out cache warm-up, ground-once-with-targeted-re-grounding,
-   and params-in-file so spawn prompts stay byte-identical (D14). Keep the
-   freeze-order gate (S3) on the loop, since the author and the absorption
-   check read the log; the `phase1-creation` review is cold-read-only behind
-   the research-log gate.
+   Moving absorption onto the warm per-round agent means Step 4 no longer injects
+   `research_log_path` into the comprehension spawn for `phase1-creation` (today
+   `edit-design` Step 4 does, at `SKILL.md:478`); that injection moves to the
+   absorption spawn, so the absorption relocation is part of this step, not only
+   the `design-review.md` de-warm (A2). Step 6 is the dual-clean inner loop: it
+   exits only when both checks are clean or the iteration budget (default 3) is
+   spent, escalating to the user on exhaustion exactly as today's Step 6 does
+   (S5). Implement the cost levers (D13): the fan-out cache warm-up,
+   ground-once-with-targeted-re-grounding, and params-in-file so spawn prompts
+   stay byte-identical (D14). The warm-up is a cost lever, not a correctness
+   dependency: its delay is a tunable with a measured fallback, the
+   byte-identical-prompt assumption is verified against the live `Agent`-tool
+   prompt assembly at Phase B, and the loop must produce correct dual-clean
+   output with the warm-up disabled (R2). Keep the freeze-order gate (S3) on the
+   loop, since the author and the absorption check read the log; the
+   `phase1-creation` review is cold-read-only behind the research-log gate.
 4. **Update the canonical S2 statement in `research.md`** §"Read-scope
    discipline (S2)" (and its `design-document-rules.md` restatement) to name the
    warm absorption agent as a sanctioned log reader (D18). Touch S3/S4 wording
@@ -285,7 +327,8 @@ boundary collapse (D15), which regresses to retaining the boundary if
 by-reference cannot hold.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+1. Author the four staged agent definitions — the code-grounded author (`Read`, `Write`, `Edit`, `Bash`, mcp-steroid PSI), the cold readability auditor (`Read`, `Grep`), the warm absorption check (`Read`, `Grep`; `model: sonnet`), and the de-warmed comprehension reviewer (`Read`) — and realize the `design-review.md` de-warm the comprehension reviewer depends on (remove the § Prose AI-tell block, the `phase1-creation` bullet (c) absorption cross-check, and the `research_log_path` § Inputs / § Reading-rules entries plus the § Output-format / § Tone-and-depth pointers to both; split the five human-reader checks per D8), plus the S2/S3/S4 read-scope wording in `research.md` and `design-document-rules.md` (and `conventions.md` only if a cross-ref becomes inaccurate). — risk: medium (workflow machinery: review-agent specs plus multi-file agent-observable-behavior prose; behavioral but drives no gate and runs nothing automatically) — size: ~8 files; no mergeable low/medium work fits (the rest of the track is the high edit-design rework)  [ ]
+2. Rework `edit-design/SKILL.md` Steps 1/4/6 into the dual-clean multi-agent loop — Step 1 spawns the author instead of authoring inline, Step 4 spawns the per-round auditor-plus-absorption pair then the post-loop cold comprehension gate, Step 6 is the dual-clean exit (both checks clean or the iteration budget spent, S5) — with the D13 cost levers (fan-out cache warm-up as a tunable cost lever with a measured fallback, ground-once-with-targeted-re-grounding, params-in-file byte-identical spawns) and the absorption-move (drop the `phase1-creation` `research_log_path` injection from the comprehension spawn at `SKILL.md:478`, moving it to the absorption spawn), keeping the S3 freeze-order gate on the loop. *(depends on Step 1)* — risk: high (workflow machinery: drives the design-authoring control-flow loop and the S3 freeze-order gate; a defect reaches every design-authoring session)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -306,6 +349,13 @@ Track-level acceptance:
 - Each new agent definition carries the intended `tools:` allow-list (auditor
   and absorption: `Read`, `Grep`; comprehension: `Read`; author: `Read`,
   `Write`, `Edit`, `Bash`, PSI) and the absorption check carries `model: sonnet`.
+- **Acceptance is prose-shaped, not coverage-gated.** Every step edits
+  `.claude/**` markdown, so the 85%-line / 70%-branch code-coverage gate does not
+  apply. Each step's acceptance is a static read of the staged file against its
+  named S-invariant plus `workflow-reindex.py --check` for TOC integrity. The
+  three loop-runtime properties (S5 dual-clean exit, S3 freeze-order ordering,
+  the D13 warm-up) are checked by a worked dry-run of the loop, not a static read
+  (R3).
 - **Phase 3 dogfood (D17, gate A5).** Run the implemented (staged) routine
   against a known-dense storage design (`transactional-schema` `design.md`) and,
   because workflow prose is this branch's actual domain, against a known-dense
@@ -315,10 +365,13 @@ Track-level acceptance:
   `readability-feedback` run on this branch's own `design.md` is the available
   pre-implementation check.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+**Per-step acceptance:**
+- Step 1: WHEN the four agent definitions are read, each carries its intended `tools:` allow-list (auditor / absorption `Read`,`Grep`; comprehension `Read`; author `Read`,`Write`,`Edit`,`Bash`,PSI) and the absorption check carries `model: sonnet`; the de-warmed `design-review.md` contains no § Prose AI-tell block, no `research_log_path` read, and no absorption cross-check, while still carrying the comprehension questions, the structural findings, and the whole-doc human-reader items; `research.md` §"Read-scope discipline (S2)" and its `design-document-rules.md` restatement name the warm absorption agent as a sanctioned reader under the existing authoring site. Acceptance is a static read against S1/S2/S4/S7 plus `workflow-reindex.py --check`.
+- Step 2: WHEN `edit-design` runs `phase1-creation`, it spawns the author with no inline authoring, runs the per-round auditor-plus-absorption pair followed by the post-loop cold comprehension gate, and Step 6 exits only when both checks are clean or the budget is spent (S5); the comprehension spawn receives no `research_log_path`; the S3 freeze-order gate still blocks the cold comprehension gate while a log-adversarial entry is open; the loop produces correct dual-clean output with the warm-up disabled. Acceptance is a worked dry-run of the loop plus a static read against S3/S5.
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths. -->
+- Both steps edit only staged `.claude/**` files under `_workflow/staged-workflow/`; no live path, no runtime state, no data migration. Re-running a step re-writes the same staged files, so authoring is idempotent.
+- Recovery: a failed or reverted step is `git reset --hard HEAD` plus re-author, with no external side effect to undo. Step 2 depends on Step 1's staged definitions, so reverting Step 1 forces a Step 2 re-do.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
@@ -369,20 +422,32 @@ by-reference contract. Folding them into one ~14-file diff would bundle the
 conceptual core (the loop and the de-warm) with mechanical downstream reuse;
 though ~14 is under the ~20-25 ceiling by count, these are unusually large and
 dense workflow-prose files reviewed line by line, and the dependency cut yields
-two PRs that each tell one coherent story at a comfortable review load.
+two PRs that each tell one coherent story at a comfortable review load. The
+cut's accepted cost is the staged-tree `target=tracks` seam (R1 / A1): the prose
+axis leaves the track surface in Track 1 and its auditor owner arrives in Track
+2, a transient inconsistency that lives only in the staged tree and closes at
+the single Phase 4 promotion.
 
 **Signatures / contracts**: each role is spawned via the `Agent` tool against
 its agent definition. Per-agent parameters (slice range, target path) are
 passed in a file the agent reads first, so spawn prompts stay byte-identical
-for cache sharing (D13/D14).
+for cache sharing (D13/D14). The author realizes the by-reference contract with
+the existing `output_path`-plus-partial-fetch idiom the review spawns already
+use (the same one `design-review.md`'s `phase4-creation` branch uses), not a new
+return discipline (R4). The `tools:` allow-list has no committed precedent in
+`.claude/agents/` (the YTDB-1094 lever) and `model: sonnet` is the first
+non-`opus` agent-def model in this repo, so Phase B confirms the exact `tools:`
+value syntax, including how mcp-steroid PSI is named for the author, against the
+live Agent-tool docs rather than copying a precedent (T2).
 
 ## Invariants & Constraints
-- S1: the cold readability auditor never reads the research log — verified by the auditor agent definition's tool allow-list and prompt naming no research-log path, and a check that auditor and absorption are separate spawns.
+- S1: the cold readability auditor never reads the research log — verified by the auditor agent definition's tool allow-list, its prompt naming no research-log path, a positive check that its reads (the params-file `target_path` and any standing-anchor paths) name only `design.md` / `house-style.md` / the track files and never a directory glob that could resolve to `_workflow/research-log.md` (A5), and a check that auditor and absorption are separate spawns.
 - S2: the research log is read for decision content only at the sanctioned sites (Step 4a/4b artifact authoring — now naming the warm absorption agent — and the Phase 2 consistency review) — verified by the updated S2 statement in `research.md` §"Read-scope discipline (S2)" (and the `design-document-rules.md` restatement) and a review that no other agent reads the log for decision content.
-- S3: the cold-read comprehension gate does not run while a log-adversarial gate entry is open — verified by the freeze-order gate in the `edit-design` loop and an ordering check on `phase1-creation`.
-- S4: no surface runs the prose AI-tell axis on both the auditor and the comprehension reviewer — verified by the de-warmed `design-review.md` carrying no prose axis and a per-surface check that the prose axis lands on exactly one reviewer.
+- S3: the cold-read comprehension gate does not run while a log-adversarial gate entry is open — verified by the freeze-order gate in the `edit-design` loop and an ordering check on `phase1-creation`; a load-bearing decision appended to the research log by the author or surfaced by the absorption check re-opens the log-adversarial gate exactly as a decision-shaped cold-read finding does, so the comprehension gate cannot run over an un-challenged absorption-surfaced decision (A6).
+- S4: every prose-judged surface runs the prose AI-tell axis on exactly one reviewer (the auditor or the comprehension reviewer), never both and never neither — verified by the de-warmed `design-review.md` carrying no prose axis, a per-surface check that the axis lands on exactly one owner, and an explicit check that no prose-judged surface (including `design-sync`) is left at zero owners (A3).
 - S5: the dual-clean inner loop exits only when both the readability auditor and the absorption check are clean, or the iteration budget is spent — verified by the `edit-design` Step 6 exit condition and a test of the dual-clean gate.
 - S7 (staging): the new routine stays staged and non-live until the Phase 4 promotion — verified by every `.claude/**` edit landing under `_workflow/staged-workflow/`, the implementer pre-commit live-path gate, and the live paths staying at develop state.
 - Constraint (§1.7(b) workflow-modifying): the phase ledger `s17` field is `workflow-modifying`; all edits in this track route through the staged subtree.
 - Constraint (D12): the author emits Mermaid diagrams; no SVG or ASCII diagram toolchain enters the branch.
 - Constraint (by-reference): author spawns return a thin summary only, never the drafted content.
+- Constraint (cross-track `target=tracks` seam, R1 / A1): de-warming `design-review.md` removes the prose AI-tell axis from the `target=tracks` surface, whose only spawner (`create-plan` Step 4b) is a Track 2 file; Track 1 leaves that spawn for Track 2 to migrate alongside the track-path auditor (D9). Because every edit stays staged until the single Phase 4 promotion (S7), the live workflow never runs `target=tracks` without a prose owner; the gap is a staged-tree-only intermediate that both tracks close together at promotion.
