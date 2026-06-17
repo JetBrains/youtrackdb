@@ -388,6 +388,12 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > storage-leads boundary.
   >
   > **Track file:** `plan/track-2.md` (1 step, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no Track 3 impact. Track 2's round-trip
+  > serializer preserves each class's per-class record RID, the foundation
+  > Track 3's tx-local `fromStream` seed (D8) binds against. Track 2's two
+  > forward-carried contracts (schema version now 6; write-lock-only schema
+  > serializer) land on Tracks 8 and 7, not Track 3.
 
 - [ ] Track 3: Tx-local schema view, transactional enablement, and the metadata-write mutex (D1, D4, D5, D7, D8)
   > Seed a per-session tx-local `SchemaShared` (a `fromStream` re-parse) on the
