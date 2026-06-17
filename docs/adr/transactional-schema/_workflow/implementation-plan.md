@@ -343,15 +343,51 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > crash-recovery tests rest on; no Component Map, Decision Record, or
   > inter-track dependency for the remaining tracks changed.
 
-- [ ] Track 2: Per-class schema records (D14)
+- [x] Track 2: Per-class schema records (D14)
   > Replace the single monolithic schema record with a root record that links to
   > one entity record per class, add the net-new per-class record-RID field bound
   > at load, write only changed class records plus the root when its non-link
   > payload changes, and bump the schema version into a reject-and-redirect gate.
   > This is the persistence foundation and the write-amplification win; the
   > tx-local seed (Track 3) binds the per-class RIDs it introduces.
-  > **Scope:** ~9 files covering `SchemaShared`/`SchemaClassImpl` serialization, the schema-record link set, the version constant plus the open-time gate, `DatabaseCompare.convertSchemaDoc`, and serializer / round-trip / version-gate tests.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:**
+  > Replaced the single monolithic schema record with a root record carrying a
+  > `classes` LINKSET to one standalone record per class plus the non-link root
+  > payload (global-property table, `collectionCounter`, `blobCollections`),
+  > mirroring the index manager's `CONFIG_INDEXES` link set. `SchemaClassImpl`
+  > gained a nullable record-RID field, bound at load from the link set and
+  > allocated at commit through the ordinary temp→persistent record-id path;
+  > `SchemaClassImpl.toStream` now writes into a caller-supplied standalone record
+  > instead of an embedded entity. The schema version moved from 4 to 6 and the
+  > `fromStream` gate tightened to `schemaVersion != CURRENT_VERSION_NUMBER`,
+  > dropping the legacy version-5 accept-arm so both a version-4 and a legacy
+  > version-5 database reject-and-redirect to export/import rather than mis-parsing
+  > under the new format. `DatabaseCompare.convertSchemaDoc` proved to be dead code
+  > (schema records live in internal collection id 0, which `skipRecord` skips
+  > unconditionally) and was removed rather than rewritten; the live backup/restore
+  > gate is the `StorageBackup*` and `LocalPaginatedStorageRestore*` core suites,
+  > all green (the `DbImportExport*` ITs named in the plan are all `@Disabled`).
+  > One review-fix iteration during step implementation self-healed a stale
+  > per-class record id left by a failed save and hardened the round-trip tests
+  > with a durable reload; a later review-mode pass dropped a redundant reentrant
+  > read-lock acquire in `toStream`, leaving the caller's write lock (now asserted
+  > and documented) as the schema serializer's sole synchronization.
+  >
+  > Cross-track effects to carry forward: the schema version is now 6, so Track 8's
+  > export/import (EXPORTER_VERSION 14→15) and the `DatabaseExport`/`DatabaseImport`
+  > schema-version field must agree on 6. The serializer asserts
+  > `isWriteLockedByCurrentThread()` and takes no other lock, documenting the
+  > write-lock-only contract Track 7 must preserve if it inverts the schema lock
+  > model. The round-trip preserves per-class RIDs and the root payload
+  > (test-verified through a durable reload), so Track 3's tx-local seed binds RIDs
+  > faithfully, and the load reader rejects a non-persistent linked record id with
+  > a diagnosable `ConfigurationException` that Track 4's selective per-class write
+  > can rely on. The write-amplification win and the F59 root-omission regression
+  > stay deferred to Track 4 (D6 dirty tracking), unobservable at this track's
+  > storage-leads boundary.
+  >
+  > **Track file:** `plan/track-2.md` (1 step, 0 failed)
 
 - [ ] Track 3: Tx-local schema view, transactional enablement, and the metadata-write mutex (D1, D4, D5, D7, D8)
   > Seed a per-session tx-local `SchemaShared` (a `fromStream` re-parse) on the

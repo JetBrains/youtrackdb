@@ -25,11 +25,13 @@ tx-local seed (Track 3) binds the per-class RIDs this track introduces.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, fully reviewed in Phase B)
+- [x] Track completion
 - [x] 2026-06-16T14:03Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-16T16:14Z [ctx=safe] Step 1 complete (commit 9c7409305b)
 - [x] 2026-06-16T16:14Z [ctx=safe] Step implementation complete (Phase B done; 1/1 step)
+- [x] 2026-06-17T00:00Z [ctx=safe] Track-level code review skipped (single-step risk:high track; step-level dimensional review in Phase B covered the identical diff)
+- [x] 2026-06-17T00:00Z [ctx=safe] Track completion approved; one review-mode fix applied (commit f645af9f39, drop redundant read lock in toStream); episode written to plan file
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
