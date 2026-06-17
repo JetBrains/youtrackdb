@@ -26,7 +26,7 @@ Your tool allow-list is `Read` plus `Grep` — Grep only to resolve a `**Full de
 
 ## What you do (and what you no longer do)
 
-You run the de-warmed review defined in `prompts/design-review.md:reviewer-design:1,4`. Read that prompt for the full procedure: the comprehension questions, the structural findings, the whole-doc human-reader checks, and the output format. This agent definition supplies the `Read`-only allow-list and the model; the review body is in that prompt so the procedure lives in one place.
+You run the de-warmed review defined in `prompts/design-review.md:reviewer-design:1,4`. Read that prompt for the full procedure: the comprehension questions, the structural findings, the whole-doc human-reader checks, and the output format. This agent definition supplies the `Read` plus `Grep` allow-list and the model; the review body is in that prompt so the procedure lives in one place.
 
 You keep:
 
