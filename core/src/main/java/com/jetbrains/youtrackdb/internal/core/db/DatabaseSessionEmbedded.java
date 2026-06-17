@@ -85,6 +85,8 @@ import com.jetbrains.youtrackdb.internal.core.metadata.function.FunctionLibraryI
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaImmutableClass;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -3404,6 +3406,51 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     checkOpenness();
 
     return metadata;
+  }
+
+  /**
+   * The transaction-scoped key under which the tx-local schema state is stashed in the active
+   * transaction's custom data. The state lives only as long as the transaction object, so it is
+   * dropped automatically when the outermost transaction frame closes.
+   */
+  private static final String TX_SCHEMA_STATE_KEY = "txSchemaState";
+
+  /**
+   * Returns the tx-local schema write-view seeded for the current transaction, or {@code null}
+   * when no schema write has been routed in this transaction yet (or no transaction is active). A
+   * non-null result is the signal that the proxy routing seam must resolve schema reads and writes
+   * against the tx-local copy (tier 3) rather than the committed shared instance (tier 2). This is
+   * a read-only probe: it never seeds the state.
+   */
+  @Nullable public TxSchemaState getTxSchemaState() {
+    assert assertIfNotActive();
+    var tx = getTransactionInternal();
+    if (!tx.isActive()) {
+      return null;
+    }
+    return (TxSchemaState) tx.getCustomData(TX_SCHEMA_STATE_KEY);
+  }
+
+  /**
+   * Returns the tx-local schema write-view for the current transaction, seeding it on the first
+   * call. Seeding builds a private {@link SchemaShared} copy of the committed schema
+   * ({@link SchemaShared#copyForTx}) and stashes it in the transaction's custom data, so the copy
+   * is built at most once per transaction and discarded when the transaction object is. The caller
+   * must have an open transaction; seeding loads records that ride the open user transaction.
+   */
+  public TxSchemaState ensureTxSchemaState() {
+    assert assertIfNotActive();
+    var tx = getTransactionInternal();
+    assert tx.isActive()
+        : "ensureTxSchemaState requires an open transaction to seed the tx-local schema copy";
+    var existing = (TxSchemaState) tx.getCustomData(TX_SCHEMA_STATE_KEY);
+    if (existing != null) {
+      return existing;
+    }
+    SchemaShared committed = getSharedContext().getSchema();
+    var state = new TxSchemaState(committed.copyForTx(this));
+    tx.setCustomData(TX_SCHEMA_STATE_KEY, state);
+    return state;
   }
 
   public boolean isRetainRecords() {
