@@ -123,41 +123,63 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   /**
    * Builds a private, transaction-scoped copy of this committed schema for a schema-changing
-   * transaction to mutate in isolation. The copy is seeded by a serialize-then-re-parse round
-   * trip rather than a field-level clone: each {@link SchemaClassImpl} binds back to its
+   * transaction to mutate in isolation. The copy is seeded by a re-parse of the committed root
+   * record rather than a field-level clone: each {@link SchemaClassImpl} binds back to its
    * {@link SchemaShared} through a final {@code owner} field and links to its relatives by direct
    * object reference, so a clone would leave those references pointing at the shared instances. The
    * re-parse constructs fresh class objects bound to the copy, and the cross-class derived state a
    * schema write recomputes (inheritance, {@code polymorphicCollectionIds}, subclass sets, the
    * global-property table) stays inside the copy with no extra code.
    *
-   * <p>Mechanically the seed is {@code copy.fromStream(session, this.toStream(session))}: this
-   * committed instance serializes into its root record, and the fresh copy re-parses that record.
-   * The re-parse rebinds each class's committed per-class record RID from the {@code "classes"} link
-   * set (the per-class-record format), so a commit later writes the right record. The committed root
-   * {@code identity} is copied onto the new instance first, so the copy serializes back to the same
-   * root record at commit and so any save inside {@code fromStream} resolves the right record.
+   * <p>The seed reads the committed root record and re-parses it: {@code copy.fromStream(session,
+   * session.load(identity))}. The root record is loaded read-only: the seed does not serialize
+   * through {@link #toStream}, so it neither dirties the committed per-class records into the
+   * caller's transaction nor rebinds any committed class's record id. Every committed schema change
+   * persists the root record synchronously under this same write lock (the
+   * {@code releaseSchemaWriteLock} to {@code saveInternal} path), so the persisted root record the
+   * seed reads is the live committed state while the lock is held. The re-parse rebinds each class's
+   * committed per-class record RID from the {@code "classes"} link set (the per-class-record
+   * format) by loading each per-class record read-only, so a commit later writes the right record.
+   * The committed root {@code identity} is copied by value onto the new instance first (a shared
+   * mutable id reference must not link the committed instance and the copy), so the copy serializes
+   * back to the same root record at commit.
    *
-   * <p>The committed-side serialization runs under this instance's schema write lock, which is what
-   * {@link #toStream} asserts and what makes the read of the committed class graph exclusive against
-   * concurrent committed-schema mutation. The copy's own {@code fromStream} takes the copy's
-   * (separate) write lock internally. Record loads and writes during the round trip ride the caller's
-   * already-open user transaction; this method does not open or commit a transaction of its own,
-   * because the whole point of the tx-local view is that the change defers to the user transaction's
-   * commit.
+   * <p>The read of the committed root record and per-class records runs under this instance's schema
+   * write lock, which makes the read of the committed class graph exclusive against concurrent
+   * committed-schema mutation. The copy's own {@code fromStream} takes the copy's (separate) write
+   * lock internally. The read-only record loads during the re-parse ride the caller's already-open
+   * user transaction; this method does not open or commit a transaction of its own, because the
+   * whole point of the tx-local view is that the change defers to the user transaction's commit.
    *
-   * @param session the session whose open transaction the round-trip record I/O rides
+   * @param session the session whose open transaction the read-only record loads ride; a
+   *                transaction must already be open
    * @return a fresh {@link SchemaShared} of this instance's concrete type, private to the caller
    */
   public SchemaShared copyForTx(DatabaseSessionEmbedded session) {
+    // The re-parse loads records and must ride an already-open user transaction; a seed run outside
+    // a transaction would auto-commit its loads instead of deferring to the user transaction.
+    assert session.getTransactionInternal().isActive()
+        : "copyForTx must run inside the caller's open user transaction";
     lock.writeLock().lock();
     try {
-      final var serialized = toStream(session);
+      // Read the committed root record read-only: loading it and reading its properties does not
+      // enrol it (or the per-class records fromStream loads) as dirty in the caller's transaction,
+      // and nothing rebinds a committed class's record id. Under the write lock this persisted
+      // record equals the live committed state (saveInternal persists synchronously under the same
+      // lock on every committed schema change).
+      final EntityImpl committedRoot = session.load(identity);
+      // A bootstrapped committed schema always carries global properties in its root record; the
+      // fromStream re-parse only triggers a self-save (which throws inside the active user
+      // transaction) when global properties are absent, so a missing list means an unseedable
+      // schema.
+      assert committedRoot.getProperty("globalProperties") != null
+          : "copyForTx requires a bootstrapped committed schema carrying global properties";
       final var copy = newInstanceForCopy();
-      // Copy the committed root identity before the re-parse: the copy must serialize back to the
-      // same root record at commit, and a save triggered from inside fromStream resolves identity.
-      copy.identity = this.identity;
-      copy.fromStream(session, serialized);
+      // Copy the committed root identity by value before the re-parse: the copy must serialize back
+      // to the same root record at commit, and value-copying avoids sharing a mutable record-id
+      // reference whose in-place promotion would otherwise be observed by both instances.
+      copy.identity = this.identity.copy();
+      copy.fromStream(session, committedRoot);
       return copy;
     } finally {
       lock.writeLock().unlock();
