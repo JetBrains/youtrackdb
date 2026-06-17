@@ -35,23 +35,23 @@ import org.junit.experimental.categories.Category;
  * kept separate from the wiring smoke suite so it can churn independently of the session-integration
  * proofs.
  *
- * <p>The equivalence assertions are the correctness floor (I10): every cacheable scenario is run twice
+ * <p>The equivalence assertions are the correctness floor: every cacheable scenario is run twice
  * end-to-end through the live {@code query()} path — once with the flag off (a fresh uncached execution,
  * the source of truth) and once with the flag on (forcing a cache populate, then a post-mutation second
  * query served through the delta-merged view) — and the two outputs are compared as ordered FIELD
  * value lists (RIDs legitimately differ between two independent executions, so the value sequence,
- * not the identity, is the observable I10 guarantees). Comparing against a parallel uncached run
+ * not the identity, is the observable guaranted). Comparing against a parallel uncached run
  * rather than hand-rolled expected lists keeps the suite honest as the merge logic evolves: a change
  * that breaks the merge breaks the comparison, never silently agrees with a stale literal.
  *
  * <p>The RECORD equivalence cases span CREATED / UPDATED / DELETED record mutations crossed with the
  * two populate orderings (mutation staged before the cache entry is populated vs after), and the
  * K0_NONE version-gate case covers the pure-read hit plus the post-mutation invalidation. The
- * remaining tests pin the lifecycle invariants (I1 eventual clear, I3 stream lifetime, I6 idempotent
- * clear, I7 view-snapshot isolation, I8 schema-stable class filter, I9 LRU-pressure pinning) and the
+ * remaining tests pin the lifecycle invariants (eventual clear, stream lifetime, idempotent
+ * clear, view-snapshot isolation, schema-stable class filter, LRU-pressure pinning) and the
  * load-bearing {@code ORDER BY} + {@code LIMIT} classify-ordering guard.
  *
- * <p>Run with {@code -ea}: I2 (owner-thread) rests on {@code assertOnOwningThread} and the
+ * <p>Run with {@code -ea}: owner-thread rests on {@code assertOnOwningThread} and the
  * schema-DDL canary is a Java {@code assert}; both are disabled without assertions, so they protect
  * tests, not production.
  */
