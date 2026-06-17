@@ -12,7 +12,7 @@ The concrete-before-abstract rule from [`../../workflow-book-builder/BOOK_BRIEF.
 
 ## Chapter map
 
-Each chapter is one teaching moment. The per-chapter brief names the teaching goal, what earlier chapter it builds on, the mental models the reader leaves with, and the source files the chapter draws from. Three figures from the enumerated SVG set in [`../../workflow-book-builder/DIAGRAMS.md`](../../workflow-book-builder/DIAGRAMS.md) are placed where the prose first leans on them: `fig-tier-gate` in Chapter 3, `fig-phase-state-machine` in Chapter 7, `fig-track-step-episode` in Chapter 10.
+Each chapter is one teaching moment. The per-chapter brief names the teaching goal, what earlier chapter it builds on, the mental models the reader leaves with, and the source files the chapter draws from. Three named figures are placed where the prose first leans on them: `fig-tier-gate` in Chapter 3, `fig-phase-state-machine` in Chapter 7, `fig-track-step-episode` in Chapter 10. Each is an inline Mermaid diagram like every other figure in the book; the convention is in [`../../workflow-book-builder/DIAGRAMS.md`](../../workflow-book-builder/DIAGRAMS.md).
 
 - **Part I — Orientation.** What the workflow is, and the shape of one run, before any phase is opened in depth.
 

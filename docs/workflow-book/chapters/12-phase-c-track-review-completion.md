@@ -18,22 +18,13 @@ Because the value is in those cross-step seams, the review leans on the IDE's sy
 
 There is one exception, and it is worth holding precisely because it is easy to misremember. A track of exactly one step *whose step is `risk: high`* skips the track-level review entirely. The reason is that a `high` single step was already given a full dimensional review in Phase B against the identical diff, and a one-step track has no cross-step seam to catch. The skip is recorded in the track file and the phase proceeds straight to completion. But a single step tagged `medium` or `low` had its step review *skipped* in Phase B (only `high` steps earn one), so its diff has never been reviewed — and the track review runs in full, treating that one step as the entire diff. The shorthand "single-step tracks skip the review" is wrong in exactly the case that matters: the skip is gated on the step having already been reviewed, not on the step count.
 
-```
-   all steps of the track committed
-              │
-              ▼
-   ┌──────────────────────────────────────────────┐
-   │ exactly 1 step AND that step is risk: high ?   │
-   └──────────────────────────────────────────────┘
-        │ yes                          │ no
-        ▼                              ▼
-   skip track review            run track review
-   (identical diff already      (full fan-out over the
-    reviewed in Phase B)         cumulative track diff)
-        │                              │
-        └──────────────┬───────────────┘
-                       ▼
-                 Track Completion
+```mermaid
+flowchart TD
+    Start["all steps of the track committed"] --> Decide{"exactly 1 step AND that step is risk: high?"}
+    Decide -->|"yes"| Skip["skip track review (identical diff already reviewed in Phase B)"]
+    Decide -->|"no"| Run["run track review (full fan-out over the cumulative track diff)"]
+    Skip --> Completion["Track Completion"]
+    Run --> Completion
 ```
 
 **Figure 12.1 — When the track-level review is skipped.** Only a one-step track whose sole step is `high` skips the review, because Phase B already reviewed that exact diff. A `medium` or `low` single step was never reviewed and runs the full track review.
@@ -44,20 +35,18 @@ Phase C runs the same iterate-until-pass loop as every other review, but with a 
 
 The reason for the split is the same one that justified it in Phase B. A track-level fan-out can be six dimensional reviewers across three iterations, all reading the same large diff; folding the fix work into the orchestrator too would pile every source read, every Maven run, and every reviewer's output into the orchestrator's own context until it could no longer think clearly. Pushing the fix work into a fresh sub-agent each iteration keeps that traffic out of the orchestrator. The implementer is spawned with two settings that tell it what job it is doing: `level=track`, meaning it works against the cumulative track diff rather than one step, and `mode=FIX_REVIEW_FINDINGS`, meaning it is applying review findings on top of the existing `HEAD` rather than building something new. It reads the synthesized findings, applies the fixes, runs the touched tests plus the coverage gate, and commits with a `Review fix:` prefix that marks the commit as a review-driven change in the branch log.
 
-```
-   ┌────────────────────────────────────────────────────┐
-   │ ORCHESTRATOR                                         │
-   │   spawn review fan-out  →  synthesize findings       │
-   │   classify in-scope vs deferred                      │
-   │            │ in-scope findings                       │
-   │            ▼                                          │
-   │     spawn fresh IMPLEMENTER  (level=track,            │
-   │            │                  mode=FIX_REVIEW_FINDINGS)│
-   │            │   reads diff, fixes, tests, commits      │
-   │            ▼   "Review fix:" commit on HEAD           │
-   │     gate-check fan-out  →  PASS / loop                │
-   └────────────────────────────────────────────────────┘
-                    max 3 iterations
+```mermaid
+flowchart TD
+    subgraph Orchestrator["ORCHESTRATOR"]
+        FanOut["spawn review fan-out"] --> Synth["synthesize findings"]
+        Synth --> Classify["classify in-scope vs deferred"]
+        Classify -->|"in-scope findings"| SpawnImpl["spawn fresh IMPLEMENTER (level=track, mode=FIX_REVIEW_FINDINGS)"]
+        SpawnImpl --> Impl["reads diff, fixes, tests, commits"]
+        Impl --> Commit["Review fix: commit on HEAD"]
+        Commit --> GateCheck["gate-check fan-out"]
+        GateCheck --> Result{"PASS / loop"}
+        Result -->|"loop (max 3 iterations)"| FanOut
+    end
 ```
 
 **Figure 12.2 — The Phase C review loop.** The orchestrator drives the loop and re-checks fixes; a fresh implementer applies them and commits. The orchestrator never edits source itself.

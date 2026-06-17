@@ -63,7 +63,32 @@ Sometimes a discovery in an episode matters beyond the one step that found it. W
 
 Figure 10.1 lays out that whole structure: a plan that contains tracks, a track that contains a step roster and an episode log, a step that produces an episode, and the two cross-links that carry feedback.
 
-![Track, step, and episode hierarchy](../assets/diagrams/fig-track-step-episode.svg)
+```mermaid
+flowchart TD
+    subgraph Plan["Plan (implementation-plan.md) — derived mirror of the tracks"]
+        Track1["Track 1"]
+        subgraph Track2["Track 2 (track file: plan/track-2.md)"]
+            subgraph Steps["## Concrete Steps (roster)"]
+                S1["1. step — risk: low [x]"]
+                S2["2. step — risk: high [x]"]
+                S3["3. step — risk: medium [ ]"]
+            end
+            subgraph Episodes["## Episodes (durable per-step log)"]
+                E1["### Step 1 — commit SHA: What was done / Key files"]
+                E2["### Step 2 — commit SHA: What was done / discovered / changed / Key files"]
+            end
+            Surprises["## Surprises & Discoveries (cross-cutting promotions)"]
+        end
+    end
+
+    S1 -->|"produces"| E1
+    S2 -->|"produces"| E2
+    Track1 -->|"supplies a prerequisite"| Track2
+    E2 -.->|"discovery promoted up"| Surprises
+
+    linkStyle 2 stroke:#22cc77
+    linkStyle 3 stroke:#c0392b,stroke-dasharray:3
+```
 **Figure 10.1 — the plan, track, step, and episode hierarchy.**
 
 Read the figure as containment with two feedback edges. The plan contains the tracks; the highlighted track contains its `## Concrete Steps` roster and its `## Episodes` log side by side. Each completed step on the roster *produces* its episode block — the solid down-arrows. The green edge between tracks is a dependency: an earlier track supplies a prerequisite a later track consumes, which is why tracks run in order. The dashed red edge is the promotion path: a cross-cutting discovery inside an episode is lifted up into the track's `## Surprises & Discoveries` log so later work sees it without reading the full episode. The nesting is the data model; the two edges are how a step's local work reaches the rest of the plan.

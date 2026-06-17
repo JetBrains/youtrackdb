@@ -88,39 +88,16 @@ The user holds the final gate. The reflection presents its surviving proposal an
 
 **Figure 16.1 — From a session-end observation to a filed issue.**
 
-```
-session ends
-     |
-     v
-+-----------------+   what was harder than it should have been?
-| reflect on      |   what would a future agent want to know?
-| workflow friction|
-+-----------------+
-     |
-     v
-+-----------------+  below medium? speculative recurrence?
-| severity floor  |---------------------------> drop
-+-----------------+
-     | medium+ with evidence
-     v
-+-----------------+  load_cost > self_fix_cost / 5?
-| cost-benefit    |  fix > 5x the friction it cures?
-| gate            |---------------------------> drop (surface in normal output)
-+-----------------+
-     | clears both, 5x margin
-     v
-+-----------------+  same-session siblings merged;
-| dedup + cap     |  duplicates of recent dev-workflow issues dropped;
-+-----------------+  survivors capped at 1
-     |
-     v
-+-----------------+  user replies with the issue to create, or "none"
-| user gate       |
-+-----------------+
-     | approved
-     v
-YouTrack: project YTDB, tag dev-workflow, Source line + cost-benefit block
-(no commit on the branch)
+```mermaid
+flowchart TD
+    Start["session ends"] --> Reflect["reflect on workflow friction: what was harder than it should have been? what would a future agent want to know?"]
+    Reflect --> Severity{"severity floor: below medium? speculative recurrence?"}
+    Severity -->|"below medium / speculative"| Drop1["drop"]
+    Severity -->|"medium+ with evidence"| CostBenefit{"cost-benefit gate: load_cost > self_fix_cost / 5? fix > 5x the friction it cures?"}
+    CostBenefit -->|"fails ratio / scope"| Drop2["drop (surface in normal output)"]
+    CostBenefit -->|"clears both, 5x margin"| Dedup["dedup + cap: same-session siblings merged; duplicates of recent dev-workflow issues dropped; survivors capped at 1"]
+    Dedup --> UserGate{"user gate: user replies with the issue to create, or none"}
+    UserGate -->|"approved"| YouTrack["YouTrack: project YTDB, tag dev-workflow, Source line + cost-benefit block (no commit on the branch)"]
 ```
 
 ## The loop closes, and so does the book

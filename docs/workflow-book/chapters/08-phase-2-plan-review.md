@@ -12,22 +12,19 @@ The workflow has a name for this entry state. The startup protocol calls it *Sta
 
 That autonomy is the whole design. The orchestrator runs the review, applies every fix it can apply without a judgment call, and brings you in only for findings that are genuine design decisions. Most plans pass with no question asked of you at all. The goal is to keep a wrong plan from ever reaching execution at the lowest cost to your attention, without making you sit through a review to get it.
 
-```
-   you: /execute-tracks   (first time after planning)
-            │
-            ▼
-   read the phase ledger
-            │
-   no phase boundary past planning?  ── no ──> resume wherever the ledger points
-            │ yes  →  State 0
-            ▼
-   run Phase 2 plan review  (this chapter)
-            │ PASS
-            ▼
-   record the verdict, end the session
-            │
-            ▼
-   next /execute-tracks starts Track 1 (Chapter 9)
+```mermaid
+flowchart TD
+  start["you: /execute-tracks (first time after planning)"]
+  read["read the phase ledger"]
+  gap{"no phase boundary past planning?"}
+  resume["resume wherever the ledger points"]
+  review["run Phase 2 plan review (this chapter)"]
+  record["record the verdict, end the session"]
+  next["next /execute-tracks starts Track 1 (Chapter 9)"]
+  start --> read --> gap
+  gap -->|"no"| resume
+  gap -->|"yes: State 0"| review
+  review -->|"PASS"| record --> next
 ```
 
 **Figure 8.1 — How Phase 2 fires.** The ledger gap past planning is State 0; the first `/execute-tracks` after planning runs the review autonomously before any track executes.
@@ -52,18 +49,15 @@ Other findings are decisions rather than facts, so they are not the orchestrator
 
 The classifier is the rule that sorts every finding into one of those two bins. It does not live in the orchestrator; it lives in the review sub-agent's prompt, so the sub-agent tags each finding `mechanical` or `design-decision` as it writes it, and the orchestrator simply acts on the tag. Three conditions must all hold for `mechanical`: the claim is about *current* state, there is exactly one correct rendering, and the fix does not change what the plan is trying to achieve. A short list of triggers flips a finding to `design-decision`: a missing decision record, a contradiction between tracks, an unimplemented or violated invariant, an unreachable target, or simply more than one plausible fix. The default, when the sub-agent is unsure, is to escalate: over-asking costs you one round-trip, while silently rewriting a plan you did not approve is the worse failure.
 
-```
-   each consistency finding
-            │
-            ▼
-   ┌──────────────────────────────────────────────┐
-   │ current-state claim?                           │
-   │ one unambiguous fix?                           │  all yes ──> mechanical
-   │ fix preserves the plan's intent?               │             auto-fix, silent
-   └──────────────────────────────────────────────┘
-            │ any no
-            ▼
-       design-decision  ──> batch-escalate to you, apply your choice
+```mermaid
+flowchart TD
+  finding["each consistency finding"]
+  test{"current-state claim?<br/>one unambiguous fix?<br/>fix preserves the plan's intent?"}
+  mech["mechanical: auto-fix, silent"]
+  design["design-decision: batch-escalate to you, apply your choice"]
+  finding --> test
+  test -->|"all yes"| mech
+  test -->|"any no"| design
 ```
 
 **Figure 8.2 — The mechanical / design-decision classifier.** A finding is auto-fixed only when all three conditions hold; anything else is a design call the orchestrator escalates to you.
@@ -84,17 +78,17 @@ A review that applies fixes has to confirm the fixes worked and did not break so
 
 The two steps each run a small loop: review, apply fixes or escalate, gate-verify, and if the gate is not clean, go around again. The loop is bounded to three iterations. The bound exists so the loop has to terminate: after three apply-then-recheck rounds the workflow stops looping and escalates, rather than spinning on a plan that keeps surfacing findings. The source gives no derivation of three beyond that — it is the fixed cap at which the review gives up and hands the open findings back to you. If a substantial fix reshaped the plan (tracks reordered, scope changed), the orchestrator re-runs the full review instead of the lighter gate, to catch anything the reshaping cascaded into. If blockers survive three iterations, the orchestrator stops asking the review to converge and brings the open findings to you, recommending a return to planning. The gate never spins forever, and it never declares a step passed on fixes it has not re-checked.
 
-```
-   step (consistency, then structural)
-        │
-        ▼
-   review  ──>  classify findings  ──>  auto-fix mechanical
-        │                                escalate design-decision to you
-        ▼
-   gate verification  ── FAIL (within 3 iterations) ──┐
-        │ PASS                                          │
-        ▼                                               │
-   step done  <─────────────────────────────────────── loop back
+```mermaid
+flowchart TD
+  step["step (consistency, then structural)"]
+  review["review"]
+  classify["classify findings"]
+  fix["auto-fix mechanical / escalate design-decision to you"]
+  gate{"gate verification"}
+  doneStep["step done"]
+  step --> review --> classify --> fix --> gate
+  gate -.->|"FAIL (within 3 iterations): loop back"| review
+  gate -->|"PASS"| doneStep
 ```
 
 **Figure 8.3 — One review step's loop.** Review, classify, fix or escalate, then a gate proves the fixes landed before the step is allowed to pass.

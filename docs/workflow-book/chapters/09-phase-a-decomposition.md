@@ -14,27 +14,17 @@ The first panel is a look-back. It runs only when an earlier track has already c
 
 The second panel is a look-forward: a plain summary of the track about to be worked, built from the plan's checklist entry and the track file's own description. This is what you read to decide whether the upcoming track is still the right next move.
 
-```
-   /execute-tracks → Phase A
-            │
-            ▼
-   ┌─────────────────────────────────────┐
-   │  Track Pre-Flight gate              │
-   │                                     │
-   │  Panel 1 (look-back)   ── skipped on track 1
-   │    read prior episodes              │
-   │    → CONTINUE | ADJUST | ESCALATE   │
-   │                                     │
-   │  Panel 2 (look-forward)             │
-   │    summarize the upcoming track     │
-   └─────────────────────────────────────┘
-            │
-            ▼
-     Approve · Review mode · ESCALATE
-            │
-   Approve  ▼              Review mode ──┐ refine, then re-render
-            ▼                            └────────────┘
-   reviews + decomposition begin    ESCALATE → inline replanning
+```mermaid
+flowchart TD
+    Start["/execute-tracks → Phase A"] --> Gate["Track Pre-Flight gate"]
+    Gate --> P1["Panel 1 (look-back): read prior episodes → CONTINUE / ADJUST / ESCALATE (skipped on track 1)"]
+    Gate --> P2["Panel 2 (look-forward): summarize the upcoming track"]
+    P1 --> Decision{"Approve / Review mode / ESCALATE"}
+    P2 --> Decision
+    Decision -->|"Approve"| Reviews["reviews + decomposition begin"]
+    Decision -->|"Review mode"| Refine["refine"]
+    Refine --> Decision
+    Decision -->|"ESCALATE"| Inline["inline replanning"]
 ```
 
 **Figure 9.1 — The Track Pre-Flight gate.** A backward-looking strategy check (skipped on the first track) and a forward-looking track summary, presented together for a single Approve / Review mode / ESCALATE decision.

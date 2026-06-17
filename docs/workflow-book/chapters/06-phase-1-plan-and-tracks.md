@@ -12,18 +12,19 @@ You start that new session the same way you started the first: a fresh Claude Co
 
 Presence alone is not the test. `edit-design` writes `design.md` to disk before its review has passed, so a session interrupted between the write and the review would leave an unreviewed file on disk that looks frozen but is not. The protocol guards against this by checking that the design is *committed and clean*, not merely present: at least one commit touches `design.md`, and `git status` reports no uncommitted changes to it. A committed, clean design is the on-disk proxy for "reviewed and frozen," because the workflow commits a design only after its review passes. A design that is on disk but uncommitted or dirty routes back to finish authoring instead, so an interruption mid-review never derives a plan from an unreviewed design.
 
-```
-fresh /create-plan session
-        |
-        v
-  design.md present?
-   /            \
-  no             yes ---> committed AND clean?
-   |                       /            \
-   v                     no              yes
- Phase 0           resume design     resume plan
- research            authoring        derivation
-                                      (Step 4b)
+```mermaid
+flowchart TD
+  start["fresh /create-plan session"]
+  present{"design.md present?"}
+  clean{"committed AND clean?"}
+  research["Phase 0 research"]
+  authoring["resume design authoring"]
+  derivation["resume plan derivation (Step 4b)"]
+  start --> present
+  present -->|"no"| research
+  present -->|"yes"| clean
+  clean -->|"no"| authoring
+  clean -->|"yes"| derivation
 ```
 
 **Figure 6.1 — How a fresh `/create-plan` session routes itself after the design freezes.** Presence of `design.md` alone is not enough; only a committed, clean design resumes plan derivation.
@@ -44,23 +45,28 @@ You size a track by its planned file footprint, not by how many steps it will ta
 
 Tracks are *dependency-ordered*. You order them so that an earlier track never depends on a later one, and you annotate each dependency with a `> **Depends on:** Track N` line in the plan. When the ceiling forces a cut, you prefer to cut along a dependency boundary, because that is the seam where the two pieces are already most separable. The result is a directed acyclic order: Track 1 supplies what Track 2 needs, Track 2 supplies what Track 3 needs, and the execution sessions later walk the tracks in that order, carrying forward what each one learned.
 
-```
-implementation-plan.md (derived mirror)
-  ## Component Map         cross-track slice of the system
-  ## Checklist
-    [ ] Track 1  ---supplies--->  [ ] Track 2  ---supplies--->  [ ] Track 3
-            \                                                    /
-             \------------ Depends on: Track 1 ----------------/
-
-each track lives in its own file:
-  plan/track-1.md   plan/track-2.md   plan/track-3.md
-    Purpose / Big Picture      <- BLUF + what is added/modified/removed
-    Decision Log               <- the live decision records (the authority)
-    Context and Orientation    <- current-state framing
-    Plan of Work               <- the prose sequence of edits
-    Interfaces and Dependencies<- in/out-of-scope files, inter-track deps
-    Invariants & Constraints   <- testable properties
-    Concrete Steps             <- EMPTY at Phase 1; filled at execution
+```mermaid
+flowchart TD
+  subgraph plan["implementation-plan.md (derived mirror)"]
+    cmap["## Component Map<br/>cross-track slice of the system"]
+    t1["[ ] Track 1"]
+    t2["[ ] Track 2"]
+    t3["[ ] Track 3"]
+    t1 -->|"supplies"| t2
+    t2 -->|"supplies"| t3
+    t3 -.->|"Depends on: Track 1"| t1
+  end
+  subgraph track["each track lives in its own file (plan/track-N.md)"]
+    s1["Purpose / Big Picture<br/>BLUF + what is added/modified/removed"]
+    s2["Decision Log<br/>the live decision records (the authority)"]
+    s3["Context and Orientation<br/>current-state framing"]
+    s4["Plan of Work<br/>the prose sequence of edits"]
+    s5["Interfaces and Dependencies<br/>in/out-of-scope files, inter-track deps"]
+    s6["Invariants and Constraints<br/>testable properties"]
+    s7["Concrete Steps<br/>EMPTY at Phase 1; filled at execution"]
+    s1 --> s2 --> s3 --> s4 --> s5 --> s6 --> s7
+  end
+  plan --> track
 ```
 
 **Figure 6.2 — A plan lists tracks; each track lives in its own file. The plan is a thin mirror; the track files hold the load-bearing detail. The step roster is empty until execution.**

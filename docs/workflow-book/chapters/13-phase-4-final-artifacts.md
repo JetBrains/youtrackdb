@@ -46,14 +46,12 @@ The research log does not survive the merge. Like every working file, it lives u
 
 The fold runs in every tier, because the log dies in every tier. Only its destination changes with the tier. In `full` and `lite` the verdict lands in the `## Adversarial gate verdicts` section of `adr.md`. In `minimal`, where there is no `adr.md`, it lands as a two-line block in the pull-request description, something like "Adversarial gate: passed (research-log Phase-0→1 gate, 2 iterations)", which the squash-merge carries into `develop`'s `git log`. The evidence base outlives the file that held it, in whatever durable home the tier provides.
 
-```
-_workflow/research-log.md          Phase 4, before cleanup
-  ## Adversarial gate record   ──── fold (verdict/status only) ───┐
-        │                                                         │
-        │  (deleted by the cleanup commit)                        ▼
-        ▼                                          full/lite:  adr.md
-     [gone from develop]                                      ## Adversarial gate verdicts
-                                                   minimal:   PR description (two lines)
+```mermaid
+flowchart TD
+    Log["_workflow/research-log.md → ## Adversarial gate record (Phase 4, before cleanup)"]
+    Log -->|"fold (verdict/status only)"| FullLite["full/lite: adr.md → ## Adversarial gate verdicts"]
+    Log -->|"fold (verdict/status only)"| Minimal["minimal: PR description (two lines)"]
+    Log -->|"deleted by the cleanup commit"| Gone["gone from develop"]
 ```
 
 **Figure 13.1 — the adversarial verdict folds out of the research log into the tier's durable carrier, then the log is deleted.**
@@ -95,12 +93,17 @@ The fix is *staging*, the convention in `conventions.md` §1.7. Throughout execu
 
 That arrangement has to end somewhere, and Phase 4 is where it ends. The **promotion commit** copies the staged subtree onto the live tree in one move (`cp -r` from `_workflow/staged-workflow/.claude/` over `.claude/`), then commits it just before the final-artifacts commit lands. From that point the branch's checkout carries the new workflow on its live paths, and the merge carries it into `develop`. The day-to-day discipline of staging (how each write is routed, the copy-then-edit-on-first-touch rule, what a reviewer reads) belongs with the drift material in Chapter 15; here the only piece that matters is the endpoint. Staging defers the live edit, and promotion is the deferred edit finally applied.
 
-```
-Phase B / Phase C            Phase 4 promotion commit
-─────────────────            ────────────────────────
-edits → staged-workflow/     cp -r staged-workflow/.claude/.  →  .claude/
-live .claude/ = develop          (after rebase-precedes-promotion check)
-                                 live .claude/ = branch's new workflow
+```mermaid
+flowchart LR
+    subgraph Before["Phase B / Phase C"]
+        Edits["edits → staged-workflow/"]
+        Live1["live .claude/ = develop"]
+    end
+    subgraph After["Phase 4 promotion commit"]
+        Copy["cp -r staged-workflow/.claude/. → .claude/ (after rebase-precedes-promotion check)"]
+        Live2["live .claude/ = branch's new workflow"]
+    end
+    Before --> After
 ```
 
 **Figure 13.2 — staging keeps the live workflow at develop's state during execution; the Phase 4 promotion commit copies the staged edits onto the live tree.**

@@ -34,23 +34,18 @@ Walk the four steps in order.
 
 **Present.** The skill shows you the diff it applied and the review verdict, and appends a one-line record of the mutation to an append-only log at `_workflow/design-mutations.md`. The log is the audit trail of how the design was built, edit by edit. It is the one file in this family that carries no workflow stamp, because it is append-only by contract and a stamp would be dead weight on it.
 
-```
-  request to change design.md
-            │
-            ▼
-   ┌──────────────────┐
-   │ 1. apply edit     │  write to disk
-   ├──────────────────┤
-   │ 2. auto-review    │  mechanical checks ─► cold-read sub-agent
-   ├──────────────────┤
-   │ 3. iterate        │  fix blockers, re-review  ◄─┐
-   │                   │  ── findings remain ────────┘  (budget: 3)
-   ├──────────────────┤
-   │ 4. present        │  diff + verdict + log entry to you
-   └──────────────────┘
-            │ budget exhausted with blockers
-            ▼
-       you resolve manually
+```mermaid
+flowchart TD
+  request["request to change design.md"]
+  apply["1. apply edit (write to disk)"]
+  review["2. auto-review (mechanical checks, then cold-read sub-agent)"]
+  iterate["3. iterate (fix blockers, re-review)"]
+  present["4. present (diff + verdict + log entry to you)"]
+  manual["you resolve manually"]
+  request --> apply --> review --> iterate
+  iterate -.->|"findings remain (budget: 3)"| review
+  iterate -->|"clear"| present
+  iterate -->|"budget exhausted with blockers"| manual
 ```
 
 **Figure 5.1 — The `edit-design` atomic action.** Every change to `design.md` runs apply, auto-review, iterate, present as one unit; the review is welded to the write so the structural rules enforce themselves.

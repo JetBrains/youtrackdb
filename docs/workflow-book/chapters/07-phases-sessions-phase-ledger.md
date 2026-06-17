@@ -54,7 +54,29 @@ The **lettered sub-phases A, B, and C** live *inside* Phase 3, and they run once
 
 This is why the ledger carries both a `phase` and a `track`. The numbered phase alone cannot place a session inside Phase 3 — "we are in execution" does not say which track or which sub-phase. So during Phase 3 the ledger's `phase` key holds the *letter* (`A` or `C`), the `track` key names the active track, and the two together place the session: Phase A of track 2, Phase C of track 3. The numbers govern the change; the letters govern a track within it.
 
-![Phase state machine](../assets/diagrams/fig-phase-state-machine.svg)
+```mermaid
+flowchart TD
+  p0["Phase 0<br/>Research (/create-plan)"]
+  p1["Phase 1<br/>Planning (/create-plan)<br/>design frozen, plan derived"]
+  p2["Phase 2<br/>Plan review (/execute-tracks, State 0)"]
+  subgraph p3["Phase 3 — Execution (/execute-tracks): one session per sub-phase, per track"]
+    a["Phase A<br/>Review + decompose"]
+    b["Phase B<br/>Implement, test, commit"]
+    c["Phase C<br/>Code review + track complete"]
+    a -->|"decomposed"| b
+    b -->|"steps done"| c
+    c -->|"next track (more tracks [ ])"| a
+  end
+  p4["Phase 4<br/>Final artifacts (/execute-tracks, State D)"]
+  done(["Done"])
+  p0 -->|"adversarial gate on the research log"| p1
+  p1 -->|"design frozen, plan derived"| p2
+  p2 -->|"review passes"| p3
+  p3 -->|"all tracks [x]"| p4
+  p4 --> done
+  p2 -.->|"ESCALATE (plan fundamentally broken, restart from /create-plan)"| p1
+  p3 -.->|"ESCALATE (plan wrong mid-flight)"| p1
+```
 
 **Figure 7.1 — the phase state machine: gates advance, ESCALATE loops back.**
 

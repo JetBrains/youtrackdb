@@ -14,27 +14,15 @@ One boundary keeps ESCALATE from firing too often. *Removing* a remaining track 
 
 The protocol runs in six moves, in order:
 
-```
-   ESCALATE trigger
-        │
-        ▼
-   1. STOP        no new steps start
-        │
-        ▼
-   2. ASSESS      show the user: every episode so far, what broke,
-        │         which tracks are affected, which decisions weakened
-        ▼
-   3. PROPOSE     draft revised tracks + revised Decision Records,
-        │         code claims verified through the IDE, not guessed
-        ▼
-   4. REVIEW      spawn a structural-review preview of the new plan
-        │              (advisory, not the gate)
-        ▼
-   5. ITERATE     blockers? revise and re-preview, up to 3 times
-        │
-        ▼
-   6. RESUME      append phase=0 to the ledger, commit, push, end
-                  session  ──►  next /execute-tracks re-runs Phase 2
+```mermaid
+flowchart TD
+    Trigger["ESCALATE trigger"] --> Stop["1. STOP — no new steps start"]
+    Stop --> Assess["2. ASSESS — show the user: every episode so far, what broke, which tracks are affected, which decisions weakened"]
+    Assess --> Propose["3. PROPOSE — draft revised tracks + revised Decision Records, code claims verified through the IDE, not guessed"]
+    Propose --> Review["4. REVIEW — spawn a structural-review preview of the new plan (advisory, not the gate)"]
+    Review --> Iterate{"5. ITERATE — blockers?"}
+    Iterate -->|"yes (up to 3 times)"| Propose
+    Iterate -->|"no"| Resume["6. RESUME — append phase=0 to the ledger, commit, push, end session → next /execute-tracks re-runs Phase 2"]
 ```
 
 **Figure 14.1 — the inline-replanning cycle.** Stop, assess, propose, preview-review, iterate, then reset to plan review and end the session. The structural preview in step 4 is a fail-fast check, not the real gate.
@@ -65,19 +53,21 @@ The file lives at `docs/adr/<dir-name>/_workflow/handoff-<phase>.md`, named for 
 
 Two more channels back the file up. A *secondary marker* keyed to the phase gives a greppable pointer in case a regression skips the handoff scan: a `**PAUSED` line in the track's `## Progress` for an A/B/C pause, or a `paused=` event appended to the ledger for the two phases (State 0 and Phase 4) whose former host sections no longer exist in the plan. And a cross-reference goes into `MEMORY.md`, the user-global memory index, so the pause is visible at the next session start before any file is opened. All channels are written and committed together with a bare message like `Pause Phase C for context refresh — write handoff`, and the commit is pushed, so the handoff survives both a cleared session and a lost local disk.
 
-```
-  PAUSE (context warning, mid-phase WIP)         RESUME (next session start)
-  ─────────────────────────────────────         ───────────────────────────
-  1. commit all landed work                      1. scan _workflow/handoff-*.md
-  2. write handoff-<phase>.md      ──disk──►         (newest first)
-       header + body + re-present text            2. verify the artifacts it
-  3. secondary marker (PAUSED line                   names actually exist
-       or ledger paused= event)                   3. present the body, wait
-  4. MEMORY.md cross-reference                        for your decision
-  5. commit all channels together                 4. resolve: delete the file,
-  6. push; tell the user to /clear                    marker, MEMORY bullets,
-       and re-run                                      commit, THEN run normal
-                                                        state evaluation
+```mermaid
+flowchart TD
+    subgraph Pause["PAUSE (context warning, mid-phase WIP)"]
+        P1["1. commit all landed work"] --> P2["2. write handoff-phase.md: header + body + re-present text"]
+        P2 --> P3["3. secondary marker (PAUSED line or ledger paused= event)"]
+        P3 --> P4["4. MEMORY.md cross-reference"]
+        P4 --> P5["5. commit all channels together"]
+        P5 --> P6["6. push; tell the user to /clear and re-run"]
+    end
+    subgraph Resume["RESUME (next session start)"]
+        R1["1. scan _workflow/handoff-*.md (newest first)"] --> R2["2. verify the artifacts it names actually exist"]
+        R2 --> R3["3. present the body, wait for your decision"]
+        R3 --> R4["4. resolve: delete the file, marker, MEMORY bullets, commit, THEN run normal state evaluation"]
+    end
+    Pause -->|"disk"| Resume
 ```
 
 **Figure 14.2 — the pause/resume handshake.** The pausing session writes the handoff and its backup pointers in one pushed commit; the resuming session finds the file first, resolves it before anything else, and only then routes to its normal resume state.

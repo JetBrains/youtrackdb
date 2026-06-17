@@ -60,7 +60,18 @@ The last row is the artifact that survives the merge. The lighter the tier, the 
 
 The figure below shows the routing as one decision tree, with each tier's artifact set hanging off its leaf.
 
-![Tier-gate decision tree](../assets/diagrams/fig-tier-gate.svg)
+```mermaid
+flowchart TD
+  gate1{"Gate 1<br/>Is a design question central to the change?"}
+  gate2{"Gate 2<br/>Does the change span more than one track?"}
+  full["full<br/>research log<br/>phase ledger<br/>plan-review doc<br/>design.md (only here)<br/>thinned plan<br/>track files (N)"]
+  lite["lite<br/>research log<br/>phase ledger<br/>plan-review doc<br/>thinned plan<br/>track files (N)<br/>(no design.md)"]
+  minimal["minimal<br/>research log<br/>phase ledger<br/>plan-review doc<br/>one track file<br/>(no design.md, no plan)"]
+  gate1 -->|"yes (design needed, multi-track by construction)"| full
+  gate1 -->|"no"| gate2
+  gate2 -->|"multiple tracks"| lite
+  gate2 -->|"one track"| minimal
+```
 
 **Figure 3.1 — the tier gate: two questions route a change to a tier.**
 

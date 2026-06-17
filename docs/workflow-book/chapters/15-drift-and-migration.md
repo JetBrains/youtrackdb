@@ -93,14 +93,15 @@ The shape is a per-commit replay loop. The skill recomputes the same range the d
 
 The classification routes the work. A commit that renames a required section, changes a glossary term, or adds a schema field is a `format` change, and the migration applies the matching edit: rename the heading in every track file, run the global find-replace, add the missing field. A commit that only renames files records the old-to-new path mapping so later commits can follow it, but changes no content. A commit that adds a skill with no bearing on per-branch artifacts, or that only fixes a typo or whitespace, is a no-op the migration skips. Most edits are mechanical and apply without a question. The migration stops to ask you only in three concrete cases where guessing would lose data: a rename onto a section name that already exists, a deletion of a section holding content you wrote, or a new required field with no value it can infer.
 
-```text
-range:  BASE_SHA ───●───●───●─── HEAD     (workflow-format commits, oldest first)
-                    │   │   │
-for each commit:    │   │   └── classify → apply edit → advance stamp → record
-                    │   └────── classify → apply edit → advance stamp → record
-                    └────────── classify → apply edit → advance stamp → record
-
-final:  re-stamp every artifact to HEAD
+```mermaid
+flowchart TD
+    Range["range: BASE_SHA → … → HEAD (workflow-format commits, oldest first)"] --> Loop["for each commit"]
+    Loop --> Classify["classify"]
+    Classify --> Apply["apply edit"]
+    Apply --> Advance["advance stamp"]
+    Advance --> Record["record"]
+    Record -->|"next commit"| Loop
+    Record --> Final["final: re-stamp every artifact to HEAD"]
 ```
 
 **Figure 15.3 — the replay loop.** Each commit is classified, applied to the stale artifacts, and then the stamps advance to that commit's SHA before the progress file records it. The order (edit, advance, record) is what makes a crashed migration resumable.

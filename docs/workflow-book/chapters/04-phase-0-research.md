@@ -29,14 +29,21 @@ The log has six sections, each with a defined job.
 
 Each entry in the three continuous logs carries an ISO timestamp and a context-level tag, the same `[ctx=<level>]` convention episodes use elsewhere in the workflow, so a resumed session can read both what was decided and when. The log is append-only through Phase 0, and it keeps accepting appends into Phase 1: a load-bearing decision that surfaces while the design is being authored is appended here and re-triggers the gate, rather than being slipped quietly into the design.
 
-```
-_workflow/research-log.md
-├── ## Initial request          (verbatim aim — written once)
-├── ## Decision Log             (append-only: Why + Alternatives rejected)
-├── ## Surprises & Discoveries  (append-only)
-├── ## Open Questions           (append-only)
-├── ## Baseline and re-validation   (workflow-modifying branches only)
-└── ## Adversarial gate record  (the Phase 0→1 gate verdict)
+```mermaid
+flowchart TD
+  root["research-log.md"]
+  s1["## Initial request<br/>(verbatim aim, written once)"]
+  s2["## Decision Log<br/>(append-only: Why + Alternatives rejected)"]
+  s3["## Surprises and Discoveries<br/>(append-only)"]
+  s4["## Open Questions<br/>(append-only)"]
+  s5["## Baseline and re-validation<br/>(workflow-modifying branches only)"]
+  s6["## Adversarial gate record<br/>(the Phase 0 to 1 gate verdict)"]
+  root --> s1
+  root --> s2
+  root --> s3
+  root --> s4
+  root --> s5
+  root --> s6
 ```
 
 **Figure 4.1 — The six sections of the research log.** One verbatim anchor, three append-only continuous logs, one branch-conditional section, and the gate's verdict carrier.
@@ -61,21 +68,16 @@ Second, the agent proposes a tier. This is the tier gate from Chapter 3, run aga
 
 Third, and this is the step that makes Phase 0 more than note-taking, the workflow runs an *adversarial review* on the research log as a gate. A reviewer reads the log and attacks the decisions: are the `**Why:**` fields actually load-bearing, are the rejected alternatives genuinely worse, is anything assumed that the exploration never verified? Because the research log is the one artifact present in every tier, the gate runs on the log itself rather than on a tier-specific document. That is why the log carries its `**Why:**` and `**Alternatives rejected:**` fields in the structured form it does: those fields exist to be challenged here.
 
-```
-   user: "create the plan"
-            │
-            ▼
-   ┌──────────────────────────┐
-   │ 1. completeness check     │  → plain-language findings summary to you
-   ├──────────────────────────┤
-   │ 2. tier proposal          │  → you confirm or override (Chapter 3 gate)
-   ├──────────────────────────┤
-   │ 3. adversarial gate       │  ── blocker ──> back to research, re-decide
-   │    on the research log     │ <─────────────────────── loop
-   └──────────────────────────┘
-            │ PASS
-            ▼
-       Phase 1 (planning) derives from the log
+```mermaid
+flowchart TD
+  user["user: create the plan"]
+  s1["1. completeness check<br/>(plain-language findings summary to you)"]
+  s2["2. tier proposal<br/>(you confirm or override, Chapter 3 gate)"]
+  s3["3. adversarial gate on the research log"]
+  p1["Phase 1 (planning) derives from the log"]
+  user --> s1 --> s2 --> s3
+  s3 -.->|"blocker: back to research, re-decide"| s1
+  s3 -->|"PASS"| p1
 ```
 
 **Figure 4.2 — The Phase 0 to Phase 1 boundary.** The agent completes the log, proposes a tier, then gates the log adversarially before any artifact derives from it.

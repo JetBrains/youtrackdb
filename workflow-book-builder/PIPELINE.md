@@ -14,7 +14,7 @@ The book lives at `docs/workflow-book/`; the machinery lives here in `workflow-b
 >
 > ### Step 0 — read the machinery and establish the baseline
 >
-> 1. Read `workflow-book-builder/BOOK_BRIEF.md` (audience, voice, conventions, the four roles), `workflow-book-builder/DIAGRAMS.md` (the ASCII-default + committed-SVG diagram convention and the enumerated figure set), and the four role prompts under `workflow-book-builder/prompts/`.
+> 1. Read `workflow-book-builder/BOOK_BRIEF.md` (audience, voice, conventions, the four roles), `workflow-book-builder/DIAGRAMS.md` (the inline-Mermaid diagram convention), and the four role prompts under `workflow-book-builder/prompts/`.
 > 2. Read `docs/workflow-book/README.md` and note the recorded baseline workflow-SHA (call it `BOOK_SHA`). Note the current `HEAD` SHA of this repository (call it `NEW_SHA`).
 > 3. Decide which branch you are on:
 >    - **Empty baseline (initial production).** `docs/workflow-book/TOC.md` has no chapters yet and `docs/workflow-book/chapters/` is empty (or holds only a `.gitkeep`). Treat `BOOK_SHA` as empty: the drift window is the entire source corpus, the table of contents is built from scratch, and every chapter goes through the full role waves. Skip to Step 2.
@@ -55,7 +55,7 @@ The book lives at `docs/workflow-book/`; the machinery lives here in `workflow-b
 >
 > Spawn technical-reviewer agents per `workflow-book-builder/prompts/technical-reviewer.md`, one per roughly three touched chapters, in parallel. Each reviewer verifies every source citation, file reference, and factual claim in its chapters against the tree at `NEW_SHA`, and writes a report under `workflow-book-builder/reviews/`. Apply blockers and important fixes in a revision pass (see "How the producer applies a fix" under the whole-run rules below). Only touched chapters (authored or swept) are reviewed; clean chapters are not.
 >
-> A chapter that carried a blocker does not advance until the blocker is cleared. After the revision pass, re-run the technical reviewer over only the chapters that carried a blocker; the chapter is clean only when its re-review returns no blocker. Cap the apply-then-re-review loop at two iterations; if a chapter still carries a blocker after the second re-review, stop the run and escalate the unresolved blocker to the operator rather than carrying it forward. A chapter does not flow into Step 5 or Step 8 with an open blocker.
+> A chapter that carried a blocker does not advance until the blocker is cleared. After the revision pass, re-run the technical reviewer over only the chapters that carried a blocker; the chapter is clean only when its re-review returns no blocker. Cap the apply-then-re-review loop at two iterations; if a chapter still carries a blocker after the second re-review, stop the run and escalate the unresolved blocker to the operator rather than carrying it forward. A chapter does not flow into Step 5 or Step 7 with an open blocker.
 >
 > ### Step 5 — copy-editor wave
 >
@@ -70,11 +70,7 @@ The book lives at `docs/workflow-book/`; the machinery lives here in `workflow-b
 >
 > Each beta reader writes a report under `workflow-book-builder/beta-feedback/`. Apply the top issues they raise in a revision pass (see "How the producer applies a fix" under the whole-run rules below).
 >
-> ### Step 7 — render diagrams
->
-> If any touched chapter added or changed a figure in the enumerated SVG set (see `workflow-book-builder/DIAGRAMS.md`), run `workflow-book-builder/scripts/render-diagrams.sh`. The script renders each `.d2` sidecar under `docs/workflow-book/assets/diagrams/` to a committed `fig-<name>.svg` beside it (the output stem matches the sidecar, so `fig-phase-state-machine.d2` becomes `fig-phase-state-machine.svg`). If `d2` is not installed, the script prints the one-time install command; install it once per `BOOK_BRIEF.md` and re-run. ASCII figures need no render step.
->
-> ### Step 8 — bump the baseline
+> ### Step 7 — bump the baseline
 >
 > This step runs only when every touched chapter's technical-reviewer verdict is clean (Step 4's gate). If any chapter still carries an open blocker, the run does not reach this step; it escalated to the operator at Step 4 instead.
 >
@@ -113,7 +109,7 @@ Folding initial production and ongoing evolution into one pipeline keeps one cop
 | Step 3 — authors | One author per chapter | Authors only for rewrite and new-or-restructure chapters; sweep chapters get a citation sweep; clean chapters get nothing |
 | Step 6 — beta read | All three personas, each over the whole book | Gated: one persona over the rewrite/new-or-restructure chapters, only if five or more of them were touched |
 
-**Table P.1 — where the from-scratch and incremental cases differ.** The other steps (technical review, copy edit, render, baseline bump) run the same in both cases, over whichever chapters the branch above selected.
+**Table P.1 — where the from-scratch and incremental cases differ.** The other steps (technical review, copy edit, baseline bump) run the same in both cases, over whichever chapters the branch above selected.
 
 ### When to run an evolution cycle
 
@@ -135,12 +131,11 @@ Folding initial production and ongoing evolution into one pipeline keeps one cop
 - `docs/workflow-book/README.md` — the baseline workflow-SHA and the evolution history.
 - `docs/workflow-book/TOC.md` — the chapter map and the cross-reference matrix.
 - `workflow-book-builder/BOOK_BRIEF.md` — the voice rules and the four role definitions.
-- `workflow-book-builder/DIAGRAMS.md` — the diagram convention and the enumerated SVG figure set.
+- `workflow-book-builder/DIAGRAMS.md` — the inline-Mermaid diagram convention.
 - The four prompts under `workflow-book-builder/prompts/`.
 
 ### What this pipeline deliberately does not do
 
 - It does not assume beta readers run every cycle. The beta wave is gated behind five or more `rewrite`/`new-or-restructure` chapters on an evolution run.
 - It does not re-run the copy edit on a surgical citation sweep. Copy edit runs over the `rewrite` and `new-or-restructure` chapters only — the chapters Step 3 gave a full author.
-- It does not render diagrams it does not need. The render step runs only when a touched chapter added or changed a figure in the enumerated SVG set; ASCII figures never render.
 - It does not pick the mode up front. The operator pastes one block; the run decides empty-versus-non-empty from the state of `docs/workflow-book/` on its own.

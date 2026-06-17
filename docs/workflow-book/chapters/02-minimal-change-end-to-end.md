@@ -20,10 +20,13 @@ When you ask `/create-plan` to turn the research into a plan, it first sizes the
 
 Here is the first thing that surprises people. A `minimal` change has no separate plan document at all. Where a larger change produces a design, a plan, and a file per track, a `minimal` change produces exactly one file: a single self-contained *track* file describing the one thread of work (`.claude/skills/create-plan/SKILL.md` Step 4b, `minimal` branch). A track is the workflow's unit of executable work. A big change is decomposed into several tracks that run in dependency order; a `minimal` change is one track and nothing else. The branch's resume state (where the run is, what is done) lives in a separate append-only *phase ledger*, not in the plan, because there is no plan to hold it.
 
-```
-                       Phase 0            Phase 1
-   request  ───────►  research  ───────►  size the change ──► one track file
-                      (the log)            (minimal tier)      + phase ledger
+```mermaid
+flowchart LR
+  request["request"]
+  research["Phase 0<br/>research (the log)"]
+  size["Phase 1<br/>size the change (minimal tier)"]
+  out["one track file + phase ledger"]
+  request --> research --> size --> out
 ```
 
 **Figure 2.1 — Phases 0 and 1 for a minimal change.** Research fills the log; planning sizes the change to the `minimal` tier and writes a single track file. No design document, no multi-track plan.
@@ -46,10 +49,15 @@ Each unit of work also writes an *episode*, a short durable note of what was don
 
 After the work is implemented, the track is reviewed. The workflow runs a code review over the changes the track produced. For a change this small the review is light and turns up nothing, and the track is marked complete. Larger changes route a track through several specialized review agents at this point; that machinery is Chapter 11's subject, and a `minimal` change barely touches it.
 
-```
-   implement ──► run the test ──► commit + push ──► write episode ──► review track
-       │                                                                    │
-       └──────────────── one track, one pass for a minimal change ─────────┘
+```mermaid
+flowchart LR
+  implement["implement"]
+  test["run the test"]
+  commit["commit + push"]
+  episode["write episode"]
+  review["review track"]
+  implement --> test --> commit --> episode --> review
+  review -.->|"one track, one pass for a minimal change"| implement
 ```
 
 **Figure 2.2 — The execution beat for one track.** Implement, test, commit and push, record an episode, then review. Every track follows this shape; a minimal change runs it once.

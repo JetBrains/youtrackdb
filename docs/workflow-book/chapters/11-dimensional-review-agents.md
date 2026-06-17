@@ -30,26 +30,26 @@ The selection is a judgement call, not a rigid filter. The orchestrator reads th
 
 That headcount is the track-scope reading, and it shifts at step scope. At a `risk: high` step the baseline group narrows: only the bugs-and-concurrency reviewer runs from it, because its findings (logic errors, races, leaks) get buried once the step's diff folds into the cumulative track diff. The other three baselines (code quality, test-behavior, and test-completeness) read the same off the cumulative diff, so they defer to the track pass rather than run twice. The conditional reviewers still fire on their characteristics. So the same histogram step reviewed in Phase B fans out bugs-and-concurrency plus crash safety, its test counterpart, and performance with test-concurrency: five at the step, the full seven only when the whole track is reviewed in Phase C.
 
-```
-                       triage the diff
-                             |
-              categorize every changed file
-        (storage-engine, concurrency, crash-durability, …)
-                             |
-        +--------------------+---------------------+
-        |                    |                     |
-   baseline group      conditional group     workflow group
-   (always, for any    (fire on matching     (fire only on
-    code change)        characteristic)       .claude/ changes)
-        |                    |                     |
-   code-quality        crash-safety          consistency
-   bugs-concurrency    security              prompt-design
-   test-behavior       performance           hook-safety
-   test-completeness   test-structure        context-budget …
-        |                    |                     |
-        +--------------------+---------------------+
-                             |
-                 spawn the selected set in parallel
+```mermaid
+flowchart TD
+    Triage["triage the diff"] --> Categorize["categorize every changed file (storage-engine, concurrency, crash-durability, …)"]
+    Categorize --> Baseline
+    Categorize --> Conditional
+    Categorize --> Workflow
+
+    subgraph Baseline["baseline group (always, for any code change)"]
+        B["code-quality, bugs-concurrency, test-behavior, test-completeness"]
+    end
+    subgraph Conditional["conditional group (fire on matching characteristic)"]
+        C["crash-safety, security, performance, test-structure"]
+    end
+    subgraph Workflow["workflow group (fire only on .claude/ changes)"]
+        W["consistency, prompt-design, hook-safety, context-budget …"]
+    end
+
+    Baseline --> Spawn["spawn the selected set in parallel"]
+    Conditional --> Spawn
+    Workflow --> Spawn
 ```
 
 **Figure 11.1 — Triage routes one diff to a selected set of dimensional reviewers.** The categories a file carries decide which conditional and workflow reviewers fire; the baseline group runs for any code change.
@@ -88,15 +88,20 @@ The loop is capped at three iterations. Iteration 1 is the full review just desc
 
 A gate-check verdict is one of five words per finding. *VERIFIED* means the fix landed and addresses the issue. *REJECTED* means that on a second read the reviewer concludes the original finding was a false positive; this clears the finding just as VERIFIED does, and the verdict itself is the record of the recant. *MOOT* means the code the finding pointed at is gone (file deleted, approach changed); it also clears. *STILL OPEN* means the fix did not address the issue, so the finding carries forward into the next iteration under its original ID. *REGRESSION* means the fix actively broke working code; it forces the iteration to FAIL even if every other verdict is clean, and the implementer is told to revert-or-repair. An iteration passes only when every verdict is VERIFIED, REJECTED, or MOOT and no new blocker appeared.
 
-```
-  iteration 1   full review  -> findings -> route -> implementer fixes
-                                                          |
-  iteration 2   gate check   -> per-finding verdict       |
-                 VERIFIED / REJECTED / MOOT  -> cleared <--+
-                 STILL OPEN                  -> carries forward
-                 REGRESSION                  -> FAIL, revert-or-repair
-                                                          |
-  iteration 3   gate check   -> still blockers? -> escalate to user
+```mermaid
+flowchart TD
+    I1["iteration 1: full review"] --> Findings["findings"]
+    Findings --> Route["route"]
+    Route --> Fixes["implementer fixes"]
+    Fixes --> I2["iteration 2: gate check"]
+    I2 --> Verdict{"per-finding verdict"}
+    Verdict -->|"VERIFIED / REJECTED / MOOT"| Cleared["cleared"]
+    Verdict -->|"STILL OPEN"| Carry["carries forward"]
+    Verdict -->|"REGRESSION"| Regress["FAIL, revert-or-repair"]
+    Carry --> I3["iteration 3: gate check"]
+    Regress --> I3
+    I3 --> Blockers{"still blockers?"}
+    Blockers -->|"yes"| Escalate["escalate to user"]
 ```
 
 **Figure 11.2 — The review iteration loop: one full review, then up to two gate checks, capped at three.**

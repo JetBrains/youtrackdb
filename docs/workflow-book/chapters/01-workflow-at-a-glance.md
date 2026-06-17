@@ -24,14 +24,14 @@ A change moves through five phases, numbered 0 through 4. Each phase has a job, 
 
 *Phase 4, final artifacts.* When all the work has landed, you write down what survives the merge: the durable design record and decision record for a large change, or a short summary for a small one. The working notes that tracked progress during the run are removed in the same pass.
 
-```
-  Phase 0          Phase 1          Phase 2          Phase 3          Phase 4
- ┌─────────┐     ┌──────────┐     ┌──────────┐     ┌───────────┐    ┌───────────┐
- │ research │ -> │ planning │ -> │ plan     │ -> │ execution │ -> │ final      │
- │          │    │ (design  │    │ review   │    │ (build it │    │ artifacts  │
- │          │    │  + plan) │    │          │    │  in       │    │ (what      │
- │          │    │          │    │          │    │  pieces)  │    │  survives) │
- └─────────┘     └──────────┘     └──────────┘     └───────────┘    └───────────┘
+```mermaid
+flowchart LR
+  p0["Phase 0<br/>research"]
+  p1["Phase 1<br/>planning (design + plan)"]
+  p2["Phase 2<br/>plan review"]
+  p3["Phase 3<br/>execution (build it in pieces)"]
+  p4["Phase 4<br/>final artifacts (what survives)"]
+  p0 --> p1 --> p2 --> p3 --> p4
 ```
 
 **Figure 1.1 — The five phases a change moves through, in order.**

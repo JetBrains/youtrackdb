@@ -34,7 +34,7 @@ The reader's goal is to run a change through the workflow end to end without a m
 4. **Earn every name.** A workflow file, a phase number, a role name, or a gate appears only after the job it does has been described in plain English. Never lead with "`step-implementation.md` orchestrates sub-steps 1 through 7"; lead with "after the plan is approved, each step is implemented, tested, and committed one at a time, then reviewed."
 5. **Connect forward and backward.** Open each chapter with one paragraph reminding the reader what they already know that this chapter builds on. Close with one paragraph naming what is coming next and which question this chapter has set up.
 6. **Source citations stay precise.** When you cite a workflow file, use `path/to/file.md` (and a section anchor where the precise section is part of the argument), verified against the tree at the baseline SHA. Citations belong in *Further reading* footers and in running prose where the exact file is part of the argument, not as decoration.
-7. **Diagrams must teach.** Each diagram carries one idea the prose leans on. If a diagram restates the prose, delete one of them. The diagram convention is in [`DIAGRAMS.md`](DIAGRAMS.md): ASCII by default, a committed SVG only for the short enumerated set of figures ASCII cannot lay out.
+7. **Diagrams must teach.** Each diagram carries one idea the prose leans on. If a diagram restates the prose, delete one of them. The diagram convention is in [`DIAGRAMS.md`](DIAGRAMS.md): every diagram is an inline Mermaid fenced block, placed where the prose leans on it.
 8. **No bullet-point fact dumps.** Use bullets when the reader is enumerating cases (the three tiers, the four early-return outcomes). Do not use them to explain a single concept.
 
 ## Structural principles
@@ -76,17 +76,4 @@ A chapter is done only when it has cleared all four roles. The pipeline orders t
 
 ## Diagram convention
 
-The book draws diagrams as ASCII by default, with a small set of committed SVGs for the few figures ASCII cannot lay out. The convention is specified in full in [`DIAGRAMS.md`](DIAGRAMS.md). Mermaid is not used: it renders inconsistently across viewers (GitHub, IDEs, PDF export, static-site generators each support a different subset), while ASCII and committed SVG render the same everywhere.
-
-## The one-time `d2` install (operator step)
-
-The committed SVGs are rendered from D2 source by [`scripts/render-diagrams.sh`](scripts/render-diagrams.sh). The `d2` binary is not installed in a fresh environment. Before the first render, the operator installs it once:
-
-```bash
-# macOS / Linux one-line installer:
-curl -fsSL https://d2lang.com/install.sh | sh -s --
-# or via Go:
-go install oss.terrastruct.com/d2@latest
-```
-
-The render step does not run during the machinery-build cycle that created this directory. It first runs in a production cycle, when a chapter needs a figure from the enumerated SVG set. `render-diagrams.sh` checks for the `d2` binary and prints this install command on a miss rather than failing opaquely; see [`DIAGRAMS.md`](DIAGRAMS.md) for the full procedure.
+Every diagram in the book is an inline Mermaid fenced code block, placed where the prose leans on it. There are no committed image files and no render step. The convention is specified in full in [`DIAGRAMS.md`](DIAGRAMS.md). Mermaid renders natively on GitHub, matches the convention the workflow's own design documents already use (their class and sequence diagrams are Mermaid), and needs no build step or committed binaries.
