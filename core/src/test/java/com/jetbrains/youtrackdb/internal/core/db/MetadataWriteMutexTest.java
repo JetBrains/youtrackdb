@@ -352,25 +352,25 @@ public class MetadataWriteMutexTest extends DbTestBase {
   }
 
   /**
-   * The engage-order assertion fires when the mutex is engaged while the current thread already
-   * holds the schema write lock. Engaging from inside a shared-lock acquisition is the deadlock
-   * shape the assert defends against — a second transaction would park on the mutex while holding a
-   * shared write lock, freezing lock-based reads and deadlocking against the commit-side lock
-   * acquisition — so the assert makes it fail loudly in tests. Driven by holding the schema write
-   * lock and then routing a schema write through {@code ensureTxSchemaState}, which is where the
-   * engage (and its order assert) lives.
+   * The engage-order guard rejects an engage attempted while the current thread already holds the
+   * schema write lock. Engaging from inside a shared-lock acquisition is the deadlock
+   * shape the guard defends against: a second transaction would park on the mutex while holding a
+       * shared write lock, freezing lock-based reads and deadlocking against the commit-side lock
+       * acquisition. The guard is an always-on runtime throw (an {@link IllegalStateException}), not an
+       * assert, so it survives the production default of disabled assertions. Driven by holding the schema write lock and then routing a schema write
+   * through {@code ensureTxSchemaState}, which is where the engage and its order guard live.
    */
   @Test
-  public void engageOrderAssertFiresWhenSchemaLockHeld() {
+  public void engageOrderGuardRejectsWhenSchemaLockHeld() {
     var schema = session.getSharedContext().getSchema();
     session.begin();
     schema.acquireSchemaWriteLock(session);
     try {
       session.ensureTxSchemaState();
-      fail("engaging the mutex while holding the schema write lock must trip the engage-order"
-          + " assertion");
-    } catch (AssertionError expected) {
-      assertTrue("the assertion message must explain the engage-above-schema-lock requirement",
+      fail("engaging the mutex while holding the schema write lock must be rejected by the"
+          + " engage-order guard");
+    } catch (IllegalStateException expected) {
+      assertTrue("the rejection message must explain the engage-above-schema-lock requirement",
           expected.getMessage() != null && expected.getMessage().contains("SchemaShared.lock"));
     } finally {
       schema.releaseSchemaWriteLock(session, false);
@@ -379,13 +379,13 @@ public class MetadataWriteMutexTest extends DbTestBase {
   }
 
   /**
-   * The engage-order assertion fires when the mutex is engaged while the current thread already
-   * holds the index-manager write lock. Same engage-from-inside-a-held-lock hazard as the
-   * schema-lock case but for the other shared metadata lock the de-guarded index-manager paths take,
-   * so the assert must guard against holding either lock at engage time.
+   * The engage-order guard rejects an engage attempted while the current thread already holds the
+   * index-manager write lock. Same engage-from-inside-a-held-lock hazard as the schema-lock case but
+   * for the other shared metadata lock the de-guarded index-manager paths take, so the guard must
+   * reject holding either lock at engage time, and it must do so at runtime under disabled assertions.
    */
   @Test
-  public void engageOrderAssertFiresWhenIndexManagerLockHeld() throws Exception {
+  public void engageOrderGuardRejectsWhenIndexManagerLockHeld() throws Exception {
     var indexManager = session.getSharedContext().getIndexManager();
     // The index-manager write lock is a private field guarded by protected acquire/release methods
     // that take a transaction. Acquire it directly via reflection so the engage runs with only that
@@ -402,11 +402,11 @@ public class MetadataWriteMutexTest extends DbTestBase {
           indexManager.isWriteLockHeldByCurrentThread());
       session.ensureTxSchemaState();
       fail(
-          "engaging the mutex while holding the index-manager write lock must trip the engage-order"
-              + " assertion");
-    } catch (AssertionError expected) {
+          "engaging the mutex while holding the index-manager write lock must be rejected by the"
+              + " engage-order guard");
+    } catch (IllegalStateException expected) {
       assertTrue(
-          "the assertion message must explain the engage-above-index-manager-lock requirement",
+          "the rejection message must explain the engage-above-index-manager-lock requirement",
           expected.getMessage() != null && expected.getMessage().contains("index-manager"));
     } finally {
       rwLock.writeLock().unlock();

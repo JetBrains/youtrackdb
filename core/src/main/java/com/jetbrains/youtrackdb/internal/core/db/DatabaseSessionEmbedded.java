@@ -294,6 +294,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    */
   private volatile boolean metadataMutexEngaged = false;
 
+  /**
+   * True only while {@code ensureTxSchemaState} is building the tx-local schema copy (the
+   * {@link SchemaShared#copyForTx} re-parse). The re-parse rebuilds the committed inheritance tree,
+   * which ripples a subclass's collection into a superclass index and routes back into the
+   * index-manager's tx-local seam. That seam consults this flag and treats any membership ripple
+   * raised during seeding as a no-op: the copy's polymorphic ids are being reconstructed from the
+   * already-committed shared index, so re-recording them into the tx-local changed-class set would
+   * both pollute the set with unchanged committed classes and re-enter {@code ensureTxSchemaState}
+   * before its marker is written -- re-engaging the single-permit mutex on the same thread and
+   * self-deadlocking (or, with assertions on, tripping the engage-order check because the seed holds
+   * the committed schema write lock). Thread-confined to the seeding thread.
+   */
+  private boolean seedingTxSchemaState = false;
+
   private boolean prefetchRecords;
 
   private final Map<String, ResultSet> activeQueries;
@@ -3473,7 +3487,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     engageMetadataWriteMutex();
     try {
       SchemaShared committed = getSharedContext().getSchema();
-      var state = new TxSchemaState(committed.copyForTx(this));
+      // Guard the copyForTx re-parse: its inheritance rebuild ripples committed index membership back
+      // through the index-manager tx-local seam, which would otherwise re-enter this method before
+      // the marker below is set (re-engaging the mutex and self-deadlocking) and pollute the
+      // changed-class set with committed classes the seed merely reconstructs. The seam no-ops every
+      // ripple raised while this flag is set; the finally clears it even when the re-parse throws.
+      seedingTxSchemaState = true;
+      final TxSchemaState state;
+      try {
+        state = new TxSchemaState(committed.copyForTx(this));
+      } finally {
+        seedingTxSchemaState = false;
+      }
       tx.setCustomData(TX_SCHEMA_STATE_KEY, state);
       return state;
     } catch (RuntimeException | Error e) {
@@ -3491,25 +3516,47 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * Engages the storage's metadata-write mutex for the current transaction, asserting first that no
-   * shared metadata lock is yet held by this thread. The assert proves the engage sits strictly
-   * above {@link SchemaShared#isWriteLockHeldByCurrentThread() the schema write lock} and the
-   * {@link IndexManagerEmbedded#isWriteLockHeldByCurrentThread() index-manager write lock}: engaging
-   * from inside a shared-lock acquisition would let a second transaction park on the mutex while
-   * holding a shared write lock, freezing lock-based reads and deadlocking against a commit-side lock
-   * acquisition. The de-guarded index-manager membership and create/drop paths are the dangerous
-   * placements because they themselves take those locks, so the assert guards every write path, not
-   * just the canonical proxy path. The engage itself throws loudly when the current thread already
-   * holds the permit through a different session (a same-thread embedded session).
+   * Whether this session is mid-seed of the tx-local schema copy (the {@link SchemaShared#copyForTx}
+   * re-parse running inside {@code ensureTxSchemaState}). The index-manager tx-local seam reads this
+   * to skip the membership-ripple recording the seed's inheritance rebuild raises against the
+   * already-committed shared index, which would otherwise re-enter {@code ensureTxSchemaState} and
+   * self-deadlock on the single-permit mutex.
+   */
+  public boolean isSeedingTxSchemaState() {
+    return seedingTxSchemaState;
+  }
+
+  /**
+   * Engages the storage's metadata-write mutex for the current transaction, throwing first when a
+   * shared metadata lock is already held by this thread. That runtime check proves the engage sits
+   * strictly above {@link SchemaShared#isWriteLockHeldByCurrentThread() the schema write lock} and
+   * the {@link IndexManagerEmbedded#isWriteLockHeldByCurrentThread() index-manager write lock}:
+   * engaging from inside a shared-lock acquisition would let a second transaction park on the mutex
+   * while holding a shared write lock, freezing lock-based reads and deadlocking against a
+   * commit-side lock acquisition. The de-guarded index-manager membership and create/drop paths are
+   * the dangerous placements because they themselves take those locks, so the check guards every
+   * write path, not just the canonical proxy path. It is an always-on guard rather than an assert
+   * because production JVMs run with assertions disabled, where a silent park is the worst outcome.
+   * The engage itself throws loudly when the current thread already holds the permit through a
+   * different session (a same-thread embedded session).
    */
   private void engageMetadataWriteMutex() {
     var sharedCtx = getSharedContext();
-    assert !sharedCtx.getSchema().isWriteLockHeldByCurrentThread()
-        : "the metadata-write mutex must engage above SchemaShared.lock, but the current thread"
-            + " already holds the schema write lock";
-    assert !sharedCtx.getIndexManager().isWriteLockHeldByCurrentThread()
-        : "the metadata-write mutex must engage above the index-manager lock, but the current thread"
-            + " already holds the index-manager write lock";
+    // Enforce the engage-order invariant at runtime, not by assert alone: production JVMs run with
+    // assertions disabled, and the one invariant whose violation produces a cross-session deadlock
+    // (a second transaction parking on the permit while holding a shared write lock, freezing
+    // lock-based reads and deadlocking against the commit-side lock acquisition) must not vanish
+    // under -da. Throwing fails fast and turns a silent production hang into a diagnosable error.
+    if (sharedCtx.getSchema().isWriteLockHeldByCurrentThread()) {
+      throw new IllegalStateException(
+          "the metadata-write mutex must engage above SchemaShared.lock, but the current thread"
+              + " already holds the schema write lock");
+    }
+    if (sharedCtx.getIndexManager().isWriteLockHeldByCurrentThread()) {
+      throw new IllegalStateException(
+          "the metadata-write mutex must engage above the index-manager lock, but the current thread"
+              + " already holds the index-manager write lock");
+    }
     sharedCtx.getMetadataWriteMutex().engage(this);
     metadataMutexEngaged = true;
   }
