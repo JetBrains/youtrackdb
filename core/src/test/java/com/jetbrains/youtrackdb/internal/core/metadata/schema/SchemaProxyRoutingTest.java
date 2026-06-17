@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
@@ -198,6 +199,77 @@ public class SchemaProxyRoutingTest extends DbTestBase {
         "re-resolving a class missing from the copy must fail loudly",
         IllegalStateException.class,
         () -> SchemaProxedResource.reresolveClassImpl(copy, freshlyCommittedImpl));
+  }
+
+  /**
+   * Read-path argument re-resolution is tolerant of an absent class. The two argument-taking read
+   * predicates (isSubClassOf / isSuperClassOf) re-resolve their argument through the read-tolerant
+   * helper, which must return null rather than throw when the named class is missing from the
+   * tx-local copy. A class created in the committed schema after the copy was seeded is absent from
+   * the copy; re-resolving it through the read helper must yield null (so the downstream predicate
+   * answers false) instead of the loud IllegalStateException the write-path helper raises.
+   */
+  @Test
+  public void reresolveClassImplForReadReturnsNullWhenClassAbsentFromCopy() {
+    var committed = committedSchema();
+    var copy = session.computeInTx(tx -> committed.copyForTx(session));
+
+    // Create a class in the committed schema AFTER the copy was built, so it is absent from the copy.
+    session.getMetadata().getSchema().createClass("AbsentFromCopyForRead");
+    var freshlyCommittedImpl = committed.getClass("AbsentFromCopyForRead");
+
+    assertNull(
+        "the read-tolerant helper must return null for a class missing from the copy, not throw",
+        SchemaProxedResource.reresolveClassImplForRead(copy, freshlyCommittedImpl));
+
+    // A null argument still stays null, and a class already owned by the copy is returned unchanged.
+    assertNull("a null argument must stay null on the read path",
+        SchemaProxedResource.reresolveClassImplForRead(copy, null));
+  }
+
+  /**
+   * The proxy read overloads stay total when the argument class is unknown to the resolved schema.
+   * On the tier-2 read path (no write-view) the receiver resolves to the committed instance and the
+   * argument re-resolves against it; an argument whose class name is absent from the committed
+   * schema (here a class living only in an independent tx-local copy) must make isSubClassOf /
+   * isSuperClassOf return false rather than throw IllegalStateException. This pins the corrected
+   * read contract: a read of a foreign/unknown argument answers false, while the loud write-path
+   * resolver is unchanged.
+   */
+  @Test
+  public void readSubclassChecksReturnFalseForArgumentUnknownToResolvedSchema() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("ReadBase");
+    // ReadForeign exists at the top level so it is present in both the committed schema and any
+    // copy built from it; the copy's impl is captured before the class is dropped from committed.
+    schema.createClass("ReadForeign");
+
+    var committed = committedSchema();
+    var sideCopy = session.computeInTx(tx -> committed.copyForTx(session));
+    // The argument impl is owned by the side copy (owner != committed), so the tier-2 re-resolution
+    // looks it up by name in the committed schema rather than returning it unchanged.
+    var foreignImpl = sideCopy.getClass("ReadForeign");
+
+    // Drop ReadForeign from the committed schema at the top level (no transaction => legacy path),
+    // so the argument's name is now absent from the committed schema the tier-2 read resolves
+    // against, while the captured copy impl still holds the (now-foreign) name.
+    schema.dropClass("ReadForeign");
+    assertNull("the argument class must be absent from the committed schema after the drop",
+        committed.getClass("ReadForeign"));
+    var foreignArg = new SchemaClassProxy(foreignImpl, session);
+
+    var base = (SchemaClassInternal) schema.getClass("ReadBase");
+
+    // Tier 2: no write-view is seeded, so the base resolves to the committed instance and the
+    // argument re-resolves against it. The argument is unknown there, so the read must answer false
+    // (historical total-read contract) rather than throw.
+    assertNull("the tier-2 read must run with no write-view seeded", session.getTxSchemaState());
+    assertFalse(
+        "isSubClassOf with an argument unknown to the resolved schema must return false",
+        base.isSubClassOf(foreignArg));
+    assertFalse(
+        "isSuperClassOf with an argument unknown to the resolved schema must return false",
+        base.isSuperClassOf(foreignArg));
   }
 
   /**
