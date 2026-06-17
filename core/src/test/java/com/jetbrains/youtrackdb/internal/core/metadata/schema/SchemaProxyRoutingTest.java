@@ -200,10 +200,22 @@ public class SchemaProxyRoutingTest extends DbTestBase {
     session.getMetadata().getSchema().createClass("AbsentFromCopy");
     var freshlyCommittedImpl = committed.getClass("AbsentFromCopy");
 
-    assertThrows(
-        "re-resolving a class missing from the copy must fail loudly",
-        IllegalStateException.class,
-        () -> SchemaProxedResource.reresolveClassImpl(copy, freshlyCommittedImpl));
+    var ex =
+        assertThrows(
+            "re-resolving a class missing from the copy must fail loudly",
+            IllegalStateException.class,
+            () -> SchemaProxedResource.reresolveClassImpl(copy, freshlyCommittedImpl));
+    // The message is load-bearing: it names the absent class and the private-copy refusal, so the
+    // failure cannot be mistaken for some incidental IllegalStateException raised elsewhere on the
+    // schema path. Assert both so a refactor that throws a generic ISE before reaching the intended
+    // check fails this test.
+    assertNotNull("the loud reject must carry an explanatory message", ex.getMessage());
+    assertTrue(
+        "the reject must name the absent class: " + ex.getMessage(),
+        ex.getMessage().contains("AbsentFromCopy"));
+    assertTrue(
+        "the reject must name the transaction-local-schema-view refusal: " + ex.getMessage(),
+        ex.getMessage().contains("transaction-local schema view"));
   }
 
   /**
@@ -275,6 +287,83 @@ public class SchemaProxyRoutingTest extends DbTestBase {
     assertFalse(
         "isSuperClassOf with an argument unknown to the resolved schema must return false",
         base.isSuperClassOf(foreignArg));
+  }
+
+  /**
+   * Linking a superclass created in the same transaction binds the inheritance edge entirely within
+   * the tx-local copy: the re-resolution takes the "argument is already a tx-local object"
+   * short-circuit (the superclass impl is owned by the copy, not the committed schema), so the
+   * child's superclass edge points at the copy's parent object rather than a committed or shared one.
+   * This is the hardest input for the no-shared-impl-in-the-private-graph isolation invariant — an
+   * argument that is already tx-local — and the {@code addSuperClass} half of the polymorphic
+   * membership path, distinct from the create-subclass-of-a-committed-indexed-super case the
+   * membership-ripple test covers (which takes the by-name lookup branch instead).
+   */
+  @Test
+  public void addSuperClassToSameTxCreatedParentLinksWithinTheCopy() {
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          // Both parent and child are created inside this transaction, so both impls are owned by
+          // the tx-local copy. Linking them exercises the already-tx-local short-circuit in
+          // reresolveClassImpl rather than the by-name lookup branch.
+          var parent = schema.createClass("SameTxParent");
+          var child = schema.createClass("SameTxChild");
+          child.addSuperClass(parent);
+
+          var copy = session.getTxSchemaState().getTxLocalSchema();
+          var resolvedChild =
+              (SchemaClassInternal) session.getMetadata().getSchema().getClass("SameTxChild");
+          var resolvedParent =
+              (SchemaClassInternal) session.getMetadata().getSchema().getClass("SameTxParent");
+
+          var linkedSuper = resolvedChild.getImplementation().getSuperClasses().get(0);
+          assertSame(
+              "the superclass edge must bind to the copy's parent object, not a shared/committed one",
+              resolvedParent.getImplementation(), linkedSuper);
+          assertSame(
+              "the linked superclass impl must be owned by the tx-local copy",
+              copy, linkedSuper.getOwner());
+        });
+  }
+
+  /**
+   * Using a class proxy after the class was dropped earlier in the same transaction fails loudly
+   * rather than silently resolving against stale state. The proxy captures its delegate at creation;
+   * after the class is dropped from the tx-local copy, the next routed call re-binds the delegate by
+   * name through {@code rebindToTxLocal}, which finds the class absent and throws. This is the
+   * drop-then-reference loud-failure boundary the commit-time reconciliation track builds on, and it
+   * goes through the instance {@code rebindToTxLocal} reached from a real proxy call — a different
+   * method and call site from the static {@code reresolveClassImpl} the absent-from-copy test drives.
+   */
+  @Test
+  public void usingAProxyAfterItsClassWasDroppedInTheSameTxFailsLoudly() {
+    // Create the class committed at the top level so a proxy for it exists before the transaction.
+    session.getMetadata().getSchema().createClass("DropThenUse");
+
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          // Capture the proxy, then drop the class in the same transaction. The drop routes into the
+          // tx-local copy (seeding the write-view), so the class is now absent from the copy the
+          // captured proxy will re-bind against on its next call.
+          var proxy = schema.getClass("DropThenUse");
+          schema.dropClass("DropThenUse");
+
+          var ex =
+              assertThrows(
+                  "a call through a proxy for a class dropped earlier in the tx must fail loudly",
+                  IllegalStateException.class,
+                  proxy::getName);
+          assertNotNull("the loud reject must carry an explanatory message", ex.getMessage());
+          assertTrue(
+              "the reject must name the dropped class: " + ex.getMessage(),
+              ex.getMessage().contains("DropThenUse"));
+          assertTrue(
+              "the reject must explain the class is absent from the tx-local view: "
+                  + ex.getMessage(),
+              ex.getMessage().contains("transaction-local schema view"));
+        });
   }
 
   /**

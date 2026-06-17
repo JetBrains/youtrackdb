@@ -84,6 +84,12 @@ public abstract class IndexOneValue extends IndexAbstract {
     acquireSharedLock();
     Stream<RID> stream;
     try {
+      if (indexId < 0) {
+        // Unbuilt, transaction-deferred index: no engine yet, so a value lookup finds nothing.
+        // Returning an empty stream keeps get()/getRids() on a deferred handle NPE-free and
+        // consistent with size() == 0, rather than passing indexId = -1 into the storage engine.
+        return Stream.empty();
+      }
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
