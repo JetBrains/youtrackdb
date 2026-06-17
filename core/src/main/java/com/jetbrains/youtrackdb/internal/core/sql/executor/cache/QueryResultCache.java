@@ -203,10 +203,10 @@ public final class QueryResultCache {
   /**
    * Mirrors the {@code LinkedHashMap.removeEldestEntry} decision: inspects only the eldest
    * (least-recently-used) entry. When it is unpinned ({@code liveViewCount == 0}) it is evicted — its
-   * paused stream is closed (I3), its key is routed to {@link #nonCacheableKeys} so the same query
+   * paused stream is closed, its key is routed to {@link #nonCacheableKeys} so the same query
    * does not immediately re-populate and churn the LRU, and an overflow is counted. When the
    * eldest is pinned by a live view the map is left transiently over the bound rather than truncating
-   * that view (I9); a deeper hot entry is never evicted in its place, because doing so would discard a
+   * that view; a deeper hot entry is never evicted in its place, because doing so would discard a
    * fresher, more useful result to spare the cold pinned one.
    */
   private void evictEldestIfUnpinned() {
