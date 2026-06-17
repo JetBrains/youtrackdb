@@ -482,7 +482,7 @@ public class CachedResultSetViewTest {
 
   /**
    * Two views built on the same entry pin it independently: both increment, and the entry stays pinned
-   * until the last view releases. This is the multi-view pinning the LRU guard relies on (I9).
+   * until the last view releases. This is the multi-view pinning the LRU guard relies on.
    */
   @Test
   public void twoViewsPinIndependently() {
