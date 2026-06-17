@@ -44,5 +44,5 @@ This is the layout a production run fills.
 
 ## Start here
 
-1. Readers — open [`TOC.md`](TOC.md) and start at Chapter 1; the book is designed to be read cover to cover. A reader who just needs to ship one small change can follow the short route Chapter 1 names: the minimal run in Chapter 2 and the tier gate in Chapter 3.
+1. Readers — open [`TOC.md`](TOC.md) and start at [Chapter 1](chapters/01-workflow-at-a-glance.md); the book is designed to be read cover to cover. A reader who just needs to ship one small change can follow the short route [Chapter 1](chapters/01-workflow-at-a-glance.md) names: the minimal run in [Chapter 2](chapters/02-minimal-change-end-to-end.md) and the tier gate in [Chapter 3](chapters/03-tiers-and-the-tier-gate.md).
 2. Operators producing the book — start with [`../../workflow-book-builder/BOOK_BRIEF.md`](../../workflow-book-builder/BOOK_BRIEF.md) for the voice rules, then paste the START prompt from [`../../workflow-book-builder/PIPELINE.md`](../../workflow-book-builder/PIPELINE.md) into a fresh session.

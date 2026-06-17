@@ -129,3 +129,11 @@ To learn how to use YouTrackDB, see the [Getting Started](docs/getting-started.m
 
 For more examples covering both server and embedded deployments, check out the
 [examples](examples/src/main/java/io/youtrackdb/examples) project.
+
+### Contributing
+
+YouTrackDB runs every non-trivial change through a structured development
+workflow: research, design, plan review, track-by-track implementation, and
+review. New contributors can learn to run it end to end in the development
+workflow book, starting at
+[Chapter 1 — The workflow at a glance](docs/workflow-book/chapters/01-workflow-at-a-glance.md).
