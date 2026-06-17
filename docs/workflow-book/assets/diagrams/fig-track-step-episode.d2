@@ -1,0 +1,86 @@
+# fig-track-step-episode — the plan, track, step, and episode hierarchy.
+# A plan contains tracks; a track contains a step roster and an Episodes log;
+# each completed step produces one episode block. The cross-links carry the
+# two feedback paths the prose leans on: a track depends on an earlier track,
+# and an episode's discovery is promoted up into the track's Surprises log.
+# Source of fact:
+# .claude/workflow/conventions-execution.md §2.1 (15-section track file,
+#   ## Concrete Steps roster + ## Episodes + ## Surprises & Discoveries),
+# .claude/workflow/step-implementation.md (per-step loop, sub-step 7 episode
+#   write + Surprises promotion),
+# .claude/workflow/episode-format-reference.md (episode block + promotion).
+# Verified at the working tree, HEAD f31e961c6a. Rendered by
+# render-diagrams.sh to fig-track-step-episode.svg; do not hand-edit the SVG.
+
+direction: down
+
+plan: {
+  label: "Plan (implementation-plan.md)\nderived mirror of the tracks"
+  style.fill: "#e2e3e5"
+
+  track1: {
+    label: "Track 1"
+    shape: rectangle
+    style.fill: "#d1ecf1"
+  }
+
+  track2: {
+    label: "Track 2 (track file: plan/track-2.md)"
+    style.fill: "#d4edda"
+
+    steps: {
+      label: "## Concrete Steps (roster)"
+      style.fill: "#fff3cd"
+
+      s1: {
+        label: "1. step — risk: low  [x]"
+        shape: rectangle
+      }
+      s2: {
+        label: "2. step — risk: high  [x]"
+        shape: rectangle
+      }
+      s3: {
+        label: "3. step — risk: medium  [ ]"
+        shape: rectangle
+      }
+    }
+
+    episodes: {
+      label: "## Episodes (durable per-step log)"
+      style.fill: "#fce8d5"
+
+      e1: {
+        label: "### Step 1 — commit <SHA>\nWhat was done / Key files"
+        shape: rectangle
+      }
+      e2: {
+        label: "### Step 2 — commit <SHA>\nWhat was done / discovered /\nchanged / Key files"
+        shape: rectangle
+      }
+    }
+
+    surprises: {
+      label: "## Surprises & Discoveries\n(cross-cutting promotions)"
+      shape: rectangle
+      style.fill: "#f8d7da"
+    }
+  }
+}
+
+# Containment is shown by nesting. These edges carry the two feedback paths.
+
+# A completed step produces its episode block.
+plan.track2.steps.s1 -> plan.track2.episodes.e1: "produces"
+plan.track2.steps.s2 -> plan.track2.episodes.e2: "produces"
+
+# A track depends on an earlier track's output.
+plan.track1 -> plan.track2: "supplies a\nprerequisite" {
+  style.stroke: "#2c7"
+}
+
+# A cross-cutting discovery in an episode is promoted up into the track log.
+plan.track2.episodes.e2 -> plan.track2.surprises: "discovery\npromoted up" {
+  style.stroke: "#c0392b"
+  style.stroke-dash: 3
+}

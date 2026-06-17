@@ -1,0 +1,83 @@
+# fig-phase-state-machine — the phase state machine.
+# Phases 0 through 4 with the gates that advance them, the A/B/C per-track
+# sub-cycle inside Phase 3, and the ESCALATE back-edge to planning: from
+# execution when the plan is wrong mid-flight, and from plan review only when
+# the plan is so fundamentally broken that incremental revision cannot fix it
+# (a design-decision finding is settled in-session and the review still passes;
+# it is not a back-edge). Source of fact:
+# .claude/workflow/workflow.md §Terminology (Phases 0/1/2/3/4 vs A/B/C),
+# §Session Lifecycle, §Startup Protocol (Auto-Resume), §Inline Replanning;
+# .claude/workflow/implementation-review.md §Replanning;
+# .claude/skills/execute-tracks/SKILL.md (verified at the working tree, HEAD
+# f31e961c6a). Rendered by render-diagrams.sh to fig-phase-state-machine.svg;
+# do not hand-edit the SVG.
+
+direction: down
+
+p0: {
+  label: "Phase 0\nResearch\n(/create-plan)"
+  shape: rectangle
+  style.fill: "#d1ecf1"
+}
+
+p1: {
+  label: "Phase 1\nPlanning\n(/create-plan)\ndesign frozen, plan derived"
+  shape: rectangle
+  style.fill: "#d1ecf1"
+}
+
+p2: {
+  label: "Phase 2\nPlan review\n(/execute-tracks, State 0)"
+  shape: rectangle
+  style.fill: "#fff3cd"
+}
+
+p3: {
+  label: "Phase 3 — Execution (/execute-tracks)\none session per sub-phase, per track"
+  style.fill: "#d4edda"
+
+  a: {
+    label: "Phase A\nReview +\ndecompose"
+    shape: rectangle
+  }
+  b: {
+    label: "Phase B\nImplement,\ntest, commit"
+    shape: rectangle
+  }
+  c: {
+    label: "Phase C\nCode review +\ntrack complete"
+    shape: rectangle
+  }
+
+  a -> b: "decomposed"
+  b -> c: "steps done"
+  c -> a: "next track\n(more tracks [ ])"
+}
+
+p4: {
+  label: "Phase 4\nFinal artifacts\n(/execute-tracks, State D)"
+  shape: rectangle
+  style.fill: "#d1ecf1"
+}
+
+done: {
+  label: "Done"
+  shape: circle
+  style.fill: "#e2e3e5"
+}
+
+p0 -> p1: "adversarial gate\non the research log"
+p1 -> p2: "design frozen,\nplan derived"
+p2 -> p3: "review passes"
+p3 -> p4: "all tracks [x]"
+p4 -> done
+
+# Back-edges: an ESCALATE returns a change to planning.
+p2 -> p1: "ESCALATE\n(plan fundamentally broken,\nrestart from /create-plan)" {
+  style.stroke: "#c0392b"
+  style.stroke-dash: 3
+}
+p3 -> p1: "ESCALATE\n(plan wrong mid-flight)" {
+  style.stroke: "#c0392b"
+  style.stroke-dash: 3
+}
