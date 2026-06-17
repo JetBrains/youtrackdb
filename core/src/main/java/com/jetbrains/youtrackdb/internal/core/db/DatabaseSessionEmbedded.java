@@ -77,6 +77,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.TransactionException;
 import com.jetbrains.youtrackdb.internal.core.id.ChangeableRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorClass;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollection;
 import com.jetbrains.youtrackdb.internal.core.metadata.Metadata;
@@ -276,6 +277,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private FrontendTransaction currentTx;
 
   private SharedContext sharedContext;
+
+  /**
+   * Whether this session has engaged the storage's metadata-write mutex for the currently open
+   * transaction. Set when the tx-local schema state is first seeded (the transaction's first schema
+   * or index write) and read in the transaction's outermost teardown to release the permit exactly
+   * once. It is a session field rather than transaction custom data on purpose: the custom-data map
+   * is wiped by the transaction's {@code clear()} before the outermost teardown runs the release, so
+   * a marker living there would be gone by release time. This session-side marker survives that wipe
+   * and is the record the normal release reads, mirroring the design's surviving session-side record
+   * (the later track adds the acquire ordinal alongside it).
+   */
+  private boolean metadataMutexEngaged = false;
 
   private boolean prefetchRecords;
 
@@ -3447,10 +3460,61 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (existing != null) {
       return existing;
     }
+
+    // First schema/index write of this transaction. Engage the metadata-write mutex strictly above
+    // any shared metadata lock and before the tx-local copy is seeded, so a second schema-changing
+    // transaction blocks here rather than racing. This is the single seam every de-guarded write
+    // path funnels through (the proxy resolveForWrite and the index-manager paths all reach seeding
+    // here), so engaging here covers every write path with one placement.
+    engageMetadataWriteMutex();
+
     SchemaShared committed = getSharedContext().getSchema();
     var state = new TxSchemaState(committed.copyForTx(this));
     tx.setCustomData(TX_SCHEMA_STATE_KEY, state);
     return state;
+  }
+
+  /**
+   * Engages the storage's metadata-write mutex for the current transaction, asserting first that no
+   * shared metadata lock is yet held by this thread. The assert proves the engage sits strictly
+   * above {@link SchemaShared#isWriteLockHeldByCurrentThread() the schema write lock} and the
+   * {@link IndexManagerEmbedded#isWriteLockHeldByCurrentThread() index-manager write lock}: engaging
+   * from inside a shared-lock acquisition would let a second transaction park on the mutex while
+   * holding a shared write lock, freezing lock-based reads and deadlocking against a commit-side lock
+   * acquisition. The de-guarded index-manager membership and create/drop paths are the dangerous
+   * placements because they themselves take those locks, so the assert guards every write path, not
+   * just the canonical proxy path. The engage itself throws loudly when the current thread already
+   * holds the permit through a different session (a same-thread embedded session).
+   */
+  private void engageMetadataWriteMutex() {
+    var sharedCtx = getSharedContext();
+    assert !sharedCtx.getSchema().isWriteLockHeldByCurrentThread()
+        : "the metadata-write mutex must engage above SchemaShared.lock, but the current thread"
+            + " already holds the schema write lock";
+    assert !sharedCtx.getIndexManager().isWriteLockHeldByCurrentThread()
+        : "the metadata-write mutex must engage above the index-manager lock, but the current thread"
+            + " already holds the index-manager write lock";
+    sharedCtx.getMetadataWriteMutex().engage(this);
+    metadataMutexEngaged = true;
+  }
+
+  /**
+   * Releases the metadata-write mutex permit this session engaged for the just-closed transaction,
+   * if any. Called from the transaction's outermost teardown ({@code close()}), which is the single
+   * point reached by both the explicit {@code commit()}/{@code rollback()} paths and the
+   * {@code executeInTx*} wrappers once the outermost frame closes. The release is gated on the
+   * session-side {@code metadataMutexEngaged} marker (which survives the transaction's custom-data
+   * wipe) and uses the mutex's session-keyed compare-and-clear, so it is idempotent: the marker is
+   * cleared before the release runs and the compare-and-clear no-ops on a free or foreign permit,
+   * which keeps this normal release and the later track's abnormal-termination compare-and-clear
+   * from ever double-releasing the single permit.
+   */
+  public void releaseMetadataWriteMutexForTx() {
+    if (!metadataMutexEngaged) {
+      return;
+    }
+    metadataMutexEngaged = false;
+    getSharedContext().getMetadataWriteMutex().releaseFor(this);
   }
 
   public boolean isRetainRecords() {
