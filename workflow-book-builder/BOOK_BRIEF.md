@@ -34,7 +34,7 @@ The reader's goal is to run a change through the workflow end to end without a m
 4. **Earn every name.** A workflow file, a phase number, a role name, or a gate appears only after the job it does has been described in plain English. Never lead with "`step-implementation.md` orchestrates sub-steps 1 through 7"; lead with "after the plan is approved, each step is implemented, tested, and committed one at a time, then reviewed."
 5. **Connect forward and backward.** Open each chapter with one paragraph reminding the reader what they already know that this chapter builds on. Close with one paragraph naming what is coming next and which question this chapter has set up.
 6. **Source citations stay precise.** When you cite a workflow file, use `path/to/file.md` (and a section anchor where the precise section is part of the argument), verified against the tree at the baseline SHA. Citations belong in *Further reading* footers and in running prose where the exact file is part of the argument, not as decoration.
-7. **Diagrams must teach.** Each diagram carries one idea the prose leans on. If a diagram restates the prose, delete one of them. The diagram convention is in [`DIAGRAMS.md`](DIAGRAMS.md): ASCII by default, a committed SVG only for the short enumerated set of figures ASCII cannot lay out.
+7. **Diagrams must teach.** Each diagram carries one idea the prose leans on. If a diagram restates the prose, delete one of them. The diagram convention is in [`DIAGRAMS.md`](DIAGRAMS.md): every diagram is an inline Mermaid fenced block, placed where the prose leans on it.
 8. **No bullet-point fact dumps.** Use bullets when the reader is enumerating cases (the three tiers, the four early-return outcomes). Do not use them to explain a single concept.
 
 ## Structural principles
@@ -48,9 +48,11 @@ The reader's goal is to run a change through the workflow end to end without a m
 
 - **File and concept names** in `monospace` (backticks). Always, for any workflow file or identifier.
 - **Defined terms** in *italics* on first use within a chapter; in **bold italics** if the term is in the glossary.
+- **Reserved terms keep their defined meaning.** The vocabulary the book defines — *phase*, *tier*, *track*, *step*, *episode*, *gate*, *drift* — each names one concept, and none of these words is used in a loose or generic sense that is not that concept. For a generic stage of a process, write "phase" (when it is one of the five), "stage", or "part" — never "step", which is the unit a track is decomposed into. The collision is worst before the defining chapter: an early chapter that calls the five phases "a sequence of steps" mis-trains the reader against the later definition.
 - **File paths** are relative to the repository root, with a section anchor when the citation depends on a specific section.
 - **Diagrams** captioned `**Figure N.K — caption.**` below the closing fence; tables `**Table N.K — caption.**` above the table. `N` is the chapter number, `K` the index within the chapter.
 - **Chapters** numbered with Arabic numerals; **parts** numbered with Roman numerals.
+- **Chapter cross-references are links.** When the prose refers to another chapter by number, write it as a relative Markdown link to that chapter's file: `[Chapter 3](03-tiers-and-the-tier-gate.md)`. In a range or a list, link each numeral: `Chapters [4](04-phase-0-research.md) through [6](06-phase-1-plan-and-tracks.md)`. Do not link a non-numbered reference ("the next chapter", "later chapters"), a chapter's reference to its own number, a Figure or Table reference, a source-file citation in *Further reading*, or a chapter number inside a Mermaid node label — a link there renders as literal text and corrupts the diagram.
 - **House style applies.** All book prose follows the project house style at `.claude/output-styles/house-style.md`: BLUF lead, the banned-vocabulary list, em-dash discipline, and the structural rules. The book is a durable artifact under `docs/`, so it is in scope for the full rule set.
 
 ## What the book is *not*
@@ -68,25 +70,12 @@ Each chapter records which source files under `.claude/workflow/`, `.claude/skil
 A chapter is produced by four roles, run in waves. The expanded prompt for each role is in [`prompts/`](prompts/); the pipeline that spawns them is in [`PIPELINE.md`](PIPELINE.md). The four roles are fixed: every part of the machinery names these same four, with none added and none missing.
 
 1. **Author** — writes or rewrites one chapter from the source files plus this brief. One author per chapter, run in parallel waves. The author reads the source files the chapter's brief names, verifies them against the tree at the baseline SHA, and produces a chapter that follows the voice and pacing rules above. Prompt: [`prompts/author.md`](prompts/author.md).
-2. **Technical reviewer** — verifies every source citation, file reference, and factual claim in a chapter against the tree at the baseline SHA. One reviewer per roughly three chapters, run in parallel. Flags each finding as a blocker, a fix, or a nit, and writes a report under `workflow-book-builder/reviews/`. Prompt: [`prompts/technical-reviewer.md`](prompts/technical-reviewer.md).
+2. **Technical reviewer** — verifies every source citation, file reference, and factual claim in a chapter against the tree at the baseline SHA. One reviewer per roughly three chapters, run in parallel. Flags each finding as a blocker, a fix, or a nit, and writes a report under the run scratch directory the producer creates in an OS temp dir (see `PIPELINE.md` Step 0), not inside the repository. Prompt: [`prompts/technical-reviewer.md`](prompts/technical-reviewer.md).
 3. **Copy editor** — passes a chapter for voice consistency, pacing, and the house style, without changing factual claims. One editor per roughly five chapters, run in parallel. Prompt: [`prompts/copy-editor.md`](prompts/copy-editor.md).
-4. **Beta reader** — reads the book (or the touched chapters) in order, as the target reader would, and reports what they understood, what they did not, what felt rushed, and what felt over-explained. Three personas, run in parallel, writing reports under `workflow-book-builder/beta-feedback/`. Prompt: [`prompts/beta-reader.md`](prompts/beta-reader.md).
+4. **Beta reader** — reads the book (or the touched chapters) in order, as the target reader would, and reports what they understood, what they did not, what felt rushed, and what felt over-explained. Three personas, run in parallel, writing reports under the run's OS-temp scratch directory (see `PIPELINE.md` Step 0), not inside the repository. Prompt: [`prompts/beta-reader.md`](prompts/beta-reader.md).
 
 A chapter is done only when it has cleared all four roles. The pipeline orders the waves and decides which roles run on which chapters; this brief only fixes what each role is.
 
 ## Diagram convention
 
-The book draws diagrams as ASCII by default, with a small set of committed SVGs for the few figures ASCII cannot lay out. The convention is specified in full in [`DIAGRAMS.md`](DIAGRAMS.md). Mermaid is not used: it renders inconsistently across viewers (GitHub, IDEs, PDF export, static-site generators each support a different subset), while ASCII and committed SVG render the same everywhere.
-
-## The one-time `d2` install (operator step)
-
-The committed SVGs are rendered from D2 source by [`scripts/render-diagrams.sh`](scripts/render-diagrams.sh). The `d2` binary is not installed in a fresh environment. Before the first render, the operator installs it once:
-
-```bash
-# macOS / Linux one-line installer:
-curl -fsSL https://d2lang.com/install.sh | sh -s --
-# or via Go:
-go install oss.terrastruct.com/d2@latest
-```
-
-The render step does not run during the machinery-build cycle that created this directory. It first runs in a production cycle, when a chapter needs a figure from the enumerated SVG set. `render-diagrams.sh` checks for the `d2` binary and prints this install command on a miss rather than failing opaquely; see [`DIAGRAMS.md`](DIAGRAMS.md) for the full procedure.
+Every diagram in the book is an inline Mermaid fenced code block, placed where the prose leans on it. There are no committed image files and no render step. The convention is specified in full in [`DIAGRAMS.md`](DIAGRAMS.md). Mermaid renders natively on GitHub, matches the convention the workflow's own design documents already use (their class and sequence diagrams are Mermaid), and needs no build step or committed binaries.

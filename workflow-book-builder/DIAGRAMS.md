@@ -1,63 +1,29 @@
-# Diagrams — ASCII by default, committed SVG for a named set
+# Diagrams — inline Mermaid, everywhere
 
-The book draws diagrams two ways. ASCII box-and-arrow diagrams in fenced code blocks are the default for every flow and box figure. A short, explicitly enumerated set of dense figures that ASCII cannot lay out cleanly is authored in D2 source and rendered to a committed SVG. There is no third option and no open "render whatever needs it" category: a figure is either ASCII or one of the named SVG figures below.
+Every diagram in the book is an inline Mermaid fenced code block, placed where the prose leans on it. There are no committed image files and no render step. Mermaid renders natively on GitHub, matches the convention the workflow's own design documents already use (their class and sequence diagrams are Mermaid), and needs no build step or committed binaries. An author draws a figure by writing a ```` ```mermaid ```` block in the chapter; nothing else has to happen for a reader to see it.
 
-The book does not use mermaid. Mermaid renders inconsistently across viewers (GitHub, IDEs, PDF export, static-site generators each support a different subset). ASCII renders identically everywhere and needs no tooling. A committed SVG renders in every image-capable viewer without a reader-side build. Pre-rendering loses some of the diffability of inline source; the book accepts that loss in exchange for reader-side portability, and contains it by keeping the SVG set small and the source diffable in a sidecar `.d2` file.
+There is one diagram convention and no exceptions. A figure is a Mermaid block, captioned below the closing fence, and it lives in the chapter file next to the prose it teaches.
 
-D2 is the render DSL. The choice is a preference for a single Go binary with no headless-browser dependency, over mermaid-cli's puppeteer and Chromium chain. It is a design preference, not a benchmarked claim.
+## Choosing the Mermaid type
 
-## When ASCII, when SVG
+Pick the Mermaid type by what the figure has to show:
 
-Use ASCII for anything you can lay out as a grid of boxes connected by `->`, `|`, and `+`: linear flows, two- or three-way branches, small box-and-arrow sketches, short tables of states. Most figures in the book are ASCII. ASCII diagrams diff cleanly, render in a plain terminal, and need no install.
+- **`flowchart LR` or `flowchart TD`** for flows and decision trees: linear sequences, two- or three-way branches, the tier-gate questions and their routing. Use `LR` (left to right) for a pipeline read as a sequence, `TD` (top down) for a decision tree read as a cascade of questions.
+- **`flowchart TD` with `subgraph` blocks** for containment and hierarchy: a plan holding tracks, a track holding steps, a step producing an episode. A `subgraph` draws the enclosing box; nodes inside it are the contained items.
+- **A dashed back-edge** (`-.->`) for a loop-back or an ESCALATE path: a failed gate returning to an earlier phase, a review sending a step back for rework. The dashed style reads as "exceptional return", distinct from the solid forward edges.
+- **`stateDiagram-v2`** where the figure is genuinely a state machine with named states and labelled transitions, and that framing teaches better than a flowchart. The phase state machine is the canonical case.
+- **`sequenceDiagram`** where the figure is an ordered exchange between actors over time: an orchestrator delegating to an implementer sub-agent, a review wave fanning out and reporting back.
 
-Use a committed SVG only for a figure in the enumerated set below. These are figures with enough nodes, crossing edges, or nested structure that an ASCII grid becomes unreadable. The set is fixed at TOC time: when the first production run builds the chapter map, it pins exactly which figures are SVG, so the rendered-asset footprint is a named list rather than an open category. A later run may add to the set, but only by amending this list and the TOC together (see "How to add a figure" below), never by an author silently rendering a new figure mid-chapter.
+When two types both fit, choose the one that carries the figure's one idea (`BOOK_BRIEF.md` rule 7) with the least visual noise.
 
-## The enumerated SVG figure set
+## Authoring rules
 
-The book commits an SVG only for the figures named here. Each is dense enough that an ASCII layout breaks down. The figure numbers (`fig-1`, `fig-2`, …) are assigned at TOC time and recorded in `docs/workflow-book/TOC.md`; the file names below are the sidecar/SVG pairs under `docs/workflow-book/assets/diagrams/`.
-
-1. **The phase state machine** (`fig-phase-state-machine.d2` → `fig-phase-state-machine.svg`). Phases 0 through 4 with their transitions, the gates between phases, and the loop-back edges (a failed gate returning to an earlier phase). The branching plus the back-edges make this unreadable as ASCII.
-2. **The tier-gate decision tree** (`fig-tier-gate.d2` → `fig-tier-gate.svg`). The two gate questions (is there a design question? what is the change scope?) and how their answers route a change to the `full`, `lite`, or `minimal` tier, with the per-tier artifact differences hanging off each leaf. A decision tree with annotated leaves is the canonical case ASCII handles poorly.
-3. **The track / step / episode hierarchy** (`fig-track-step-episode.d2` → `fig-track-step-episode.svg`). A plan containing tracks, a track containing steps, a step producing an episode, with the cross-references (a track's dependency on another track, an episode promoted to the track's discovery log). The nested containment plus cross-links exceed an ASCII grid.
-
-These three are the candidate set the design fixed. The first production run confirms the final list when it builds the TOC; if a chapter's teaching arc does not need one of these as a figure, the run drops it from the set rather than committing an unused asset.
-
-## The render step
-
-`scripts/render-diagrams.sh` renders every `.d2` sidecar under `docs/workflow-book/assets/diagrams/` to a committed `fig-*.svg` beside it. The committed SVG is what chapters embed; readers never run the renderer.
-
-```bash
-workflow-book-builder/scripts/render-diagrams.sh
-```
-
-The script checks for the `d2` binary first. If `d2` is missing it prints the one-time install command (below) and exits without rendering, rather than failing with an opaque tool-not-found error. The render path runs only in a production cycle, and only when a touched chapter added or changed a figure in the enumerated set; ASCII figures never render.
-
-## The one-time `d2` install (operator step)
-
-`d2` is not installed in a fresh environment. Install it once before the first render:
-
-```bash
-# macOS / Linux one-line installer:
-curl -fsSL https://d2lang.com/install.sh | sh -s --
-# or via Go:
-go install oss.terrastruct.com/d2@latest
-```
-
-After installing, re-run `render-diagrams.sh`. The install is a one-time operator step, not part of the per-chapter authoring loop.
+- **Short node labels.** A node label is a few words, not a sentence. The prose carries the explanation; the diagram carries the shape. A label that runs long is a sign the figure is trying to teach two ideas.
+- **Quote labels with special characters.** Wrap a label in double quotes when it contains characters Mermaid would otherwise parse, such as parentheses, a slash, a colon, or `full`/`lite`/`minimal` written with backticks-as-text. For example `A["Phase 0: research"]` rather than `A[Phase 0: research]`.
+- **Caption every figure.** Below the closing fence, write `**Figure N.K — caption.**`, where `N` is the chapter number and `K` the index within the chapter. The caption states the one idea the figure carries.
+- **One idea per figure.** A diagram that restates the prose earns nothing; delete one of them (`BOOK_BRIEF.md` rule 7). If a figure needs a second idea, it is two figures.
+- **No links inside labels.** A node or edge label is plain text. A Markdown link inside a label — including a chapter cross-reference like `[Chapter 3](03-...md)` — renders as the literal characters `[...]( ...)` and corrupts the diagram. Name the chapter in the surrounding prose, not in the label.
 
 ## How to add a figure
 
-A new figure is either ASCII or a new entry in the enumerated SVG set. The two paths differ.
-
-**ASCII figure.** Draw it in a fenced block in the chapter, captioned `**Figure N.K — caption.**` below the closing fence, where `N` is the chapter number and `K` the index within the chapter. No sidecar, no render step, no change to this file. Confirm it teaches one idea the prose leans on (`BOOK_BRIEF.md` rule 7); if it restates the prose, delete one of them.
-
-**New SVG figure.** Adding an SVG figure is a deliberate amendment, not an author's call mid-chapter:
-
-1. Confirm the figure genuinely cannot be ASCII (enough nodes, crossing edges, or nested structure that an ASCII grid is unreadable). If it can be ASCII, make it ASCII.
-2. Add the figure to "The enumerated SVG figure set" above, naming the `.d2` sidecar and the `.svg` output and the one idea it carries.
-3. Add the figure to the chapter's brief in `docs/workflow-book/TOC.md`, so the cross-reference matrix records it.
-4. Author the D2 source in `docs/workflow-book/assets/diagrams/<name>.d2`.
-5. Run `scripts/render-diagrams.sh` to produce the committed `<name>.svg` (installing `d2` first if the script reports it missing).
-6. Embed the rendered SVG in the chapter, captioned the same way as an ASCII figure.
-
-Keeping step 2 and step 3 together is what keeps the SVG set a bounded, named list. An author who skips them and renders a figure anyway has created an asset the cross-reference matrix does not know about, which an evolution run cannot track for drift.
+Draw it in a ```` ```mermaid ```` block in the chapter, at the point where the prose first leans on it. Caption it `**Figure N.K — caption.**` below the closing fence. Choose the Mermaid type by the rules above, keep the labels short, and quote any label with special characters. Confirm it teaches one idea the prose leans on (`BOOK_BRIEF.md` rule 7); if it restates the prose, delete one of them. No sidecar, no render step, no committed asset, and no change to this file: a new figure is a self-contained block in the chapter that owns it.
