@@ -24,6 +24,7 @@ permit handshake and the freezer gate are Track 7.
 - [ ] Track completion
 - [x] 2026-06-17T07:40Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-17T08:41Z [ctx=safe] Step 1 complete (commit a760ab91a7)
+- [x] 2026-06-17T10:04Z [ctx=safe] Step 2 complete (commit f465ad7ef6)
 
 ## Surprises & Discoveries
 - **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
@@ -49,6 +50,12 @@ permit handshake and the freezer gate are Track 7.
   transaction, so Track 4's commit/promotion path sees only the routed tx-local
   writes (Steps 2–3) and the commit-time per-class promotion, never committed
   records pre-enrolled by the seed. See Episodes §Step 1.
+- 2026-06-17T10:04Z Step 2 established the seam's cross-track contracts: the
+  write-view signal is `session.getTxSchemaState() != null` (Track 4 reads it at
+  commit entry); the `MetadataWriteMutex` engage (Step 4) must sit above the seed
+  in `resolveForWrite` / `ensureTxSchemaState`; the write-path `reresolve*` helpers
+  throw on a missing class/property in the copy, so Step 3 / Track 4
+  drop-then-reference tests expect a loud failure. See Episodes §Step 2.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -96,6 +103,12 @@ design.md D-records this track owns. -->
   records into the caller transaction and can rebind a committed class RID. The
   `fromStream`-re-parse semantic is preserved; design.md (frozen) is reconciled
   in Phase 4. See Episodes §Step 1.
+- 2026-06-17T10:04Z (dependency-reveal) Step 2 placed the single resolve seam on a
+  schema-specific `SchemaProxedResource` base extending `ProxedResource`, not
+  physically inside `ProxedResource`, because that base has unrelated non-schema
+  subclasses (`FunctionLibraryProxy`, `SchedulerProxy`, `SequenceLibraryAbstract`).
+  Same single-seam intent; design.md placement wording reconciled in Phase 4. See
+  Episodes §Step 2.
 
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (2 findings, 2 accepted)
@@ -202,7 +215,7 @@ preservation through the round-trip serializer.
 ## Concrete Steps
 
 1. Tx-local schema view foundation: add `TxSchemaState` (the tx-local `SchemaShared` copy plus the changed-class set, held per session/transaction) and `SchemaShared.copyForTx`, which seeds the copy by `new SchemaShared(); copy.fromStream(session, committed.toStream(session))` under the committed `SchemaShared.lock` write lock, preserving each class's per-class record RID and the recomputed cross-class derived state through the round trip — risk: high (architecture / cross-component coordination: introduces the tx-local schema abstraction)  [x]  commit: a760ab91a7
-2. Three-tier proxy routing seam: funnel every `SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one `resolve()` helper on `ProxedResource` (tier 1 snapshot reads untouched; tier 2 captured-`delegate` fast path when no schema-tx write-view; tier 3 name-rebind into the tx-local copy during the session's schema tx), seed the tx-local copy on the first routed write, route proxies minted mid-tx (e.g. via `SchemaProxy.getClass`) the same way, and re-resolve impl-typed arguments by name before linking so no shared impl enters the tx-local graph — risk: high (architecture / cross-component coordination: changes the schema proxy resolution model; isolation-critical)  [ ]
+2. Three-tier proxy routing seam: funnel every `SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one `resolve()` helper on `ProxedResource` (tier 1 snapshot reads untouched; tier 2 captured-`delegate` fast path when no schema-tx write-view; tier 3 name-rebind into the tx-local copy during the session's schema tx), seed the tx-local copy on the first routed write, route proxies minted mid-tx (e.g. via `SchemaProxy.getClass`) the same way, and re-resolve impl-typed arguments by name before linking so no shared impl enters the tx-local graph — risk: high (architecture / cross-component coordination: changes the schema proxy resolution model; isolation-critical)  [x]  commit: f465ad7ef6
 3. De-guard the mutation entry points: convert the throw-guards (`SchemaShared` schema-record save, `dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to write into the tx-local copy when a tx is active, and replace the `executeInTxInternal` body at `IndexManagerEmbedded.addCollectionToIndex` / `removeCollectionFromIndex` so the polymorphic membership ripple records into the tx-local changed-class set instead of the eager shared `Index.collectionsToIndex` apply — risk: high (architecture / cross-component coordination: changes transactional schema-mutation control flow; the I-A7 silent-leak surface)  [ ]
 4. Add the `MetadataWriteMutex` `Semaphore(1)` with a holder recording the owning `session` and acquiring `thread`, engage it at the write-routing decision point strictly above any shared metadata lock and before the tx-local seed (asserting no shared metadata lock is yet held by this thread), throw the same-thread loud-reject when the current thread already holds the permit through a different session, and release the permit once the outermost transaction frame closes (idempotent against Track 7's later compare-and-clear) — risk: high (concurrency: new Semaphore, lock-acquisition ordering, shared session/thread holder, same-thread reject)  [ ]
 
@@ -297,6 +310,61 @@ Surprises and Decision Log.
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaEmbedded.java` (modified)
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/CopyForTxTest.java` (new)
+
+### Step 2 — commit f465ad7ef6, 2026-06-17T10:04Z [ctx=safe]
+**What was done:** Built the three-tier proxy routing seam. A new schema-specific
+base, `SchemaProxedResource` (extends `ProxedResource`), funnels every
+`SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one
+`resolve()` (read) or `resolveForWrite()` (write) helper. Tier 1 snapshot reads
+stay on the committed instance; tier 2 (no write-view) returns the captured
+delegate unchanged; tier 3 (a tx-local copy exists) re-resolves the delegate by
+name into the copy. The session gained `getTxSchemaState()` /
+`ensureTxSchemaState()`, storing the `TxSchemaState` in the active transaction's
+custom data so it dies with the transaction; `resolveForWrite` seeds it via
+`copyForTx` on the first routed write. Impl-typed arguments are re-resolved by
+name before linking, so no committed-shared impl enters the private graph. The
+BC1 review fix kept the argument-taking read overloads (`isSubClassOf` /
+`isSuperClassOf`) total: they route through a read-tolerant resolver that returns
+`null` on an absent argument class (preserving the historical `false`-on-missing
+contract), while the loud write-path resolver is unchanged. `SchemaProxyRoutingTest`
+covers tier selection, seeding, impl-arg re-resolution, and the read contract
+(10 tests).
+
+**What was discovered:** `ProxedResource` has non-schema subclasses
+(`FunctionLibraryProxy`, `SchedulerProxy`, `SequenceLibraryAbstract`), so the
+seam could not import schema types into `ProxedResource` itself; it sits on the
+schema-specific `SchemaProxedResource` base that only the three schema proxies
+extend. The transaction's per-tx custom-data map is the lifecycle-safe home for
+`TxSchemaState` — it is dropped when the transaction ends, so no manual teardown
+is needed. Tier-3 `rebindToTxLocal` does a by-name `getClass` per read; that cost
+is bounded to rare schema transactions by the low-schema-change-rate premise
+(forward note, no action this step). Coverage caveat: the full core suite exceeds
+the foreground time budget, so regression here was a bounded cross-section of the
+affected schema / DDL / tx / graph surface plus the two proxy-boundary suites that
+directly exercise the rewritten delegation; the full-suite check is deferred to
+track-end verification and CI.
+
+**What changed from the plan:** The single resolve seam lives on a schema-specific
+base class (`SchemaProxedResource` extends `ProxedResource`), not physically inside
+`ProxedResource.java`, because that base has unrelated non-schema subclasses. Same
+single-seam intent, no behavioral divergence. design.md prescribes the seam "on
+`ProxedResource`"; Phase 4 `design-final.md` reconciles the placement wording. No
+Decision Record changed.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaProxedResource.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaClassProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaPropertyProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaProxyRoutingTest.java` (new)
+
+**Critical context:** Downstream consumers read the write-view signal as
+`session.getTxSchemaState() != null` (Track 4 reads it at commit entry). The
+`MetadataWriteMutex` engage (Step 4) must sit above the seed in `resolveForWrite`
+/ `ensureTxSchemaState`. The write-path `reresolve*` helpers throw
+`IllegalStateException` on a missing class/property in the copy, so Step 3 /
+Track 4 drop-then-reference tests should expect that loud failure.
 
 ## Idempotence and Recovery
 - **Engage-order assert.** A Java `assert` at the engage point states that when a
