@@ -861,3 +861,9 @@ open questions still open (A1 prose-axis landing site, A2 dual-clean loop
 convergence/cost); A3–A6 are decisions that survive with under-stated rationale; A7–A9
 are suggestions. Resolutions appended to the Decision Log this iteration; re-challenge
 at iteration 2.
+
+### Adversarial review of this log (2026-06-17T07:59Z) — PASS
+Review file: `_workflow/reviews/research-log-adversarial-iter2.md`. Iteration-2
+verdict-producer re-challenge: all 9 prior findings VERIFIED against the revised log
+and the live `.claude/**` machinery; no new findings; overall PASS. The gate clears —
+Phase-1 artifact authoring (Step 4a design) may proceed.
