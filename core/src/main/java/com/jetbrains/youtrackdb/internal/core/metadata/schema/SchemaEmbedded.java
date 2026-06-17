@@ -478,6 +478,11 @@ public class SchemaEmbedded extends SchemaShared {
     return new SchemaClassEmbedded(this, name);
   }
 
+  @Override
+  protected SchemaShared newInstanceForCopy() {
+    return new SchemaEmbedded();
+  }
+
   private static void dropClassIndexes(DatabaseSessionEmbedded session, final SchemaClassImpl cls) {
     final var indexManager = session.getSharedContext().getIndexManager();
 
