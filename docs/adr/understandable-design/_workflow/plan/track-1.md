@@ -30,7 +30,7 @@ built here at the two other authoring points.
 - [x] 2026-06-17T15:34Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-17T15:42Z [ctx=safe] Track-level code review iteration 2 complete (2/3 iterations)
 - [x] 2026-06-17T15:43Z [ctx=safe] Track-level code review (PASS — 2 iterations, all findings resolved)
-- [ ] Track completion
+- [x] 2026-06-17T17:08Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -369,6 +369,15 @@ by-reference cannot hold.
 **Key files:**
 - `.claude/skills/edit-design/SKILL.md` (new — staged, the reworked dual-clean loop)
 - `.claude/agents/comprehension-review.md` (modified — allow-list `Read` → `Read, Grep`)
+
+### Track completion — 2026-06-17T17:08Z [ctx=info]
+The two-role design-authoring loop is built and staged. `edit-design` now drafts `design.md` through a fresh code-grounded author, verifies each round with a cold readability auditor plus a warm absorption check, and gates the converged draft through a de-warmed comprehension review that reads the doc alone. The four roles are agent definitions with minimal tool allow-lists, and the S2 read-scope wording names the warm absorption agent as a sanctioned log reader so the site count stays at two.
+
+Phase C track-level review (workflow-only diff, five workflow reviewers) passed at iteration 2 with zero blockers. The one invariant break it caught, and the one with cross-track weight: the de-warm plus the rework left `design-sync` with the prose AI-tell axis on neither reviewer, violating S4. The fix wired a `design-sync`-scoped readability-auditor prose pass so the auditor is the single owner — the design-path analogue of the `target=tracks` prose-owner migration Track 2 must perform, where the same "one prose owner per surface, never neither" rule applies. The four agent descriptions now name `create-plan` Step 4b as a dispatcher in anticipation of that wiring, and the by-reference orchestration contract (author spawns return a thin summary, never the drafted doc) holds, which Track 2's 4a/4b boundary collapse (D15) depends on. The remaining iter-2 fixes were house-style punctuation and three loop edge cases (author-spawn-failure recovery, an unambiguous dual-clean predicate, mid-loop context-clear resume).
+
+Carried into Phase 4: the D20 divergence — the `comprehension-review` allow-list is `Read, Grep`, while frozen `design.md` D8 still records `Read`-only — is the `design-final` reconciliation item.
+
+2 steps, 0 failed.
 
 ## Validation and Acceptance
 Track-level acceptance:

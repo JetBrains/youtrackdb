@@ -49,7 +49,7 @@ flowchart TD
   state until the Phase 4 promotion.
 
 ## Checklist
-- [ ] Track 1: The two-role authoring loop, wired into design creation
+- [x] Track 1: The two-role authoring loop, wired into design creation
   > Build the core: a code-grounded author drafts `design.md` for a reader who
   > has only the finished doc, a cold readability auditor reports every passage
   > that reader cannot reconstruct, and a warm absorption check confirms the
@@ -59,10 +59,12 @@ flowchart TD
   > as agent definitions with minimal tool allow-lists, and update the
   > read-scope invariants (S2 at its `research.md` canonical home, restated in
   > `design-document-rules.md`). Detailed description in plan/track-1.md.
-  > **Scope:** ~9 files covering 4 agent definitions, `design-review.md`
-  > de-warm (incl. the S4 one-owner prose axis), `edit-design/SKILL.md` rework,
-  > and the `research.md` / `design-document-rules.md` S2/S3 read-scope wording
-  > (all staged).
+  >
+  > **Track episode:** Two-role authoring loop built and staged; Phase C review
+  > PASS (2 iterations, 0 blockers), including the `design-sync` prose-owner (S4)
+  > fix. See `plan/track-1.md` `## Episodes` § Track completion. (2 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-1.md`
 
 - [ ] Track 2: Reuse the loop at track authoring and Phase 4; collapse the 4a/4b boundary
   > Wire the Track 1 loop into `create-plan` Step 4b (so `lite` / `minimal`
