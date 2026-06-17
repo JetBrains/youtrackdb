@@ -63,8 +63,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     super(storage);
   }
 
-  @Nullable
-  @Deprecated
+  @Nullable @Deprecated
   @Override
   public Object get(DatabaseSessionEmbedded session, Object key) {
     final Iterator<RID> iterator;
@@ -168,7 +167,8 @@ public abstract class IndexOneValue extends IndexAbstract {
                         releaseSharedLock();
                       }
                     })
-                .filter(Objects::nonNull), session);
+                .filter(Objects::nonNull),
+            session);
     final var indexChanges =
         session.getTransactionInternal().getIndexChangesInternal(getName());
     if (indexChanges == null) {
@@ -373,6 +373,10 @@ public abstract class IndexOneValue extends IndexAbstract {
   public long size(DatabaseSessionEmbedded session) {
     acquireSharedLock();
     try {
+      if (indexId < 0) {
+        // Unbuilt, transaction-deferred index: no engine yet, so it holds nothing.
+        return 0;
+      }
       while (true) {
         try {
           var transaction = session.getActiveTransaction();
@@ -471,8 +475,7 @@ public abstract class IndexOneValue extends IndexAbstract {
     return true;
   }
 
-  @Nullable
-  public RawPair<Object, RID> calculateTxIndexEntry(
+  @Nullable public RawPair<Object, RID> calculateTxIndexEntry(
       Object key, final RID backendValue, final FrontendTransactionIndexChanges indexChanges) {
     key = getCollatingValue(key);
     var result = backendValue;
@@ -516,9 +519,8 @@ public abstract class IndexOneValue extends IndexAbstract {
         txStream,
         backedStream
             .map(
-                (entry) ->
-                    calculateTxIndexEntry(
-                        getCollatingValue(entry.first()), entry.second(), indexChanges))
+                (entry) -> calculateTxIndexEntry(
+                    getCollatingValue(entry.first()), entry.second(), indexChanges))
             .filter(Objects::nonNull),
         comparator);
   }
