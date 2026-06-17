@@ -23,6 +23,7 @@ permit handshake and the freezer gate are Track 7.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-17T07:40Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-17T08:41Z [ctx=safe] Step 1 complete (commit a760ab91a7)
 
 ## Surprises & Discoveries
 - **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
@@ -43,6 +44,11 @@ permit handshake and the freezer gate are Track 7.
 - **Phase A — Track 2 RID round-trip confirmed.** PSI verified `SchemaShared.fromStream`
   rebinds each class's RID from the `"classes"` LinkSet, so the D8 `fromStream` seed
   binds committed per-class RIDs faithfully (Track 2 cross-track contract, test-verified).
+- 2026-06-17T08:41Z Step 1 discovered: the tx-local seed is side-effect-free —
+  building the copy does not enrol committed schema records into the user
+  transaction, so Track 4's commit/promotion path sees only the routed tx-local
+  writes (Steps 2–3) and the commit-time per-class promotion, never committed
+  records pre-enrolled by the seed. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -82,6 +88,14 @@ design.md D-records this track owns. -->
 - **Risks/Caveats**: `SchemaProxy` read methods (not only the snapshot) must route to the tx-local structure during a schema tx; class/property proxies become name-binding (tier 3) during the session's schema tx, captured-delegate fast path (tier 2) otherwise, with snapshot reads a separate untouched family (tier 1). Impl-typed arguments are re-resolved by name on the tx-local side before linking so a shared impl never enters the tx-local graph.
 - **Implemented in**: this track (copy + routing); Track 4 (commit-time promotion)
 - **Full design**: design.md §"The tx-local schema view and transactional enablement"
+
+#### Execution-time decisions
+- 2026-06-17T08:41Z (dependency-reveal) Step 1 changed the D8 seed serializer
+  from the design's literal `committed.toStream(session)` to a read-only
+  re-parse of the committed root record, because `toStream` dirties committed
+  records into the caller transaction and can rebind a committed class RID. The
+  `fromStream`-re-parse semantic is preserved; design.md (frozen) is reconciled
+  in Phase 4. See Episodes §Step 1.
 
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (2 findings, 2 accepted)
@@ -187,7 +201,7 @@ preservation through the round-trip serializer.
 
 ## Concrete Steps
 
-1. Tx-local schema view foundation: add `TxSchemaState` (the tx-local `SchemaShared` copy plus the changed-class set, held per session/transaction) and `SchemaShared.copyForTx`, which seeds the copy by `new SchemaShared(); copy.fromStream(session, committed.toStream(session))` under the committed `SchemaShared.lock` write lock, preserving each class's per-class record RID and the recomputed cross-class derived state through the round trip — risk: high (architecture / cross-component coordination: introduces the tx-local schema abstraction)  [ ]
+1. Tx-local schema view foundation: add `TxSchemaState` (the tx-local `SchemaShared` copy plus the changed-class set, held per session/transaction) and `SchemaShared.copyForTx`, which seeds the copy by `new SchemaShared(); copy.fromStream(session, committed.toStream(session))` under the committed `SchemaShared.lock` write lock, preserving each class's per-class record RID and the recomputed cross-class derived state through the round trip — risk: high (architecture / cross-component coordination: introduces the tx-local schema abstraction)  [x]  commit: a760ab91a7
 2. Three-tier proxy routing seam: funnel every `SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one `resolve()` helper on `ProxedResource` (tier 1 snapshot reads untouched; tier 2 captured-`delegate` fast path when no schema-tx write-view; tier 3 name-rebind into the tx-local copy during the session's schema tx), seed the tx-local copy on the first routed write, route proxies minted mid-tx (e.g. via `SchemaProxy.getClass`) the same way, and re-resolve impl-typed arguments by name before linking so no shared impl enters the tx-local graph — risk: high (architecture / cross-component coordination: changes the schema proxy resolution model; isolation-critical)  [ ]
 3. De-guard the mutation entry points: convert the throw-guards (`SchemaShared` schema-record save, `dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to write into the tx-local copy when a tx is active, and replace the `executeInTxInternal` body at `IndexManagerEmbedded.addCollectionToIndex` / `removeCollectionFromIndex` so the polymorphic membership ripple records into the tx-local changed-class set instead of the eager shared `Index.collectionsToIndex` apply — risk: high (architecture / cross-component coordination: changes transactional schema-mutation control flow; the I-A7 silent-leak surface)  [ ]
 4. Add the `MetadataWriteMutex` `Semaphore(1)` with a holder recording the owning `session` and acquiring `thread`, engage it at the write-routing decision point strictly above any shared metadata lock and before the tx-local seed (asserting no shared metadata lock is yet held by this thread), throw the same-thread loud-reject when the current thread already holds the permit through a different session, and release the permit once the outermost transaction frame closes (idempotent against Track 7's later compare-and-clear) — risk: high (concurrency: new Semaphore, lock-acquisition ordering, shared session/thread holder, same-thread reject)  [ ]
@@ -234,6 +248,55 @@ asserted here (per the Track-3 commit contract in Plan of Work).
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used
 verbatim as test method names. Empty until Move 3 lands. -->
+
+### Step 1 — commit a760ab91a7, 2026-06-17T08:41Z [ctx=safe]
+**What was done:** Added the tx-local schema copy foundation.
+`SchemaShared.copyForTx` seeds a fresh private `SchemaShared` from the
+committed schema and returns it inside a `TxSchemaState` that also holds the
+changed-class set. The seed loads the committed root schema record read-only
+(`session.load(identity)`) and re-parses it with `copy.fromStream`, which
+rebinds each class to its committed per-class record RID and recomputes the
+cross-class derived state through the round trip. A new abstract
+`newInstanceForCopy` factory (overridden in `SchemaEmbedded`) builds the
+concrete instance, since `SchemaShared` is abstract. The root identity is
+value-copied, so the copy and the committed instance never share a mutable
+RID. Entry asserts require an open transaction and a committed root carrying
+global properties. `CopyForTxTest` (7 tests) covers freshness and identity
+carry, per-class RID preservation, the inheritance/derived-state recompute,
+and that the seed neither dirties committed records into the caller
+transaction nor rebinds committed class RIDs.
+
+**What was discovered:** `toStream` cannot serve as the seed serializer. It is
+a writer: it loads and re-serializes each committed per-class record, dirtying
+them into the caller transaction, and it can rebind an unbound committed
+class's RID. Seeding through it would leak committed schema records into the
+user transaction and break isolation. The seed instead re-parses the committed
+root record loaded read-only. That path's correctness rests on a lock
+invariant: every committed schema change persists the root record
+synchronously under the same `SchemaShared.lock` write lock that `copyForTx`
+holds, so under the lock the persisted root equals live committed state. The
+held-lock window does roughly `2 × N` per-class record loads plus a
+derived-state recompute — benign under the low-schema-change-rate premise,
+flagged forward for the deferred populated-schema / high-DDL workload
+(YTDB-1064, Track 4). A second, mechanical discovery: the design's literal
+`new SchemaShared()` cannot be written because `SchemaShared` is abstract with
+`SchemaEmbedded` its only concrete subclass (PSI-confirmed), resolved with the
+`newInstanceForCopy` factory.
+
+**What changed from the plan:** The seed serializer changed from the design's
+literal `committed.toStream(session)` to a read-only re-parse of the committed
+root record. The headline `fromStream`-re-parse semantic (per-class RID
+preservation, derived-state recompute) is preserved; only the committed-state
+side effect is removed. design.md §"The tx-local schema view and transactional
+enablement" is frozen during execution and still prescribes the `toStream`
+seed, so Phase 4 `design-final.md` reconciles it. Affects Track 4 — see
+Surprises and Decision Log.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/TxSchemaState.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaEmbedded.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/CopyForTxTest.java` (new)
 
 ## Idempotence and Recovery
 - **Engage-order assert.** A Java `assert` at the engage point states that when a
