@@ -297,3 +297,6 @@ flowchart TD
     Route --> Deguard["de-guarded entry points write to tx-local /<br/>record in changed-class set (no throw, no self-commit)"]
     Deguard --> End["commit or rollback (Track 4):<br/>mutex released in outermost teardown finally"]
 ```
+
+## Base commit
+8bbe3d2d18011f1ca6b1702a35e3c252ceba20b1
