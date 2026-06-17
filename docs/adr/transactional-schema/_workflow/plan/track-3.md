@@ -18,13 +18,31 @@ track ships the mutex primitive and its normal release; the abnormal-termination
 permit handshake and the freezer gate are Track 7.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-17T07:40Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+- **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
+  Phase A reviewers confirmed via PSI that `executeInTxInternal` is reentrant:
+  `commitImpl` short-circuits while `amountOfNestedTxs() > 1`, so once de-guarded and
+  running inside a user tx the membership site does not self-commit. The real I-A7
+  leak is the eager `IndexAbstract.addCollection` → `collectionsToIndex.add` on the
+  **shared** `Index` object, visible to other sessions and unreverted on a user-tx
+  rollback. The self-commit framing is correct only *today*, because the throw-guards
+  force DDL top-level. The track file's `## Context and Orientation` and `## Plan of
+  Work` now carry the corrected mechanism. `design.md` §"The tx-local schema view and
+  transactional enablement" still carries the imprecise "nested transaction that
+  commits the moment the method returns ... survives a rollback" framing; it is
+  frozen during execution, so this correction is folded into the Phase 4
+  `design-final.md` reconciliation. The de-guard target is unchanged — route the
+  change into the tx-local set — and the I-A7 rollback test already asserts the right
+  set (shared `collectionsToIndex` untouched).
+- **Phase A — Track 2 RID round-trip confirmed.** PSI verified `SchemaShared.fromStream`
+  rebinds each class's RID from the `"classes"` LinkSet, so the D8 `fromStream` seed
+  binds committed per-class RIDs faithfully (Track 2 cross-track contract, test-verified).
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -66,7 +84,9 @@ design.md D-records this track owns. -->
 - **Full design**: design.md §"The tx-local schema view and transactional enablement"
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 2 (2 findings, 2 accepted)
+- [x] Risk: PASS at iteration 2 (6 findings, 6 accepted)
+- [x] Adversarial: PASS at iteration 2 (6 findings, 6 accepted)
 
 ## Context and Orientation
 Today every session shares one live `SchemaShared`, mutated in place, and schema
@@ -80,67 +100,135 @@ of entry point block the transactional model:
   a transaction is active.
 - **Self-commit sites**: `addCollectionToIndex` / `removeCollectionFromIndex`
   (reached transitively from `createClass` / `addSuperClass` through the polymorphic
-  collection-membership ripple) wrap their work in `session.executeInTxInternal(...)`,
-  a nested transaction that commits the moment the method returns. That self-commit
-  is the dangerous one: it escapes the user transaction, becomes visible to other
-  sessions, and survives a rollback.
+  collection-membership ripple) wrap their work in `session.executeInTxInternal(...)`.
+  Today every DDL operation runs with no user transaction open — the throw-guards
+  above force it to — so this `executeInTxInternal` opens a top-level transaction
+  that commits the instant the closure returns: it escapes the (nonexistent) user
+  transaction, becomes visible to other sessions, and survives a rollback. That
+  self-commit is the dangerous part *today*. But `executeInTxInternal` is
+  reentrant: once the throw-guards are removed and the same site runs inside an open
+  user transaction, `begin()` counts up and `commitImpl` short-circuits while
+  `amountOfNestedTxs() > 1`, so the nested call no longer self-commits and the record
+  write already rides the user transaction. The residual leak is then narrower and
+  in-memory: `IndexAbstract.addCollection` eagerly does `collectionsToIndex.add(name)`
+  on the **shared** `Index` object under the index exclusive lock, immediately
+  visible to other sessions and not reverted on a user-tx rollback. De-guarding
+  therefore means replacing the `executeInTxInternal` body so the membership change
+  records into the tx-local changed-class set / index overlay, not merely stripping
+  the guard and leaving the eager shared apply in place.
 
-The throw-guards fail any DDL test loudly when left in place. The self-commit
-guards pass a naive DDL test and fail only an isolation-and-rollback test, so the
-silent failure is the one to test for (I-A7). The membership ripple can also name a
-collection that does not exist yet (a class created in the same tx has only a
-provisional id), so deferring it to commit is a correctness requirement, not only
-an isolation one.
+The throw-guards fail any DDL test loudly when left in place. The self-commit sites
+pass a naive DDL test and fail only an isolation-and-rollback test, so the silent
+failure is the one to test for (I-A7): a rollback must leave the shared `Index`'s
+`collectionsToIndex` untouched. The membership ripple can also name a collection that
+does not exist yet (a class created in the same tx has only a provisional id), so
+deferring it to commit is a correctness requirement, not only an isolation one.
 
-`SchemaClassImpl` has no record-RID field today (added in Track 2). There is no
-metadata-write mutex today; serialization is per-operation only.
+`SchemaClassImpl` gained its nullable record-RID field in Track 2 (done), bound at
+load from the per-class link set and preserved through the `toStream` / `fromStream`
+round trip (test-verified), so the tx-local `fromStream` seed binds each class's
+committed RID faithfully. There is no metadata-write mutex today; serialization is
+per-operation only.
 
 ## Plan of Work
-Build the tx-local view first: a `fromStream` re-parse of the committed schema into
-a fresh `SchemaShared` bound to the tx-local owner, held in a new `TxSchemaState`
-alongside the changed-class set. Route `SchemaProxy` reads and writes to the
-tx-local structure during a schema tx, and make the class/property proxies
-re-resolve their target by name (tier 3) when the session has a schema-tx
-write-view. Then de-guard the entry points: convert the throw-guards to write into
-the tx-local copy, and de-guard the self-commit membership sites so the membership
-change rides the user transaction and applies at commit (the overlay routing it
-lands in is Track 5; this track de-guards and records the change in the changed
-set). Introduce the `MetadataWriteMutex` `Semaphore(1)` with a session-keyed holder,
-engage it at the write-routing decision point above the shared locks, add the
-same-thread loud-reject on engage, and release it in the outermost
-commit/rollback teardown `finally`.
+Build the tx-local view first: seed a fresh `SchemaShared` by a `fromStream`
+re-parse of the committed schema, held in a new `TxSchemaState` alongside the
+changed-class set. `SchemaShared` exposes only a no-arg constructor and a `void`
+`fromStream` that re-parses into `this`, so `copyForTx` is `new SchemaShared();
+copy.fromStream(session, committed.toStream(session))` — a serialize-then-re-parse
+round trip, not a field clone — and it holds the committed `SchemaShared.lock` write
+lock while serializing the base (Track 2's `toStream` asserts
+`isWriteLockedByCurrentThread()`).
+
+Route `SchemaProxy` reads and writes to the tx-local structure during a schema tx
+through a **single resolve-target seam** on `ProxedResource` / `SchemaProxy`, not
+per-method edits: the ~168 proxy methods across `SchemaProxy` /
+`SchemaClassProxy` / `SchemaPropertyProxy` each dereference a captured `delegate`
+today, so one missed method silently reads or mutates shared state mid-tx. Funnel
+every method through one `resolve()` helper (tier 1 snapshot reads — a separate
+untouched family; tier 2 captured-delegate fast path when no schema-tx write-view;
+tier 3 name-rebind into the tx-local copy during the session's schema tx). Proxies
+minted mid-tx (for example by `SchemaProxy.getClass`) must route through the same
+seam, not only pre-tx captured ones.
+
+Then de-guard the entry points: convert the throw-guards (schema-record save,
+`dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to
+write into the tx-local copy, and replace the self-commit membership sites'
+`executeInTxInternal` body so the membership change records into the tx-local
+changed-class set instead of applying eagerly to the shared `Index` (the overlay
+routing it lands in is Track 5; this track de-guards and records the change in the
+changed set).
+
+Introduce the `MetadataWriteMutex` `Semaphore(1)` with a holder recording at least
+the owning `session` and the acquiring `thread` at engage (the same-thread
+loud-reject reads the holder thread; Track 7 extends the holder to
+`(session, ordinal, thread)` with the CAS-clear). Engage it at the write-routing
+decision point above the shared locks, add the same-thread loud-reject on engage,
+and release it once the outermost transaction frame closes.
+
+**Track-3 commit contract (intermediate state).** This track ships the *enablement*
+half of D1 only: it does not promote the tx-local copy at commit and does not change
+the eager structural collection allocation — both are Track 4. So a schema change
+made with **no** active user transaction keeps the legacy top-level save path
+unchanged (it still persists via `saveInternal` / `forceSnapshot`), while a change
+made **inside** a user transaction routes to the tx-local view and is tested for
+isolation and rollback only; its commit-time promotion and end-to-end persistence
+("create in a tx, commit, reopen, see it") are a Track-4 acceptance line, referenced
+forward, not tested here.
 
 Ordering constraints: the mutex engage must sit strictly above any shared metadata
-lock and before the tx-local seed. The proxy routing must be in place before the
-entry points are de-guarded, or a de-guarded mutation would land on the shared
-structure. The tx-local seed depends on Track 2's per-class RID preservation
-through the round-trip serializer.
+lock and before the tx-local seed, and it must be provably first on **every** write
+path — including the de-guarded membership sites that themselves take the
+index-manager and index exclusive locks, and direct `SchemaEmbedded` callers — not
+just the canonical `SchemaProxy.createClass` path. The proxy routing must be in
+place before the entry points are de-guarded, or a de-guarded mutation would land on
+the shared structure. The tx-local seed depends on Track 2's per-class RID
+preservation through the round-trip serializer.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. Tx-local schema view foundation: add `TxSchemaState` (the tx-local `SchemaShared` copy plus the changed-class set, held per session/transaction) and `SchemaShared.copyForTx`, which seeds the copy by `new SchemaShared(); copy.fromStream(session, committed.toStream(session))` under the committed `SchemaShared.lock` write lock, preserving each class's per-class record RID and the recomputed cross-class derived state through the round trip — risk: high (architecture / cross-component coordination: introduces the tx-local schema abstraction)  [ ]
+2. Three-tier proxy routing seam: funnel every `SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one `resolve()` helper on `ProxedResource` (tier 1 snapshot reads untouched; tier 2 captured-`delegate` fast path when no schema-tx write-view; tier 3 name-rebind into the tx-local copy during the session's schema tx), seed the tx-local copy on the first routed write, route proxies minted mid-tx (e.g. via `SchemaProxy.getClass`) the same way, and re-resolve impl-typed arguments by name before linking so no shared impl enters the tx-local graph — risk: high (architecture / cross-component coordination: changes the schema proxy resolution model; isolation-critical)  [ ]
+3. De-guard the mutation entry points: convert the throw-guards (`SchemaShared` schema-record save, `dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to write into the tx-local copy when a tx is active, and replace the `executeInTxInternal` body at `IndexManagerEmbedded.addCollectionToIndex` / `removeCollectionFromIndex` so the polymorphic membership ripple records into the tx-local changed-class set instead of the eager shared `Index.collectionsToIndex` apply — risk: high (architecture / cross-component coordination: changes transactional schema-mutation control flow; the I-A7 silent-leak surface)  [ ]
+4. Add the `MetadataWriteMutex` `Semaphore(1)` with a holder recording the owning `session` and acquiring `thread`, engage it at the write-routing decision point strictly above any shared metadata lock and before the tx-local seed (asserting no shared metadata lock is yet held by this thread), throw the same-thread loud-reject when the current thread already holds the permit through a different session, and release the permit once the outermost transaction frame closes (idempotent against Track 7's later compare-and-clear) — risk: high (concurrency: new Semaphore, lock-acquisition ordering, shared session/thread holder, same-thread reject)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
 
-## Validation and Acceptance
-- A transaction that creates a class sees it through every read path (`getClass`,
-  snapshot, class/property proxy); a concurrent session does not see it until
-  commit (I-A5).
+Each line is annotated with the scope Track 3 actually tests; post-commit
+structural promotion and the full no-outage guarantee are referenced forward, not
+asserted here (per the Track-3 commit contract in Plan of Work).
+
+- A transaction that creates a class sees it through every read path during the tx
+  (`getClass`, snapshot, class/property proxy), and a concurrent session does not
+  see the uncommitted change **during** the tx (I-A5, isolation half — **Track 3**).
+  The post-commit transition (a concurrent session sees it **after** commit) needs
+  Track 4 promotion — that is a Track-4 acceptance line, not tested here.
 - A captured pre-tx `SchemaClassProxy` mutated inside the transaction routes to the
-  tx-local view, not the shared one.
+  tx-local view, not the shared one, and a proxy minted mid-tx (via `getClass`)
+  routes the same way (**Track 3**).
 - A polymorphic membership ripple (`addSuperClass`, or an alter-add-collection on a
   class with an indexed subclass) is not observed by a concurrent session before
   commit, and a rollback leaves the shared `Index`'s `collectionsToIndex`
   untouched — the silent self-commit leak the throw-vs-self-commit distinction
-  defends (I-A7).
+  defends (I-A7, **Track 3**).
 - Two concurrent schema transactions: the second blocks on the mutex until the first
   completes, and neither aborts on conflict; a data commit and a snapshot-based
-  schema read run unblocked alongside a held mutex (I-A6).
+  schema read run unblocked alongside a held mutex (I-A6, **Track 3**).
 - Same thread, two sessions, the second engaging a schema tx while the first's mutex
-  is held throws (no self-deadlock); a different thread parks until release (I-C4).
-- A long schema-tx body holding the mutex does not freeze concurrent lock-based
-  schema reads, and the mutex never engages from inside a shared-lock acquisition
-  (I-C2).
+  is held throws (no self-deadlock); a different thread parks until release (I-C4,
+  **Track 3** — the partial `session` + `thread` holder this track ships is enough
+  for the loud-reject; the `ordinal` and CAS-clear are Track 7).
+- The mutex permit is engaged before any shared metadata lock (index-manager lock,
+  `SchemaShared.lock`) is taken on a schema tx's first write — asserted at the
+  engage point on every write path including the de-guarded membership sites, so a
+  mis-ordered engage fails loudly (I-C2 engage-placement, **Track 3**).
+- A thread holding the mutex permit does not hold `SchemaShared.lock` or the
+  index-manager lock (engage is above them and the seed releases them), so a
+  concurrent snapshot-based read and a concurrent lock-based read both proceed —
+  the mutex-orthogonality property (**Track 3**). The whole-commit no-outage
+  guarantee (lock-based reads converted to snapshot-first, D19) is Track 4, and the
+  freeze-vs-read-outage guarantee is Track 7 — neither is asserted here.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -148,7 +236,31 @@ through the round-trip serializer.
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+- **Engage-order assert.** A Java `assert` at the engage point states that when a
+  session holds the mutex permit, this thread holds no shared metadata lock yet
+  (index-manager lock, `SchemaShared.lock`). This makes a mis-ordered engage —
+  engaging from inside a shared-lock acquisition, the I-C2 deadlock — fail loudly in
+  tests rather than wedge under concurrent schema txs. The de-guarded membership
+  sites are the dangerous placement because they already take the index-manager and
+  index exclusive locks, so the assert guards every write path, not just the
+  canonical proxy path.
+- **Release idempotence.** This track ships the normal release fired once the
+  outermost transaction frame closes. There is no single existing "teardown finally"
+  — `commitImpl` has no top-level finally, `rollback()` is a separate method, and an
+  `executeInTx*` wrapper does not pass through the explicit `commit()`/`rollback()`
+  path — so the concrete release site is pinned during decomposition to one that
+  covers both the explicit paths and the wrappers, gated on the outermost frame
+  (the tx fully closing at base nesting, owner-session match). The normal release
+  must be idempotent against Track 7's compare-and-clear abnormal-release so the two
+  releasers never double-release the `Semaphore(1)` permit.
+- **Eager-allocation intermediate state.** Track 3 does not invert the eager
+  structural collection allocation (`createCollections`, Track 4 / D2), so an in-tx
+  `createClass` still allocates a real collection eagerly. The Track-3 rollback test
+  asserts the in-memory shared `Index.collectionsToIndex` is untouched (the D4
+  free-rollback property at the metadata level); it does **not** assert file-level
+  collection cleanup. A rolled-back in-tx create can therefore leave a stray
+  collection on disk — a known intermediate-state condition closed by Track 4 (D10
+  reconciliation / D2 provisional ids), not a Track-3 bug.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
