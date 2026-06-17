@@ -131,6 +131,30 @@ public abstract class SchemaProxedResource<T> extends ProxedResource<T> {
   }
 
   /**
+   * Read-path counterpart of {@link #reresolveClassImpl}: re-resolves a {@link SchemaClassImpl}
+   * argument by name against the given tx-local schema copy but returns {@code null} when the named
+   * class is absent rather than throwing. Read predicates that take a class argument (subclass /
+   * superclass tests) are total — an absent or foreign argument historically answers {@code false}
+   * rather than aborting the read — so they re-resolve through this tolerant variant and let the
+   * downstream {@link SchemaClassImpl} predicate treat a {@code null} as not-a-relation. The loud
+   * {@link #reresolveClassImpl} stays the write-path resolver, where linking a stale or
+   * cross-schema impl into the private graph must fail loudly.
+   */
+  @Nullable protected static SchemaClassImpl reresolveClassImplForRead(
+      @Nonnull SchemaShared txLocalSchema, @Nullable SchemaClassImpl impl) {
+    if (impl == null) {
+      return null;
+    }
+    if (impl.getOwner() == txLocalSchema) {
+      // Already a tx-local object (for example a class created earlier in the same transaction).
+      return impl;
+    }
+    // Absent from the copy: a read tolerates it (returns null -> caller answers false), unlike the
+    // write path which throws to refuse linking a shared impl into the private graph.
+    return txLocalSchema.getClass(impl.getName());
+  }
+
+  /**
    * Re-resolves a {@link SchemaPropertyImpl} argument by name against the given tx-local schema copy
    * (owner class by name, then property by name on it). A {@code null} argument stays {@code null}.
    * Throws when the owner class or the property is absent from the copy.
