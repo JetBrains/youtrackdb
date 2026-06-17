@@ -536,7 +536,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * The entry owns the paused execution stream (I3); the tx-end clear closes it. After a populate that
+   * The entry owns the paused execution stream; the tx-end clear closes it. After a populate that
    * leaves the stream un-exhausted (the view is not fully drained), the entry still holds a live
    * stream; commit's clear sink closes it and drops the entry, so the stream cannot outlive the entry.
    */
