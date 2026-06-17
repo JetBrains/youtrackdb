@@ -82,6 +82,152 @@ rule) move to a separate PR.
   carry 1128/1129 first in this branch — defers the loop behind unrelated rule
   edits the auditor picks up automatically anyway.
 
+### 2026-06-17T07:37Z [ctx=safe] — The auditor owns the § Prose AI-tell axis on every prose-checked surface; design-review.md drops it (resolves the 13:55Z prose-axis open question; gate A1)
+Resolves the open question on where `design-review.md`'s prose axes land. The
+dedicated cold readability auditor owns the **entire § Prose AI-tell axis**
+(over-dense / too-terse / hard-to-read) plus the prose-anchored § Human-reader
+items 15:30Z assigned it (glossary-introduction, why-before-what, explanatory
+register, the prose half of audience-fit), on **every surface where prose
+readability is assessed**: `edit-design` `phase1-creation` and
+`phase4-creation`, and `create-plan` Step 4b `target=tracks`. The de-warmed
+`design-review.md` **drops the § Prose AI-tell additions block entirely** on
+those surfaces and keeps only the comprehension half (the 7 questions), the
+structural-findings set (TL;DR / References / length / Mechanics & Full-design
+link resolution), and the whole-doc § Human-reader items (navigability, and the
+structural "does the Overview name a reader" half of audience-fit).
+- **Invariant:** no surface ever runs § Prose AI-tell on **both** the auditor
+  and the warm reviewer. The auditor owns it wherever prose is checked,
+  including the track path (14:58Z routes the loop through Step 4b).
+- **The `design-sync` and other non-creation mutation kinds (the 4th surface):**
+  the principle is one-owner-per-surface. Wherever a mutation kind triggers a
+  prose-readability assessment, the auditor owns it and `design-review.md` does
+  not re-run § Prose AI-tell there. Whether the author/auditor loop runs on
+  `design-sync` (vs `design-review.md` keeping the axis for sync-only) is an
+  `edit-design` wiring detail settled in Step 4a; the invariant (never both on
+  one surface) holds either way.
+- **Why:** the dilution thesis (Surprise 13:40Z) — if any prose axis stays on
+  the warm multi-axis reviewer, the diluted-pass failure mode YTDB-1130
+  diagnosed returns on that surface. Removing it everywhere is the only
+  resolution consistent with the branch's purpose.
+- **Alternatives rejected:** keep the § Prose AI-tell half on the warm reviewer
+  for `target=tracks` (or `design-sync`) — re-creates the dilution on the
+  unclaimed surface, defeating the branch's purpose.
+
+### 2026-06-17T07:37Z [ctx=safe] — Dual-clean loop convergence argument; detailed cost bound waived to planning (resolves the 13:55Z loop-topology open question sub-part b; gate A2)
+Resolves the open cost/convergence sub-part of the loop-topology question (the
+topology and phase1-vs-phase4 sub-parts were already settled by 14:32Z / 14:50Z
+/ 14:38Z / 14:58Z).
+- **Convergence of the two-check loop:** the readability auditor and the
+  absorption agent re-open the loop for **disjoint** reasons and are not
+  adversarially coupled. Fixing a density finding (adding a worked interleaving
+  or the why-of-each-step) adds code-accurate prose; it does not drop a
+  decision. Adding a dropped decision is new prose the next round's auditor
+  polishes like any other. Neither check's fix re-triggers the other in a cycle,
+  so the loop moves monotonically toward dual-clean — typically 1–2 rounds
+  (round 1's absorption catches the author's initial omission; later rounds
+  catch the rare cross-slice drop, see the A3 entry below). The
+  `iteration_budget` (3) plus escalation is the backstop for the pathological
+  ping-pong, not the expected path.
+- **Cap-exhaustion for a creation loop:** identical to today's `edit-design`
+  Step 6 — on exhaustion the design freezes with open findings and escalates to
+  the user (the user is the gate), who accepts the residual or extends. No new
+  escalation machinery.
+- **Cost:** worst case per round = 1 author spawn (whole-doc grounding round 1,
+  targeted re-grounding after, per 16:10Z) + ~6 auditor range-agents + 1 Sonnet
+  absorption agent, × ≤3 rounds, amortized by the fan-out cache warm-up (16:00Z:
+  ~1 cold + (N−1)×0.1×). The exact worst-case token figure is a
+  planning/decomposition concern — **waived to planning** as out of the gate's
+  scope (the gate needs the convergence argument, not the budget).
+- **Why:** the gate asked for a convergence argument specific to the dual-clean
+  loop (not the single-axis one) and a treatment of cost; this supplies the
+  former and scopes the latter to where it belongs.
+
+### 2026-06-17T07:37Z [ctx=safe] — Per-round absorption is justified by the auditor's range-slicing, not refuted by "auditor never deletes" (strengthens 14:32Z; gate A3)
+Strengthens the 14:32Z rationale where it was in tension with its own 14:18Z
+premise. The 14:18Z observation "the auditor never requests deletions (it flags
+prose, not content)" does **not** defuse the back-edge, because the readability
+auditor is **range-sliced** (15:30Z / 16:00Z: the `readability-feedback` fan-out
+reads ~200-line slices with no whole-doc view). A later round's restructure can
+**move** a decision's prose across slice boundaries, or merge/split content so a
+decision present in round-1's audited slice falls into a gap or is reworded out
+of recognizability in a later round — a drop with no agent "deleting" anything.
+A single before-loop absorption check cannot re-catch this cross-slice drop
+after the restructure; the per-round whole-doc absorption check does.
+- **Why:** names the actual load-bearing failure (cross-slice drop under
+  range-slicing) that makes per-round absorption beat the cheaper single-check,
+  replacing the deletion failure mode the log elsewhere argues cannot occur.
+
+### 2026-06-17T07:37Z [ctx=safe] — The de-warm extends S2 to name the absorption agent as a sanctioned reader; the conventions.md S2 edit is a stated deliverable (strengthens 14:05Z / 14:12Z; gate A4)
+Strengthens the de-warm decision's "no third S2 read site" claim. That claim
+holds only under an **extended** reading of S2: the live S2 (`research.md`
+§The research log — "the log is read for decision content in exactly two
+places: at Step 4a/4b artifact authoring … and by the Phase-2 consistency
+review") names the authoring read as the author / cold-read reviewer, not a
+separate absorption-only spawn. This branch **extends** S2's "Step 4a/4b
+authoring read" to include the distinct warm absorption agent as a sanctioned
+reader. Updating S2's prose in `conventions.md` to name the absorption agent (or
+to scope the authoring read to "the author and the creation-time absorption
+agent") is a **stated deliverable** — already on the 14:50Z files-of-change list
+("conventions.md S2/S3 prose"), now bound to this decision rather than left as
+an implicit reinterpretation.
+- **Why:** prevents a latent S2 violation if a later reader (or the Phase-2
+  consistency review) reads S2 literally; makes the implied invariant edit
+  explicit.
+
+### 2026-06-17T07:37Z [ctx=safe] — Add a workflow-prose Phase-3 dogfood target (strengthens 17:40Z; gate A5)
+Strengthens the dogfood plan. The 17:40Z targets (`readability-feedback` on this
+design now; `transactional-schema` design.md in Phase 3) never exercise the loop
+on **workflow prose** — the branch's actual domain (the matched HIGH category is
+Workflow machinery; the densest decisions are the S2/S3 invariants, staging, and
+gate semantics in this very log). Add a Phase-3 validation point: run the
+implemented routine against a known-dense **workflow-prose** artifact — a prior
+workflow branch's `design-final.md` (e.g. `plan-slimization` or
+`no-track-for-minimal`) or a `conventions.md §1.7` section — alongside the
+`transactional-schema` storage-domain cross-check. Validate the loop on workflow
+prose **before** promotion, not only post-promotion.
+- **Why:** the chosen targets validated only storage-domain prose and the
+  verify-half-only `readability-feedback` run; a workflow-prose density gap would
+  otherwise surface post-promotion and cost a follow-up branch.
+
+### 2026-06-17T07:37Z [ctx=safe] — Collapsing the 4a/4b boundary is a staged auto-resume-contract change with a hard by-reference requirement (strengthens 17:25Z; gate A6)
+Strengthens the boundary-collapse decision. Collapsing the Step-4a/4b session
+boundary is **not** a clean UX win — it modifies the `create-plan` **auto-resume
+contract** (the startup routing keyed on `design.md` committed-and-clean → 4b vs
+dirty → 4a, and the "Step 4a ends the session, does not flow straight into 4b"
+rule). That is a staged, **execution-procedure** change under §1.7(b), not a
+§1.7(k) opt-out-eligible prose edit — resume-state routing is exactly the schema
+a running phase reads, which §1.7(k) keeps in staging.
+- **Crash-recovery re-spec:** the auto-resume path must fire only on a
+  dirty/absent plan after a committed-clean design; Step 1c becomes
+  crash-recovery-only (the happy path no longer crosses the boundary).
+- **By-reference is a hard requirement**, not "adopted anyway": if any author
+  sub-agent ever returns more than a thin summary, the combined session
+  re-accumulates the design + plan context the boundary existed to prevent, and
+  the collapse regresses context isolation. If by-reference cannot hold, the
+  boundary is retained.
+- **Why:** the gate flagged that the decision understated the machinery it
+  touches and the hard dependency on by-reference orchestration; this binds
+  both.
+
+### 2026-06-17T07:37Z [ctx=safe] — Suggestion refinements folded in (gate A7, A8, A9)
+Three suggestion-severity refinements recorded; the underlying decisions hold.
+- **A7 (warm-up timing, refines 16:00Z):** the ~1-min warm-up delay may need to
+  be author-vs-auditor specific — a heavy code-grounded author's first turn (PSI
+  + multi-file reads) can exceed 1 min, so the cold-write lands after the fan-out
+  starts. Exact warm-up plumbing is deferred to implementation and flagged as
+  the most intricate orchestration in the branch.
+- **A8 (phase4 fidelity residual, refines 15:45Z):** widen the PSI-residual
+  trigger from "diagram/signature claims only" to **"any `design-final.md` claim
+  with no corresponding episode trace."** When the episode record is silent on a
+  behavioral point design-final asserts, fall back to code/PSI rather than
+  trusting the episode-match.
+- **A9 (reconstructibility upper bound, refines 13:38Z):** pin the auditor's
+  upper-bound stop to **named clauses** — § Orientation's anti-padding clause
+  plus § Plain language's no-re-teach-the-floor boundary — rather than the loose
+  "tutorial bloat" phrasing, so the auditor has a citable stop and the
+  one-more-sentence ratchet has a hard rule to halt on (the iteration cap is the
+  other brake).
+
 ## Surprises & Discoveries
 
 ### 2026-06-16T13:40Z [ctx=safe] — Today's `edit-design` is already a generate→verify→iterate loop
@@ -676,7 +822,7 @@ ASCII-default + SVG-with-committed-text-source for genuinely complex diagrams;
 an external SVG alone is opaque to the author/auditor agents (13:50Z finding).
 Settle before the author role hard-codes an emitted format.
 
-### 2026-06-16T13:55Z [ctx=safe] — Fate of design-review.md's prose axes once the auditor owns readability
+### 2026-06-16T13:55Z [ctx=safe] — Fate of design-review.md's prose axes once the auditor owns readability — RESOLVED 2026-06-17T07:37Z, see Decision Log (auditor owns § Prose AI-tell on every prose-checked surface; design-review.md drops it; gate A1)
 Once the dedicated cold auditor owns prose-readability, design-review.md's
 § Prose AI-tell additions (over-dense / too-terse / hard-to-read) and
 § Human-reader cold-read additions (audience-fit, glossary, why-before-what,
@@ -688,7 +834,7 @@ only the sentence-level § Prose AI-tell axis. Wrinkle: § Prose AI-tell also ru
 on the `target=tracks` Step-4b track cold-read, so its removal touches the track
 path too.
 
-### 2026-06-16T13:55Z [ctx=safe] — Loop topology, cost, iteration cap, and phase1-vs-phase4 wiring
+### 2026-06-16T13:55Z [ctx=safe] — Loop topology, cost, iteration cap, and phase1-vs-phase4 wiring — sub-parts (a)/(c) resolved 14:50Z/14:38Z/14:58Z; sub-part (b) cost/convergence RESOLVED 2026-06-17T07:37Z, see Decision Log (gate A2)
 The author and auditor must be separate spawns (the auditor stays cold), so the
 `edit-design` skill orchestrates rounds: author writes → auditor enumerates →
 fresh author spawn revises with the findings → re-audit, until the auditor is
