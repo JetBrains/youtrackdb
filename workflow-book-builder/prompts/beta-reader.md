@@ -29,4 +29,4 @@ The pipeline spawns beta readers in the gated final wave: three personas over th
 >
 > ### Deliverable
 >
-> One report at `workflow-book-builder/beta-feedback/beta-reader-<persona>.md` (on an evolution run, suffix it with the new short SHA). Lead with the overall experience, then the per-chapter notes, then the strongest and weakest page. Rank your findings so the producer can apply the top few first.
+> One report at `<RUN_TMP>/beta-feedback/beta-reader-<persona>.md`, where `<RUN_TMP>` is the run scratch directory the producer gives you — an OS temp dir outside the repository, not under `workflow-book-builder/`. (On an evolution run, suffix the filename with the new short SHA.) Lead with the overall experience, then the per-chapter notes, then the strongest and weakest page. Rank your findings so the producer can apply the top few first.

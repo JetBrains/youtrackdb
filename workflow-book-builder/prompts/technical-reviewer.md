@@ -31,4 +31,4 @@ The pipeline spawns one technical reviewer per roughly three touched chapters, i
 >
 > ### Deliverable
 >
-> One report at `workflow-book-builder/reviews/technical-<range>.md` (on an evolution run, suffix it with the new short SHA: `technical-refresh-<NEW_SHA_SHORT>-<range>.md`). For each chapter, list the verified claims, then the findings grouped blocker / fix / nit, each with the file:section you checked and what you found. End with a one-line verdict per chapter: clean, or N blockers and M fixes.
+> One report at `<RUN_TMP>/reviews/technical-<range>.md`, where `<RUN_TMP>` is the run scratch directory the producer gives you — an OS temp dir outside the repository, not under `workflow-book-builder/`. (On an evolution run, suffix the filename with the new short SHA: `technical-refresh-<NEW_SHA_SHORT>-<range>.md`.) For each chapter, list the verified claims, then the findings grouped blocker / fix / nit, each with the file:section you checked and what you found. End with a one-line verdict per chapter: clean, or N blockers and M fixes.
