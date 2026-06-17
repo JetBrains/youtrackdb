@@ -272,8 +272,8 @@ public final class QueryResultCache {
 
   /**
    * Transaction-end sink: closes every entry's paused stream and empties all cache state. Idempotent
-   * (I6) — a second call sees an empty map and returns without effect — and safe to reach from the
-   * pool-shutdown thread because the underlying stream close is itself idempotent (I3, via {@link
+   * — a second call sees an empty map and returns without effect — and safe to reach from the
+   * pool-shutdown thread because the underlying stream close is itself idempotent (via {@link
    * IdempotentExecutionStream}). Snapshots the values before iterating for the same reason as {@link
    * #invalidateAll()}.
    */
