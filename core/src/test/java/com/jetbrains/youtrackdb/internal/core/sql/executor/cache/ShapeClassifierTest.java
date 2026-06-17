@@ -42,7 +42,7 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
-   * The load-bearing classify-ordering guard (I10 depends on it): an {@code ORDER BY} + {@code LIMIT}
+   * The load-bearing classify-ordering guard: an {@code ORDER BY} + {@code LIMIT}
    * query must classify as K0_NONE, never RECORD. {@code OrderByStep} + LIMIT is a bounded-heap
    * materialiser that discards rows past the top-N, so a cached top-N prefix could not promote row
    * N+1 after an in-tx delete. A future reorder that ran the RECORD branch before the SKIP/LIMIT gate
