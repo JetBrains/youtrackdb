@@ -406,7 +406,7 @@ public class CachedResultSetViewTest {
   }
 
   // ===========================================================================
-  // View pinning (I9) and idempotent close (I6)
+  // View pinning and idempotent close
   // ===========================================================================
 
   /** Constructing a view pins its entry (liveViewCount becomes 1) so LRU eviction skips it. */
