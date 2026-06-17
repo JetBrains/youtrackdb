@@ -25,6 +25,7 @@ permit handshake and the freezer gate are Track 7.
 - [x] 2026-06-17T07:40Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-17T08:41Z [ctx=safe] Step 1 complete (commit a760ab91a7)
 - [x] 2026-06-17T10:04Z [ctx=safe] Step 2 complete (commit f465ad7ef6)
+- [x] 2026-06-17T11:12Z [ctx=info] Step 3 complete (commit ce946a47ec)
 
 ## Surprises & Discoveries
 - **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
@@ -56,6 +57,13 @@ permit handshake and the freezer gate are Track 7.
   in `resolveForWrite` / `ensureTxSchemaState`; the write-path `reresolve*` helpers
   throw on a missing class/property in the copy, so Step 3 / Track 4
   drop-then-reference tests expect a loud failure. See Episodes §Step 2.
+- 2026-06-17T11:12Z Step 3 laid the index-mutation cross-track contracts: the new
+  `Index.markDeferred(IndexMetadata)` seam (an engine-less, unregistered handle that
+  records its definition) is what Tracks 4/5 promote at commit; the index-manager
+  de-guards key on `getTransactionInternal().isActive()` + `ensureTxSchemaState`
+  (not the read-only write-view probe), so the Step 4 mutex engage must sit above the
+  seed on every de-guarded path, including the direct index-manager entry points. See
+  Episodes §Step 3.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -109,6 +117,13 @@ design.md D-records this track owns. -->
   subclasses (`FunctionLibraryProxy`, `SchedulerProxy`, `SequenceLibraryAbstract`).
   Same single-seam intent; design.md placement wording reconciled in Phase 4. See
   Episodes §Step 2.
+- 2026-06-17T11:12Z (dependency-reveal) Step 3 made the `createIndex` / `dropIndex`
+  de-guard partial: it removes the throw and records the affected class, but defers
+  the engine build and shared-registry mutation to Track 5 (index overlay/build) and
+  Track 4 (commit reconciliation), because the tx-local index overlay that receives a
+  tx-created index definition is a later track. An in-tx-created index is recorded but
+  not query-usable until commit, matching the "enablement half only" contract. See
+  Episodes §Step 3.
 
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (2 findings, 2 accepted)
@@ -216,7 +231,7 @@ preservation through the round-trip serializer.
 
 1. Tx-local schema view foundation: add `TxSchemaState` (the tx-local `SchemaShared` copy plus the changed-class set, held per session/transaction) and `SchemaShared.copyForTx`, which seeds the copy by `new SchemaShared(); copy.fromStream(session, committed.toStream(session))` under the committed `SchemaShared.lock` write lock, preserving each class's per-class record RID and the recomputed cross-class derived state through the round trip — risk: high (architecture / cross-component coordination: introduces the tx-local schema abstraction)  [x]  commit: a760ab91a7
 2. Three-tier proxy routing seam: funnel every `SchemaProxy` / `SchemaClassProxy` / `SchemaPropertyProxy` method through one `resolve()` helper on `ProxedResource` (tier 1 snapshot reads untouched; tier 2 captured-`delegate` fast path when no schema-tx write-view; tier 3 name-rebind into the tx-local copy during the session's schema tx), seed the tx-local copy on the first routed write, route proxies minted mid-tx (e.g. via `SchemaProxy.getClass`) the same way, and re-resolve impl-typed arguments by name before linking so no shared impl enters the tx-local graph — risk: high (architecture / cross-component coordination: changes the schema proxy resolution model; isolation-critical)  [x]  commit: f465ad7ef6
-3. De-guard the mutation entry points: convert the throw-guards (`SchemaShared` schema-record save, `dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to write into the tx-local copy when a tx is active, and replace the `executeInTxInternal` body at `IndexManagerEmbedded.addCollectionToIndex` / `removeCollectionFromIndex` so the polymorphic membership ripple records into the tx-local changed-class set instead of the eager shared `Index.collectionsToIndex` apply — risk: high (architecture / cross-component coordination: changes transactional schema-mutation control flow; the I-A7 silent-leak surface)  [ ]
+3. De-guard the mutation entry points: convert the throw-guards (`SchemaShared` schema-record save, `dropClass` / `dropClassInternal`, index-manager `createIndex` / `dropIndex`) to write into the tx-local copy when a tx is active, and replace the `executeInTxInternal` body at `IndexManagerEmbedded.addCollectionToIndex` / `removeCollectionFromIndex` so the polymorphic membership ripple records into the tx-local changed-class set instead of the eager shared `Index.collectionsToIndex` apply — risk: high (architecture / cross-component coordination: changes transactional schema-mutation control flow; the I-A7 silent-leak surface)  [x]  commit: ce946a47ec
 4. Add the `MetadataWriteMutex` `Semaphore(1)` with a holder recording the owning `session` and acquiring `thread`, engage it at the write-routing decision point strictly above any shared metadata lock and before the tx-local seed (asserting no shared metadata lock is yet held by this thread), throw the same-thread loud-reject when the current thread already holds the permit through a different session, and release the permit once the outermost transaction frame closes (idempotent against Track 7's later compare-and-clear) — risk: high (concurrency: new Semaphore, lock-acquisition ordering, shared session/thread holder, same-thread reject)  [ ]
 
 ## Episodes
@@ -365,6 +380,71 @@ Decision Record changed.
 / `ensureTxSchemaState`. The write-path `reresolve*` helpers throw
 `IllegalStateException` on a missing class/property in the copy, so Step 3 /
 Track 4 drop-then-reference tests should expect that loud failure.
+
+### Step 3 — commit ce946a47ec, 2026-06-17T11:12Z [ctx=info]
+**What was done:** De-guarded the schema- and index-mutation entry points so a
+mutation made inside a user transaction routes to the tx-local view instead of
+throwing or self-committing. A `txLocal` flag on `SchemaShared` (set in
+`copyForTx`) makes `saveInternal` skip the eager schema-record persist on a copy,
+and `dropClass` / `dropClassInternal` on the copy remove only metadata (recording
+the dropped class in the changed-class set) and defer the structural
+collection/index deletion. In `IndexManagerEmbedded`, the two membership sites
+(`addCollectionToIndex` / `removeCollectionFromIndex`) and the `createIndex` /
+`dropIndex` throw-guards now trigger on an active user transaction: they seed the
+tx-local state via `ensureTxSchemaState`, record the index's owning class into the
+changed-class set, and leave the shared `Index.collectionsToIndex` and the shared
+index registry untouched. The review fixes made the tx-deferred index handle safe
+on the public SQL path (new `Index.markDeferred(IndexMetadata)` — engine-less,
+`indexId = -1`, `size()` returns 0), replaced an assert-guarded tx-local write
+with a loud `IllegalStateException`, and made the null-class membership path fall
+through to the legacy apply instead of silently dropping. `SchemaDeguardTest`
+(10 tests) covers no-throw, isolation, the I-A7 silent-leak rollback assertion
+(shared `collectionsToIndex` untouched after a rolled-back in-tx membership
+change), changed-class recording, concurrent-session invisibility, the deferred
+createIndex/dropIndex, and the in-tx SQL `CREATE INDEX` no-NPE path. The full core
+suite ran green (2043/2043).
+
+**What was discovered:** The de-guard trigger signal matters. The index-manager
+paths key on `getTransactionInternal().isActive()` + `ensureTxSchemaState`, not on
+the read-only `getTxSchemaState()` write-view probe: a membership/index change is
+itself a schema write, and a `dropIndex` that is the transaction's first schema
+write would never seed under the probe and would fall to the legacy self-commit
+path. The schema-side de-guards (`saveInternal`, `dropClass`) stay keyed on the
+`txLocal` flag because they only run on the copy after the proxy seam already
+seeded it. Removing the `createIndex` throw-guard exposed a public-API NPE: the
+engine-less handle was dereferenced via `idx.size()` on the SQL `CREATE INDEX`
+execute path; resolved with the `markDeferred` contract (the unbuilt handle
+carries its `IndexMetadata` and answers `size()` as 0). CS1 (deferred): the
+pre-existing eager in-tx collection allocation persists in its own durable atomic
+operation, so a rolled-back in-tx create leaves a recovery-visible stray collection
+— correctly scoped to Track 4 (D2/D10), not a Step 3 bug.
+
+**What changed from the plan:** The `createIndex` / `dropIndex` de-guard is partial
+by design. It removes the hard throw, records the affected class into the
+changed-class set, and defers the engine build and the shared-registry mutation to
+Track 5 (index overlay / build) and Track 4 (commit reconciliation). A tx-created
+index returns a definition-only, engine-less, unregistered handle through the new
+`Index.markDeferred` seam and is not query-usable until commit. This matches the
+track's "enablement half only" commit contract. No Decision Record changed.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/Index.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexAbstract.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexMultiValues.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexOneValue.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaDeguardTest.java` (new)
+
+**Critical context:** The `MetadataWriteMutex` engage (Step 4) must sit above the
+seed on **every** de-guarded write path, including the direct index-manager entry
+points, not just the `SchemaProxy.createClass` path. The new
+`Index.markDeferred(IndexMetadata)` contract is the seam Tracks 4/5 consume to
+promote a tx-deferred index (build the engine and register it at commit). The
+eager structural collection allocation on an in-tx `createClass` is still NOT
+inverted (Track 4 / D2), so a rolled-back in-tx create can leave a stray
+collection on disk — a known Track-4-owned intermediate state.
 
 ## Idempotence and Recovery
 - **Engage-order assert.** A Java `assert` at the engage point states that when a
