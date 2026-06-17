@@ -7,6 +7,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.Set;
@@ -250,6 +251,89 @@ public class SchemaDeguardTest extends DbTestBase {
 
     assertTrue(
         "after rollback the deferred drop must leave the index present in the shared manager",
+        indexManager.existsIndex(indexName));
+  }
+
+  /**
+   * A {@code CREATE INDEX} issued through the public SQL path while a user transaction is open must
+   * not NPE. The de-guarded {@code createIndex} returns a transaction-deferred handle whose engine
+   * is not built yet; the SQL statement immediately probes the new index with {@code size()}, which
+   * previously dereferenced the unset engine and crashed. The deferred handle now carries its
+   * definition and reports an empty (zero) size for the unbuilt index, so the statement completes
+   * cleanly. The index is still not registered in the shared manager during the transaction and the
+   * owning class is recorded into the tx-local changed-class set; a rollback leaves it unknown.
+   */
+  @Test
+  public void createIndexSqlInsideTransactionDoesNotNpeAndDefersToCommit() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("InTxSqlIndexed");
+    cls.createProperty("name", PropertyType.STRING);
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var indexName = "InTxSqlIndexed.name";
+
+    session.begin();
+    // The SQL CREATE INDEX execute path runs idx.size() on the freshly created handle. Before the
+    // fix this NPE'd on the engine-less deferred handle; it must now complete without throwing.
+    session.command("CREATE INDEX " + indexName + " ON InTxSqlIndexed (name) NOTUNIQUE");
+
+    assertFalse(
+        "an in-transaction SQL index create must not register the index in the shared manager yet",
+        indexManager.existsIndex(indexName));
+    var state = session.getTxSchemaState();
+    assertNotNull("an in-transaction SQL index create must have seeded the tx-local state", state);
+    assertTrue("the index's owning class must be recorded in the tx-local changed-class set",
+        state.getChangedClasses().contains("InTxSqlIndexed"));
+    session.rollback();
+
+    assertFalse("after rollback the deferred SQL index must remain unknown to the shared manager",
+        indexManager.existsIndex(indexName));
+  }
+
+  /**
+   * The transaction-deferred index handle returned by the index manager is safe to use on the
+   * public path: it carries its definition (so name and owning class answer sensibly) and reports a
+   * zero size for the unbuilt index instead of dereferencing an absent engine. This is the contract
+   * the SQL execute path relies on when it probes the new index with {@code size()}.
+   */
+  @Test
+  public void deferredIndexHandleReportsDefinitionAndZeroSize() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("InTxDeferredHandle");
+    cls.createProperty("name", PropertyType.STRING);
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var indexName = "InTxDeferredHandle.name";
+
+    session.executeInTx(
+        tx -> {
+          var deferred =
+              indexManager.createIndex(
+                  session,
+                  indexName,
+                  SchemaClass.INDEX_TYPE.NOTUNIQUE.name(),
+                  new PropertyIndexDefinition(
+                      "InTxDeferredHandle", "name", PropertyTypeInternal.STRING),
+                  cls.getPolymorphicCollectionIds(),
+                  null,
+                  null);
+
+          assertNotNull("the de-guarded createIndex must return a non-null deferred handle",
+              deferred);
+          assertEquals("the deferred handle must carry its name from the definition",
+              indexName, deferred.getName());
+          assertNotNull("the deferred handle must carry its definition", deferred.getDefinition());
+          assertEquals("the deferred handle's definition must name the owning class",
+              "InTxDeferredHandle", deferred.getDefinition().getClassName());
+          assertEquals("an unbuilt deferred index must report a zero size, not crash",
+              0L, deferred.size(session));
+          assertFalse(
+              "the deferred handle must not be registered in the shared manager during the tx",
+              indexManager.existsIndex(indexName));
+        });
+
+    assertFalse("after commit the deferred-only index must remain unregistered until a later track"
+        + " builds it",
         indexManager.existsIndex(indexName));
   }
 }
