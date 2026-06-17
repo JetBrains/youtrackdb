@@ -20,9 +20,9 @@ import javax.annotation.Nullable;
  * <p><b>LRU bound.</b> Entries are held in a {@link LinkedHashMap} in access order. When a put would
  * push the live-entry count past {@link #maxEntries}, the cache evicts the least-recently-used entry
  * whose view refcount is zero. A pinned entry ({@code liveViewCount > 0}, a mid-iteration view) is
- * exempt so a view never loses rows under cache pressure (I9); the map therefore grows transiently
- * above the bound while every eldest candidate is pinned. Eviction closes the entry's paused stream
- * (I3), routes the evicted key to {@link #nonCacheableKeys} so the same query does not immediately
+ * exempt so a view never loses rows under cache pressure; the map therefore grows transiently
+ * above the bound while every eldest candidate is pinned. Eviction closes the entry's paused stream,
+ * routes the evicted key to {@link #nonCacheableKeys} so the same query does not immediately
  * re-populate and churn the LRU, and counts an overflow.
  *
  * <p><b>Re-entrancy.</b> Two guards keep a query issued from inside the cache's own lookup-and-view
@@ -42,9 +42,9 @@ import javax.annotation.Nullable;
  * churn in a write-heavy fragment.
  *
  * <p><b>Lifecycle.</b> {@link #clear()} is the transaction-end sink and is idempotent: it closes every
- * entry's paused stream and empties the map; a second call sees an empty map and is a no-op (I6). It
+ * entry's paused stream and empties the map; a second call sees an empty map and is a no-op. It
  * snapshots the entry set before iterating because {@code CachedEntry#close} touches the entry's own
- * state and a future change could reach back into the map (I1). {@link #invalidateAll()} is the
+ * state and a future change could reach back into the map. {@link #invalidateAll()} is the
  * bulk-DML hook with the same snapshot discipline; it keeps the cache instance live (the transaction
  * continues) but drops every cached result.
  */
