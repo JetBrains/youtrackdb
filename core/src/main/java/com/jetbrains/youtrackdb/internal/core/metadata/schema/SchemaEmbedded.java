@@ -370,7 +370,11 @@ public class SchemaEmbedded extends SchemaShared {
   public void dropClass(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransactionInternal().isActive()) {
+      // Outside the transaction-local path a class drop is not transactional and still throws on an
+      // active transaction. On the transaction-local copy the drop rides the user transaction: the
+      // metadata removal lands in the private copy and the structural reconciliation (collection
+      // and engine deletion) is computed and applied at commit.
+      if (!txLocal && session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 
@@ -398,9 +402,13 @@ public class SchemaEmbedded extends SchemaShared {
 
       doDropClass(session, className);
 
-      var localCache = session.getLocalCache();
-      for (var collectionId : cls.getCollectionIds()) {
-        localCache.freeCollection(collectionId);
+      if (!txLocal) {
+        // The shared local-collection cache is only freed on the legacy top-level path; a tx-local
+        // drop frees its collections at commit, alongside the structural reconciliation.
+        var localCache = session.getLocalCache();
+        for (var collectionId : cls.getCollectionIds()) {
+          localCache.freeCollection(collectionId);
+        }
       }
     } finally {
       releaseSchemaWriteLock(session);
@@ -414,7 +422,7 @@ public class SchemaEmbedded extends SchemaShared {
   protected void dropClassInternal(DatabaseSessionEmbedded session, final String className) {
     acquireSchemaWriteLock(session);
     try {
-      if (session.getTransactionInternal().isActive()) {
+      if (!txLocal && session.getTransactionInternal().isActive()) {
         throw new IllegalStateException("Cannot drop a class inside a transaction");
       }
 
@@ -445,13 +453,26 @@ public class SchemaEmbedded extends SchemaShared {
         // REMOVE DEPENDENCY FROM SUPERCLASS
         superClass.removeBaseClassInternal(session, cls);
       }
-      for (var id : cls.getCollectionIds()) {
-        if (id != -1) {
-          deleteCollection(session, id);
-        }
-      }
 
-      dropClassIndexes(session, cls);
+      if (txLocal) {
+        // Transaction-local drop: only the schema metadata changes now. The collection and index
+        // deletion is structural reconciliation that the commit computes from the committed-vs-
+        // tx-local collection-id difference and applies inside the commit's own atomic operation,
+        // so a rollback leaves the shared structure and the indexes' collection membership
+        // untouched. Record the dropped class so the commit knows to delete its per-class record.
+        var txState = session.getTxSchemaState();
+        assert txState != null
+            : "a tx-local drop must run with a seeded tx-local schema state";
+        txState.markClassChanged(className);
+      } else {
+        for (var id : cls.getCollectionIds()) {
+          if (id != -1) {
+            deleteCollection(session, id);
+          }
+        }
+
+        dropClassIndexes(session, cls);
+      }
 
       classes.remove(className);
 
