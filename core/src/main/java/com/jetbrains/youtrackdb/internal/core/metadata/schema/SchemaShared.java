@@ -685,76 +685,71 @@ public abstract class SchemaShared implements CloseableInStorage {
    */
   public EntityImpl toStream(@Nonnull DatabaseSessionEmbedded session) {
     // The body mutates shared state (per-class recordId binds, link-set adds/removes) and writes
-    // records, so the real contract is that the caller holds the schema write lock. The read-lock
-    // acquire below is the supported reentrant downgrade under that already-held write lock.
+    // records. The caller holds the schema write lock, and that write lock is the exclusivity
+    // guarantee for these mutations; no additional synchronization is taken here.
     assert lock.isWriteLockedByCurrentThread()
         : "toStream() mutates shared schema state and must be called under the schema write lock";
-    lock.readLock().lock();
-    try {
-      EntityImpl entity = session.load(identity);
-      entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
+    EntityImpl entity = session.load(identity);
+    entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      // The root record links one standalone record per class, mirroring the index manager's
-      // CONFIG_INDEXES link set. Aliases that share an impl are written once; the link set ends
-      // up holding exactly the live classes' record RIDs. Records that were linked before but no
-      // longer back a live class (a dropped class) are deleted and unlinked below.
-      Set<SchemaClassImpl> realClasses = new HashSet<>(classes.values());
+    // The root record links one standalone record per class, mirroring the index manager's
+    // CONFIG_INDEXES link set. Aliases that share an impl are written once; the link set ends
+    // up holding exactly the live classes' record RIDs. Records that were linked before but no
+    // longer back a live class (a dropped class) are deleted and unlinked below.
+    Set<SchemaClassImpl> realClasses = new HashSet<>(classes.values());
 
-      LinkSet classLinks = entity.getOrCreateLinkSet("classes");
-      // Snapshot the previously-linked records so drops can be detected as a set difference.
-      final Set<RID> previouslyLinked = new HashSet<>();
-      for (var link : classLinks) {
-        previouslyLinked.add(link.getIdentity());
-      }
-
-      final Set<RID> liveRecords = new HashSet<>();
-      for (var c : realClasses) {
-        EntityImpl classRecord;
-        var boundRid = c.getRecordId();
-        if (boundRid == null || !boundRid.isPersistent()) {
-          // New class, or a class whose previous save rolled back before its temporary record id
-          // became persistent. In both cases allocate a fresh standalone record: its temporary RID
-          // becomes permanent at commit and the ChangeableRecordId mutates in place, so the bound
-          // field and the link both resolve to the persistent RID without a second write. Reusing a
-          // non-persistent id would load against a record that never persisted and wedge every
-          // future save, so the rollback case self-heals here rather than requiring a reload.
-          classRecord = session.newInternalInstance();
-          c.setRecordId(classRecord.getIdentity());
-          classLinks.add(classRecord.getIdentity());
-        } else {
-          classRecord = session.load(boundRid);
-        }
-        c.toStream(session, classRecord);
-        assert c.getRecordId() != null
-            : "schema class '" + c.getName() + "' must have a bound record id before it joins the"
-                + " live-record set written to the root link set";
-        liveRecords.add(c.getRecordId());
-      }
-
-      // Drop the records that backed classes removed since the last save, and unlink them.
-      for (var rid : previouslyLinked) {
-        if (!liveRecords.contains(rid)) {
-          classLinks.remove(rid);
-          EntityImpl droppedRecord = session.load(rid);
-          droppedRecord.delete();
-        }
-      }
-
-      List<Entity> globalProperties = session.newEmbeddedList();
-      for (var globalProperty : properties) {
-        if (globalProperty != null) {
-          globalProperties.add(globalProperty.toEntity(session));
-        }
-      }
-      entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
-      entity.setProperty("collectionCounter", collectionCounter);
-
-      Object propertyValue = session.newEmbeddedSet(blobCollections);
-      entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
-      return entity;
-    } finally {
-      lock.readLock().unlock();
+    LinkSet classLinks = entity.getOrCreateLinkSet("classes");
+    // Snapshot the previously-linked records so drops can be detected as a set difference.
+    final Set<RID> previouslyLinked = new HashSet<>();
+    for (var link : classLinks) {
+      previouslyLinked.add(link.getIdentity());
     }
+
+    final Set<RID> liveRecords = new HashSet<>();
+    for (var c : realClasses) {
+      EntityImpl classRecord;
+      var boundRid = c.getRecordId();
+      if (boundRid == null || !boundRid.isPersistent()) {
+        // New class, or a class whose previous save rolled back before its temporary record id
+        // became persistent. In both cases allocate a fresh standalone record: its temporary RID
+        // becomes permanent at commit and the ChangeableRecordId mutates in place, so the bound
+        // field and the link both resolve to the persistent RID without a second write. Reusing a
+        // non-persistent id would load against a record that never persisted and wedge every
+        // future save, so the rollback case self-heals here rather than requiring a reload.
+        classRecord = session.newInternalInstance();
+        c.setRecordId(classRecord.getIdentity());
+        classLinks.add(classRecord.getIdentity());
+      } else {
+        classRecord = session.load(boundRid);
+      }
+      c.toStream(session, classRecord);
+      assert c.getRecordId() != null
+          : "schema class '" + c.getName() + "' must have a bound record id before it joins the"
+              + " live-record set written to the root link set";
+      liveRecords.add(c.getRecordId());
+    }
+
+    // Drop the records that backed classes removed since the last save, and unlink them.
+    for (var rid : previouslyLinked) {
+      if (!liveRecords.contains(rid)) {
+        classLinks.remove(rid);
+        EntityImpl droppedRecord = session.load(rid);
+        droppedRecord.delete();
+      }
+    }
+
+    List<Entity> globalProperties = session.newEmbeddedList();
+    for (var globalProperty : properties) {
+      if (globalProperty != null) {
+        globalProperties.add(globalProperty.toEntity(session));
+      }
+    }
+    entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
+    entity.setProperty("collectionCounter", collectionCounter);
+
+    Object propertyValue = session.newEmbeddedSet(blobCollections);
+    entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
+    return entity;
   }
 
   public Collection<SchemaClassImpl> getClasses(DatabaseSessionEmbedded session) {
