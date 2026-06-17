@@ -12,7 +12,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 /**
- * Enumeration-completeness guard for cache-determinism classification (I5). The tx-result cache trusts
+ * Enumeration-completeness guard for cache-determinism classification. The tx-result cache trusts
  * {@link NonDeterministicQueryDetector}'s denylist to catch every non-deterministic builtin: a function
  * whose result varies per call but is missing from the denylist would be silently cached, returning a
  * stale value on the second {@code query()}. Because the denylist is fail-open, that gap cannot be
