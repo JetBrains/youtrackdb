@@ -101,6 +101,15 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       final String collectionName,
       final String indexName,
       boolean requireEmpty) {
+    if (recordMembershipChangeIntoTxLocalView(session, indexName)) {
+      // A schema transaction is in progress: the membership ripple is recorded into the tx-local
+      // changed-class set instead of being applied eagerly to the shared Index. Applying it here
+      // would mutate the shared Index.collectionsToIndex (visible to other sessions and unreverted
+      // on rollback) and could name a collection that has only a provisional id during the
+      // transaction. The commit promotes the change into the shared index later.
+      return;
+    }
+
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
@@ -131,6 +140,13 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   public void removeCollectionFromIndex(DatabaseSessionEmbedded session,
       final String collectionName,
       final String indexName) {
+    if (recordMembershipChangeIntoTxLocalView(session, indexName)) {
+      // Mirror of addCollectionToIndex: a schema transaction records the membership change into the
+      // tx-local changed-class set rather than mutating the shared Index, so a rollback leaves the
+      // shared collectionsToIndex untouched.
+      return;
+    }
+
     acquireSharedLock();
     try {
       final var index = indexes.get(indexName);
@@ -154,6 +170,39 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         releaseExclusiveLock(session, true);
       }
     });
+  }
+
+  /**
+   * Records a collection-membership change into the transaction-local schema view when a user
+   * transaction is active, returning {@code true} when it did so (the caller must then skip the
+   * eager shared-index apply). Returns {@code false} when no transaction is active, so the caller
+   * keeps the legacy top-level apply path. A membership change is itself a schema write, so this
+   * seeds the tx-local schema state on the first such change in the transaction (the read-only
+   * {@code getTxSchemaState} probe never seeds). The recorded entry is the index's owning class,
+   * whose per-class record and index membership the commit reconciles; the shared {@code Index} is
+   * left untouched until then so the change rolls back for free.
+   */
+  private boolean recordMembershipChangeIntoTxLocalView(
+      DatabaseSessionEmbedded session, final String indexName) {
+    if (!session.getTransactionInternal().isActive()) {
+      return false;
+    }
+    var txState = session.ensureTxSchemaState();
+    acquireSharedLock();
+    final String changedClass;
+    try {
+      final var index = indexes.get(indexName);
+      changedClass =
+          index != null && index.getDefinition() != null
+              ? index.getDefinition().getClassName()
+              : null;
+    } finally {
+      releaseSharedLock();
+    }
+    if (changedClass != null) {
+      txState.markClassChanged(changedClass);
+    }
+    return true;
   }
 
   public void create(DatabaseSessionEmbedded session) {
@@ -303,9 +352,6 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     } else {
       checkSecurityConstraintsForIndexCreate(session, indexDefinition);
     }
-    if (session.getTransactionInternal().isActive()) {
-      throw new IllegalStateException("Cannot create a new index inside a transaction");
-    }
 
     final var c = SchemaShared.checkIndexNameIfValid(iName);
     if (c != null) {
@@ -316,6 +362,22 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     type = type.toUpperCase(Locale.ROOT);
     if (algorithm == null) {
       algorithm = Indexes.chooseDefaultIndexAlgorithm(type);
+    }
+
+    if (session.getTransactionInternal().isActive()) {
+      // De-guarded: a schema transaction no longer throws here. A create is itself a schema write,
+      // so seed the tx-local schema state and record the index definition against its owning class
+      // in the changed-class set; the engine is not created and the shared index registry is not
+      // mutated now. The commit builds the engine and publishes the definition (the tx-local
+      // index-definition overlay and the commit-time engine build are a later track), so a
+      // tx-created index is not query-usable until commit and a rollback leaves the shared index
+      // manager untouched. A definition-only instance is returned so the caller has a non-null
+      // handle; it is intentionally absent from the shared registry.
+      var txState = session.ensureTxSchemaState();
+      if (indexDefinition.getClassName() != null) {
+        txState.markClassChanged(indexDefinition.getClassName());
+      }
+      return Indexes.createIndexInstance(type, algorithm, storage);
     }
 
     var indexType = type;
@@ -456,7 +518,24 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   @Override
   public void dropIndex(DatabaseSessionEmbedded session, final String iIndexName) {
     if (session.getTransactionInternal().isActive()) {
-      throw new IllegalStateException("Cannot drop an index inside a transaction");
+      // De-guarded: a schema transaction no longer throws here. A drop is itself a schema write, so
+      // seed the tx-local schema state and record the drop against the index's owning class in the
+      // changed-class set, leaving the shared index registry and the engine intact now. The commit
+      // removes the entry and deletes the engine inside its own atomic operation (the tx-local
+      // index-definition overlay that hides the dropped index and the commit-time engine drop are
+      // a later track), so a rollback leaves the index in place.
+      var txState = session.ensureTxSchemaState();
+      acquireSharedLock();
+      try {
+        final var idx = indexes.get(iIndexName);
+        if (idx != null && idx.getDefinition() != null
+            && idx.getDefinition().getClassName() != null) {
+          txState.markClassChanged(idx.getDefinition().getClassName());
+        }
+      } finally {
+        releaseSharedLock();
+      }
+      return;
     }
 
     session.executeInTxInternal(transaction -> {
