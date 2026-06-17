@@ -88,7 +88,7 @@ public final class CachedResultSetView implements ResultSet {
   /**
    * For a {@code DISTINCT_VALUES} view: the {@code {alias: value}} rows to emit, one per distinct bucket
    * key, sorted by the entry's ORDER BY. Built once from the replayed {@link #aggregateDelta} on first
-   * {@link #computeNextDistinctValue} and fixed thereafter (I7). Null until then.
+   * {@link #computeNextDistinctValue} and fixed thereafter. Null until then.
    */
   @Nullable private List<Result> distinctRows;
 
