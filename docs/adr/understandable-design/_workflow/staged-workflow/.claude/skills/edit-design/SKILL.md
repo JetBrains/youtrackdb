@@ -166,7 +166,7 @@ is gated. Two shapes run under one frame:
   dual-clean multi-agent loop.** Step 1 spawns the code-grounded author instead
   of authoring inline; Step 4 spawns the per-round readability-auditor plus its
   second per-round check (the warm absorption check at `phase1-creation`, the
-  fidelity check at `phase4-creation`), then — after the inner loop converges —
+  fidelity check at `phase4-creation`), then, after the inner loop converges,
   the cold comprehension gate; Step 6 is the bounded dual-clean inner loop.
   These are the kinds the design-creation callers route through: `create-plan`
   Step 4a routes `phase1-creation`, `create-final-design.md` routes
@@ -549,8 +549,8 @@ shared body cache, and it is the lever's only correctness-adjacent precondition.
 **Block the comprehension gate while a log-adversarial entry is open (the S3
 freeze-order gate).** Under D6 the decision/assumption challenge runs as a gate
 on the research log at the Phase 0 → 1 boundary, not as a local adversarial pass
-here. So for `phase1-creation` — after the inner loop reports dual-clean and
-before spawning the comprehension gate — read the research log's
+here. So for `phase1-creation`, after the inner loop reports dual-clean and
+before spawning the comprehension gate, read the research log's
 `## Adversarial gate record` section (the gate's durable verdict carrier; the
 heading shape and the open/resolved and latest-dated-entry rules are defined once
 in `research.md` §The research log under Gate-record cadence). The gate's own
@@ -558,7 +558,7 @@ review files under `_workflow/reviews/` are ephemeral and not the carrier. The
 gate's verdict is encoded in the section's headings: when the gate has looped,
 **match the latest dated heading**, and a `NEEDS REVISION` heading with any open
 blocker or should-fix is an **open** entry. The comprehension gate **must not run
-while the latest log-adversarial entry is open**: that is the S3 invariant — a
+while the latest log-adversarial entry is open**: that is the S3 invariant. A
 `design.md` draft cannot reach the comprehension gate while a log-adversarial
 entry is open, so a load-bearing decision surfaced while authoring the design
 (whether the author appended it to the log or the absorption check surfaced a
@@ -567,7 +567,7 @@ the comprehension gate assesses it. When the gate is clear (every log-adversaria
 entry resolved), proceed to the comprehension gate; the comprehension pass then
 assesses a design whose decisions have already survived challenge. The de-warmed
 comprehension reviewer reads no log itself, so the gate guards it on the loop's
-behalf, not for the reviewer's own sake — the author and the absorption check are
+behalf, not for the reviewer's own sake. The author and the absorption check are
 the log readers the gate protects.
 
 **The S3 gate holds across the D15 batch loop-back.** Once `design.md` is
@@ -779,12 +779,27 @@ dual-clean exit, S5). Run each round in this order:
 
 4. **Evaluate the dual-clean condition.** The round is **dual-clean** when the
    auditor returns no `blocker`/`should-fix` finding **and** the second check
-   returns none. If either is unclean, the loop continues: the auditor's findings
+   returns no `blocker`/`should-fix` finding. The same severity bar applies to
+   both halves: a lone `suggestion` from either check does not block the
+   transition (matching the Outcomes block and S5, which exit on cleared
+   blockers and should-fix only). If either is unclean, the loop continues: the
+   auditor's findings
    become the next round's `flagged_passages` and any absorption
    log-missing-from-draft finding becomes a decision the author must seed.
 
 5. **Decrement the iteration budget.** Stop when the budget reaches zero or the
    round is dual-clean.
+
+**Resume after a mid-loop context-clear.** The per-round state (current round,
+remaining budget, standing `flagged_passages`) lives in the orchestrator's
+working memory, not in a file; only the dual-clean draft itself is on disk. On a
+resume mid-loop, re-derive the round count from the latest per-round params
+files written under `_workflow/plan/` (each round writes one). If the round is
+indeterminate, restart the budget at its default and re-spawn the author round 1:
+the loop is idempotent because the author re-grounds the whole document, so a
+budget restart re-checks an already-clean draft at worst and costs at most one
+extra round. The S3 freeze-order gate stays resumable independently because its
+verdict lives in the research log (Step 4).
 
 The two checks converge because they re-open the loop for disjoint reasons:
 fixing a readability finding adds code-accurate prose (it never drops a decision),
@@ -1027,6 +1042,15 @@ the meaning of the request.
   by-reference contract violation): the orchestrator's context is at risk, but
   the draft is on disk at `output_path`, so do not re-spawn. Proceed with the
   written draft and note the contract violation in the review log.
+- **The author spawn fails or writes no draft to `output_path`** (a crash, a
+  tool-permission error mid-task per D3, or a return with no write): the author
+  is the only writer, so no read-only role can substitute a draft and the loop
+  cannot proceed without one. Before spawning the per-round pair, confirm
+  `output_path` exists and is non-empty. If it is absent or empty, re-spawn the
+  author once (a transient tool error). If the second spawn also writes no
+  draft, stop and surface to the user — the loop has no draft to read. This
+  re-spawn consumes a round of the `iteration_budget`, like the mechanical-first
+  re-spawn in Step 6.
 - **Budget exhausted**: do not loop further. The user is the gate when
   the action can't self-correct.
 - **Sync distillation produces an empty diff** (mechanics has no changes
@@ -1036,7 +1060,7 @@ the meaning of the request.
 ## Examples
 <!-- roles=orchestrator,planner,final-designer phases=1,4 summary="Worked examples of a content edit and a section rename run through the full mutation discipline." -->
 
-Two intricate interactive-kind cases worth showing concretely. The simpler
+Two involved interactive-kind cases worth showing concretely. The simpler
 interactive kinds (`mechanics-edit`, `content-edit`) follow the Workflow steps
 directly with no special handling. The creation kinds (`phase1-creation`,
 `phase4-creation`) run the dual-clean multi-agent loop described in Steps 1, 4,

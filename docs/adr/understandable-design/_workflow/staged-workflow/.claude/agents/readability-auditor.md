@@ -53,7 +53,7 @@ You are range-sliced, so you take the checks a slice plus the standing anchors c
 - **Explanatory register** per `§ Explanatory register`.
 - **Why-before-what** per `§ Why-before-what`.
 - **Glossary-introduction** per `§ Glossary-introduction`.
-- **The prose half of audience-fit** per `§ Audience-fit` — whether the prose itself reads for the named audience. (The *structural* half of audience-fit — "does the Overview name a reader at all" — is the whole-doc comprehension reviewer's, not yours.)
+- **The prose half of audience-fit** per `§ Audience-fit`: whether the prose itself reads for the named audience. (The *structural* half of audience-fit, "does the Overview name a reader at all", is the whole-doc comprehension reviewer's, not yours.)
 
 You own the prose AI-tell axis on every surface where prose is judged. The comprehension reviewer runs it nowhere — that is the one-owner-per-surface invariant (S4). Whole-doc readability properties (navigability, "does the Overview name a reader at all") do **not** belong to you; they go to the comprehension review.
 

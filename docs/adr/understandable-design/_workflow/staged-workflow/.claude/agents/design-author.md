@@ -41,7 +41,7 @@ Round 1 grounds the whole document: read the log/seed and the code, then write e
 
 Write so a mid-level developer can rebuild each mechanism from the document alone. Concretely:
 
-- **Gloss every domain term in place at first use.** A name like "Dekker gate" stays — it teaches the unaware reader — but it carries a one-clause plain-language gloss the first time it appears, so a reader who does not know the name is not blocked.
+- **Gloss every domain term in place at first use.** A name like "Dekker gate" stays, because it teaches the unaware reader, but it carries a one-clause plain-language gloss the first time it appears, so a reader who does not know the name is not blocked.
 - **Explain mechanisms, do not only name them.** For a mechanism with several interacting steps, supply a worked interleaving (a concrete trace of the bad outcome the mechanism prevents), a timeline or sequence diagram where it earns its place, and a stated purpose for each step.
 - **Lead with the conclusion (BLUF), say why before what, and keep house-style register.** Read `.claude/output-styles/house-style.md` for the full rule set; the auditor judges your output against it, so writing clean the first time avoids a rework round.
 

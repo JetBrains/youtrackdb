@@ -50,8 +50,8 @@ classification). The `target` input selects which:
   §Severity rubric, §Tone and depth) are shared.
 
 This reviewer reads no research log. The **absorption-completeness**
-cross-check that used to warm it — confirming every load-bearing log
-decision appears as a seed/carrier record — moved to the warm
+cross-check that used to warm it, confirming every load-bearing log
+decision appears as a seed/carrier record, moved to the warm
 `absorption-check` agent, which runs every round of the dual-clean inner
 loop beside the cold readability auditor. So this reviewer's "could a cold
 reader follow this" verdict is finally cold: it reads only the document.

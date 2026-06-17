@@ -420,13 +420,13 @@ round) and then, after the loop converges, the **cold comprehension gate**
 (the de-warmed `prompts/design-review.md`). The comprehension gate is
 **gated** behind the log-adversarial gate clearing: a `design.md` draft
 cannot reach it while a log-adversarial entry is open (the S3 freeze-order
-invariant). The ordering is load-bearing for the same reason it always was —
+invariant). The ordering is load-bearing for the same reason it always was:
 the cold comprehension gate must not assess the readability of a design whose
-decisions have not yet survived challenge — but the challenge now happens on
-the log, ahead of authoring, rather than in a local pass the gate waits on. A
-load-bearing decision surfaced while authoring the design — appended by the
-author, or surfaced by the absorption check as a draft record with no log
-basis (A6) — is appended to the log and re-challenged at the gate before the
+decisions have not yet survived challenge. The difference is that the challenge
+now happens on the log, ahead of authoring, rather than in a local pass the gate
+waits on. A load-bearing decision surfaced while authoring the design (appended
+by the author, or surfaced by the absorption check as a draft record with no log
+basis, A6) is appended to the log and re-challenged at the gate before the
 comprehension gate runs (`edit-design/SKILL.md` § Step 4 states the gate-read
 mechanics). The **absorption-completeness** cross-check (every load-bearing
 log decision reaching a seed D-record) is the warm `absorption-check` agent's
