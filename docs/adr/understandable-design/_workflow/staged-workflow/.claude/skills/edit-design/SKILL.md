@@ -492,7 +492,7 @@ so cutting it is the first cost lever (D13). Spawn each via the `Agent` tool wit
 | code-grounded author | `design-author` | `Read`,`Write`,`Edit`,`Bash`,PSI | yes (the sanctioned authoring read, S2) |
 | cold readability auditor | `readability-auditor` | `Read`,`Grep` | **never** (S1) |
 | warm absorption check (`phase1-creation`) | `absorption-check` | `Read`,`Grep` | yes (the sanctioned absorption read, S2) |
-| cold comprehension gate | `comprehension-review` | `Read` | **never** |
+| cold comprehension gate | `comprehension-review` | `Read`,`Grep` | **never** |
 
 **Per-agent parameters go in a params file, not the spawn prompt (D13).** The
 spawn prompt body stays **byte-identical** across the fan-out so the shared
@@ -513,8 +513,12 @@ its cold prefix write to land and propagate, then spawn the rest concurrently
 against the now-warm prefix. This takes the fan-out from N cold prefixes to
 roughly one cold plus the rest at a fraction. Do **not** block until the first
 agent finishes — the cache TTL could age the prefix out and serializing loses the
-parallelism; wait only the fixed warm-up delay. The warm-up is a **cost lever, not
-a correctness dependency**: its delay is a tunable with a measured fallback (a
+parallelism; wait only the fixed warm-up delay. **The wait mechanism is an
+implementation choice deferred to wiring (gate A7): use whatever non-blocking
+fixed delay the harness offers between the first spawn and the rest; if no such
+delay mechanism is available, disable the warm-up and pay N cold prefixes.** The
+warm-up is a **cost lever, not a correctness dependency**: its delay is a tunable
+with a measured fallback (a
 heavy author's long first turn can push its cold write past the default delay, so
 the delay may need to be role-specific), and the loop must produce correct
 dual-clean output with the warm-up disabled (the disabled path just pays N cold
@@ -928,7 +932,9 @@ the meaning of the request.
 - `Edit` / `Write` — apply interactive-kind edits, distill `design.md` during
   sync, apply any auto-fixes, write the per-spawn params files. (On the creation
   kinds the document content is written by the author spawn, not inline.)
-- `Bash` — run the mechanical-checks script; sequence the fan-out cache warm-up.
+- `Bash` — run the mechanical-checks script; take the fan-out cache warm-up
+  delay if the harness offers a non-blocking fixed-delay mechanism (the warm-up
+  is disabled otherwise, see the fan-out warm-up paragraph).
 - `Agent` — spawn the review roles. On the interactive kinds, one
   `comprehension-review` spawn (skipped for `mechanics-edit`). On the creation
   kinds, the `design-author` (per round), the `readability-auditor` fan-out (per
