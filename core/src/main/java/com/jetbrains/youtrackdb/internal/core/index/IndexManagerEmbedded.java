@@ -199,9 +199,15 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     } finally {
       releaseSharedLock();
     }
-    if (changedClass != null) {
-      txState.markClassChanged(changedClass);
+    if (changedClass == null) {
+      // We could not resolve the index's owning class, so there is no changed-class entry to
+      // record. Recording nothing while claiming the change was captured would silently drop the
+      // membership change from the commit delta. Fall through to the legacy eager apply instead so
+      // the change is never lost without a trace. This is not reachable for a real class index (its
+      // definition always carries a class name); a class-less index here is a regression.
+      return false;
     }
+    txState.markClassChanged(changedClass);
     return true;
   }
 
@@ -377,7 +383,15 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (indexDefinition.getClassName() != null) {
         txState.markClassChanged(indexDefinition.getClassName());
       }
-      return Indexes.createIndexInstance(type, algorithm, storage);
+      var deferredHandle = Indexes.createIndexInstance(type, algorithm, storage);
+      // Populate the handle with its definition so the public path (e.g. the SQL CREATE INDEX
+      // statement's size() probe) sees a sensible, NPE-free deferred index; the engine is not built
+      // and the handle is not registered in the shared manager until commit.
+      var deferredCollections = findCollectionsByIds(collectionIdsToIndex, session);
+      deferredHandle.markDeferred(
+          new IndexMetadata(iName, indexDefinition, deferredCollections, type, algorithm, -1,
+              metadata));
+      return deferredHandle;
     }
 
     var indexType = type;

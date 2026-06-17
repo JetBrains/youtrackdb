@@ -218,6 +218,22 @@ public abstract class IndexAbstract implements Index {
     return this;
   }
 
+  @Override
+  public void markDeferred(final IndexMetadata indexMetadata) {
+    acquireExclusiveLock();
+    try {
+      // A transaction-deferred create: record the definition so the handle answers metadata and
+      // size() queries on the public path, but do not build or load a storage engine. indexId
+      // stays -1 (unbuilt); the engine build and shared registration happen at commit.
+      this.im = indexMetadata;
+      var deferredCollections = indexMetadata.getCollectionsToIndex();
+      this.collectionsToIndex =
+          deferredCollections != null ? new HashSet<>(deferredCollections) : new HashSet<>();
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
   protected void doReloadIndexEngine() {
     indexId = storage.loadIndexEngine(im.getName());
     if (indexId < 0) {

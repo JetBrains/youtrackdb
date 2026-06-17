@@ -461,8 +461,10 @@ public class SchemaEmbedded extends SchemaShared {
         // so a rollback leaves the shared structure and the indexes' collection membership
         // untouched. Record the dropped class so the commit knows to delete its per-class record.
         var txState = session.getTxSchemaState();
-        assert txState != null
-            : "a tx-local drop must run with a seeded tx-local schema state";
+        if (txState == null) {
+          throw new IllegalStateException(
+              "a tx-local drop must run with a seeded tx-local schema state");
+        }
         txState.markClassChanged(className);
       } else {
         for (var id : cls.getCollectionIds()) {

@@ -445,6 +445,15 @@ public interface Index extends Comparable<Index> {
 
   Index create(FrontendTransaction transaction, IndexMetadata metadata);
 
+  /**
+   * Populates this handle with its definition metadata without building a storage engine. Used for
+   * an index created inside a user transaction: the definition is recorded so the handle answers
+   * name/definition/collection queries and {@link #size(DatabaseSessionEmbedded)} sensibly, but the
+   * engine build and shared registration are deferred to commit. The handle stays absent from the
+   * shared index registry and is not query-usable until commit promotes it.
+   */
+  void markDeferred(IndexMetadata metadata);
+
   int getIndexId();
 
   @Nullable RID getIdentity();
