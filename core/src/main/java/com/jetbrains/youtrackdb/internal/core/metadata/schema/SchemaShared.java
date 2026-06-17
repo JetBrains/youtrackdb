@@ -121,6 +121,56 @@ public abstract class SchemaShared implements CloseableInStorage {
   public SchemaShared() {
   }
 
+  /**
+   * Builds a private, transaction-scoped copy of this committed schema for a schema-changing
+   * transaction to mutate in isolation. The copy is seeded by a serialize-then-re-parse round
+   * trip rather than a field-level clone: each {@link SchemaClassImpl} binds back to its
+   * {@link SchemaShared} through a final {@code owner} field and links to its relatives by direct
+   * object reference, so a clone would leave those references pointing at the shared instances. The
+   * re-parse constructs fresh class objects bound to the copy, and the cross-class derived state a
+   * schema write recomputes (inheritance, {@code polymorphicCollectionIds}, subclass sets, the
+   * global-property table) stays inside the copy with no extra code.
+   *
+   * <p>Mechanically the seed is {@code copy.fromStream(session, this.toStream(session))}: this
+   * committed instance serializes into its root record, and the fresh copy re-parses that record.
+   * The re-parse rebinds each class's committed per-class record RID from the {@code "classes"} link
+   * set (the per-class-record format), so a commit later writes the right record. The committed root
+   * {@code identity} is copied onto the new instance first, so the copy serializes back to the same
+   * root record at commit and so any save inside {@code fromStream} resolves the right record.
+   *
+   * <p>The committed-side serialization runs under this instance's schema write lock, which is what
+   * {@link #toStream} asserts and what makes the read of the committed class graph exclusive against
+   * concurrent committed-schema mutation. The copy's own {@code fromStream} takes the copy's
+   * (separate) write lock internally. Record loads and writes during the round trip ride the caller's
+   * already-open user transaction; this method does not open or commit a transaction of its own,
+   * because the whole point of the tx-local view is that the change defers to the user transaction's
+   * commit.
+   *
+   * @param session the session whose open transaction the round-trip record I/O rides
+   * @return a fresh {@link SchemaShared} of this instance's concrete type, private to the caller
+   */
+  public SchemaShared copyForTx(DatabaseSessionEmbedded session) {
+    lock.writeLock().lock();
+    try {
+      final var serialized = toStream(session);
+      final var copy = newInstanceForCopy();
+      // Copy the committed root identity before the re-parse: the copy must serialize back to the
+      // same root record at commit, and a save triggered from inside fromStream resolves identity.
+      copy.identity = this.identity;
+      copy.fromStream(session, serialized);
+      return copy;
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Creates a fresh, empty instance of this {@link SchemaShared}'s concrete type for {@link
+   * #copyForTx} to re-parse into. A subclass returns {@code new <ConcreteType>()}; the design's
+   * {@code new SchemaShared()} is spelled this way because {@link SchemaShared} is abstract.
+   */
+  protected abstract SchemaShared newInstanceForCopy();
+
   @Nullable public static Character checkClassNameIfValid(String name) throws SchemaException {
     if (name == null) {
       throw new IllegalArgumentException("Name is null");
