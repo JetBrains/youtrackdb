@@ -29,10 +29,11 @@ regression guard so the instruction cannot be silently dropped again.
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-18T14:36Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -46,7 +47,9 @@ Place the `workflow-startup-precheck.sh --append-ledger --ctx <level>
 --phase C --track <N>` call in `track-review.md` §What You Do **step 6**,
 immediately before that step's `git commit`, and add `phase-ledger.md` to
 that step's `git add`. Reuse the `<level>` value step 5 already read for its
-`## Progress` write to feed `--ctx`. Add a ledger-tail check (the tail
+`## Progress` write to feed `--ctx` (`unknown` when step 5's statusline read
+missed — a valid bare `--ctx` token, distinct from the script's `safe` default
+for an omitted flag). Add a ledger-tail check (the tail
 must read `phase=C track=<N>`) to §Phase A Completion step 2's verification,
 **with its own recovery branch**: when the Phase A commit is present but the
 ledger tail is not `phase=C track=<N>` (a corrupted or hand-edited
@@ -91,7 +94,18 @@ step-6 line carries all three of `--append-ledger`, `--phase C`, and
 fixed contiguous string. The preferred form is a Python doc-presence test in
 the existing test module (`test_workflow_startup_precheck.py`), which already
 resolves `.claude/workflow/` paths from the repo root and so can read
-`track-review.md` directly.
+`track-review.md` directly. The guard MUST resolve `track-review.md` relative
+to the module's `REPO_ROOT` anchor (`Path(__file__).resolve().parents[3]`, the
+same anchor `SCRIPT_PATH` uses at `:53`) — **not** `LIVE_REPO_ROOT` (`:80`, the
+anchor `CONVENTIONS_PATH` copies at `:3005`). Under §1.7(b) staging the test
+file and the fixed `track-review.md` both live in the staged subtree, so
+co-located `REPO_ROOT` (`parents[3]`) reads the staged *fixed* copy carrying
+the append while `LIVE_REPO_ROOT` walks up to the develop-state *unfixed* live
+copy. Anchoring on `LIVE_REPO_ROOT` would false-fail the guard during this
+branch's own Phase B — the fix self-applies only at the Phase 4 promotion (D3)
+— whereas `REPO_ROOT` keeps it green during the branch and after promotion
+(post-promotion the two anchors coincide on the fixed file), mirroring §1.7(d)
+"staged copy authoritative when present."
 
 - **Why:** CLAUDE.md requires a regression test for every bug fix. The script
   behavior (the `--phase C` append and the resulting `phase=C` read) is
@@ -146,7 +160,10 @@ central, so the adversarial gate runs lens-free.
   only after the Phase 4 promotion. This is the accepted price of staging.
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+<!-- Continuous-log. Phase A review entries prefixed by review type. -->
+- [x] Technical: PASS at iteration 2 (3 findings, 3 accepted — T1 should-fix
+  guard-anchor pin to `REPO_ROOT`; T2/T3 prose-precision suggestions). Risk and
+  Adversarial dropped — `minimal` tier runs Technical only.
 
 ## Context and Orientation
 
@@ -189,7 +206,12 @@ pre-Phase-A" and routes to Track Pre-Flight plus Phase A; `phase == "C"` is
 the mid-track resume; it routes on `state.substate` and skips the Track
 Pre-Flight gate. A `decomposition-pending` substate enters Phase A Resume
 (a near no-op, since the track file already exists); any other substate
-enters Phase B/C. The script supports both: its arg parser accepts `--phase`
+enters Phase B/C. For a *completed* Phase A — `## Progress` "Review +
+decomposition" `[x]` and a populated `[ ]` step roster — `determine_c_substate`
+resolves the C-case to `steps-partial`, which routes to Phase B;
+`decomposition-pending` is the distinct interrupted-before-decomposition case.
+So the boundary this fix records sends a resumed session to Phase B, the
+intended outcome. The script supports both: its arg parser accepts `--phase`
 (line 149), and its `determine_state_from_ledger` has a `C)` case (line
 1781) that reads the active track from the ledger, finds the track file, and
 emits `{phase:"C", substate:<track-driven>}`.
@@ -225,7 +247,9 @@ The edit sequence:
    missing-commit recovery.
 3. **Add the regression guard** (D2): a doc-presence test asserting the
    step-6 append line carries all of `--append-ledger`, `--phase C`, and
-   `--track`, order- and whitespace-tolerant, in the existing test module.
+   `--track`, order- and whitespace-tolerant, in the existing test module,
+   resolving `track-review.md` via the module's `REPO_ROOT` anchor (the staged
+   copy under staging), not `LIVE_REPO_ROOT` (see D2).
 4. **Verify:** the doc-presence guard passes; the existing script tests at
    `test_workflow_startup_precheck.py:3426/3447` still pass; and
    `grep -- '--phase C --track' .claude/workflow/track-review.md` is
@@ -239,7 +263,27 @@ so it cannot precede it. The regression guard depends only on the step-6 edit
 being present.
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+
+1. Implement the YTDB-1140 fix per §Plan of Work, routing every `.claude/**`
+   edit to the staged subtree under `_workflow/staged-workflow/.claude/`
+   (§1.7(b)): (a) add the `workflow-startup-precheck.sh --append-ledger --ctx
+   <level> --phase C --track <N>` call to `track-review.md` §What You Do step 6
+   immediately before its `git commit`, and add `phase-ledger.md` to that
+   step's `git add`; (b) add the §Phase A Completion step-2 ledger-tail
+   verification (tail reads `phase=C track=<N>`) with its
+   commit-present-but-tail-wrong recovery branch; (c) add the order- and
+   whitespace-tolerant doc-presence regression guard to
+   `test_workflow_startup_precheck.py`, resolving `track-review.md` via the
+   module's `REPO_ROOT` anchor, not `LIVE_REPO_ROOT` (D2). Verify per §Validation
+   and Acceptance. — risk: high (Workflow machinery: drives the auto-resume
+   state machine — adds the A→C ledger boundary that resume routing reads)  [ ]
+
+<!-- One coherent HIGH step (HIGH-risk isolation): the append instruction, its
+     completion-gate verification, and its regression guard are one logically
+     continuous change, kept together so Phase B step-level dimensional review
+     sees the whole fix at once. No size clause — HIGH steps are sized by the
+     change, not the ~12 fill target. -->
+
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -286,7 +330,9 @@ staged counterpart under `_workflow/staged-workflow/.claude/` per §1.7(b)):
   (`phase=C track=<N>`) with its commit-present-but-tail-wrong recovery
   branch.
 - `.claude/scripts/tests/test_workflow_startup_precheck.py` (or the nearest
-  existing test module): the D2 doc-presence regression guard.
+  existing test module): the D2 doc-presence regression guard. The guard
+  resolves `track-review.md` via the module's `REPO_ROOT` anchor (the staged
+  copy under staging), not `LIVE_REPO_ROOT` — see D2.
 
 **Out-of-scope** (stated so a later reader does not reopen them):
 
