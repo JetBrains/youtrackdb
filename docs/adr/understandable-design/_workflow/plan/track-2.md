@@ -360,3 +360,6 @@ byte-identical (D13/D14, Track 1).
 - S7 (staging): the new routine stays staged and non-live until the Phase 4 promotion — verified by every `.claude/**` edit landing under `_workflow/staged-workflow/` and the live paths staying at develop state.
 - Constraint (§1.7(b) workflow-modifying): the phase ledger `s17` field is `workflow-modifying`; all edits in this track route through the staged subtree.
 - Constraint (by-reference, hard for D15): if any author spawn returns more than a thin summary, the 4a/4b boundary is retained rather than collapsed.
+
+## Base commit
+87f40db9afc95a8bec478d05eabf20d317f03526
