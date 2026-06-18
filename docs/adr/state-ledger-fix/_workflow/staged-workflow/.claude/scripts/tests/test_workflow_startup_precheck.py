@@ -3956,11 +3956,11 @@ def test_append_ledger_no_orphan_temp_on_failure() -> None:
 
 def test_track_review_step6_carries_ac_ledger_append() -> None:
     """The §What You Do step-6 region of `track-review.md` carries the A→C
-    phase-ledger append call. Reproduces the YTDB-1140 bug — the absence of any
-    A→C `--append-ledger` site let a resumed session re-run Phase A — at the doc
-    level, the layer the bug actually lived in (the script already supports
-    `--phase C`; the missing piece was the instruction to call it). A regression
-    guard the bug fix requires per CLAUDE.md.
+    phase-ledger append call. Reproduces the YTDB-1140 bug: the absence of any
+    A→C `--append-ledger` site let a resumed session re-run Phase A. The bug
+    lives at the doc level — the script already supports `--phase C`; the missing
+    piece was the instruction to call it. A regression guard the bug fix requires
+    per CLAUDE.md.
 
     Resolution: `track-review.md` is read via the module's `REPO_ROOT` anchor
     (`Path(__file__).resolve().parents[3]`, the same anchor `SCRIPT_PATH` uses),

@@ -579,12 +579,11 @@ review-mode rounds.
    `step-implementation-recovery.md`).
 
 6. **Append the A→C ledger boundary, then commit and push the Phase A
-   workflow updates.** Phase A's on-disk writes — the populated
-   `## Concrete Steps` section, the new Progress entry, and the A→C ledger
-   line — must be committed before Phase B spawns the first implementer for
-   this track. The implementer's revert path uses `git reset --hard HEAD`,
-   which would otherwise discard the uncommitted decomposition and the
-   ledger boundary.
+   workflow updates.** Phase A's on-disk writes must be committed before Phase B
+   spawns the first implementer for this track: the populated
+   `## Concrete Steps` section, the new Progress entry, and the A→C ledger line.
+   The implementer's revert path uses `git reset --hard HEAD`, which would
+   otherwise discard the uncommitted decomposition and the ledger boundary.
 
    First append the A→C boundary to the phase ledger. This records "Phase A
    done, Phase B next" so a fresh `/execute-tracks` resumes into Phase B/C
@@ -997,7 +996,7 @@ reviews are already in progress):
 |---|---|---|
 | Empty (no `Technical:` / `Risk:` / `Adversarial:` prefixed entries) | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
 | One or more `Technical:` / `Risk:` / `Adversarial:` entries recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
-| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed, otherwise the track file is already in steady state and `/execute-tracks` should route to Phase B on the next invocation. |
+| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed. If the decomposition is already committed, do **not** declare steady state on the commit alone — verify the A→C ledger tail first (`tail -1 docs/adr/<dir-name>/_workflow/phase-ledger.md` must carry both `phase=C` and `track=<N>`). Only a tail reading `phase=C track=<N>` is steady state, where `/execute-tracks` routes to Phase B on the next invocation. If the roster is committed but the tail is not `phase=C track=<N>` (a dropped or failed step-6 append), run §Phase A Completion step 2's recovery branch (re-run the step-6 append, dedicated commit, re-verify the tail) before treating the track as resumable into Phase B. |
 
 Pattern-match on the entry prefix (`Technical:` / `Risk:` /
 `Adversarial:`) to filter out Phase C iteration entries
@@ -1060,6 +1059,18 @@ After writing the track file with all decomposed steps:
    only case where the ledger advance is not bundled into step 6's commit;
    on the normal path the append already rode that single commit. Re-verify
    the tail and do not leave this step until it reads `phase=C track=<N>`.
+
+   `<level>` in the recovery append: when this step runs in the same session
+   as §What You Do sub-step 5 (the normal completion path), reuse the `<level>`
+   that sub-step 5 already bound — do not read the statusline a second time
+   (D1).
+
+   When this step runs on a resumed session where sub-step 5 did not run (an
+   interrupted session, or a fresh `/execute-tracks` that entered through
+   §Phase A Resume), `<level>` is unbound, so read it fresh here with sub-step
+   5's own fallback: read `/tmp/claude-code-context-usage-$PPID.txt`, parse
+   `level=`, and use the bare `unknown` token on a missing file or parse miss
+   (the script accepts `unknown` as a valid `--ctx` value).
 3. **Inform the user** that Phase A is complete:
    - How many steps were decomposed
    - Which reviews were run and key findings
