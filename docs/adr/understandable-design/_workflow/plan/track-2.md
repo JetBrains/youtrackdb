@@ -28,12 +28,14 @@ check.
 
 ## Progress
 - [x] 2026-06-18T07:48Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-18T08:28Z [ctx=safe] Step 1 complete (commit 4045cb1925)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- The Step 4a `design.md` `phase1-creation` cold-read description in the staged `create-plan/SKILL.md` still names the absorption-completeness cross-check (the pre-de-warm framing). It sits on the design path, not the Step-4b track path Step 1 reworked, so it was left untouched. Candidate Phase C finding: confirm whether Track 1 meant to update it. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -221,12 +223,22 @@ by-reference contract being validated.
 
 ## Concrete Steps
 
-1. Wire the dual-clean authoring loop into `create-plan` Step 4b (concern 1): replace the planner-inline track derivation and the single `general-purpose` `target=tracks` cold-read with an author spawn plus a per-round `readability-auditor` and a separate `absorption-check` agent (track-decision-record absorption); relocate absorption off the `design-review.md` / `comprehension-review` spawn and rewrite the now-stale Step-4b instruction; set the auditor's standing anchors to the plan Component Map and each track's Purpose / Big Picture; keep the S3 freeze-order gate and the existing `iteration_budget` (default 3) / escalation contract as the bounded-iterate exit (S5); inherit the gate-A7 warm-up deferral (warm-up-disabled is the correctness baseline). Edits `create-plan/SKILL.md`. — risk: high (workflow machinery: wires the multi-agent dual-clean control-flow loop with its S5 bounded-iterate exit and S3 freeze-order gate into create-plan Step 4b dispatch)  [ ]
+1. Wire the dual-clean authoring loop into `create-plan` Step 4b (concern 1): replace the planner-inline track derivation and the single `general-purpose` `target=tracks` cold-read with an author spawn plus a per-round `readability-auditor` and a separate `absorption-check` agent (track-decision-record absorption); relocate absorption off the `design-review.md` / `comprehension-review` spawn and rewrite the now-stale Step-4b instruction; set the auditor's standing anchors to the plan Component Map and each track's Purpose / Big Picture; keep the S3 freeze-order gate and the existing `iteration_budget` (default 3) / escalation contract as the bounded-iterate exit (S5); inherit the gate-A7 warm-up deferral (warm-up-disabled is the correctness baseline). Edits `create-plan/SKILL.md`. — risk: high (workflow machinery: wires the multi-agent dual-clean control-flow loop with its S5 bounded-iterate exit and S3 freeze-order gate into create-plan Step 4b dispatch)  [x] commit: 4045cb1925
 2. Add the fidelity-check agent and complete the Phase 4 wiring (concern 2): add the fidelity-check agent definition (`Read`, mcp-steroid PSI) under staged `.claude/agents/`; add its spawn-contract row and params keys (episodes path, the frozen `design.md` for the residual, `draft_path=<design-final.md>`, explicitly no `research_log_path`) to staged `edit-design/SKILL.md` Step 4 as a sibling to the `absorption-check` paragraph; refresh the stale `create-final-design.md` Sub-step B description to the multi-agent `phase4-creation` loop and thread the fidelity inputs (episodes path, `output_path`); keep the diagram-to-code verification at entry. *(parallel with Step 1; disjoint files)* — risk: medium (workflow machinery: a new review-agent spec plus bounded Phase-4 second-check wiring; no gate or state-machine rewrite) — size: ~3 files; no mergeable low/medium work, Steps 1 and 3 are both high  [ ]
 3. Collapse the 4a/4b session boundary, D15 (concern 3): rewrite the four `create-plan/SKILL.md` sites (the Step 1c auto-resume routing with a per-arm disposition, the Design→plan boundary block, the Step 4a end-session instruction, the two session-end commit mechanics) and the `workflow.md` "mandatory session boundary" declaration; keep both session-end commits within one session (the `Add initial design` freeze-and-commit stays the crash checkpoint per D15); preserve the "never a dead end" invariant for every Step 1c arm and retain the dirty / uncommitted-`design.md` recovery arm; confirm by-reference statically (gate A6) before applying and retain the boundary otherwise; touch `planning.md` / `conventions.md` only where a boundary reference becomes inaccurate. Depends on Step 1. — risk: high (workflow machinery: rewrites the create-plan auto-resume state machine / Step 1c control-flow protocol and the session-boundary declaration)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
+
+### Step 1 — commit 4045cb1925, 2026-06-18T08:28Z [ctx=safe]
+**What was done:** Rewrote `create-plan` Step 4b track authoring in the staged `SKILL.md`. The planner-inline track derivation plus the single `general-purpose` `target=tracks` cold-read became the dual-clean multi-agent loop `edit-design` runs on `design.md`, parameterized to `target=tracks`. Each round spawns the `design-author` (writing the track-file prose), a per-round `readability-auditor` fan-out (one spawn per `plan/track-N.md` in track-number order, whole-file range), and a separate `absorption-check` spawn against the track decision records as the second check. After convergence the de-warmed `comprehension-review` runs once with no prose axis (S4). The auditor's standing anchors are the plan Component Map and each track's `## Purpose / Big Picture`. The loop keeps the S3 freeze-order gate, reuses the existing `iteration_budget` (default 3) / escalation contract as the S5 bounded-iterate exit, and inherits the gate-A7 warm-up deferral, so the warm-up-disabled path is the correctness baseline. The stale instruction asking the `design-review.md` / `comprehension-review` spawn to run the absorption cross-check (D8) was removed; absorption is now its own spawn. A comprehension-gate re-open consumes one shared `iteration_budget` round rather than starting a fresh count.
+
+**What was discovered:** The Step 4a `design.md` `phase1-creation` description in the staged `SKILL.md` still names its cold-read as running the absorption-completeness cross-check, which is the pre-de-warm framing. That line sits on the design path (Track 1's surface), not the Step-4b track path this step owns, so it was left untouched; the Phase C track review should confirm whether Track 1 meant to update it too.
+
+**What changed from the plan:** none.
+
+**Key files** (under `_workflow/staged-workflow/`):
+- `.claude/skills/create-plan/SKILL.md` (new — staged copy, Step 4b rework)
 
 ## Validation and Acceptance
 Track-level acceptance:
