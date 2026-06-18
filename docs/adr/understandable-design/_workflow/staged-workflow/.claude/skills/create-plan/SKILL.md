@@ -172,15 +172,21 @@ fresh-start branch is the catch-all that fires only when no earlier branch
 matched.
 
 - **`design.md` exists, `implementation-plan.md` does not** — `full` tier
-  mid-authoring (only `full` writes a `design.md`). The design seed may be
-  frozen, but file presence alone is not proof: `edit-design` writes
-  `design.md` to disk in its *apply* step, **before** the cold-read review
-  runs and before Step 5 commits it. A Step 4a session interrupted after
-  the write but before the review passed (context-full `/clear`, crash, no
-  handoff) leaves an **unreviewed, uncommitted** `design.md` on disk. So
-  before auto-resuming into Step 4b, confirm the design is **committed and
-  clean** — the on-disk proxy for "frozen and reviewed", since Step 5
-  commits `design.md` only after its review passes:
+  mid-authoring (only `full` writes a `design.md`). This branch is
+  **crash-recovery-only** after the 4a/4b collapse: the happy path no longer
+  ends the session at the design freeze, so Step 4b normally runs in the same
+  invocation that authored the design and never re-enters through this resume
+  branch. Reaching this branch means the prior `/create-plan` invocation
+  authored (and possibly committed) `design.md` but ended — crash,
+  context-full `/clear`, or the user stopping the session — before the plan
+  was derived. File presence alone is not proof the design is frozen:
+  `edit-design` writes `design.md` to disk in its *apply* step, **before** the
+  cold-read review runs and before the design commit lands. A session
+  interrupted after the write but before the review passed leaves an
+  **unreviewed, uncommitted** `design.md` on disk. So before auto-resuming
+  into Step 4b, confirm the design is **committed and clean** — the on-disk
+  proxy for "frozen and reviewed", since the `Add initial design` commit lands
+  only after its review passes:
 
   ```bash
   # committed: at least one commit touches design.md
@@ -190,18 +196,26 @@ matched.
   ```
 
   - **Committed (non-empty `git log`) AND clean (empty `git status`)** —
-    the design is frozen and reviewed. **Auto-resume into Step 4b** (plan
-    derivation): skip Step 2's aim prompt and Step 3's Phase 0 research
-    loop entirely — the aim and research are already captured in the frozen
-    `design.md` and the conversation that produced it. Read `planning.md`
-    (deferred from Step 1) and derive the plan from the frozen design.
+    the design is frozen and reviewed, and the prior invocation crashed
+    between the design commit and the plan derivation. **Auto-resume into
+    Step 4b** (plan derivation): skip Step 2's aim prompt and Step 3's
+    Phase 0 research loop entirely — the aim and research are already
+    captured in the frozen `design.md` and the conversation that produced it.
+    Read `planning.md` (deferred from Step 1) and derive the plan from the
+    frozen design. This crash-recovery resume reaches the same Step 4b the
+    collapsed happy path flows into directly, so the plan derives identically
+    whether or not the prior session was interrupted.
   - **Uncommitted (empty `git log`) OR dirty (non-empty `git status`)** —
-    Step 4a was interrupted mid-authoring. **Resume Step 4a**, not Step 4b:
-    re-enter the `edit-design` review loop so the adversarial gate and
-    cold-read pass run and the design is committed before any plan derives
-    from it. Re-entering the loop on an already-good design is idempotent
-    and harmless, so this branch is safe even on a false alarm (e.g., a
-    stray editor write left the file dirty).
+    a session was interrupted mid-design-authoring (before the `Add initial
+    design` freeze-and-commit). **Resume Step 4a**, not Step 4b: re-enter the
+    `edit-design` review loop so the adversarial gate and cold-read pass run
+    and the design is committed before any plan derives from it. This arm is
+    **retained** by the collapse: even though the happy path no longer crosses
+    a session boundary, a crash mid-authoring still leaves an unfrozen
+    `design.md`, and re-entering Step 4a is how that state recovers.
+    Re-entering the loop on an already-good design is idempotent and harmless,
+    so this branch is safe even on a false alarm (e.g., a stray editor write
+    left the file dirty).
 - **`implementation-plan.md` exists, `design.md` does not** — a `lite` or
   `full` tier whose plan is already derived (`minimal` has no plan, so it
   never reaches this branch). Read the tier from the ledger `LEDGER_TIER`
@@ -262,17 +276,21 @@ matched.
   start a new aim against the same dir (rare); the common case is the
   session has nothing new to plan.
 
-This check has a defined resume path for every artifact combination, so a
-**committed, clean** `design.md` with no plan is never a dead end — it
-always routes to Step 4b, an uncommitted or dirty one routes back to
-Step 4a to finish authoring, a `lite`/`full` derived plan resumes normally
-without re-entering design authoring, and a plan-less `minimal` session
-resumes off the ledger and its single track file (or, when the seed had
-not yet run, by seeding the ledger and continuing) rather than reading as a
-fresh start. The check runs **after** the drift and handoff gates so a
-pending migration or handoff resolves first (those can change what is on
-disk), and **before** the aim prompt so a Step-4b resume does not re-ask
-for an aim already captured in the design or the research log.
+This check has a defined resume path for every artifact combination, so the
+"never a dead end" invariant holds for every arm. A **committed, clean**
+`design.md` with no plan is never a dead end — after the collapse this state
+arises only when a session crashed between the design commit and plan
+derivation, and the crash-recovery resume always routes it to Step 4b. An
+uncommitted or dirty `design.md` routes back to Step 4a to finish authoring
+(the arm the collapse retains for a crash mid-authoring). A `lite`/`full`
+derived plan resumes normally without re-entering design authoring, and a
+plan-less `minimal` session resumes off the ledger and its single track file
+(or, when the seed had not yet run, by seeding the ledger and continuing)
+rather than reading as a fresh start. The check runs **after** the drift and
+handoff gates so a pending migration or handoff resolves first (those can
+change what is on disk), and **before** the aim prompt so a Step-4b
+crash-recovery resume does not re-ask for an aim already captured in the
+design or the research log.
 
 **Step 2 — Ask the user for the aim, then seed the research log.**
 
@@ -501,8 +519,10 @@ pre-presentation gate run; the batch loop is the consumer of the same gate.
 
 After the gate clears, branch on the confirmed tier:
 
-- **`full`** — design-first, two sessions across a mandatory boundary
-  (Step 4a then Step 4b), exactly as the rest of this Step describes.
+- **`full`** — design-first, Step 4a then Step 4b within one `/create-plan`
+  invocation (the freeze-and-commit between them stays the logical gate and
+  crash checkpoint, but is no longer a session boundary), exactly as the rest
+  of this Step describes.
 - **`lite`** — no `design.md`. Author the thinned derived-mirror plan and
   the multi-track files directly from the research log in a **single Phase-1
   session** (Step 4b only); the track files carry the full inline Decision
@@ -513,42 +533,64 @@ After the gate clears, branch on the confirmed tier:
   (`conventions.md` `§1.2` *Per-tier artifact set*), so `minimal` produces
   no `implementation-plan.md`.
 
-The `full`-tier design-first split mirrors the boundary already enforced
-between Phases A, B, and C:
+The `full`-tier design-first split keeps the design-authoring and
+plan-derivation work in order, but both run in one `/create-plan` invocation:
 
 - **Step 4a (design authoring, `full` only)** — author `design.md` via
-  `edit-design`, run its review, and freeze it. The session ends when the
-  design's review passes (or the user accepts open risks).
-- **Step 4b (plan derivation)** — in a fresh `/create-plan` session for
-  `full`, or the same Phase-1 session for `lite`/`minimal`, derive the
+  `edit-design`, run its review, and freeze it. The design's review passing
+  (or the user accepting open risks) is the gate that releases Step 4b; the
+  freeze-and-commit is the crash checkpoint but no longer ends the session.
+- **Step 4b (plan derivation)** — in the same `/create-plan` invocation for
+  `full` (flowing on from Step 4a once the design is frozen and committed),
+  or the same Phase-1 session for `lite`/`minimal`, derive the
   Architecture Notes, Decision Records, and track files (from the frozen
   `design.md` in `full`; from the research log in `lite`/`minimal`).
 
-**Design→plan session boundary and auto-resume (`full` tier only).** In
-`full`, Step 4a ends the session once `design.md` is frozen and committed;
-it does **not** flow straight into Step 4b. The user re-invokes
-`/create-plan`, and the startup protocol auto-resumes into Step 4b when
-**`design.md` is committed and clean and `implementation-plan.md` does not
-exist** — the frozen design seed is on disk but the plan has not been
-derived yet. The committed-and-clean test (not bare file presence) is what
-proves the design is reviewed rather than abandoned mid-authoring; Step 1c
-spells out the exact `git log` / `git status` check and the resume-Step-4a
-fallback for an uncommitted or dirty design. This is checked after Step 1.5
-(drift) and Step 1a (handoff) have cleared and before the aim prompt
-(Step 2): a resume into Step 4b skips the aim prompt and the Phase 0
-research loop, because the aim and research are already captured in the
-frozen `design.md` and the conversation that produced it. When **neither**
-file exists, `/create-plan` starts at Phase 0 research as usual; when
-**both** exist, the plan is already derived and the session resumes via the
-normal handoff / drift / state routing rather than re-running Step 4. The
-resume path is never a dead end: a committed, clean frozen `design.md` with
-no plan always routes to Step 4b plan derivation.
+**Design→plan flow within one invocation (`full` tier only).** In `full`,
+Step 4a freezes and commits `design.md` (`Add initial design`) and then
+**flows straight into Step 4b** in the same `/create-plan` invocation; the
+two no longer span a session boundary. The freeze-and-commit stays the
+logical gate and the crash checkpoint — the plan derives only from a
+committed, frozen design — but it no longer ends the session. The context
+isolation the old boundary forced is supplied directly by sub-agent
+authoring: Step 4b's track derivation runs through the `design-author` spawn,
+a fresh cold spawn that reads the frozen committed design regardless of
+session, so no `/clear` is needed to keep design-authoring context out of
+plan derivation. The collapse therefore depends on **by-reference
+orchestration** (built in Track 1, gate A6): the author spawn returns only a
+thin summary, never the drafted document, so the combined session does not
+re-accumulate the design and plan context the boundary kept apart. If
+by-reference cannot hold, the boundary is retained instead (see the gate-A6
+clause where the collapse is applied).
 
-The `lite` and `minimal` tiers have **no `design.md`** and no session
-boundary: their Step-4b plan derivation runs in the same Phase-1 session
-that Step 4 part 1/2 ran in. Step 1c's tier-aware branch keeps an
-interrupted no-design tier (plan on disk, no `design.md` by design) routing
-to a normal resume rather than back into design authoring.
+The startup protocol's auto-resume into Step 4b is now **crash-recovery-only**:
+it fires when **`design.md` is committed and clean and
+`implementation-plan.md` does not exist** — the state a crash leaves between
+the design commit and the plan derivation. The committed-and-clean test (not
+bare file presence) is what proves the design is reviewed rather than
+abandoned mid-authoring; Step 1c spells out the exact `git log` / `git status`
+check and the resume-Step-4a fallback for an uncommitted or dirty design.
+This is checked after Step 1.5 (drift) and Step 1a (handoff) have cleared and
+before the aim prompt (Step 2): a crash-recovery resume into Step 4b skips the
+aim prompt and the Phase 0 research loop, because the aim and research are
+already captured in the frozen `design.md` and the conversation that produced
+it. When **neither** file exists, `/create-plan` starts at Phase 0 research as
+usual; when **both** exist, the plan is already derived and the session
+resumes via the normal handoff / drift / state routing rather than re-running
+Step 4. The resume path is never a dead end: a committed, clean frozen
+`design.md` with no plan always routes to Step 4b plan derivation, whether the
+collapsed happy path reaches it directly or a crash-recovery resume re-enters
+it.
+
+The `lite` and `minimal` tiers have **no `design.md`** and so no Step 4a at
+all: their Step-4b plan derivation runs in the same Phase-1 session that
+Step 4 part 1/2 ran in, with no design freeze in between. After the collapse
+`full` also runs Step 4a and Step 4b in one invocation, so the difference is
+no longer single-session vs two-session — it is whether a `design.md` is
+authored and frozen first (`full`) or not (`lite`/`minimal`). Step 1c's
+tier-aware branch keeps an interrupted no-design tier (plan on disk, no
+`design.md` by design) routing to a normal resume rather than back into
+design authoring.
 
 **Step 4a — Author the design first (`full` tier only).**
 
@@ -582,17 +624,24 @@ design document must incorporate findings and decisions from the research
 phase — it reflects the design choices discussed with the user.
 
 Commit the frozen `design.md` (Step 5 carries the commit/push/draft-PR
-mechanics), then **end the session.** Plan derivation resumes in a fresh
-`/create-plan` session via the auto-resume condition above.
+mechanics; the `Add initial design` commit is the logical gate and crash
+checkpoint), then **flow straight into Step 4b** in the same `/create-plan`
+invocation — do not end the session. The freeze-and-commit no longer ends the
+session; sub-agent authoring supplies the context isolation the old boundary
+forced (see the Design→plan flow block above). The auto-resume condition above
+is the crash-recovery path that re-enters Step 4b only when this invocation
+ended before deriving the plan.
 
 **Step 4b — Derive the plan and track files.**
 
-In `full`, the startup protocol routes here on re-invocation when
-`design.md` exists and `implementation-plan.md` does not (the design seed
-the plan derives from). In `lite`/`minimal`, Step 4b runs in the same
-Phase-1 session immediately after the Step 4 gate clears — there is no
-`design.md`, so the **research log** is the seed the carriers absorb. Read
-the planning workflow document (deferred from Step 1):
+In `full`, Step 4b runs in the same `/create-plan` invocation, flowing on
+from Step 4a once `design.md` is frozen and committed (the design seed the
+plan derives from); the crash-recovery resume re-enters here only when a
+session ended after the design commit but before the plan derived (`design.md`
+committed and clean, `implementation-plan.md` absent). In `lite`/`minimal`,
+Step 4b runs in the same Phase-1 session immediately after the Step 4 gate
+clears — there is no `design.md`, so the **research log** is the seed the
+carriers absorb. Read the planning workflow document (deferred from Step 1):
 - `.claude/workflow/planning.md` — Phase 1 instructions:
   goal, tier classification, plan file structure, architecture notes
   format, track descriptions, scope indicators, checklist decomposition
@@ -871,17 +920,21 @@ Step 5 commit.
 **The `design.md` template is authored in Step 4a, not here (and only in
 `full`).** `lite` and `minimal` have no `design.md` — skip this template
 and its reference block entirely. In `full`, `design.md` is seeded in the
-earlier Step 4a session via `edit-design` (`phase1-creation`), which
+earlier Step 4a flow via `edit-design` (`phase1-creation`), which
 carries its own
 idempotency-guarded stamp directive and computes `$WORKFLOW_SHA` at that
-session's HEAD. Because Step 4a and Step 4b are different sessions, the
-design's stamp can differ from the plan / track stamps by however many
-workflow-format commits landed between the two sessions. That asymmetry
-is expected and benign: the drift gate's no-drift normalization
-collapses the divergence on the next clean gate run, and the per-branch
-migration reunifies the stamps. The design template below is reproduced
-for the Step 4a author's reference; do not re-write `design.md` in Step
-4b (it is frozen — `design-document-rules.md` Rule 15).
+point's HEAD. On the collapsed happy path Step 4a and Step 4b run in the
+same `/create-plan` invocation, so the design and the plan / track stamps
+are normally computed against the same HEAD and match. They can still
+diverge on the **crash-recovery path**, where the design committed in one
+invocation and the plan derives in a later one: the design's stamp then
+differs from the plan / track stamps by however many workflow-format commits
+landed between the two invocations. That asymmetry is expected and benign:
+the drift gate's no-drift normalization collapses the divergence on the next
+clean gate run, and the per-branch migration reunifies the stamps. The
+design template below is reproduced for the Step 4a author's reference; do
+not re-write `design.md` in Step 4b (it is frozen —
+`design-document-rules.md` Rule 15).
 
 The dual-seed `design-mechanics.md` case (when the planner seeds
 both `design.md` and `design-mechanics.md` together) does NOT get a
@@ -1283,25 +1336,33 @@ committed review files under `_workflow/reviews/` are already on disk; the
 blanket `git add docs/adr/<dir-name>/_workflow/` below sweeps any of them
 not yet committed.
 
-- **`full`, end of Step 4a (design authoring)** — `design.md` is frozen but
-  no plan exists yet. Commit the design (and the research log, if not yet
-  committed) with the message `Add initial design`, push, and end the
-  session. The draft PR is opened here (sub-steps 4-7 below) so the frozen
-  design is visible to teammates before plan derivation; the auto-resume
-  into Step 4b continues the same PR. **Draft-PR-exists guard.** A resumed
-  Step 4a (Step 1c routed an interrupted-and-dirty 4a back through the
-  `edit-design` loop) may have already pushed and opened the draft PR
-  before the interruption. If `gh pr view` shows a draft PR already exists
-  for this branch, skip the PR-open sub-steps (4-7) and only commit/push the
-  re-frozen `design.md`. This mirrors the End-of-4b skip below.
-- **`full`, end of Step 4b (plan derivation)** — the plan and track files
-  now exist alongside the already-committed design. Commit them with the
-  message `Add initial implementation plan`, push (the upstream and draft PR
-  already exist from Step 4a, so skip the `-u` and the PR-open sub-steps),
-  and end the session. **Idempotency guard** (mirrors the Step 1c "both
-  files exist" guard): if `implementation-plan.md` is already committed and
-  clean, the plan was persisted on a prior attempt; skip the commit and
-  proceed to push/end.
+- **`full`, two commits in one session (Step 4a then Step 4b)** — after the
+  4a/4b collapse both session-end commits land in **one** `/create-plan`
+  invocation, in order, without a session boundary between them.
+  - **First commit, at the Step 4a freeze (the crash checkpoint).** `design.md`
+    is frozen but no plan exists yet. Commit the design (and the research log,
+    if not yet committed) with the message `Add initial design`, then push. Open
+    the draft PR here (sub-steps 4-7 below) so the frozen design is visible to
+    teammates and so the commit survives a crash before plan derivation — this
+    first commit is the crash checkpoint the collapse preserves (D15). Do **not**
+    end the session; flow on to Step 4b. **Draft-PR-exists guard.** A
+    crash-recovery resume that re-entered Step 4a (Step 1c routed an
+    interrupted-and-dirty 4a back through the `edit-design` loop) may have
+    already pushed and opened the draft PR before the interruption. If
+    `gh pr view` shows a draft PR already exists for this branch, skip the
+    PR-open sub-steps (4-7) and only commit/push the re-frozen `design.md`. This
+    mirrors the second-commit skip below.
+  - **Second commit, at the end of Step 4b (plan derivation).** The plan and
+    track files now exist alongside the just-committed design. Commit them with
+    the message `Add initial implementation plan`, push (the upstream and draft
+    PR already exist from the first commit, so skip the `-u` and the PR-open
+    sub-steps), and end the session. **Idempotency guard** (mirrors the Step 1c
+    "both files exist" guard): if `implementation-plan.md` is already committed
+    and clean, the plan was persisted on a prior attempt; skip the commit and
+    proceed to push/end. On a crash-recovery resume that re-entered at Step 4b
+    (the design was already committed and clean from the prior invocation's
+    first commit), only this second commit lands in the resuming session — the
+    `Add initial design` checkpoint is already on disk.
 - **`lite` / `minimal`, single Phase-1 session** — there is no `design.md`
   and no session boundary: the research log, the phase ledger, the thinned
   plan (`lite` only — `minimal` has no plan, D2), and the track files were
