@@ -31,10 +31,11 @@ regression guard so the instruction cannot be silently dropped again.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, fully reviewed in Phase B)
+- [x] Track completion
 - [x] 2026-06-18T14:36Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-18T15:12Z [ctx=safe] Step 1 complete (commit 53d4595915)
+- [x] 2026-06-18T15:39Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -354,6 +355,35 @@ the Phase 4 promotion. Verification runs against the staged copies: the
 guard passes on the staged (fixed) `track-review.md` and fails on the live
 (unfixed) copy, and the acceptance grep `--phase C --track` targets the
 staged path while the live path stays empty until promotion.
+
+### Track completion — 2026-06-18T15:39Z [ctx=safe]
+Built the YTDB-1140 fix: the A→C phase-ledger boundary is now appended at
+Phase A completion, so a fresh `/execute-tracks` after Phase A resumes into
+Phase B/C instead of re-running Phase A. The change is staged `.claude/**`
+under §1.7(b) — `track-review.md` §What You Do step 6 appends `--phase C
+--track N` before its commit (with `phase-ledger.md` added to the `git add`),
+and a `REPO_ROOT`-anchored, order-independent doc-presence guard in
+`test_workflow_startup_precheck.py` blocks the call from being silently
+dropped again.
+
+The step-level review widened the fix's surface. The ledger-tail gate had to
+cover both Phase A completion paths, not just §Phase A Completion step 2.
+§Phase A Resume row 3 could declare "steady state, route to Phase B" from the
+committed roster alone, so a committed-roster-but-stale-ledger state on the
+resume path would re-loop Phase A — the same bug. Both paths now gate on the
+tail reading `phase=C track=N`, and the resume-path `--ctx <level>`
+unbound-token edge is closed with a fresh-read / `unknown` fallback (D4). WI3
+(a step-6 append exit-code check) was left unapplied by design: the append
+stays prose-instructed for parity with the four sibling append sites, and the
+two-path tail verification is the backstop.
+
+No cross-track impact — single track, minimal tier. The fix self-applies only
+at the Phase 4 promotion; until then this branch's own live `track-review.md`
+lacks the fix (the accepted staging wrinkle, D3). Code review skipped per the
+single-step high-risk rule: Phase B's step-level loop reviewed the identical
+diff and converged at iteration 2.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 
