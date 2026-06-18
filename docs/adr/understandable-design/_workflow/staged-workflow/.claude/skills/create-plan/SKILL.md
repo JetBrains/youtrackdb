@@ -756,13 +756,22 @@ Help the user develop the plan:
 
    - The **`readability-auditor`** (`subagent_type: readability-auditor`,
      `description: "Readability audit (Step-4b round <N>)"`) audits the track
-     prose with `target=tracks` and a slice `range` per spawn. With
-     `target=tracks` its standing anchors are the **plan Component Map and each
-     track's `## Purpose / Big Picture`**, because a track slice alone lacks the
-     whole-plan vocabulary (the design-path anchors `## Overview` and
-     `## Core Concepts` do not exist on the track path). It owns the prose
-     AI-tell axis on this surface (S4) and reads no log (S1). Its too-terse
-     findings become the next round's author `flagged_passages`.
+     prose with `target=tracks` and a slice `range` per spawn. **Slice the
+     track-path fan-out per track file: one `readability-auditor` spawn per
+     `plan/track-N.md` (in track-number order), its params file carrying
+     `target=tracks`, `target_path` set to that one track file, and a
+     whole-file `range` (line 1 to the file's last line).** The single
+     `(target_path, range)` slice model that `edit-design/SKILL.md` § Step 4
+     defines for the design path (one ~200-line window in the single
+     `design.md`) does not partition N track files on its own; this per-file
+     rule is the deterministic partition, so every orchestrator run produces
+     the same set of slices and the same per-slice anchor visibility. The
+     standing anchors fill the cross-file vocabulary a single-file slice
+     lacks: with `target=tracks` they are the **plan Component Map and each
+     track's `## Purpose / Big Picture`** (the design-path anchors
+     `## Overview` and `## Core Concepts` do not exist on the track path). It
+     owns the prose AI-tell axis on this surface (S4) and reads no log (S1).
+     Its too-terse findings become the next round's author `flagged_passages`.
    - The **`absorption-check`** (`subagent_type: absorption-check`,
      `description: "Absorption check (Step-4b round <N>)"`) is the **second
      check**: a separate spawn, not a clause inside the comprehension gate. Its
@@ -812,7 +821,14 @@ Help the user develop the plan:
    its verdict inline. A decision-shaped comprehension-gate finding re-opens the
    S3 gate and re-enters the inner loop (the author seeds the surfaced decision,
    the absorption check confirms coverage, the auditor re-checks the prose), so
-   the comprehension gate re-runs only once the gate clears again.
+   the comprehension gate re-runs only once the gate clears again. **A
+   comprehension-gate re-open consumes a round of the same `iteration_budget`
+   the inner loop counts down — it does not start a fresh count.** The
+   dual-clean inner-loop rounds and any gate re-entries share one budget, so the
+   whole Step-4b review is bounded by `iteration_budget` total rounds across
+   both; this is the single-budget reading `edit-design/SKILL.md` § Step 6
+   settles on the design path, restated locally so the loop's termination is
+   fully self-contained rather than borrowed across skills.
 
    The whole Step-4b review therefore exits when the inner loop is dual-clean
    **and** the comprehension gate passes, or the budget is spent. The written
