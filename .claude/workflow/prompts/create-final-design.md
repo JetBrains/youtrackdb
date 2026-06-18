@@ -192,6 +192,14 @@ include classes, methods, or flows that you have not verified exist in
 the current code. The tables do not appear in the final artifact —
 they are working notes that ensure accuracy.
 
+This entry verification runs **once** before the skill is invoked, then
+re-runs only on a later round that actually touched a diagram — readability
+edits, the bulk of the loop's iterations, rarely change one. Per round the
+fidelity check still verifies each diagram element's signature and
+relationship against the code through PSI as part of its precision
+residual; this entry pass is the one-time whole-diagram sweep that seeds
+the loop with verified diagrams.
+
 **Sub-step B — Invoke the edit-design skill.** With the verification
 tables in hand, route the artifact creation through the mutation
 discipline. Do **not** call `Write` / `Edit` directly on
@@ -215,14 +223,56 @@ with:
 - `intended_edit`: full file content for both files. Section names match
   between `design-final.md` and `design-mechanics-final.md` from the
   start (same rule as Phase 1).
+- `iteration_budget`: optional (default `3`) — the bounded-iterate cap
+  the `phase4-creation` inner loop runs under.
 
-The skill runs the standard atomic action — apply, mechanical checks
-(`--target=both` or `--target=design`), `whole-doc` cold-read on
-`design-final.md` via the design-review sub-agent, bounded iterate, and
-present diff + log entry. The cold-read for `phase4-creation` carries an
-extra check (per `prompts/design-review.md`): the artifact must stand on
-its own as committed documentation, with no leaked working-file
-identifiers (track / step / review-finding labels).
+The fidelity check and the post-loop comprehension gate each need one
+more value that is not among the skill arguments above. `edit-design`
+Step 4 writes them into the per-round params files it spawns, so the
+contract is: thread the **`output_path`** below, and let `edit-design`
+derive the fidelity check's two paths from the design directory.
+
+- the **`output_path`** for the post-loop cold comprehension gate — an
+  absolute path under `docs/adr/<dir-name>/_workflow/plan/` where the
+  `phase4-creation` comprehension gate persists its `## Structural
+  findings` detail and returns only a summary (the path-conditional
+  branch in `edit-design` Step 4 and `prompts/design-review.md § Output
+  format`). Every other mutation kind omits this; `phase4-creation`
+  supplies it so the Phase 4 cold-read stays out of the orchestrator's
+  context. This is the one value you thread in addition to the skill
+  arguments above.
+- the fidelity check's **`episodes_path`** (the
+  `docs/adr/<dir-name>/_workflow/plan/` directory whose `plan/track-N.md`
+  files carry the `## Episodes` sections the check matches
+  `design-final.md` against) and its **`design_path`** (the frozen
+  `docs/adr/<dir-name>/_workflow/design.md` seed read in Step 2) are
+  **not** caller-threaded: `edit-design` Step 4 derives both from the
+  design directory, since `design-final.md` lives at
+  `docs/adr/<dir-name>/design-final.md` and the `_workflow/plan/`
+  directory and frozen `design.md` sit at a fixed offset from it. Neither
+  derivation goes through the omitted `--plan-dir` flag — that flag
+  governs only the cross-file `**Full design**` ref check, which
+  `phase4-creation` skips by mutation kind regardless.
+
+The skill runs the `phase4-creation` multi-agent dual-clean loop, not a
+single cold-read. Each round spawns the code-grounded author (writing
+`design-final.md` to disk and returning only a summary) plus the cold
+readability auditor and the **fidelity check** as the per-round second
+check; after the inner loop converges to dual-clean, the cold
+comprehension gate runs once. Around that loop the skill runs the
+standard mechanical checks (`--target=both` or `--target=design`),
+bounded iterate (the `iteration_budget`), and present diff + log entry.
+The **fidelity check** (not the Phase 1 absorption check) is the second
+check on `phase4-creation`: it matches `design-final.md` against the step
+and track episodes, falling back to PSI for any claim with no episode
+trace, so the final design reflects what was built and never re-asserts a
+superseded log decision. The cold comprehension gate carries the same
+extra check it always did (per `prompts/design-review.md`): the artifact
+must stand on its own as committed documentation, with no leaked
+working-file identifiers (track / step / review-finding labels). The
+kind-keyed selection of fidelity-over-absorption lives in `edit-design`,
+not here; this prompt only threads the fidelity check's inputs and the
+comprehension gate's `output_path`.
 
 Rules (these are enforced by the discipline; listed here for orientation):
 

@@ -19,9 +19,8 @@ Inline refs you find inside workflow files carry the same `name:roles:phases` su
 |---|---|---|---|
 | §Inputs | reviewer-design | 1,4 | The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer. |
 | §Mutation-kind specific instructions | reviewer-design | 1,4 | Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts. |
-| §Human-reader cold-read additions | reviewer-design | 1,4 | Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence. |
-| §Prose AI-tell additions | reviewer-design | 1,4 | Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Orientation, Plain language; creation-time. |
-| §Track-scoped cold-read (Step 4b) | reviewer-design | 1 | The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity. |
+| §Human-reader cold-read additions | reviewer-design | 1,4 | Whole-doc human-reader checks: navigability and the structural half of audience-fit; prose half moved to the auditor. |
+| §Track-scoped cold-read (Step 4b) | reviewer-design | 1 | The second write-time target: cold-read of plan-at-start track sections, plus full-tier seed-to-track fidelity. |
 | §Reading rules | reviewer-design | 1,4 | Read only the provided design files; bounded vs whole-doc scope; grep-only plan reads; fetch house-style on demand. |
 | §Comprehension questions | reviewer-design | 1,4 | Seven ordered questions a cold reader answers with citations; insufficient material is itself a finding. |
 | §Structural findings (always check) | reviewer-design | 1,4 | Always-on checks: edge-cases sub-section, References footer, sibling consolidation, TL;DR, length budgets, Mechanics. |
@@ -46,28 +45,25 @@ classification). The `target` input selects which:
   except §Track-scoped cold-read (Step 4b).
 - `target=tracks` — the Step-4b cold-read assesses the plan-at-start track
   sections (and the root per-track BLUF/triad). See §Track-scoped cold-read
-  (Step 4b) for the target set, the absorption-completeness criterion, and
-  the full-tier fidelity criterion. The comprehension mechanics
-  (§Comprehension questions, §Output format, §Severity rubric, §Tone and
-  depth) are shared.
+  (Step 4b) for the target set and the full-tier fidelity criterion. The
+  comprehension mechanics (§Comprehension questions, §Output format,
+  §Severity rubric, §Tone and depth) are shared.
 
-Both targets carry the **absorption-completeness** cross-check against the
-research log; `target=design` adds it to the Step-4a `phase1-creation`
-cold-read (log → `design.md` D-records) and `target=tracks` adds it to the
-Step-4b cold-read (log → carrier inline records). See §Track-scoped
-cold-read (Step 4b) for the criterion (it is written once there and applies
-to both targets).
+This reviewer reads no research log. The **absorption-completeness**
+cross-check that used to warm it, confirming every load-bearing log
+decision appears as a seed/carrier record, moved to the warm
+`absorption-check` agent, which runs every round of the dual-clean inner
+loop beside the cold readability auditor. So this reviewer's "could a cold
+reader follow this" verdict is finally cold: it reads only the document.
+The prose AI-tell axis (over-dense / too-terse / hard-to-read) likewise
+moved to the `readability-auditor` agent and runs nowhere here (S4). What
+stays is comprehension, structure, and the whole-doc human-reader checks.
 
 ## Inputs
 <!-- roles=reviewer-design phases=1,4 summary="The design paths, scope, mutation kind, and optional plan/track paths passed to the cold-read reviewer." -->
 
 - `target` (optional, default `design`) — `design` or `tracks`. Selects
   the cold-read target per the two-target note above.
-- `research_log_path` (optional) — absolute path to
-  `_workflow/research-log.md`. Supplied by the Step-4a `phase1-creation`
-  and the Step-4b cold-read spawns so the reviewer runs the
-  absorption-completeness cross-check (§Track-scoped cold-read). Absent for
-  the interactive mutation kinds and for Phase 4.
 - `tier` (optional) — `full` / `lite` / `minimal`. Supplied with
   `target=tracks` so the reviewer knows whether the full-tier fidelity
   criterion applies.
@@ -100,6 +96,11 @@ to both targets).
   cold-read reads the root per-track BLUF/triad (`## Purpose / Big
   Picture`) and the checklist entries from it.
 
+This reviewer takes **no `research_log_path`**. The absorption-completeness
+cross-check moved to the `absorption-check` agent, so no log path is passed
+here; if a spawn passes one it is a wiring error and this reviewer reads no
+log regardless (S1/S2).
+
 ### Mutation-kind specific instructions
 <!-- roles=reviewer-design phases=1,4 summary="Extra checks per mutation kind: phase1-creation, design-sync, and the higher bar for committed phase4 artifacts." -->
 
@@ -119,13 +120,12 @@ to both targets).
   implementer executing the plan). Verify (a) the `design.md` is
   internally coherent on its own (a fresh reader can navigate it);
   (b) every `Mechanics: design-mechanics.md §"…"` link resolves to a
-  matching section in mechanics; (c) the **absorption-completeness
-  cross-check** this invocation owns — every load-bearing research-log
-  decision appears as a seed D-record in `design.md` (see
-  §Track-scoped cold-read, the `target=design` direction of the
-  criterion; run only when `research_log_path` is supplied). **Plus
-  the Human-reader cold-read additions AND the Prose AI-tell additions
-  (both §§ below).**
+  matching section in mechanics. Absorption completeness (every
+  load-bearing research-log decision appears as a seed D-record) is
+  **not** checked here — it is the `absorption-check` agent's job inside
+  the dual-clean inner loop, and this reviewer reads no log. **Plus the
+  Human-reader cold-read additions (§ below) — the whole-doc subset only;
+  the prose half is the readability auditor's.**
 - **`design-sync`**: this sync re-distilled `design.md` from the
   current state of `design-mechanics.md`. **In addition to the
   standard whole-doc cold-read**, verify that every TL;DR and
@@ -134,8 +134,9 @@ to both targets).
   the `design.md` TL;DR contradicts the mechanics, or names a
   mechanism that mechanics doesn't describe, flag it as a blocker
   — that's exactly what the sync was supposed to fix. **Plus the
-  Human-reader cold-read additions AND the Prose AI-tell additions
-  (both §§ below).**
+  Human-reader cold-read additions (§ below) — the whole-doc subset
+  only; the readability auditor owns the prose axis on `design-sync`
+  too (S4).**
 - **`phase4-creation`**: `design-final.md` (and optionally
   `design-mechanics-final.md`) was just produced as a Phase 4
   committed artifact reflecting what was actually built. The
@@ -147,9 +148,10 @@ to both targets).
   files), since those live under `_workflow/` and are removed
   by the Phase 4 cleanup commit before merge.
 
-  **In addition to the standard whole-doc cold-read, the
-  Human-reader cold-read additions, AND the Prose AI-tell additions
-  (both §§ below)**, verify:
+  **In addition to the standard whole-doc cold-read and the
+  Human-reader cold-read additions (§ below, the whole-doc subset; the
+  readability auditor owns the prose axis on `phase4-creation` too)**,
+  verify:
 
   (a) **Plan-deviation surfacing** — the Overview names what
       was built and any high-level deviations from the original
@@ -167,64 +169,41 @@ to both targets).
       prose.
 
 ### Human-reader cold-read additions
-<!-- roles=reviewer-design phases=1,4 summary="Audience-fit, glossary-introduction, why-before-what, and navigability checks; reviewer tone relaxes to quote evidence." -->
+<!-- roles=reviewer-design phases=1,4 summary="Whole-doc human-reader checks: navigability and the structural half of audience-fit; prose half moved to the auditor." -->
 
-Applies to `phase1-creation`, `phase4-creation`, `design-sync`. In
-addition to the standard cold-read, verify:
+Applies to `phase1-creation`, `phase4-creation`, `design-sync`. In addition
+to the standard cold-read, verify the **whole-doc** human-reader checks — the
+properties a range-sliced auditor cannot see:
 
-- Verify audience-fit per `.claude/output-styles/house-style.md § Audience-fit`.
-- Verify glossary-introduction per `.claude/output-styles/house-style.md § Glossary-introduction`.
-- Verify why-before-what per `.claude/output-styles/house-style.md § Why-before-what`.
 - Verify navigability per `.claude/output-styles/house-style.md § Navigability`.
-- Verify explanatory register per `.claude/output-styles/house-style.md § Explanatory register`.
+- Verify the **structural half of audience-fit** per
+  `.claude/output-styles/house-style.md § Audience-fit`: does the Overview
+  name a reader at all? (Whether the prose itself *reads* for that audience
+  is the auditor's prose half — see below.)
 
-**Reviewer tone** for these five rules relaxes the "one-sentence answers"
-rule in § Tone and depth: quote the prose, list undefined terms, name the
-audience the prose fails, and (for navigability) the opaque section or
-(for explanatory register) the disconnected assertions.
+The other three human-reader checks — glossary-introduction, why-before-what,
+explanatory register — and the prose half of audience-fit moved to the
+`readability-auditor` agent, because a slice plus its standing anchors can
+answer them and concentrating readability on the slice-bound auditor preserves
+per-slice attention. Loading all five back onto this whole-doc reviewer would
+re-create the diluted multi-axis pass this branch removed. The five
+human-reader checks therefore split by the context each one needs: the
+whole-doc properties (navigability, the structural half of audience-fit) stay
+here; the prose properties go to the auditor (D8).
 
-### Prose AI-tell additions
-<!-- roles=reviewer-design phases=1,4 summary="Over-dense / too-terse / hard-to-read scan vs Banned analysis patterns, Orientation, Plain language; creation-time." -->
+**Reviewer tone** for these whole-doc rules relaxes the "one-sentence answers"
+rule in § Tone and depth: quote the prose, name the audience the prose fails,
+and (for navigability) the opaque section.
 
-Applies to `phase1-creation`, `phase4-creation`, `design-sync` (the three
-`target=design` kinds) **and** `target=tracks`. This block has its own
-applies-to set: unlike the Human-reader additions above (design kinds
-only), it also runs on the Step-4b track cold-read, because plan-at-start
-track prose carries the same over-dense / too-terse / hard-to-read failures as design
-prose. Scan the changed sections (for `target=tracks`, the plan-at-start
-track sections) on **three axes**:
-
-- **Over-dense** — the judgment cases the `dsc-ai-tell` regex set cannot
-  catch. Check against `.claude/output-styles/house-style.md § Banned analysis patterns`
-  and `.claude/output-styles/house-style.md § Mechanism traces and inline citations`;
-  also flag lists spliced into one sentence (a `(1)…(2)…(3)…` or
-  comma-chained enumeration presented as prose rather than a list) and
-  inflated-abstraction labels the closed-set regex misses (a subject-slot
-  "the enabling primitive", "the key abstraction", "the underlying
-  mechanism" that names nothing concrete — built from an inflation word
-  outside the regex's curated set, or sitting in a non-subject slot the
-  regex does not scan).
-- **Too-terse** — check against `.claude/output-styles/house-style.md § Orientation`,
-  the floor the cut-rules cut to: prose a reader cannot follow without
-  opening the code, or a one-line assertion dropped with no motivation, is
-  a finding the same as padding.
-- **Hard-to-read** — check against `.claude/output-styles/house-style.md § Plain language`.
-  Flag a sentence that uses an uncommon word where a common one fits, a
-  long tangled sentence the reader must read twice, or an idiom or
-  ambiguous phrasal verb. This axis is about word choice and sentence
-  shape, so it applies even to prose that is the right length and
-  well-motivated. Report it as a finding; plain-language quality stays a
-  judgment call, with no score.
-
-**Bound to creation-time prose.** This block runs at design-mutation time
-(`target=design`) and once at Step 4b before the plan commit
-(`target=tracks`). It does **not** cover live Phase-3 prose — `## Decision
-Log` entries, episodes, and review findings that accrue after the Step-4b
-cold-read have no re-run here; that surface is held by the always-on
-AI-tell subset wiring on the writers, not by this block.
+This reviewer runs **no** prose AI-tell axis (over-dense / too-terse /
+hard-to-read) on any surface. That axis is the `readability-auditor` agent's,
+on every prose-judged surface — the design creation kinds, `design-sync`, and
+the Step-4b track cold-read. The one-owner-per-surface rule (S4) holds: every
+prose-judged surface runs the prose axis on exactly one reviewer, never both
+and never neither.
 
 ## Track-scoped cold-read (Step 4b)
-<!-- roles=reviewer-design phases=1 summary="The second write-time target: cold-read of plan-at-start track sections, plus absorption and full-tier fidelity." -->
+<!-- roles=reviewer-design phases=1 summary="The second write-time target: cold-read of plan-at-start track sections, plus full-tier seed-to-track fidelity." -->
 
 This section applies **only when `target=tracks`** — the Step-4b cold-read
 `create-plan` spawns after the track files are written and before the Step
@@ -244,44 +223,14 @@ question 7 becomes "how would a reader find the full mechanism — the
 inline `## Decision Log` records, and in `full` the `**Full design**`
 reference into the frozen `design.md` seed?".
 
-**Plus the Prose AI-tell additions (§ above).** Run that block's over-dense,
-too-terse, and hard-to-read scan on the plan-at-start track sections, the same as on a
-`target=design` cold-read; its applies-to set names `target=tracks`
-explicitly. The Human-reader additions do **not** run here — they are
-design-kind only.
-
-**Absorption-completeness criterion (both targets).** "Carrier
-authoritative" (S2) is enforced at write-time by this criterion rather
-than a mechanical pass. Cross-check the research log against the carrier
-**both ways**: every load-bearing research-log decision in a track's scope
-must appear as an inline Decision Record in the appropriate carrier, and a
-log decision with no carrier home is a finding. The criterion is a
-checkable surface, not free judgment:
-
-- **Load-bearing** = a `## Decision Log` entry in the research log whose
-  `**Alternatives rejected:**` field names a **real fork**. The field's
-  presence is the mechanical surface; you still judge whether the named
-  alternative is a real fork rather than a vacuous "none", and a genuine
-  fork recorded under a different sub-field (a `**Scope note:**` or
-  `**Reconciliation:**`) is still in scope, so field placement cannot game
-  the trigger. An empty `Alternatives rejected` is not load-bearing and
-  does not force a carrier record.
-- **In-scope** = the decision constrains a file or interface the track
-  touches, bound to the track's `## Interfaces and Dependencies`. On a
-  workflow-modifying plan, "a file or interface the track touches"
-  includes the workflow-prose files and `§`-anchors listed there, so the
-  trigger binds to prose dependencies, not only Java symbols.
-- **Per-carrier** is uniform for the live record: a full inline record in
-  each relevant track's `## Decision Log`, in every tier. In `full`, the
-  criterion additionally requires the decision's seed D-record in
-  `design.md` and fidelity between the two (below).
-
-For `target=design` (the Step-4a `phase1-creation` cold-read), apply the
-same criterion in its log → `design.md` D-records direction: every
-load-bearing log decision must appear as a seed D-record in `design.md`.
-The reviewer reads `research_log_path` only for this cross-check; it is a
-verdict/absorption read at the sanctioned authoring point, not a new
-decision-content read site (S2).
+The prose AI-tell scan (over-dense / too-terse / hard-to-read) and the
+absorption-completeness cross-check do **not** run on this reviewer. The
+prose axis is the `readability-auditor` agent's on every surface, including
+this Step-4b track cold-read; the auditor's track-surface wiring lands when
+`create-plan` Step 4b spawns it. Absorption completeness — every load-bearing
+log decision appearing as a carrier record — is the `absorption-check`
+agent's, which reads the log; this reviewer reads no log. The Human-reader
+additions do **not** run here either — they are design-kind only.
 
 **Full-tier fidelity criterion (`tier=full`, `target=tracks`).** Fidelity
 is an **authoring-time** bar, not a standing equality constraint. Each
@@ -300,12 +249,14 @@ no reviewer or mechanical pass rewrites a track DR from the seed after
 authoring, because post-authoring divergence is legitimate (the track
 evolved; the frozen seed cannot).
 
-**Residual risk.** Absorption and fidelity rely on this semantic cold-read
-with no mechanical backstop (the `section_has_references` check is
+**Residual risk.** The full-tier fidelity criterion relies on this semantic
+cold-read with no mechanical backstop (the `section_has_references` check is
 `design.md`-only). An authoring-time miss has no automated catch in any
 tier; the residual narrows to authoring time, because post-authoring
 divergence between duplicated track copies has a defined owner and
-mechanism (the cross-track propagation duty). This is accepted.
+mechanism (the cross-track propagation duty). This is accepted. (Absorption
+completeness has the same authoring-time-only residual, now carried by the
+`absorption-check` agent rather than this reviewer.)
 
 **Iterate loop.** The Step-4b cold-read blocker re-opens Step-4b
 derivation in the **same session** — it does not defer to a later phase,
@@ -320,7 +271,7 @@ batch the flush session counts as that session.
 - **Whole-doc scope** (`target=design`): entire `design.md`; mechanics for link targets.
 - **Track-scoped reads** (`target=tracks`): read the plan-at-start sections of each track file in full and the root per-track BLUF/triad + checklist from `plan_path` — this is the assessed artifact, not grep-only-for-links. For the full-tier fidelity check, read the `design.md` seed D-records the track copies derive from.
 - **Plan / track-file reads** (`target=design`): grep-only for `**Full design**` link resolution.
-- **`research_log_path` reads** (absorption cross-check): read the log's `## Decision Log` for the load-bearing-decision enumeration only — a verdict/absorption read, not a decision-content seeding read (S2). Do not import a log decision as if it were a carrier record; a log decision absent from the carrier is the finding.
+- **No research-log read.** This reviewer reads no `research-log.md`. The absorption-completeness cross-check that once read it moved to the `absorption-check` agent, so no `research_log_path` is passed here and none is read (S1/S2).
 - **`house-style.md` reads**: read only the cited `§ <heading>` section using grep + targeted Read (offset/limit). Never load the file whole and never pre-load all cited sections; fetch a section only when a finding is forming.
 
 ## Comprehension questions
@@ -359,9 +310,10 @@ The checks below are the `target=design` structural set. For
 `target=tracks`, the design-shape checks (References footer, `Mechanics:`
 link, Core Concepts, Overview-concept-first, the ≤2,000-line budget) are
 **N/A** — track files carry no References footer or mechanics split. The
-always-on checks for `target=tracks` are the absorption-completeness and
-full-tier fidelity criteria in §Track-scoped cold-read; report their
-findings in the same `## Structural findings` list.
+always-on check for `target=tracks` is the full-tier seed-to-track fidelity
+criterion in §Track-scoped cold-read; report its findings in the same
+`## Structural findings` list. (Absorption completeness moved to the
+`absorption-check` agent and is not a check on this reviewer.)
 
 - Verify **Edge cases / Gotchas** per `.claude/output-styles/house-style.md § Edge cases sub-section required`.
 - Verify **References footer** per `.claude/output-styles/house-style.md § References footer shape`.
@@ -383,8 +335,11 @@ below to that path and return only a short summary (the **Verdict** line
 plus the blocker/should-fix count) so the caller pulls the detail on
 demand. When `output_path` is **absent** (the Phase 1 `phase1-creation`
 cold-read and every interactive mutation kind), return the full Markdown
-inline exactly as below, **byte-for-byte today's format**: the no-path
-branch is unchanged, so the `phase1-creation` invocation stays exempt.
+inline exactly as below. The `phase1-creation` invocation stays exempt from
+the file-output branch. The de-warm dropped the prose-AI-tell finding rows
+from this format (those findings now come from the `readability-auditor`
+agent), so the structural-findings list carries comprehension, structure,
+and the whole-doc human-reader checks only.
 The cold-read emits a comprehension assessment and a verdict, not a
 severity-anchored finding set, so its `## Structural findings` bullets are
 not `### <PREFIX><N> ` anchors and the `§2.5` count grep does not apply;
@@ -419,20 +374,14 @@ Produce exactly the following Markdown, no preamble:
 ...
 
 (For `phase1-creation`, `phase4-creation`, and `design-sync`,
-findings under the Human-reader cold-read additions go in the
-same list but prefix each with the dimension label and use
+findings under the whole-doc Human-reader cold-read additions go
+in the same list but prefix each with the dimension label and use
 multi-line bullets to fit the evidence required by the Tone
-exception — e.g. `[blocker] audience-fit: <quoted prose +
-named audience + why it breaks down>`.)
-
-(Findings under the § Prose AI-tell additions go in the same
-list with the same multi-line shape, prefixed `over-dense:`,
-`too-terse:`, or `hard-to-read:` — e.g. `[should-fix] over-dense: <quoted sentence +
-the house-style § it breaks>`. This holds for all three
-`target=design` kinds **and** for `target=tracks` — the Prose
-AI-tell block runs on the Step-4b track cold-read even though the
-Human-reader additions do not, so its findings are rendered the
-same way there.)
+exception — e.g. `[blocker] navigability: <quoted section + why a
+reader cannot find it>` or `[should-fix] audience-fit: <the
+Overview names no reader>`. The prose-axis findings — over-dense,
+too-terse, hard-to-read — come from the `readability-auditor`
+agent, not this reviewer, so they do not appear in this list.)
 
 ## Verdict
 
@@ -462,7 +411,7 @@ attempt the fix automatically.>
 ## Tone and depth
 <!-- roles=reviewer-design phases=1,4 summary="One-sentence answers, cite don't paraphrase, flag insufficiency, no intent-speculation; human-reader rules excepted." -->
 
-- One-sentence answers where one suffices. **Exception**: the five Human-reader rules require evidence (see the Reviewer tone note under § Human-reader cold-read additions). **A second exception**: the § Prose AI-tell additions checks require evidence too — quote the over-dense sentence (or the too-terse assertion, or the hard-to-read one) and name the house-style rule it breaks (§ Banned analysis patterns, § Mechanism traces and inline citations, § Orientation, or § Plain language), rather than a one-word verdict.
+- One-sentence answers where one suffices. **Exception**: the whole-doc Human-reader rules (navigability and the structural half of audience-fit) require evidence (see the Reviewer tone note under § Human-reader cold-read additions) — quote the opaque section or name the missing reader, rather than a one-word verdict. The prose AI-tell checks are no longer this reviewer's; the `readability-auditor` agent carries them and their own evidence rule.
 - Cite, don't paraphrase.
 - If unanswerable, say "Insufficient — see finding below" and add the structural finding.
 - Don't speculate about intent the doc doesn't state.
