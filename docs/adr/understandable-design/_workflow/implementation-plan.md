@@ -70,16 +70,18 @@ flowchart TD
   > the by-reference orchestration contract Track 2 depends on (D15 gate A6); no
   > downstream adjustment needed.
 
-- [ ] Track 2: Reuse the loop at track authoring and Phase 4; collapse the 4a/4b boundary
+- [x] Track 2: Reuse the loop at track authoring and Phase 4; collapse the 4a/4b boundary
   > Wire the Track 1 loop into `create-plan` Step 4b (so `lite` / `minimal`
   > track files get readability help) and into `create-final-design.md` Phase 4
   > (swapping the second check from absorption to a doc-against-episodes
   > fidelity check, with a PSI residual). Add the one new fidelity-check agent
   > definition, and collapse the full-tier 4a/4b session boundary into one
   > `create-plan` invocation — a staged auto-resume-contract change that depends
-  > on Track 1's by-reference orchestration. Detailed description in
-  > plan/track-2.md.
-  > **Scope:** ~5 files covering `create-plan/SKILL.md` (Step 4b loop + Step 1c
-  > re-spec), `create-final-design.md`, 1 fidelity-check agent definition, and
-  > `planning.md` / `workflow.md` touch-ups (all staged).
-  > **Depends on:** Track 1
+  > on Track 1's by-reference orchestration.
+  >
+  > **Track episode:** Loop wired into `create-plan` Step 4b and Phase 4 (new
+  > fidelity check); 4a/4b boundary collapsed (gate A6 static-green). Phase C
+  > PASS (2 iterations, 0 blockers). See `plan/track-2.md` `## Episodes`
+  > § Track completion. (3 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-2.md`

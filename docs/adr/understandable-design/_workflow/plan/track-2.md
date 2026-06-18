@@ -32,8 +32,9 @@ definition, the fidelity check.
 - [x] 2026-06-18T08:57Z [ctx=safe] Step 3 complete (commit 9e63002609)
 - [x] 2026-06-18T08:57Z [ctx=safe] Step implementation
 - [x] 2026-06-18T10:06Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
-- [x] 2026-06-18T10:12Z [ctx=info] Track-level code review (PASS — 1 iteration, all findings resolved)
-- [ ] Track completion
+- [x] 2026-06-18T11:14Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
+- [x] 2026-06-18T11:16Z [ctx=info] Track-level code review (PASS — 2 iterations, all findings resolved)
+- [x] 2026-06-18T11:16Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -271,6 +272,15 @@ by-reference contract being validated.
 - `.claude/skills/create-plan/SKILL.md` (modified — four collapse sites + stamp-divergence note + WP1-3 fixes)
 - `.claude/workflow/workflow.md` (new — staged copy, mandatory-boundary declaration updated)
 - `.claude/workflow/planning.md` (new — staged copy, "separate session" framings updated)
+
+### Track completion — 2026-06-18T11:16Z [ctx=info]
+Track 2 reused Track 1's two-role authoring loop at the two authoring points it did not yet reach and collapsed the full-tier 4a/4b session boundary. Step 1 wired the dual-clean loop into `create-plan` Step 4b (a `design-author` spawn, a per-round `readability-auditor` fan-out, and a separate per-round `absorption-check`, with the de-warmed comprehension reviewer running no prose axis; S3 freeze-order, S4 one-owner-per-surface, and the S5 `iteration_budget` exit all held, and the gate-A7 warm-up deferral was inherited). Step 2 added the `fidelity-check` agent (`Read` + PSI, sonnet), its `edit-design` Step 4 spawn-contract row, and the `create-final-design.md` Sub-step B refresh to the multi-agent `phase4-creation` loop. Step 3 collapsed the 4a/4b boundary (D15) across `create-plan/SKILL.md`, `workflow.md`, and `planning.md`; gate A6 (by-reference) was confirmed static-green, so the boundary was collapsed, with the live-harness re-confirmation carried to Phase 4 / first-live-run.
+
+Phase C ran 5 workflow reviewers on the workflow-only diff (the baseline group and hook-safety correctly skipped) and reached PASS in 2 iterations, 0 blockers. Iteration 1 resolved 12 findings; the load-bearing one was the `create-final-design` to `edit-design` fidelity-check parameter contract — the fidelity check's `episodes_path` and frozen `design_path` had no clean producer on the Phase 4 path. The implementer reconciled it by deriving both paths from the design-directory offset rather than `plan_dir`, staying inside the narrow `edit-design` boundary. Iteration 2 fixed a stale Step-4a description in `create-plan/SKILL.md` that still claimed the cold-read runs the absorption-completeness cross-check (pre-Track-1 framing, and internally inconsistent with Step 4b); it was surfaced from the Step-1 Surprises log and confirmed against `edit-design` `phase1-creation`. The diagram-versus-prose and em-dash findings on the track file were orchestrator-applied; the staged-`.claude` findings landed in two `Review fix:` commits.
+
+Carry-forward for Phase 4: the canonical `create-final-design` to `edit-design` fidelity contract now states both fidelity paths derive from the design-directory offset (the `edit-design` Step 4 fidelity row), relevant if Phase 4 reconciliation revisits it; D20 (the comprehension-review allow-list `Read,Grep` versus design.md D8's `Read`) is still open; the `implementation-plan.md` Component Map carries the same `CFD→FC` diagram simplification that WC1 corrected in the track file (outside this track's reviewed range); and one accepted-minor render-identical source line-wrap sits at staged `create-plan/SKILL.md:881`. Nothing downstream consumes this track's output — it is the last track.
+
+3 steps, 0 failed.
 
 ## Validation and Acceptance
 Track-level acceptance:
