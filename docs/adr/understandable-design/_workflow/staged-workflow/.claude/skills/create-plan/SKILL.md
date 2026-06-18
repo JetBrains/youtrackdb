@@ -606,21 +606,23 @@ First, read the design workflow document (deferred from Step 1):
 
 Summarize the key research findings and decisions from the conversation, then
 author `design.md` via the `edit-design` skill (`phase1-creation` kind) —
-**not** direct `Edit` / `Write`. Under the relocated adversarial review
-(D6), the decision/assumption challenge already ran on the research log at
-Step 4 part 2's gate, so the `phase1-creation` review is now **cold-read
-only** (see `edit-design/SKILL.md` § Workflow and
-`design-document-rules.md` § Working / sync): the cold-read assesses
-whether a fresh reader can build a working mental model and runs the
-absorption-completeness cross-check (every load-bearing research-log
-decision in scope appears as a seed D-record in `design.md`). The cold-read
-is **gated behind the log-adversarial gate clearing** (S3): a `design.md`
-draft cannot reach cold-read while a log-adversarial entry is open, so a
-load-bearing decision surfaced while authoring the design is appended to
-the log, re-challenged at the gate, and cleared before the cold-read
-assesses comprehension — the same ordering the in-`edit-design` adversarial
-pass used to give. Iterate until the cold-read passes (or the user accepts
-open risks), then write the design document to
+**not** direct `Edit` / `Write`. `phase1-creation` runs the dual-clean inner
+loop (see `edit-design/SKILL.md` § Workflow and `design-document-rules.md`
+§ Working / sync): each round spawns the code-grounded author plus a per-round
+`readability-auditor` plus a separate per-round warm `absorption-check` that
+runs the absorption-completeness cross-check (every load-bearing research-log
+decision in scope appears as a seed D-record in `design.md`). After the inner
+loop converges to dual-clean, the cold `comprehension-review` gate runs once;
+it assesses whether a fresh reader can build a working mental model and runs
+**no** absorption cross-check inline (that check is the separate
+`absorption-check` spawn's job). The cold comprehension gate is **gated behind
+the log-adversarial gate clearing** (S3): the gate cannot run while a
+log-adversarial entry is open, so a load-bearing decision surfaced while
+authoring the design is appended to the log, re-challenged at the gate, and
+cleared before the comprehension gate assesses the draft, matching the ordering
+the in-`edit-design` adversarial pass used to give. Iterate until the
+comprehension gate passes (or the user accepts open risks), then write the
+design document to
 `docs/adr/<dir-name>/_workflow/design.md` using the structure below. The
 design document must incorporate findings and decisions from the research
 phase — it reflects the design choices discussed with the user.
