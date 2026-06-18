@@ -9,22 +9,21 @@ After this track lands, the same authoring loop runs at track authoring (`create
 This track wires the Track 1 loop into the two authoring points it does not yet
 reach. First, `create-plan` Step 4b derives the track files through an author
 spawn plus the same inner loop, with track-decision-record absorption as the
-second check, so `lite` and `minimal` — which have no design buffer — get the
+second check, so `lite` and `minimal` (which have no design buffer) get the
 same readability help. Second, the Phase 4 final-design path's per-round second
 check becomes a **fidelity check** (not absorption) that confirms
 `design-final.md` matches what was built, sourced primarily from the step and
 track episodes with PSI covering the residual. The staged `edit-design` loop
 already selects this check by mutation kind; this track supplies the missing
-half — the fidelity-check agent definition and its spawn-contract row in
-`edit-design` Step 4 — and refreshes the now-stale `create-final-design.md`
+half (the fidelity-check agent definition and its spawn-contract row in
+`edit-design` Step 4) and refreshes the now-stale `create-final-design.md`
 Phase 4 description to match the multi-agent loop. Third, because sub-agent
-authoring already supplies
-the context isolation the full-tier Step 4a / Step 4b session boundary existed
-to force, the two steps collapse into one `create-plan` invocation — a staged
-change to the auto-resume contract that depends hard on Track 1's by-reference
-orchestration. Everything here reuses the author, auditor, and absorption
-roles built in Track 1; this track adds one new agent definition, the fidelity
-check.
+authoring already supplies the context isolation the full-tier Step 4a / Step 4b
+session boundary existed to force, the two steps collapse into one `create-plan`
+invocation, a staged change to the auto-resume contract that depends hard on
+Track 1's by-reference orchestration. Everything here reuses the author,
+auditor, and absorption roles built in Track 1; this track adds one new agent
+definition, the fidelity check.
 
 ## Progress
 - [x] 2026-06-18T07:48Z [ctx=info] Review + decomposition complete
@@ -59,7 +58,7 @@ design.md D-records. -->
 
 #### D15: Collapse the 4a/4b session boundary into one `create-plan` invocation
 - **Alternatives considered**: keep the Step 4a / Step 4b session boundary as the context-isolation mechanism.
-- **Rationale**: the boundary exists today to force a `/clear` so Step 4b derives the plan from the frozen design with a cold context. Sub-agent authoring supplies that isolation directly — the plan and track author is a fresh cold spawn reading the frozen committed design regardless of session — so the boundary stops earning its keep and Step 4a can flow into Step 4b in one invocation. This is a real machinery change, not a cosmetic convenience: it rewrites the `create-plan` auto-resume contract (the routing that keys on whether `design.md` is committed-and-clean → 4b or dirty → 4a, and the "Step 4a ends the session" rule). That routing is the schema a running phase reads, so the change is staged as an execution-procedure change under §1.7(b), not a §1.7(k) prose opt-out. The crash-recovery path is re-specified to fire only on a dirty or absent plan after a committed-clean design; the happy path no longer crosses the boundary, and Step 1c's auto-resume becomes crash-recovery-only.
+- **Rationale**: the boundary exists today to force a `/clear` so Step 4b derives the plan from the frozen design with a cold context. Sub-agent authoring supplies that isolation directly, since the plan and track author is a fresh cold spawn reading the frozen committed design regardless of session, so the boundary stops earning its keep and Step 4a can flow into Step 4b in one invocation. The collapse rewrites the `create-plan` auto-resume contract (the routing that keys on whether `design.md` is committed-and-clean → 4b or dirty → 4a, and the "Step 4a ends the session" rule). Because that routing is the schema a running phase reads, the change is staged as an execution-procedure change under §1.7(b), not a §1.7(k) prose opt-out. The crash-recovery path is re-specified to fire only on a dirty or absent plan after a committed-clean design; the happy path no longer crosses the boundary, and Step 1c's auto-resume becomes crash-recovery-only.
 - **Risks/Caveats**: **by-reference orchestration is a hard requirement** (built in Track 1), not a preference adopted alongside. If any author sub-agent ever returns more than a thin summary, the combined session re-accumulates the design and plan context the boundary kept apart, and the collapse regresses context isolation — **if by-reference cannot hold, the boundary is retained** (gate A6). The freeze-and-commit after design authoring stays as the logical gate and the crash checkpoint; only the coinciding session boundary goes away. A very large design can make even the by-reference combined session long; the mid-phase handoff and the context monitor mitigate it as for any long phase.
 - **Implemented in**: this track (the `create-plan` Step 1c auto-resume re-spec).
 - **Full design**: design.md §"Collapsing the 4a/4b session boundary".
@@ -118,6 +117,7 @@ author**, **cold readability auditor**.
 flowchart TD
     CP["create-plan Step 4b\n(track authoring)"]
     CFD["create-final-design.md\n(Phase 4)"]
+    ED["edit-design\n(phase4-creation)"]
     AU["author (Track 1)"]
     RA["readability auditor (Track 1)"]
     AB["absorption check (Track 1)"]
@@ -127,18 +127,22 @@ flowchart TD
     CP -->|spawns| AU
     CP -->|per round| RA
     CP -->|"per round: track-DR absorption"| AB
-    CFD -->|spawns| AU
-    CFD -->|per round| RA
-    CFD -->|"per round: fidelity, not absorption"| FC
+    CFD -->|routes phase4-creation| ED
+    ED -->|spawns| AU
+    ED -->|per round| RA
+    ED -->|"per round: fidelity, not absorption"| FC
     FC -.reads.-> EP
 ```
 
 - **create-plan Step 4b** reuses author + auditor + absorption with
   `target=tracks`; the second check stays absorption (against the track
-  decision records).
-- **create-final-design** reuses author + auditor + the comprehension gate but
-  swaps the second check to the new **fidelity check**, which reads the
-  episodes and falls back to PSI for the residual.
+  decision records). create-plan Step 4b is the direct spawner here.
+- **create-final-design** routes `phase4-creation` through **edit-design**,
+  which is the direct spawner on the Phase 4 path: it reuses author + auditor +
+  the comprehension gate but swaps the second check to the new **fidelity
+  check**, which reads the episodes and falls back to PSI for the residual. The
+  kind-keyed swap of fidelity-over-absorption lives in `edit-design`, not in
+  `create-final-design`.
 
 ## Plan of Work
 Three concerns, each able to decompose into its own step at Phase A:
