@@ -117,7 +117,15 @@ block while the latest entry is open.
 one-way: the log is read for decision *content* in exactly two places: at
 Step 4a/4b artifact authoring (to seed the carriers) and by the Phase-2
 consistency review (as a cross-check). It is never cross-linked from the
-artifacts it seeds. The `## Adversarial gate record` heading is a
+artifacts it seeds. The authoring site has two sanctioned readers, both at
+Step 4a/4b: the **code-grounded author** (it seeds the carriers from the log)
+and the **warm absorption check** (it confirms every load-bearing log
+decision reached a seed/carrier record, the coverage match the de-warmed
+cold-read no longer carries). Both read at the same authoring site, so the
+site count stays at two; the absorption check is named here so a later reader
+who sees a separate absorption-only spawn reading the log does not count it as
+a third site. The cold readability auditor and the de-warmed comprehension
+reviewer read no log at all. The `## Adversarial gate record` heading is a
 verdict/status read, not a decision-content read, so the gate consumers
 reading it add no third decision-content site. After a track absorbs a
 decision as an inline Decision Record, the **track** is authoritative and the

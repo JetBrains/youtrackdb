@@ -58,21 +58,29 @@ are used for two distinct purposes:
 The overall workflow has five phases:
 - **Phase 0 (Research)**: `/create-plan` — interactive research and exploration (same session as Phase 1 design authoring)
 - **Phase 1 (Planning)**: `/create-plan` — design-first, split into two
-  sub-phases across a mandatory session boundary:
+  sub-phases that run in one `/create-plan` invocation:
   - **Step 4a (design authoring)**: author and review `design.md` via
     `edit-design` (`phase1-creation`), informed by Phase 0 findings. The
-    review runs adversarial first, then cold-read. The session ends when the
-    review passes (or the user accepts open risks) and the design freezes.
-  - **Step 4b (plan derivation)**: in a fresh `/create-plan` session, derive
-    the implementation plan and track files from the frozen `design.md`.
-    `/create-plan` auto-resumes here when `design.md` exists and
-    `implementation-plan.md` does not.
+    review runs adversarial first, then cold-read. The design freezes and is
+    committed (`Add initial design`) when the review passes (or the user
+    accepts open risks); that freeze-and-commit is the logical gate and the
+    crash checkpoint, and the flow continues into Step 4b in the same
+    invocation.
+  - **Step 4b (plan derivation)**: in the same `/create-plan` invocation,
+    derive the implementation plan and track files from the frozen
+    `design.md`. `/create-plan` auto-resumes here only as crash recovery —
+    when a prior invocation ended after the design commit but before the plan
+    derived (`design.md` committed and clean, `implementation-plan.md`
+    absent).
 
-  The Step 4a → Step 4b boundary is a mandatory session boundary, mirroring
-  the Phase A/B/C boundaries below: it keeps design-authoring context from
-  biasing plan derivation, the same way review context is kept out of
-  implementation. Full flow in `create-plan/SKILL.md` Step 1c / Step 4 and
-  `planning.md` §Design Document.
+  The Step 4a → Step 4b transition no longer crosses a session boundary: the
+  context isolation that boundary once forced is supplied by sub-agent
+  authoring, since Step 4b derives the plan through a fresh `design-author`
+  spawn that reads the frozen committed design regardless of session, and the
+  by-reference contract keeps the drafted document out of the orchestrator's
+  context. The collapse depends on by-reference holding; if it cannot, the
+  boundary is retained. Full flow in `create-plan/SKILL.md` Step 1c / Step 4
+  and `planning.md` §Design Document.
 - **Phase 2 (Implementation Review)**: runs **autonomously** as the first
   phase of `/execute-tracks` when the startup protocol detects State 0
   (the phase ledger records no phase boundary past the Phase-0→1 gate; D3).

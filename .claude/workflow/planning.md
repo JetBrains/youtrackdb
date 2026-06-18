@@ -90,13 +90,17 @@ classification): the description below is the `full`-tier path, where the
 plan is **derived from a frozen, reviewed `design.md`**; `lite` and
 `minimal` shed the design and author the plan and track files directly
 from the research log in a single session. In `full`, Phase 1 is
-design-first: `create-plan` authors and reviews `design.md` in its own
-session (Step 4a), the design freezes when its review passes, and the
-implementation plan is derived from that frozen seed in a separate session
-(Step 4b). The plan back-fills nothing the design has not already settled, so
-the Decision Records mirror the design's decisions rather than crystallizing
-ahead of it. `/create-plan` auto-resumes plan derivation when `design.md`
-exists and `implementation-plan.md` does not (see
+design-first: `create-plan` authors and reviews `design.md` first
+(Step 4a), the design freezes and is committed when its review passes, and the
+implementation plan is derived from that frozen seed (Step 4b) within the same
+`/create-plan` invocation. The plan back-fills nothing the design has not
+already settled, so the Decision Records mirror the design's decisions rather
+than crystallizing ahead of it. The two steps no longer span a session
+boundary; the context isolation that boundary forced is supplied by the
+`design-author` sub-agent spawn, which reads the frozen committed design
+regardless of session. `/create-plan` auto-resumes plan derivation as crash
+recovery only — when `design.md` is committed and clean and
+`implementation-plan.md` does not exist (see
 `create-plan/SKILL.md` Step 1c / Step 4). Step-level decomposition is
 **deferred to execution** in every tier — tracks include scope indicators (a
 rough sketch of expected work) but not detailed steps. Final step
@@ -156,9 +160,11 @@ prime the relocated adversarial review's lenses
 **Per-tier Phase-1 flow.**
 
 - `full` — design-first, exactly as §Goal and §Design Document describe:
-  `design.md` is authored and reviewed in its own Step-4a session, freezes
+  `design.md` is authored and reviewed in Step 4a, freezes and is committed
   when its review passes, and the thinned plan plus track files derive from
-  that frozen seed in a separate Step-4b session.
+  that frozen seed in Step 4b — both within one `/create-plan` invocation, no
+  longer across a session boundary (the `design-author` sub-agent spawn
+  supplies the context isolation).
 - `lite` — no `design.md`. The thinned plan and the track files are
   authored in a single Phase-1 session (Step 4b only); the track files
   carry the full inline Decision Records directly, with no design seed to
@@ -718,19 +724,22 @@ In `full`, the plan derives from a separate **design document** at
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).
 
-**Design-first authoring.** `design.md` is authored **first**, in its own
-`create-plan` session (Step 4a), and freezes when its review passes; the plan
-derives from that frozen seed in a separate session (Step 4b). This is the
-inverse of back-filling the design after the plan has crystallized — the
-design is the seed, not a trailing artifact. The design is authored via the
-`edit-design` skill (`phase1-creation` kind), whose review runs **adversarial
-first, then cold-read**: the adversarial pass challenges the design's
-decisions and hidden assumptions against the real code, and only once it
-settles does the cold-read pass assess whether a fresh reader can build a
+**Design-first authoring.** `design.md` is authored **first** in the
+`create-plan` invocation (Step 4a) and freezes when its review passes; the
+plan derives from that frozen seed (Step 4b) within the same invocation. This
+is the inverse of back-filling the design after the plan has crystallized —
+the design is the seed, not a trailing artifact. The design is authored via
+the `edit-design` skill (`phase1-creation` kind), whose review runs
+**adversarial first, then cold-read**: the adversarial pass challenges the
+design's decisions and hidden assumptions against the real code, and only once
+it settles does the cold-read pass assess whether a fresh reader can build a
 working mental model — cold-read does not assess a design the adversarial pass
-may still force to change. The session ends when the review passes (or the
-user accepts open risks); `/create-plan` auto-resumes plan derivation when
-`design.md` exists and `implementation-plan.md` does not. Full flow in
+may still force to change. When the review passes (or the user accepts open
+risks), the design is committed (the logical gate and crash checkpoint) and
+the flow continues into plan derivation in the same invocation rather than
+across a session boundary; `/create-plan` auto-resumes plan derivation only as
+crash recovery, when `design.md` is committed and clean and
+`implementation-plan.md` does not exist. Full flow in
 `create-plan/SKILL.md` Step 1c / Step 4; the review ordering lives in
 `edit-design/SKILL.md` § Workflow and `design-document-rules.md`
 § Working / sync.

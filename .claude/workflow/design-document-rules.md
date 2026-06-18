@@ -101,7 +101,10 @@ track absorbs a record it is authoritative, and the frozen seed cannot
 follow a Phase-3 replan. In `lite`/`minimal` there is no `design.md`;
 Step 4b authoring reads the **research log** directly as the seed for
 the track records (S2: the log is read for decision content only at
-Step 4a/4b authoring and the Phase-2 consistency cross-check). This
+Step 4a/4b authoring and the Phase-2 consistency cross-check; the
+authoring site's two sanctioned readers are the code-grounded author,
+which seeds the carriers, and the warm absorption check, which confirms
+coverage — see `research.md` §"Read-scope discipline (S2)"). This
 rewrites YTDB-1083's original acceptance #4 — which framed the log as a
 transient bridge folded into the design and deleted before freeze: under
 D5 the log is a durable Phase-0/1 ledger removed only at Phase 4
@@ -411,24 +414,28 @@ log-adversarial gate.** Under D6 the decision/assumption challenge no
 longer runs as a local `edit-design` step; it runs once on the research
 log at the Phase 0 → 1 boundary (`prompts/adversarial-review.md`
 §Research-log-scoped review (Phase 0→1), spawned by `create-plan` Step 4).
-So the Phase 1.1 `phase1-creation` review is **cold-read only**, but the
-cold-read is **gated** behind that log-adversarial gate clearing: a
-`design.md` draft cannot reach the cold-read while a log-adversarial entry
-is open (the S3 freeze-order invariant). The ordering is load-bearing for
-the same reason it always was — the cold-read must not assess the
-readability of a design whose decisions have not yet survived challenge —
-but the challenge now happens on the log, ahead of authoring, rather than
-in a local pass the cold-read waits on. A load-bearing decision surfaced
-while authoring the design is appended to the log and re-challenged at the
-gate before the cold-read runs (`edit-design/SKILL.md` § Step 4 states the
-gate-read mechanics). The `phase1-creation` cold-read additionally runs the
-**absorption-completeness** cross-check (log → `design.md` seed D-records;
-D8 / `prompts/design-review.md` §Track-scoped cold-read). This pairs with
-the design-first authoring flow: `design.md` is authored and reviewed in
-its own `create-plan` session (Step 4a) before the plan derives from it.
-No mutation kind runs a local adversarial pass; every kind runs cold-read
-alone, and only `phase1-creation` is gated by the S3 log-adversarial
-freeze order.
+So the Phase 1.1 `phase1-creation` review runs the dual-clean inner loop
+(the cold `readability-auditor` plus the warm `absorption-check` agent each
+round) and then, after the loop converges, the **cold comprehension gate**
+(the de-warmed `prompts/design-review.md`). The comprehension gate is
+**gated** behind the log-adversarial gate clearing: a `design.md` draft
+cannot reach it while a log-adversarial entry is open (the S3 freeze-order
+invariant). The ordering is load-bearing for the same reason it always was:
+the cold comprehension gate must not assess the readability of a design whose
+decisions have not yet survived challenge. The difference is that the challenge
+now happens on the log, ahead of authoring, rather than in a local pass the gate
+waits on. A load-bearing decision surfaced while authoring the design (appended
+by the author, or surfaced by the absorption check as a draft record with no log
+basis, A6) is appended to the log and re-challenged at the gate before the
+comprehension gate runs (`edit-design/SKILL.md` § Step 4 states the gate-read
+mechanics). The **absorption-completeness** cross-check (every load-bearing
+log decision reaching a seed D-record) is the warm `absorption-check` agent's
+per-round job inside the loop, not the cold comprehension gate's; the gate
+reads no log. This pairs with the design-first authoring flow: `design.md` is
+authored and reviewed in its own `create-plan` session (Step 4a) before the
+plan derives from it. No mutation kind runs a local adversarial pass; every
+kind runs the cold comprehension gate alone, and only `phase1-creation` is
+gated by the S3 log-adversarial freeze order.
 
 **Stable reference for review.** Between syncs, `design.md` stays
 **frozen** relative to mechanics. The user reads `design.md` to
@@ -461,17 +468,23 @@ current state of `design-mechanics.md`:
   `design.md` and to every `**Full design**` ref in the plan and
   in every track file under `plan/`.
 
-The sync's cold-read sub-agent gets an extended instruction:
-*"Verify that every TL;DR and mechanism overview in `design.md`
-accurately summarizes the current mechanics file's content for
-the same-named section."* It also runs the Human-reader
-cold-read additions (audience-fit, glossary-introduction,
-why-before-what, navigability, explanatory register — see
+The sync's de-warmed cold-read sub-agent gets an extended
+instruction: *"Verify that every TL;DR and mechanism overview in
+`design.md` accurately summarizes the current mechanics file's
+content for the same-named section."* It also runs the whole-doc
+Human-reader cold-read additions (navigability and the structural
+half of audience-fit — does the Overview name a reader — see
 prompts/design-review.md:reviewer-design:1,4
-§ Human-reader cold-read additions), since the rewritten
-Overview is a freshly human-facing artifact that can drift in
-vocabulary or audience fit while mechanics evolves between
-syncs.
+§ Human-reader cold-read additions), since the rewritten Overview
+is a freshly human-facing artifact that can drift in audience fit
+while mechanics evolves between syncs. The prose half of the
+human-reader checks (glossary-introduction, why-before-what,
+explanatory register, the prose half of audience-fit) and the
+prose AI-tell axis are the `readability-auditor` agent's on
+`design-sync`, the one prose owner per surface (S4); `edit-design`
+Step 4 spawns that cold auditor pass on `design-sync` alongside its
+comprehension gate (`edit-design/SKILL.md` § Step 4 → Spawning the
+comprehension gate, the `design-sync` `readability-auditor` block).
 
 **Staleness reconciliation.** Because `design.md` is frozen
 between syncs while mechanics evolves, the user's feedback may
