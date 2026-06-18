@@ -34,15 +34,14 @@ The three reachable tiers fall straight out of the two answers.
 - **`lite`**: no design question, multiple tracks. No design document, but a thinned plan coordinates the several tracks.
 - **`full`**: a central design question (so, multi-track). The heaviest path: a reviewed, frozen `design.md` seeds a thinned plan and the track files.
 
-What separates them is which artifacts they produce. Three artifacts are universal — every tier writes them, because the machinery that resumes and reviews a run depends on them:
+What separates them is which artifacts they produce. Two artifacts are universal — every tier writes them, because the machinery that resumes and reviews a run depends on them:
 
 - the **research log** (`research-log.md`), the decision ledger Phase 0 fills, which you meet in [Chapter 4](04-phase-0-research.md);
-- the **phase ledger** (`phase-ledger.md`), the append-only event log that records where a run is so a fresh session can resume it, which you meet in [Chapter 7](07-phases-sessions-phase-ledger.md);
-- the **plan-review document** (`plan-review.md`), the Phase 2 audit summary, which you meet in [Chapter 8](08-phase-2-plan-review.md).
+- the **phase ledger** (`phase-ledger.md`), the append-only event log that records where a run is so a fresh session can resume it, which you meet in [Chapter 7](07-phases-sessions-phase-ledger.md).
 
 Two artifacts are tier-dependent, and they are what the lighter tiers shed. The **plan** (`implementation-plan.md`) appears in `lite` and `full` but not `minimal`: a one-track change has nothing to coordinate across tracks, so the plan would just mirror the single track file, and the phase ledger already holds the resume state a plan used to carry. The **design document** (`design.md`) appears only in `full`: it exists exactly when Gate 1 said the change needs one.
 
-Table 3.1 is the authoritative per-tier artifact set, drawn from `conventions.md` (§Per-tier artifact set).
+Table 3.1 lays out what each tier produces, drawn from `conventions.md` (§Per-tier artifact set).
 
 **Table 3.1 — what each tier produces.**
 
@@ -50,7 +49,6 @@ Table 3.1 is the authoritative per-tier artifact set, drawn from `conventions.md
 |---|---|---|---|
 | Research log | yes | yes | yes |
 | Phase ledger | yes | yes | yes |
-| Plan-review document | yes | yes | yes |
 | Plan (`implementation-plan.md`) | — | yes (thinned) | yes (thinned) |
 | Track files | yes (one) | yes (N) | yes (N) |
 | Design document (`design.md`) | — | — | yes |
@@ -64,9 +62,9 @@ The figure below shows the routing as one decision tree, with each tier's artifa
 flowchart TD
   gate1{"Gate 1<br/>Is a design question central to the change?"}
   gate2{"Gate 2<br/>Does the change span more than one track?"}
-  full["full<br/>research log<br/>phase ledger<br/>plan-review doc<br/>design.md (only here)<br/>thinned plan<br/>track files (N)"]
-  lite["lite<br/>research log<br/>phase ledger<br/>plan-review doc<br/>thinned plan<br/>track files (N)<br/>(no design.md)"]
-  minimal["minimal<br/>research log<br/>phase ledger<br/>plan-review doc<br/>one track file<br/>(no design.md, no plan)"]
+  full["full<br/>research log<br/>phase ledger<br/>design.md (only here)<br/>thinned plan<br/>track files (N)"]
+  lite["lite<br/>research log<br/>phase ledger<br/>thinned plan<br/>track files (N)<br/>(no design.md)"]
+  minimal["minimal<br/>research log<br/>phase ledger<br/>one track file<br/>(no design.md, no plan)"]
   gate1 -->|"yes (design needed, multi-track by construction)"| full
   gate1 -->|"no"| gate2
   gate2 -->|"multiple tracks"| lite
