@@ -39,7 +39,7 @@ What separates them is which artifacts they produce. Two artifacts are universal
 - the **research log** (`research-log.md`), the decision ledger Phase 0 fills, which you meet in [Chapter 4](04-phase-0-research.md);
 - the **phase ledger** (`phase-ledger.md`), the append-only event log that records where a run is so a fresh session can resume it, which you meet in [Chapter 7](07-phases-sessions-phase-ledger.md).
 
-Two artifacts are tier-dependent, and they are what the lighter tiers shed. The **plan** (`implementation-plan.md`) appears in `lite` and `full` but not `minimal`: a one-track change has nothing to coordinate across tracks, so the plan would just mirror the single track file, and the phase ledger already holds the resume state a plan used to carry. The **design document** (`design.md`) appears only in `full`: it exists exactly when Gate 1 said the change needs one.
+Two artifacts are tier-dependent, and they are what the lighter tiers shed. The **plan** (`implementation-plan.md`) appears in `lite` and `full` but not `minimal`: a one-track change has nothing to coordinate across tracks, so the plan would just mirror the single track file, and the phase ledger already holds the resume state. The **design document** (`design.md`) appears only in `full`: it exists exactly when Gate 1 said the change needs one.
 
 Table 3.1 lays out what each tier produces, drawn from `conventions.md` (§Per-tier artifact set).
 
@@ -75,11 +75,11 @@ flowchart TD
 
 One thing the table does not capture, and the figure does: `full` is reached by a single `yes` to Gate 1, while `lite` and `minimal` are split apart by Gate 2 only after Gate 1 says `no`. A design-needing change never reaches Gate 2, because it is multi-track by construction. The tree makes that asymmetry visible.
 
-## Three vocabularies that do not collide
+## Two vocabularies that do not collide
 
-One caution before you carry the word "tier" into the later chapters. The workflow uses three small classification scales, and they share no terms on purpose, so they never get confused for one another.
+One caution before you carry the word "tier" into the later chapters. The workflow uses two small classification scales, and they share no terms on purpose, so they never get confused for one another.
 
-The *change tier* (`full`, `lite`, `minimal`) is the one this chapter teaches: a change-level decision about ceremony, made once at planning time. A second scale is the per-step *risk tag* (`low`, `medium`, `high`), applied to each step during execution ([Chapter 9](09-phase-a-decomposition.md)) to decide whether that step gets its own dimensional review. (A third scale, a step-count axis that once picked the pre-execution review panel, was retired when the change tier took over that job; the Further reading points at where its history is recorded.) Two distinct word sets for two distinct live decisions. When a later chapter says "tier", it means the change tier from this gate, and nothing else.
+The *change tier* (`full`, `lite`, `minimal`) is the one this chapter teaches: a change-level decision about ceremony, made once at planning time. The second scale is the per-step *risk tag* (`low`, `medium`, `high`), applied to each step during execution ([Chapter 9](09-phase-a-decomposition.md)) to decide whether that step gets its own dimensional review. Two distinct word sets for two distinct decisions. When a later chapter says "tier", it means the change tier from this gate, and nothing else.
 
 ## Where this leaves you
 
@@ -92,5 +92,4 @@ The two lighter tiers are defined by what they shed, and what they shed is the w
 - `.claude/workflow/planning.md` (§Tier classification): the two gates, the collapse to three tiers, and the per-tier Phase-1 flow.
 - `.claude/workflow/conventions.md` (§Per-tier artifact set, §1.1 glossary): the authoritative artifact table and the `Change tier` / `Phase ledger` definitions.
 - `.claude/workflow/risk-tagging.md` (§Gate 1 reuse): the seven categories and the change-level-versus-per-step reading.
-- `.claude/workflow/conventions-execution.md` (§2.4) and `.claude/workflow/track-review.md` (§Tier-driven review selection): the retired Simple / Moderate / Complex axis and its replacement by tier-driven selection.
 - `.claude/skills/create-plan/SKILL.md` (Step 4): how `/create-plan` asks the gate and waits for your confirmation.
