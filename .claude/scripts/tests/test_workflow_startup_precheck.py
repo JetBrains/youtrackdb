@@ -3954,6 +3954,73 @@ def test_append_ledger_no_orphan_temp_on_failure() -> None:
         )
 
 
+def test_track_review_step6_carries_ac_ledger_append() -> None:
+    """The §What You Do step-6 region of `track-review.md` carries the A→C
+    phase-ledger append call. Reproduces the YTDB-1140 bug: the absence of any
+    A→C `--append-ledger` site let a resumed session re-run Phase A. The bug
+    lives at the doc level — the script already supports `--phase C`; the missing
+    piece was the instruction to call it. A regression guard the bug fix requires
+    per CLAUDE.md.
+
+    Resolution: `track-review.md` is read via the module's `REPO_ROOT` anchor
+    (`Path(__file__).resolve().parents[3]`, the same anchor `SCRIPT_PATH` uses),
+    NOT `LIVE_REPO_ROOT`. Under § 1.7(b) staging this test file and the fixed
+    `track-review.md` are co-located in the staged subtree, so `REPO_ROOT` reads
+    the staged *fixed* copy (carrying the append) while `LIVE_REPO_ROOT` would
+    walk up to the develop-state *unfixed* live copy and false-fail the guard
+    during this branch's own Phase B — the fix self-applies only at the Phase 4
+    promotion. After promotion the two anchors coincide on the fixed file, so
+    `REPO_ROOT` keeps the guard green both during the branch and after. This
+    mirrors § 1.7(d)'s "staged copy authoritative when present."
+
+    Match shape: the three flags `--append-ledger`, `--phase C`, and `--track`
+    are matched ORDER-INDEPENDENTLY within the step-6 region — never as a fixed
+    contiguous string. The canonical argument order (script Usage, the
+    `[--ctx <level>]` slot) puts `--ctx` before `--phase`, so the real call reads
+    `--append-ledger --ctx <level> --phase C --track <N>`; a contiguous-string
+    guard would false-negative against the correct call. The region is sliced to
+    §What You Do step 6 specifically (not the whole file) to avoid the self-match
+    trap: §Phase A Completion step 2's verification prose also contains the
+    literal `phase=C track=<N>` and a `--phase C` recovery snippet, so a
+    whole-file substring match would self-satisfy from that prose even if the
+    real step-6 call were deleted, guarding a string's appearance rather than the
+    instruction's presence."""
+    import re
+
+    track_review = REPO_ROOT / ".claude" / "workflow" / "track-review.md"
+    assert track_review.is_file(), (
+        f"track-review.md must exist at the REPO_ROOT anchor, looked at "
+        f"{track_review} (REPO_ROOT={REPO_ROOT})"
+    )
+    text = track_review.read_text(encoding="utf-8")
+
+    # Slice the §What You Do step-6 region: from the step-6 list item to the next
+    # `### ` section heading (`### Tier-driven review selection…`). The slice
+    # excludes §Phase A Completion step 2, so the self-match trap (step 2's
+    # verification prose carrying `phase=C track=<N>` and a `--phase C` recovery
+    # snippet) cannot satisfy the guard.
+    step6_start = re.search(r"(?m)^6\. \*\*Append the A.C ledger boundary", text)
+    assert step6_start is not None, (
+        "could not locate the §What You Do step-6 heading "
+        "('6. **Append the A→C ledger boundary…') in track-review.md; the "
+        "step-6 region anchor changed"
+    )
+    next_heading = re.search(r"(?m)^### ", text[step6_start.end():])
+    region_end = (
+        step6_start.end() + next_heading.start()
+        if next_heading is not None
+        else len(text)
+    )
+    region = text[step6_start.start():region_end]
+
+    for flag in ("--append-ledger", "--phase C", "--track"):
+        assert flag in region, (
+            f"the §What You Do step-6 region must carry {flag!r} so the A→C "
+            f"ledger append cannot be silently dropped again (YTDB-1140); the "
+            f"region read was:\n{region}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Runner.
 # ---------------------------------------------------------------------------
@@ -4062,6 +4129,8 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("append_ledger_surfaces_write_failure_nonzero", test_append_ledger_surfaces_write_failure_nonzero),
     ("append_ledger_no_orphan_temp_on_success", test_append_ledger_no_orphan_temp_on_success),
     ("append_ledger_no_orphan_temp_on_failure", test_append_ledger_no_orphan_temp_on_failure),
+    # -- doc-presence guard: the A->C ledger append call is present in step 6 ---
+    ("track_review_step6_carries_ac_ledger_append", test_track_review_step6_carries_ac_ledger_append),
 ]
 
 
