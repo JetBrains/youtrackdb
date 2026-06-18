@@ -27,7 +27,7 @@ The log has six sections, each with a defined job.
 - `## Baseline and re-validation` is filled **only** on a workflow-modifying branch — a change to the workflow machinery itself, which needs a rebase-drift anchor an ordinary change does not. On any other branch this section is omitted.
 - `## Adversarial gate record` holds the verdict of the gate that runs at the end of Phase 0 (the next section). It is the gate's durable on-log record, distinct from the throwaway review files the gate also writes.
 
-Each entry in the three continuous logs carries an ISO timestamp and a context-level tag, the same `[ctx=<level>]` convention episodes use elsewhere in the workflow, so a resumed session can read both what was decided and when. The log is append-only through Phase 0, and it keeps accepting appends into Phase 1: a load-bearing decision that surfaces while the design is being authored is appended here and re-triggers the gate, rather than being slipped quietly into the design.
+Each entry in the three continuous logs carries an ISO timestamp and a context-level tag, the same `[ctx=<level>]` convention episodes use elsewhere in the workflow, so a resumed session can read both what was decided and when. The log is append-only through Phase 0, and it keeps accepting appends into Phase 1: a load-bearing decision that surfaces while the design is being authored is appended here and re-triggers the adversarial gate, rather than being slipped quietly into the design.
 
 ```mermaid
 flowchart TD
