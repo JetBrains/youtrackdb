@@ -30,7 +30,8 @@ check.
 - [x] 2026-06-18T07:48Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-18T08:28Z [ctx=safe] Step 1 complete (commit 4045cb1925)
 - [x] 2026-06-18T08:37Z [ctx=safe] Step 2 complete (commit f1e02a55b2)
-- [ ] Step implementation
+- [x] 2026-06-18T08:57Z [ctx=safe] Step 3 complete (commit 9e63002609)
+- [x] 2026-06-18T08:57Z [ctx=safe] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -226,7 +227,7 @@ by-reference contract being validated.
 
 1. Wire the dual-clean authoring loop into `create-plan` Step 4b (concern 1): replace the planner-inline track derivation and the single `general-purpose` `target=tracks` cold-read with an author spawn plus a per-round `readability-auditor` and a separate `absorption-check` agent (track-decision-record absorption); relocate absorption off the `design-review.md` / `comprehension-review` spawn and rewrite the now-stale Step-4b instruction; set the auditor's standing anchors to the plan Component Map and each track's Purpose / Big Picture; keep the S3 freeze-order gate and the existing `iteration_budget` (default 3) / escalation contract as the bounded-iterate exit (S5); inherit the gate-A7 warm-up deferral (warm-up-disabled is the correctness baseline). Edits `create-plan/SKILL.md`. — risk: high (workflow machinery: wires the multi-agent dual-clean control-flow loop with its S5 bounded-iterate exit and S3 freeze-order gate into create-plan Step 4b dispatch)  [x] commit: 4045cb1925
 2. Add the fidelity-check agent and complete the Phase 4 wiring (concern 2): add the fidelity-check agent definition (`Read`, mcp-steroid PSI) under staged `.claude/agents/`; add its spawn-contract row and params keys (episodes path, the frozen `design.md` for the residual, `draft_path=<design-final.md>`, explicitly no `research_log_path`) to staged `edit-design/SKILL.md` Step 4 as a sibling to the `absorption-check` paragraph; refresh the stale `create-final-design.md` Sub-step B description to the multi-agent `phase4-creation` loop and thread the fidelity inputs (episodes path, `output_path`); keep the diagram-to-code verification at entry. *(parallel with Step 1; disjoint files)* — risk: medium (workflow machinery: a new review-agent spec plus bounded Phase-4 second-check wiring; no gate or state-machine rewrite) — size: ~3 files; no mergeable low/medium work, Steps 1 and 3 are both high  [x] commit: f1e02a55b2
-3. Collapse the 4a/4b session boundary, D15 (concern 3): rewrite the four `create-plan/SKILL.md` sites (the Step 1c auto-resume routing with a per-arm disposition, the Design→plan boundary block, the Step 4a end-session instruction, the two session-end commit mechanics) and the `workflow.md` "mandatory session boundary" declaration; keep both session-end commits within one session (the `Add initial design` freeze-and-commit stays the crash checkpoint per D15); preserve the "never a dead end" invariant for every Step 1c arm and retain the dirty / uncommitted-`design.md` recovery arm; confirm by-reference statically (gate A6) before applying and retain the boundary otherwise; touch `planning.md` / `conventions.md` only where a boundary reference becomes inaccurate. Depends on Step 1. — risk: high (workflow machinery: rewrites the create-plan auto-resume state machine / Step 1c control-flow protocol and the session-boundary declaration)  [ ]
+3. Collapse the 4a/4b session boundary, D15 (concern 3): rewrite the four `create-plan/SKILL.md` sites (the Step 1c auto-resume routing with a per-arm disposition, the Design→plan boundary block, the Step 4a end-session instruction, the two session-end commit mechanics) and the `workflow.md` "mandatory session boundary" declaration; keep both session-end commits within one session (the `Add initial design` freeze-and-commit stays the crash checkpoint per D15); preserve the "never a dead end" invariant for every Step 1c arm and retain the dirty / uncommitted-`design.md` recovery arm; confirm by-reference statically (gate A6) before applying and retain the boundary otherwise; touch `planning.md` / `conventions.md` only where a boundary reference becomes inaccurate. Depends on Step 1. — risk: high (workflow machinery: rewrites the create-plan auto-resume state machine / Step 1c control-flow protocol and the session-boundary declaration)  [x] commit: 9e63002609
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -252,6 +253,18 @@ by-reference contract being validated.
 - `.claude/agents/fidelity-check.md` (new)
 - `.claude/skills/edit-design/SKILL.md` (modified — Step 4 fidelity-check row + sibling paragraph)
 - `.claude/workflow/prompts/create-final-design.md` (new — staged copy, Sub-step B refresh)
+
+### Step 3 — commit 9e63002609, 2026-06-18T08:57Z [ctx=safe]
+**What was done:** Collapsed the 4a/4b session boundary (D15, concern 3). Rewrote the four `create-plan/SKILL.md` sites: Step 1c's design-exists / no-plan arm is now crash-recovery-only (committed-and-clean `design.md` routes to Step 4b crash recovery; uncommitted or dirty routes to Step 4a, retained); the Design→plan block describes the one-invocation flow and points to Step 1c as the single routing home rather than restating it; the Step 4a end-session instruction flows straight into Step 4b; and Step 5's two full-tier commits (`Add initial design`, then `Add initial implementation plan`) land in one session, with `Add initial design` kept as the logical gate and crash checkpoint. Updated `workflow.md`'s "mandatory session boundary" declaration and `planning.md`'s "separate session" framings (both copy-then-edit per §1.7(e)). Confirmed by-reference orchestration statically (gate A6: the `design-author` return contract returns only a thin summary, and the Step-4b wiring passes `output_path`); the gate held green, so the boundary was collapsed rather than retained, and the live-harness re-confirmation is carried forward as a deferred Phase-4-promotion / first-live-run item. Every Step 1c arm keeps a resume path, so the "never a dead end" invariant holds.
+
+**What was discovered:** `conventions.md` was not touched. Its only 4a/4b reference, the sanctioned-read-point list ("Step 4a/4b authoring"), names read points rather than the session boundary, and the read points survive the collapse, so the reference stays accurate under the conditional-touch rule. One consequential edit landed beyond the four named sites: the `create-plan/SKILL.md` stamp-divergence note asserted that Step 4a and Step 4b are different sessions, which the collapse makes false on the happy path, so it was rewritten to cover both the same-session happy path (stamps match) and the crash-recovery resume (stamps may diverge).
+
+**What changed from the plan:** none.
+
+**Key files** (under `_workflow/staged-workflow/`):
+- `.claude/skills/create-plan/SKILL.md` (modified — four collapse sites + stamp-divergence note + WP1-3 fixes)
+- `.claude/workflow/workflow.md` (new — staged copy, mandatory-boundary declaration updated)
+- `.claude/workflow/planning.md` (new — staged copy, "separate session" framings updated)
 
 ## Validation and Acceptance
 Track-level acceptance:
