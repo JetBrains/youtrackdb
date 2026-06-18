@@ -556,31 +556,33 @@ isolation the old boundary forced is supplied directly by sub-agent
 authoring: Step 4b's track derivation runs through the `design-author` spawn,
 a fresh cold spawn that reads the frozen committed design regardless of
 session, so no `/clear` is needed to keep design-authoring context out of
-plan derivation. The collapse therefore depends on **by-reference
-orchestration** (built in Track 1, gate A6): the author spawn returns only a
-thin summary, never the drafted document, so the combined session does not
-re-accumulate the design and plan context the boundary kept apart. If
-by-reference cannot hold, the boundary is retained instead (see the gate-A6
-clause where the collapse is applied).
+plan derivation. The collapse therefore rests on a **by-reference
+orchestration invariant** (built in Track 1, confirmed by gate A6 before this
+collapse was applied): the author spawn returns only a thin summary, never the
+drafted document, so the combined session does not re-accumulate the design and
+plan context the boundary kept apart. The running skill always takes the
+collapsed path — there is no runtime branch here that the executor evaluates.
+The "retain the boundary instead" fallback is a design-time decision rule, not
+a live one: it governs whether this collapse ships at all. By-reference was
+confirmed statically (gate A6, held green) for this staged change; the
+live-harness re-confirmation is a deferred Phase-4-promotion / first-live-run
+gate. Were a future change to break the invariant, the boundary would be
+reinstated at that authoring step, not skipped at runtime.
 
 The startup protocol's auto-resume into Step 4b is now **crash-recovery-only**:
 it fires when **`design.md` is committed and clean and
 `implementation-plan.md` does not exist** — the state a crash leaves between
 the design commit and the plan derivation. The committed-and-clean test (not
 bare file presence) is what proves the design is reviewed rather than
-abandoned mid-authoring; Step 1c spells out the exact `git log` / `git status`
-check and the resume-Step-4a fallback for an uncommitted or dirty design.
-This is checked after Step 1.5 (drift) and Step 1a (handoff) have cleared and
-before the aim prompt (Step 2): a crash-recovery resume into Step 4b skips the
-aim prompt and the Phase 0 research loop, because the aim and research are
-already captured in the frozen `design.md` and the conversation that produced
-it. When **neither** file exists, `/create-plan` starts at Phase 0 research as
-usual; when **both** exist, the plan is already derived and the session
-resumes via the normal handoff / drift / state routing rather than re-running
-Step 4. The resume path is never a dead end: a committed, clean frozen
-`design.md` with no plan always routes to Step 4b plan derivation, whether the
-collapsed happy path reaches it directly or a crash-recovery resume re-enters
-it.
+abandoned mid-authoring. This is checked after Step 1.5 (drift) and Step 1a
+(handoff) have cleared and before the aim prompt (Step 2): a crash-recovery
+resume into Step 4b skips the aim prompt and the Phase 0 research loop,
+because the aim and research are already captured in the frozen `design.md`
+and the conversation that produced it. Step 1c above is the single
+decision-rule home for every artifact combination — it spells out the exact
+`git log` / `git status` check, the branch order, the never-a-dead-end
+fallback, and the resume-Step-4a arm for a dirty or uncommitted design; this
+block does not re-derive that routing.
 
 The `lite` and `minimal` tiers have **no `design.md`** and so no Step 4a at
 all: their Step-4b plan derivation runs in the same Phase-1 session that
@@ -1336,7 +1338,7 @@ committed review files under `_workflow/reviews/` are already on disk; the
 blanket `git add docs/adr/<dir-name>/_workflow/` below sweeps any of them
 not yet committed.
 
-- **`full`, two commits in one session (Step 4a then Step 4b)** — after the
+- **`full`, two session-end commits, one session (Step 4a then Step 4b)** — after the
   4a/4b collapse both session-end commits land in **one** `/create-plan`
   invocation, in order, without a session boundary between them.
   - **First commit, at the Step 4a freeze (the crash checkpoint).** `design.md`
@@ -1363,7 +1365,7 @@ not yet committed.
     (the design was already committed and clean from the prior invocation's
     first commit), only this second commit lands in the resuming session — the
     `Add initial design` checkpoint is already on disk.
-- **`lite` / `minimal`, single Phase-1 session** — there is no `design.md`
+- **`lite` / `minimal`, one session-end commit, one session** — there is no `design.md`
   and no session boundary: the research log, the phase ledger, the thinned
   plan (`lite` only — `minimal` has no plan, D2), and the track files were
   produced in one session. Commit them together
