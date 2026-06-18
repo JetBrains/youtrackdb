@@ -226,17 +226,12 @@ with:
 - `iteration_budget`: optional (default `3`) — the bounded-iterate cap
   the `phase4-creation` inner loop runs under.
 
-The fidelity check needs two more inputs threaded through to it. The
-`edit-design` Step 4 spawn contract reads them from the per-round params
-files it writes, but it derives them from what this prompt supplies, so
-pass both when invoking the skill:
+The fidelity check and the post-loop comprehension gate each need one
+more value that is not among the skill arguments above. `edit-design`
+Step 4 writes them into the per-round params files it spawns, so the
+contract is: thread the **`output_path`** below, and let `edit-design`
+derive the fidelity check's two paths from the design directory.
 
-- the **episodes path** — `docs/adr/<dir-name>/_workflow/plan/` (the
-  `plan_dir` whose `plan/track-N.md` files carry the `## Episodes`
-  sections the fidelity check matches `design-final.md` against). This is
-  the same directory you read in Step 2; the fidelity check needs it as
-  its `episodes_path`, distinct from the omitted `--plan-dir` flag, which
-  governs only the cross-file `**Full design**` ref check.
 - the **`output_path`** for the post-loop cold comprehension gate — an
   absolute path under `docs/adr/<dir-name>/_workflow/plan/` where the
   `phase4-creation` comprehension gate persists its `## Structural
@@ -244,7 +239,20 @@ pass both when invoking the skill:
   branch in `edit-design` Step 4 and `prompts/design-review.md § Output
   format`). Every other mutation kind omits this; `phase4-creation`
   supplies it so the Phase 4 cold-read stays out of the orchestrator's
-  context.
+  context. This is the one value you thread in addition to the skill
+  arguments above.
+- the fidelity check's **`episodes_path`** (the
+  `docs/adr/<dir-name>/_workflow/plan/` directory whose `plan/track-N.md`
+  files carry the `## Episodes` sections the check matches
+  `design-final.md` against) and its **`design_path`** (the frozen
+  `docs/adr/<dir-name>/_workflow/design.md` seed read in Step 2) are
+  **not** caller-threaded: `edit-design` Step 4 derives both from the
+  design directory, since `design-final.md` lives at
+  `docs/adr/<dir-name>/design-final.md` and the `_workflow/plan/`
+  directory and frozen `design.md` sit at a fixed offset from it. Neither
+  derivation goes through the omitted `--plan-dir` flag — that flag
+  governs only the cross-file `**Full design**` ref check, which
+  `phase4-creation` skips by mutation kind regardless.
 
 The skill runs the `phase4-creation` multi-agent dual-clean loop, not a
 single cold-read. Each round spawns the code-grounded author (writing

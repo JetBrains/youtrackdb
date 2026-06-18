@@ -827,14 +827,18 @@ Help the user develop the plan:
      `description: "Absorption check (Step-4b round <N>)"`) is the **second
      check**: a separate spawn, not a clause inside the comprehension gate. Its
      params file carries `target=tracks`, `research_log_path` set to the
-     research log, and `draft_path` set to the `plan/` directory (plus
-     `design_path` in `full` when the orchestrator routes the seed↔track
-     fidelity check here). It two-way coverage-matches the load-bearing
-     research-log (or `design.md` seed) decisions against each track's
-     `## Decision Log` records: a load-bearing decision missing from the tracks
-     is a finding, and a track record inventing a decision the log lacks is a
-     finding that re-opens the S3 gate (below) when it is load-bearing, exactly
-     as a decision-shaped comprehension finding does.
+     research log, and `draft_path` set to the `plan/` *directory* (a directory,
+     not a single file: the absorption check reads every `plan/track-N.md`
+     `## Decision Log` under it, per `absorption-check.md § Inputs`), plus
+     `design_path` set to the frozen `design.md` in `full`. It two-way
+     coverage-matches the load-bearing research-log (or, in `full`, `design.md`
+     seed) decisions against each track's `## Decision Log` records: a
+     load-bearing decision missing from the tracks is a finding, and a track
+     record inventing a decision the log lacks is a finding that re-opens the S3
+     gate (below) when it is load-bearing, exactly as a decision-shaped
+     comprehension finding does. It carries `design_path` only as that seed
+     decision source; the **seed↔track fidelity criterion is owned by the
+     comprehension gate** (below), so the absorption check does not run it.
 
    A round that is not dual-clean re-spawns the author with the auditor's
    flagged passages and any absorption log-missing-from-draft decision to seed,
@@ -869,7 +873,12 @@ Help the user develop the plan:
    **no** `output_path`: the absorption cross-check moved off this role onto the
    `absorption-check` spawn above, so the comprehension reviewer runs no prose
    axis (S4) and no absorption cross-check, and with no `output_path` it returns
-   its verdict inline. A decision-shaped comprehension-gate finding re-opens the
+   its verdict inline. The Step-4b gate omits the `output_path` file-write
+   branch that `phase4-creation` uses (`edit-design/SKILL.md` § Step 4)
+   deliberately: its return is the bounded comprehension verdict plus a
+   summary-shaped `## Structural findings` list, not the long-form structural
+   detail `phase4-creation` persists, so the inline return stays small even
+   on a wide `full` surface of N track files plus the frozen `design.md`. A decision-shaped comprehension-gate finding re-opens the
    S3 gate and re-enters the inner loop (the author seeds the surfaced decision,
    the absorption check confirms coverage, the auditor re-checks the prose), so
    the comprehension gate re-runs only once the gate clears again. **A

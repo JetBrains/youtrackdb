@@ -701,10 +701,15 @@ as a decision-shaped comprehension finding does.
 second check, in the slot the absorption check fills at `phase1-creation`. It
 grounds on the episodes and the code, not the log, because Phase 4 reflects what
 was built rather than what was planned (S6) — so no `research_log_path` is passed
-on the Phase 4 path. Its params file carries `episodes_path=<plan_dir>` (the
-`plan/track-N.md` files whose `## Episodes` sections it matches against),
-`draft_path=<design_path>` (the `design-final.md` it is checking), and
-`design_path=<frozen design.md>` for the residual reference only; it carries
+on the Phase 4 path. Derive its three paths from the design directory, not
+from the `--plan-dir` flag (which `phase4-creation` omits): `design-final.md`
+is fixed at `docs/adr/<dir>/design-final.md`, so the episodes directory and the
+frozen seed sit at a fixed offset from it. Its params file carries
+`episodes_path=<docs/adr/<dir>/_workflow/plan/>` (the `plan/track-N.md` files
+whose `## Episodes` sections it matches against),
+`draft_path=<the skill's design_path arg, = design-final.md>` (the document it
+is checking), and `design_path=<the frozen docs/adr/<dir>/_workflow/design.md,
+NOT the skill's design_path arg>` for the residual reference only; it carries
 **no** `research_log_path`. It matches `design-final.md` against the episodes
 both ways: a claim an episode contradicts is a finding the Step 6 inner loop must
 resolve before dual-clean, and a behavioral claim with no episode trace routes to
