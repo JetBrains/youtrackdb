@@ -20,7 +20,7 @@ A change moves through five phases, numbered 0 through 4. Each phase has a job, 
 
 *Phase 2, plan review.* Before any code is written, the plan is checked — against the design, against the actual code, and against itself for internal consistency. A plan that passes this gate is one you can build from without surprises.
 
-*Phase 3, execution.* The work is built one piece at a time. Each piece is reviewed and broken into steps, each step is implemented, tested, and committed, then the finished piece is reviewed again. This is where the code is written, and it is the largest phase.
+*Phase 3, execution.* The work is built one *track* at a time. A track is one self-contained, independently reviewable slice of the whole change; a large change is split into several tracks that land in order. Each track is reviewed and broken into steps, each step is implemented, tested, and committed, then the finished track is reviewed again. This is where the code is written, and it is the largest phase. ([Chapter 6](06-phase-1-plan-and-tracks.md) gives the full definition.)
 
 *Phase 4, final artifacts.* When all the work has landed, you write down what survives the merge: the durable design record and decision record for a large change, or a short summary for a small one. The working notes that tracked progress during the run are removed in the same pass.
 

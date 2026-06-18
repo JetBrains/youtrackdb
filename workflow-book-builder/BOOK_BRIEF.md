@@ -60,6 +60,7 @@ The reader's goal is to run a change through the workflow end to end without a m
 - Not a copy of the workflow files. The reader is learning to run the workflow, not memorising the procedures verbatim. Authors use the source files as the record of fact, then rearrange the material into the teaching arc.
 - Not exhaustive. The book teaches the workflow a new engineer runs: phases 0 through 4, the tiers, tracks and steps and episodes, the review agents, and drift and migration. It does not document every gate, every recovery branch, or every agent prompt in full; it teaches the shape and points at the source for the rest.
 - Not a design rationale archive. Where a decision's rationale helps the reader run the workflow (why a tier exists, why staging keeps the branch off the live workflow), the book explains it. It does not reproduce the full decision history.
+- Not a change log. The book describes the workflow as it stands at the baseline SHA, in the present tense. It does not narrate how the workflow got there: no "older versions", "was retired", "used to", "previously". When a source file keeps its own historical note about a since-removed feature, the book takes the current-state fact and drops the history.
 
 ## Source mapping
 
