@@ -381,3 +381,7 @@ paths.
   Phase 4 promotion commit; the ledger `s17` field carries the
   workflow-modifying token throughout the branch. Verified by inspection of
   the ledger `s17` tail and the staged-subtree layout.
+
+## Base commit
+
+ae1cd3a7710c77ac02f6b5de505d0bb6aee8d70e
