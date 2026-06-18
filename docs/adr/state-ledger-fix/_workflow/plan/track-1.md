@@ -45,7 +45,7 @@ regression guard so the instruction cannot be silently dropped again.
 Place the `workflow-startup-precheck.sh --append-ledger --ctx <level>
 --phase C --track <N>` call in `track-review.md` §What You Do **step 6**,
 immediately before that step's `git commit`, and add `phase-ledger.md` to
-that step's `git add`. Reuse the `<level>` value step 6 already read for its
+that step's `git add`. Reuse the `<level>` value step 5 already read for its
 `## Progress` write to feed `--ctx`. Add a ledger-tail check (the tail
 must read `phase=C track=<N>`) to §Phase A Completion step 2's verification,
 **with its own recovery branch**: when the Phase A commit is present but the
