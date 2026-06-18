@@ -454,10 +454,10 @@ sequencing that calls them. The review surface has two shapes:
   **readability-auditor** plus the round's **second check**; after the inner
   loop converges to dual-clean, Step 4 spawns the cold **comprehension-review**
   gate once. The second check is the warm **absorption-check** for
-  `phase1-creation` and the **fidelity check** for `phase4-creation` (the
-  fidelity-check role and its `phase4-creation` wiring are built in the Phase 4
-  track; this skill calls the same auditor and comprehension gate on both kinds
-  and swaps only the second check).
+  `phase1-creation` and the **fidelity check** for `phase4-creation` (this skill
+  calls the same author, auditor, and comprehension gate on both kinds and swaps
+  only the second check; its spawn contract is the per-round paragraph under
+  §"Spawning the per-round auditor and second check").
 - **Interactive kinds run the cold `comprehension-review` gate** — no author
   spawn (Step 1 edited inline), no inner loop, no second check. For every
   interactive kind except `design-sync` the comprehension gate is the only
@@ -507,6 +507,7 @@ so cutting it is the first cost lever (D13). Spawn each via the `Agent` tool wit
 | code-grounded author | `design-author` | `Read`,`Write`,`Edit`,`Bash`,PSI | yes (the sanctioned authoring read, S2) |
 | cold readability auditor | `readability-auditor` | `Read`,`Grep` | **never** (S1) |
 | warm absorption check (`phase1-creation`) | `absorption-check` | `Read`,`Grep` | yes (the sanctioned absorption read, S2) |
+| fidelity check (`phase4-creation`) | `fidelity-check` | `Read`,PSI | **never** (matches episodes + code, not the log) |
 | cold comprehension gate | `comprehension-review` | `Read`,`Grep` | **never** |
 
 **Per-agent parameters go in a params file, not the spawn prompt (D13).** The
@@ -518,9 +519,10 @@ author's `target` / `research_log_path` / `output_path` / `design_path`
 (track/full seed) / `round` / `flagged_passages` (its full set matches
 `design-author.md § Inputs` key-for-key, so the round-1 author has the
 `research_log_path` it grounds from), the absorption check's
-`research_log_path` and `draft_path` — to a params file under
-`_workflow/plan/` (one file per spawn), and pass only that file's path in the
-spawn prompt. Each agent reads its params file as its first action (its agent
+`research_log_path` and `draft_path`, the fidelity check's `episodes_path` /
+`draft_path` / `design_path` (and explicitly no `research_log_path`) — to a
+params file under `_workflow/plan/` (one file per spawn), and pass only that
+file's path in the spawn prompt. Each agent reads its params file as its first action (its agent
 definition mandates this). A varying spawn-prompt tail would bust the whole
 shared body, so never inline a per-agent value into the prompt.
 
@@ -664,10 +666,12 @@ output format, in one of two shapes split by whether `output_path` was injected
   written file's `## Structural findings` section for the finding detail that
   Step 5 merges.
 
-#### Spawning the per-round auditor and absorption check (creation kinds)
+#### Spawning the per-round auditor and second check (creation kinds)
 
-Step 6 spawns these every round of the inner loop; their contracts live here. Both
-follow the shared params-file-plus-byte-identical-prompt contract above.
+Step 6 spawns these every round of the inner loop; their contracts live here. The
+auditor runs on both creation kinds; the second check is the absorption check on
+`phase1-creation` and the fidelity check on `phase4-creation`. All three follow
+the shared params-file-plus-byte-identical-prompt contract above.
 
 **The readability auditor** (`subagent_type: readability-auditor`,
 `description: "Readability audit (<mutation_kind> round <N>)"`) is range-sliced:
@@ -689,10 +693,29 @@ research-log decision (each `## Decision Log` entry whose
 in `design.md`, and no seed D-record invents a decision the log lacks. A missing
 seed D-record is a finding the Step 6 inner loop must resolve before dual-clean; a
 draft-invents-decision that is load-bearing re-opens the S3 gate (above) exactly
-as a decision-shaped comprehension finding does. For `phase4-creation` the second
-check is the fidelity check instead (built in the Phase 4 track), which grounds on
-the episodes and the code, not the log; no `research_log_path` is passed on the
-Phase 4 path.
+as a decision-shaped comprehension finding does.
+
+**The fidelity check** (`phase4-creation` only —
+`subagent_type: fidelity-check`,
+`description: "Fidelity check (phase4-creation round <N>)"`) is the Phase 4
+second check, in the slot the absorption check fills at `phase1-creation`. It
+grounds on the episodes and the code, not the log, because Phase 4 reflects what
+was built rather than what was planned (S6) — so no `research_log_path` is passed
+on the Phase 4 path. Its params file carries `episodes_path=<plan_dir>` (the
+`plan/track-N.md` files whose `## Episodes` sections it matches against),
+`draft_path=<design_path>` (the `design-final.md` it is checking), and
+`design_path=<frozen design.md>` for the residual reference only; it carries
+**no** `research_log_path`. It matches `design-final.md` against the episodes
+both ways: a claim an episode contradicts is a finding the Step 6 inner loop must
+resolve before dual-clean, and a behavioral claim with no episode trace routes to
+the code through PSI rather than passing on an unrecorded episode-match (gate A8,
+the coverage residual). A `design-final.md` claim that re-asserts a decision an
+episode records as superseded is a finding (S6). The fidelity check's `Read` + PSI
+allow-list is the D13/D14 tool-surface cut; it reads no log (S2), so it is not
+gated by the S3 freeze-order gate that protects the absorption check and the
+author. The check is text-against-text for the bulk and PSI only for the diagram /
+signature precision and the no-episode-trace residual, so the per-round cost stays
+close to the absorption check's.
 
 Map every review role's findings into the same severity schema as mechanical
 findings.
@@ -1008,8 +1031,8 @@ the meaning of the request.
   `readability-auditor` prose pass on `design-sync` (the one prose owner, S4).
   On the creation kinds, the `design-author` (per round), the
   `readability-auditor` fan-out (per round, per slice), the round's second check
-  (`absorption-check` at `phase1-creation`), and the post-loop
-  `comprehension-review` gate.
+  (`absorption-check` at `phase1-creation`, `fidelity-check` at
+  `phase4-creation`), and the post-loop `comprehension-review` gate.
 - `Edit` (append-mode via full-content read) — write the review-log entry.
 
 ## When NOT to use this skill
@@ -1121,6 +1144,6 @@ exists.
 - Comprehension-gate prompt: `.claude/workflow/prompts/design-review.md`
 - Review-role agent definitions: `.claude/agents/design-author.md`,
   `.claude/agents/readability-auditor.md`, `.claude/agents/absorption-check.md`,
-  `.claude/agents/comprehension-review.md`
+  `.claude/agents/fidelity-check.md`, `.claude/agents/comprehension-review.md`
 - File layout: `.claude/workflow/conventions.md` `§1.2`
 - Mechanical script: `.claude/scripts/design-mechanical-checks.py`
