@@ -65,6 +65,10 @@ flowchart TD
   > fix. See `plan/track-1.md` `## Episodes` § Track completion. (2 steps, 0 failed)
   >
   > **Track file:** `plan/track-1.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 1 delivered the four reused roles and
+  > the by-reference orchestration contract Track 2 depends on (D15 gate A6); no
+  > downstream adjustment needed.
 
 - [ ] Track 2: Reuse the loop at track authoring and Phase 4; collapse the 4a/4b boundary
   > Wire the Track 1 loop into `create-plan` Step 4b (so `lite` / `minimal`
