@@ -30,10 +30,11 @@ regression guard so the instruction cannot be silently dropped again.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-18T14:36Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-18T15:12Z [ctx=safe] Step 1 complete (commit 53d4595915)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -159,6 +160,26 @@ central, so the adversarial gate runs lens-free.
   as the originating branch `understandable-design` did. The fix self-applies
   only after the Phase 4 promotion. This is the accepted price of staging.
 
+### D4: Extend the ledger-tail check to both Phase A completion paths (review-driven)
+
+Step-level instruction-completeness review (WI1) found that gating only
+§Phase A Completion step 2 on the ledger tail left §Phase A Resume row 3
+able to declare "steady state, route to Phase B" from the track-file commit
+alone. On a committed-roster-but-stale-ledger state that path would re-run
+Phase A, the YTDB-1140 trace on the resume path. The row-3 steady-state exit
+now gates on the ledger tail reading `phase=C track=<N>` and delegates
+recovery to step 2. The resume-path `--ctx <level>` unbound-token edge (WI2)
+is closed with a fresh-read / `unknown` fallback that preserves D1's
+no-second-statusline-read on the normal path. See Episodes §Step 1.
+
+- **Why:** D1's Plan of Work scoped the change to the §What You Do step-6
+  append plus the §Phase A Completion step-2 verification. Phase A has two
+  completion paths, so the fix has to close the bug on both or a resumed
+  session can still re-run Phase A. WI3 (a per-call append exit-code check)
+  stays unapplied: D1 keeps the append prose-instructed for parity with the
+  four sibling sites, and the two-path ledger-tail verification is the
+  backstop that catches a failed or skipped append.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. Phase A review entries prefixed by review type. -->
 - [x] Technical: PASS at iteration 2 (3 findings, 3 accepted — T1 should-fix
@@ -276,7 +297,7 @@ being present.
    `test_workflow_startup_precheck.py`, resolving `track-review.md` via the
    module's `REPO_ROOT` anchor, not `LIVE_REPO_ROOT` (D2). Verify per §Validation
    and Acceptance. — risk: high (Workflow machinery: drives the auto-resume
-   state machine — adds the A→C ledger boundary that resume routing reads)  [ ]
+   state machine — adds the A→C ledger boundary that resume routing reads)  [x]  commit: 53d4595915
 
 <!-- One coherent HIGH step (HIGH-risk isolation): the append instruction, its
      completion-gate verification, and its regression guard are one logically
@@ -287,6 +308,52 @@ being present.
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 53d4595915, 2026-06-18T15:12Z [ctx=safe]
+**What was done:** Implemented the YTDB-1140 fix as staged `.claude/**`
+edits under `_workflow/staged-workflow/` (§1.7(b)). `track-review.md`
+§What You Do step 6 now appends the A→C phase-ledger boundary
+(`workflow-startup-precheck.sh --append-ledger --ctx <level> --phase C
+--track <N>`) before its commit, with `phase-ledger.md` added to the
+`git add`. §Phase A Completion step 2 now verifies the ledger tail reads
+`phase=C track=<N>` and carries a recovery branch for a
+committed-roster-but-unadvanced-ledger state. A `REPO_ROOT`-anchored,
+region-sliced, order-independent doc-presence guard
+(`test_track_review_step6_carries_ac_ledger_append`) was added to
+`test_workflow_startup_precheck.py` and registered in its `TESTS` list.
+The step-level review loop converged at iteration 2 (writing-style
+WS1/WS2 and instruction-completeness WI1/WI2 all VERIFIED).
+
+**What was discovered:** The review surfaced that the ledger-tail check
+had to cover both Phase A completion paths, not just §Phase A Completion
+step 2. §Phase A Resume row 3 had declared "steady state, route to
+Phase B" from the track-file commit alone, so a
+committed-roster-but-stale-ledger state on that path would re-run Phase A,
+the same YTDB-1140 trace. The fix now gates that exit on the ledger tail
+and delegates recovery to step 2. A second resume-path edge (the append's
+`--ctx <level>` is unbound when sub-step 5 did not run this session) was
+closed with a fresh-read / `unknown` fallback that preserves D1's
+no-second-read on the normal path.
+
+**What changed from the plan:** The implemented fix touches three
+`track-review.md` sites, not the two D1's Plan of Work named: §What You Do
+step 6, §Phase A Completion step 2, and §Phase A Resume row 3 plus the
+resume-path `<level>` fallback, the last two added during review. See
+Decision Log D4. WI3 (a per-call append exit-code check at step 6) was
+deliberately not applied: D1 keeps the append prose-instructed for parity
+with the four sibling sites, and the ledger-tail verification now on both
+completion paths is the backstop.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/track-review.md` (modified, staged)
+- `…/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck.py` (modified, staged)
+
+**Critical context:** During this branch the fix lives only in the staged
+subtree; the live `.claude/**` stays at develop state and self-applies at
+the Phase 4 promotion. Verification runs against the staged copies: the
+guard passes on the staged (fixed) `track-review.md` and fails on the live
+(unfixed) copy, and the acceptance grep `--phase C --track` targets the
+staged path while the live path stays empty until promotion.
 
 ## Validation and Acceptance
 
