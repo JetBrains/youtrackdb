@@ -29,6 +29,7 @@ check.
 ## Progress
 - [x] 2026-06-18T07:48Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-18T08:28Z [ctx=safe] Step 1 complete (commit 4045cb1925)
+- [x] 2026-06-18T08:37Z [ctx=safe] Step 2 complete (commit f1e02a55b2)
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -224,7 +225,7 @@ by-reference contract being validated.
 ## Concrete Steps
 
 1. Wire the dual-clean authoring loop into `create-plan` Step 4b (concern 1): replace the planner-inline track derivation and the single `general-purpose` `target=tracks` cold-read with an author spawn plus a per-round `readability-auditor` and a separate `absorption-check` agent (track-decision-record absorption); relocate absorption off the `design-review.md` / `comprehension-review` spawn and rewrite the now-stale Step-4b instruction; set the auditor's standing anchors to the plan Component Map and each track's Purpose / Big Picture; keep the S3 freeze-order gate and the existing `iteration_budget` (default 3) / escalation contract as the bounded-iterate exit (S5); inherit the gate-A7 warm-up deferral (warm-up-disabled is the correctness baseline). Edits `create-plan/SKILL.md`. — risk: high (workflow machinery: wires the multi-agent dual-clean control-flow loop with its S5 bounded-iterate exit and S3 freeze-order gate into create-plan Step 4b dispatch)  [x] commit: 4045cb1925
-2. Add the fidelity-check agent and complete the Phase 4 wiring (concern 2): add the fidelity-check agent definition (`Read`, mcp-steroid PSI) under staged `.claude/agents/`; add its spawn-contract row and params keys (episodes path, the frozen `design.md` for the residual, `draft_path=<design-final.md>`, explicitly no `research_log_path`) to staged `edit-design/SKILL.md` Step 4 as a sibling to the `absorption-check` paragraph; refresh the stale `create-final-design.md` Sub-step B description to the multi-agent `phase4-creation` loop and thread the fidelity inputs (episodes path, `output_path`); keep the diagram-to-code verification at entry. *(parallel with Step 1; disjoint files)* — risk: medium (workflow machinery: a new review-agent spec plus bounded Phase-4 second-check wiring; no gate or state-machine rewrite) — size: ~3 files; no mergeable low/medium work, Steps 1 and 3 are both high  [ ]
+2. Add the fidelity-check agent and complete the Phase 4 wiring (concern 2): add the fidelity-check agent definition (`Read`, mcp-steroid PSI) under staged `.claude/agents/`; add its spawn-contract row and params keys (episodes path, the frozen `design.md` for the residual, `draft_path=<design-final.md>`, explicitly no `research_log_path`) to staged `edit-design/SKILL.md` Step 4 as a sibling to the `absorption-check` paragraph; refresh the stale `create-final-design.md` Sub-step B description to the multi-agent `phase4-creation` loop and thread the fidelity inputs (episodes path, `output_path`); keep the diagram-to-code verification at entry. *(parallel with Step 1; disjoint files)* — risk: medium (workflow machinery: a new review-agent spec plus bounded Phase-4 second-check wiring; no gate or state-machine rewrite) — size: ~3 files; no mergeable low/medium work, Steps 1 and 3 are both high  [x] commit: f1e02a55b2
 3. Collapse the 4a/4b session boundary, D15 (concern 3): rewrite the four `create-plan/SKILL.md` sites (the Step 1c auto-resume routing with a per-arm disposition, the Design→plan boundary block, the Step 4a end-session instruction, the two session-end commit mechanics) and the `workflow.md` "mandatory session boundary" declaration; keep both session-end commits within one session (the `Add initial design` freeze-and-commit stays the crash checkpoint per D15); preserve the "never a dead end" invariant for every Step 1c arm and retain the dirty / uncommitted-`design.md` recovery arm; confirm by-reference statically (gate A6) before applying and retain the boundary otherwise; touch `planning.md` / `conventions.md` only where a boundary reference becomes inaccurate. Depends on Step 1. — risk: high (workflow machinery: rewrites the create-plan auto-resume state machine / Step 1c control-flow protocol and the session-boundary declaration)  [ ]
 
 ## Episodes
@@ -239,6 +240,18 @@ by-reference contract being validated.
 
 **Key files** (under `_workflow/staged-workflow/`):
 - `.claude/skills/create-plan/SKILL.md` (new — staged copy, Step 4b rework)
+
+### Step 2 — commit f1e02a55b2, 2026-06-18T08:37Z [ctx=safe]
+**What was done:** Built the Phase 4 fidelity check and wired it (concern 2). Added the `fidelity-check` agent definition (`tools: Read, mcp__localhost-6315__*`; `model: sonnet`, matching the `absorption-check` sibling it parallels) under staged `.claude/agents/`. It matches `design-final.md` against the step and track episodes, falls back to PSI for diagram and signature precision and for any claim with no episode trace (gate A8), reads no research log (S2), and reports a re-asserted superseded decision as an S6 finding. Added its spawn-contract row to the staged `edit-design/SKILL.md` Step 4 shared-role table, its params keys (`episodes_path` / `draft_path` / `design_path`, explicitly no `research_log_path`), and a sibling paragraph to the `absorption-check` one in the per-round sub-section, and updated the Tools-used and Reference lists to match. Refreshed `create-final-design.md` Sub-step B from the stale single `whole-doc` cold-read framing to the multi-agent `phase4-creation` loop, threading the fidelity check's episodes path and the comprehension gate's `output_path`. Diagram-to-code verification stays at entry with a per-round re-run only when a round touches a diagram.
+
+**What was discovered:** The staged `edit-design/SKILL.md` carried a stale forward reference saying the fidelity-check role "is built in the Phase 4 track" — wrong once this step builds it in the same file, and a workflow-internal track label besides. It was rewritten to point at the per-round spawn-contract paragraph. `create-final-design.md` was not yet staged, so it was copied from the live tree verbatim (byte-identical) before editing, per the §1.7(e) copy-then-edit rule.
+
+**What changed from the plan:** none.
+
+**Key files** (under `_workflow/staged-workflow/`):
+- `.claude/agents/fidelity-check.md` (new)
+- `.claude/skills/edit-design/SKILL.md` (modified — Step 4 fidelity-check row + sibling paragraph)
+- `.claude/workflow/prompts/create-final-design.md` (new — staged copy, Sub-step B refresh)
 
 ## Validation and Acceptance
 Track-level acceptance:
