@@ -38,6 +38,7 @@ pointing at a section that no longer exists.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-19T13:23Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-19T13:45Z [ctx=safe] Step 1 complete (commit c24f222228)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -480,12 +481,41 @@ section still has a live reference. Step 2 depends on Step 1 so its whole-repo
 rename-safety grep is clean (the checker and its design-doc mirror, Step 1's
 domain, no longer name a removed pattern). The steps touch disjoint files.
 
-1. Shrink the deterministic checker and its design-doc mirror — remove the four `check_dsc_ai_tell` patterns that map to removed rules (Tier-1 vocabulary, em-dash density, signposting, copula) from `design-mechanical-checks.py` and drop the docstring count from eleven to the seven survivors; drop the matching cases from `tests/test_dsc_ai_tell.py` (including the Tier-1 heading-scan regression case) and the removed-pattern blocks from `tests/fixtures/dsc-ai-tell-fixture.md` (including the H3 Tier-1 block); rewrite `design-document-rules.md:287` to drop the four removed-pattern clauses and change "eleven" to the survivor count so it matches the shrunk checker (Move 4 + the T3 lockstep mirror). Acceptance: `test_dsc_ai_tell.py` passes against the shrunk checker; a document with a Tier-1 word, three em dashes, a "Let's dive in" opener, or a "serves as" copula draws no `check_dsc_ai_tell` finding. — risk: medium (test infrastructure + bounded behavioral workflow edit: the checker is not auto-run — only `edit-design` Step 3 invokes it, which this branch never reaches per DR4 — the change is purely subtractive, and `test_dsc_ai_tell.py` fully covers it) — size: ~4 files; heavy-iteration carve-out (checker test-churn kept isolated from the mechanical sweep) and the only other work is the high-isolation Step 2  [ ]
+1. Shrink the deterministic checker and its design-doc mirror — remove the four `check_dsc_ai_tell` patterns that map to removed rules (Tier-1 vocabulary, em-dash density, signposting, copula) from `design-mechanical-checks.py` and drop the docstring count from eleven to the seven survivors; drop the matching cases from `tests/test_dsc_ai_tell.py` (including the Tier-1 heading-scan regression case) and the removed-pattern blocks from `tests/fixtures/dsc-ai-tell-fixture.md` (including the H3 Tier-1 block); rewrite `design-document-rules.md:287` to drop the four removed-pattern clauses and change "eleven" to the survivor count so it matches the shrunk checker (Move 4 + the T3 lockstep mirror). Acceptance: `test_dsc_ai_tell.py` passes against the shrunk checker; a document with a Tier-1 word, three em dashes, a "Let's dive in" opener, or a "serves as" copula draws no `check_dsc_ai_tell` finding. — risk: medium (test infrastructure + bounded behavioral workflow edit: the checker is not auto-run — only `edit-design` Step 3 invokes it, which this branch never reaches per DR4 — the change is purely subtractive, and `test_dsc_ai_tell.py` fully covers it) — size: ~4 files; heavy-iteration carve-out (checker test-churn kept isolated from the mechanical sweep) and the only other work is the high-isolation Step 2  [x] commit: c24f222228
 2. Remove the six concealment-only rules from `house-style.md` and update every consumer in lockstep — `house-style.md` (Move 1: delete `## Banned vocabulary` all tiers, `### Em-dash discipline`, the sycophantic-openers and knowledge-cutoff bullets, `### Signposting`, `### Copula avoidance`; move the Tier-2 precision examples into `§ Plain language`; drop the Reconciliation subsection; trim Self-check items 1/2/4/5/6/7 and re-point the `:359` padding criterion and `:485` item-7 self-references); `conventions.md §1.5` (Move 2: `:621` row six→four, `:626` grep alternation, `:624` count word); the 47 bootstrap-slug files (Move 3: drop the two removed slugs, leaving four); `house-conversation.md` (Move 5: trim the subset list, `:21` count word, add the signposting guard to the `:15` chat carrier); the named prose consumers (Move 6 minus `design-document-rules.md`: `ai-tells/SKILL.md:3` description + body pointers, `review-workflow-writing-style.md` lenses, `hooks/house-style-write-reminder.sh:262` slug list + count word, `design-author.md`, `readability-feedback/SKILL.md`, root `CLAUDE.md` paraphrase refs, plus the additive ownership note in `readability-auditor.md`). Acceptance: the §1.5 rename-safety grep extended with `-i 'sycophantic|signposting|copula|knowledge.cutoff'` returns only benign hits across the whole repo (DR7). *(Depends on Step 1.)* — risk: high (workflow machinery: edits the auto-running `house-style-write-reminder.sh` hook and the always-loaded root `CLAUDE.md`, and removes the §1.5 AI-tell subset sections all 47 bootstrap-slug consumers and every workflow reviewer key off; must land atomically, so high-isolation applies with no file cap)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step.
 Empty at Phase 1. -->
+
+### Step 1 — commit c24f222228, 2026-06-19T13:45Z [ctx=safe]
+**What was done:** Removed the four `check_dsc_ai_tell` patterns that map to
+removed rules (Tier-1 banned vocabulary, em-dash density, signposting openers,
+copula avoidance) from `design-mechanical-checks.py`, and dropped the docstring
+pattern count from eleven to the seven survivors (negative parallelism leading
+and trailing, Title Case headings, authority tropes, hyphenated-pair clusters,
+fragmented headers, inflated-abstraction labels). Dropped the matching positive
+cases and the Tier-1 heading-scan regression case from `test_dsc_ai_tell.py`,
+and the removed-pattern blocks from `dsc-ai-tell-fixture.md` (the four positive
+blocks, the single-em-dash negative block, the H3 Tier-1 block), renumbering
+anchors and negative ranges to the shrunk fixture. Rewrote the `dsc-ai-tell`
+row in `design-document-rules.md` to drop the four removed-pattern clauses and
+change "eleven" to "seven", matching the shrunk checker.
+
+**What was discovered:** The checker and its tests live under `.claude/scripts/`
+(`design-mechanical-checks.py`, `tests/`), not `.github/scripts/`. The runner
+is a standalone script (`python3 .claude/scripts/tests/test_dsc_ai_tell.py`),
+not a pytest module; the environment has no `pytest`. The suite passes after
+the shrink: 8 fixture findings across the 7 survivor patterns, zero on the
+negative cases, zero on the 3 calibration ADRs. A document carrying all four
+removed triggers (a "Let's dive in" opener, a "serves as" copula, Tier-2 words,
+three em dashes in a paragraph) draws no `dsc-ai-tell` finding.
+
+**Key files:**
+- `.claude/scripts/design-mechanical-checks.py` (modified)
+- `.claude/scripts/tests/test_dsc_ai_tell.py` (modified)
+- `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` (modified)
+- `.claude/workflow/design-document-rules.md` (modified)
 
 ## Validation and Acceptance
 
