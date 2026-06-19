@@ -33,10 +33,11 @@ and updates every consumer of those rules in lockstep so no file is left
 pointing at a section that no longer exists.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-19T13:23Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -272,6 +273,18 @@ headings).
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 1 (5 findings, 5 accepted). All five were
+  Plan-of-Work completeness gaps, not correctness errors — every named workflow
+  path, line-anchor, and count the track asserts resolves against the live repo.
+  Fixes folded into Moves 1/2/5/6: T1 added the two phantom `§ Banned vocabulary`
+  self-references inside kept `house-style.md` sections (`:359`, Self-check item 7
+  `:485`); T2 added the stale "six"→"four" count-word edits (`house-conversation.md:21`,
+  `conventions.md:624`, hook `:262`); T3 made `design-document-rules.md:287` a
+  substantive eleven→survivor lockstep rewrite co-decomposed with Move 4; T4
+  corrected Move 1's false "§ Banned sentence patterns note" phrasing; T5 split the
+  named consumers into re-point vs confirm-benign. Gate verification VERIFIED all
+  five, 0 regressions (`technical-gate-verification-iter1.md`). Minimal tier — Risk
+  and Adversarial dropped per the Phase-3A tier table.
 
 ## Context and Orientation
 
@@ -360,16 +373,28 @@ Phase A decomposes them into steps.
    subsection. Trim the Self-check list: item 1 (banned vocabulary) and item 2 (em
    dashes) are removed; item 5 drops the copula-avoidance and signposting names;
    item 4 drops the sycophantic-openers and knowledge-cutoff-disclaimer names;
-   item 6 keeps curly quotes (DR5) but drops nothing else it does not own. Fix the
-   in-file references the removal would break: the `§ Banned sentence patterns`
-   note that points at `§ Punctuation and typography` for em dashes, and any Tier-4
-   cross-references into the removed sections. (The `house-style.md:6` framing
+   item 6 keeps curly quotes (DR5) but drops nothing else it does not own; item 7
+   (the `**Structure.**` line at `house-style.md:485`) drops the "a banned term
+   from § Banned vocabulary" clause from its padding-pattern definition, leaving
+   `§ Banned sentence patterns` and `§ Elegant variation` restatement as the
+   surviving padding sources. Re-point the two phantom self-references that survive
+   the section delete because they live inside KEPT sections: the
+   `### Padding-based finding criterion` rule (`house-style.md:359`, under
+   `## Structural rules`) and Self-check item 7 (`:485`) both cite "a banned term
+   from § Banned vocabulary" in their padding-pattern definition — drop that clause
+   from both, so each cites only `§ Banned sentence patterns` and `§ Elegant
+   variation`. The em-dash and negative-parallelism cross-references the removal
+   would otherwise leave dangling sit inside the removed Tier-4 block
+   (`house-style.md:131`, `:123`), so they self-delete with the section and need no
+   separate fix. (The `house-style.md:6` framing
    "Every rule below applies to every paragraph" and the `:20` four-consumer list
    stay; only the removed sections drop out.)
 2. **Update `conventions.md §1.5`.** Change the Tier-B table row (`:621`) from six
    sections to the four survivors — `§ Orientation`, `§ Plain language`, `§ Banned
-   sentence patterns`, `§ Banned analysis patterns` — and update the rename-safety
-   grep at `:626` to drop the two removed slugs from its alternation.
+   sentence patterns`, `§ Banned analysis patterns` — update the rename-safety
+   grep at `:626` to drop the two removed slugs from its alternation, and change
+   the count word "six" → "four" at `:624` ("The six Tier-B section names are
+   stable headings") so the prose count matches the shrunk list.
 3. **Sweep the bootstrap-slug enumeration.** In every file carrying the verbatim
    six-slug line (47 files by the grep above), drop `## Banned vocabulary` and
    `### Em-dash discipline`, leaving the four survivors. This is the same one-line
@@ -385,9 +410,14 @@ Phase A decomposes them into steps.
    `### Em-dash discipline` from the AI-tell-subset list (lines 23, 26), and the
    copula-avoidance and signposting names from the `## Banned analysis patterns`
    line (line 25) and the sycophantic-opener name from the `## Banned sentence
-   patterns` line (line 24). Confirm the inline chat-only no-preamble rule (line
-   15) carries the sycophantic-opener and signposting guard for chat replies (DR3);
-   make it explicit there if the current wording does not name both.
+   patterns` line (line 24). Change the count word "six" → "four" on line 21
+   ("Apply these six sections of …"), or the list reads four bullets under a "six
+   sections" lead — a live self-contradiction in an always-loaded file. The inline
+   chat-only no-preamble rule (line 15) is the chat-only carrier for the
+   sycophantic-opener and signposting guard (DR3); it today names the sycophantic
+   opener ("Great question") but not signposting ("Let's dive in"), so add the
+   signposting guard to line 15 so the chat surface keeps both after the
+   `house-style.md` bullets leave.
 6. **Update the named prose consumers.** `skills/ai-tells/SKILL.md`: in the
    line-3 `description`, drop the removed-tell names ("delve", "foster", "em dash
    overuse", "knowledge-cutoff disclaimers") while keeping the kept ones (negative
@@ -399,16 +429,38 @@ Phase A decomposes them into steps.
    openers, …)" parenthetical names a removed bullet — drop or re-point each. The
    `§ Punctuation and typography` pointer (`SKILL.md:26`) stays; that section
    survives, only its `### Em-dash discipline` subsection leaves.
-   `agents/readability-auditor.md`,
-   `prompts/design-review.md`, `design-document-rules.md`,
-   `agents/design-author.md`, `agents/review-workflow-writing-style.md`,
-   `skills/readability-feedback/SKILL.md`, `hooks/house-style-write-reminder.sh`,
-   and root `CLAUDE.md`: re-point every reference to a removed section. In
-   `review-workflow-writing-style.md` the em-dash-cap lens (line 30), the
-   banned-vocabulary sweep (lines 29, 70-71, 78), and the knowledge-cutoff lens
-   (line 34) name removed rules and are dropped or re-pointed. Add the part-3
-   ownership note to `readability-auditor.md`: mechanical, countable house-style
-   rules belong to the deterministic checker; the auditor focuses on judgment axes.
+   The remaining named consumers fall in two groups. **Group (a) — an actual
+   removed-section reference to re-point or rewrite:**
+   - `agents/review-workflow-writing-style.md`: the em-dash-cap lens (line 30),
+     the banned-vocabulary sweep (lines 29, 70-71, 78), and the knowledge-cutoff
+     lens (line 34) name removed rules and are dropped or re-pointed; the
+     sycophantic-openers "Great question!" reference (line 73) drops too.
+   - `design-document-rules.md:287`: a substantive rewrite, not a one-line pointer
+     re-point. The `dsc-ai-tell` row hard-codes "Detects eleven `house-style.md`
+     patterns" and spells out all eleven, including the four removed (`§ Tier 1`,
+     `§ Em-dash discipline`, `§ Signposting`, `§ Copula avoidance`). Drop those
+     four clauses and change "eleven" to the survivor count, matching the Move 4
+     checker-docstring edit. Decompose this edit and Move 4 into the same step so
+     the pattern count stays coherent across the checker and its design-doc-facing
+     description.
+   - `hooks/house-style-write-reminder.sh`: drop `## Banned vocabulary` and
+     `### Em-dash discipline` from the Tier-B body slug list (line 262) and change
+     the count word "six" → "four" on the same line.
+   - `agents/design-author.md`, `skills/readability-feedback/SKILL.md`, and root
+     `CLAUDE.md`: re-point or drop every reference to a removed section. Root
+     `CLAUDE.md` carries paraphrase references (`:93`, `:102`) caught by the DR7
+     manual scan rather than the slug grep, so the manual scan resolves its
+     disposition.
+
+   **Group (b) — additive or confirm-benign, no removed-section re-point:**
+   - `agents/readability-auditor.md` hard-codes no rule list (line 71: "no rule
+     list is hard-coded here"); its only `§` citations are `§ Orientation` and
+     `§ Plain language`, both kept. Its Move-6 work is purely the *additive* part-3
+     ownership note — mechanical, countable house-style rules belong to the
+     deterministic checker; the auditor focuses on judgment axes — not a
+     removed-section re-point.
+   - `prompts/design-review.md` cites only kept document-shape sections, so the
+     DR7 manual scan classifies it confirm-benign with no edit.
 7. **Run the completeness check.** Run the §1.5 rename-safety grep (extended with
    `-i 'sycophantic|signposting|copula|knowledge.cutoff'`) and, for every hit,
    confirm it either matches the post-shrink rule set or is a benign reference
@@ -416,7 +468,20 @@ Phase A decomposes them into steps.
    `test_dsc_ai_tell.py`.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+
+The seven moves split into two steps along the prose/script review boundary.
+Step 1 isolates the test-churny checker shrink (Move 4 plus the
+`design-document-rules.md` mirror from Move 6, co-decomposed per T3) so its test
+iteration does not drag the mechanical prose sweep. Step 2 is the atomic
+removal-and-rewire (Moves 1, 2, 3, 5, the rest of Move 6, and Move 7's
+rename-safety grep): the section removal and every consumer update land in one
+commit, so the repo never sits at a boundary where a removed `house-style.md`
+section still has a live reference. Step 2 depends on Step 1 so its whole-repo
+rename-safety grep is clean (the checker and its design-doc mirror, Step 1's
+domain, no longer name a removed pattern). The steps touch disjoint files.
+
+1. Shrink the deterministic checker and its design-doc mirror — remove the four `check_dsc_ai_tell` patterns that map to removed rules (Tier-1 vocabulary, em-dash density, signposting, copula) from `design-mechanical-checks.py` and drop the docstring count from eleven to the seven survivors; drop the matching cases from `tests/test_dsc_ai_tell.py` (including the Tier-1 heading-scan regression case) and the removed-pattern blocks from `tests/fixtures/dsc-ai-tell-fixture.md` (including the H3 Tier-1 block); rewrite `design-document-rules.md:287` to drop the four removed-pattern clauses and change "eleven" to the survivor count so it matches the shrunk checker (Move 4 + the T3 lockstep mirror). Acceptance: `test_dsc_ai_tell.py` passes against the shrunk checker; a document with a Tier-1 word, three em dashes, a "Let's dive in" opener, or a "serves as" copula draws no `check_dsc_ai_tell` finding. — risk: medium (test infrastructure + bounded behavioral workflow edit: the checker is not auto-run — only `edit-design` Step 3 invokes it, which this branch never reaches per DR4 — the change is purely subtractive, and `test_dsc_ai_tell.py` fully covers it) — size: ~4 files; heavy-iteration carve-out (checker test-churn kept isolated from the mechanical sweep) and the only other work is the high-isolation Step 2  [ ]
+2. Remove the six concealment-only rules from `house-style.md` and update every consumer in lockstep — `house-style.md` (Move 1: delete `## Banned vocabulary` all tiers, `### Em-dash discipline`, the sycophantic-openers and knowledge-cutoff bullets, `### Signposting`, `### Copula avoidance`; move the Tier-2 precision examples into `§ Plain language`; drop the Reconciliation subsection; trim Self-check items 1/2/4/5/6/7 and re-point the `:359` padding criterion and `:485` item-7 self-references); `conventions.md §1.5` (Move 2: `:621` row six→four, `:626` grep alternation, `:624` count word); the 47 bootstrap-slug files (Move 3: drop the two removed slugs, leaving four); `house-conversation.md` (Move 5: trim the subset list, `:21` count word, add the signposting guard to the `:15` chat carrier); the named prose consumers (Move 6 minus `design-document-rules.md`: `ai-tells/SKILL.md:3` description + body pointers, `review-workflow-writing-style.md` lenses, `hooks/house-style-write-reminder.sh:262` slug list + count word, `design-author.md`, `readability-feedback/SKILL.md`, root `CLAUDE.md` paraphrase refs, plus the additive ownership note in `readability-auditor.md`). Acceptance: the §1.5 rename-safety grep extended with `-i 'sycophantic|signposting|copula|knowledge.cutoff'` returns only benign hits across the whole repo (DR7). *(Depends on Step 1.)* — risk: high (workflow machinery: edits the auto-running `house-style-write-reminder.sh` hook and the always-loaded root `CLAUDE.md`, and removes the §1.5 AI-tell subset sections all 47 bootstrap-slug consumers and every workflow reviewer key off; must land atomically, so high-isolation applies with no file cap)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step.
@@ -457,8 +522,26 @@ YTDB-1144 criteria:
 test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once
-steps are decomposed. -->
+
+Both steps are pure edits with no durable side effects beyond the working tree,
+so recovery is the standard `git reset --hard HEAD` then re-run from the step's
+clean base. Each edit is idempotent: deleting an already-absent section, dropping
+an already-removed slug, or changing an already-"four" count word is a no-op, so a
+half-applied step re-runs to the same end state without double-removal.
+
+- **Step 1.** The checker and fixture edits are subtractive; re-running over a
+  partially-shrunk checker converges (a pattern already removed stays removed).
+  The gate is `test_dsc_ai_tell.py`: a red suite means the fixture or expected
+  groupings still carry a removed pattern, so iterate on the test/fixture until
+  green. No state outside the three files plus `design-document-rules.md`.
+- **Step 2.** The section removal and the consumer sweep are idempotent text
+  edits; the recovery path on a partial sweep is to re-run the §1.5 rename-safety
+  grep (extended) and edit every remaining hit. Because the grep is the
+  completeness oracle, a re-run after a crash re-derives the exact remaining work
+  from the current tree rather than from a checklist of which files were touched.
+  Step 2 must re-confirm Step 1 landed (clean `test_dsc_ai_tell.py`, no removed
+  pattern named in the checker or its design-doc mirror) before its whole-repo
+  grep can read clean.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't belong to
