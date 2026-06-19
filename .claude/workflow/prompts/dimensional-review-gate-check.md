@@ -27,7 +27,7 @@ review finding set after a `Review fix:` commit was applied. You are
 **not** running a fresh dimensional review — do not re-scan the entire
 diff.
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the six AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, `## Orientation`, and `## Plain language`.
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four AI-tell subset section slugs to apply are `## Banned sentence patterns`, `## Banned analysis patterns`, `## Orientation`, and `## Plain language`.
 
 Inputs:
 - Dimension (your role): {dimension}

@@ -96,53 +96,6 @@ OVERVIEW_LINE_CAP = 40
 # their shape is visible without scrolling through the check body.
 # ---------------------------------------------------------------------------
 
-# Tier 1 hard-ban vocabulary lifted verbatim from
-# `.claude/output-styles/house-style.md § Tier 1 — hard ban` (29 base words).
-# Three entries (`navigate`, `unlock`, `underscore`) carry parenthetical
-# qualifications in the style file ("metaphorical", "as a verb meaning shows")
-# that a flat regex cannot enforce; the rule fires on all 29 unconditionally
-# and the Phase B step episode records the observed false-positive count on
-# the calibration ADRs. Demote-to-`suggestion` is the documented fallback if
-# real usage shows the qualifications matter.
-TIER1_BANNED_VOCAB = [
-    "delve",
-    "tapestry",
-    "pivotal",
-    "testament",
-    "realm",
-    "beacon",
-    "vibrant",
-    "commendable",
-    "paramount",
-    "multifaceted",
-    "holistic",
-    "meticulous",
-    "intricate",
-    "embark",
-    "navigate",
-    "unlock",
-    "foster",
-    "showcase",
-    "commence",
-    "garner",
-    "bolster",
-    "enduring",
-    "elevate",
-    "unwavering",
-    "journey",
-    "ecosystem",
-    "paradigm",
-    "underscore",
-    "nuanced",
-]
-
-# One alternation regex for every Tier-1 base word, case-insensitive, word
-# boundaries on both sides. Compiled once at module load.
-TIER1_BANNED_VOCAB_RE = re.compile(
-    r"\b(" + "|".join(re.escape(w) for w in TIER1_BANNED_VOCAB) + r")\b",
-    re.IGNORECASE,
-)
-
 # Negative parallelism: "It's not X, it's Y." / "It's not X — it's Y."
 # The match is constrained to a single paragraph by the caller (the regex
 # itself is not greedy across blank lines because paragraphs are joined
@@ -218,21 +171,6 @@ INFLATED_ABSTRACTION_LABEL_RE = re.compile(
     r"observation|realization|realisation)s?\s+"
     r"(?:is|are|lies|comes|here|becomes|provides|enables|makes|"
     r"underpins|drives|governs|holds|sits|stems|rests)\b",
-)
-
-# Signposting openers from `house-style.md § Signposting`.
-SIGNPOSTING_OPENERS_RE = re.compile(
-    r"\b(let'?s dive|let'?s break|here'?s what you need)\b",
-    re.IGNORECASE,
-)
-
-# Copula avoidance from `house-style.md § Copula avoidance`. The style file
-# lists more verbs in prose ("acts as", "functions as", "represents"), but
-# only "serves as" and "stands as" are listed for the regex pass per the
-# track plan; the others are judgment calls left to the cold-read prompt.
-COPULA_AVOIDANCE_RE = re.compile(
-    r"\b(serves as|stands as)\b",
-    re.IGNORECASE,
 )
 
 # Persuasive authority tropes from `house-style.md § Persuasive authority
@@ -1694,10 +1632,9 @@ def iter_paragraphs(
     Each top-level bullet item (a line starting with `- `, `* `, `+ `, or
     `N. `) opens a new paragraph even without a preceding blank line, so a
     tightly-packed markdown list is treated as one paragraph per item rather
-    than one paragraph for the whole list. Without this split the em-dash
-    density rule (and the hyphenated-pair cluster rule) would over-fire on
-    legitimate ADR prose where authors stack short bullets with one em dash
-    each.
+    than one paragraph for the whole list. Without this split the
+    hyphenated-pair cluster rule would over-fire on legitimate ADR prose
+    where authors stack short bullets of hyphenated compounds across a list.
 
     Exclusion semantics borrow from `check_dsc_parenthetical_asides`:
 
@@ -1707,11 +1644,12 @@ def iter_paragraphs(
       fence.
     - `exclude_references=True` (default) drops every line from a
       `### References` / `**References.**` toggle through the next heading.
-      Citations there legitimately mention banned vocabulary or hyphenated
-      compounds without being a violation.
+      Citations there legitimately mention hyphenated compounds without
+      being a violation.
     - `exclude_tables=True` (default) drops every line whose first
       non-whitespace character is `|`. Table rows often encode terms,
-      definitions, and citations that would false-fire the vocabulary scan.
+      definitions, and citations that would false-fire the hyphenated-pair
+      cluster scan.
 
     When `section` is supplied, only lines whose 1-based number falls in
     `[section["line_start"], section["line_end"]]` are considered.
@@ -1836,21 +1774,17 @@ def check_dsc_ai_tell(
 ) -> List[Dict]:
     """Detect the subset of `house-style.md` AI-tell patterns expressible as regex.
 
-    Eleven patterns fire (each finding cites `house-style.md § <Section>`
+    Seven patterns fire (each finding cites `house-style.md § <Section>`
     in its description):
 
-    1. Tier-1 banned vocabulary scan (`§ Tier 1 — hard ban`).
-    2. Negative parallelism, leading-negation frame (`§ Banned sentence patterns`).
-    3. Em-dash density >1 per paragraph (`§ Em-dash discipline`).
-    4. Title Case heading on H2+ (`§ Title Case headings forbidden`).
-    5. Signposting openers (`§ Signposting`).
-    6. Copula avoidance (`§ Copula avoidance`).
-    7. Persuasive authority tropes (`§ Persuasive authority tropes`).
-    8. Hyphenated-pair comma cluster (`§ Hyphenated word-pair overuse`).
-    9. Fragmented header (`§ Fragmented headers`).
-    10. Negative parallelism, trailing-negation "X, not just Y" frame
+    1. Negative parallelism, leading-negation frame (`§ Banned sentence patterns`).
+    2. Title Case heading on H2+ (`§ Title Case headings forbidden`).
+    3. Persuasive authority tropes (`§ Persuasive authority tropes`).
+    4. Hyphenated-pair comma cluster (`§ Hyphenated word-pair overuse`).
+    5. Fragmented header (`§ Fragmented headers`).
+    6. Negative parallelism, trailing-negation "X, not just Y" frame
         (`§ Banned sentence patterns`).
-    11. Inflated-abstraction label in the subject slot
+    7. Inflated-abstraction label in the subject slot
         (`§ Banned analysis patterns`).
 
     Signature matches the bounded-aware sibling `check_dsc_parenthetical_asides`:
@@ -1956,47 +1890,11 @@ def check_dsc_ai_tell(
         if not in_range(i):
             continue
 
-        # Tier-1 banned vocabulary, signposting, copula, and authority-trope
-        # scans run on heading lines too: an AI tell like "delve" or
-        # "at its core" inside an H2/H3 is the same signal as in body prose
-        # and the "every authored prose surface" scope in
+        # Persuasive authority-trope scan runs on heading lines too: an AI
+        # tell like "at its core" inside an H2/H3 is the same signal as in
+        # body prose and the "every authored prose surface" scope in
         # `house-style.md § What this style governs` does not exempt
         # heading text.
-        for m in TIER1_BANNED_VOCAB_RE.finditer(line):
-            findings.append(make_finding(
-                "should-fix",
-                "dsc-ai-tell",
-                f"{file_path}:{i}",
-                (f"Tier-1 banned vocabulary per house-style.md § Tier 1 — hard ban: "
-                 f"'{m.group(0)}'."),
-                f"Replace '{m.group(0)}' with a plainer alternative.",
-            ))
-
-        # Signposting openers.
-        for m in SIGNPOSTING_OPENERS_RE.finditer(line):
-            findings.append(make_finding(
-                "should-fix",
-                "dsc-ai-tell",
-                f"{file_path}:{i}",
-                (f"Signposting opener per house-style.md § Signposting: "
-                 f"'{m.group(0)}'. Just say the thing; the reader knows they "
-                 "are reading the document."),
-                f"Cut the signposting opener at line {i} and lead with the claim.",
-            ))
-
-        # Copula avoidance.
-        for m in COPULA_AVOIDANCE_RE.finditer(line):
-            findings.append(make_finding(
-                "should-fix",
-                "dsc-ai-tell",
-                f"{file_path}:{i}",
-                (f"Copula avoidance per house-style.md § Copula avoidance: "
-                 f"'{m.group(0)}'. Prefer 'is' unless the action is genuinely "
-                 "active."),
-                f"Rewrite '{m.group(0)}' as 'is' at line {i}.",
-            ))
-
-        # Persuasive authority tropes.
         for m in AUTHORITY_TROPE_RE.finditer(line):
             findings.append(make_finding(
                 "should-fix",
@@ -2025,8 +1923,7 @@ def check_dsc_ai_tell(
                     "thing the label stands for, not the category noun.",
                 ))
 
-    # --- Per-paragraph scans (em-dash density, hyphenated-pair cluster,
-    #     negative parallelism).
+    # --- Per-paragraph scans (hyphenated-pair cluster, negative parallelism).
     for start_line, para_lines in iter_paragraphs(
         lines,
         section=target_section,
@@ -2037,42 +1934,6 @@ def check_dsc_ai_tell(
         if not in_range(start_line):
             continue
         para_text = " ".join(para_lines)
-
-        # Em-dash density: fire on 3+ em dashes per paragraph (unbalanced
-        # `X — Y — Z — W` cadence, the canonical AI-tell shape), or on 2 em
-        # dashes whose middle segment carries a sentence terminator (which
-        # means the two em dashes are not a single balanced parenthetical
-        # aside but two unpaired uses). A 2-em-dash balanced parenthetical
-        # aside `A — clause — B` (no `.`/`!`/`?` in the middle segment) is
-        # treated as one aside, not as a cadence, and passes the rule. The
-        # canonical `X — Y — Z` cadence the style file flags always has
-        # 3 segments separated by 2 em dashes; with 2 em dashes the cadence
-        # only exists when the middle segment is structurally a sentence
-        # continuation rather than an aside, which is exactly what the
-        # sentence-terminator check captures.
-        em_dash_count = para_text.count("—")
-        em_dash_fires = False
-        if em_dash_count > 2:
-            em_dash_fires = True
-        elif em_dash_count == 2:
-            # Split on em dashes; the middle segment is parts[1].
-            middle = para_text.split("—", 2)[1]
-            if any(ch in middle for ch in ".!?"):
-                em_dash_fires = True
-        if em_dash_fires:
-            findings.append(make_finding(
-                "should-fix",
-                "dsc-ai-tell",
-                f"{file_path}:{start_line}",
-                (f"Em-dash density per house-style.md § Em-dash discipline: "
-                 f"{em_dash_count} em dashes in this paragraph form an "
-                 "unbalanced cadence (balanced parenthetical asides "
-                 "`A — clause — B` are exempt; 3+ em dashes or 2 unpaired "
-                 "em dashes fire)."),
-                f"Replace em dashes at line {start_line} with periods, commas, "
-                "or colons; keep at most one balanced parenthetical aside per "
-                "paragraph.",
-            ))
 
         # Hyphenated-pair comma cluster: dedupe pairs inside the cluster so a
         # match like "fast-paced, fast-paced, fast-paced" does not fire on

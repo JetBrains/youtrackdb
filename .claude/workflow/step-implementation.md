@@ -1042,17 +1042,16 @@ The episode includes:
 
 Prose produced by this file follows the project house-style at
 `.claude/output-styles/house-style.md`. Tier A (full house-style:
-BLUF lead, banned vocabulary, em-dash discipline, soft section
-length cap with template-bound exemptions, structural rules)
+BLUF lead, banned sentence patterns, banned analysis patterns, soft
+section length cap with template-bound exemptions, structural rules)
 applies to the episode prose this protocol writes — the four
 `EPISODE_DRAFT`-sourced fields above
 (`What was done`, `What was discovered`, `What changed from the
 plan`, `Critical context`), merged with cross-track-impact
 observations, plus the Progress / Surprises & Discoveries /
 Decision Log entries the orchestrator emits during sub-step 7.
-The six AI-tell subset section slugs to apply are
-`## Banned vocabulary`, `## Banned sentence patterns`,
-`## Banned analysis patterns`, `### Em-dash discipline`,
+The four AI-tell subset section slugs to apply are
+`## Banned sentence patterns`, `## Banned analysis patterns`,
 `## Orientation`, and `## Plain language`.
 See conventions.md:any:any for the workflow-level pointer.
 

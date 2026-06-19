@@ -1105,16 +1105,16 @@ duplicate the routing tables here. Pointers:
   commit-conventions.md:orchestrator,implementer:3A,3B,3C.
 - **House-style for prose**: `.claude/output-styles/house-style.md`
   is the rule set. Tier A (full house-style: BLUF lead, banned
-  vocabulary, em-dash discipline, soft section length cap with
-  template-bound exemptions, structural rules) applies to commit
-  message bodies, episode-draft / fix-notes prose,
+  sentence patterns, banned analysis patterns, soft section length
+  cap with template-bound exemptions, structural rules) applies to
+  commit message bodies, episode-draft / fix-notes prose,
   `CROSS_TRACK_HINTS`, and any other durable artifact text the
   implementer produces. Tier B (AI-tell subset; structural rules do
   not apply) applies to code comments, Javadoc bodies, and test
-  method names / descriptions; the six section slugs that make up
-  the Tier-B AI-tell subset are `## Banned vocabulary`,
+  method names / descriptions; the four section slugs that make up
+  the Tier-B AI-tell subset are
   `## Banned sentence patterns`, `## Banned analysis patterns`,
-  `### Em-dash discipline`, `## Orientation`, and `## Plain language`.
+  `## Orientation`, and `## Plain language`.
   See conventions.md:any:any for the workflow-level pointer.
 
 ---

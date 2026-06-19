@@ -39,12 +39,12 @@ plan`, `Critical context`) and the matching `## Surprises &
 Discoveries` / `## Decision Log` promotion lines land in durable
 track-file Markdown and survive into the eventual ADR aggregation.
 Apply the full rule set in `house-style.md`
-when drafting them: BLUF lead, banned vocabulary, em-dash
-discipline, soft section length cap with template-bound exemptions,
-structural rules. The six
-AI-tell subset section slugs to apply are `## Banned vocabulary`,
+when drafting them: BLUF lead, banned sentence patterns, banned
+analysis patterns, soft section length cap with template-bound
+exemptions, structural rules. The four
+AI-tell subset section slugs to apply are
 `## Banned sentence patterns`, `## Banned analysis patterns`,
-`### Em-dash discipline`, `## Orientation`, and `## Plain language`.
+`## Orientation`, and `## Plain language`.
 See conventions.md:any:any `§1.5` Writing style for Markdown and prose artifacts for the workflow-level pointer.
 
 ---

@@ -40,9 +40,9 @@ PR.
 > **House style for chat-scale prose.** User-facing prose produced from this
 > file (status updates, observation entries, prune-table rendering, the final
 > stub message) follows the AI-tell subset of
-> `house-style.md`: `## Banned vocabulary`,
+> `house-style.md`:
 > `## Banned sentence patterns`, `## Banned analysis patterns`,
-> `### Em-dash discipline`, `## Orientation`, and `## Plain language`. Structural rules (`§ BLUF lead`, the ≤200-word
+> `## Orientation`, and `## Plain language`. Structural rules (`§ BLUF lead`, the ≤200-word
 > section cap, `§ Document-shape rules`) do not apply to chat-scale prose.
 > See conventions.md:pr-reviewer:any `§1.5`
 > for the workflow-level anchor and tier mapping.
