@@ -388,10 +388,18 @@ Phase A decomposes them into steps.
    patterns` line (line 24). Confirm the inline chat-only no-preamble rule (line
    15) carries the sycophantic-opener and signposting guard for chat replies (DR3);
    make it explicit there if the current wording does not name both.
-6. **Update the named prose consumers.** `skills/ai-tells/SKILL.md`: rewrite the
-   body and the line-3 `description` to drop the removed-tell names ("delve",
-   "foster", "em dash overuse", "knowledge-cutoff disclaimers") while keeping the
-   kept ones (negative parallelism, Title Case). `agents/readability-auditor.md`,
+6. **Update the named prose consumers.** `skills/ai-tells/SKILL.md`: in the
+   line-3 `description`, drop the removed-tell names ("delve", "foster", "em dash
+   overuse", "knowledge-cutoff disclaimers") while keeping the kept ones (negative
+   parallelism, Title Case) — that field is where the removed tells are named
+   verbatim. In the skill body's `## Catalogue lookups` list, re-point the
+   references to removed sections: the two `§ Banned vocabulary` pointers
+   (`SKILL.md:23` and the line-29 "stays distinct from `§ Banned vocabulary`"
+   clause) lose their target, and the line-25 tone-fingerprints "(sycophantic
+   openers, …)" parenthetical names a removed bullet — drop or re-point each. The
+   `§ Punctuation and typography` pointer (`SKILL.md:26`) stays; that section
+   survives, only its `### Em-dash discipline` subsection leaves.
+   `agents/readability-auditor.md`,
    `prompts/design-review.md`, `design-document-rules.md`,
    `agents/design-author.md`, `agents/review-workflow-writing-style.md`,
    `skills/readability-feedback/SKILL.md`, `hooks/house-style-write-reminder.sh`,
