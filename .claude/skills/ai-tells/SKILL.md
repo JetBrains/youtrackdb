@@ -1,6 +1,6 @@
 ---
 name: ai-tells
-description: Reviews any draft for AI writing tells and produces a clean rewrite. Catches vocabulary fingerprints (delve, tapestry, leverage, robust, multifaceted, navigate, foster), structural fingerprints (negative parallelism like "It's not X, it's Y", bullet-everything, Title Case headings, adjective triads), tone fingerprints ("Great question!", "I'd be happy to help", "In conclusion"), and punctuation fingerprints (em dash overuse, knowledge-cutoff disclaimers). Use this skill whenever the user asks to humanize, de-AI, edit, polish, or sanity-check writing, including phrases like "does this sound like ChatGPT", "make this less AI", "humanize this", "edit this draft", "remove the AI smell", "is this AI-y", or "clean this up". Also trigger when the user pastes a draft and asks for feedback on the writing without naming AI specifically.
+description: Reviews any draft for AI writing tells and produces a clean rewrite. Catches structural fingerprints (negative parallelism like "It's not X, it's Y", bullet-everything, Title Case headings, adjective triads), analysis fingerprints (superficial -ing clauses, passive voice, vague attribution, hedge stacking), and tone fingerprints (throat-clearing, closing phrases like "In conclusion"). Use this skill whenever the user asks to humanize, de-AI, edit, polish, or sanity-check writing, including phrases like "does this sound like ChatGPT", "make this less AI", "humanize this", "edit this draft", "remove the AI smell", "is this AI-y", or "clean this up". Also trigger when the user pastes a draft and asks for feedback on the writing without naming AI specifically.
 ---
 
 # AI tells
@@ -20,13 +20,12 @@ Default to audit + rewrite unless the user asks for one mode.
 
 All section references below live in `.claude/output-styles/house-style.md`. Walk these sections during Pass 1:
 
-- Vocabulary fingerprints → `house-style.md § Banned vocabulary` (Tier 1 / 2 / 3 / 4)
 - Structural fingerprints → `house-style.md § Structural rules` and `§ Banned sentence patterns`
-- Tone fingerprints → sub-bullets in `house-style.md § Banned sentence patterns` (sycophantic openers, throat-clearing, closing phrases)
+- Tone fingerprints → sub-bullets in `house-style.md § Banned sentence patterns` (throat-clearing, closing phrases)
 - Punctuation fingerprints → `house-style.md § Punctuation and typography`
-- Content and analysis tells → `house-style.md § Banned analysis patterns` (includes the 12 humanizer gap patterns)
+- Content and analysis tells → `house-style.md § Banned analysis patterns` (includes the humanizer gap patterns)
 - Too-terse / under-orientation fingerprints (a claim stated without its mechanism, an unglossed project-specific entity, a causal chain folded into one clause) → `house-style.md § Orientation`
-- Plain-language fingerprints (an uncommon word where a common one fits, a long tangled sentence, an idiom or an ambiguous phrasal verb) → `house-style.md § Plain language`. This covers general-English clarity outside the closed AI-tell word list, so it stays distinct from `§ Banned vocabulary`.
+- Plain-language fingerprints (an uncommon word where a common one fits, a long tangled sentence, an idiom or an ambiguous phrasal verb) → `house-style.md § Plain language`. This covers general-English clarity and word choice, including preferring the precise or common word.
 
 ## Workflow
 
@@ -36,7 +35,7 @@ All section references below live in `.claude/output-styles/house-style.md`. Wal
 4. **Pass 3, rewrite.** Maintain the writer's intent and voice. Don't substitute one set of AI tells for another.
 5. **Pass 4, self-audit.** Read the rewrite. Ask: what still feels AI? Fix it. Repeat until clean.
 
-Apply during Pass 1: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (sycophantic / throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence.
+Apply during Pass 1: if a sentence still reads cleanly without its opener phrase, delete the phrase; if the sentence collapses without the opener (throat-clearing / closing — see `house-style.md § Banned sentence patterns`), delete the whole sentence.
 
 ## Output format
 

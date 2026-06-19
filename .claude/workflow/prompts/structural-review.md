@@ -36,7 +36,7 @@ file listed in `Inputs:` is procedural input (reviewer guidance), not
 a review target. You do NOT need to read the codebase — this review is
 about plan quality, not technical accuracy.
 
-Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the six AI-tell subset section slugs to apply are `## Banned vocabulary`, `## Banned sentence patterns`, `## Banned analysis patterns`, `### Em-dash discipline`, `## Orientation`, and `## Plain language`.
+Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four AI-tell subset section slugs to apply are `## Banned sentence patterns`, `## Banned analysis patterns`, `## Orientation`, and `## Plain language`.
 
 ## Workflow Context
 <!-- roles=reviewer-plan phases=2 summary="Phase 2 structural review: plan-quality check (no code read) across plan file, track files, and design document." -->

@@ -68,4 +68,4 @@ Per-agent parameters arrive in a params file whose path the spawn prompt names; 
 
 ## Tone
 
-Apply the house-style AI-tell subset to the prose you write (`§ Banned vocabulary`, `§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Em-dash discipline`, `§ Orientation`, `§ Plain language`). Your summary back to the orchestrator follows the same register: BLUF, no padding, concrete file:section anchors.
+Apply the house-style AI-tell subset to the prose you write (`§ Banned sentence patterns`, `§ Banned analysis patterns`, `§ Orientation`, `§ Plain language`). Your summary back to the orchestrator follows the same register: BLUF, no padding, concrete file:section anchors.

@@ -17,7 +17,7 @@ This file is the single declarative source for project writing rules. Every auth
 - Inline code comments and Javadoc when they describe rationale or trade-offs.
 - Status updates and chat messages that the user will paste into durable artifacts.
 
-Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the six AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
+Four readers consume these rules without restating them: the `ai-tells` skill (procedural audit and rewrite), the cold-read prompt in `prompts/design-review.md` (verification by reference), the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` (regex detection), and the default conversation style `house-conversation.md`, which reuses the four AI-tell sections for terminal replies while leaving the document-shape rules to durable artifacts. All four cite this file by section name.
 
 ## BLUF lead
 
@@ -81,7 +81,7 @@ Write the general-English part of your prose in plain words. § Orientation hand
 
 Five moves carry it:
 
-- **Prefer the common general-English word** where it means the same. Pick "use" over "utilize", "show" over "demonstrate", "about" over "regarding".
+- **Prefer the precise or common general-English word** where it means the same. Pick "use" over "utilize", "show" over "demonstrate", "about" over "regarding". When a vague adjective stands in for a specific quality, name the quality: `robust` → "tolerant of <X>" naming the X; `comprehensive` → "covers X, Y, Z".
 - **Keep sentences short, one idea each.** Prefer a period over a stacked subordinate clause. A reader holds one clause at a time.
 - **Avoid idioms, metaphors, and ambiguous phrasal verbs.** Use the literal verb. "Remove" beats "knock out"; "start" beats "kick off".
 - **Expand a non-floor acronym or abbreviation on first use.** A reader who does not know it gets the words once, then the short form. Terms in the § Voice and tone floor (WAL, MVCC, RID) need no expansion.
@@ -89,49 +89,9 @@ Five moves carry it:
 
 **Boundary clause.** Plain language governs general English only. It never simplifies technical content. It never re-teaches the mid-level Java and database floor the reader already has (§ Voice and tone). A precise term of art stays; a plain word never replaces a load-bearing technical one.
 
-**Reconciliation with § Banned vocabulary.** Move (a) (prefer the common word) overlaps the banned-word list, so the two split the work. § Banned vocabulary owns the closed AI-tell list: `leverage → use`, the Tier 1-4 bans. `## Plain language` owns general-English word choice outside that list, and it never re-bans a tier word. A word the banned list allows (for example "utilize", which is not on any tier) is a plain-language call, not a banned-vocabulary one.
-
 **Reconciliation with § Voice and tone.** The "bias toward less text" rule and plain language pull the same way. Short common words and short sentences reduce the word count, which is the anti-padding stance § Orientation already states. Plain language never licenses tutorial text: a simpler word is not an excuse to add an explanation the reader does not need.
 
 **Tier-B code-comment carve.** At code-comment scale (the `*.java` / `*.kt` Tier-B surface in `conventions.md §1.5`), the common-word, acronym-expansion, and no-idiom moves apply; the short-sentence and clause-nesting move does not, because a one-line rationale comment carries no room to split a chain.
-
-## Banned vocabulary
-
-These words appear at AI-anomalous frequency in machine-generated text. The tiers reflect confidence, not severity — Tier 1 is a hard ban, Tier 2 needs a justification, Tier 3 fires especially in marketing-adjacent contexts, Tier 4 lists era-specific tells current as of May 2026.
-
-### Tier 1 — hard ban
-
-Never use these in drafts: delve, tapestry, pivotal, testament, realm, beacon, vibrant, commendable, paramount, multifaceted, holistic, meticulous, intricate, embark, navigate (metaphorical), unlock (metaphorical), foster, showcase, commence, garner, bolster, enduring, elevate, unwavering, journey, ecosystem, paradigm, underscore (as a verb meaning "shows"), nuanced.
-
-If one slipped into your draft, replace with a plainer alternative. There is no context in which any of these is the right word for this project's surfaces.
-
-### Tier 2 — strongly avoid
-
-Allowed only if the literal technical meaning is exact and no shorter word fits: leverage (use "use"), seamless (delete or "transparent"), robust (use "tolerant of X" naming the X), comprehensive (use "covers X, Y, Z"), crucial / vital / essential (use "required" or delete), notably / noteworthy (delete), landscape (use "set of X"), dynamic, innovative, transformative, cutting-edge, state-of-the-art, harness, embrace, dive into, dive deep.
-
-When one of these survives the self-check, write a one-line justification in the PR or design-doc body naming why the plainer word fails.
-
-### Tier 3 — promotional language
-
-Hard ban in this project's surfaces (no marketing or about-page content lives here): boasts a, nestled in, in the heart of, renowned for, exemplifies, stands as a testament, serves as a reminder, represents a shift, marks a turning point, indelible mark, deeply rooted, profound, enhancing, showcasing, commitment to excellence, rich (as an adjective for features/history/heritage).
-
-### Tier 4 — era-specific (current as of May 2026)
-
-**Active right now.** If one of these appears, the draft was not edited:
-
-- Goblin, gremlin (except when referring to the Apache TinkerPop Gremlin query language), raccoon, troll, ogre, pigeon. OpenAI hard-banned these in May 2025; they leak through anyway.
-- "It's not X, it's Y." Still rampant. See § Banned sentence patterns.
-- Markdown-bullet-everything. Still rampant. See § Structural rules.
-- "I'd be happy to help" openers. Still rampant.
-- Title Case section headings on H2+. Still rampant.
-
-**Mostly trained out** (kept in the list because tells cycle):
-
-- "Delve". Paul Graham's 2024 viral tweet pushed OpenAI to train it down. Now uncommon but cited above in Tier 1 anyway.
-- Em dashes at every clause boundary. OpenAI shipped a fix in November 2025. See § Punctuation and typography.
-- "Tapestry". Peak 2023. Now rare.
-
-Update this section quarterly against the Wikipedia "Signs of AI writing" page. Demote trained-out tells but never delete them.
 
 ## Banned sentence patterns
 
@@ -139,12 +99,10 @@ These patterns are the highest-confidence AI tells at the sentence shape level. 
 
 - **Negative parallelism.** "It's not X — it's Y.", "It's not X, it's Y.", "Not just A, but B.", "You're not an X, you're a Y." Cut. The pattern adds no information; it performs depth. Rewrite as a positive statement: "Y." or "X plus Y."
 - **Roundabout negation.** Litotes ("not uncommon", "not unlike") and negation-then-exception ("does NOT track X, only the bare Y"). State what IS true: "common", "tracks only the bare Y".
-- **Sycophantic openers.** "Great question!", "Certainly!", "Absolutely!", "Of course!", "I'd be happy to…", "I'd love to help.", "I'm here to help.", "What a wonderful question!", "I love this prompt!". Cut the opener; if the sentence collapses without it, cut the sentence.
 - **Throat-clearing.** "It's worth noting that", "It is important to consider", "One thing to keep in mind", "It should be noted that…", "Interestingly,". State the thing directly.
 - **Closing phrases.** "In conclusion,", "In summary,", "Ultimately,", "To summarize,", "To wrap up,". The last paragraph is the conclusion by position; the connective is filler.
 - **Trailing hedges.** "…but it depends on the context.", "…though there are trade-offs to consider.", "…although there are nuances.". Either name the trade-off or cut.
 - **Prompt-restating.** "This document will…", "In this section we…", "This response will explore…". Never echo back what was asked. Start with the answer.
-- **Knowledge-cutoff disclaimers.** "As of my knowledge cutoff…", "I may not have current information…", "Information about X may have changed…". Cut from final output. If the claim is time-sensitive, name the date directly.
 
 ## Banned analysis patterns
 
@@ -160,17 +118,6 @@ After:  The cache evicts the oldest page (LRU).
 ```
 
 If the clause names a mechanism the main clause already implied, cut the clause.
-
-### Copula avoidance
-
-"Serves as", "stands as", "acts as", "functions as", "represents" used instead of "is".
-
-```text
-Before: The WAL serves as the durability mechanism for in-flight transactions.
-After:  The WAL is the durability mechanism for in-flight transactions.
-```
-
-The longer verb is filler. Use "is" unless the action being named is genuinely active.
 
 ### Passive voice and subjectless fragments
 
@@ -288,17 +235,6 @@ After:  The cache trades hit rate for memory use; the bound is `disk.cache.maxSi
 
 These phrases perform depth. State the actual mechanism.
 
-### Signposting
-
-"Let's dive in", "Let's break this down", "Here's what you need to know", "First, let's understand", "Now, moving on to".
-
-```text
-Before: Let's break down how the WAL handles partial writes. First, we need to understand the page format.
-After:  The WAL handles partial writes via the page checksum: on replay, a mismatched checksum aborts the segment.
-```
-
-Just say the thing. The reader knows they are reading the document.
-
 ### Elegant variation
 
 Cycling through synonyms for the same concept inside one passage to avoid repetition: "the cache", "this storage layer", "the in-memory tier", "this caching subsystem", "the system" — all referring to the same component.
@@ -323,16 +259,6 @@ Name the actual range with units, or cut the claim.
 
 ## Punctuation and typography
 
-### Em-dash discipline
-
-Em dashes are not banned but are the strongest AI tell at scale.
-
-- At most one em dash per paragraph.
-- Never use an em dash where a period, comma, or colon works.
-- Never use the `X — Y — Z` triple-clause cadence.
-
-When in doubt, use a period. The mechanical check counts em dashes per blank-line-bounded paragraph outside fenced code; more than one is a finding.
-
 ### Hyphenated word-pair overuse
 
 The signal is *adjectival ornament* ("fast-paced, well-crafted, next-generation"), not legitimate technical compounds ("write-ahead", "in-memory", "log-structured").
@@ -356,7 +282,7 @@ Cap bold at roughly two instances per section, on phrases the reader needs to fi
 
 - **Section length cap.** Each subsection (under a `###` heading) targets ≤ 200 words as a soft cap. The threshold is a heuristic trigger for closer review, not the metric being enforced.
 - **Section length cap exception.** Five template-bound content shapes are exempt regardless of length, because every paragraph is load-bearing and the structure itself enforces compression: (1) ExecPlan structured-field paragraph blocks under `## Episodes` (the labeled-bold-paragraph template from `conventions-execution.md §2.2` and `episode-format-reference.md`); (2) edit-list subsections under `design-mechanics.md` where every line names a file, method, or call site; (3) full state-machine tables under `design.md` or `design-mechanics.md` where every row is a state transition; (4) file:line citation blocks under `design-mechanics.md` where the load-bearing content is the citation set; (5) multi-step derivations under `design-mechanics.md` where the rationale that `design.md` compressed to a TL;DR has room to expand. The list is non-exhaustive — future template additions land by matching an existing category or by explicit addition. The unit of evaluation is the smallest labeled block containing the prose: a `## Episodes` parent containing one exempt structured-field block plus one non-exempt free-form block is scored as two units, the structured-field block exempt and the free-form block subject to the soft cap.
-- **Padding-based finding criterion.** For prose outside the exempt list, a section exceeding 200 words is a finding only when it also contains one or more padding patterns: a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement (cycling synonyms per § Elegant variation, or a paragraph adding no information beyond the previous one). The finding's description points at the padding pattern, not the word count. Length alone is not a finding.
+- **Padding-based finding criterion.** For prose outside the exempt list, a section exceeding 200 words is a finding only when it also contains one or more padding patterns: a pattern from § Banned sentence patterns, or restatement (cycling synonyms per § Elegant variation, or a paragraph adding no information beyond the previous one). The finding's description points at the padding pattern, not the word count. Length alone is not a finding.
 - **Bullet discipline.** Bullets are for lists of items the reader will scan. Do not bullet a single thought across three lines just to "look structured". Prefer one tight sentence over three parallel bullets.
 - **No faux-symmetry.** Do not invent a third bullet or a fourth section just to balance the structure. If there are two real points, write two.
 - **No restating the prompt.** Never echo back what was asked. Start with the answer.
@@ -476,17 +402,15 @@ This is the design-doc specialization of § Orientation: the always-on linearize
 
 Before handing the output back, scan it for:
 
-1. **Banned vocabulary.** Tier 1 (hard ban): replace. Tier 2 (strongly avoid): replace or justify. Tier 3 (promotional): replace. Tier 4 (era-specific): replace.
-2. **Em dashes.** Count per paragraph. More than one is a finding.
-3. **Negative parallelism and roundabout negation.** "It's not X, it's Y" / "Not just A, but B" / "not uncommon" / "does NOT track X, only Y". Rewrite as a positive statement.
-4. **Sycophantic openers, throat-clearing, closing phrases, trailing hedges, prompt-restating, knowledge-cutoff disclaimers.** Cut.
-5. **Analysis patterns.** Superficial -ing, copula avoidance ("serves as"), passive voice, nominalization and placeholder words, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), signposting ("let's dive in"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
-6. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
-7. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a banned term from § Banned vocabulary, a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap); no run-on mechanism sentences or mid-clause file:line citations (present a multi-step sequence as a numbered list, fenced trace, or sequence diagram per § Mechanism traces and inline citations).
-8. **Orientation.** Every prose surface, not only design docs: lead with the plain claim, gloss each project-specific entity at first use, linearize causal chains one link per sentence. A passage the § Voice and tone reader cannot follow without opening the code is a finding under § Orientation. The added words must be a definition or a causal link, never a hedge or restatement.
-8a. **Plain language.** Every prose surface: prefer the common word, keep sentences short with one idea each, avoid idioms and ambiguous phrasal verbs, expand a non-floor acronym on first use, keep the grammar explicit (active subject-verb-object). Plain language governs general English only; it never simplifies technical content or re-teaches the § Voice and tone floor.
-9. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
-10. **BLUF.** The first paragraph states the decision or symptom directly. Section openers don't restate the section heading.
-11. **Paragraphs that don't add information beyond the previous one.** Delete.
+1. **Negative parallelism and roundabout negation.** "It's not X, it's Y" / "Not just A, but B" / "not uncommon" / "does NOT track X, only Y". Rewrite as a positive statement.
+2. **Throat-clearing, closing phrases, trailing hedges, prompt-restating.** Cut.
+3. **Analysis patterns.** Superficial -ing, passive voice, nominalization and placeholder words, broken grammar around code identifiers, hedge stacking, filler hedges, vague attribution, generic positive conclusions, persuasive authority ("at its core"), elegant variation, false ranges. Each gets the matching rewrite from § Banned analysis patterns.
+4. **Punctuation.** Hyphenated word-pair clusters in adjectival position (3+ distinct in one paragraph) → rewrite. Curly quotes → straight quotes. Excessive boldface → cap at 2 per section.
+5. **Structure.** Section length ≤200 words is a soft cap. Five template-bound categories are exempt regardless of length: ExecPlan structured-field paragraph blocks under `## Episodes`, edit-list subsections under `design-mechanics.md`, full state-machine tables under `design.md` or `design-mechanics.md`, file:line citation blocks under `design-mechanics.md`, and multi-step derivations under `design-mechanics.md`. The unit of evaluation is the smallest labeled block. For prose outside the exempt list, a >200-word unit is a finding only when it also contains padding — a pattern from § Banned sentence patterns, or restatement per § Elegant variation. Length alone is not a finding. Also check: no faux-symmetry; no bullet-everything; no inline-header lists outside genuine definition lists; sentence case on H2+; no skipped heading levels; no fragmented headers (heading + ≤1-line paragraph with ≥50% content-word overlap); no run-on mechanism sentences or mid-clause file:line citations (present a multi-step sequence as a numbered list, fenced trace, or sequence diagram per § Mechanism traces and inline citations).
+6. **Orientation.** Every prose surface, not only design docs: lead with the plain claim, gloss each project-specific entity at first use, linearize causal chains one link per sentence. A passage the § Voice and tone reader cannot follow without opening the code is a finding under § Orientation. The added words must be a definition or a causal link, never a hedge or restatement.
+7. **Plain language.** Every prose surface: prefer the precise or common word, keep sentences short with one idea each, avoid idioms and ambiguous phrasal verbs, expand a non-floor acronym on first use, keep the grammar explicit (active subject-verb-object). Plain language governs general English only; it never simplifies technical content or re-teaches the § Voice and tone floor.
+8. **Document shape (design/ADR only).** Overview concept-first, audience-fit, glossary-introduction, why-before-what, navigability, explanatory register, Edge cases sub-section, References footer shape, same-shape sibling consolidation per § Document-shape rules.
+9. **BLUF.** The first paragraph states the decision or symptom directly. Section openers don't restate the section heading.
+10. **Paragraphs that don't add information beyond the previous one.** Delete.
 
 Only return the draft once every check passes. For the regex-detectable subset, the `dsc-ai-tell` rule in `scripts/design-mechanical-checks.py` is the mechanical pre-flight; this self-check is the judgment layer that catches what regex cannot.

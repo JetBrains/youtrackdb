@@ -693,10 +693,8 @@ def test_15_captured_fixture_replay() -> List[str]:
 TIER_B_HEADINGS = [
     "## Orientation",
     "## Plain language",
-    "## Banned vocabulary",
     "## Banned sentence patterns",
     "## Banned analysis patterns",
-    "### Em-dash discipline",
 ]
 
 

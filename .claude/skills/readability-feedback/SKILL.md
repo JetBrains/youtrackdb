@@ -33,7 +33,7 @@ The authoritative ruleset is always the live `.claude/output-styles/house-style.
 2. **Partition.** Split the doc into ~200-line ranges on `##` / `# Part` boundaries; give each companion file (`design-mechanics.md`) its own range. Cap at ~6 sub-agents.
 3. **Fan out the audit.** Launch one `general-purpose` sub-agent per range, in parallel, with the dispatch prompt in `## Audit sub-agent prompt` below (fill `{TARGET_PATH}`, `{START}`, `{END}`). Each agent reads `house-style.md` in full, audits only its range, and classifies every obscure passage as `CAUGHT by § <section>` or `GAP`.
 4. **Synthesize.** Merge the findings. Split them into CAUGHT (the doc's own violations) and GAP (no rule catches). Group the GAPs by underlying tell, and fold an aggravated-but-caught residual into the nearest group.
-5. **Draft one rule change per GAP group.** Name the rule, the target section (general tells go under Banned vocabulary / Banned sentence patterns / Banned analysis patterns / Structural rules; design-doc-shape tells go under Document-shape rules), the scope, a Before/After grounded in the real finding, and the sync set it triggers (see `## Rule sync map`).
+5. **Draft one rule change per GAP group.** Name the rule, the target section (general tells go under Banned sentence patterns / Banned analysis patterns / Structural rules; design-doc-shape tells go under Document-shape rules), the scope, a Before/After grounded in the real finding, and the sync set it triggers (see `## Rule sync map`).
 6. **Gate.** Present two things and stop for approval: (a) the obscure-paragraph report with `file:line` for both CAUGHT and GAP, and (b) the proposed rule changes grouped by tell. Apply only what the user approves. Editing the rules is never automatic, because every rule applies to every future design doc.
 7. **Apply through the sync discipline.** For each approved rule, walk `## Rule sync map` and edit every file the rule's scope touches in one pass.
 8. **Validate and report.** Run the checks in `## Validation`, report what changed, and offer to commit. Re-runs converge: because step 3 reads the current rules, a paragraph that was a GAP last time is CAUGHT next time.
@@ -51,10 +51,10 @@ When a rule is added or renamed, update every file its scope touches:
 On a rename, run the governance grep from `conventions.md §1.5` to find every pointer and update them in the same commit:
 
 ```bash
-grep -rnE '## Orientation|## Plain language|§ Orientation|§ Plain language|Banned vocabulary|Banned sentence patterns|Banned analysis patterns|Em-dash discipline' .claude/ CLAUDE.md
+grep -rnE '## Orientation|## Plain language|§ Orientation|§ Plain language|Banned sentence patterns|Banned analysis patterns' .claude/ CLAUDE.md
 ```
 
-`Orientation` and `Plain language` are common words, so the scan matches them only in their `##` or `§` heading-pointer form to stay precise; the other four names are distinctive enough to match bare.
+`Orientation` and `Plain language` are common words, so the scan matches them only in their `##` or `§` heading-pointer form to stay precise; the other two names are distinctive enough to match bare.
 
 ## Validation
 
@@ -69,7 +69,7 @@ Dispatch this to each range agent, substituting the three placeholders:
 ```text
 Audit a YouTrackDB design document for hard-to-read prose and classify each finding against the house-style ruleset.
 
-STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-style.md`. Note especially § Orientation, § Plain language, § Banned vocabulary, § Banned sentence patterns, § Banned analysis patterns (and its subsections), § Punctuation and typography, § Structural rules (and its subsections), and § Document-shape rules.
+STEP 1 — Read the authoritative ruleset IN FULL: `.claude/output-styles/house-style.md`. Note especially § Orientation, § Plain language, § Banned sentence patterns, § Banned analysis patterns (and its subsections), § Punctuation and typography, § Structural rules (and its subsections), and § Document-shape rules.
 
 STEP 2 — Read `{TARGET_PATH}`, lines {START}-{END} only.
 
