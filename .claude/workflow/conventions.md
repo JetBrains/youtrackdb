@@ -604,9 +604,9 @@ authoritative source for the trigger list and use cases.
 Every prose surface in this repo follows the rules in
 `.claude/output-styles/house-style.md`.
 That file is the single declarative source: BLUF lead, banned
-vocabulary, banned sentence patterns, banned analysis patterns,
-punctuation and typography, structural rules, and document-shape rules
-for design / ADR artifacts. Every cross-reference from a workflow
+sentence patterns, banned analysis patterns, punctuation and
+typography, structural rules, and document-shape rules for design /
+ADR artifacts. Every cross-reference from a workflow
 prompt, review agent, implementer file, or orchestrator file resolves
 to that file by repo-relative path.
 

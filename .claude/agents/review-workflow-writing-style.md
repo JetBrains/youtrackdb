@@ -35,7 +35,7 @@ Read `.claude/output-styles/house-style.md` once at the start of the review to g
 
 ## Tooling
 
-Use **`Read`** on the changed files and on `.claude/output-styles/house-style.md` for rule reference. Use **`Grep`** for "is this banned word in the file" sweeps. PSI does not apply.
+Use **`Read`** on the changed files and on `.claude/output-styles/house-style.md` for rule reference. Use **`Grep`** for sentence- and analysis-pattern phrase sweeps (negative-parallelism markers, hedge stacks, signpost phrases). PSI does not apply.
 
 ## Your mission
 
