@@ -36,13 +36,14 @@ pointing at a section that no longer exists.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-19T13:23Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-19T13:45Z [ctx=safe] Step 1 complete (commit c24f222228)
 - [x] 2026-06-19T14:10Z [ctx=safe] Step 2 complete (commit f69062032c)
 - [x] 2026-06-19T14:10Z [ctx=safe] Step implementation complete (Phase B)
 - [x] 2026-06-19T14:39Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-19T14:41Z [ctx=safe] Track-level code review PASS (6 reviewers, 0 blockers; 3 should-fix/suggestion fixed + gate-verified)
+- [x] 2026-06-19T14:42Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -303,6 +304,16 @@ summary at Phase C. -->
   named consumers into re-point vs confirm-benign. Gate verification VERIFIED all
   five, 0 regressions (`technical-gate-verification-iter1.md`). Minimal tier — Risk
   and Adversarial dropped per the Phase-3A tier table.
+- [x] Phase C track-level review: PASS at iteration 1. Six workflow reviewers
+  (consistency, context-budget, prompt-design, instruction-completeness,
+  hook-safety, writing-style — the workflow-only diff skipped the four Java
+  baselines per the baseline-skip override). 0 blockers. Three should-fix/
+  suggestion findings, all on consumer sites the lockstep sweep missed
+  (`code-review/SKILL.md:377` reviewer roster, `conventions.md:607` §1.5
+  declarative-source list with "banned vocabulary" line-wrapped past both
+  greps, `review-workflow-writing-style.md:38` vestigial Grep tooling line) —
+  fixed in `911ec2efc2` and gate-verified (all VERIFIED, 0 regressions, 0 new
+  findings). No deferred findings, no plan corrections (minimal tier, no plan).
 
 ## Context and Orientation
 
@@ -609,6 +620,45 @@ every `_workflow/` artifact's workflow-sha stamp via the §1.6(b) pathspec, so a
 `/migrate-workflow` stamp-advance is required after the branch-final commit to
 re-arm the drift gate (the gate is suppressed on intervening sessions until
 then).
+
+### Track completion — 2026-06-19T14:42Z [ctx=safe]
+The house style now keeps only comprehension-serving rules, and the
+machinery that enforced the concealment-only ones is gone. Step 1 shrank the
+deterministic `check_dsc_ai_tell` checker from eleven patterns to seven
+(dropping Tier-1 banned vocabulary, em-dash density, signposting openers, and
+copula avoidance) and updated its test, byte-source fixture, and the
+`design-document-rules.md` mirror in lockstep. Step 2 removed the six
+concealment-only rules from `house-style.md`, folded the Tier-2 precision
+examples into `§ Plain language`, and swept every consumer in one atomic
+commit — the §1.5 Tier-B subset, the bootstrap-slug enumeration across ~46
+agents and workflow files, `house-conversation.md` (with the DR3 inline
+chat-only sycophantic-plus-signposting guard), the write-reminder hook and
+its paired test, `ai-tells/SKILL.md`, the writing-style review agent, root
+`CLAUDE.md`, and the named prose consumers.
+
+Track-level review ran six workflow reviewers with zero blockers.
+Context-budget, hook-safety, and writing-style passed clean at the initial
+pass; consistency, instruction-completeness, and prompt-design surfaced three
+consumer sites the lockstep sweep had missed — exactly the phantom-reference
+class DR7 exists to prevent. The `/code-review` reviewer roster
+(`code-review/SKILL.md:377`) and the §1.5 declarative-source list
+(`conventions.md:607`) still named removed rules; the §1.5 hit survived both
+the rename-safety grep and the section-name grep because "banned vocabulary"
+was line-wrapped, which is precisely the paraphrase case DR7's manual scan
+was meant to cover. The writing-style agent's Grep tooling instruction was
+also left vestigial. All three were fixed and gate-verified in `911ec2efc2`;
+the loop converged at iteration 1.
+
+Cross-track impact: the shrunk rule set is not reflected outside this track's
+`.claude/` + root `CLAUDE.md` invariant. The workflow-book deliverable on PR
+#1151 and several historical ADRs still name the removed rules; reflecting
+the shrink there is a separate follow-up against the workflow-book branch,
+benign per DR7 (see Surprises & Discoveries). Branch obligation (DR4): a
+`/migrate-workflow` stamp-advance is required after the branch-final commit
+to re-arm the workflow drift gate, which is suppressed on intervening
+sessions until it runs.
+
+2 steps, 0 failed.
 
 ## Validation and Acceptance
 
