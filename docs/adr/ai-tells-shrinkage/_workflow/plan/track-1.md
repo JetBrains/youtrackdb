@@ -34,16 +34,31 @@ pointing at a section that no longer exists.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-19T13:23Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-19T13:45Z [ctx=safe] Step 1 complete (commit c24f222228)
+- [x] 2026-06-19T14:10Z [ctx=safe] Step 2 complete (commit f69062032c)
+- [x] 2026-06-19T14:10Z [ctx=safe] Step implementation complete (Phase B)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- The shrunk rule set is not reflected in deliverables outside this track's
+  scope (the `.claude/` + root `CLAUDE.md` invariant). The workflow-book
+  deliverable on PR #1151 (`docs/workflow-book/chapters/16-house-style-self-improvement.md`
+  and `workflow-book-builder/prompts/copy-editor.md`, whose copy-editor prompt
+  still tells agents to enforce the banned-vocabulary list, em-dash discipline,
+  and the signposting ban) and several historical ADRs
+  (`docs/adr/ytdb-836-house-style/`, `docs/adr/mid-level-english/adr.md`,
+  `docs/adr/ytdb-899-structured-field-carveout/design-final.md`) still name the
+  removed rules. These are benign per DR7 (they sit outside the in-scope
+  invariant — historical records or a separate branch's surface), so this track
+  left them untouched. Reflecting the shrunk rules in the teaching book and the
+  book-builder machinery is a separate follow-up against the workflow-book
+  branch, not this track. See Episodes §Step 2.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -482,7 +497,7 @@ rename-safety grep is clean (the checker and its design-doc mirror, Step 1's
 domain, no longer name a removed pattern). The steps touch disjoint files.
 
 1. Shrink the deterministic checker and its design-doc mirror — remove the four `check_dsc_ai_tell` patterns that map to removed rules (Tier-1 vocabulary, em-dash density, signposting, copula) from `design-mechanical-checks.py` and drop the docstring count from eleven to the seven survivors; drop the matching cases from `tests/test_dsc_ai_tell.py` (including the Tier-1 heading-scan regression case) and the removed-pattern blocks from `tests/fixtures/dsc-ai-tell-fixture.md` (including the H3 Tier-1 block); rewrite `design-document-rules.md:287` to drop the four removed-pattern clauses and change "eleven" to the survivor count so it matches the shrunk checker (Move 4 + the T3 lockstep mirror). Acceptance: `test_dsc_ai_tell.py` passes against the shrunk checker; a document with a Tier-1 word, three em dashes, a "Let's dive in" opener, or a "serves as" copula draws no `check_dsc_ai_tell` finding. — risk: medium (test infrastructure + bounded behavioral workflow edit: the checker is not auto-run — only `edit-design` Step 3 invokes it, which this branch never reaches per DR4 — the change is purely subtractive, and `test_dsc_ai_tell.py` fully covers it) — size: ~4 files; heavy-iteration carve-out (checker test-churn kept isolated from the mechanical sweep) and the only other work is the high-isolation Step 2  [x] commit: c24f222228
-2. Remove the six concealment-only rules from `house-style.md` and update every consumer in lockstep — `house-style.md` (Move 1: delete `## Banned vocabulary` all tiers, `### Em-dash discipline`, the sycophantic-openers and knowledge-cutoff bullets, `### Signposting`, `### Copula avoidance`; move the Tier-2 precision examples into `§ Plain language`; drop the Reconciliation subsection; trim Self-check items 1/2/4/5/6/7 and re-point the `:359` padding criterion and `:485` item-7 self-references); `conventions.md §1.5` (Move 2: `:621` row six→four, `:626` grep alternation, `:624` count word); the 47 bootstrap-slug files (Move 3: drop the two removed slugs, leaving four); `house-conversation.md` (Move 5: trim the subset list, `:21` count word, add the signposting guard to the `:15` chat carrier); the named prose consumers (Move 6 minus `design-document-rules.md`: `ai-tells/SKILL.md:3` description + body pointers, `review-workflow-writing-style.md` lenses, `hooks/house-style-write-reminder.sh:262` slug list + count word, `design-author.md`, `readability-feedback/SKILL.md`, root `CLAUDE.md` paraphrase refs, plus the additive ownership note in `readability-auditor.md`). Acceptance: the §1.5 rename-safety grep extended with `-i 'sycophantic|signposting|copula|knowledge.cutoff'` returns only benign hits across the whole repo (DR7). *(Depends on Step 1.)* — risk: high (workflow machinery: edits the auto-running `house-style-write-reminder.sh` hook and the always-loaded root `CLAUDE.md`, and removes the §1.5 AI-tell subset sections all 47 bootstrap-slug consumers and every workflow reviewer key off; must land atomically, so high-isolation applies with no file cap)  [ ]
+2. Remove the six concealment-only rules from `house-style.md` and update every consumer in lockstep — `house-style.md` (Move 1: delete `## Banned vocabulary` all tiers, `### Em-dash discipline`, the sycophantic-openers and knowledge-cutoff bullets, `### Signposting`, `### Copula avoidance`; move the Tier-2 precision examples into `§ Plain language`; drop the Reconciliation subsection; trim Self-check items 1/2/4/5/6/7 and re-point the `:359` padding criterion and `:485` item-7 self-references); `conventions.md §1.5` (Move 2: `:621` row six→four, `:626` grep alternation, `:624` count word); the 47 bootstrap-slug files (Move 3: drop the two removed slugs, leaving four); `house-conversation.md` (Move 5: trim the subset list, `:21` count word, add the signposting guard to the `:15` chat carrier); the named prose consumers (Move 6 minus `design-document-rules.md`: `ai-tells/SKILL.md:3` description + body pointers, `review-workflow-writing-style.md` lenses, `hooks/house-style-write-reminder.sh:262` slug list + count word, `design-author.md`, `readability-feedback/SKILL.md`, root `CLAUDE.md` paraphrase refs, plus the additive ownership note in `readability-auditor.md`). Acceptance: the §1.5 rename-safety grep extended with `-i 'sycophantic|signposting|copula|knowledge.cutoff'` returns only benign hits across the whole repo (DR7). *(Depends on Step 1.)* — risk: high (workflow machinery: edits the auto-running `house-style-write-reminder.sh` hook and the always-loaded root `CLAUDE.md`, and removes the §1.5 AI-tell subset sections all 47 bootstrap-slug consumers and every workflow reviewer key off; must land atomically, so high-isolation applies with no file cap)  [x] commit: f69062032c
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step.
@@ -516,6 +531,82 @@ three em dashes in a paragraph) draws no `dsc-ai-tell` finding.
 - `.claude/scripts/tests/test_dsc_ai_tell.py` (modified)
 - `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md` (modified)
 - `.claude/workflow/design-document-rules.md` (modified)
+
+### Step 2 — commit f69062032c, 2026-06-19T14:10Z [ctx=safe]
+**What was done:** Removed the six concealment-only rules from `house-style.md`
+in one commit: the four-tier `## Banned vocabulary` section, the `### Em-dash
+discipline` subsection, the sycophantic-openers and knowledge-cutoff bullets
+under `## Banned sentence patterns`, and the `### Signposting` and `### Copula
+avoidance` subsections under `## Banned analysis patterns`. Folded the Tier-2
+precision examples into `§ Plain language`, dropped the Reconciliation
+subsection, and trimmed and renumbered the Self-check list to 10 items,
+re-pointing the `:359` padding criterion and the item-7 self-reference off the
+deleted `§ Banned vocabulary`. Updated every consumer in lockstep:
+`conventions.md §1.5` (Tier-B row six→four, count word, rename-safety grep
+alternation); the bootstrap-slug enumeration across 46 review agents and
+workflow files (single-line form swept over 38 files, four wrapped multi-line
+forms by hand); `house-conversation.md` (four-section subset, count word, plus
+the DR3 inline chat-only sycophantic-plus-signposting guard on the no-preamble
+rule); the write-reminder hook plus its paired test (`TIER_B_HEADINGS`);
+`ai-tells/SKILL.md` description and body; the writing-style review agent; root
+`CLAUDE.md`; `design-author.md` and `readability-feedback`; plus the additive
+checker-versus-judgment ownership note in `readability-auditor.md`. Step-level
+review (`risk: high`, workflow-only diff so the baseline group is skipped) ran
+hook-safety and prompt-design: both PASS, 0 blockers; the one Minor finding
+(WP1) is deferred.
+
+**What was discovered:** The acceptance grep (the §1.5 rename-safety alternation
+plus `-i 'sycophantic|signposting|copula|knowledge.cutoff'`) reads clean across
+`.claude/` and root `CLAUDE.md`: zero live removed-section references. The
+remaining lexical hits are benign — the grammar word "copula" in the kept
+code-identifier rules, "sycophantic" in the chat-register description, and the
+intentional DR3 chat guard. Three independent gates re-confirmed green after
+the sweep: `workflow-reindex.py --check` (TOC/anchor-drift, RC=0), the hook
+test (18/18), and the dsc-ai-tell regression (7 patterns). The bootstrap-slug
+line exists in two physical shapes, a single-line form (38 files) and a wrapped
+multi-line form in four files (`step-implementation`, `implementer-rules`,
+`commit-conventions`, `episode-format-reference`) that also carry a Tier-A
+category descriptor naming two removed sections; both shapes were swept. The
+"six sections" phrasing in `review-workflow-pr/SKILL.md` is the resume-handoff
+schema, unrelated to the AI-tell subset, and was left untouched. Deferred
+suggestion WP1 (prompt-design, Minor): optionally restore one concrete
+kept-vocabulary anchor in the `ai-tells/SKILL.md:3` analysis-fingerprints clause
+so the always-loaded description stays matchable on a concrete pasted-tell
+signal; the reviewer rated it not required for correctness. Cross-cutting: the
+workflow-book deliverable (PR #1151) and several historical ADRs still name the
+removed rules outside this track's `.claude/` + `CLAUDE.md` invariant — see the
+Surprises entry.
+
+**What changed from the plan:** One in-scope completeness expansion beyond the
+literal Move 6 text: the four wrapped multi-line consumers also carried a
+Tier-A "banned vocabulary, em-dash discipline" category descriptor that the DR7
+acceptance grep flags; those descriptors were re-pointed in the same commit to
+keep the `.claude/`-scoped invariant clean. No move was dropped or reordered.
+
+**Key files:** (54 files; the load-bearing surface is named, the remainder are
+the identical bootstrap-slug one-liner)
+- `.claude/output-styles/house-style.md` (modified — the six removals, the
+  Plain-language fold, the Self-check trim)
+- `.claude/output-styles/house-conversation.md` (modified — subset list, count
+  word, DR3 chat guard)
+- `.claude/workflow/conventions.md` (modified — §1.5 Tier-B row, count word,
+  rename-safety grep)
+- `.claude/hooks/house-style-write-reminder.sh`,
+  `.claude/scripts/tests/test_house_style_hook.py` (modified — slug list plus
+  paired test in lockstep)
+- `.claude/skills/ai-tells/SKILL.md` (modified — description plus body)
+- `.claude/agents/review-workflow-writing-style.md`, `design-author.md`,
+  `readability-auditor.md` (modified)
+- root `CLAUDE.md` (modified — paraphrase refs)
+- ~46 further files under `.claude/agents/**`, `.claude/skills/**`,
+  `.claude/workflow/**`, `.claude/workflow/prompts/**` (modified —
+  bootstrap-slug six→four sweep)
+
+**Critical context:** The DR4 obligation stands. This commit advanced HEAD past
+every `_workflow/` artifact's workflow-sha stamp via the §1.6(b) pathspec, so a
+`/migrate-workflow` stamp-advance is required after the branch-final commit to
+re-arm the drift gate (the gate is suppressed on intervening sessions until
+then).
 
 ## Validation and Acceptance
 
