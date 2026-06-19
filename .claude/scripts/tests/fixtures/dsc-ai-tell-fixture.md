@@ -6,9 +6,8 @@ TL;DR: a seeded fixture for the `dsc-ai-tell` regex rule in
 `design-mechanical-checks.py`. Each `### ` block below either trips
 one banned pattern (positive case) or deliberately avoids tripping
 a high-FP-risk rule (negative case). The fixture is read by the
-runner authored in the next step; the runner asserts every positive
-block yields at least one finding and every negative block yields
-zero.
+runner alongside it; the runner asserts every positive block yields
+at least one finding and every negative block yields zero.
 
 The H1 above (`# Some Title Cased Adr`) is itself a negative case:
 the Title Case rule skips H1 because document titles for published
@@ -37,14 +36,6 @@ otherwise fire.
 
 ## Banned patterns
 
-### Tier 1 vocabulary
-
-Drafts that delve into the codebase rarely embark on the obvious
-path; the design instead chooses to foster a simpler shape. This
-paragraph is here to trip the Tier-1 banned-vocabulary scan on
-multiple base words at once, which is enough for the runner's
-"≥1 finding per pattern" assertion.
-
 ### Negative parallelism
 
 It's not a question of which page format the cache uses, it's a
@@ -52,34 +43,12 @@ question of how the cache reuses the page format across calls.
 The sentence above is the canonical negative-parallelism shape
 the rule detects.
 
-### Em-dash density
-
-The cache layer ingests writes — applies them to a page buffer —
-then flushes through the WAL — once the WAL fsync returns the
-page is durable, and the read path can serve the new value
-without going through the disk. Three em dashes form an
-unbalanced `X — Y — Z — W` cadence (the canonical AI-tell shape);
-a balanced two-em-dash parenthetical aside would pass the rule.
-
 ### Title Case Demo Heading
 
 The H3 above is the positive case for the Title Case rule: three
 title-case words after `### ` trigger the regex. The body here is
 deliberately multi-line so the fragmented-header rule does not
 also fire on the same heading.
-
-### Signposting opener
-
-Let's dive into the leaf-split path. The opener above is the
-canonical signposting trigger; the rule fires regardless of the
-sentence that follows, so the body here can be ordinary prose
-about anything.
-
-### Copula avoidance
-
-The WAL serves as the durability backbone for in-flight writes
-on the disk-cache layer. The verb above is the copula-avoidance
-trigger; the rule prefers `is` unless the action is active.
 
 ### Authority trope
 
@@ -97,7 +66,7 @@ cluster trips the rule.
 
 ### Trailing negative parallelism
 
-This design is a fundamental rethinking, not just a patch. The
+This design is a thorough rethinking, not just a patch. The
 sentence above is the trailing-negation "X, not just Y" inversion of
 negative parallelism: the emphatic intensifier dismisses the modest
 reading to perform depth, which is the shape the rule flags as
@@ -126,15 +95,6 @@ Four distinct hyphenated compounds adjacent to nouns, with no
 comma cluster, must not trip the hyphenated-pair rule. The cache
 also documents how its write-ahead log integrates with the page
 buffer pool layer.
-
-### Single em-dash negative
-
-The cache layer ingests writes, applies them to a page buffer,
-then flushes through the WAL on commit — and the read path can
-serve the new value without going through the disk. The block
-above runs six lines with exactly one em dash, which must not
-trip the density rule. The paragraph also avoids any banned
-vocabulary so the runner sees zero findings on this block.
 
 ### Genuine contrast negative
 
@@ -166,14 +126,6 @@ inflation words, not an open participle wildcard — must leave every
 one of them alone.
 
 ## Banned-pattern regressions
-
-### Delve into the holistic foster pattern
-
-The H3 above seeds banned vocabulary inside a heading. The
-scanner used to skip headings entirely for the Tier-1 vocab
-sweep, so an `if is_heading: continue` short-circuit would let
-"delve", "holistic", and "foster" pass; the rule should fire
-once per base word against the heading text itself.
 
 ### Fragmented one-liner regression
 Fragmented one-liner regression body.
