@@ -35,9 +35,9 @@ This is one cohesive workflow-prose fix across three `.claude/workflow/*.md` fil
 - Implemented in: this track.
 
 ### D3: Operative widening rule in §Step-level routing; premise corrections in the two skip-gate files; step-implementation.md untouched
-- Alternatives considered: qualify `step-implementation.md` sub-step 4a inline (rejected — it is the opt-out-excluded orchestration loop, and §Step-level routing is the declared single source of truth that sub-step 4a consumes through its existing pointer); put the rule only in the two skip-gate files (rejected — §Step-level routing governs which reviewers fire at a step, so the widening belongs there).
-- Rationale: `review-agent-selection.md:104-106` declares §Step-level routing the single source of truth that the step and track dispatch sites consume; sub-step 4a only restates the rule and defers, so the pointer carries the widening without any edit to the orchestration loop.
-- Risks/Caveats: sub-step 4a's inline `hook-safety, prompt-design` summary stays the default-case narrowing; the single-step-high widening lives only in §Step-level routing, so that paragraph must state the rule prominently enough that every dispatch site applies it.
+- Alternatives considered: qualify `step-implementation.md` sub-step 4(a) inline (rejected — it is the opt-out-excluded orchestration loop, and §Step-level routing is the declared single source of truth that sub-step 4(a) consumes through its existing pointer); put the rule only in the two skip-gate files (rejected — §Step-level routing governs which reviewers fire at a step, so the widening belongs there).
+- Rationale: `review-agent-selection.md:104-106` declares §Step-level routing the single source of truth that the step and track dispatch sites consume; sub-step 4(a) only restates the rule and defers, so the pointer carries the widening without any edit to the orchestration loop.
+- Risks/Caveats: sub-step 4(a)'s inline `hook-safety, prompt-design` summary stays the default-case narrowing; the single-step-high widening lives only in §Step-level routing, so that paragraph must state the rule prominently enough that every dispatch site applies it.
 - Implemented in: this track.
 
 ### D4: Widen to the full track-pass-equivalent selection — generalize past workflow reviewers
@@ -66,11 +66,11 @@ This branch is itself the bug scenario. It is a workflow-only change, and its si
 
 The fix is three prose edits across the three in-scope files. The widening rule is the anchor; the two premise corrections reference it, so it lands first.
 
-1. **Widen the step-level selection** in `review-agent-selection.md` §Step-level vs track-level routing. When the high step under review is the sole step of its track, the step-level selection is not narrowed: it runs the full track-pass-equivalent selection — every baseline and every workflow reviewer the Phase C track pass would run — because that Phase C pass is skipped for single-step-high tracks. This paragraph must state the rule prominently, because the dispatch sites consume this single source of truth and apply it unchanged. `step-implementation.md` sub-step 4a is one such site: it only restates the rule and defers via its existing `(see §Step-level vs track-level routing)` pointer.
+1. **Widen the step-level selection** in `review-agent-selection.md` §Step-level vs track-level routing. When the high step under review is the sole step of its track, the step-level selection is not narrowed: it runs the full track-pass-equivalent selection — every baseline and every workflow reviewer the Phase C track pass would run — because that Phase C pass is skipped for single-step-high tracks. This paragraph must state the rule prominently, because the dispatch sites consume this single source of truth and apply it unchanged. `step-implementation.md` sub-step 4(a) is one such site: it only restates the rule and defers via its existing `(see §Step-level vs track-level routing)` pointer.
 2. **Correct the false skip premise** in `code-review-protocol.md` §Single-step tracks. The skip is valid only once the full track-pass-equivalent selection has run at the step. Add one clause stating why the skip is then sound: this section is a review-selection rule the orchestrator re-reads at the start of each Phase C, so once the full selection already ran at the step, re-running the track pass would select the same reviewers against the same diff and add nothing.
 3. **Correct the same premise** in `track-code-review.md` §Single-Step Track, the gate's other home, with the matching clause.
 
-The approach is live edit under the §1.7(k) opt-out: no staged subtree, no Phase 4 promotion of staged files. `step-implementation.md` sub-step 4a is out of scope — the opt-out forbids editing the orchestration loop, and its pointer already carries the widened rule.
+The approach is live edit under the §1.7(k) opt-out: no staged subtree, no Phase 4 promotion of staged files. `step-implementation.md` sub-step 4(a) is out of scope — the opt-out forbids editing the orchestration loop, and its pointer already carries the widened rule.
 
 Two obligations follow the edits. The `.claude/**` section summaries may change, so run `.claude/scripts/workflow-reindex.py --check` before committing — the toc-check CI gate is load-bearing.
 
@@ -111,7 +111,7 @@ In-scope files:
 
 Out of scope:
 
-- `.claude/workflow/step-implementation.md` — the orchestration loop the opt-out excludes; sub-step 4a's `(see §Step-level vs track-level routing)` pointer carries the widened rule with no edit.
+- `.claude/workflow/step-implementation.md` — the orchestration loop the opt-out excludes; sub-step 4(a)'s `(see §Step-level vs track-level routing)` pointer carries the widened rule with no edit.
 - `.claude/workflow/workflow.md:348` — mentions the single-step-high skip in the resume-state table but stays accurate, since the fix keeps the skip and only adds a precondition.
 
 No inter-track dependencies: this is the single track. No library or function signatures change — the edit is prose. No track-level Mermaid diagram: the change touches no three-or-more interacting internal components.
