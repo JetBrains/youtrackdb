@@ -610,3 +610,7 @@ non-testable constraint goes to Context and Orientation or Decision Log. -->
 - `§ Plain language` carries the moved precision examples (`robust` → "tolerant
   of X", `comprehensive` → "covers X, Y, Z") and no longer holds a "Reconciliation
   with § Banned vocabulary" subsection — verified by reading.
+
+## Base commit
+
+Phase B base commit: `e68f84f760f852aee1a53ff71fb1e46102642638`
