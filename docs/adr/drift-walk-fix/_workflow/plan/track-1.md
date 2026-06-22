@@ -29,7 +29,8 @@ regression tests pin the fix and the skip-ordering invariant it depends on.
 
 ## Progress
 - [x] 2026-06-22T16:12Z [ctx=safe] Review + decomposition complete
-- [ ] Step implementation
+- [x] 2026-06-22T16:49Z [ctx=safe] Step implementation
+- [x] 2026-06-22T16:49Z [ctx=safe] Step 1 complete (commit f62e3935bb)
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -37,6 +38,16 @@ regression tests pin the fix and the skip-ordering invariant it depends on.
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- The staged test suite false-fails one pre-existing test under §1.7(b) staging.
+  `test_track_review_step6_carries_ac_ledger_append` reads `track-review.md`
+  via the bare `REPO_ROOT` (`parents[3]`) anchor, which resolves to the staged
+  subtree. This scripts-only branch stages only `.claude/scripts/`, so that file
+  is absent under the staged anchor and the presence assertion fails —
+  fix-independent and out of scope for this track. Phase 4 should expect this
+  test to be the single staged-suite failure during the branch and green after
+  the promotion commit moves the staged tree onto the live path (where
+  `track-review.md` is present and `REPO_ROOT`/`LIVE_REPO_ROOT` coincide). See
+  Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -259,7 +270,7 @@ unperturbed.
 
 ## Concrete Steps
 
-1. Add the Phase-4-active skip (#2) to `detect_drift` between the empty-input return (`:618`) and the unstamped short-circuit (`:620`), and pin it with two regression tests in `test_workflow_startup_precheck.py` — risk: high (workflow machinery: edits `detect_drift`, the drift/divergence gate)  [ ]
+1. Add the Phase-4-active skip (#2) to `detect_drift` between the empty-input return (`:618`) and the unstamped short-circuit (`:620`), and pin it with two regression tests in `test_workflow_startup_precheck.py` — risk: high (workflow machinery: edits `detect_drift`, the drift/divergence gate)  [x]  commit: f62e3935bb
 
 The whole track is one coherent change — the skip block plus the two
 regression tests that pin it — so it is a single step. The fix and its tests
@@ -272,6 +283,45 @@ file edits route to the staged copies under
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit f62e3935bb, 2026-06-22T16:49Z [ctx=safe]
+**What was done:** Added the Phase-4-active drift skip (skip #2 of
+`workflow-drift-check.md § Skip conditions`) to `detect_drift` in the staged
+`workflow-startup-precheck.sh`, between the empty-input no-drift return and the
+unstamped short-circuit. The block reads `ledger_tail_value phase` and, when the
+tail is `D` or `Done`, sets `DRIFT_DETECTED=false`, `DRIFT_KIND="stamped"`, and
+returns before the fold runs, leaving `DRIFT_BASE_SHA`/`DRIFT_COMMIT_COUNT`/
+`DRIFT_FIRST_COMMITS_JSON` at their null/`[]` defaults exactly as the empty-input
+return above it does. Two regression tests in the staged
+`test_workflow_startup_precheck.py` pin both arms: the headline skip-#2 fold
+(`test_drift_phase4_stamped_folds_to_no_drift`) and the skip-#1-before-#2
+ordering (`test_drift_phase4_empty_input_returns_kind_null_before_skip2`). A
+follow-up review fix (commit fdbaf5197a) replaced a rot-prone `:619` line anchor
+in one test docstring with a semantic description.
+
+**What was discovered:** The staged suite reports 102/103. The sole failure is
+the pre-existing, unchanged `test_track_review_step6_carries_ac_ledger_append`,
+which reads `track-review.md` via the bare `REPO_ROOT` (`parents[3]`) anchor.
+This scripts-only branch stages only `.claude/scripts/`, so under the staged
+anchor that path is absent and the presence assertion fails. The failure is
+fix-independent — identical against the pristine pre-fix script — out of this
+track's scope, and self-resolves at Phase 4 promotion when the staged tree moves
+onto the live path and the two anchors coincide. The dimensional review
+(consistency, context-budget, hook-safety) passed at the first iteration with
+zero blockers and zero should-fix; hook-safety confirmed the artifact is not a
+defect of this change. See Surprises & Discoveries.
+
+**What changed from the plan:** none. The Phase-A `:618`/`:620` anchors held
+against the live script and the §1.6(h) byte-copied walk region was untouched.
+The stub test file was copied unedited into the staged tree so the "run both
+suites" step exercises the staged script through the same `parents[3]` anchor.
+
+**Key files:**
+- `docs/adr/drift-walk-fix/_workflow/staged-workflow/.claude/scripts/workflow-startup-precheck.sh` (new staged copy — skip-#2 block in `detect_drift`)
+- `docs/adr/drift-walk-fix/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck.py` (new staged copy — two regression tests)
+- `docs/adr/drift-walk-fix/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck_stub.py` (new staged copy — unedited)
+
+**Critical context:** none
 
 ## Validation and Acceptance
 - `detect_drift` reads the phase-ledger tail and folds a tail of `D` or `Done` to
