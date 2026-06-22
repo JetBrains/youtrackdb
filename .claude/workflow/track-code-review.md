@@ -104,12 +104,18 @@ feed into an accurate track episode.
 
 If the track has exactly **1 step** AND that step is tagged `risk: high`
 in the track file, the code review portion of Phase C is skipped — the
-step-level review in Phase B already covered the identical diff and
-there is no cross-step interaction to catch.
+step-level review in Phase B already ran the **full track-pass-equivalent
+selection** against the identical diff, and there is no cross-step
+interaction to catch. The skip rests on that full selection: a sole-step
+high step is widened to every reviewer the track pass would run (see
+`review-agent-selection.md` §Step-level vs track-level routing), so
+re-running the track pass would select the same reviewers against the same
+diff and add nothing. (A narrowed step-level review would not license the
+skip — the deferred reviewers would then run nowhere.)
 
 1. Mark `Track-level code review` as `[x]` in the track file's Progress
-   section with a note: `(skipped — single-step track, fully reviewed
-   in Phase B)`.
+   section with a note: `(skipped — single-step track, full track-pass
+   selection already ran at the step in Phase B)`.
 2. Skip directly to **Track Completion** (below) in the same session.
 
 If the single step is `risk: medium` or `risk: low`, step-level review
