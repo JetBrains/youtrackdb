@@ -108,8 +108,24 @@ it. The note sits outside the four `§Maintenance`-mirrored sections below,
 which mirror `code-review/SKILL.md` verbatim and carry no step/track
 notion.
 
-**Baseline group (§Baseline agents).** At a high step only
-`review-bugs-concurrency` runs; `review-code-quality`,
+**Single-step-high override (read first).** Every narrowing below assumes
+the high step is one of **several** steps in its track, so the deferred
+reviewers it drops still run later at the Phase C track pass. When the high
+step under review is the **sole step of its track**, that assumption fails:
+the single-step-high Phase C skip (`code-review-protocol.md` §Single-step
+tracks, `track-code-review.md` §Single-Step Track) skips the track pass, so
+a deferred reviewer would run nowhere. In that case the step-level
+selection is **not** narrowed — it runs the **full track-pass-equivalent
+selection**: every baseline and every workflow reviewer the Phase C track
+pass would run for that diff. Apply this override before any group
+narrowing below; each narrowing paragraph carries a lead clause pointing
+back here so a dispatch reader sees the exception before the rule it
+qualifies.
+
+**Baseline group (§Baseline agents).** Unless the high step is the sole
+step of its track (then the full selection runs at the step per the
+single-step-high override above), at a high step of a **multi-step** track
+only `review-bugs-concurrency` runs; `review-code-quality`,
 `review-test-behavior`, and `review-test-completeness` defer to the track
 pass. `review-bugs-concurrency` catches bug, logic-error, resource-leak,
 and null-safety defects that get buried once a step's diff folds into the
@@ -120,7 +136,10 @@ buriable error-handling subset is already covered by
 whole-suite quality off the cumulative diff identically, so the step adds
 nothing.
 
-**Workflow-review group (§Workflow-review agents).** The step-level
+**Workflow-review group (§Workflow-review agents).** Unless the high step
+is the sole step of its track (then every workflow reviewer the track pass
+would run fires at the step per the single-step-high override above), at a
+high step of a **multi-step** track the step-level
 workflow reviewers are selected by their existing per-agent file-pattern
 globs in §Per-agent file-pattern triggers, not by the risk taxonomy. The
 taxonomy decides only whether a step is tagged `high`; once a step reaches
@@ -142,17 +161,26 @@ where one step lands one side), `review-workflow-context-budget`
 `review-workflow-instruction-completeness` (its gate and resume-path
 checks span files, so a step lands false positives a later step resolves).
 
-**High step editing only `.claude/workflow/*.md`.** Such a step matches
+**High step editing only `.claude/workflow/*.md`.** Unless the high step is
+the sole step of its track (then the full track-pass-equivalent selection
+runs at the step per the single-step-high override above — for a bare
+`.claude/workflow/*.md` diff that is the four deferred workflow reviewers
+plus the three deferred baselines), at a high step of a **multi-step**
+track such a step matches
 neither step-level workflow trigger (neither `hook-safety`'s
 script/settings globs nor `prompt-design`'s `SKILL.md` / agent /
 prompt globs), so it draws zero step-level reviewers and fully defers to
-the track pass. This is correct on its own terms, independent of the
+the track pass. For a multi-step track this is correct on its own terms,
+independent of the
 prose-only cap (which governs a disjoint capped-`low` population): the
 defect class a `.claude/workflow/*.md` high step risks is a gate or
 control-flow change whose resume-path correctness can only be judged
 against the cumulative diff, which is exactly what the track pass reviews.
 A single step's slice of a multi-file gate change cannot be checked for
-completeness in isolation.
+completeness in isolation. That rationale is what fails for a single-step
+track: with one step the cumulative diff equals the step's diff and the
+Phase C cumulative pass never runs, so the override above runs the full
+selection at the step instead.
 
 **Exclusion from workflow-machinery changes.** `review-bugs-concurrency`
 is a Java-code reviewer and never reviews workflow machinery. On a
