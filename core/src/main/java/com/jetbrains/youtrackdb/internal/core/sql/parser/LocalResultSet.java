@@ -7,6 +7,8 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -57,22 +59,28 @@ public class LocalResultSet implements ResultSet {
   }
 
   /**
-   * The live execution stream backing this result set. The tx-result cache reads it on a cache miss
-   * to hand the populating query's stream to the cached entry, then substitutes an idempotent wrapper
-   * back via {@link #setStream(ExecutionStream)} so a later close through this result set and a close
-   * through the cache entry collapse to a single underlying close.
+   * Maps the backing execution stream through {@code mapper}, replacing the stored stream with the
+   * mapped one. Used only by the tx-result cache's single-alias MATCH fold, which rewrites the
+   * projected RETURN stream into raw RID-identifiable record rows before the cached entry is built.
+   * Keeping the rewrite here means the cache never reaches into the stream slot directly.
    */
-  public ExecutionStream getStream() {
-    return stream;
+  public void mapStream(@Nonnull ResultMapper mapper) {
+    this.stream = stream.map(mapper);
   }
 
   /**
-   * Replaces the backing execution stream. Used only by the tx-result cache to swap in the idempotent
-   * wrapper it shares with the cached entry; the wrapper forwards {@code hasNext}/{@code next} to the
-   * original stream, so iteration is unchanged and only {@code close} becomes a safe-to-repeat no-op.
+   * Wraps the backing execution stream in an {@link IdempotentExecutionStream}, stores the wrapper as
+   * the new backing stream, and returns it. Used only by the tx-result cache to make the single stream
+   * it shares between a cached entry and a consumer-facing view safe to close from both: whichever
+   * closes first closes the underlying once, and the second close is a no-op. The cache hands the
+   * returned wrapper to the {@code CachedEntry} it builds; iteration through this result set is
+   * unchanged because the wrapper forwards {@code hasNext}/{@code next}. Encapsulating the wrap here
+   * keeps the stream slot private rather than exposing it as externally mutable state.
    */
-  public void setStream(ExecutionStream stream) {
-    this.stream = stream;
+  public ExecutionStream makeStreamIdempotent() {
+    var wrapped = new IdempotentExecutionStream(stream);
+    this.stream = wrapped;
+    return wrapped;
   }
 
   /** The execution plan backing this result set, typed for the cache's entry construction. */

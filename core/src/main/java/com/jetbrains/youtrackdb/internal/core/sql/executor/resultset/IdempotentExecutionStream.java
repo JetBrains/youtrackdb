@@ -1,12 +1,13 @@
-package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
+package com.jetbrains.youtrackdb.internal.core.sql.executor.resultset;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import javax.annotation.Nonnull;
 
 /**
- * An {@link ExecutionStream} decorator that makes {@link #close} safe to call more than once.
+ * An {@link ExecutionStream} decorator that makes {@link #close} safe to call more than once. A
+ * general resultset utility; the tx-result cache is its first user (it shares one stream between a
+ * cached entry and a consumer-facing view, so close must collapse to a single underlying close).
  *
  * <p>The cache stores the live execution stream of a populating query and substitutes this wrapper
  * into both the cached entry and the populating {@code LocalResultSet}'s stream slot. On the current

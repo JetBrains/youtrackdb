@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;

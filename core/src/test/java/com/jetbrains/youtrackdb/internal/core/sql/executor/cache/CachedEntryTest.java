@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import org.junit.Assert;

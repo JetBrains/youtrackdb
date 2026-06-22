@@ -137,12 +137,11 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheableShape;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedEntry;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedResultSetView;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.DeltaBuilder;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.IdempotentExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.NonDeterministicQueryDetector;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.ShapeClassifier;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.TxDeltaCursor;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultMapper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
@@ -946,20 +945,20 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var matchOrigin =
         (shape == CacheableShape.RECORD && statement instanceof SQLMatchStatement match)
             ? singleAliasOrigin(match) : null;
-    ExecutionStream lifted = localResult.getStream();
     if (matchOrigin != null) {
       var alias = matchOrigin.getAlias();
       // A single-alias MATCH always names its bound alias; without one the projector/mapper cannot key
       // the record, so this would be a classify/populate divergence rather than a recoverable shape.
       assert alias != null : "single-alias MATCH origin has no alias";
-      lifted = lifted.map(rawAliasRecordMapper(alias));
+      // Rewrite the projected RETURN stream into raw RID-identifiable record rows before the entry is
+      // built. LocalResultSet owns its stream slot; the cache asks it to map rather than reaching in.
+      localResult.mapStream(rawAliasRecordMapper(alias));
     }
-    var wrapped = new IdempotentExecutionStream(lifted);
-    // Thread the wrapper back into the LocalResultSet's stream slot too. That LocalResultSet is
-    // orphaned (not returned, not registered in activeQueries), so its close never fires; the entry
-    // is the sole closer today. The wrapper's idempotency is the defensive guard for a future second
-    // owner, not a live double-close path.
-    localResult.setStream(wrapped);
+    // Wrap the backing stream idempotent (LocalResultSet performs the wrap-and-store) and lift the
+    // wrapper for the cached entry. That LocalResultSet is orphaned — not returned, not registered in
+    // activeQueries — so its own close never fires; the entry is the sole closer today. The wrapper's
+    // idempotency is the defensive guard for a future second owner, not a live double-close path.
+    var wrapped = localResult.makeStreamIdempotent();
 
     // Reuse the closure the caller already computed (the multi-alias MATCH miss path), else compute it.
     var entryEffectiveFromClasses = precomputedEffectiveFromClasses != null
