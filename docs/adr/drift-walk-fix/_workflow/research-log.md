@@ -81,7 +81,7 @@ function edit plus one regression test.
   instruction completeness, doc↔script consistency). The bug was a script-vs-doc
   disagreement, so doc↔script coherence is the change's central risk.
 
-### D3: §1.7 staging mode = staged (`s17=staged`), not the §1.7(k) opt-out
+### D3: §1.7 staging mode = stage (`s17=workflow-modifying`), not the §1.7(k) opt-out
 [2026-06-22T00:00Z] [ctx=safe]
 The change edits `.claude/scripts/**`, which §1.7(a) puts in staging scope
 (D14). Route edits through `_workflow/staged-workflow/.claude/scripts/…`; carry
@@ -173,7 +173,7 @@ mandatory. The S1 pragmatic counter (scripts aren't drift-watched) does **not**
 reopen the opt-out: §1.7(k)'s criteria key on the edited file's *consumer class*
 (executable procedure vs judgment-layer prose), not on whether the drift walk
 watches the path. Resolved into D3; no open user choice remains. The user
-confirmed `s17=staged` at the Step-4 tier/mode confirmation.
+confirmed `s17=workflow-modifying` at the Step-4 tier/mode confirmation.
 
 ## Baseline and re-validation
 

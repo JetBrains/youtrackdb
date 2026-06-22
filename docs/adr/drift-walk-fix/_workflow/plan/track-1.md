@@ -98,7 +98,7 @@ that into two cheap test methods).
   produces before Phase 4.
 - **Implemented in**: this track.
 
-### D3: §1.7 staging mode = staged (`s17=staged`), not the §1.7(k) opt-out
+### D3: §1.7 staging mode = stage (`s17=workflow-modifying`), not the §1.7(k) opt-out
 The change edits `.claude/scripts/**`, which `conventions.md §1.7(a)` (D14) puts in
 staging scope. Route the script and test edits through
 `_workflow/staged-workflow/.claude/scripts/…` during Phase B, carry the mode in the
@@ -211,7 +211,7 @@ resolves `docs/adr/${branch}/_workflow/phase-ledger.md` from the same branch nam
 `WORKFLOW_PATHSPECS` (`:383`) is `.claude/workflow/ .claude/skills/ .claude/agents/` —
 note it omits `.claude/scripts/`, so a scripts-only branch's edits are not
 drift-watched (see D3 Risks/Caveats). The `--mode full` dispatch (`:2121`) runs
-`detect_drift` **before** `determine_state`, which is why `detect_drift` can read
+`detect_drift` (`:2124`) **before** `determine_state` (`:2126`), which is why `detect_drift` can read
 the ledger without the later state read seeing a corrupted value.
 
 **Deliverables this track produces**: the skip-#2 block in `detect_drift`, and two
@@ -299,7 +299,7 @@ belong to one specific step. Often empty. -->
   conformance tests pin it byte-for-byte.
 - `WORKFLOW_PATHSPECS` (`:383`) — the watched-paths list is not changed by this fix.
 - `determine_state` (`:1809`) and `ledger_tail_value` (`:1652`) — read, not modified;
-  the dispatch already runs `detect_drift` before `determine_state` (`:2121`).
+  the dispatch already runs `detect_drift` (`:2124`) before `determine_state` (`:2126`).
 
 **Inter-track dependencies**: none — this is a single-track `minimal` branch.
 
