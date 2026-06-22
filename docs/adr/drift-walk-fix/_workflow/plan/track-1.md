@@ -369,3 +369,6 @@ becomes a test assertion in the relevant step. -->
 - No existing `--mode full` drift test changes outcome (no prior test combines a
   `D`/`Done` ledger with a stamped artifact and in-range commits) — verified by the
   full `test_workflow_startup_precheck.py` suite passing.
+
+## Base commit
+69d17ce1c81eb3efcf6ccb5ef996576dc7fd57f8
