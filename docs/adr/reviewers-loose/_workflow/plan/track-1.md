@@ -16,13 +16,16 @@ This is one cohesive workflow-prose fix across three `.claude/workflow/*.md` fil
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-22T07:34Z [ctx=safe] Review + decomposition complete
+- [x] 2026-06-22T08:00Z [ctx=safe] Step 1 complete (commit 61d9767e42)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- The single-step-high fix self-applied at Step 1's own review: under the live corrected rule the single-step `risk:high` workflow-only track drew the four workflow reviewers the Phase C track pass would run (consistency, context-budget, instruction-completeness, writing-style), where the pre-fix rule drew zero. So Phase C skips the code-review portion for this single-step-high track — the full selection already ran at the step. See Episodes §Step 1.
+- Out-of-scope coherence residual: the inline step-level-narrowing summaries at `step-implementation.md` sub-step 4(a), `execute-tracks/SKILL.md`, and `conventions-execution.md` §2.4 do not restate the single-step-high exception; per D3 they defer to `review-agent-selection.md` §Step-level routing through their pointers and were left unedited. A future session outside this opt-out branch could tighten them. See Episodes §Step 1.
 
 ## Decision Log
 
@@ -90,10 +93,20 @@ The second obligation is the workflow-SHA stamp. Each `_workflow/**` artifact ca
 The fix self-applies: this branch's own Phase C must show the single-step-high track drawing the full selection.
 
 ## Concrete Steps
-1. Widen single-step-high step-level review to the full track-pass-equivalent selection and correct the two skip-gate premises. Edit `review-agent-selection.md` §Step-level vs track-level routing — scope the baseline-group, workflow-review-group, and `.claude/workflow/*.md`-only narrowing paragraphs to multi-step high tracks and add the single-step-high full-selection rule as the override each defers to, worded so a dispatch reader sees the exception before applying any narrowing — then `code-review-protocol.md` §Single-step tracks and `track-code-review.md` §Single-Step Track, correcting the "already covered / fully reviewed in Phase B" premise so the skip is licensed only once the full selection ran at the step. — risk: high (Workflow machinery: changes the single-step-high Phase C skip gate and the step-level reviewer-dispatch rule — a load-bearing control-flow protocol per `risk-tagging.md` §Workflow machinery; the prose-only `low` cap does not apply because the edit changes gate/dispatch logic)  [ ]
+1. Widen single-step-high step-level review to the full track-pass-equivalent selection and correct the two skip-gate premises. Edit `review-agent-selection.md` §Step-level vs track-level routing — scope the baseline-group, workflow-review-group, and `.claude/workflow/*.md`-only narrowing paragraphs to multi-step high tracks and add the single-step-high full-selection rule as the override each defers to, worded so a dispatch reader sees the exception before applying any narrowing — then `code-review-protocol.md` §Single-step tracks and `track-code-review.md` §Single-Step Track, correcting the "already covered / fully reviewed in Phase B" premise so the skip is licensed only once the full selection ran at the step. — risk: high (Workflow machinery: changes the single-step-high Phase C skip gate and the step-level reviewer-dispatch rule — a load-bearing control-flow protocol per `risk-tagging.md` §Workflow machinery; the prose-only `low` cap does not apply because the edit changes gate/dispatch logic)  [x] commit: 61d9767e42
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1; Phase B sub-step 7 appends one block per step. -->
+
+### Step 1 — commit 61d9767e42, 2026-06-22T08:00Z [ctx=safe]
+
+**What was done:** Widened the single-step-high step-level review to the full track-pass-equivalent selection and corrected the two skip-gate premises, across three live `.claude/workflow/*.md` files. In `review-agent-selection.md` §Step-level vs track-level routing, added a "Single-step-high override (read first)" paragraph — when the high step is the sole step of its track, the step-level selection runs every baseline and every workflow reviewer the Phase C track pass would run — and scoped the three narrowing paragraphs (baseline group, workflow-review group, and the `.claude/workflow/*.md`-only zero-reviewer paragraph) to multi-step high tracks, each opening with a lead clause that points back to the override so a dispatch reader meets the exception ahead of the narrowing. In `code-review-protocol.md` §Single-step tracks and `track-code-review.md` §Single-Step Track, corrected the skip premise: the Phase C skip is licensed once the full selection has run at the step, because re-running the track pass would then select the same reviewers against the same diff. The step landed across two commits — 935078765e (initial edit) and 61d9767e42 (Review fix for three writing-style findings).
+
+**What was discovered:** The fix self-applied at this step's own review. Under the live corrected rule, this single-step `risk:high` workflow-only track drew the four workflow reviewers the Phase C track pass would run — `review-workflow-consistency`, `review-workflow-context-budget`, `review-workflow-instruction-completeness`, `review-workflow-writing-style` — where the pre-fix rule drew zero step-level reviewers. The writing-style pass flagged negative parallelism in the new override prose (two should-fix, one suggestion); all were fixed and gate-verified at iteration 2. The instruction-completeness pass raised one out-of-scope coherence note: the inline step-level-narrowing summaries at the dispatch sites — `step-implementation.md` sub-step 4(a), `execute-tracks/SKILL.md`, and `conventions-execution.md` §2.4 — still describe the multi-step default-case narrowing without restating the single-step-high exception. D3 decided those summaries stay default-case and defer to §Step-level routing through their existing pointers, so no edit was made; the residual is recorded for a future session outside this opt-out branch, which excludes the `step-implementation.md` orchestration loop.
+
+**Key files:** `.claude/workflow/review-agent-selection.md`, `.claude/workflow/code-review-protocol.md`, `.claude/workflow/track-code-review.md`.
+
+**Critical context:** This is the branch's last live `.claude/workflow` commit set (tip 61d9767e42). The §1.7(k) opt-out obligation is the one-shot `/migrate-workflow` stamp-advance, which runs after this commit to re-arm the §1.6(b) drift gate before the next session.
 
 ## Validation and Acceptance
 
