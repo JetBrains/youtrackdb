@@ -115,16 +115,16 @@ step under review is the **sole step of its track**, that assumption fails:
 the single-step-high Phase C skip (`code-review-protocol.md` §Single-step
 tracks, `track-code-review.md` §Single-Step Track) skips the track pass, so
 a deferred reviewer would run nowhere. In that case the step-level
-selection is **not** narrowed — it runs the **full track-pass-equivalent
-selection**: every baseline and every workflow reviewer the Phase C track
+selection runs the **full track-pass-equivalent selection** instead of
+narrowing: every baseline and every workflow reviewer the Phase C track
 pass would run for that diff. Apply this override before any group
 narrowing below; each narrowing paragraph carries a lead clause pointing
 back here so a dispatch reader sees the exception before the rule it
 qualifies.
 
-**Baseline group (§Baseline agents).** Unless the high step is the sole
-step of its track (then the full selection runs at the step per the
-single-step-high override above), at a high step of a **multi-step** track
+**Baseline group (§Baseline agents).** Sole-step-of-its-track exception:
+the full selection runs at the step per the single-step-high override
+above. Otherwise, at a high step of a **multi-step** track
 only `review-bugs-concurrency` runs; `review-code-quality`,
 `review-test-behavior`, and `review-test-completeness` defer to the track
 pass. `review-bugs-concurrency` catches bug, logic-error, resource-leak,

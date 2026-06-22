@@ -57,16 +57,15 @@ and attributed to source dimension(s). Max 3 iterations per level.
 
 **Single-step tracks skip the code review portion of Phase C only when
 the single step is `risk: high`** — i.e., the full track-pass-equivalent
-selection already ran against the identical diff at the step. The skip is
-licensed by that full selection, not by step-level review as such:
-`review-agent-selection.md` §Step-level vs track-level routing widens a
-sole-step-of-its-track high step to the full track-pass-equivalent
-selection (every baseline and every workflow reviewer the track pass would
-run), precisely so this skip stays sound. The skip is then sound because
-this section is a review-selection rule the orchestrator re-reads at the
-start of each Phase C: once the full selection already ran at the step,
-re-running the track pass would select the same reviewers against the same
-diff and add nothing. Single-step tracks where the
+selection already ran against the identical diff at the step. The skip
+rests on that full selection: `review-agent-selection.md` §Step-level vs
+track-level routing widens a sole-step-of-its-track high step to the full
+track-pass-equivalent selection (every baseline and every workflow reviewer
+the track pass would run). This section is a review-selection rule the
+orchestrator re-reads at the start of each Phase C, so once the full
+selection already ran at the step, re-running the track pass would select
+the same reviewers against the same diff and add nothing. Single-step
+tracks where the
 sole step is `medium` or `low` still run track-level code review at
 Phase C, since step-level was skipped under the risk-gating rule above.
 Phase C track completion (episode, user approval) runs in both cases.
