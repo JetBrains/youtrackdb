@@ -1352,7 +1352,8 @@ def test_drift_phase4_empty_input_returns_kind_null_before_skip2() -> None:
     no-drift), so the kind value is the discriminator: a kind of `null` proves the
     empty-input arm ran first, and `is None` tells it apart from the "stamped"
     label skip #2 would have emitted had the ordering been wrong. This pins the
-    `:612`-before-`:619` ordering the skip-#2 placement depends on."""
+    empty-input-return-before-skip-#2 ordering the skip-#2 placement depends
+    on."""
     with GitFixture() as fx:
         fx.commit("init")
         fx.add_bare_remote()
