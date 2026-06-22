@@ -5,17 +5,21 @@
 
 After this track, a single-step `risk:high` track runs the full track-pass-equivalent reviewer selection — every reviewer the Phase C track pass would run — at the step, so the reviewers it would otherwise lose to the skipped Phase C track pass actually run. (`risk:high` is the per-step review-intensity tag the workflow assigns from a change's blast radius.)
 
-<!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands (Phase A). -->
+**This track's file changes:**
+- **ADDED:** none.
+- **MODIFIED:** `.claude/workflow/review-agent-selection.md` (§Step-level vs track-level routing — widen the single-step-high step-level selection and scope its three narrowing paragraphs to multi-step high tracks); `.claude/workflow/code-review-protocol.md` (§Single-step tracks — correct the skip premise); `.claude/workflow/track-code-review.md` (§Single-Step Track — correct the same premise).
+- **REMOVED:** none.
 
 The bug (YTDB-1076, with its duplicate YTDB-1147): a single-step `risk:high` track is reviewed by too few reviewers. At a high step the step-level dimensional review fires only a subset of the reviewer roster — `review-bugs-concurrency` from the baseline group, plus the workflow reviewers whose file-pattern globs match the changed files (`review-workflow-hook-safety`, `review-workflow-prompt-design`). The other three baselines and the other four workflow reviewers — the deferred-reviewer set enumerated under Context and Orientation — defer to the Phase C track pass. But when the track has exactly one step and that step is `risk:high`, `code-review-protocol.md` and `track-code-review.md` skip the Phase C track pass on the premise that step-level review already covered the identical diff. The deferred reviewers then run nowhere. The skip premise is false: step-level ran only a subset.
 
 This is one cohesive workflow-prose fix across three `.claude/workflow/*.md` files, edited live under the §1.7(k) prose-rule self-application opt-out (a branch may edit judgment-layer workflow prose in place instead of staging it, so the corrected rule is active for the branch's own review).
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-22T07:34Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -47,7 +51,7 @@ This is one cohesive workflow-prose fix across three `.claude/workflow/*.md` fil
 - Implemented in: this track.
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 2 (3 findings, 3 accepted) — T1/T2 (should-fix) and T3 (suggestion), all completeness gaps in the Plan of Work / Context / Interfaces / Validation sections; all applied and gate-verified. T1 added the contradicting `review-agent-selection.md:145-155` "zero-reviewer" paragraph to the edit scope; T2 made the widening an explicit override of both group-narrowing paragraphs; T3 enumerated the four-reviewer step-level roster for a `.claude/workflow/*.md`-only diff.
 
 ## Context and Orientation
 
@@ -58,19 +62,26 @@ Three terms set the scene. **Step-level review** is the dimensional review the o
 
 This set does not fire at the step; it defers to the Phase C track pass. The deferral loses no coverage on its own, because that track pass runs the full reviewer selection. The **single-step-high Phase C skip** then skips that very pass when a single-step track's sole step is `risk:high`. The two rules combine so the deferred set runs nowhere.
 
-The three in-scope files at branch start say the following. `review-agent-selection.md` §Step-level vs track-level routing (the declared single source of truth for step/track review timing, at lines 104-106) narrows the step to `review-bugs-concurrency` plus glob-matched workflow reviewers and defers the rest. Its lines 145-155 already note the worst case — a high step editing only `.claude/workflow/*.md` matches neither step-level workflow glob and fires zero step-level workflow reviewers, deferring entirely to the track pass. `code-review-protocol.md` §Single-step tracks (lines 58-64) and `track-code-review.md` §Single-Step Track (lines 105-113) state the skip on the premise "step-level dimensional review already ran against the identical diff" / "fully reviewed in Phase B."
+The three in-scope files at branch start say the following. `review-agent-selection.md` §Step-level vs track-level routing (the declared single source of truth for step/track review timing, at lines 104-106) narrows the step to `review-bugs-concurrency` plus glob-matched workflow reviewers and defers the rest. Its lines 145-155 carry the worst case — a high step editing only `.claude/workflow/*.md` matches neither step-level workflow glob, so today it fires zero step-level workflow reviewers and defers entirely to the track pass. For a single-step track that paragraph's "fully defers" conclusion is the bug, so the fix scopes it to multi-step high tracks (see Plan of Work step 1). `code-review-protocol.md` §Single-step tracks (lines 58-64) and `track-code-review.md` §Single-Step Track (lines 105-113) state the skip on the premise "step-level dimensional review already ran against the identical diff" / "fully reviewed in Phase B."
 
 This branch is itself the bug scenario. It is a workflow-only change, and its single step is unavoidably `risk:high`. `risk-tagging.md` caps a workflow-prose change at `risk:low` only when it changes no review gate and no reviewer-dispatch logic; this edit changes both the single-step skip gate and the step-level reviewer-dispatch rule, so the cap does not apply and the step stays `high`. The branch is held to its own changed rules under the §1.7(k) opt-out (edit-live), so the corrected rule is active before this branch's own Phase C and the fix self-applies — the single-step-high track is reviewed by the very rule it adds.
 
 ## Plan of Work
 
-The fix is three prose edits across the three in-scope files. The widening rule is the anchor; the two premise corrections reference it, so it lands first.
+The fix is a set of prose edits across the three in-scope files. The widening rule in `review-agent-selection.md` §Step-level vs track-level routing is the anchor; the two premise corrections reference it, so it lands first.
 
-1. **Widen the step-level selection** in `review-agent-selection.md` §Step-level vs track-level routing. When the high step under review is the sole step of its track, the step-level selection is not narrowed: it runs the full track-pass-equivalent selection — every baseline and every workflow reviewer the Phase C track pass would run — because that Phase C pass is skipped for single-step-high tracks. This paragraph must state the rule prominently, because the dispatch sites consume this single source of truth and apply it unchanged. `step-implementation.md` sub-step 4(a) is one such site: it only restates the rule and defers via its existing `(see §Step-level vs track-level routing)` pointer.
+1. **Widen the step-level selection** in `review-agent-selection.md` §Step-level vs track-level routing. When the high step under review is the sole step of its track, the step-level selection is not narrowed: it runs the full track-pass-equivalent selection — every baseline and every workflow reviewer the Phase C track pass would run — because that Phase C pass is skipped for single-step-high tracks. The section states its timing across three paragraphs that each narrow a slice, so the widening must override all three, not sit beside them:
+   - the **baseline-group** paragraph (only `review-bugs-concurrency` at the step; the other three baselines defer);
+   - the **workflow-review-group** paragraph (only `review-workflow-hook-safety` and `review-workflow-prompt-design` at the step; the other four workflow reviewers defer); and
+   - the **"high step editing only `.claude/workflow/*.md`"** paragraph, which today asserts such a step "draws zero step-level reviewers and fully defers to the track pass" and calls that "correct on its own terms."
+
+   The single-step-high carve-out contradicts all three as written, and the third most directly: its rationale — a multi-file gate change's completeness can only be judged on the cumulative diff — is exactly what fails when the track is one step and the Phase C cumulative pass never runs. So the implementer scopes each group narrowing and the zero-reviewer claim to **multi-step** high tracks (where the Phase C track pass does run, so the deferral loses no coverage) and states the single-step-high full-selection rule as the explicit exception each narrowing defers to — for example, a lead clause in each narrowing paragraph ("unless the high step is the sole step of its track — then the full selection runs at the step; see below") plus one widening paragraph stating the rule. The rule must be positioned and worded so a dispatch reader hitting any group paragraph first sees the single-step-high exception before applying that paragraph's narrowing; otherwise a Phase-B reader reaching the baseline paragraph would still narrow to `review-bugs-concurrency`. `step-implementation.md` sub-step 4(a) consumes this single source of truth through its existing `(see §Step-level vs track-level routing)` pointers and is not edited — the opt-out excludes the orchestration loop.
 2. **Correct the false skip premise** in `code-review-protocol.md` §Single-step tracks. The skip is valid only once the full track-pass-equivalent selection has run at the step. Add one clause stating why the skip is then sound: this section is a review-selection rule the orchestrator re-reads at the start of each Phase C, so once the full selection already ran at the step, re-running the track pass would select the same reviewers against the same diff and add nothing.
 3. **Correct the same premise** in `track-code-review.md` §Single-Step Track, the gate's other home, with the matching clause.
 
 The approach is live edit under the §1.7(k) opt-out: no staged subtree, no Phase 4 promotion of staged files. `step-implementation.md` sub-step 4(a) is out of scope — the opt-out forbids editing the orchestration loop, and its pointer already carries the widened rule.
+
+**Step sequencing (Phase A).** The whole fix is one coherent `risk:high` step (Step 1 in `## Concrete Steps`): a HIGH-category gate/dispatch change stays a single step so its step-level review sees the entire change at once (`track-review.md` §Step Decomposition, high-risk isolation), which is also what makes the self-application work — the branch's own single high step is reviewed under the rule it adds. The three file edits are ordered within the step: the `review-agent-selection.md` widening rule lands first as the anchor, then the two premise corrections in `code-review-protocol.md` and `track-code-review.md` that reference it.
 
 Two obligations follow the edits. The `.claude/**` section summaries may change, so run `.claude/scripts/workflow-reindex.py --check` before committing — the toc-check CI gate is load-bearing.
 
@@ -79,7 +90,7 @@ The second obligation is the workflow-SHA stamp. Each `_workflow/**` artifact ca
 The fix self-applies: this branch's own Phase C must show the single-step-high track drawing the full selection.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the thin numbered roster here. -->
+1. Widen single-step-high step-level review to the full track-pass-equivalent selection and correct the two skip-gate premises. Edit `review-agent-selection.md` §Step-level vs track-level routing — scope the baseline-group, workflow-review-group, and `.claude/workflow/*.md`-only narrowing paragraphs to multi-step high tracks and add the single-step-high full-selection rule as the override each defers to, worded so a dispatch reader sees the exception before applying any narrowing — then `code-review-protocol.md` §Single-step tracks and `track-code-review.md` §Single-Step Track, correcting the "already covered / fully reviewed in Phase B" premise so the skip is licensed only once the full selection ran at the step. — risk: high (Workflow machinery: changes the single-step-high Phase C skip gate and the step-level reviewer-dispatch rule — a load-bearing control-flow protocol per `risk-tagging.md` §Workflow machinery; the prose-only `low` cap does not apply because the edit changes gate/dispatch logic)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1; Phase B sub-step 7 appends one block per step. -->
@@ -89,14 +100,19 @@ The fix self-applies: this branch's own Phase C must show the single-step-high t
 Track-level acceptance (from YTDB-1076 and YTDB-1147):
 
 - `review-agent-selection.md` §Step-level vs track-level routing carries the single-step-high full-selection rule.
-- A single-step `risk:high` workflow-only track runs `review-workflow-consistency` plus the other always-on and glob-triggered workflow reviewers at the step.
+- A single-step `risk:high` workflow-only (`.claude/workflow/*.md`) track runs at the step the four workflow reviewers the Phase C track pass would run for that diff — `review-workflow-consistency`, `review-workflow-context-budget`, `review-workflow-instruction-completeness`, and `review-workflow-writing-style` (the four that previously deferred); `review-workflow-prompt-design` and `review-workflow-hook-safety` stay glob-gated off a bare workflow-rule `.md` diff.
 - `code-review-protocol.md` §Single-step tracks and `track-code-review.md` §Single-Step Track state that the skip's "already covered / fully reviewed in Phase B" premise holds only once the full selection ran at the step.
 - A single-step-high Java track runs the three deferred baselines (`review-code-quality`, `review-test-behavior`, `review-test-completeness`) at the step — the generalization past the issues' workflow-reviewer framing.
 
-<!-- Per-step EARS/Gherkin lines are a Phase A placeholder — decomposition writes them per step. -->
+Per-step acceptance (Step 1) — verified by reading the edited files, since the change is workflow prose with no test method behind it:
+
+- GIVEN a single-step `risk:high` track whose sole step edits only `.claude/workflow/*.md`, WHEN Phase B reads `review-agent-selection.md` §Step-level vs track-level routing to select step-level reviewers, THEN it runs the full track-pass-equivalent selection — for this diff `review-workflow-consistency`, `review-workflow-context-budget`, `review-workflow-instruction-completeness`, and `review-workflow-writing-style` — not the narrowed subset.
+- GIVEN the three narrowing paragraphs in that section, WHEN a dispatch reader reaches any one of them, THEN it sees the single-step-high full-selection exception before applying that paragraph's narrowing (no paragraph reads as still narrowing a single-step-high track).
+- GIVEN that the full selection ran at the step, WHEN Phase C reaches the single-step-high skip gate in `code-review-protocol.md` §Single-step tracks and `track-code-review.md` §Single-Step Track, THEN the skip is licensed because each section's corrected premise (full selection already ran at the step) holds.
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery once steps are decomposed. -->
+
+Step 1 is a set of prose edits to three workflow `.md` files, so it is naturally idempotent: re-applying the same widening rule and premise corrections converges on the same text, and there is no data, migration, or on-disk schema state to reconcile. Recovery from a partial or failed edit is the implementer's standard revert — `git reset --hard HEAD` back to the `## Base commit` — followed by a clean re-attempt; nothing outside the working tree changes. The only post-edit obligations are mechanical and re-runnable: `.claude/scripts/workflow-reindex.py --check` (rerun until clean if a section summary changed) and the one-shot `/migrate-workflow` stamp-advance after the branch's last live `.claude/workflow` commit.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
@@ -105,7 +121,7 @@ Track-level acceptance (from YTDB-1076 and YTDB-1147):
 
 In-scope files:
 
-- `.claude/workflow/review-agent-selection.md` — §Step-level vs track-level routing (and its TOC summary, if the summary changes).
+- `.claude/workflow/review-agent-selection.md` — §Step-level vs track-level routing: the baseline-group and workflow-review-group narrowing paragraphs and the "high step editing only `.claude/workflow/*.md`" paragraph (all three scoped to multi-step high tracks, with the single-step-high full-selection rule added as the exception they defer to), plus its TOC summary if the summary changes.
 - `.claude/workflow/code-review-protocol.md` — §Single-step tracks (and its TOC summary, if it changes).
 - `.claude/workflow/track-code-review.md` — §Single-Step Track (and its TOC summary, if it changes).
 
