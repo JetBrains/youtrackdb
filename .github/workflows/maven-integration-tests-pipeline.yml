@@ -37,7 +37,7 @@ jobs:
       last_success_sha: ${{ steps.check.outputs.last_success_sha }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
           # We only need the tip (depth 1) to get the current SHA. Very fast.
@@ -108,7 +108,7 @@ jobs:
             java_arch: aarch64
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
           fetch-depth: 0
@@ -193,7 +193,7 @@ jobs:
         distribution: [ 'temurin' ]
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
           fetch-depth: 0
@@ -263,7 +263,7 @@ jobs:
         distribution: [ 'temurin' ]
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || 'develop' }}
           fetch-depth: 0
@@ -316,7 +316,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: 'main'
           fetch-depth: 0
@@ -367,7 +367,7 @@ jobs:
       version: ${{ steps.deployed.outputs.version }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Always publish develop. A workflow_dispatch run must not be able to
           # publish an arbitrary branch or tag to Maven Central under the
@@ -450,7 +450,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Pin to the exact commit this run deployed so the range end
           # matches the published artifact, and fetch full history so the
@@ -559,7 +559,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Get Previous Run Status
         id: previous_run

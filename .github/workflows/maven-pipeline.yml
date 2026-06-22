@@ -30,7 +30,7 @@ jobs:
       should_build: ${{ steps.filter.outputs.should_build }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -185,7 +185,7 @@ jobs:
             mvn_opts: '-Dmaven.test.failure.ignore=true -P docker-images -Ddocker.platforms=linux/arm64/v8'
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up JDK ${{ matrix.java }}
@@ -284,7 +284,7 @@ jobs:
         distribution: [ 'temurin' ]
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up JDK ${{ matrix.java }}
@@ -350,7 +350,7 @@ jobs:
         distribution: [ 'temurin' ]
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up JDK ${{ matrix.java }}
@@ -412,7 +412,7 @@ jobs:
     timeout-minutes: 120
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Set up JDK 21
@@ -493,7 +493,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -576,7 +576,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -694,7 +694,7 @@ jobs:
       actions: read
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -728,7 +728,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Verify embedded code examples in documentation
         run: npx embedme --verify **/*.md
@@ -838,7 +838,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Determine Branch Name
         id: branch_name

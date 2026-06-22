@@ -31,7 +31,7 @@ jobs:
     steps:
       # The is_ancestor test shells out to git against the checked-out repo,
       # so a normal (shallow) checkout is required; HEAD is enough.
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:

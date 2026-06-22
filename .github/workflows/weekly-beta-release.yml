@@ -50,7 +50,7 @@ jobs:
       prev_scope: ${{ steps.prev.outputs.scope }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Always release from `main`, even though `develop` is the repo
           # default branch. GitHub cron schedules only fire against the
@@ -339,7 +339,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           # Pin to the SHA the classify job evaluated, so the deployed
           # artifact, the GitHub tag, and the release notes stay
@@ -421,7 +421,7 @@ jobs:
             docker_platform: 'linux/arm64/v8'
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.classify.outputs.head_sha }}
 
@@ -483,7 +483,7 @@ jobs:
       HEAD_SHA: ${{ needs.classify.outputs.head_sha }}
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
