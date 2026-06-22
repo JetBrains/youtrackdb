@@ -17,10 +17,12 @@ This is one cohesive workflow-prose fix across three `.claude/workflow/*.md` fil
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 - [x] 2026-06-22T07:34Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-22T08:00Z [ctx=safe] Step 1 complete (commit 61d9767e42)
+- [x] 2026-06-22T08:40Z [ctx=safe] Track-level code review skipped (single-step-high; full selection ran at step)
+- [x] 2026-06-22T08:40Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -54,6 +56,7 @@ This is one cohesive workflow-prose fix across three `.claude/workflow/*.md` fil
 - Implemented in: this track.
 
 ## Outcomes & Retrospective
+- [x] Phase C: code review skipped — single-step `risk:high` track whose full track-pass-equivalent selection (consistency, context-budget, instruction-completeness, writing-style) already ran at Step 1. 0 review iterations, 0 unresolved findings, 0 deferred findings, 0 plan corrections. Track complete: 1 step, 0 failed.
 - [x] Technical: PASS at iteration 2 (3 findings, 3 accepted) — T1/T2 (should-fix) and T3 (suggestion), all completeness gaps in the Plan of Work / Context / Interfaces / Validation sections; all applied and gate-verified. T1 added the contradicting `review-agent-selection.md:145-155` "zero-reviewer" paragraph to the edit scope; T2 made the widening an explicit override of both group-narrowing paragraphs; T3 enumerated the four-reviewer step-level roster for a `.claude/workflow/*.md`-only diff.
 
 ## Context and Orientation
@@ -107,6 +110,15 @@ The fix self-applies: this branch's own Phase C must show the single-step-high t
 **Key files:** `.claude/workflow/review-agent-selection.md`, `.claude/workflow/code-review-protocol.md`, `.claude/workflow/track-code-review.md`.
 
 **Critical context:** This is the branch's last live `.claude/workflow` commit set (tip 61d9767e42). The §1.7(k) opt-out obligation is the one-shot `/migrate-workflow` stamp-advance, which runs after this commit to re-arm the §1.6(b) drift gate before the next session.
+
+### Track completion — 2026-06-22T08:40Z [ctx=safe]
+Single-step `risk:high` track that fixed the single-step-high reviewer under-selection (YTDB-1076, dup YTDB-1147) across three live `.claude/workflow/*.md` files: the widening rule in `review-agent-selection.md` §Step-level vs track-level routing, plus the two skip-gate premise corrections in `code-review-protocol.md` and `track-code-review.md`. The edits were live under the §1.7(k) prose-rule opt-out, so the corrected rule governed the branch's own review.
+
+The fix self-applied. At Step 1's step-level review the corrected rule drew the four workflow reviewers the Phase C track pass would run — consistency, context-budget, instruction-completeness, writing-style — where the pre-fix rule drew zero. Writing-style raised two should-fix negative-parallelism findings and one suggestion; all were resolved at iteration 2 (commit 61d9767e42). Because that full track-pass-equivalent selection already ran at the sole high step, Phase C skipped the code-review fan-out under the rule this track added — re-running the track pass would select the same reviewers against the same diff.
+
+No cross-track impact: this is the single, last track. The §1.7(k) stamp-advance obligation was completed this session (commit fb840ac0f3), re-arming the §1.6(b) drift gate. One out-of-scope coherence residual remains (Surprises log): the inline step-level-narrowing summaries at the dispatch sites do not restate the single-step-high exception; per D3 they defer through their pointers and were left for a future non-opt-out session.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 
