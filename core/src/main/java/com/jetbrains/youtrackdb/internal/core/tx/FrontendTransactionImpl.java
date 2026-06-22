@@ -127,9 +127,9 @@ public class FrontendTransactionImpl implements
   // Re-entrancy depth for the tx-result cache lookup-and-view scope. The session brackets the
   // whole cache lookup-and-view path with enter/exit, so a query() issued from inside that scope
   // (e.g. a user-defined function in a WHERE clause) observes depth > 0 and bypasses the cache,
-  // falling back to uncached execution. Distinct from QueryResultCache.inFlightLookup, which guards
-  // only the lookup call itself; this counter guards the broader scope that also builds and returns
-  // a view. Transient per-tx owner-thread-only state with no on-disk footprint; resets to 0 with the
+  // falling back to uncached execution. This is the sole re-entrancy guard: it brackets lookup,
+  // delta build, and view construction, so a nested query() rejects before lookup runs a second
+  // time. Transient per-tx owner-thread-only state with no on-disk footprint; resets to 0 with the
   // transaction.
   private int cacheCodeDepth;
 

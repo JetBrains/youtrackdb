@@ -25,13 +25,12 @@ import javax.annotation.Nullable;
  * routes the evicted key to {@link #nonCacheableKeys} so the same query does not immediately
  * re-populate and churn the LRU, and counts an overflow.
  *
- * <p><b>Re-entrancy.</b> Two guards keep a query issued from inside the cache's own lookup-and-view
- * scope from recursively consulting the cache. The transaction-level {@code cacheCodeDepth}
- * counter on {@code FrontendTransactionImpl} brackets the whole lookup-and-view scope at the session;
- * the lookup-level {@link #inFlightLookup} boolean here guards the {@link #lookup} call itself. A
- * re-entrant {@code lookup} (for example a user-defined function in a WHERE clause issuing its own
- * {@code query()}) sees {@code inFlightLookup == true} and returns {@code null} so the caller falls
- * back to uncached execution.
+ * <p><b>Re-entrancy.</b> A query issued from inside the cache's own lookup-and-view scope must not
+ * recursively consult the cache. The transaction-level {@code cacheCodeDepth} counter on {@code
+ * FrontendTransactionImpl} brackets the whole lookup-and-view scope at the session: a re-entrant
+ * {@code query()} (for example a user-defined function in a WHERE clause issuing its own {@code
+ * query()}) sees {@code cacheCodeDepth > 0} before {@link #lookup} is reached and falls back to
+ * uncached execution, so {@code lookup} never runs a second time on the same thread.
  *
  * <p><b>K0_NONE version gate.</b> A {@link CacheableShape#K0_NONE} entry is reproducible from storage
  * plus the AST but cannot be reconciled record by record, so it serves a cached read only while no
@@ -77,9 +76,6 @@ public final class QueryResultCache {
    */
   private final Map<CacheKey, Integer> k0Strikes = new HashMap<>();
 
-  /** Lookup-level re-entrancy guard: true while a {@link #lookup} call is in progress. */
-  private boolean inFlightLookup;
-
   public QueryResultCache(@Nonnull QueryCacheMetrics metrics) {
     this.metrics = metrics;
     this.maxEntries = GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_ENTRIES.getValueAsInteger();
@@ -93,8 +89,7 @@ public final class QueryResultCache {
   /**
    * Looks up the entry for {@code key} at the transaction's current mutation version.
    *
-   * <p>Returns {@code null} — caller falls back to uncached execution — when: a {@link #lookup} is
-   * already in progress on this thread (the re-entrancy guard); the key is in {@link
+   * <p>Returns {@code null} — caller falls back to uncached execution — when: the key is in {@link
    * #nonCacheableKeys}; no entry is cached; or a {@link CacheableShape#K0_NONE} entry's populate
    * version no longer equals {@code currentMutationVersion}. The version-mismatch case also evicts the
    * stale entry, counts a K0 invalidation, and routes the key to the non-cacheable set after the
@@ -106,50 +101,39 @@ public final class QueryResultCache {
    *     to gate {@link CacheableShape#K0_NONE} entries.
    */
   @Nullable public CachedEntry lookup(@Nonnull CacheKey key, long currentMutationVersion) {
-    // Re-entrancy guard: a nested lookup (e.g. a UDF in a WHERE clause issuing query()) must not
-    // recurse into the cache. Return before touching the flag so the outer lookup's finally still
-    // owns the reset.
-    if (inFlightLookup) {
-      return null;
-    }
     if (nonCacheableKeys.contains(key)) {
       // Permanently bypassed key (overflowed or K0-strike-exceeded). Not counted as a cache miss: the
       // decision to bypass was already accounted for when the key was routed to the set.
       return null;
     }
-    inFlightLookup = true;
-    try {
-      var entry = entries.get(key);
-      if (entry == null) {
-        metrics.incrementMisses();
-        return null;
-      }
-      if (entry.getShape() == CacheableShape.K0_NONE
-          && entry.getPopulateMutationVersion() != currentMutationVersion) {
-        // The transaction mutated since this K0_NONE entry was populated, and a K0_NONE result cannot
-        // be reconciled record by record, so the cached answer is stale. Drop it, count the strike,
-        // and route the key out of the cache once it has been invalidated often enough.
-        invalidate(key, entry);
-        metrics.incrementK0Invalidations();
-        var strikes = k0Strikes.merge(key, 1, Integer::sum);
-        if (strikes >= k0NoneInvalidationThreshold) {
-          nonCacheableKeys.add(key);
-        }
-        return null;
-      }
-      if (entry.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
-        // A multi-alias MATCH hit is only confirmed after the caller's class-scoped staleness gate runs
-        // (it needs the transaction's record operations, which lookup does not carry). The caller counts
-        // the hit via recordHit() on the served branch, or an invalidation via invalidateMatchMulti() on
-        // the stale branch. Counting a hit here would double-count a stale hit as hit + invalidation,
-        // diverging from the K0_NONE gate, which decides inside lookup and counts only the invalidation.
-        return entry;
-      }
-      metrics.incrementHits();
-      return entry;
-    } finally {
-      inFlightLookup = false;
+    var entry = entries.get(key);
+    if (entry == null) {
+      metrics.incrementMisses();
+      return null;
     }
+    if (entry.getShape() == CacheableShape.K0_NONE
+        && entry.getPopulateMutationVersion() != currentMutationVersion) {
+      // The transaction mutated since this K0_NONE entry was populated, and a K0_NONE result cannot
+      // be reconciled record by record, so the cached answer is stale. Drop it, count the strike,
+      // and route the key out of the cache once it has been invalidated often enough.
+      invalidate(key, entry);
+      metrics.incrementK0Invalidations();
+      var strikes = k0Strikes.merge(key, 1, Integer::sum);
+      if (strikes >= k0NoneInvalidationThreshold) {
+        nonCacheableKeys.add(key);
+      }
+      return null;
+    }
+    if (entry.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
+      // A multi-alias MATCH hit is only confirmed after the caller's class-scoped staleness gate runs
+      // (it needs the transaction's record operations, which lookup does not carry). The caller counts
+      // the hit via recordHit() on the served branch, or an invalidation via invalidateMatchMulti() on
+      // the stale branch. Counting a hit here would double-count a stale hit as hit + invalidation,
+      // diverging from the K0_NONE gate, which decides inside lookup and counts only the invalidation.
+      return entry;
+    }
+    metrics.incrementHits();
+    return entry;
   }
 
   /**

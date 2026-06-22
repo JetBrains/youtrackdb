@@ -8,7 +8,6 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
-import java.lang.reflect.Field;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import org.junit.After;
@@ -241,47 +240,6 @@ public class QueryResultCacheTest extends DbTestBase {
     Assert.assertEquals("Second clear must not re-close", 1, sA.closeCount);
     Assert.assertEquals(1, sB.closeCount);
     Assert.assertEquals(0, cache.size());
-  }
-
-  /**
-   * The lookup-level re-entrancy guard ({@code if (inFlightLookup) return null;}, the second of the two
-   * CR1 guards): while a {@code lookup} is in flight, a re-entrant {@code lookup} on the same cache must
-   * short-circuit to {@code null} before touching the entry map or the metrics, so a nested lookup
-   * (e.g. a UDF in a WHERE clause issuing {@code query()}) cannot recurse into the cache. The wired path
-   * trips the tx-level {@code cacheCodeDepth} guard before {@code lookup} is ever re-entered, so this
-   * branch has no end-to-end driver; this white-box test forces {@code inFlightLookup} true directly and
-   * asserts a present-key lookup still returns null AND counts neither a hit nor a miss — proving the
-   * guard returns at the very top of {@code lookup}, ahead of both the map probe and the miss counter.
-   * Deleting or inverting the guard would make this lookup return the stored entry (or count a hit),
-   * failing the assertions.
-   */
-  @Test
-  public void inFlightLookupGuardShortCircuitsReentrantLookupToNull() throws Exception {
-    var metrics = new QueryCacheMetrics();
-    var cache = new QueryResultCache(metrics);
-    var k = key("select from OUser where name = 'a'");
-    var entry = recordEntry(new CountingStream());
-    cache.put(k, entry);
-
-    // Simulate a lookup already in progress on this cache instance (the state an outer lookup sets in
-    // its try-block). The field is private and has no natural same-thread re-entry point inside lookup,
-    // so drive the documented branch directly via reflection rather than leaving it untested.
-    Field inFlight = QueryResultCache.class.getDeclaredField("inFlightLookup");
-    inFlight.setAccessible(true);
-    inFlight.setBoolean(cache, true);
-
-    var reentrant = cache.lookup(k, 0L);
-
-    Assert.assertNull("A lookup re-entered while one is in flight must return null", reentrant);
-    Assert.assertEquals("The re-entrancy short-circuit must not count a hit", 0, metrics.getHits());
-    Assert.assertEquals("The re-entrancy short-circuit must not count a miss (it precedes the map "
-        + "probe)", 0, metrics.getMisses());
-
-    // With the guard cleared, the same lookup hits normally — confirming the entry was reachable and
-    // the null above came from the guard, not from an absent/closed entry.
-    inFlight.setBoolean(cache, false);
-    Assert.assertSame("Once the guard clears, the present key hits", entry, cache.lookup(k, 0L));
-    Assert.assertEquals(1, metrics.getHits());
   }
 
   /**

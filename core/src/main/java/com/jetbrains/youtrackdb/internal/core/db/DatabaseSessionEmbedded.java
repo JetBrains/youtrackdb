@@ -789,8 +789,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
     // Re-entrancy bracket: bump the tx-level cache-code depth around the synchronous lookup-and-build
     // scope so a nested query() issued while we are inside it — a UDF in a WHERE evaluated during the
-    // delta build, or during the aggregate eager-drive below — bypasses the cache. The cache's own
-    // inFlightLookup guards the bare lookup call. The guard is released unconditionally in the finally:
+    // delta build, or during the aggregate eager-drive below — bypasses the cache. The depth check at the
+    // top of this method sits ahead of this enter, so a re-entrant query() rejects before reaching
+    // lookup() and lookup never runs twice on the same thread. The guard is released unconditionally
+    // in the finally:
     // the lazy stream pull that happens later, during view iteration, is bracketed separately by the
     // CachedResultSetView around each row it produces (see CachedResultSetView.hasNext), so the depth
     // is held exactly over the windows a re-entrant query could corrupt and not for the view's whole
