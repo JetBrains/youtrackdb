@@ -470,6 +470,43 @@ public class CachedResultSetViewTest {
     assertTrue(view.isClosed());
   }
 
+  /**
+   * The row-loss regression at the view boundary: when the cache removes an entry while a view still
+   * iterates it, it defers the stream close ({@link CachedEntry#markCloseWhenUnpinned}, the exact
+   * action {@code QueryResultCache.closeOrDefer} takes on a pinned entry for invalidate / TRUNCATE /
+   * overflow) instead of closing the stream out from under the view. Before the deferral, the removal
+   * closed the stream and the next {@code pullOneFromStream} saw a null stream and silently dropped the
+   * tail. Here the view pulls the first of three streamed rows, the entry is detached-while-pinned, and
+   * the view must still drain the full tail; the stream closes exactly once, on natural exhaustion.
+   */
+  @Test
+  public void deferredCloseWhilePinnedDoesNotTruncateView() {
+    var stream = new ListExecutionStream(
+        List.of(resultOf(newRec(10)), resultOf(newRec(20)), resultOf(newRec(30))));
+    var entry = new CachedEntry(
+        CacheableShape.K0_NONE, Set.of(CLASS_NAME), null, null, stream, null, ctx(), 0L);
+    var view = new CachedResultSetView(entry, null, db, tx(), null, ctx());
+
+    // Pull the first row, leaving 20 and 30 in the still-open stream.
+    assertTrue(view.hasNext());
+    Integer first = view.next().getProperty(FIELD);
+    assertEquals(Integer.valueOf(10), first);
+
+    // The cache removes this entry while the view pins it; a pinned removal defers the close.
+    entry.markCloseWhenUnpinned();
+    assertEquals(
+        "A deferred removal must not close the stream under a live view", 0, stream.closeCount);
+
+    // The view must still yield the full tail — no lost rows.
+    var rest = new ArrayList<Integer>();
+    while (view.hasNext()) {
+      rest.add(view.next().getProperty(FIELD));
+    }
+    assertEquals(List.of(20, 30), rest);
+    assertTrue(entry.isExhausted());
+    assertEquals("The stream closes exactly once, on natural exhaustion", 1, stream.closeCount);
+  }
+
   /** A closed view reports no more rows and throws on next(), per the ResultSet contract. */
   @Test
   public void closedViewHasNoNext() {

@@ -25,6 +25,16 @@ import javax.annotation.Nullable;
  * routes the evicted key to {@link #nonCacheableKeys} so the same query does not immediately
  * re-populate and churn the LRU, and counts an overflow.
  *
+ * <p><b>Pinned-entry removal.</b> Every path that takes an entry out of {@link #entries} — LRU
+ * eviction, the K0_NONE / multi-alias MATCH invalidation gate ({@link #invalidate}), bulk-DML {@link
+ * #invalidateAll}, and per-entry overflow ({@link #overflowEntry}) — goes through {@link
+ * #closeOrDefer}, which closes the stream immediately only when the entry is unpinned. A still-pinned
+ * entry has its close deferred to the last pin release (the entry is marked via {@link
+ * CachedEntry#markCloseWhenUnpinned} and parked in {@link #closePending}), so a removal never closes a
+ * stream out from under a mid-iteration view. The view drains its tail from the still-open stream and
+ * the entry closes when its last view ends; future lookups miss because the entry already left the
+ * map. This is what makes "a mid-iteration view never loses rows" hold for every remover, not just LRU.
+ *
  * <p><b>Re-entrancy.</b> A query issued from inside the cache's own lookup-and-view scope must not
  * recursively consult the cache. The transaction-level {@code cacheCodeDepth} counter on {@code
  * FrontendTransactionImpl} brackets the whole lookup-and-view scope at the session: a re-entrant
@@ -41,7 +51,8 @@ import javax.annotation.Nullable;
  * churn in a write-heavy fragment.
  *
  * <p><b>Lifecycle.</b> {@link #clear()} is the transaction-end sink and is idempotent: it closes every
- * entry's paused stream and empties the map; a second call sees an empty map and is a no-op. It
+ * entry's paused stream — both the live map entries and any deferred-close entries parked in {@link
+ * #closePending} — and empties all state; a second call finds everything empty and is a no-op. It
  * snapshots the entry set before iterating because {@code CachedEntry#close} touches the entry's own
  * state and a future change could reach back into the map. {@link #invalidateAll()} is the
  * bulk-DML hook with the same snapshot discipline; it keeps the cache instance live (the transaction
@@ -75,6 +86,17 @@ public final class QueryResultCache {
    * on {@link CachedEntry}.
    */
   private final Map<CacheKey, Integer> k0Strikes = new HashMap<>();
+
+  /**
+   * Entries removed from {@link #entries} while still pinned by a live view: their stream close was
+   * deferred to the last pin release (see {@link #closeOrDefer}). A well-behaved view closes such an
+   * entry promptly on its own close or drain; this set is the backstop for an <i>abandoned</i> view
+   * that never releases its pin, so {@link #clear()} at transaction end still closes the entry. Without
+   * it a detached, abandoned entry would be unreachable from the map and leak its stream/plan for the
+   * rest of the transaction. Uncapped per transaction, bounded by the number of mid-iteration removals;
+   * cleared at tx end.
+   */
+  private final Set<CachedEntry> closePending = new HashSet<>();
 
   public QueryResultCache(@Nonnull QueryCacheMetrics metrics) {
     this.metrics = metrics;
@@ -173,14 +195,17 @@ public final class QueryResultCache {
   /**
    * Handles a per-entry record-cap overflow reported by a populating view: removes the over-cap
    * entry from the map, routes its key to the non-cacheable set so the same query stays uncached for
-   * the rest of the transaction, and counts an overflow. The entry's stream is deliberately NOT closed
-   * here: the view that triggered the overflow is still pulling from it and owns the consumer-facing
-   * result. The entry is no longer reachable through the map, so it is released when that view closes.
+   * the rest of the transaction, and counts an overflow. The overflow always fires from inside a live
+   * view's stream pull, so the entry is pinned: {@link #closeOrDefer} therefore defers the close, the
+   * view keeps streaming every row, and the entry's stream/plan close when that view drains or closes
+   * (or, if the view is abandoned, at the tx-end {@link #clear()} sweep of {@link #closePending}).
    */
   private void overflowEntry(@Nonnull CacheKey key) {
-    if (entries.remove(key) != null) {
+    var entry = entries.remove(key);
+    if (entry != null) {
       nonCacheableKeys.add(key);
       metrics.incrementOverflows();
+      closeOrDefer(entry);
     }
   }
 
@@ -205,14 +230,37 @@ public final class QueryResultCache {
     var victimEntry = eldest.getValue();
     entries.remove(victimKey);
     nonCacheableKeys.add(victimKey);
-    victimEntry.close();
+    // The eldest is unpinned (checked above), so closeOrDefer closes it immediately; routed through
+    // the shared helper so every map-removal path closes through one place.
+    closeOrDefer(victimEntry);
     metrics.incrementOverflows();
   }
 
-  /** Removes {@code key}'s entry from the map and closes its stream. Used by the K0 version gate. */
+  /**
+   * Closes an entry just removed from {@link #entries}, or defers the close when a live view still
+   * pins it. An unpinned entry is closed immediately. A pinned entry is marked {@link
+   * CachedEntry#markCloseWhenUnpinned} and parked in {@link #closePending}: its stream stays open so
+   * the mid-iteration view drains its tail without truncation, and the entry closes at the last pin
+   * release (see {@link CachedEntry#decrementLiveViewCount}) or, for an abandoned view, at the tx-end
+   * {@link #clear()} sweep. Every map-removal path (eviction, invalidate, invalidateAll, overflow)
+   * routes through here so the pinned-entry contract holds uniformly.
+   */
+  private void closeOrDefer(@Nonnull CachedEntry entry) {
+    if (entry.getLiveViewCount() > 0) {
+      entry.markCloseWhenUnpinned();
+      closePending.add(entry);
+    } else {
+      entry.close();
+    }
+  }
+
+  /**
+   * Removes {@code key}'s entry from the map and closes it (or defers the close while a view pins it,
+   * via {@link #closeOrDefer}). Used by the K0 version gate.
+   */
   private void invalidate(@Nonnull CacheKey key, @Nonnull CachedEntry entry) {
     entries.remove(key);
-    entry.close();
+    closeOrDefer(entry);
   }
 
   /**
@@ -240,28 +288,42 @@ public final class QueryResultCache {
   }
 
   /**
-   * Drops every cached entry while keeping the cache instance live, closing each entry's paused stream
-   * first. The bulk-DML hook for the one mid-transaction operation (TRUNCATE CLASS) that can change
-   * stored data without flowing through the mutation log. Snapshots the values before iterating so an
-   * entry close cannot disturb the map mid-walk. {@link #nonCacheableKeys} and {@link #k0Strikes} are
-   * left intact: a key bypassed before the bulk operation stays bypassed.
+   * Drops every cached entry while keeping the cache instance live, closing each unpinned entry's
+   * paused stream (a still-pinned entry defers its close via {@link #closeOrDefer} so a TRUNCATE CLASS
+   * issued while a view iterates does not truncate it; the view drains its frozen result, matching a
+   * fresh execution taken at the view's start). The bulk-DML hook for the one mid-transaction operation
+   * (TRUNCATE CLASS) that can change stored data without flowing through the mutation log. Snapshots
+   * the values before iterating so an entry close cannot disturb the map mid-walk. {@link
+   * #nonCacheableKeys} and {@link #k0Strikes} are left intact: a key bypassed before the bulk operation
+   * stays bypassed.
    */
   public void invalidateAll() {
     var snapshot = new ArrayList<>(entries.values());
     entries.clear();
     for (var entry : snapshot) {
-      entry.close();
+      closeOrDefer(entry);
     }
   }
 
   /**
-   * Transaction-end sink: closes every entry's paused stream and empties all cache state. Idempotent
-   * — a second call sees an empty map and returns without effect — and safe to reach from the
-   * pool-shutdown thread because the underlying stream close is itself idempotent (via {@link
-   * IdempotentExecutionStream}). Snapshots the values before iterating for the same reason as {@link
-   * #invalidateAll()}.
+   * Transaction-end sink: closes every entry's paused stream — both the live map entries and any
+   * deferred-close entries parked in {@link #closePending} by a removal that found them pinned — and
+   * empties all cache state. Idempotent — a second call finds everything empty and returns without
+   * effect — and safe to reach from the pool-shutdown thread because the underlying stream close is
+   * itself idempotent (via {@link IdempotentExecutionStream}). Snapshots the values before iterating
+   * for the same reason as {@link #invalidateAll()}.
    */
   public void clear() {
+    // Close detached-but-pinned entries whose view was abandoned (never released its pin), so they do
+    // not leak past the transaction. Done first so it runs even on the empty-map fast path below.
+    // Idempotent: an entry already closed on its last pin release or on drain is a no-op here.
+    if (!closePending.isEmpty()) {
+      var pending = new ArrayList<>(closePending);
+      closePending.clear();
+      for (var entry : pending) {
+        entry.close();
+      }
+    }
     if (entries.isEmpty()) {
       // Idempotent fast path: a second tx-end clear finds nothing to release. Still drop the bypass
       // sets so a reused cache instance starts a fresh transaction clean.

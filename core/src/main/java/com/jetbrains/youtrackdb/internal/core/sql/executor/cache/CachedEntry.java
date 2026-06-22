@@ -136,11 +136,23 @@ public final class CachedEntry {
   private boolean overflowed;
 
   /**
-   * Number of live views iterating this entry. A pinned ({@code > 0}) entry is exempt from LRU
-   * eviction so a mid-iteration view never loses rows. Incremented/decremented by the view in a later
-   * step.
+   * Number of live views iterating this entry. A pinned ({@code > 0}) entry is exempt from every
+   * cache-removal path — LRU eviction, the K0_NONE / multi-alias MATCH invalidation gate, bulk-DML
+   * {@code invalidateAll}, and per-entry overflow — so a mid-iteration view never loses rows: a removal
+   * that finds the entry pinned defers the stream close to {@link #decrementLiveViewCount} via {@link
+   * #markCloseWhenUnpinned}. Incremented/decremented by the view.
    */
   private int liveViewCount;
+
+  /**
+   * Set by the cache when it removes this entry from the map while a view still pins it. The stream
+   * close is then deferred to the last pin release so a removal never truncates a mid-iteration view:
+   * {@link #decrementLiveViewCount} closes the entry the moment the pin count reaches zero. The cache
+   * also parks the entry in its {@code closePending} set so a transaction-end {@code clear()} still
+   * closes it if the view is abandoned and never releases its pin. Never reset — an entry removed from
+   * the cache is never re-stored.
+   */
+  private boolean closeWhenUnpinned;
 
   public CachedEntry(
       @Nonnull CacheableShape shape,
@@ -343,6 +355,21 @@ public final class CachedEntry {
     if (liveViewCount > 0) {
       liveViewCount--;
     }
+    if (liveViewCount == 0 && closeWhenUnpinned) {
+      // The cache removed this entry from the map while a view still held it, deferring the close to
+      // the last pin release. This is that release: close the deferred stream/plan now. Idempotent
+      // with the natural drain-close (pullOneFromStream) and the tx-end clear() sweep.
+      close();
+    }
+  }
+
+  /**
+   * Marks this entry for deferred close: the cache calls it when it removes a still-pinned entry from
+   * the map, so the stream close happens at the last {@link #decrementLiveViewCount} instead of under
+   * a mid-iteration view. Idempotent.
+   */
+  public void markCloseWhenUnpinned() {
+    closeWhenUnpinned = true;
   }
 
   /** Rows cached so far; the LRU eviction decision reads this. */

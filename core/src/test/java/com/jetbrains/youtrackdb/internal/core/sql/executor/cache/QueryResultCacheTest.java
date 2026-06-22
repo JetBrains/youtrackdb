@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlStatementCache;
@@ -19,7 +20,8 @@ import org.junit.experimental.categories.Category;
 /**
  * Verifies the lookup/eviction/invalidation contract of {@link QueryResultCache}: the access-order
  * LRU bound with live-view pinning, the K0_NONE mutation-version gate with strike-based routing
- * to the non-cacheable set, the two re-entrancy guards' lookup-level boolean, the
+ * to the non-cacheable set, the pin-aware removal paths that defer a pinned entry's stream close to
+ * the last view release (and back it with the tx-end {@code closePending} sweep), the
  * snapshot-before-iterate close paths, and the idempotent transaction-end {@code clear()} that
  * closes every entry's paused stream.
  *
@@ -32,6 +34,7 @@ public class QueryResultCacheTest extends DbTestBase {
 
   private int savedMaxEntries;
   private int savedK0Threshold;
+  private int savedMaxRecords;
 
   /** A stream that counts close calls so a test can prove eviction / clear closed it exactly once. */
   private static final class CountingStream implements ExecutionStream {
@@ -60,6 +63,8 @@ public class QueryResultCacheTest extends DbTestBase {
     savedK0Threshold =
         GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
             .getValueAsInteger();
+    savedMaxRecords =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.getValueAsInteger();
   }
 
   @After
@@ -67,6 +72,7 @@ public class QueryResultCacheTest extends DbTestBase {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_ENTRIES.setValue(savedMaxEntries);
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD.setValue(
         savedK0Threshold);
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.setValue(savedMaxRecords);
   }
 
   /** Distinct query text yields a distinct {@link SQLStatement}, hence a distinct {@link CacheKey}. */
@@ -261,5 +267,134 @@ public class QueryResultCacheTest extends DbTestBase {
     // The cache instance is still usable for the rest of the transaction.
     Assert.assertNull("A query after invalidateAll must miss and re-populate",
         cache.lookup(kA, 0L));
+  }
+
+  /** A non-identifiable property-bag row, enough to drive {@link CachedEntry#recordPulledRow}. */
+  private Result row() {
+    return new ResultInternal(session);
+  }
+
+  /**
+   * The K0_NONE version gate invalidates a stale entry, but a live view still pinning it must not have
+   * its stream closed under it — that is the row-truncation bug. A pinned invalidation removes the entry
+   * from the map (a re-lookup misses) yet keeps the stream open; the stream closes exactly once, when the
+   * last view releases its pin. Simulates the live view with {@code incrementLiveViewCount}, the call the
+   * view makes in its constructor.
+   */
+  @Test
+  public void invalidatePinnedK0EntryDefersCloseUntilUnpinned() {
+    var cache = new QueryResultCache(new QueryCacheMetrics());
+    var stream = new CountingStream();
+    var k = key("select from OUser where name = 'a'");
+    var entry = k0Entry(stream, 5L);
+    cache.put(k, entry);
+    entry.incrementLiveViewCount(); // a live view is iterating this entry
+
+    // A mutation advanced the version: the K0_NONE gate invalidates and drops the entry from the map.
+    Assert.assertNull("Stale K0_NONE lookup must invalidate and miss", cache.lookup(k, 6L));
+    Assert.assertEquals(
+        "A pinned entry's stream must NOT close under a live view", 0, stream.closeCount);
+    Assert.assertEquals("The invalidated entry must leave the map", 0, cache.size());
+
+    // The view finishes and releases its pin: the deferred close now fires, exactly once.
+    entry.decrementLiveViewCount();
+    Assert.assertEquals(
+        "The last pin release closes the deferred stream once", 1, stream.closeCount);
+  }
+
+  /**
+   * invalidateAll (the TRUNCATE CLASS hook) drops every entry, but a pinned entry defers its stream
+   * close so a TRUNCATE issued while a view iterates does not truncate the view. The stream closes when
+   * the view releases its pin.
+   */
+  @Test
+  public void invalidateAllDefersCloseForPinnedEntry() {
+    var cache = new QueryResultCache(new QueryCacheMetrics());
+    var stream = new CountingStream();
+    var k = key("select from OUser where name = 'a'");
+    var entry = recordEntry(stream);
+    cache.put(k, entry);
+    entry.incrementLiveViewCount();
+
+    cache.invalidateAll();
+    Assert.assertEquals(
+        "invalidateAll must not close a pinned entry under its live view", 0, stream.closeCount);
+    Assert.assertEquals(0, cache.size());
+
+    entry.decrementLiveViewCount();
+    Assert.assertEquals("The last pin release closes the deferred stream once", 1,
+        stream.closeCount);
+  }
+
+  /**
+   * A per-entry record-cap overflow removes the entry from the map. When the populating view still pins
+   * it, the close is deferred to the last pin release rather than leaked: before the fix the overflowed
+   * entry left the map and {@code clear()} could never reach it, so an early view close never released
+   * its stream. With {@code maxRecordsPerEntry == 2}, the third {@code recordPulledRow} overflows.
+   */
+  @Test
+  public void overflowDefersCloseForPinnedEntryNoLeak() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.setValue(2);
+    var cache = new QueryResultCache(new QueryCacheMetrics());
+    var stream = new CountingStream();
+    var k = key("select from OUser where name = 'a'");
+    var entry = recordEntry(stream);
+    cache.put(k, entry); // installs the per-entry cap + overflow callback
+    entry.incrementLiveViewCount(); // the populating view pins it while it pulls
+
+    // Drive the cached row count past the cap of 2; the third append fires the overflow callback.
+    entry.recordPulledRow(row());
+    entry.recordPulledRow(row());
+    entry.recordPulledRow(row());
+
+    Assert.assertTrue("Overflow must route the key non-cacheable", cache.isNonCacheable(k));
+    Assert.assertEquals("The overflowed entry must leave the map", 0, cache.size());
+    Assert.assertEquals(
+        "A pinned overflowed entry must not close under its live view", 0, stream.closeCount);
+
+    entry.decrementLiveViewCount();
+    Assert.assertEquals(
+        "The last pin release closes the overflowed entry once (no leak)", 1, stream.closeCount);
+  }
+
+  /**
+   * A pinned entry invalidated and then abandoned (its view never releases the pin) must still close at
+   * transaction end: {@code closeOrDefer} parks it in {@code closePending} and {@code clear()} sweeps
+   * that set. Without the backstop a detached, abandoned entry would leak its stream past the map for
+   * the rest of the transaction.
+   */
+  @Test
+  public void abandonedPinnedInvalidatedEntryIsClosedByClear() {
+    var cache = new QueryResultCache(new QueryCacheMetrics());
+    var stream = new CountingStream();
+    var k = key("select from OUser where name = 'a'");
+    var entry = k0Entry(stream, 5L);
+    cache.put(k, entry);
+    entry.incrementLiveViewCount();
+
+    cache.lookup(k, 6L); // version mismatch invalidates; pinned, so the close is deferred
+    Assert.assertEquals(
+        "The view never releases its pin (abandoned), so nothing closes yet", 0, stream.closeCount);
+
+    cache.clear(); // transaction end
+    Assert.assertEquals(
+        "clear() must close the abandoned detached entry via closePending", 1, stream.closeCount);
+  }
+
+  /**
+   * With no live view pinning it, an invalidated entry closes immediately — the deferral applies only
+   * while a view holds the pin. Preserves the eager-close behaviour for the common, unpinned case.
+   */
+  @Test
+  public void invalidateUnpinnedEntryClosesImmediately() {
+    var cache = new QueryResultCache(new QueryCacheMetrics());
+    var stream = new CountingStream();
+    var k = key("select from OUser where name = 'a'");
+    cache.put(k, k0Entry(stream, 5L));
+
+    Assert.assertNull(cache.lookup(k, 6L)); // version mismatch, no pin
+    Assert.assertEquals(
+        "An unpinned invalidated entry closes immediately", 1, stream.closeCount);
+    Assert.assertEquals(0, cache.size());
   }
 }

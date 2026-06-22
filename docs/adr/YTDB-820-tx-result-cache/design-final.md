@@ -53,7 +53,7 @@ classDiagram
         -entries: LinkedHashMap
         -nonCacheableKeys: Set
         -k0Strikes: Map
-        -inFlightLookup: boolean
+        -closePending: Set
         +lookup(key, currentMutationVersion) CachedEntry
         +put(key, entry) void
         +recordHit() void
@@ -447,7 +447,7 @@ An `SQLFunction.isDeterministic()` SPI was weighed and deferred. It would co-loc
 
 **TL;DR.** Two knobs cap how much a transaction's cache can hold. `maxEntries` (default 200) is a soft LRU cap on the entry count; eviction closes the evicted entry's stream and routes its key non-cacheable to prevent re-population churn. `maxRecordsPerEntry` (default 10000) caps a single entry's row count; an entry whose populate crosses it removes itself from the cache and routes its key non-cacheable, while the live view still receives every row from the stream.
 
-The LRU is an access-ordered `LinkedHashMap`; a live view pins its entry (`liveViewCount > 0`) and `evictEldestIfUnpinned` skips a pinned eldest, so the map may grow transiently above `maxEntries` under view-pinning pressure (Invariant 9). The aggregate path enforces the per-entry cap on the `AggregateState` contributor collections rather than on the single-scalar `results`, since high-cardinality COUNT(DISTINCT)/MIN/MAX is the real memory vector there; `installAggregateOverflowGuard` routes the key non-cacheable on overflow.
+The LRU is an access-ordered `LinkedHashMap`; a live view pins its entry (`liveViewCount > 0`) and `evictEldestIfUnpinned` skips a pinned eldest, so the map may grow transiently above `maxEntries` under view-pinning pressure (Invariant 9). The pin protects against more than eviction: every path that removes an entry from the map — eviction, the K0_NONE / multi-alias MATCH invalidate gate, the bulk-DML `invalidateAll`, and per-entry overflow — routes through `closeOrDefer`, which closes a pinned entry's stream only after its last view releases the pin (parking the entry in `closePending` so a tx-end `clear()` still closes it if that view is abandoned). No removal closes a stream out from under a mid-iteration view. The aggregate path enforces the per-entry cap on the `AggregateState` contributor collections rather than on the single-scalar `results`, since high-cardinality COUNT(DISTINCT)/MIN/MAX is the real memory vector there; `installAggregateOverflowGuard` routes the key non-cacheable on overflow.
 
 ### Edge cases / Gotchas
 
@@ -464,14 +464,13 @@ The LRU is an access-ordered `LinkedHashMap`; a live view pins its entry (`liveV
 
 **TL;DR.** Every cache mutation path (lookup, put, invalidate, LRU eviction, begin-clear) runs on the transaction's owning thread, guarded by the transaction's existing owner-thread assertions. The only cross-thread entry is `clear()` through the tx-end paths (`close`, `rollbackInternal`), which the transaction already exempts from the owner-thread assert to allow pool shutdown. The cache inherits that best-effort shutdown contract; no locking is added.
 
-### Re-entrancy — two guards
+### Re-entrancy
 
-A query issued from inside the cache's own lookup-and-view scope must not recursively consult the cache. Two complementary counters enforce that:
+A query issued from inside the cache's own lookup-and-view scope must not recursively consult the cache. A single transaction-level `cacheCodeDepth` counter on `FrontendTransactionImpl` enforces that. The session calls `enterCacheCode()` before the synchronous lookup-and-build scope and `exitCacheCode()` in a finally; the view re-enters the bracket per row in `hasNext()` around the lazy stream pull, delta merge, and RETURN projection. A `query()` issued while `cacheCodeDepth > 0` — a UDF in a WHERE evaluated during the build or during a lazy pull — sees the depth and bypasses the cache. The guard is held only over the row-production windows, so a `query()` issued by user code between two `next()` calls still uses the cache, and an abandoned view never silently disables it.
 
-1. A transaction-level `cacheCodeDepth` counter on `FrontendTransactionImpl`. The session calls `enterCacheCode()` before the synchronous lookup-and-build scope and `exitCacheCode()` in a finally; the view re-enters the bracket per row in `hasNext()` around the lazy stream pull, delta merge, and RETURN projection. A `query()` issued while `cacheCodeDepth > 0` — a UDF in a WHERE evaluated during the build or during a lazy pull — sees the depth and bypasses the cache. The guard is held only over the row-production windows, so a `query()` issued by user code between two `next()` calls still uses the cache, and an abandoned view never silently disables it.
-2. A lookup-level `inFlightLookup` boolean on `QueryResultCache`, guarding the bare `lookup` call. A re-entrant `lookup` sees the flag set and returns null so the caller falls back to uncached execution.
+The depth check sits ahead of `enterCacheCode()` in `serveThroughCache`, so a re-entrant `query()` rejects before `lookup` is reached and `lookup` never runs a second time on the same thread; no lookup-level guard is needed.
 
-`exitCacheCode()` asserts the owning thread; `exitCacheCodeUnchecked()` is the cross-thread release primitive a pool-shutdown release uses. The counter is transient per-transaction state with no on-disk footprint and resets to zero at begin and at every tx-end path. This two-guard model is new in this work; neither guard existed in the codebase before.
+`exitCacheCode()` asserts the owning thread; `exitCacheCodeUnchecked()` is the cross-thread release primitive a pool-shutdown release uses. The counter is transient per-transaction state with no on-disk footprint and resets to zero at begin and at every tx-end path. This guard is new in this work; it did not exist in the codebase before.
 
 ### Close-once discipline for the shared stream
 
@@ -501,7 +500,7 @@ The consumer-facing `CachedResultSetView` does not own the entry's stream (the `
 - **Invariant 6 — Tx-end `clear()` idempotent and safe under cross-thread invocation.** `clear()`, `CachedEntry.close()`, and `IdempotentExecutionStream.close()` are each idempotent.
 - **Invariant 7 — View delta frozen post-construction.** The skip-set, inject-list, or replayed `AggregateState` is fixed at view construction; later mutations on the owning thread do not change a live view's output set or order. Record-property mutations are still observed live, matching YouTrackDB reference semantics.
 - **Invariant 8 — Schema immutable for the transaction's lifetime (enforced upstream).** The schema and index managers throw on any mid-tx schema DDL, so `effectiveFromClasses` and every AST-derived field are stable for an entry's life.
-- **Invariant 9 — View cardinality matches the uncached path under LRU pressure.** `liveViewCount` pins a mid-iteration entry; `evictEldestIfUnpinned` skips a pinned eldest.
+- **Invariant 9 — A mid-iteration view never loses rows to a cache removal.** `liveViewCount` pins a mid-iteration entry; every map-removal path (LRU eviction, the K0_NONE / multi-alias MATCH invalidate gate, bulk-DML `invalidateAll`, per-entry overflow) routes through `closeOrDefer`, which closes a pinned entry's stream only after its last view releases the pin (`closePending` lets a tx-end `clear()` still close it if the view is abandoned). `evictEldestIfUnpinned` additionally skips a pinned eldest, growing the map transiently rather than truncating.
 - **Invariant 10 — Cache transparent to the user.** With the flag on, every `query()` returns the same `Result` sequence a parallel uncached `query()` at the same moment would. The cache is a performance hint, not a semantic toggle, validated by a cache-on/cache-off test-corpus parity run.
 
 ### Edge cases / Gotchas

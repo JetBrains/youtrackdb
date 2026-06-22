@@ -506,7 +506,10 @@ public final class CachedResultSetView implements ResultSet {
    * exhaustion never reaches either release site, so its pin stays held and its entry stays exempt from
    * LRU eviction. This is bounded by the transaction's lifetime, not a leak across transactions:
    * {@code FrontendTransactionImpl.clear()} (every tx-end path) calls {@code QueryResultCache.clear()},
-   * which closes every entry regardless of pin count. The only effect is that one long transaction with
+   * which closes every entry regardless of pin count — including an entry the cache already detached
+   * while pinned (invalidate / TRUNCATE / overflow), caught through the cache's {@code closePending}
+   * set, so an abandoned view never leaks its stream even after the entry left the map. The only effect
+   * is that one long transaction with
    * many abandoned, partially-consumed views can hold its cache transiently over {@code maxEntries}.
    * Acceptable for v1: ResultSets are expected to be closed or drained, so abandonment is the
    * exceptional path; tying the pin to a phantom-reference cleaner would be the lever if a long-tx
@@ -527,8 +530,11 @@ public final class CachedResultSetView implements ResultSet {
     closed = true;
     lookahead = null;
     session = null;
-    // Release the pin; never close the entry's shared stream here — the entry (and other views) own
-    // it, and the tx-end cache clear closes it exactly once.
+    // Release the pin. This view never closes a still-cached entry's shared stream directly; the cache
+    // owns it. But if the cache already removed this entry while it was pinned (the K0_NONE / MATCH
+    // invalidate gate, a TRUNCATE invalidateAll, or an overflow), releasing the last pin here closes
+    // the deferred stream (see CachedEntry.decrementLiveViewCount), so the stream a removal left open
+    // for this view is released as soon as the view is done.
     releasePin();
   }
 
