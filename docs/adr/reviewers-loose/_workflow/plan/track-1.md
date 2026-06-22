@@ -139,3 +139,6 @@ No inter-track dependencies: this is the single track. No library or function si
 - The branch carries the §1.7(k) opt-out marker and creates no `docs/adr/reviewers-loose/_workflow/staged-workflow/` subtree. The marker lives in the phase ledger — the append-only state file (`_workflow/phase-ledger.md`) the workflow reads to resume — whose `s17` field records the §1.7 staging mode; here `s17` = opt-out. Verified by the ledger value and the absent subtree.
 - `.claude/scripts/workflow-reindex.py --check` passes after the edits (TOC and annotation consistency) — verified by the toc-check CI gate.
 - `/migrate-workflow` runs after the branch's last live `.claude/workflow` commit — verified by the edited files' line-1 stamps advanced to HEAD.
+
+## Base commit
+271fa9fb71072d3828ca105cdb18d033afb53457
