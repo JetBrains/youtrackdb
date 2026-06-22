@@ -979,8 +979,8 @@ public enum GlobalConfiguration {
       true),
 
   QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD(
-      "youtrackdb.query.txResultCache.k0NoneInvalidationThreshold",
-      "Number of times a delta-unreconcilable (K0_NONE) cached entry may be invalidated by an"
+      "youtrackdb.query.txResultCache.deltaUnreconcilableInvalidationThreshold",
+      "Number of times a delta-unreconcilable cached entry may be invalidated by an"
           + " intervening mutation before its key is routed to the per-transaction non-cacheable"
           + " set, bypassing the cache for the remainder of the transaction. Bounds repopulate"
           + " churn for write-heavy fragments without penalising pure-read repeats.",
