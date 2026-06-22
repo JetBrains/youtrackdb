@@ -28,7 +28,7 @@ tail and, when it is `D` or `Done`, folds to `drift.detected=false` and returns.
 regression tests pin the fix and the skip-ordering invariant it depends on.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-06-22T16:12Z [ctx=safe] Review + decomposition complete
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -150,6 +150,12 @@ Pin both arms of the skip ordering in `test_workflow_startup_precheck.py`.
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 2 (2 findings, 2 accepted). T1 (should-fix,
+  doc↔script skip-#1 framing) — fixed: clarifying sentence added to
+  `## Context and Orientation` item 1. T2 (suggestion, pin skip-#2 block mutates
+  only `DRIFT_DETECTED`/`DRIFT_KIND` + explicit `base_sha is None` assert) —
+  accepted as decomposition guidance, folded into the step acceptance below.
+  Risk and Adversarial dropped under `minimal` tier.
 
 ## Context and Orientation
 
@@ -182,7 +188,14 @@ active plan dir from the branch name (`PLAN_DIR="docs/adr/${branch}"`), walks th
 
 1. **Skip #1, empty-input no-drift** (`:612`–`:618`): when both the stamped and
    unstamped sets are empty (a `_workflow/` holding only a transient `handoff-*.md`),
-   set `DRIFT_DETECTED=false`, `DRIFT_KIND=""` (→ JSON `null`), and return.
+   set `DRIFT_DETECTED=false`, `DRIFT_KIND=""` (→ JSON `null`), and return. This
+   single `:612` check realizes both `workflow-drift-check.md § Skip conditions`'
+   Skip #1 — `[ -d "$PLAN_DIR/_workflow" ]`, directory absent → the `:598`-`:601`
+   `ls 2>/dev/null` walk finds nothing — and the directory-present-but-no-stampable-
+   artifact case in one predicate; `detect_drift` carries no literal `[ -d ]` guard,
+   so this track's "skip #1" label denotes that combined empty-input return, not the
+   doc's directory-existence predicate. Both converge on `detected=false, kind=null`,
+   and the new skip-#2 block sits below this return regardless of the label.
 2. **Unstamped short-circuit** (`:620`–`:627`): any unstamped artifact → `detected=true,
    kind="unstamped"`, no fold, no `git log`.
 3. **Phase 2 fold** (`:629`–`:651`): every artifact is stamped, so
@@ -245,9 +258,15 @@ conformance tests (which extract only the `for f in $(ls …)` walk loop) are
 unperturbed.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here. The roster is immutable after Phase A except for the status
-checkbox flip and the optional `commit:` annotation Phase B appends. -->
+
+1. Add the Phase-4-active skip (#2) to `detect_drift` between the empty-input return (`:618`) and the unstamped short-circuit (`:620`), and pin it with two regression tests in `test_workflow_startup_precheck.py` — risk: high (workflow machinery: edits `detect_drift`, the drift/divergence gate)  [ ]
+
+The whole track is one coherent change — the skip block plus the two
+regression tests that pin it — so it is a single step. The fix and its tests
+must land in one commit (a step is fully tested and self-contained), and
+high-risk isolation keeps the gate edit alone in its own `high` step. Both
+file edits route to the staged copies under
+`_workflow/staged-workflow/.claude/scripts/…` per D3.
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -268,14 +287,41 @@ Phase 1; Phase A does not populate. -->
 - Both test suites (`test_workflow_startup_precheck.py` and the stub suite) pass; no
   existing test changes outcome.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+**Step 1 acceptance (Gherkin — basis for the two regression-test method names).**
 
-<!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used
-verbatim as test method names. Empty until Move 3 lands. -->
+- **Skip-#2 arm** (`test_drift_phase4_stamped_folds_to_no_drift`, modeling
+  `test_drift_phase2_detected_reports_range`): *Given* a `phase=D` ledger, a
+  stamped `plan/track-1.md`, and two in-range `workflow_commit`s, *When* the
+  `--mode full` drift walk runs, *Then* `drift.detected` is `false`, `kind` is
+  `"stamped"`, and `base_sha` is `null` (was `detected=true` before the fix).
+  Assert `base_sha is None` explicitly (T2), not just implicitly via
+  `detected=false`.
+- **Skip-#1-before-#2 ordering arm**
+  (`test_drift_phase4_empty_input_returns_kind_null_before_skip2`): *Given* a
+  `phase=D` ledger and only a `handoff()` artifact (no stampable artifact),
+  *When* the `--mode full` drift walk runs, *Then* `drift.detected` is `false`
+  and `kind` is `null` via the empty-input return, which fires *before* skip #2.
+- **Implementation pin (T2).** The new skip-#2 block mutates only
+  `DRIFT_DETECTED="false"` and `DRIFT_KIND="stamped"` and calls nothing that
+  writes `DRIFT_BASE_SHA` / `DRIFT_COMMIT_COUNT` / `DRIFT_FIRST_COMMITS_JSON` —
+  mirroring the empty-input return at `:615`-`:617`. (The sole in-function
+  writer of `DRIFT_BASE_SHA` is the post-fold path at `:659`, below the new
+  block's `:619` return, so `base_sha` stays at its `:354` null default.)
+- **Regression guard.** Both suites
+  (`test_workflow_startup_precheck.py` and `test_workflow_startup_precheck_stub.py`)
+  pass; the four §1.6(h) conformance tests stay green; no existing test changes
+  outcome.
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+- **Step 1.** The change is a self-contained, single-commit edit to two staged
+  files. Recovery on a failed attempt is `git reset --hard HEAD` (the standard
+  implementer revert), which discards the staged-copy edits cleanly; the Phase A
+  decomposition and ledger boundary are already committed before Phase B spawns,
+  so the revert cannot lose them. The fix itself adds no state: `detect_drift`
+  stays a read-only state probe, and the new skip is a pure read of the
+  phase-ledger tail, so re-running the precheck any number of times yields the
+  same `drift.detected=false` for a Phase-4 branch (no side effect, no commit
+  emitted on the skip path — it returns before the no-drift normalization).
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
