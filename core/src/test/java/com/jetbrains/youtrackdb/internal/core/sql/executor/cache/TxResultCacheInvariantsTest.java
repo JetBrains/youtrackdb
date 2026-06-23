@@ -270,6 +270,156 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
+  // I10 — live stream tail driven after a partial-drain populate
+  // ===========================================================================
+
+  /**
+   * Pulls up to {@code pullCount} rows from {@code rs} and then closes it WITHOUT draining the rest.
+   * With the cache flag on this is the load-bearing setup the fully drained scenarios never reach: the
+   * view's close releases the pin and the re-entrancy guard but never closes the entry's shared stream,
+   * so the entry stays cached with a live, partially-pulled stream tail.
+   */
+  private static void drainPartial(ResultSet rs, int pullCount) {
+    try (rs) {
+      for (var i = 0; i < pullCount && rs.hasNext(); i++) {
+        rs.next();
+      }
+    }
+  }
+
+  /**
+   * The FIELD values sorted ascending. The partial-drain scenarios use an unordered SELECT (no ORDER
+   * BY) on purpose: an ORDER BY forces a blocking sort that drains the source at the first row,
+   * exhausting the stream before the mutation and erasing the live tail under test. An unordered query
+   * does not contract a row order, so the cache-on and fresh outputs may legitimately differ in order;
+   * sorting normalises that while preserving cardinality, so a row emitted twice — the duplication these
+   * tests guard against — still surfaces as a multiset mismatch.
+   */
+  private static List<Object> sortedValues(List<Object> values) {
+    var copy = new ArrayList<>(values);
+    copy.sort((a, b) -> Integer.compare((Integer) a, (Integer) b));
+    return copy;
+  }
+
+  /** Asserts the partial-drain populate left exactly one cached entry with a still-live stream. */
+  private void assertPartialDrainLeftLiveEntry() {
+    var cache = tx().getQueryResultCache();
+    assertNotNull("the partial-drain populate must leave a cache entry", cache);
+    assertEquals("the partially drained entry stays cached after the view closes", 1, cache.size());
+    assertFalse("the partial drain must leave the entry's stream live (not exhausted)",
+        cache.entriesForTest().iterator().next().isExhausted());
+  }
+
+  /** Asserts the second query was served from cache, so it drove the live stream tail under test. */
+  private void assertSecondQueryWasCacheHit() {
+    assertTrue("the re-query must be served from cache (a hit), driving the live stream tail",
+        tx().getQueryResultCache().getMetrics().getHits() >= 1);
+  }
+
+  /**
+   * Runs a CREATE partial-drain scenario and returns the second query's rows. The first query is pulled
+   * only {@code pullCount} rows deep then closed (not drained), so with the flag on the entry stays
+   * cached with a live, partially-pulled stream. A matching record is created after that partial
+   * populate, then the second query is issued in full: with the flag on it is a cache HIT that replays
+   * the partial prefix and then drives the still-live stream tail through the delta merge; with the flag
+   * off it is a fresh uncached execution. The cache-on run asserts a live tail and a hit, so the
+   * comparison cannot pass vacuously by silently falling back to uncached execution.
+   */
+  private List<Object> runPartialDrainCreate(boolean cacheEnabled, int seedCount, int pullCount) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+    seed(seedCount);
+    var sql = "SELECT FROM " + CLASS_NAME;
+
+    session.begin();
+    drainPartial(session.query(sql), pullCount);
+    if (cacheEnabled) {
+      assertPartialDrainLeftLiveEntry();
+    }
+    // True post-populate CREATE of a matching record: the delta injects it with no skip.
+    var e = session.newEntity(CLASS_NAME);
+    e.setProperty(FIELD, 99);
+    var rows = drainRows(session.query(sql));
+    if (cacheEnabled) {
+      assertSecondQueryWasCacheHit();
+    }
+    session.rollback();
+    return rows;
+  }
+
+  /**
+   * Runs an UPDATE-of-an-un-pulled-tail-record partial-drain scenario and returns the second query's
+   * rows. The tail record (committed last, so it sits beyond the two-row pulled prefix) is updated after
+   * the partial populate, so the delta sees it as UPDATED with cached-at-build=false and emits skip +
+   * inject. Same live-tail setup and same cache-hit assertions as {@link #runPartialDrainCreate}.
+   */
+  private List<Object> runPartialDrainUpdateTail(boolean cacheEnabled) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    seed(4); // committed values 0,1,2,3
+    var tailRid = commitRec(4); // committed last, so it lands in the un-pulled stream tail
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+    var sql = "SELECT FROM " + CLASS_NAME;
+
+    session.begin();
+    drainPartial(session.query(sql), 2); // pull {0,1}; leave a live tail holding {2,3,4}
+    if (cacheEnabled) {
+      assertPartialDrainLeftLiveEntry();
+    }
+    // UPDATE the un-pulled tail record (cached-at-build=false): the delta skips the stale copy the live
+    // stream tail still holds and injects the post-update copy.
+    Entity rec = session.load(tailRid);
+    rec.setProperty(FIELD, 99);
+    tx().addRecordOperation((RecordAbstract) rec, RecordOperation.UPDATED);
+    var rows = drainRows(session.query(sql));
+    if (cacheEnabled) {
+      assertSecondQueryWasCacheHit();
+    }
+    session.rollback();
+    return rows;
+  }
+
+  /**
+   * Verifies the DeltaBuilder's "temp RID never streamed" claim end to end. A true post-populate CREATE
+   * is injected with NO skip, on the premise that the new record's RID is never reachable by the entry's
+   * storage stream, so the inject cannot collide with a streamed copy. This is the only test that drives
+   * a real, still-live stream tail AFTER the create: the populating query is pulled two rows deep and
+   * closed (leaving the entry cached with a live stream), the matching record is created, then the full
+   * re-query replays the prefix and drives the live tail through the merge. If the transaction-aware
+   * iterator surfaced the new record on that tail pull, the inject would emit it a second time and the
+   * cached value would appear twice; the sorted-multiset comparison to a fresh uncached execution
+   * catches that duplication. A pass confirms the claim holds, closing the coverage gap the
+   * builder-only, synthetic-stream, and fully-drained equivalence tests all leave open.
+   */
+  @Test
+  public void recordEquivalence_createAfterPartialDrainDrivesLiveStreamTail() {
+    var fresh = runPartialDrainCreate(false, 5, 2);
+    var cached = runPartialDrainCreate(true, 5, 2);
+    assertEquals(
+        "A post-populate CREATE injected without a skip must appear exactly once after the live"
+            + " stream tail is driven, matching a fresh execution",
+        sortedValues(fresh), sortedValues(cached));
+  }
+
+  /**
+   * The mirror case: an UPDATE of a record living in the un-pulled stream tail (UPDATED,
+   * cached-at-build=false, still matching). The DeltaBuilder emits skip + inject, the skip relying on the
+   * live stream tail surfacing the record so its stale copy is suppressed by RID and only the injected
+   * post-update copy survives. Same partial-drain setup as the CREATE case. If the skip failed to
+   * suppress the streamed copy, the cached output would carry both the streamed and the injected
+   * version; the sorted-multiset comparison to a fresh execution catches that.
+   */
+  @Test
+  public void recordEquivalence_updateTailRecordAfterPartialDrainDrivesLiveStreamTail() {
+    var fresh = runPartialDrainUpdateTail(false);
+    var cached = runPartialDrainUpdateTail(true);
+    assertEquals(
+        "An UPDATE of an un-pulled tail record must appear once with the new value after the live"
+            + " stream tail is driven, matching a fresh execution",
+        sortedValues(fresh), sortedValues(cached));
+  }
+
+  // ===========================================================================
   // I10 — RECORD cache-vs-fresh equivalence, mutation BEFORE populate
   // ===========================================================================
 
