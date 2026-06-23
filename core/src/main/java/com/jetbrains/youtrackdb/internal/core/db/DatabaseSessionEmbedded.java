@@ -982,12 +982,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // then become a normal path and the WARN a noise trap. Gate such a shape out before here, or
       // narrow the check to the shapes that must return a LocalResultSet.
       LogManager.instance().warn(this,
-          "tx-result cache: cacheable " + statement.getClass().getSimpleName() + " (shape=" + shape
-              + ") returned a result of type " + original.getClass().getSimpleName()
+          "tx-result cache: cacheable %s (shape=%s) returned a result of type %s"
               + ", not a LocalResultSet; the cache cannot lift its stream, running uncached. This"
               + " should not happen today (every cacheable shape returns a LocalResultSet); if a shape"
               + " that legitimately returns another type was just wired into the cache gate, revisit"
-              + " the gate rather than treating this WARN as an anomaly. Statement: " + statement);
+              + " the gate rather than treating this WARN as an anomaly. Statement: %s",
+          statement.getClass().getSimpleName(),
+          shape,
+          original.getClass().getSimpleName(),
+          statement);
+
       assert original instanceof LocalResultSet
           : "cacheable " + shape + " statement returned " + original.getClass().getName()
               + " instead of a LocalResultSet: " + statement;
@@ -1088,7 +1092,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // so run uncached and count a splice failure.
       LogManager.instance().warn(this,
           "tx-result cache: AGGREGATE-classified statement yielded no single-aggregate metadata"
-              + " (shape=" + shape + "); running uncached. Statement: " + select);
+              + " (shape=%s); running uncached. Statement: %s",
+          shape, select);
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
     }
@@ -1103,9 +1108,11 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var plan = select.createExecutionPlan(ctx, false);
     if (!(plan instanceof SelectExecutionPlan selectPlan)) {
       LogManager.instance().warn(this,
-          "tx-result cache: aggregate plan is a " + plan.getClass().getSimpleName()
+          "tx-result cache: aggregate plan is a %s"
               + ", not a SelectExecutionPlan; cannot splice the cache tap, running uncached."
-              + " Statement: " + select);
+              + " Statement: %s",
+          plan.getClass().getSimpleName(),
+          select);
       plan.close();
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
@@ -1122,7 +1129,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           .map(s -> s.getClass().getSimpleName()).toList();
       LogManager.instance().warn(this,
           "tx-result cache: no AggregateProjectionCalculationStep to splice the cache tap above;"
-              + " running uncached. Plan steps: " + stepTypes + ". Statement: " + select);
+              + " running uncached. Plan steps: %s. Statement: %s",
+          stepTypes,
+          select);
       selectPlan.close();
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
@@ -1192,7 +1201,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (metadata == null || metadata.propertyName() == null) {
       LogManager.instance().warn(this,
           "tx-result cache: DISTINCT_VALUES select yielded no bare-property metadata; running"
-              + " uncached. Statement: " + select);
+              + " uncached. Statement: %s",
+          select);
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
     }
@@ -1204,8 +1214,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var plan = select.createExecutionPlan(ctx, false);
     if (!(plan instanceof SelectExecutionPlan selectPlan)) {
       LogManager.instance().warn(this,
-          "tx-result cache: distinct plan is a " + plan.getClass().getSimpleName()
-              + ", not a SelectExecutionPlan; running uncached. Statement: " + select);
+          "tx-result cache: distinct plan is a %s, not a SelectExecutionPlan; running uncached. Statement: %s ",
+          plan.getClass().getSimpleName(), select);
       plan.close();
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
@@ -1220,7 +1230,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           .map(s -> s.getClass().getSimpleName()).toList();
       LogManager.instance().warn(this,
           "tx-result cache: no Distinct+Projection step pair to splice the distinct tap above;"
-              + " running uncached. Plan steps: " + stepTypes + ". Statement: " + select);
+              + " running uncached. Plan steps: %s. Statement: %s",
+          stepTypes, select);
       selectPlan.close();
       cache.incrementSpliceFailures();
       return executeUncached(select, args);
