@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -23,8 +24,7 @@ public class YTDBHasLabelStep<S extends YTDBElement> extends FilterStep<S> {
   public YTDBHasLabelStep(
       final Traversal.Admin<?, ?> traversal,
       List<P<? super String>> predicates,
-      boolean polymorphic
-  ) {
+      boolean polymorphic) {
     super(traversal);
     this.predicates = predicates;
     this.polymorphic = polymorphic;
@@ -51,8 +51,10 @@ public class YTDBHasLabelStep<S extends YTDBElement> extends FilterStep<S> {
 
     if (traverser.get() instanceof YTDBElementImpl ytdbElement) {
 
-      final var entity = ytdbElement.getRawEntity();
-      final var schemaClass = entity.getSchemaClass();
+      final var entity = (EntityImpl) ytdbElement.getRawEntity();
+      // Use the lightweight immutable schema snapshot rather than getSchemaClass(), which resolves
+      // the class against the live schema on every call. Both yield the same class for label tests.
+      final var schemaClass = entity.getImmutableSchemaClass(entity.getSession());
       if (schemaClass == null) {
         // this shouldn't ever happen, I suppose
         return false;

@@ -66,8 +66,7 @@ public class YTDBGraphQueryBuilder {
             list.stream()
                 .map(s -> (String) s)
                 .filter(StringUtils::isNotBlank)
-                .collect(Collectors.toSet())
-        );
+                .collect(Collectors.toSet()));
       } else if (StringUtils.isBlank((String) value)) {
         requestedClasses.add(Set.of());
       } else {
@@ -85,8 +84,7 @@ public class YTDBGraphQueryBuilder {
             predicateStr,
             false,
             false,
-            null
-        ));
+            null));
         return ConditionType.PREDICATE;
       } else {
         final var predicateStr = formatPredicate(biPredicate);
@@ -98,8 +96,7 @@ public class YTDBGraphQueryBuilder {
               predicateStr,
               requiresAdditionalNotNull(biPredicate),
               true,
-              value
-          ));
+              value));
           return ConditionType.PREDICATE;
         }
       }
@@ -129,13 +126,10 @@ public class YTDBGraphQueryBuilder {
             innerClasses -> innerClasses.stream()
                 .filter(hierarchyAnalyzer::classExists) // ignoring non-existent classes
                 .filter(name ->
-                    // considering only classes who don't have parents also requested (union semantics)
-                    innerClasses.stream().noneMatch(
-                        maybeParent -> hierarchyAnalyzer.isSuperClassOf(maybeParent, name)
-                    )
-                )
-                .collect(Collectors.toSet())
-        )
+                // considering only classes who don't have parents also requested (union semantics)
+                innerClasses.stream().noneMatch(
+                    maybeParent -> hierarchyAnalyzer.isSuperClassOf(maybeParent, name)))
+                .collect(Collectors.toSet()))
 
         // 2. Apply "intersection" to the resulting sets.
         // Set A intersected with set B will
@@ -143,21 +137,16 @@ public class YTDBGraphQueryBuilder {
         // and B. For instance, [dolphin,bird,insect] intersected with [mammal,ant] will produce
         // [dolphin,ant]
         .reduce(
-            (classesOne, classesTwo) ->
-                classesOne.stream().flatMap(c1 ->
-                        classesTwo.stream().flatMap(c2 ->
-                            hierarchyAnalyzer.selectChild(c1, c2).stream()
-                        )
-                    )
-                    .collect(Collectors.toSet())
-        )
+            (classesOne, classesTwo) -> classesOne.stream()
+                .flatMap(c1 -> classesTwo.stream()
+                    .flatMap(c2 -> hierarchyAnalyzer.selectChild(c1, c2).stream()))
+                .collect(Collectors.toSet()))
         .orElseGet(() -> Set.of(hierarchyRoot))
         .stream()
         .toList();
   }
 
-  @Nullable
-  public YTDBGraphBaseQuery build(DatabaseSessionEmbedded session) {
+  @Nullable public YTDBGraphBaseQuery build(DatabaseSessionEmbedded session) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     assert schema != null;
 
@@ -204,8 +193,7 @@ public class YTDBGraphQueryBuilder {
       final var sqlName = param.withValue ? "param" + i : null;
       appendCondition(
           where,
-          param.name, sqlName, param.predicateStr, param.requiresNotNull
-      );
+          param.name, sqlName, param.predicateStr, param.requiresNotNull);
       if (param.withValue) {
         parameters.put(sqlName, param.value);
       }
@@ -242,8 +230,7 @@ public class YTDBGraphQueryBuilder {
       String name,
       @Nullable String sqlParamName,
       String predicateStr,
-      boolean addNotNullCondition
-  ) {
+      boolean addNotNullCondition) {
     if (T.id.getAccessor().equalsIgnoreCase(name)) {
       builder.append(" @rid ").append(predicateStr);
     } else if (addNotNullCondition) {
@@ -258,8 +245,7 @@ public class YTDBGraphQueryBuilder {
     }
   }
 
-  @Nullable
-  private static String formatPredicate(BiPredicate<?, ?> predicate) {
+  @Nullable private static String formatPredicate(BiPredicate<?, ?> predicate) {
     if (predicate instanceof Compare compare) {
       return switch (compare) {
         case Compare.eq -> "=";
@@ -294,21 +280,15 @@ public class YTDBGraphQueryBuilder {
       String predicateStr,
       boolean requiresNotNull,
       boolean withValue,
-      Object value
-  ) {
+      Object value) {
 
   }
 
   private static boolean isLabelKey(String key) {
-    try {
-      if (key == null || key.isEmpty()) {
-        return false;
-      }
-
-      return T.fromString(key) == T.label;
-    } catch (IllegalArgumentException e) {
-      return false;
-    }
+    // Compare directly against the label token's accessor ("~label") instead of T.fromString(key):
+    // fromString throws IllegalArgumentException for every non-token key (the common case on hot
+    // paths), and exception construction is expensive. equals() handles null/empty safely.
+    return T.label.getAccessor().equals(key);
   }
 
   private static class HierarchyAnalyzer {
