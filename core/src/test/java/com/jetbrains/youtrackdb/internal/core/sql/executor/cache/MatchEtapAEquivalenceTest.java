@@ -241,7 +241,7 @@ public class MatchEtapAEquivalenceTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I4 equivalence — CREATE / DELETE / WHERE-break UPDATE / value UPDATE
+  // Cache-vs-fresh equivalence — CREATE / DELETE / WHERE-break UPDATE / value UPDATE
   // ===========================================================================
 
   /**

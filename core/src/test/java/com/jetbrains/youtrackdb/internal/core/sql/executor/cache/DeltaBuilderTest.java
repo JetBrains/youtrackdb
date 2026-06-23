@@ -339,8 +339,8 @@ public class DeltaBuilderTest {
    * The twin of {@link #collapsedCreateAlreadyCachedSkipsAndReinjects}: a collapsed CREATE (still typed
    * CREATED after absorbing an in-place update) whose post-mutation value drives it OUT of the WHERE
    * clause. The {@code CREATED, cached=true, matchAfter=false} dispatch cell must skip the stale cached
-   * copy and inject NOTHING — a re-injection would emit a row a fresh execution no longer returns (an
-   * I10 violation). Exercises the {@code if (matchAfter)} false branch for the cached-CREATED arm, the
+   * copy and inject NOTHING — a re-injection would emit a row a fresh execution no longer returns.
+   * Exercises the {@code if (matchAfter)} false branch for the cached-CREATED arm, the
    * symmetric counterpart to the already-tested UPDATED-fails-WHERE case.
    */
   @Test

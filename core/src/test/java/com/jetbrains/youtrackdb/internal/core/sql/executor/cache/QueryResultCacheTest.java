@@ -194,7 +194,7 @@ public class QueryResultCacheTest extends DbTestBase {
   }
 
   /**
-   * I9: an entry with a live view ({@code liveViewCount > 0}) must never be evicted, even when it is
+   * An entry with a live view ({@code liveViewCount > 0}) must never be evicted, even when it is
    * the least-recently-used. With {@code maxEntries == 1} and the cold entry pinned, putting a second
    * entry leaves the cache transiently over the bound rather than truncating the pinned view; the
    * pinned entry's stream is not closed.
@@ -276,7 +276,7 @@ public class QueryResultCacheTest extends DbTestBase {
   }
 
   /**
-   * I1/I6: {@code clear()} closes every entry's paused stream and empties the cache; a second
+   * {@code clear()} closes every entry's paused stream and empties the cache; a second
    * {@code clear()} is a no-op. The streams are closed exactly once across both calls.
    */
   @Test

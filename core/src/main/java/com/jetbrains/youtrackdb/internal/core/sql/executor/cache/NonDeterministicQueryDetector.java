@@ -56,7 +56,7 @@ public final class NonDeterministicQueryDetector {
    * zero-argument form is non-deterministic) and is therefore NOT in this set; see {@link
    * #isNonDeterministicFunction}.
    *
-   * <p>Package-visible so {@code FunctionDeterminismEnumerationTest} (the I5 completeness guard) reads
+   * <p>Package-visible so {@code FunctionDeterminismEnumerationTest} (the completeness guard) reads
    * this set as the single source of truth instead of re-declaring a copy that could drift from it.
    */
   static final Set<String> NON_DETERMINISTIC_FUNCTIONS =

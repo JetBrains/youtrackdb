@@ -17,7 +17,7 @@ import javax.annotation.Nullable;
 
 /**
  * The consumer-facing {@link ResultSet} a cached {@code query()} returns. It reconstructs the rows a
- * fresh uncached execution would emit (invariant I10) by merging a {@link CachedEntry}'s frozen output
+ * fresh uncached execution would emit by merging a {@link CachedEntry}'s frozen output
  * with the in-transaction mutations the {@link DeltaBuilder} captured into a {@link TxDeltaCursor},
  * without ever re-running storage.
  *
@@ -276,7 +276,7 @@ public final class CachedResultSetView implements ResultSet {
    * {@code DISTINCT_VALUES} emit: one {@code {alias: value}} row per distinct bucket key, in
    * first-occurrence order, then {@code null}. The key list is snapshotted once from the replayed
    * {@link #aggregateDelta} (kind {@code AGGREGATE_COUNT_DISTINCT}), so it reflects the post-delta value
-   * set fixed at view construction (I7), matching a fresh {@code SELECT distinct(prop)} at this moment.
+   * set fixed at view construction, matching a fresh {@code SELECT distinct(prop)} at this moment.
    */
   @Nullable private Result computeNextDistinctValue() {
     if (distinctRows == null) {

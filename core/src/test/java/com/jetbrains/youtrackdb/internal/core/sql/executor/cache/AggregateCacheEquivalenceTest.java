@@ -195,7 +195,7 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I4 per-kind equivalence — CREATE / DELETE / WHERE-break UPDATE / value UPDATE
+  // Per-kind cache-vs-fresh equivalence — CREATE / DELETE / WHERE-break UPDATE / value UPDATE
   // ===========================================================================
 
   @Test

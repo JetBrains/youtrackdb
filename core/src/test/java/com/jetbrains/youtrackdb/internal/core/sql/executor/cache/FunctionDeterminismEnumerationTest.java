@@ -102,7 +102,7 @@ public class FunctionDeterminismEnumerationTest extends DbTestBase {
   @Test
   public void exactlyFourFunctionFactoriesAreRegistered() {
     Assert.assertEquals(
-        "The I5 enumeration must walk all four SQLFunctionFactory implementations; a change to the"
+        "The enumeration must walk all four SQLFunctionFactory implementations; a change to the"
             + " ServiceLoader manifest must be reflected here",
         4,
         allFactories().size());

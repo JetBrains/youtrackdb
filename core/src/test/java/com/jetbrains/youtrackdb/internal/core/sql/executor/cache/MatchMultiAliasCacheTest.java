@@ -20,7 +20,7 @@ import org.junit.experimental.categories.Category;
 
 /**
  * End-to-end cache-vs-fresh equivalence for the multi-alias MATCH ({@code MATCH_TUPLE_MULTI})
- * class-scoped version gate (I4 / I10). A multi-alias MATCH freezes its projected RETURN tuples and
+ * class-scoped version gate. A multi-alias MATCH freezes its projected RETURN tuples and
  * replays them verbatim while no pattern read-class has been mutated since populate; a post-populate
  * mutation to any alias-vertex class or traversal-edge class invalidates the entry and forces a fresh
  * re-execution. A mutation to a class outside the pattern leaves the entry serviceable, the advantage

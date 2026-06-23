@@ -136,7 +136,8 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * equivalence comparison is on these ordered values, not on RIDs: two independent executions of the
    * same scenario assign fresh physical RIDs to their created rows, so RIDs legitimately differ between
    * the flag-off and flag-on runs while the observable result (cardinality, order, and per-row value)
-   * must be identical. The value sequence captures exactly what I10 guarantees — a missing or extra row
+   * must be identical. The value sequence captures exactly what cache-vs-fresh equivalence requires — a
+   * missing or extra row
    * changes the cardinality, a mis-positioned row changes the order, and a stale-vs-fresh value (an
    * UPDATE the cache failed to re-read) changes the content. RID-level skip/inject correctness is
    * pinned at the unit level by the delta-builder and view tests.
@@ -193,7 +194,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I10 — RECORD cache-vs-fresh equivalence, mutation AFTER populate
+  // RECORD cache-vs-fresh equivalence, mutation AFTER populate
   // ===========================================================================
 
   /**
@@ -277,7 +278,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I10 — live stream tail driven after a partial-drain populate
+  // Live stream tail driven after a partial-drain populate
   // ===========================================================================
 
   /**
@@ -339,7 +340,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I10 — one end-to-end equivalence case per DeltaBuilder dispatch row
+  // One end-to-end equivalence case per DeltaBuilder dispatch row
   // ===========================================================================
   // The DeltaBuilder switch dispatches on (op type, cached-at-build, matches-WHERE-after). Every row is
   // already covered at the unit level (DeltaBuilderTest for the (skipSet, injectList) it produces;
@@ -708,7 +709,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I10 — RECORD cache-vs-fresh equivalence, mutation BEFORE populate
+  // RECORD cache-vs-fresh equivalence, mutation BEFORE populate
   // ===========================================================================
 
   /**
@@ -889,7 +890,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I1 — eventual clear, NOT clear-on-iterate-exception
+  // Eventual clear, NOT clear-on-iterate-exception
   // ===========================================================================
 
   /**
@@ -922,7 +923,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   /**
-   * I1 is an EVENTUAL clear, not a clear-on-iterate-exception. An exception thrown mid-iteration (here
+   * The tx-end clear is EVENTUAL, not a clear-on-iterate-exception. An exception thrown mid-iteration (here
    * by aborting the consumer's own loop with a thrown error) does not synchronously wipe the cache —
    * the entry is still present immediately afterwards — but the next transaction-end path ({@code
    * rollback}) clears it. This pins the contract that the cache is wiped on the tx-end sink, not as a
@@ -952,7 +953,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I6 — idempotent clear
+  // Idempotent clear
   // ===========================================================================
 
   /** A second {@code clear()} after the tx-end clear is a no-op: the cache stays empty. */
@@ -970,7 +971,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I3 — paused stream lifetime bounded by its entry (closed at tx-end)
+  // Paused stream lifetime bounded by its entry (closed at tx-end)
   // ===========================================================================
 
   /**
@@ -998,13 +999,13 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I7 — a view started before a mutation does not observe it; a fresh query does
+  // A view started before a mutation does not observe it; a fresh query does
   // ===========================================================================
 
   /**
-   * I7: a view materialised before an in-tx mutation must not observe that mutation — its rows are
+   * A view materialised before an in-tx mutation must not observe that mutation — its rows are
    * frozen at construction. The earlier test fully drained and closed the first view before mutating,
-   * so no open view ever spanned the mutation and the assertions only re-checked the I10 delta-merge of
+   * so no open view ever spanned the mutation and the assertions only re-checked the delta-merge of
    * a fresh post-mutation query. This version holds view A OPEN across the mutation: it pulls one row,
    * a CREATE is staged while A is still iterating, and A must finish emitting exactly its pre-mutation
    * rows (0, 1) without ever surfacing the new value 99. A separate fresh view B opened after the
@@ -1048,7 +1049,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I8 — schema-stable class filter for the entry's lifetime
+  // Schema-stable class filter for the entry's lifetime
   // ===========================================================================
 
   /**
@@ -1106,7 +1107,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I9 — a live view is not truncated under LRU pressure
+  // A live view is not truncated under LRU pressure
   // ===========================================================================
 
   /**
@@ -1153,7 +1154,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   // ===========================================================================
-  // I2 — owner-thread guard balance (assert-based; checked here via depth balance)
+  // Owner-thread guard balance (assert-based; checked here via depth balance)
   // ===========================================================================
 
   /**
