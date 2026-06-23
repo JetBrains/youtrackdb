@@ -61,6 +61,13 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   private static final String CLASS_NAME = "InvRec";
   private static final String FIELD = "n";
 
+  /** A WHERE-filtered SELECT (matches FIELD >= 0); the negative value -1 is the not-matching probe. */
+  private static final String FILTER_SQL =
+      "SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " >= 0";
+
+  /** The same filter under an ORDER BY (a blocking sort: membership frozen at populate). */
+  private static final String FILTER_ORDERED_SQL = FILTER_SQL + " ORDER BY " + FIELD + " ASC";
+
   private boolean previousEnabled;
 
   @Before
@@ -316,6 +323,283 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
         tx().getQueryResultCache().getMetrics().getHits() >= 1);
   }
 
+  /** The single live cache entry (valid with the flag on, after exactly one populate). */
+  private CachedEntry theCachedEntry() {
+    return tx().getQueryResultCache().entriesForTest().iterator().next();
+  }
+
+  /** The staged op type for {@code rid} in the current transaction, or {@code -1} if none is staged. */
+  private byte stagedOpType(RID rid) {
+    for (var op : tx().getRecordOperationsInternal()) {
+      if (rid.equals(op.record.getIdentity())) {
+        return op.type;
+      }
+    }
+    return (byte) -1;
+  }
+
+  // ===========================================================================
+  // I10 — one end-to-end equivalence case per DeltaBuilder dispatch row
+  // ===========================================================================
+  // The DeltaBuilder switch dispatches on (op type, cached-at-build, matches-WHERE-after). Every row is
+  // already covered at the unit level (DeltaBuilderTest for the (skipSet, injectList) it produces;
+  // CachedResultSetViewTest for the merge over a synthetic stream). These cases close the end-to-end gap:
+  // a real query() populate, a real staged mutation, a real second query(), compared to a fresh uncached
+  // execution. cached=true rows fully drain the populate (the record is in the materialized prefix);
+  // cached=false rows partially drain then close it, leaving a live stream tail, and run under both an
+  // ORDER BY query (a blocking sort: membership frozen at populate) and a plain query (a lazy scan),
+  // which stream the tail differently. Each cache-on run asserts the staged (op type, cached-at-build)
+  // preconditions so the case provably exercises its intended row rather than passing by coincidence.
+  // (CREATED/false/true, UPDATED/true/true, DELETED/true are covered by the cases above; the no-ORDER-BY
+  // CREATED/false/true and UPDATED/false/true live-tail cases are covered by the partial-drain tests
+  // above this section.)
+
+  /**
+   * CREATED / cached=true / matches. A record created IN the transaction before the populate (so it
+   * lands in the materialized cached prefix) whose post-populate UPDATE collapses into the still-CREATED
+   * op with a re-stamped version. Post-update value 15 still matches WHERE, so the delta skips the cached
+   * copy and injects the moved row. Asserts the staged op stayed CREATED and the record is
+   * cached-at-build, then checks the cache-on second query equals a fresh uncached execution.
+   */
+  @Test
+  public void recordEquivalence_collapsedCreateStillMatchingAfterPopulate() {
+    var fresh = runCollapsedCreate(false, 15);
+    var cached = runCollapsedCreate(true, 15);
+    assertEquals("collapsed CREATE that still matches must skip+inject to match a fresh execution",
+        fresh, cached);
+  }
+
+  /**
+   * Stages a collapsed pre-populate CREATE and applies a post-populate UPDATE to {@code postValue}.
+   * Two committed records (10, 20) make the result non-trivial; the in-tx create (value 5) lands in the
+   * cached prefix on the full drain. The post-populate {@code addRecordOperation(UPDATED)} collapses the
+   * op (it stays CREATED) and re-stamps its version past the populate version. With {@code postValue >=
+   * 0} the record still matches WHERE; with {@code postValue < 0} it leaves the filter.
+   */
+  private List<Object> runCollapsedCreate(boolean cacheEnabled, int postValue) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    commitRec(10);
+    commitRec(20);
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+
+    session.begin();
+    var x = session.newEntity(CLASS_NAME);
+    x.setProperty(FIELD, 5); // matches WHERE >= 0, so the populate pulls it into the cached prefix
+    drainRows(session.query(FILTER_ORDERED_SQL)); // full drain → x is cached-at-build
+    var xRid = ((RecordAbstract) x).getIdentity();
+    // Post-populate update collapses into the CREATED op (stays CREATED) and re-stamps the version.
+    x.setProperty(FIELD, postValue);
+    tx().addRecordOperation((RecordAbstract) x, RecordOperation.UPDATED);
+    if (cacheEnabled) {
+      assertEquals("the collapsed op must remain CREATED", RecordOperation.CREATED,
+          stagedOpType(xRid));
+      assertTrue("the pre-populate create must be cached-at-build",
+          theCachedEntry().getCachedRids().contains(xRid));
+    }
+    var rows = drainRows(session.query(FILTER_ORDERED_SQL));
+    if (cacheEnabled) {
+      assertSecondQueryWasCacheHit();
+    }
+    session.rollback();
+    return rows;
+  }
+
+  /**
+   * CREATED / cached=true / does NOT match. Same collapsed pre-populate create, but the post-populate
+   * UPDATE drives it out of WHERE (value -1), so the delta skips the cached copy with no inject. The
+   * cache-on second query must drop the row exactly as a fresh execution does.
+   */
+  @Test
+  public void recordEquivalence_collapsedCreateDrivenOutOfWhereAfterPopulate() {
+    var fresh = runCollapsedCreate(false, -1);
+    var cached = runCollapsedCreate(true, -1);
+    assertEquals("collapsed CREATE driven out of WHERE must skip with no inject, matching fresh",
+        fresh, cached);
+  }
+
+  /**
+   * UPDATED / cached=true / does NOT match. A record committed before the transaction is pulled into
+   * the cached prefix by the full drain, then a post-populate UPDATE drives it out of WHERE (value -1):
+   * the delta skips the cached copy with no inject. The complement (UPDATED/true/matches) is covered by
+   * {@code recordEquivalence_updateAfterPopulate}.
+   */
+  @Test
+  public void recordEquivalence_cachedUpdateDrivenOutOfWhereAfterPopulate() {
+    var fresh = runCachedUpdate(false, -1);
+    var cached = runCachedUpdate(true, -1);
+    assertEquals(
+        "UPDATE that leaves WHERE must skip the cached copy with no inject, matching fresh",
+        fresh, cached);
+  }
+
+  /**
+   * Full-drain UPDATE of a record committed before the transaction (so it is cached-at-build). Two more
+   * committed records (10, 20) keep the result non-trivial. After the full-drain populate the target is
+   * updated to {@code postValue} and staged UPDATED; the cache-on run asserts the op is UPDATED and the
+   * target is cached-at-build. {@code postValue >= 0} still matches WHERE; {@code postValue < 0} leaves
+   * it.
+   */
+  private List<Object> runCachedUpdate(boolean cacheEnabled, int postValue) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    var targetRid = commitRec(5);
+    commitRec(10);
+    commitRec(20);
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+
+    session.begin();
+    drainRows(session.query(FILTER_ORDERED_SQL)); // full drain → the target is cached-at-build
+    Entity rec = session.load(targetRid);
+    rec.setProperty(FIELD, postValue);
+    tx().addRecordOperation((RecordAbstract) rec, RecordOperation.UPDATED);
+    if (cacheEnabled) {
+      assertEquals("staged op must be UPDATED", RecordOperation.UPDATED, stagedOpType(targetRid));
+      assertTrue("the cached record must be cached-at-build",
+          theCachedEntry().getCachedRids().contains(targetRid));
+    }
+    var rows = drainRows(session.query(FILTER_ORDERED_SQL));
+    if (cacheEnabled) {
+      assertSecondQueryWasCacheHit();
+    }
+    session.rollback();
+    return rows;
+  }
+
+  // --- cached=false rows: partial-drain populate, live stream tail, both stream modes ---
+
+  /**
+   * Stages a cached=false dispatch row end to end and returns the second query's rows. A committed body
+   * (values 0..3) plus, for UPDATE/DELETE, a committed target record (value 4). The populate is opened
+   * and closed WITHOUT iterating, so the entry caches a fully un-pulled (live) stream and every committed
+   * record is cached-at-build=false regardless of the storage scan order. The mutation is then applied to
+   * a record outside the (empty) cached prefix: CREATE adds a fresh record, UPDATE re-values the target,
+   * DELETE removes it. The cache-on run asserts the staged op type and that the mutated record is NOT
+   * cached-at-build, then that the second query was a cache hit (so it drove the live tail).
+   */
+  private List<Object> runPartialDrainCachedFalse(boolean cacheEnabled, String sql, byte opType,
+      int value) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    seed(4); // committed body: values 0,1,2,3
+    // For UPDATE/DELETE a committed target record (value 4); CREATE needs none.
+    var tailRid = (opType == RecordOperation.CREATED) ? null : commitRec(4);
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+
+    session.begin();
+    // Open the populate and close it without iterating: the entry caches a fully un-pulled (live)
+    // stream, so every committed record is cached-at-build=false regardless of the storage scan order
+    // (pulling a fixed prefix and assuming a specific record falls in the tail is scan-order dependent
+    // and flaky). The second query then drives the entire result through the live tail.
+    drainPartial(session.query(sql), 0);
+    if (cacheEnabled) {
+      assertPartialDrainLeftLiveEntry();
+    }
+    RID rid;
+    switch (opType) {
+      case RecordOperation.CREATED -> {
+        var e = session.newEntity(CLASS_NAME);
+        e.setProperty(FIELD, value);
+        rid = ((RecordAbstract) e).getIdentity();
+      }
+      case RecordOperation.UPDATED -> {
+        Entity rec = session.load(tailRid);
+        rec.setProperty(FIELD, value);
+        tx().addRecordOperation((RecordAbstract) rec, RecordOperation.UPDATED);
+        rid = tailRid;
+      }
+      case RecordOperation.DELETED -> {
+        Entity rec = session.load(tailRid);
+        tx().addRecordOperation((RecordAbstract) rec, RecordOperation.DELETED);
+        rid = tailRid;
+      }
+      default -> throw new IllegalArgumentException("unexpected op type " + opType);
+    }
+    if (cacheEnabled) {
+      assertEquals("staged op type must match the dispatch row under test", opType,
+          stagedOpType(rid));
+      assertFalse("the mutated record must be un-pulled (cached-at-build=false)",
+          theCachedEntry().getCachedRids().contains(rid));
+    }
+    var rows = drainRows(session.query(sql));
+    if (cacheEnabled) {
+      assertSecondQueryWasCacheHit();
+    }
+    session.rollback();
+    return rows;
+  }
+
+  /**
+   * Runs the cache-off and cache-on halves of a cached=false partial-drain row and compares them. Under
+   * ORDER BY the row order is contractual, so the lists are compared directly; without it the order is
+   * not contracted (the merge drains injects first), so the sorted multisets are compared — which still
+   * catches a duplicated or dropped row.
+   */
+  private void assertPartialDrainEquivalent(String sql, byte opType, int value, String msg) {
+    var fresh = runPartialDrainCachedFalse(false, sql, opType, value);
+    var cached = runPartialDrainCachedFalse(true, sql, opType, value);
+    if (sql.contains("ORDER BY")) {
+      assertEquals(msg, fresh, cached);
+    } else {
+      assertEquals(msg, sortedValues(fresh), sortedValues(cached));
+    }
+  }
+
+  /** CREATED / cached=false / matches, ORDER BY (the lazy-scan no-ORDER-BY case is covered above). */
+  @Test
+  public void recordEquivalence_createMatchTail_ordered() {
+    assertPartialDrainEquivalent(FILTER_ORDERED_SQL, RecordOperation.CREATED, 99,
+        "a matching post-populate CREATE must be injected once, matching fresh (ORDER BY)");
+  }
+
+  /** CREATED / cached=false / does NOT match: a true post-populate create that fails WHERE is a no-op. */
+  @Test
+  public void recordEquivalence_createNoMatchTail_unordered() {
+    assertPartialDrainEquivalent(FILTER_SQL, RecordOperation.CREATED, -1,
+        "a post-populate CREATE that fails WHERE is a no-op, matching fresh (unordered)");
+  }
+
+  @Test
+  public void recordEquivalence_createNoMatchTail_ordered() {
+    assertPartialDrainEquivalent(FILTER_ORDERED_SQL, RecordOperation.CREATED, -1,
+        "a post-populate CREATE that fails WHERE is a no-op, matching fresh (ORDER BY)");
+  }
+
+  /** UPDATED / cached=false / matches, ORDER BY (the lazy-scan no-ORDER-BY case is covered above). */
+  @Test
+  public void recordEquivalence_updateMatchTail_ordered() {
+    assertPartialDrainEquivalent(FILTER_ORDERED_SQL, RecordOperation.UPDATED, 99,
+        "a matching UPDATE of an un-pulled tail record must skip+inject, matching fresh (ORDER BY)");
+  }
+
+  /** UPDATED / cached=false / does NOT match: skip the stale tail copy, no inject. */
+  @Test
+  public void recordEquivalence_updateNoMatchTail_unordered() {
+    assertPartialDrainEquivalent(FILTER_SQL, RecordOperation.UPDATED, -1,
+        "an UPDATE of an un-pulled tail record that fails WHERE must skip with no inject (unordered)");
+  }
+
+  @Test
+  public void recordEquivalence_updateNoMatchTail_ordered() {
+    assertPartialDrainEquivalent(FILTER_ORDERED_SQL, RecordOperation.UPDATED, -1,
+        "an UPDATE of an un-pulled tail record that fails WHERE must skip with no inject (ORDER BY)");
+  }
+
+  /** DELETED / cached=false: a delete of an un-pulled tail record; skip when the tail surfaces it. */
+  @Test
+  public void recordEquivalence_deleteTail_unordered() {
+    assertPartialDrainEquivalent(FILTER_SQL, RecordOperation.DELETED, 0,
+        "a DELETE of an un-pulled tail record must skip it from the live tail, matching fresh"
+            + " (unordered)");
+  }
+
+  @Test
+  public void recordEquivalence_deleteTail_ordered() {
+    assertPartialDrainEquivalent(FILTER_ORDERED_SQL, RecordOperation.DELETED, 0,
+        "a DELETE of an un-pulled tail record must skip it from the live tail, matching fresh"
+            + " (ORDER BY)");
+  }
+
   /**
    * Runs a CREATE partial-drain scenario and returns the second query's rows. The first query is pulled
    * only {@code pullCount} rows deep then closed (not drained), so with the flag on the entry stays
@@ -348,25 +632,29 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   }
 
   /**
-   * Runs an UPDATE-of-an-un-pulled-tail-record partial-drain scenario and returns the second query's
-   * rows. The tail record (committed last, so it sits beyond the two-row pulled prefix) is updated after
-   * the partial populate, so the delta sees it as UPDATED with cached-at-build=false and emits skip +
-   * inject. Same live-tail setup and same cache-hit assertions as {@link #runPartialDrainCreate}.
+   * Runs an UPDATE-of-an-un-pulled-record partial-drain scenario and returns the second query's rows.
+   * The populate is opened and closed without iterating, so the entry caches a fully un-pulled (live)
+   * stream and the committed target is cached-at-build=false regardless of the storage scan order. It is
+   * then updated, so the delta sees it as UPDATED with cached-at-build=false and emits skip + inject.
+   * Same live-tail setup and same cache-hit assertions as {@link #runPartialDrainCreate}.
    */
   private List<Object> runPartialDrainUpdateTail(boolean cacheEnabled) {
     clearClass();
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
     seed(4); // committed values 0,1,2,3
-    var tailRid = commitRec(4); // committed last, so it lands in the un-pulled stream tail
+    var tailRid = commitRec(4); // a committed target; the empty prefix guarantees it stays un-pulled
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
     var sql = "SELECT FROM " + CLASS_NAME;
 
     session.begin();
-    drainPartial(session.query(sql), 2); // pull {0,1}; leave a live tail holding {2,3,4}
+    // Open the populate and close it without iterating, so the entry keeps a fully un-pulled live stream
+    // and the target is cached-at-build=false regardless of the storage scan order. The second query
+    // drives the whole result through the live tail.
+    drainPartial(session.query(sql), 0);
     if (cacheEnabled) {
       assertPartialDrainLeftLiveEntry();
     }
-    // UPDATE the un-pulled tail record (cached-at-build=false): the delta skips the stale copy the live
+    // UPDATE the un-pulled record (cached-at-build=false): the delta skips the stale copy the live
     // stream tail still holds and injects the post-update copy.
     Entity rec = session.load(tailRid);
     rec.setProperty(FIELD, 99);
