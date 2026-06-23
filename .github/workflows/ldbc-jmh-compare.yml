@@ -47,7 +47,7 @@ jobs:
     steps:
       # ── Setup ────────────────────────────────────────────────────────────
       - name: Checkout (full history for fork-point detection)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
