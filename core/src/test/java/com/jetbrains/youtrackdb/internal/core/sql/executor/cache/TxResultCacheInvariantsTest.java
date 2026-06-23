@@ -898,7 +898,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * before commit because the transaction state is reset by the end path.
    */
   @Test
-  public void i1_commitClearsCache() {
+  public void commitClearsCache() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(2);
     session.begin();
@@ -911,7 +911,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
 
   /** Rollback runs the same tx-end clear sink and wipes the cache. */
   @Test
-  public void i1_rollbackClearsCache() {
+  public void rollbackClearsCache() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(2);
     session.begin();
@@ -930,7 +930,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * side effect of a consumer-side iteration failure.
    */
   @Test
-  public void i1_iterateExceptionDoesNotClearSynchronouslyButTxEndDoes() {
+  public void iterateExceptionDoesNotClearSynchronouslyButTxEndDoes() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(3);
     session.begin();
@@ -958,7 +958,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
 
   /** A second {@code clear()} after the tx-end clear is a no-op: the cache stays empty. */
   @Test
-  public void i6_secondClearIsNoOp() {
+  public void secondClearIsNoOp() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(1);
     session.begin();
@@ -980,7 +980,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * stream; commit's clear sink closes it and drops the entry, so the stream cannot outlive the entry.
    */
   @Test
-  public void i3_streamClosedAtTxEnd() {
+  public void streamClosedAtTxEnd() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(4);
     session.begin();
@@ -1014,7 +1014,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * A and fail the first assertion.
    */
   @Test
-  public void i7_openViewDoesNotObserveLaterMutation() {
+  public void openViewDoesNotObserveLaterMutation() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(2); // committed rows with FIELD 0, 1
     session.begin();
@@ -1073,7 +1073,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * observable later schema change.
    */
   @Test
-  public void i8_effectiveFromClassesStableAcrossMidTxSchemaChange() {
+  public void effectiveFromClassesStableAcrossMidTxSchemaChange() {
     var cls = session.getClass(CLASS_NAME);
     // The closure as it is at populate time, with no subclass present yet. This immutable snapshot stands
     // in for the entry's once-computed effectiveFromClasses captured when the entry was populated.
@@ -1117,7 +1117,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * query populates; the held view must still drain its full result.
    */
   @Test
-  public void i9_liveViewNotTruncatedUnderLruPressure() {
+  public void liveViewNotTruncatedUnderLruPressure() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     var prevMax = GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_ENTRIES.getValueAsInteger();
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_ENTRIES.setValue(1);
@@ -1166,7 +1166,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * a full drain; this case asserts the post-drain balance.
    */
   @Test
-  public void i2_cacheCodeDepthBalancedAfterQuery() {
+  public void cacheCodeDepthBalancedAfterQuery() {
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
     seed(2);
     session.begin();
