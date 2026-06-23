@@ -76,14 +76,17 @@ public final class NonDeterministicQueryDetector {
         && Boolean.TRUE.equals(select.getNoCache())) {
       return true;
     }
-    return walk(statement);
+    return subtreeContainsNonDeterministicReference(statement);
   }
 
   /**
-   * Depth-first walk over the JJTree node tree. Returns {@code true} as soon as any node is a
-   * denylisted function call or a context-variable identifier; short-circuits the rest of the tree.
+   * Whether the AST subtree rooted at {@code node} contains a non-deterministic reference — a
+   * denylisted function call or a context-variable identifier. Descends depth-first and returns
+   * {@code true} as soon as one is found, short-circuiting the rest of the subtree. Unlike the public
+   * {@link #containsNonDeterministicReference(SQLStatement)} entry point, this inspects node content
+   * only; it does not consider the statement-level {@code NOCACHE} hint.
    */
-  private static boolean walk(@Nonnull Node node) {
+  private static boolean subtreeContainsNonDeterministicReference(@Nonnull Node node) {
     if (node instanceof SQLFunctionCall call && isNonDeterministicFunction(call)) {
       return true;
     }
@@ -95,7 +98,7 @@ public final class NonDeterministicQueryDetector {
       var child = node.jjtGetChild(i);
       // Every parser node is a SimpleNode (and thus a Node); guard defensively in case a future
       // grammar attaches a non-SimpleNode child so the cast cannot throw at runtime.
-      if (child instanceof SimpleNode && walk(child)) {
+      if (child instanceof SimpleNode && subtreeContainsNonDeterministicReference(child)) {
         return true;
       }
     }
