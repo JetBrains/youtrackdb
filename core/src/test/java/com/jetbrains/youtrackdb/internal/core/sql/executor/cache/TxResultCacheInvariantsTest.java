@@ -1111,7 +1111,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * I9: issuing more distinct cache keys than {@code maxEntries} while a view iterates must not
+   * Issuing more distinct cache keys than {@code maxEntries} while a view iterates must not
    * truncate that view's output — its entry is pinned and exempt from LRU eviction. With maxEntries set
    * to 1, a first query's view is held open (one row pulled, rest pending) while a second distinct
    * query populates; the held view must still drain its full result.
