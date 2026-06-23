@@ -253,7 +253,11 @@ public final class ShapeClassifier {
       return CacheableShape.RECORD;
     }
 
-    return CacheableShape.MATCH_TUPLE_MULTI;
+    if (isClosureCompleteMultiAlias(match)) {
+      return CacheableShape.MATCH_TUPLE_MULTI;
+    }
+
+    return CacheableShape.K0_NONE;
   }
 
   /**
@@ -270,8 +274,7 @@ public final class ShapeClassifier {
    * as the {@code u.name} column). An ORDER BY over a foreign head, a computed projection alias, a RID
    * sort, or a bare record attribute ({@code @rid}/{@code @class}/{@code @version}/…) cannot be read
    * from the projected tuple (the tuple is non-identifiable and keyed only by the RETURN columns), so it
-   * keeps the statement on the {@code MATCH_TUPLE_MULTI} path (currently served uncached) rather than
-   * producing a mis-sorted RECORD merge.
+   * keeps the statement on the {@code MATCH_TUPLE_MULTI} path rather than producing a mis-sorted RECORD merge.
    */
   private static boolean isSingleAliasRecordFold(@Nonnull SQLMatchStatement match) {
     var expressions = match.getMatchExpressions();
@@ -288,6 +291,79 @@ public final class ShapeClassifier {
       return false;
     }
     return orderByIsAliasLocal(match.getOrderBy(), origin.getAlias());
+  }
+
+  /**
+   * True when the MATCH statement is a known, vetted multi-alias shape whose read-class closure
+   * completely characterizes its data dependencies, making it safe for class-scoped caching.
+   */
+  private static boolean isClosureCompleteMultiAlias(@Nonnull SQLMatchStatement match) {
+    var expressions = match.getMatchExpressions();
+    if (expressions.isEmpty()) {
+      return false;
+    }
+
+    if (expressions.size() == 1 && expressions.getFirst().getItems().isEmpty()) {
+      return false;
+    }
+
+    for (var expr : expressions) {
+      if (!isMatchExpressionStrictlyBounded(expr)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Validates that every vertex and edge in the match expression has a statically declared,
+   * non-null schema type bound to it.
+   */
+  private static boolean isMatchExpressionStrictlyBounded(@Nonnull SQLMatchExpression expr) {
+    if (!isFilterStrictlyClassBounded(expr.getOrigin())) {
+      return false;
+    }
+
+    for (var item : expr.getItems()) {
+      if (!isEdgeLabelStrictlyBounded(item)) {
+        return false;
+      }
+      if (!isFilterStrictlyClassBounded(item.getFilter())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Returns true only if the vertex pattern explicitly mandates a static class identifier.
+   */
+  private static boolean isFilterStrictlyClassBounded(@Nullable SQLMatchFilter filter) {
+    if (filter == null) {
+      return false;
+    }
+    var className = filter.getClassName(null);
+    return className != null && STATIC_LABEL.matcher(className).matches();
+  }
+
+  /**
+   * Returns true only if the edge traversal explicitly restricts its path to static edge labels.
+   */
+  private static boolean isEdgeLabelStrictlyBounded(@Nonnull SQLMatchPathItem item) {
+    var method = item.getMethod();
+    if (method == null) {
+      return false;
+    }
+    var params = method.getParams();
+    if (params == null || params.isEmpty()) {
+      return false;
+    }
+    for (var param : params) {
+      if (!isStaticLabel(param)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
