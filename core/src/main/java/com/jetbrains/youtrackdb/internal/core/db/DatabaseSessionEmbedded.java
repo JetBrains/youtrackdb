@@ -967,13 +967,30 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var populateMutationVersion = tx.getMutationVersion();
 
     var original = executeUncached(statement, args);
-    // SELECT/MATCH execution returns a LocalResultSet; if a future shape returns something else, the
-    // cache cannot lift its stream, so fall back to returning the uncached result unwrapped. The
-    // cache.put below is the only mutation of cache state on this path and runs after this gate, so
-    // this early return leaves the cache untouched (only the miss already counted by lookup) — no
-    // half-built entry, no dangling liveViewCount. The aggregate-splice fallback in a later track
-    // inherits the same contract.
     if (!(original instanceof LocalResultSet localResult)) {
+      // Invariant breach, not a routine fallback. The serveThroughCache gate routes only
+      // RECORD/K0_NONE SELECT/MATCH here, and both shapes classify from execution that yields a
+      // LocalResultSet, so reaching this branch means a query we classified cacheable produced an
+      // unexpected result type. The fallback stays correct — `original` carries the right rows, and the
+      // cache is left untouched (its only mutation, the cache.put below, runs after this gate, so there
+      // is no half-built entry and no dangling liveViewCount) — so production rides the WARN and returns
+      // the unwrapped result rather than throwing. The paired assert makes it fail fast under -ea (the
+      // test suite), where this should-never-happen branch must surface loudly rather than silently.
+      //
+      // REVISIT when a cacheable shape that legitimately returns a non-LocalResultSet is wired into the
+      // serveThroughCache gate (the anticipated aggregate-splice / future-shape work): this branch would
+      // then become a normal path and the WARN a noise trap. Gate such a shape out before here, or
+      // narrow the check to the shapes that must return a LocalResultSet.
+      LogManager.instance().warn(this,
+          "tx-result cache: cacheable " + statement.getClass().getSimpleName() + " (shape=" + shape
+              + ") returned a result of type " + original.getClass().getSimpleName()
+              + ", not a LocalResultSet; the cache cannot lift its stream, running uncached. This"
+              + " should not happen today (every cacheable shape returns a LocalResultSet); if a shape"
+              + " that legitimately returns another type was just wired into the cache gate, revisit"
+              + " the gate rather than treating this WARN as an anomaly. Statement: " + statement);
+      assert original instanceof LocalResultSet
+          : "cacheable " + shape + " statement returned " + original.getClass().getName()
+              + " instead of a LocalResultSet: " + statement;
       return original;
     }
 
