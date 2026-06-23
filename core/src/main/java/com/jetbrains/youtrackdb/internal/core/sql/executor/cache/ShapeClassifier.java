@@ -343,7 +343,7 @@ public final class ShapeClassifier {
       return false;
     }
     var className = filter.getClassName(null);
-    return className != null && STATIC_LABEL.matcher(className).matches();
+    return isStaticLabel(className);
   }
 
   /**
@@ -446,7 +446,7 @@ public final class ShapeClassifier {
       return true;
     }
     var className = node.getClassName(null);
-    if (className == null || !STATIC_LABEL.matcher(className).matches()) {
+    if (!isStaticLabel(className)) {
       return true;
     }
     var where = node.getFilter();
@@ -496,10 +496,13 @@ public final class ShapeClassifier {
     return false;
   }
 
-  /** True when the expression renders as a bare static identifier (a literal class or edge label). */
+  /** True when a rendered label string is a bare static identifier (literal class or edge label). */
+  private static boolean isStaticLabel(String rendered) {
+    return rendered != null && STATIC_LABEL.matcher(rendered).matches();
+  }
+
   private static boolean isStaticLabel(@Nonnull SQLExpression label) {
-    var rendered = label.toString();
-    return STATIC_LABEL.matcher(rendered).matches();
+    return isStaticLabel(label.toString());
   }
 
   /** Pre-order walk for any embedded {@link SQLStatement} (a subquery) under {@code node}. */
