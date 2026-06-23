@@ -115,6 +115,57 @@ public class QueryResultCacheTest extends DbTestBase {
   }
 
   /**
+   * {@code isEmpty()} reports true only when the cache holds no entry AND no key has been routed
+   * non-cacheable, the exact precondition the session's empty-cache short-circuit relies on to skip
+   * the key build and the lookup/isNonCacheable gates. A stored entry makes it false; so does a
+   * non-cacheable key with no live entry (the K0-strike path leaves {@code entries} empty but {@code
+   * nonCacheableKeys} populated, so an {@code isNonCacheable} check could still bypass and must not be
+   * skipped); {@code clear()} restores it to true.
+   */
+  @Test
+  public void isEmptyReflectsEntriesAndNonCacheableKeys() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD.setValue(1);
+    var cache = new QueryResultCache(new QueryCacheMetrics());
+    var k = key("select from OUser group by name");
+
+    Assert.assertTrue("A fresh cache is empty", cache.isEmpty());
+
+    // A stored entry makes the cache non-empty (the entries-non-empty arm).
+    cache.put(k, k0Entry(new CountingStream(), 1L));
+    Assert.assertFalse("A stored entry makes the cache non-empty", cache.isEmpty());
+
+    // One K0 strike at threshold 1 removes the entry AND routes the key non-cacheable, so entries is
+    // empty again while nonCacheableKeys is not: isEmpty() must still report false (the nonCacheable
+    // arm), otherwise the short-circuit would skip a bypass that should fire.
+    Assert.assertNull(cache.lookup(k, 2L));
+    Assert.assertEquals("the strike removed the entry", 0, cache.size());
+    Assert.assertTrue("the key was routed non-cacheable", cache.isNonCacheable(k));
+    Assert.assertFalse(
+        "a non-cacheable key with no live entry still makes the cache non-empty", cache.isEmpty());
+
+    // clear() drops both the entries and the non-cacheable set, so the cache is empty once more.
+    cache.clear();
+    Assert.assertTrue("clear() makes the cache empty again", cache.isEmpty());
+  }
+
+  /**
+   * {@code recordMiss()} feeds the same miss counter {@code lookup} increments on an absent key, so
+   * the session's empty-cache short-circuit (which skips {@code lookup} entirely) still accounts for
+   * the miss it stands in for, and the hit/miss metric is identical whether or not the short-circuit
+   * fired. It touches only the miss counter.
+   */
+  @Test
+  public void recordMissCountsAMiss() {
+    var metrics = new QueryCacheMetrics();
+    var cache = new QueryResultCache(metrics);
+
+    cache.recordMiss();
+
+    Assert.assertEquals("recordMiss must increment the miss counter", 1, metrics.getMisses());
+    Assert.assertEquals("recordMiss must not touch the hit counter", 0, metrics.getHits());
+  }
+
+  /**
    * With {@code maxEntries == 1}, putting a second unpinned entry must evict the least-recently-used
    * one: its stream is closed, an overflow is counted, and its key is routed to the
    * non-cacheable set so it does not immediately re-populate. The surviving entry stays

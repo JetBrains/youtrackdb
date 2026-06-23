@@ -170,6 +170,17 @@ public final class QueryResultCache {
   }
 
   /**
+   * Records a cache miss whose decision is made outside {@link #lookup}: the empty-cache
+   * short-circuit in the session, which skips the key build and {@code lookup} call when {@link
+   * #isEmpty} holds. {@code lookup} would have found the key absent and counted the miss itself; this
+   * keeps the hit/miss metric identical whether or not the short-circuit fired, so a transaction's
+   * first (cache-empty) query still counts as the miss it is.
+   */
+  public void recordMiss() {
+    metrics.incrementMisses();
+  }
+
+  /**
    * Stores {@code entry} under {@code key}, then enforces the LRU bound. A key in {@link
    * #nonCacheableKeys} is never stored: the entry is closed immediately and the put is a no-op, so an
    * overflowed or strike-exceeded query stays uncached for the rest of the transaction. After the
@@ -374,6 +385,20 @@ public final class QueryResultCache {
   /** Number of live cache entries. */
   public int size() {
     return entries.size();
+  }
+
+  /**
+   * Whether the cache holds nothing a lookup or non-cacheable check could act on: no cached entry and
+   * no key routed out of the cache. When both hold, {@link #lookup} can only miss and {@link
+   * #isNonCacheable} can only return {@code false} for any key, so a caller may skip building a {@link
+   * CacheKey} for those two checks and go straight to the populate decision, allocating the key only
+   * if it ends up storing an entry. {@link #k0Strikes} is deliberately not consulted: a residual
+   * strike count never changes a lookup or non-cacheable result on an otherwise empty cache (it only
+   * tracks progress toward a future bypass), so an empty {@code entries}/{@code nonCacheableKeys} pair
+   * is a sufficient short-circuit even when strikes remain.
+   */
+  public boolean isEmpty() {
+    return entries.isEmpty() && nonCacheableKeys.isEmpty();
   }
 
   /** Whether a key has been routed out of the cache for the rest of this transaction. */

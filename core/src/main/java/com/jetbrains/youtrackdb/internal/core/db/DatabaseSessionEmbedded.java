@@ -775,14 +775,25 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return executeUncached(statement, args);
     }
 
-    var key = (args instanceof Map)
-        ? CacheKey.forParams(statement, asParamMap(args))
-        : CacheKey.forArgs(statement, (Object[]) args);
+    // When the cache holds no entries and no non-cacheable keys, the isNonCacheable() and lookup()
+    // gates below can only report "nothing": a guaranteed miss, never a bypass. Skip them — and the
+    // key build they need — and go straight to the populate decision. Capture the predicate once: the
+    // cache is not mutated between here and the populate branch (enterCacheCode only bumps a depth
+    // counter), so every "is the cache empty" read below stays consistent.
+    var cacheEmpty = cache.isEmpty();
+
+    // Memoised cache key, built at most once on the first get(). It is forced eagerly just below only
+    // when the cache is non-empty (the isNonCacheable/lookup gates need it); on the empty-cache
+    // short-circuit it stays unbuilt until a populate path reaches its put (or the aggregate
+    // overflow-guard install), so a query that clears the cache gates but stores nothing never
+    // allocates a CacheKey.
+    var key = lazyCacheKey(statement, args);
 
     // A key already routed out of the cache (entry overflowed its size cap, or a K0_NONE entry
     // exceeded its re-population strike limit) stays uncached for the rest of the transaction; do
-    // not build a doomed entry.
-    if (cache.isNonCacheable(key)) {
+    // not build a doomed entry. Only reachable on a non-empty cache — an empty cache has no
+    // non-cacheable keys — so this check and its key build are skipped on the short-circuit.
+    if (!cacheEmpty && cache.isNonCacheable(key.get())) {
       return executeUncached(statement, args);
     }
 
@@ -799,40 +810,52 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     // cache, and an abandoned view never silently disables it for the rest of the transaction.
     tx.enterCacheCode();
     try {
-      var hit = cache.lookup(key, tx.getMutationVersion());
-      if (hit != null) {
-        if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI
-            && DeltaBuilder.matchMultiStale(hit, tx)) {
-          // A multi-alias MATCH hit passes a class-scoped version gate. A post-populate mutation
-          // touched one of the pattern's read classes, so the frozen tuple set is stale and cannot be
-          // reconciled per-tuple (a projected RETURN row carries no bound records to rebuild tuples
-          // from); drop the entry and re-populate on the miss path below.
-          cache.invalidateMatchMulti(key);
-        } else {
-          // Hit: the stored entry was proven deterministic and a wired shape at populate, so neither
-          // the non-determinism walk nor the shape classifier runs again; the entry carries its shape.
-          // A multi-alias MATCH reaching here had no pattern-class mutation since populate. lookup()
-          // defers its hit count to here so a stale MATCH hit is not double-counted as hit+invalidation.
-          if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
-            cache.recordHit();
+      if (!cacheEmpty) {
+        // Non-empty cache: consult it. On the empty-cache short-circuit this whole block — lookup,
+        // the hit handling, and the post-lookup strike re-check — is skipped, and the key is not built
+        // here, because lookup() could only miss and isNonCacheable() could only return false.
+        var hit = cache.lookup(key.get(), tx.getMutationVersion());
+        if (hit != null) {
+          if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI
+              && DeltaBuilder.matchMultiStale(hit, tx)) {
+            // A multi-alias MATCH hit passes a class-scoped version gate. A post-populate mutation
+            // touched one of the pattern's read classes, so the frozen tuple set is stale and cannot be
+            // reconciled per-tuple (a projected RETURN row carries no bound records to rebuild tuples
+            // from); drop the entry and re-populate on the miss path below.
+            cache.invalidateMatchMulti(key.get());
+          } else {
+            // Hit: the stored entry was proven deterministic and a wired shape at populate, so neither
+            // the non-determinism walk nor the shape classifier runs again; the entry carries its shape.
+            // A multi-alias MATCH reaching here had no pattern-class mutation since populate. lookup()
+            // defers its hit count to here so a stale MATCH hit is not double-counted as hit+invalidation.
+            if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
+              cache.recordHit();
+            }
+            return buildView(hit, tx, args);
           }
-          return buildView(hit, tx, args);
         }
+        // A stale-entry invalidation that just ran can cross the repopulate-strike threshold and route
+        // this key into the non-cacheable set on this very call: a K0_NONE version-gate strike inside
+        // lookup() (the line above), or the multi-alias MATCH invalidateMatchMulti() on the stale branch.
+        // Both share the strike counter, and either can be the strike that tips the key over. When it
+        // does, populating now is unsafe: cache.put() refuses to store a non-cacheable key and closes the
+        // fresh entry's stream, so buildView() would replay an empty result instead of the rows a fresh
+        // run returns. Re-check and route to uncached execution before paying for populate. The pre-lookup
+        // isNonCacheable check at the top of this method cannot catch this, because the key became
+        // non-cacheable only just now, after that check ran.
+        if (cache.isNonCacheable(key.get())) {
+          return executeUncached(statement, args);
+        }
+      } else {
+        // Empty-cache short-circuit: lookup() did not run, but it would have found the key absent and
+        // counted a miss. Count it here so the hit/miss metric is identical whether or not the
+        // short-circuit fired. A later query in the same transaction sees a non-empty cache and goes
+        // through lookup(), which counts its own hits and misses.
+        cache.recordMiss();
       }
-      // A stale-entry invalidation that just ran can cross the repopulate-strike threshold and route
-      // this key into the non-cacheable set on this very call: a K0_NONE version-gate strike inside
-      // lookup() (the line above), or the multi-alias MATCH invalidateMatchMulti() on the stale branch.
-      // Both share the strike counter, and either can be the strike that tips the key over. When it
-      // does, populating now is unsafe: cache.put() refuses to store a non-cacheable key and closes the
-      // fresh entry's stream, so buildView() would replay an empty result instead of the rows a fresh
-      // run returns. Re-check and route to uncached execution before paying for populate. The pre-lookup
-      // isNonCacheable check at the top of this method cannot catch this, because the key became
-      // non-cacheable only just now, after that check ran.
-      if (cache.isNonCacheable(key)) {
-        return executeUncached(statement, args);
-      }
-      // Miss: now (and only now) pay for the AST analysis needed to decide whether to populate an
-      // entry. A non-deterministic statement or an unwired shape bypasses the cache uncached.
+      // Miss (or empty-cache short-circuit): now (and only now) pay for the AST analysis needed to
+      // decide whether to populate an entry. A non-deterministic statement or an unwired shape
+      // bypasses the cache uncached.
       if (NonDeterministicQueryDetector.containsNonDeterministicReference(statement)) {
         return executeUncached(statement, args);
       }
@@ -893,6 +916,33 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
+   * A memoised supplier of the cache key for {@code statement} and its {@code args}. The key is built
+   * on the first {@link Supplier#get()} and the same instance is returned on every later call.
+   * {@link #serveThroughCache} forces it eagerly only when the cache is non-empty, for the {@code
+   * isNonCacheable}/{@code lookup} gates; on the empty-cache short-circuit it is left unbuilt and a
+   * populate path forces it at its {@code cache.put} (or, on the aggregate/distinct path, at the
+   * overflow-guard install that precedes the put), so a query that clears the cache gates but never
+   * stores an entry never allocates a {@link CacheKey}. Not synchronised: the cache and this supplier
+   * are touched only on the transaction's owning thread.
+   */
+  private static Supplier<CacheKey> lazyCacheKey(
+      @Nonnull SQLStatement statement, @Nullable Object args) {
+    return new Supplier<>() {
+      private CacheKey built;
+
+      @Override
+      public CacheKey get() {
+        if (built == null) {
+          built = (args instanceof Map)
+              ? CacheKey.forParams(statement, asParamMap(args))
+              : CacheKey.forArgs(statement, (Object[]) args);
+        }
+        return built;
+      }
+    };
+  }
+
+  /**
    * Populates a fresh cache entry for a miss: stamps the populate mutation version before driving the
    * executor (so the delta builder later admits only post-populate mutations), runs the real
    * execution, lifts the live stream and plan off the resulting {@link LocalResultSet}, wraps the
@@ -907,7 +957,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private ResultSet populateAndBuildView(
       @Nonnull SQLStatement statement,
       @Nullable Object args,
-      @Nonnull CacheKey key,
+      @Nonnull Supplier<CacheKey> key,
       @Nonnull CacheableShape shape,
       @Nonnull FrontendTransactionImpl tx,
       @Nonnull QueryResultCache cache,
@@ -977,7 +1027,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       assert shape == CacheableShape.RECORD : "Etap-A projector installed on a non-RECORD entry";
       entry.setReturnProjector(buildMatchReturnProjector(match, matchOrigin, args));
     }
-    cache.put(key, entry);
+    // Force the lazy key now (the populate has committed to storing an entry); on the empty-cache
+    // short-circuit this is the first and only build of the key.
+    cache.put(key.get(), entry);
 
     return buildView(entry, tx, args);
   }
@@ -1018,7 +1070,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private ResultSet populateAndBuildAggregateView(
       @Nonnull SQLSelectStatement select,
       @Nullable Object args,
-      @Nonnull CacheKey key,
+      @Nonnull Supplier<CacheKey> key,
       @Nonnull CacheableShape shape,
       @Nonnull FrontendTransactionImpl tx,
       @Nonnull QueryResultCache cache) {
@@ -1070,9 +1122,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     }
 
     var state = new AggregateState(metadata.kind(), metadata.propertyName(), metadata.alias());
+    // The populate has committed to caching (plan shape validated above), so force the lazy key now
+    // and reuse the one instance for the overflow guard and the put. On the empty-cache short-circuit
+    // this is the first build of the key; earlier splice-failure fallbacks returned before reaching it.
+    var resolvedKey = key.get();
     // Install the contributor cap BEFORE driving so an over-cap populate routes the key non-cacheable
     // mid-drive; the put below is then a no-op (the cache's nonCacheableKeys guard closes the entry).
-    cache.installAggregateOverflowGuard(key, state);
+    cache.installAggregateOverflowGuard(resolvedKey, state);
     spliceTap(aggregateStep, new AggregateCacheTapStep(state, ctx));
 
     try {
@@ -1105,7 +1161,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     entry.setAggregateState(state);
     // put is a no-op if the cap already routed the key non-cacheable during the drive; otherwise it
     // stores the entry. Either way the view below is built directly over this entry's seeded state.
-    cache.put(key, entry);
+    cache.put(resolvedKey, entry);
 
     return buildView(entry, tx, args);
   }
@@ -1122,7 +1178,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   private ResultSet populateAndBuildDistinctValuesView(
       @Nonnull SQLSelectStatement select,
       @Nullable Object args,
-      @Nonnull CacheKey key,
+      @Nonnull Supplier<CacheKey> key,
       @Nonnull FrontendTransactionImpl tx,
       @Nonnull QueryResultCache cache) {
     var metadata = ShapeClassifier.distinctValueMetadata(select);
@@ -1167,7 +1223,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     // makes the view emit the keys as rows rather than the scalar count.
     var state = new AggregateState(
         CacheableShape.AGGREGATE_COUNT_DISTINCT, metadata.propertyName(), metadata.alias());
-    cache.installAggregateOverflowGuard(key, state);
+    // Committed to caching (plan shape validated above): force the lazy key once and reuse it for the
+    // overflow guard and the put. First build of the key on the empty-cache short-circuit.
+    var resolvedKey = key.get();
+    cache.installAggregateOverflowGuard(resolvedKey, state);
     spliceTapAbove(projection, new AggregateCacheTapStep(state, ctx));
 
     try {
@@ -1193,7 +1252,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         null,
         populateMutationVersion);
     entry.setAggregateState(state);
-    cache.put(key, entry);
+    cache.put(resolvedKey, entry);
 
     return buildView(entry, tx, args);
   }

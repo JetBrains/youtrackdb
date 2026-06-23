@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.lang.reflect.Method;
+import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -108,6 +109,49 @@ public class TxResultCacheWiringTest extends DbTestBase {
     assertEquals("second query returns the same rows", 3, second);
     assertEquals("second query is served from cache (a hit)", 1, cache.getMetrics().getHits());
     assertEquals("no further miss on the second query", 1, cache.getMetrics().getMisses());
+    assertEquals("still one entry", 1, cache.size());
+
+    session.rollback();
+  }
+
+  /**
+   * A parameterised SELECT (named {@code :param}, passed as a Map) issued twice in one transaction
+   * misses then hits, exactly like the positional-arg path. The first query runs against an empty
+   * cache, so it exercises the empty-cache short-circuit and the Map-args arm of the lazy cache-key
+   * build (the positional/no-arg arm is covered by the other wiring tests); the miss must still be
+   * counted even though {@code lookup} was short-circuited, and the second query must hit.
+   */
+  @Test
+  public void flagOn_parameterisedSelectHitsCacheSecondTime() {
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    seed(3);
+
+    session.begin();
+    var sql = "SELECT FROM " + CLASS_NAME + " WHERE " + FIELD + " >= :min";
+    Map<String, Object> params = Map.of("min", 1);
+
+    long first;
+    try (var rs = session.query(sql, params)) {
+      first = rs.stream().count();
+    }
+    assertEquals("first parameterised query returns the matching rows (n=1,2)", 2, first);
+
+    var cache = tx().getQueryResultCache();
+    assertNotNull("cache must exist with the flag on", cache);
+    assertEquals("one entry populated after the first parameterised query", 1, cache.size());
+    assertEquals("first parameterised query is a miss (short-circuit still counts it)",
+        1, cache.getMetrics().getMisses());
+    assertEquals("first parameterised query is not a hit", 0, cache.getMetrics().getHits());
+
+    long second;
+    try (var rs = session.query(sql, params)) {
+      second = rs.stream().count();
+    }
+    assertEquals("second parameterised query returns the same rows", 2, second);
+    assertEquals("second parameterised query is served from cache (a hit)",
+        1, cache.getMetrics().getHits());
+    assertEquals("no further miss on the second parameterised query",
+        1, cache.getMetrics().getMisses());
     assertEquals("still one entry", 1, cache.size());
 
     session.rollback();
