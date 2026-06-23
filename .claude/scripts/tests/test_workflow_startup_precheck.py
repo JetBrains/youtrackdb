@@ -1301,6 +1301,78 @@ def test_drift_phase2_detected_reports_range() -> None:
             assert entry["sha"], f"first_commits sha should be non-empty: {entry!r}"
 
 
+def test_drift_phase4_stamped_folds_to_no_drift() -> None:
+    """Skip #2, the headline Phase-4-active fold. The same drift-detected fixture
+    as test_drift_phase2_detected_reports_range — an all-stamped plan whose stamp
+    points at a real commit, with two `.claude/workflow/` commits sitting between
+    that stamp base and HEAD — would normally report detected=true, kind="stamped"
+    with commit_count=2. Adding a phase-ledger whose tail records `phase=D` (Phase
+    4 pending) flips the outcome: the new skip reads the ledger tail before the
+    fold and folds to detected=false. kind stays "stamped" (the skip's emitted
+    label), and base_sha is JSON null because the fold never ran — asserted with
+    `is None` so the no-fold short-circuit is told apart from a resolved fold whose
+    base happened to coincide. This is the regression: before the fix the walk ran
+    to the non-empty-range exit and reported drift at Phase 4, which the startup
+    dispatch routed to a migration prompt against a subtree the next cleanup commit
+    deletes."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        base = fx.head_sha()  # the commit the stamp points at
+        # Two workflow-path commits land after the stamp base, so they would fall
+        # in the BASE_SHA..HEAD range the drift `git log` watches — the same setup
+        # that makes test_drift_phase2_detected_reports_range report drift.
+        fx.workflow_commit("first workflow change")
+        fx.workflow_commit("second workflow change")
+        # The plan artifact is stamped with the real base SHA; its own commit
+        # touches docs/adr/... (not a watched path) so it stays out of the range.
+        fx.plan_artifact("plan/track-1.md", stamp=base)
+        # The Phase-4 ledger: a tail of `phase=D` is what skip #2 keys on. Its
+        # own commit touches docs/adr/... so it does not inflate the range either.
+        fx.write_ledger("[2026-06-22T16:00Z] [ctx=safe] phase=D\n")
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is False, (
+            f"a phase=D ledger must fold the in-range drift to no-drift: {drift!r}"
+        )
+        assert drift["kind"] == "stamped", (
+            f"skip #2 emits kind='stamped': {drift!r}"
+        )
+        assert drift["base_sha"] is None, (
+            f"skip #2 returns before the fold, so base_sha stays JSON null, got "
+            f"{drift['base_sha']!r}"
+        )
+
+
+def test_drift_phase4_empty_input_returns_kind_null_before_skip2() -> None:
+    """The skip-ordering invariant: skip #1 (empty-input) must return before skip
+    #2 (Phase-4 active). A `_workflow/` holding a phase=D ledger plus only a
+    transient handoff-*.md has no stampable artifact, so the empty-input check
+    fires first and returns kind=null — it does NOT fall through to skip #2, which
+    would emit kind="stamped". detected is false either way (both are silent
+    no-drift), so the kind value is the discriminator: a kind of `null` proves the
+    empty-input arm ran first, and `is None` tells it apart from the "stamped"
+    label skip #2 would have emitted had the ordering been wrong. This pins the
+    empty-input-return-before-skip-#2 ordering the skip-#2 placement depends
+    on."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        # A phase=D ledger that would trip skip #2 if the empty-input check did
+        # not return first. Its commit touches docs/adr/..., not a watched path.
+        fx.write_ledger("[2026-06-22T16:00Z] [ctx=safe] phase=D\n")
+        # Only a handoff under _workflow/, no stampable artifact: the empty-input
+        # arm must fire before skip #2 reads the ledger.
+        fx.handoff()
+        drift = _drift(run_precheck("--mode", "full", cwd=fx.path))
+        assert drift["detected"] is False, (
+            f"empty-input Phase-4 branch must not detect drift: {drift!r}"
+        )
+        assert drift["kind"] is None, (
+            f"empty-input must return kind=null BEFORE skip #2 emits 'stamped', "
+            f"got {drift['kind']!r}"
+        )
+
+
 def test_drift_phase2_empty_range_no_drift_count_zero() -> None:
     """An all-stamped plan whose stamp points at HEAD itself (no workflow commit
     sits after it) folds to a BASE_SHA equal to HEAD, so
@@ -4049,6 +4121,8 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("drift_unstamped_detects_drift_kind_unstamped", test_drift_unstamped_detects_drift_kind_unstamped),
     ("drift_empty_input_silent_no_drift_kind_null", test_drift_empty_input_silent_no_drift_kind_null),
     ("drift_phase2_detected_reports_range", test_drift_phase2_detected_reports_range),
+    ("drift_phase4_stamped_folds_to_no_drift", test_drift_phase4_stamped_folds_to_no_drift),
+    ("drift_phase4_empty_input_returns_kind_null_before_skip2", test_drift_phase4_empty_input_returns_kind_null_before_skip2),
     ("drift_phase2_empty_range_no_drift_count_zero", test_drift_phase2_empty_range_no_drift_count_zero),
     ("drift_phase2_merge_base_failed_kind_scalars_null", test_drift_phase2_merge_base_failed_kind_scalars_null),
     ("drift_phase2_staged_subtree_excluded_from_range", test_drift_phase2_staged_subtree_excluded_from_range),

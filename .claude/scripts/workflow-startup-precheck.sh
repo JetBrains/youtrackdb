@@ -617,6 +617,29 @@ detect_drift() {
     return
   fi
 
+  # Skip #2, Phase-4-active no-drift (workflow-drift-check.md § Skip conditions).
+  # A branch in Phase 4 (final-artifacts cleanup) folds to no-drift before the
+  # walk reaches the fold or the range `git log`. The next Phase-4 cleanup commit
+  # deletes the `_workflow/` subtree a migration would replay against, so a drift
+  # prompt here would offer a migration that derails the cleanup. Read the
+  # phase-ledger tail (last-value-wins) and fold when it is `D` (Phase 4 pending)
+  # or `Done` (Phase 4 complete). This sits BELOW the empty-input return above so
+  # an empty-input Phase-4 branch (a `_workflow/` holding only a transient
+  # handoff-*.md) still returns kind=null there first; it covers the stamped,
+  # unstamped, and merge-base-failed Phase-4 cases that reach it, all of which
+  # yield detected=false. Mutate only DRIFT_DETECTED/DRIFT_KIND and return — the
+  # fold scalars (DRIFT_BASE_SHA, DRIFT_COMMIT_COUNT, DRIFT_FIRST_COMMITS_JSON)
+  # stay at their null/[] defaults exactly as the empty-input return leaves them,
+  # because the fold never runs. ledger_tail_value uses only `local` vars and
+  # resets LEDGER_VALUE on entry, so this read does not corrupt the later
+  # determine_state read of the same key (the dispatch runs detect_drift first).
+  ledger_tail_value phase
+  if [ "$LEDGER_VALUE" = "D" ] || [ "$LEDGER_VALUE" = "Done" ]; then
+    DRIFT_DETECTED="false"
+    DRIFT_KIND="stamped"
+    return
+  fi
+
   if [ -n "$UNSTAMPED_FILES" ]; then
     # Any unstamped artifact short-circuits to drift detected: no fold, no
     # `git log`. The fold scalars stay null; the bootstrap prompt that gathers
