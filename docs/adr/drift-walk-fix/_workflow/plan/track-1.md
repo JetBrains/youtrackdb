@@ -31,8 +31,8 @@ regression tests pin the fix and the skip-ordering invariant it depends on.
 - [x] 2026-06-22T16:12Z [ctx=safe] Review + decomposition complete
 - [x] 2026-06-22T16:49Z [ctx=safe] Step implementation
 - [x] 2026-06-22T16:49Z [ctx=safe] Step 1 complete (commit f62e3935bb)
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] 2026-06-23T07:23Z [ctx=safe] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] 2026-06-23T07:23Z [ctx=safe] Track completion
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -322,6 +322,32 @@ suites" step exercises the staged script through the same `parents[3]` anchor.
 - `docs/adr/drift-walk-fix/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck_stub.py` (new staged copy — unedited)
 
 **Critical context:** none
+
+### Track completion — 2026-06-23T07:23Z [ctx=safe]
+Added the Phase-4-active drift skip (skip #2 of `workflow-drift-check.md § Skip
+conditions`) to `detect_drift` in `workflow-startup-precheck.sh`: when the
+phase-ledger tail is `D` or `Done`, the walk folds to `drift.detected=false,
+kind="stamped"` and returns before the fold, so a session starting a branch at
+Phase 4 no longer sees a spurious migration prompt. The block sits between the
+empty-input no-drift return and the unstamped short-circuit, preserving the
+cheapest-first skip order; two regression tests pin both the skip-#2 fold and the
+skip-#1-before-#2 ordering invariant. The §1.6(h) byte-copied walk region and
+`detect_migrate_range` are untouched, so migration still replays at Phase 4.
+
+Track-level code review was skipped per the single-step-`high` rule — the Phase-B
+step-level review already ran the full workflow-reviewer selection for the code
+diff (consistency, context-budget, hook-safety; PASS iteration 1, zero blockers,
+zero should-fix).
+
+Key discovery (no cross-track impact): the staged test suite reports one
+pre-existing failure, `test_track_review_step6_carries_ac_ledger_append`, which
+reads `track-review.md` via the bare `REPO_ROOT` anchor absent from this
+scripts-only staged subtree. The failure is fix-independent — identical against
+the pristine pre-fix script — and self-resolves at Phase 4 promotion, when the
+staged tree moves onto the live path. Phase 4 should expect this single
+staged-suite failure to go green after the promotion commit.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 - `detect_drift` reads the phase-ledger tail and folds a tail of `D` or `Done` to
