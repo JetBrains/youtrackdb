@@ -43,7 +43,7 @@ import javax.annotation.Nullable;
  * produced it in {@link #extremumRid}. Per-value material lives in {@link #contributingValues} so the
  * two extremum-leaving transitions (the holder drops out, or the holder's value moves away from the
  * extremum direction) can recompute the new extremum with an O(n) scan; every other transition is
- * O(1) via a single comparison against {@link #currentScalar}. {@code was_extremum} is decided by RID
+ * O(1) via a single comparison against {@link #currentScalar}. The "was extremum" state is decided by RID
  * identity ({@code rid.equals(extremumRid)}), never by {@code Number.equals}, to sidestep the
  * cross-{@code Number}-subtype equality hazard.
  *
@@ -54,10 +54,10 @@ import javax.annotation.Nullable;
  * distinct buckets exactly as in storage.
  *
  * <p><b>Membership-derived dispatch (collapse safety).</b> Every {@link #applyMutation} derives
- * its transition from two facts rather than from the operation type: {@code was_contributing} from
+ * its transition from two facts rather than from the operation type: {@code wasContributing} from
  * cache membership ({@link #contributingValues}{@code .containsKey(rid)}, or {@link #contributingRids}
- * for COUNT), and {@code now_contributing = (status == DELETED) ? false : matchAfter}. {@code status}
- * is consulted only to fold {@code DELETED} into {@code now_contributing = false}, never as a
+ * for COUNT), and {@code nowContributing = (status == DELETED) ? false : matchAfter}. {@code status}
+ * is consulted only to fold {@code DELETED} into {@code nowContributing = false}, never as a
  * stand-in for the before-state. This is required because {@code addRecordOperation} keeps a
  * collapsed pre-populate CREATE typed {@code CREATED} while bumping its version past populate, so a
  * {@code CREATED} op can carry a record already observed by the populate-time tap and already a
@@ -128,7 +128,7 @@ public final class AggregateState {
   /** The current extremum value (MIN/MAX). */
   @Nullable private Object currentScalar;
 
-  /** The RID that produced {@link #currentScalar}; {@code was_extremum} is RID identity against it. */
+  /** The RID that produced {@link #currentScalar}; the "was extremum" check uses RID identity against it. */
   @Nullable private RID extremumRid;
 
   // ---- COUNT_DISTINCT / DISTINCT_VALUES ----
@@ -150,8 +150,7 @@ public final class AggregateState {
 
   public AggregateState(
       @Nonnull CacheableShape kind, @Nullable String propertyName, @Nonnull String alias) {
-    assert kind.isAggregate()
-        : "AggregateState requires an AGGREGATE_* shape, got " + kind;
+    assert kind.isAggregate() : "AggregateState requires an AGGREGATE_* shape, got " + kind;
     this.kind = kind;
     this.propertyName = propertyName;
     this.alias = alias;
@@ -212,7 +211,7 @@ public final class AggregateState {
    * Replays one post-populate mutation onto this (copied) state during delta build. {@code status} is
    * the {@link RecordOperation} type; {@code matchAfter} is whether the post-mutation record still
    * satisfies the query's WHERE (membership only). The transition is derived from cache membership and
-   * {@code now_contributing}, never from {@code status} alone. For a record that still
+   * {@code nowContributing}, never from {@code status} alone. For a record that still
    * contributes, the post-state value is read from the mutated record.
    */
   public void applyMutation(@Nonnull RecordAbstract record, byte status, boolean matchAfter) {
