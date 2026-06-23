@@ -1053,7 +1053,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
   // ===========================================================================
 
   /**
-   * I8: the entry's {@code effectiveFromClasses} closure, computed once when the entry is populated,
+   * The entry's {@code effectiveFromClasses} closure, computed once when the entry is populated,
    * stays valid for the entry's whole lifetime even if the schema later gains a subclass of the queried
    * class. {@code computeEffectiveFromClasses} reads the live schema on every call (the queried class
    * plus every current subclass, each by name), so a fresh call made after a subclass is added genuinely
@@ -1069,7 +1069,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * {@code computeEffectiveFromClasses} DOES contain the new subclass (proving the schema change is live
    * and observable), WHILE the populate-time snapshot does NOT. If the once-computed closure had leaked
    * the later subclass — i.e. if it were a live view rather than a frozen snapshot — the snapshot
-   * assertion would fail. That contrast is the I8 guarantee: a populate-time class filter resists a real,
+   * assertion would fail. That contrast is guarantee: a populate-time class filter resists a real,
    * observable later schema change.
    */
   @Test
