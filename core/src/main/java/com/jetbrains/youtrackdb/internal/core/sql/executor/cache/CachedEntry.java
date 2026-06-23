@@ -373,11 +373,6 @@ public final class CachedEntry {
     closeWhenUnpinned = true;
   }
 
-  /** Rows cached so far; the LRU eviction decision reads this. */
-  public int sizeHint() {
-    return results.size();
-  }
-
   /**
    * Installs the per-entry record cap and the overflow callback the cache fires when an append crosses
    * it. Called once by {@link QueryResultCache#put} when the entry is stored. A cap of {@code
