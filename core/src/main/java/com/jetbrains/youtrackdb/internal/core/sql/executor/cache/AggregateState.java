@@ -348,14 +348,17 @@ public final class AggregateState {
             currentScalar = newValue;
             extremumRid = rid;
           }
-        } else if (staysInExtremumDirection(newValue, currentScalar)) {
-          // The holder moved further into (or stayed at) the extremum direction: it is still the
-          // extremum, only its value changed. O(1).
-          currentScalar = newValue;
         } else {
-          // The holder moved away from the extremum direction; the new extremum is unknown without a
-          // scan over the remaining contributors. O(n).
-          recomputeExtremum();
+          assert currentScalar != null;
+          if (staysInExtremumDirection(newValue, currentScalar)) {
+            // The holder moved further into (or stayed at) the extremum direction: it is still the
+            // extremum, only its value changed. O(1).
+            currentScalar = newValue;
+          } else {
+            // The holder moved away from the extremum direction; the new extremum is unknown without a
+            // scan over the remaining contributors. O(n).
+            recomputeExtremum();
+          }
         }
       }
       case AGGREGATE_COUNT_DISTINCT -> {
@@ -582,28 +585,6 @@ public final class AggregateState {
   }
 
   // ---- Test / inspection accessors (package-private; the replay path uses the methods above) ----
-
-  @Nullable Number getSumAccumulator() {
-    ensureSumFolded();
-    return sumAccumulator;
-  }
-
-  int getCount() {
-    ensureSumFolded();
-    return count;
-  }
-
-  @Nullable RID getExtremumRid() {
-    return extremumRid;
-  }
-
-  Set<RID> getContributingRids() {
-    return contributingRids;
-  }
-
-  Map<RID, Object> getContributingValues() {
-    return contributingValues;
-  }
 
   Map<Object, Set<RID>> getDistinctBuckets() {
     return distinctBuckets;
