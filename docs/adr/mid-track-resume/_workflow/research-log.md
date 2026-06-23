@@ -46,7 +46,7 @@ hardening one parser.
   | Milestone | `substate` appended | Rides commit |
   |---|---|---|
   | Phase A decomposition complete | `steps-partial` | A→C commit (`track-review.md:600-608`) |
-  | All steps complete (Phase B→C) | `steps-done-review-pending` | the Phase B→C boundary commit |
+  | All steps complete (Phase B→C) | `steps-done-review-pending` | a **NEW** Phase-B-complete Workflow-update commit (NA1): `step-implementation.md` §Phase B Completion today marks `Step implementation [x]` then ends the session with **no commit and no append**, so this change adds a commit there staging the `[x]` flip + the append, symmetric with the A→C boundary — and incidentally fixes the latent uncommitted-`Step implementation [x]`-flip wart |
   | Code review passed (pre-approval) | `review-done-track-open` | the **pre-approval** code-review-complete Workflow-update commit (`track-code-review.md:743`) — NOT the post-approval completion commit (A2: else a crash during the approval wait re-runs the code-review fan-out) |
   | Track complete → next track | `decomposition-pending` (for track N+1) | track-completion commit (`track-code-review.md:1419-1424`) |
   `failed-step` is **NOT** a ledger sub-state (A1): the failure writes (`[!]`
@@ -177,6 +177,15 @@ hardening one parser.
   to post-approval (`:1471-1487` "Why deferred write") — so the
   `review-done-track-open` append must ride the pre-approval commit; confirmed.
 
+- [2026-06-23T16:36Z] [ctx=safe] Verified adversarial iter-2 NA1: confirmed
+  `step-implementation.md:1070-1100` §Phase B Completion marks `Step
+  implementation [x]` (step 1) and ends the session (step 4) with no commit and
+  no `--append-ledger` (grep empty). Today's resume survives because the per-step
+  roster `[x]` flips are committed in each episode commit, so the roster reads
+  all-`[x]`; once we move off the roster, the `steps-done-review-pending` append
+  needs its own committed boundary. Resolution folded into D1: add a Phase-B-
+  complete Workflow-update commit to that section.
+
 ## Open Questions
 
 - [2026-06-23T16:21Z] [ctx=safe] RESOLVED by D1 — shape A (track-scoped
@@ -236,3 +245,10 @@ reconciled). A2 (should-fix): pin the `review-done-track-open` append to the
 pre-approval code-review-complete commit. A3/A4 (suggestions): dual-path parity
 test; empty-substate closure invariant. All four absorbed into D1/D2/D3.
 Review file: `_workflow/reviews/research-log-adversarial-iter1.md`.
+
+### Adversarial review of this log (2026-06-23T16:36Z) — NEEDS REVISION: 1 should-fix
+Iteration 2 (verdict-producer; model: opus, env fallback). A1–A4 all VERIFIED.
+One new should-fix NA1: the `steps-done-review-pending` cadence row had no
+committed Phase-B→C boundary to ride (`step-implementation.md` §Phase B
+Completion commits nothing). Absorbed into D1 — add a Phase-B-complete commit.
+Review file: `_workflow/reviews/research-log-adversarial-iter2.md`.
