@@ -150,12 +150,7 @@ public final class AggregateState {
 
   public AggregateState(
       @Nonnull CacheableShape kind, @Nullable String propertyName, @Nonnull String alias) {
-    assert kind == CacheableShape.AGGREGATE_COUNT
-        || kind == CacheableShape.AGGREGATE_SUM
-        || kind == CacheableShape.AGGREGATE_AVG
-        || kind == CacheableShape.AGGREGATE_MIN
-        || kind == CacheableShape.AGGREGATE_MAX
-        || kind == CacheableShape.AGGREGATE_COUNT_DISTINCT
+    assert kind.isAggregate()
         : "AggregateState requires an AGGREGATE_* shape, got " + kind;
     this.kind = kind;
     this.propertyName = propertyName;

@@ -860,7 +860,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         return executeUncached(statement, args);
       }
       var shape = ShapeClassifier.classify(statement);
-      if (isAggregateShape(shape) && statement instanceof SQLSelectStatement select) {
+      if (shape.isAggregate() && statement instanceof SQLSelectStatement select) {
         // AGGREGATE_* shapes take a separate populate path: the side-tap must observe every
         // contributing record, so the miss builds a per-execution plan copy, splices the tap upstream
         // of the aggregation step, and eager-drives it (RECORD/K0_NONE lazy-pull cannot seed an
@@ -1049,16 +1049,6 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     cache.put(key.get(), entry);
 
     return buildView(entry, tx, args);
-  }
-
-  /** Whether a classified shape is one of the {@code AGGREGATE_*} family the aggregate path serves. */
-  private static boolean isAggregateShape(@Nonnull CacheableShape shape) {
-    return shape == CacheableShape.AGGREGATE_COUNT
-        || shape == CacheableShape.AGGREGATE_SUM
-        || shape == CacheableShape.AGGREGATE_AVG
-        || shape == CacheableShape.AGGREGATE_MIN
-        || shape == CacheableShape.AGGREGATE_MAX
-        || shape == CacheableShape.AGGREGATE_COUNT_DISTINCT;
   }
 
   /**
@@ -1403,7 +1393,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       return CachedResultSetView.forDistinctValues(
           entry, distinctDelta, this, tx, entry.getPlan(), ctx);
     }
-    if (isAggregateShape(entry.getShape())) {
+    if (entry.getShape().isAggregate()) {
       // Aggregate: copy the seeded state and replay the post-populate mutations onto the copy; the view
       // emits the single replayed scalar. The entry holds no stream, so the view's plan slot is null.
       var aggregateDelta = DeltaBuilder.buildForAggregate(entry, tx, ctx);

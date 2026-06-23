@@ -62,5 +62,14 @@ public enum CacheableShape {
    * Deterministically reproducible but not record-by-record reconcilable. Cached under the
    * mutation-version gate. Wired in this foundation.
    */
-  K0_NONE
+  K0_NONE;
+
+  public boolean isAggregate() {
+    return this == CacheableShape.AGGREGATE_COUNT
+        || this == CacheableShape.AGGREGATE_SUM
+        || this == CacheableShape.AGGREGATE_AVG
+        || this == CacheableShape.AGGREGATE_MIN
+        || this == CacheableShape.AGGREGATE_MAX
+        || this == CacheableShape.AGGREGATE_COUNT_DISTINCT;
+  }
 }

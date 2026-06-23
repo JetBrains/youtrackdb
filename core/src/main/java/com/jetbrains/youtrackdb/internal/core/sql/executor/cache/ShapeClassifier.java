@@ -91,7 +91,7 @@ public final class ShapeClassifier {
    */
   @Nullable public static AggregateMetadata aggregateMetadata(@Nonnull SQLSelectStatement select) {
     var shape = classify(select);
-    if (!isAggregateKind(shape)) {
+    if (!shape.isAggregate()) {
       return null;
     }
     var item = select.getProjection().getItems().getFirst();
@@ -104,15 +104,6 @@ public final class ShapeClassifier {
     var alias = item.getProjectionAlias().getStringValue();
     var propertyName = call.isStar() ? null : baseIdentifierArg(call);
     return new AggregateMetadata(shape, propertyName, alias);
-  }
-
-  private static boolean isAggregateKind(@Nonnull CacheableShape shape) {
-    return shape == CacheableShape.AGGREGATE_COUNT
-        || shape == CacheableShape.AGGREGATE_SUM
-        || shape == CacheableShape.AGGREGATE_AVG
-        || shape == CacheableShape.AGGREGATE_MIN
-        || shape == CacheableShape.AGGREGATE_MAX
-        || shape == CacheableShape.AGGREGATE_COUNT_DISTINCT;
   }
 
   /**
