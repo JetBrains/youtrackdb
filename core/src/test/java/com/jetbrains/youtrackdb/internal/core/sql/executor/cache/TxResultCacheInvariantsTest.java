@@ -1186,7 +1186,7 @@ public class TxResultCacheInvariantsTest extends DbTestBase {
    * query must classify as K0_NONE, never RECORD, because the SKIP/LIMIT gate runs before the RECORD
    * branch. {@code OrderByStep} + LIMIT is a bounded-heap materialiser that discards rows past top-N,
    * so a cached top-N prefix could not promote row N+1 after an in-tx delete; treating it as RECORD
-   * would violate I10. Asserted directly so a future reorder of the classify branches cannot silently
+   * would violate assumptions. Asserted directly so a future reorder of the classify branches cannot silently
    * break it.
    */
   @Test
