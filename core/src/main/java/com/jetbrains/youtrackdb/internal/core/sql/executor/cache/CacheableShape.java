@@ -5,7 +5,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
  * ShapeClassifier#classify}. The shape selects which delta-reconciliation path the cache runs when a
  * cached entry is replayed against in-transaction mutations.
  *
- * <p>Two shapes are wired in this foundation:
+ * <p>Two shapes:
  *
  * <ul>
  *   <li>{@link #RECORD} — a plain SELECT whose rows are individual records the delta builder can
@@ -24,25 +24,25 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
  */
 public enum CacheableShape {
 
-  /** Plain SELECT, record-per-row, delta-reconcilable. Wired in this foundation. */
+  /** Plain SELECT, record-per-row, delta-reconcilable. */
   RECORD,
 
-  /** {@code COUNT(*)} / {@code COUNT(prop)} single-aggregate SELECT. Delta path lands later. */
+  /** {@code COUNT(*)} / {@code COUNT(prop)} single-aggregate SELECT. */
   AGGREGATE_COUNT,
 
-  /** {@code SUM(prop)} single-aggregate SELECT. Delta path lands later. */
+  /** {@code SUM(prop)} single-aggregate SELECT. */
   AGGREGATE_SUM,
 
-  /** {@code AVG(prop)} single-aggregate SELECT. Delta path lands later. */
+  /** {@code AVG(prop)} single-aggregate SELECT. */
   AGGREGATE_AVG,
 
-  /** {@code MIN(prop)} single-aggregate SELECT. Delta path lands later. */
+  /** {@code MIN(prop)} single-aggregate SELECT. */
   AGGREGATE_MIN,
 
-  /** {@code MAX(prop)} single-aggregate SELECT. Delta path lands later. */
+  /** {@code MAX(prop)} single-aggregate SELECT. */
   AGGREGATE_MAX,
 
-  /** {@code COUNT(DISTINCT prop)} single-aggregate SELECT. Delta path lands later. */
+  /** {@code COUNT(DISTINCT prop)} single-aggregate SELECT. */
   AGGREGATE_COUNT_DISTINCT,
 
   /**
@@ -63,13 +63,12 @@ public enum CacheableShape {
    * per-value RID buckets as {@code AGGREGATE_COUNT_DISTINCT} (the entry carries an {@code AggregateState}
    * of that kind); the view emits the bucket keys as rows instead of their count. Distinct projections
    * over a path or expression, multiple columns, or carrying ORDER BY route to {@link #K0_NONE} instead.
-   * Wired in this track.
    */
   DISTINCT_VALUES,
 
   /**
    * Deterministically reproducible but not record-by-record reconcilable. Cached under the
-   * mutation-version gate. Wired in this foundation.
+   * mutation-version gate.
    */
   K0_NONE;
 
