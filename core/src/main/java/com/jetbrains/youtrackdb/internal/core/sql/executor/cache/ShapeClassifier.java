@@ -53,7 +53,7 @@ import javax.annotation.Nullable;
  *       result cannot be reconciled by the multi-alias class-scoped version gate (see {@link
  *       #classifyMatch}). Otherwise a single-alias MATCH (one bound alias, no traversal edge,
  *       record-local ORDER BY) folds onto the {@code RECORD} delta path via a stored {@code
- *       returnProjector} (Etap A), and every other MATCH is {@code MATCH_TUPLE_MULTI}: its projected
+ *       returnProjector}, and every other MATCH is {@code MATCH_TUPLE_MULTI}: its projected
  *       RETURN tuples are frozen and replayed verbatim until a post-populate mutation touches one of
  *       the pattern's read classes, which invalidates the entry and forces a fresh re-execution.
  *   <li><b>Everything else &rarr; {@link CacheableShape#K0_NONE}.</b> GROUP BY, LET, UNWIND,
@@ -160,7 +160,7 @@ public final class ShapeClassifier {
       Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*|'[^']*'|\"[^\"]*\"");
 
   /**
-   * Classifies a MATCH statement into {@link CacheableShape#RECORD} (the single-alias Etap-A fold),
+   * Classifies a MATCH statement into {@link CacheableShape#RECORD} (the single-alias),
    * {@link CacheableShape#MATCH_TUPLE_MULTI}, or {@link CacheableShape#K0_NONE}. A {@code
    * MATCH_TUPLE_MULTI} entry freezes its projected RETURN tuples and replays them under a class-scoped
    * version gate: it is invalidated and re-executed when a post-populate mutation touches any class in
@@ -186,7 +186,7 @@ public final class ShapeClassifier {
    *   <li><b>GROUP BY, UNWIND, RETURN DISTINCT, or NOT MATCH</b>: routed to {@code K0_NONE} as a
    *       conservative shape gate; the global version gate reproduces these on any mutation.
    *   <li><b>RETURN is not the alias-keyed form</b>: {@code $elements}, {@code $pathElements}, {@code
-   *       $patterns}/{@code $matches}, {@code $paths} flatten the row, which the Etap-A single-alias
+   *       $patterns}/{@code $matches}, {@code $paths} flatten the row, which the single-alias
    *       {@code returnProjector} cannot reproduce, so the single/multi split routes them to {@code
    *       K0_NONE}.
    *   <li><b>A subquery target in any pattern WHERE</b>: routed to {@code K0_NONE}; its inner result is
@@ -229,7 +229,7 @@ public final class ShapeClassifier {
     }
 
     // RETURN must be the alias-keyed form. The $elements/$pathElements/$patterns/$matches/$paths
-    // special forms flatten the row to one element with no alias keys, which the Etap-A single-alias
+    // special forms flatten the row to one element with no alias keys, which the single-alias
     // returnProjector cannot reproduce, so the single/multi split routes them to K0_NONE.
     if (match.returnsElements()
         || match.returnsPathElements()
@@ -244,7 +244,7 @@ public final class ShapeClassifier {
       }
     }
 
-    // Single-alias split (Etap A): a MATCH that binds exactly one alias with no traversal edge folds
+    // Single-alias split: a MATCH that binds exactly one alias with no traversal edge folds
     // onto the RECORD delta path. The entry stores the raw bound records and replays them through a
     // returnProjector that reproduces the RETURN tuple at the view emit boundary, so the RECORD
     // skip-set / sorted-merge stay RID-addressable. A multi-alias or edge-bearing MATCH cannot fold
@@ -257,7 +257,7 @@ public final class ShapeClassifier {
   }
 
   /**
-   * True when the MATCH is the single-alias shape the Etap-A RECORD fold handles: exactly one match
+   * True when the MATCH is the single-alias shape the RECORD fold handles: exactly one match
    * expression whose origin vertex binds a class and carries no traversal step (no {@code .out/.in/...}
    * edge), and whose RETURN / ORDER BY are reducible to the single bound record. The K0_NONE gates in
    * {@link #classifyMatch} have already run, so the origin's class is statically resolvable and its
