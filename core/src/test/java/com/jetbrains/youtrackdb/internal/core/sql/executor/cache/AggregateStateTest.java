@@ -578,6 +578,28 @@ public class AggregateStateTest {
     db.rollback();
   }
 
+  /**
+   * COUNT(field) over a nullable property skips null values on populate,
+   * increments when a null value becomes non-null, and decrements when
+   * a non-null value becomes null.
+   */
+  @Test
+  public void countFieldHandlesNullAndNonNullTransitions() {
+    var withValue = committedRec(10);
+    var withNull = committedRec(null);
+
+    var s = populate(CacheableShape.AGGREGATE_COUNT, FIELD, List.of(withValue, withNull));
+    assertEquals("COUNT(field) should ignore nulls on populate", 1L, scalarOf(s));
+
+    withNull.setProperty(FIELD, 20);
+    s.applyMutation((RecordAbstract) withNull, RecordOperation.UPDATED, true);
+    assertEquals("COUNT(field) should increment when null becomes non-null", 2L, scalarOf(s));
+
+    withNull.setProperty(FIELD, null);
+    s.applyMutation((RecordAbstract) withNull, RecordOperation.UPDATED, true);
+    assertEquals("COUNT(field) should decrement when non-null becomes null", 1L, scalarOf(s));
+  }
+
   // ===========================================================================
   // Empty-set drain: the last contributor removed by replay, distinct from the
   // never-seeded empty path. MIN/MAX/AVG must drain to null; COUNT/COUNT_DISTINCT

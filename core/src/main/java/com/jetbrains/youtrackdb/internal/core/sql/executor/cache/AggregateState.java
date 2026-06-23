@@ -192,6 +192,9 @@ public final class AggregateState {
     // -ea) so a broken upstream invariant fails loudly in tests rather than silently miscounting.
     assert rid != null : "aggregate tap observed a result with a null identity";
     if (kind == CacheableShape.AGGREGATE_COUNT) {
+      if (propertyName != null && result.getProperty(propertyName) == null) {
+        return;
+      }
       contributingRids.add(rid);
       checkOverflow(contributingRids.size());
       return;
@@ -225,8 +228,11 @@ public final class AggregateState {
     }
 
     if (kind == CacheableShape.AGGREGATE_COUNT) {
-      // COUNT(*) tracks membership only; the post-state value is irrelevant.
-      if (nowContributing) {
+      // COUNT(*) tracks membership only, but COUNT(field) must ensure the new value is not null
+      boolean fieldIsNotNull = propertyName == null || readValue(record) != null;
+      boolean effectivelyNowContributing = nowContributing && fieldIsNotNull;
+
+      if (effectivelyNowContributing) {
         contributingRids.add(rid);
       } else {
         contributingRids.remove(rid);
