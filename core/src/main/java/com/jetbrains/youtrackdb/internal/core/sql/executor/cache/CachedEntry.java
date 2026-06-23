@@ -137,6 +137,19 @@ public final class CachedEntry {
   private boolean overflowed;
 
   /**
+   * Set when a per-entry overflow happens while exactly one view pins the entry. The overflow already
+   * detached the entry from the cache map (no future query can hit it) and the transaction is
+   * single-threaded, so no new view can attach: the sole driving view is the only reader for the rest
+   * of the entry's life. On the RECORD and K0_NONE paths that view consumes each pulled row directly —
+   * its skip probe reads the delta, not {@link #cachedRids}, and the RECORD merge takes the row from
+   * the view's relay head, not {@link #results} — so continuing to buffer is pure waste. Once set,
+   * {@link #recordPulledRow} stops appending and the cap-worth already buffered has been released.
+   * Stays {@code false} when two or more views pin the entry at overflow, because a lagging sibling
+   * still replays {@link #results} by index.
+   */
+  private boolean relayMode;
+
+  /**
    * Number of live views iterating this entry. A pinned ({@code > 0}) entry is exempt from every
    * cache-removal path — LRU eviction, the K0_NONE / multi-alias MATCH invalidation gate, bulk-DML
    * {@code invalidateAll}, and per-entry overflow — so a mid-iteration view never loses rows: a removal
@@ -385,16 +398,32 @@ public final class CachedEntry {
 
   /**
    * Appends a freshly pulled stream row to the shared cache ({@link #results} and, for an identifiable
-   * row, {@link #cachedRids}) and enforces the per-entry record cap. The append always happens: the
-   * already-iterating view positions its cache cursor by index into {@link #results}, so dropping rows
-   * mid-stream would break the merge. The cap instead governs cache <i>membership</i>: the first append
-   * that pushes the entry past {@code maxRecordsPerEntry} fires the overflow callback exactly once,
-   * which removes the entry from the cache and routes its key to the non-cacheable set. The entry is
-   * then unreachable for any future query (no second view re-runs the over-cap result) and is released
-   * when this view closes, while the consuming view still receives every row. So an over-cap result is
-   * served once, end to end, but never retained for reuse, which is what the cap exists to bound.
+   * row, {@link #cachedRids}) and enforces the per-entry record cap.
+   *
+   * <p>The append normally always happens: a concurrently-iterating sibling view positions its cache
+   * cursor by index into {@link #results}, so dropping rows mid-stream would break its replay. The cap
+   * governs cache <i>membership</i>, not buffering: the first append that pushes the entry past {@code
+   * maxRecordsPerEntry} fires the overflow callback exactly once, which removes the entry from the cache
+   * and routes its key to the non-cacheable set. The entry is then unreachable for any future query (no
+   * second view re-runs the over-cap result) and is released when its last view closes, while the
+   * consuming view still receives every row. So an over-cap result is served once, end to end, but
+   * never retained for reuse, which is what the cap exists to bound.
+   *
+   * <p><b>Single-view relay.</b> If that overflow happens while exactly one view pins the entry ({@code
+   * liveViewCount == 1}), there is no sibling to replay {@link #results}, and since the entry just left
+   * the cache map no new view can attach. The sole driving view consumes each pulled row directly (its
+   * skip probe reads the delta, not {@link #cachedRids}; the RECORD merge takes the row from the view's
+   * {@code relayCacheHead}, not {@link #results}), so further buffering is pure waste. The entry
+   * switches to {@link #isRelayMode() relay}: this call releases the cap-worth already buffered and
+   * every later call is a no-op append. With two or more pinning views the uniform append path stays,
+   * because a lagging sibling still needs {@link #results} complete and {@link #cachedRids} consistent.
    */
   public void recordPulledRow(@Nonnull Result r) {
+    if (relayMode) {
+      // Single-view relay latched at a prior overflow: the sole driving view consumes each pulled row
+      // directly, so buffering r would only re-grow the cap-worth this entry already released. Drop it.
+      return;
+    }
     results.add(r);
     if (r.isIdentifiable()) {
       var rid = r.getIdentity();
@@ -412,7 +441,27 @@ public final class CachedEntry {
       if (onOverflow != null) {
         onOverflow.run();
       }
+      if (liveViewCount == 1) {
+        // Exactly one view pins this just-detached entry and no new view can attach, so that view is
+        // the only reader from here on and it consumes pulled rows directly (see relayMode). Switch to
+        // relay: stop buffering and release the cap-worth already buffered. With > 1 view a lagging
+        // sibling still replays results by index, so the uniform append path above stays.
+        relayMode = true;
+        results.clear();
+        cachedRids.clear();
+      }
     }
+  }
+
+  /**
+   * Whether this entry switched to single-view relay after a per-entry overflow: buffering is off and
+   * {@link #results} / {@link #cachedRids} were released because the sole pinning view consumes pulled
+   * rows directly. The view reads this to take its RECORD cache head from its relay lookahead instead
+   * of {@link #results}. Always {@code false} for an entry that never overflowed or overflowed while
+   * more than one view pinned it.
+   */
+  public boolean isRelayMode() {
+    return relayMode;
   }
 
   /**

@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -369,6 +370,108 @@ public class CachedResultSetViewTest {
     var view = new CachedResultSetView(entry, cursor(Set.of(), inject), db, tx(), null, ctx());
 
     assertEquals(List.of(10, 20, 30), drainValues(view));
+  }
+
+  // ===========================================================================
+  // Single-view overflow relay (buffer release)
+  // ===========================================================================
+
+  /** Installs the per-entry record cap and a counting overflow callback, mirroring what the cache's
+   * {@code QueryResultCache.put} wires up. Returns the fire counter so a test can assert the cap was
+   * actually crossed. */
+  private static AtomicInteger installCap(CachedEntry entry, int cap) {
+    var fired = new AtomicInteger();
+    entry.setOverflowGuard(cap, fired::incrementAndGet);
+    return fired;
+  }
+
+  /**
+   * Single-view RECORD overflow switches the entry to relay: it releases the buffered cap-worth and
+   * stops appending, while the sole driving view still emits every row in correct sorted-merge order
+   * with the delta applied. Stream {10,20,30,40,50} under cap 2 overflows on the third pull (value 30);
+   * the delta injects 35 (a post-populate create) and skips 40 (a post-populate delete). The view must
+   * emit {10,20,30,35,50} — proving the relay cache head merges correctly against the inject and that a
+   * row skipped while pulled in relay is still suppressed — and afterwards {@code entry.results} must be
+   * empty (the cap-worth released and never re-grown), with the entry flagged relay.
+   *
+   * <p>This also guards the comparison-memo fix. In relay the cache cursor {@code position} is frozen,
+   * so two successive relay heads (30, then 50) are each compared against the same surviving inject head
+   * (35) at the same position. A position-keyed memo would hand back the stale projection of head 30
+   * when comparing head 50, mis-ordering the output to {10,20,30,50,35}; the by-reference memo keeps it
+   * correct.
+   */
+  @Test
+  public void singleViewOverflowReleasesBufferAndMergesTail() {
+    var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+    var forty = newRec(40);
+    var entry = streamEntry(
+        orderBy, List.of(newRec(10), newRec(20), newRec(30), forty, newRec(50)));
+    var fired = installCap(entry, 2);
+    var inject = List.<Result>of(resultOf(newRec(35)));
+    var view = new CachedResultSetView(
+        entry, cursor(Set.of(ridOf(forty)), inject), db, tx(), null, ctx());
+
+    assertEquals(List.of(10, 20, 30, 35, 50), drainValues(view));
+    assertEquals("the cap must have been crossed exactly once", 1, fired.get());
+    assertTrue("single-view overflow must switch the entry to relay", entry.isRelayMode());
+    assertTrue("relay must release the buffer and stop appending", entry.getResults().isEmpty());
+    assertTrue("relay must release the cached-RID set too", entry.getCachedRids().isEmpty());
+  }
+
+  /**
+   * Single-view K0_NONE overflow releases the buffer the same way, on the delta-free direct-replay path.
+   * A K0_NONE view returns each pulled row directly (no merge), so once relay clears {@code
+   * entry.results} the positional prefix branch is simply dead and every row still streams through.
+   * Stream {1,2,3,4,5} under cap 2 overflows on the third pull; the view must emit all five in order and
+   * leave {@code entry.results} empty.
+   */
+  @Test
+  public void singleViewOverflowReleasesBufferOnK0NonePath() {
+    var rows = new ArrayList<Result>();
+    for (var v : List.of(1, 2, 3, 4, 5)) {
+      rows.add(resultOf(newRec(v)));
+    }
+    var entry = new CachedEntry(
+        CacheableShape.K0_NONE, Set.of(CLASS_NAME), null, null,
+        new ListExecutionStream(rows), null, ctx(), 0L);
+    var fired = installCap(entry, 2);
+    // K0_NONE carries no delta cursor (null delta), so the view takes the direct-replay path.
+    var view = new CachedResultSetView(entry, null, db, tx(), null, ctx());
+
+    assertEquals(List.of(1, 2, 3, 4, 5), drainValues(view));
+    assertEquals("the cap must have been crossed exactly once", 1, fired.get());
+    assertTrue("single-view overflow must switch the entry to relay", entry.isRelayMode());
+    assertTrue("relay must release the buffer on the K0_NONE path too",
+        entry.getResults().isEmpty());
+  }
+
+  /**
+   * A per-entry overflow with more than one live view must NOT switch to relay: a lagging sibling still
+   * replays {@code entry.results} by index, so buffering stays on and the buffer is kept complete. Two
+   * views pin the entry (liveViewCount == 2); driving the first to exhaustion overflows it (cap 2, five
+   * rows), but the entry stays non-relay with all five rows buffered, and the second view then replays
+   * the full result from that buffer.
+   */
+  @Test
+  public void multiViewOverflowKeepsBufferingForSibling() {
+    var orderBy = parseOrderBy("SELECT FROM " + CLASS_NAME + " ORDER BY " + FIELD + " ASC");
+    var entry = streamEntry(
+        orderBy, List.of(newRec(10), newRec(20), newRec(30), newRec(40), newRec(50)));
+    var fired = installCap(entry, 2);
+
+    // Two views pin the entry before either pulls, so the overflow sees liveViewCount == 2.
+    var driver = new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
+    var sibling =
+        new CachedResultSetView(entry, cursor(Set.of(), List.of()), db, tx(), null, ctx());
+
+    assertEquals("the driving view emits the full result", List.of(10, 20, 30, 40, 50),
+        drainValues(driver));
+    assertEquals("the cap must have been crossed exactly once", 1, fired.get());
+    assertFalse("a multi-view overflow must not switch to relay", entry.isRelayMode());
+    assertEquals("the buffer must stay complete for the lagging sibling", 5,
+        entry.getResults().size());
+    assertEquals("the lagging sibling replays the full buffered result",
+        List.of(10, 20, 30, 40, 50), drainValues(sibling));
   }
 
   // ===========================================================================

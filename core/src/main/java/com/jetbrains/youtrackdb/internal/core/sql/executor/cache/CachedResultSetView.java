@@ -46,7 +46,10 @@ import javax.annotation.Nullable;
  * RECORD path it drops any pulled row whose RID is in the delta skip-set (closing the lazy-pull gap:
  * a mutated RID living beyond the cached prefix must not surface from storage with stale state); on the
  * K0_NONE path the skip-set is empty so nothing is dropped. Pulled rows are appended to the shared
- * {@code entry.results} / {@code cachedRids} so later views replay the full ordered result.
+ * {@code entry.results} / {@code cachedRids} so later views replay the full ordered result — except
+ * after a single-view per-entry overflow, when the entry switches to relay ({@link
+ * CachedEntry#isRelayMode()}): buffering stops and the sole view takes its RECORD cache head from
+ * {@link #relayCacheHead} (the K0_NONE path returns the pulled row directly).
  *
  * <p><b>View pinning.</b> The constructor increments {@link CachedEntry#getLiveViewCount()} and
  * {@link #close()} (or natural exhaustion) decrements it exactly once, pinning the entry against LRU
@@ -112,17 +115,29 @@ public final class CachedResultSetView implements ResultSet {
   /** Per-view positional cursor into the entry's shared {@link CachedEntry#getResults()}. */
   private int position;
 
+  /**
+   * RECORD relay lookahead. When the entry switches to single-view relay after a per-entry overflow
+   * ({@link CachedEntry#isRelayMode()}), {@link CachedEntry#getResults()} is released and the cache
+   * side of the sorted-merge is this one held storage row instead of {@code results.get(position)}. It
+   * holds the most-recently-pulled, not-yet-emitted row; it is nulled when that row is emitted or
+   * skipped so the next merge step pulls the next one. Unused before any overflow and on the K0_NONE
+   * path (which returns the pulled row directly).
+   */
+  @Nullable private Result relayCacheHead;
+
   /** One-element lookahead the merge fills in {@link #hasNext()} and drains in {@link #next()}. */
   @Nullable private Result lookahead;
 
   // --- Comparison-time projection memo for the cache head (RECORD merge only) ---
-  // While the inject side keeps winning, `position` does not advance, so the same cache row at
-  // `position` is compared (and re-projected) against successive inject heads. Projecting it once per
-  // emission decision instead of once per losing compare turns the merge's worst-case O(n*k) projector
-  // calls back into O(n+k). The memo is valid only while `position` is unchanged; advancing the cache
-  // cursor (the cache row was consumed or skipped) invalidates it. The inject head is naturally
-  // single-use — it advances when consumed — so only the cache head needs memoizing.
-  private int compareMemoPosition = -1;
+  // While the inject side keeps winning, the cache head does not advance, so the same cache row is
+  // compared (and re-projected) against successive inject heads. Projecting it once per emission
+  // decision instead of once per losing compare turns the merge's worst-case O(n*k) projector calls
+  // back into O(n+k). The memo keys on the raw cache-head reference, so advancing the cache head (the
+  // row was consumed or skipped) self-invalidates it, and it stays correct for both the positional
+  // cursor and the single-view-relay relayCacheHead (where `position` is frozen but the held row
+  // changes). The inject head is naturally single-use — it advances when consumed — so only the cache
+  // head needs memoizing.
+  @Nullable private Result compareMemoRaw;
   @Nullable private Result compareMemoProjection;
 
   private boolean closed;
@@ -341,13 +356,19 @@ public final class CachedResultSetView implements ResultSet {
   @Nullable private Result computeNextRecord() {
     var results = entry.getResults();
     while (true) {
-      var cacheHead = position < results.size() ? results.get(position) : null;
+      // In single-view relay (post-overflow) the entry released results and the cache side is the one
+      // held relay row; otherwise it is the positional cursor into results. Read the flag freshly each
+      // iteration: it can flip on inside the pullOneFromStream below — that pull is the overflow.
+      var relay = entry.isRelayMode();
+      var cacheHead =
+          relay ? relayCacheHead : (position < results.size() ? results.get(position) : null);
 
-      // Suppress a cached row the delta marks for replacement or deletion; consume the position
-      // without emitting and re-loop. The skip probe reads the raw row's RID, so it is correct even
-      // when the row will later be projected to a (non-identifiable) RETURN tuple.
+      // Suppress a cached row the delta marks for replacement or deletion; consume the head without
+      // emitting and re-loop. The skip probe reads the raw row's RID, so it is correct even when the
+      // row will later be projected to a (non-identifiable) RETURN tuple. (A relay head is already
+      // skip-filtered by pullOneFromStream, so this only fires on the positional path.)
       if (cacheHead != null && isSkipped(cacheHead)) {
-        position++;
+        advanceCacheHead(relay);
         continue;
       }
 
@@ -357,7 +378,12 @@ public final class CachedResultSetView implements ResultSet {
       if (cacheHead == null && !entry.isExhausted()) {
         var pulled = pullOneFromStream();
         if (pulled != null) {
-          // The pull appended to results; re-loop so cacheHead becomes that row at position.
+          // The pull may have flipped the entry into relay (this pull is the overflow), so re-read the
+          // flag. In relay the pulled row is the new relay head — results was released, so the re-loop
+          // could not find it by index; otherwise it was appended and the re-loop reads it at position.
+          if (entry.isRelayMode()) {
+            relayCacheHead = pulled;
+          }
           continue;
         }
         // null means the stream just drained; fall through with cacheHead still null.
@@ -374,7 +400,7 @@ public final class CachedResultSetView implements ResultSet {
       }
       // Delta drained, cache has rows: drain the cache.
       if (deltaHead == null) {
-        position++;
+        advanceCacheHead(relay);
         return project(cacheHead);
       }
       // Both heads present: emit the smaller per ORDER BY; ties favour the inject side.
@@ -395,8 +421,21 @@ public final class CachedResultSetView implements ResultSet {
       if (cmp <= 0) {
         return project(delta.advanceInject());
       }
-      position++;
+      advanceCacheHead(relay);
       return project(cacheHead);
+    }
+  }
+
+  /**
+   * Advances past the just-consumed cache head. In single-view relay it nulls {@link #relayCacheHead}
+   * so the next merge step pulls the next storage row; on the normal buffered path it bumps the
+   * positional {@link #position} cursor into {@link CachedEntry#getResults()}.
+   */
+  private void advanceCacheHead(boolean relay) {
+    if (relay) {
+      relayCacheHead = null;
+    } else {
+      position++;
     }
   }
 
@@ -422,22 +461,23 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * Comparison-time projection of the cache head at the current {@link #position}, memoized so the same
-   * cache row is projected at most once per emission decision. While the inject side wins, {@code
-   * position} stays fixed and {@code raw} is the same row across iterations; without the memo each
-   * losing compare would re-run the projector, giving the merge a worst-case O(n*k) projector calls
-   * where O(n+k) distinct projections suffice. The memo keys on {@code position}: once the cache cursor
-   * advances (the row was consumed or skipped) a later read at the same numeric position is a different
-   * row, so a position change invalidates the cached projection. This is the cache the {@link
-   * #projectForCompare} seam was kept separate for.
+   * Comparison-time projection of the current cache head, memoized so the same cache row is projected
+   * at most once per emission decision. While the inject side wins, the cache head stays fixed and
+   * {@code raw} is the same row across iterations; without the memo each losing compare would re-run
+   * the projector, giving the merge a worst-case O(n*k) projector calls where O(n+k) distinct
+   * projections suffice. The memo keys on the raw row reference, so advancing the cache head (the row
+   * was consumed or skipped) self-invalidates it, and it is correct for both the positional cursor and
+   * the single-view-relay {@link #relayCacheHead} (where {@code position} is frozen but the held row
+   * changes). Projection is a pure function of the row, so a by-reference key is always sound. This is
+   * the cache the {@link #projectForCompare} seam was kept separate for.
    */
   @Nonnull
   private Result projectCacheHeadForCompare(@Nonnull Result raw) {
-    if (compareMemoPosition == position && compareMemoProjection != null) {
+    if (compareMemoRaw == raw && compareMemoProjection != null) {
       return compareMemoProjection;
     }
     var projected = projectForCompare(raw);
-    compareMemoPosition = position;
+    compareMemoRaw = raw;
     compareMemoProjection = projected;
     return projected;
   }
@@ -461,11 +501,14 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * Pulls one row from the entry's shared paused stream, appending it to {@code entry.results} and
-   * {@code cachedRids} so later views replay it, and returns it. A pulled row whose RID is in the delta
-   * skip-set is dropped (and the pull recurses) so a mutated RID beyond the cached prefix never
-   * surfaces with stale storage state. Returns {@code null} when the stream is drained, flipping the
-   * entry to exhausted and releasing its stream.
+   * Pulls one row from the entry's shared paused stream and returns it. The row is handed to {@link
+   * CachedEntry#recordPulledRow}, which appends it to {@code entry.results} / {@code cachedRids} so
+   * later views replay it and enforces the per-entry cap — but after a single-view overflow the entry
+   * is in relay and that append is a no-op (the RECORD caller holds the row as its {@link
+   * #relayCacheHead} instead). A pulled row whose RID is in the delta skip-set is dropped (and the pull
+   * recurses) so a mutated RID beyond the cached prefix never surfaces with stale storage state.
+   * Returns {@code null} when the stream is drained, flipping the entry to exhausted and releasing its
+   * stream.
    */
   @Nullable private Result pullOneFromStream() {
     var stream = entry.getStream();
@@ -481,6 +524,8 @@ public final class CachedResultSetView implements ResultSet {
       // regardless of this view's skip-set. recordPulledRow also enforces the per-entry record cap: a
       // pull that crosses maxRecordsPerEntry overflows the entry (evicted from the cache, key routed
       // non-cacheable) and stops caching, but this view keeps emitting r so the consumer loses nothing.
+      // Once a single-view overflow has switched the entry to relay, the append is a no-op and the
+      // RECORD caller holds r as its relayCacheHead; here we still return r so the consumer gets it.
       entry.recordPulledRow(r);
       if (isSkipped(r)) {
         // Suppressed for this view; keep pulling for a row this view can emit.
