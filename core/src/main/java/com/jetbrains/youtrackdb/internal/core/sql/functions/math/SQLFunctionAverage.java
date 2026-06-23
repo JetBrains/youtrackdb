@@ -97,8 +97,7 @@ public class SQLFunctionAverage extends SQLFunctionMathAbstract {
     return configuredParameters.length == 1;
   }
 
-  @Nullable
-  private Object computeAverage(Number iSum, int iTotal) {
+  @Nullable public static Object computeAverage(Number iSum, int iTotal) {
     if (iSum instanceof Integer) {
       return iSum.intValue() / iTotal;
     } else if (iSum instanceof Long) {

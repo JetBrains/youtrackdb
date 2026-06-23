@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
 
+import static com.jetbrains.youtrackdb.internal.core.sql.functions.math.SQLFunctionAverage.computeAverage;
+
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
@@ -8,8 +10,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeIntern
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -580,27 +580,6 @@ public final class AggregateState {
       case AGGREGATE_MIN, AGGREGATE_MAX -> currentScalar;
       default -> throw new IllegalStateException("scalar() on non-aggregate kind " + kind);
     };
-  }
-
-  /**
-   * Finalises AVG with the same type-dispatched division {@code SQLFunctionAverage.computeAverage}
-   * performs (that method is private to the function, so the storage-parity logic is reproduced here
-   * verbatim — integer truncation for Integer/Long, float/double division, BigDecimal {@code
-   * HALF_UP}). Returns {@code null} for an empty set, matching {@code computeAverage(null, 0)}.
-   */
-  @Nullable private static Object computeAverage(@Nullable Number sum, int total) {
-    if (sum instanceof Integer) {
-      return sum.intValue() / total;
-    } else if (sum instanceof Long) {
-      return sum.longValue() / total;
-    } else if (sum instanceof Float) {
-      return sum.floatValue() / total;
-    } else if (sum instanceof Double) {
-      return sum.doubleValue() / total;
-    } else if (sum instanceof BigDecimal bd) {
-      return bd.divide(new BigDecimal(total), RoundingMode.HALF_UP);
-    }
-    return null;
   }
 
   // ---- Test / inspection accessors (package-private; the replay path uses the methods above) ----
