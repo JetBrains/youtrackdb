@@ -302,11 +302,6 @@ public final class ShapeClassifier {
     if (expressions.isEmpty()) {
       return false;
     }
-
-    if (expressions.size() == 1 && expressions.getFirst().getItems().isEmpty()) {
-      return false;
-    }
-
     for (var expr : expressions) {
       if (!isMatchExpressionStrictlyBounded(expr)) {
         return false;
