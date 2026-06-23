@@ -94,6 +94,14 @@ public final class DeltaBuilder {
     // reaching this entry carries identical :param bindings and would re-evaluate WHERE to the same
     // result. A future broadening of the cache key would invalidate this reuse and must revisit it.
     if (entry.getCachedDeltaVersion() == version && entry.getCachedSkipSet() != null) {
+      // The skip set and inject list are promoted as a pair (setCachedSkipSet + setCachedInjectList +
+      // setCachedDeltaVersion are written together below), so a non-null skip set implies a non-null
+      // inject list. State that pairing here so the @Nullable getCachedInjectList() flowing into the
+      // @Nonnull TxDeltaCursor parameter is justified at the use site and fails loudly under -ea if the
+      // invariant is ever broken.
+      assert entry.getCachedInjectList() != null
+          : "cachedSkipSet and cachedInjectList are promoted as a pair; a non-null skip set implies a"
+              + " non-null inject list";
       return new TxDeltaCursor(entry.getCachedSkipSet(), entry.getCachedInjectList());
     }
 
