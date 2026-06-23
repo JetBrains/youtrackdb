@@ -45,7 +45,16 @@ public enum CacheableShape {
   /** {@code COUNT(DISTINCT prop)} single-aggregate SELECT. Delta path lands later. */
   AGGREGATE_COUNT_DISTINCT,
 
-  /** Multi-alias MATCH producing tuples. Delta path lands later. */
+  /**
+   * Multi-alias MATCH whose RETURN projects a tuple across two or more bound aliases (a single-alias
+   * MATCH folds onto {@link #RECORD} instead). The projected tuple set is frozen at populate and
+   * replayed verbatim: a projected RETURN row carries no bound records, so the per-record delta path
+   * cannot rebuild tuples and does not apply here. Validity is governed by a class-scoped version gate
+   * (contrast {@link #K0_NONE}, gated on any mutation): the entry is served verbatim while no
+   * post-populate mutation has touched a class in the pattern read-class closure (alias classes plus
+   * traversal-edge classes), and is invalidated and re-executed once one has. The closure is the only
+   * backstop, so a pattern with no statically resolvable read class is run uncached, never cached.
+   */
   MATCH_TUPLE_MULTI,
 
   /**
