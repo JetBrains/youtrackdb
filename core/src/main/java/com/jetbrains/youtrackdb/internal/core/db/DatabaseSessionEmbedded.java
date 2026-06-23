@@ -1001,7 +1001,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var plan = localResult.getInternalExecutionPlan();
     var ctx = plan.getContext();
 
-    // A single-alias MATCH folds onto the RECORD path (Etap A): the executor stream yields projected
+    // A single-alias MATCH folds onto the RECORD path: the executor stream yields projected
     // RETURN tuples, but the cache must store raw, RID-identifiable records so the RECORD skip-set /
     // sorted-merge stay RID-addressable. Map the projected stream back to raw single-record rows and
     // carry the RETURN projector on the entry; the view re-derives the tuple at the emit boundary.
@@ -1435,7 +1435,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
 
   /**
    * The subclass closure of the statement's read classes for the entry's delta class filter. A
-   * plain SELECT resolves its FROM target class; a single-alias MATCH (Etap A) resolves its one
+   * plain SELECT resolves its FROM target class; a single-alias MATCH resolves its one
    * bound alias's class so the RECORD delta filter is non-empty and reconciles in-tx mutations;
    * anything without a resolvable single class target (subquery target, RID target, multi-alias
    * MATCH) yields the empty set, so the delta filter matches nothing and the entry behaves as a pure
@@ -1453,7 +1453,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     if (statement instanceof SQLMatchStatement match) {
       var origin = singleAliasOrigin(match);
       if (origin != null) {
-        // Single-alias MATCH (Etap A / RECORD): the one bound alias's class closure.
+        // Single-alias MATCH (RECORD): the one bound alias's class closure.
         var className = origin.getClassName(null);
         if (className != null) {
           SchemaClass fromClass = getMetadata().getImmutableSchemaSnapshot().getClass(className);

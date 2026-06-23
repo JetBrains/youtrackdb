@@ -346,7 +346,7 @@ public final class CachedResultSetView implements ResultSet {
    * delta replaces, materialize the next storage row before consulting the delta head (load-bearing for
    * sort correctness), then emit the smaller of the two heads with ties favouring the inject side.
    *
-   * <p>For an Etap-A single-alias MATCH entry the rows are raw, RID-identifiable records and the entry
+   * <p>For a single-alias MATCH entry the rows are raw, RID-identifiable records and the entry
    * carries a {@code returnProjector}: skip decisions still key on the raw record's RID (so the merge
    * stays RID-addressable), but the ORDER BY comparison projects both heads first (the ORDER BY ranks
    * the projected RETURN tuple, e.g. {@code u.name}) and the emitted row is the projected tuple — the
@@ -440,7 +440,7 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * Applies the entry's Etap-A RETURN projector to a row about to be emitted, or returns the row
+   * Applies the entry's single-alias match RETURN projector to a row about to be emitted, or returns the row
    * unchanged when there is no projector (plain RECORD SELECT). This is the last transform before the
    * row reaches the consumer.
    */

@@ -77,7 +77,7 @@ public final class CachedEntry {
   @Nullable private final SQLOrderBy orderBy;
 
   /**
-   * For an Etap-A single-alias MATCH entry, the transform that turns a raw cached/inject record row
+   * For a single-alias MATCH entry, the transform that turns a raw cached/inject record row
    * (an identifiable {@link Result} wrapping the single bound record) into the RETURN tuple the MATCH
    * executor would emit (e.g. {@code RETURN u, u.name}). The entry stores raw, RID-identifiable
    * records so the RECORD-shape skip-set / sorted-merge stay RID-addressable; the projector is applied
@@ -264,14 +264,14 @@ public final class CachedEntry {
   }
 
   /**
-   * The Etap-A MATCH RETURN projector, or {@code null} for a non-MATCH entry. Applied by {@link
+   * The single-alias MATCH RETURN projector, or {@code null} for a non-MATCH entry. Applied by {@link
    * CachedResultSetView} at the emit boundary and before each ORDER BY merge comparison.
    */
   @Nullable public Function<Result, Result> getReturnProjector() {
     return returnProjector;
   }
 
-  /** Sets the Etap-A MATCH RETURN projector at cache-put. {@code null} leaves rows unprojected. */
+  /** Sets the single-alias MATCH RETURN projector at cache-put. {@code null} leaves rows unprojected. */
   public void setReturnProjector(@Nullable Function<Result, Result> returnProjector) {
     this.returnProjector = returnProjector;
   }
