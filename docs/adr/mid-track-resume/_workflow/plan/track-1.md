@@ -19,13 +19,14 @@ behavior, plus the wrap fix). Track 2 wires the append sites that activate it.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-24T10:20Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-24T11:03Z [ctx=safe] Step 1 complete (commit f20a70b7ef)
 - [x] 2026-06-24T11:09Z [ctx=safe] Step 2 complete (commit 7b0b52b2c7)
 - [x] 2026-06-24T13:53Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-24T13:58Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -46,6 +47,23 @@ at Phase 1. -->
   `LIVE_REPO_ROOT`). Track 2 edits `track-review.md` to add the `--substate`
   append; once Track 2 stages a modified copy, this test reads that staged copy.
   See Episodes §Step 1.
+
+- **Phase 4 reconciliation item (frozen design.md resolution-flow diagram).**
+  Phase C finding WI3: the frozen `design.md` resolution-flow diagram (≈§"The
+  dual-path sub-state resolution") orders the track-file presence check before
+  the `substate` read, but the implementation reads the ledger `substate` first
+  and only falls back to the roster (D1: the ledger path never touches the track
+  file). The track file is the live decision carrier (D7) and states the
+  ledger-first order; the frozen `design.md` is not edited during execution.
+  Reconcile the diagram order in `design-final.md` at Phase 4.
+
+- **Enum-guard hint for Track 2 (deferred WI2).** Phase C finding WI2
+  (suggestion): the read side emits whatever ledger `substate` it finds and the
+  `--substate` append validates only bare-token-ness, not enum membership, so a
+  typo'd slug would pass through to `workflow.md` step 5, which has no catch-all
+  row. Out of scope here (this track is the read side; the appends are Track 2).
+  When Track 2 wires the `--substate` appends, weigh a defensive enum-membership
+  guard at the append or read boundary.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -114,6 +132,10 @@ summary at Phase C. -->
 - [x] Technical: PASS at iteration 2 (4 findings, 4 accepted) — T1/T2 should-fix drove the terminator-glob and glossary-key-set fixes; T3/T4 suggestions strengthened test-helper attribution and the emit/precedence note.
 - [x] Risk: PASS at iteration 2 (4 findings, 4 accepted) — R1 should-fix (wrap-join runs on the resume hot loop) is covered by the `high` tag on Step 1 plus the two-adjacent-wrapped-steps regression; R2 should-fix made the dual-path parity test non-vacuous; R3/R4 suggestions noted the `TESTS` registry and the empty-substate assumption (already in D2).
 - [x] Adversarial: PASS at iteration 2 (3 findings, 3 accepted) — A1 confirmed the terminator bug (≡ T1); A2/A3 suggestions added the parity-non-vacuity wording and the S1 `categories`-decoy test. S2/S6, the emit-order safety invariant, and the ~4-file scope/sizing cut survived construction (INFEASIBLE to violate / independently mergeable while dormant).
+- [x] Track-level code review (Phase C): PASS at iteration 1. Workflow-only diff → baseline group skipped; 5 workflow reviewers ran (consistency, context-budget, writing-style, instruction-completeness, hook-safety). 1 blocker + 2 should-fix fixed and gate-verified in one Review-fix commit (8e7ae930db); 3 suggestions deferred.
+  - **WH1 (hook-safety, blocker → VERIFIED).** The staged test suite was red (114/115) from its authoritative staged location: once Step 2 staged `conventions.md`, `_resolve_live_repo_root()` stopped at the staged-workflow root, so both the §1.6(h) conformance byte-source and the `track-review.md` fallback resolved inside the staged mirror (where `track-review.md` is absent) and `test_track_review_step6_carries_ac_ledger_append` failed. Fix hardened the walk to skip the `staged-workflow` segment and reach the real repo root; staged suite back to 115/115. The cross-step interaction (Step 2's `conventions.md` staging silently breaking a Step 1 test) is exactly what the per-step pass could not catch and the cumulative track pass did.
+  - **WC1 / WC2 (consistency, should-fix → VERIFIED).** Two stale "the track file owns the within-track sub-state" comments in the staged precheck (the `C)` arm header and the ledger-grammar read-semantics bullet) survived unflipped while the parallel `conventions.md §1.1` clause was flipped to ledger-first. Reworded to the ledger-first / roster-fallback contract.
+  - **Deferred (3 suggestions).** WI1/WI2 (instruction-completeness): the read side resolves a `substate` even with the track file absent, and emits any ledger slug without an enum-membership guard — both questions about the `workflow.md` step-5 consumer / the append side, which this track's Interfaces section puts out of scope (workflow.md step 5 is unchanged; the append side is Track 2). WI1 restates a deliberate D1 design choice (ledger authoritative for the within-track sub-state). WI2 (a defensive enum guard) is a reasonable hardening to weigh when Track 2 wires the `--substate` appends. WI3: a frozen `design.md` diagram orders the track-file check before the substate read, opposite the implementation — a Phase 4 design-final reconciliation item (see Surprises).
 
 ## Context and Orientation
 
