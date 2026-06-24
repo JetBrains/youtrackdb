@@ -48,6 +48,7 @@ public class PrefilterMetricsDefinitionTest {
         CoreMetrics.QUERY_CACHE_MISS_RATE,
         CoreMetrics.QUERY_CACHE_SPLICE_FAILURE_RATE,
         CoreMetrics.QUERY_CACHE_K0_INVALIDATION_RATE,
+        CoreMetrics.QUERY_CACHE_MULTI_INVALIDATION_RATE,
         CoreMetrics.QUERY_CACHE_OVERFLOW_RATE);
   }
 

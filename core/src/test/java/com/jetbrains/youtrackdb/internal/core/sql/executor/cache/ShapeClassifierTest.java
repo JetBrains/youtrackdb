@@ -301,20 +301,21 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
-   * {@code count(distinct(prop))} returns null metadata: it classifies K0_NONE and must never reach the
-   * aggregate populate path. A null here is the signal the session uses to bypass the splice entirely.
+   * {@code count(distinct(prop))} classifies as K0_NONE and must never reach the
+   * aggregate populate path. Passing its shape to aggregateMetadata must break
+   * the tightened precondition and trigger an AssertionError.
    */
-  @Test
-  public void aggregateMetadataForCountDistinctIsNull() {
-    Assert.assertNull(
-        "count(distinct(prop)) is K0_NONE; the aggregate path must not derive metadata for it",
-        metadata("select count(distinct(name)) from OUser"));
+  @Test(expected = AssertionError.class)
+  public void aggregateMetadataForCountDistinctTriggersAssertion() {
+    metadata("select count(distinct(name)) from OUser");
   }
 
-  /** A non-aggregate (plain RECORD) statement yields null metadata. */
-  @Test
-  public void aggregateMetadataForRecordShapeIsNull() {
-    Assert.assertNull(metadata("select from OUser where name = ?"));
+  /** * A plain RECORD statement is a non-aggregate shape and must likewise
+   * trigger an AssertionError when passed to aggregateMetadata.
+   */
+  @Test(expected = AssertionError.class)
+  public void aggregateMetadataForRecordShapeTriggersAssertion() {
+    metadata("select from OUser where name = ?");
   }
 
   // ===========================================================================
