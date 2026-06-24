@@ -75,12 +75,16 @@ flowchart LR
   > the staged-first test read is handled additively (the A→C append adds
   > `--substate steps-partial` to the line the existing test already checks).
 
-- [ ] Track 2: Wire the `substate` append sites across the resume protocol
+- [x] Track 2: Wire the `substate` append sites across the resume protocol
   > Activate the primitive: add a `--substate` append at each of the four
   > committed within-track boundaries (and an inline-replan revert), so every
   > `phase=C` track records an explicit sub-state the Track 1 reader routes on.
   > The Phase B→C boundary gains a new Workflow-update commit to carry its append;
   > the other three ride commits already in the protocol.
-  > **Scope:** ~4 files covering `track-review.md`, `step-implementation.md`,
-  > `track-code-review.md`, and `inline-replanning.md`.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:** Wired the `--substate` append cadence (4 committed boundaries +
+  > replan revert) across 5 staged resume-protocol docs in one HIGH step; track-level
+  > review skipped per single-step-high; 4 design-final reconciliation items queued for
+  > Phase 4. — see `plan/track-2.md` `## Episodes` § Track completion. (1 step, 0 failed)
+  >
+  > **Track file:** `plan/track-2.md`

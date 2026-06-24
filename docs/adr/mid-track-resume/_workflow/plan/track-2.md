@@ -18,11 +18,12 @@ Track 1 read resolves it directly and never falls back for a current plan.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 
 - [x] 2026-06-24T15:53Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-24T16:23Z [ctx=safe] Step 1 complete (commit 8609dbd4b4)
+- [x] 2026-06-24T16:34Z [ctx=safe] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -143,6 +144,16 @@ summary at Phase C. -->
   entry-5 enumeration addition; A3/A4 suggestions folded into the S2 tightening and the
   D1+D3 constraint; A5 (the core→consumer sizing-cut challenge) REJECTED — the sizing
   justification holds.
+- [x] Phase C (track-level code review): SKIPPED per the single-step-high rule. The track's
+  one HIGH step had its Phase B step-level review run the full track-pass-equivalent
+  selection (consistency, context-budget, writing-style, instruction-completeness; baseline
+  skipped on the workflow-only diff) against the identical diff, so re-running the same four
+  reviewers adds nothing and a single step has no cross-step interaction. 0 track-level
+  iterations, 0 unresolved findings, 0 deferred findings.
+- [x] Track complete — 1 step, 0 failed. Four design reconciliation items queued for
+  `design-final.md` at Phase 4 (D1/D3 commit count, boundary-5 dormancy, S2 closure wording,
+  single-step-track terminal `substate`); see `## Surprises & Discoveries` and the
+  `### Track completion` episode.
 
 ## Context and Orientation
 
@@ -385,6 +396,39 @@ naming every scaffolding commit.
 **Critical context:** The pre-approval step-6 commit and the track-advance
 append landed at line offsets later than the plan's `:826`/`:1409`, because the
 step-6 insertion shifted the file; the content targets were unambiguous.
+
+### Track completion — 2026-06-24T16:34Z [ctx=safe]
+
+Track 2 activated the `substate` primitive Track 1 landed dormant. One coherent HIGH
+step wired a `--substate` append at each of the four committed within-track boundaries
+plus the inline-replan revert, across five staged resume-protocol docs: `steps-partial`
+at the A→C boundary, `steps-done-review-pending` on a new Phase-B-complete commit,
+`review-done-track-open` on a new pre-approval step-6 commit, `decomposition-pending` on
+the track-advance append, and a forward-hygiene `steps-partial` on the replan revert
+beside the unchanged `--phase 0` reset. With both Track 1's read side and this track's
+append side in place, every `phase=C` track on a current-scheme ledger now carries a
+non-empty `substate`, so the resume reads the ledger directly and never falls back to the
+roster parse for a current plan.
+
+The Phase B step-level review ran the full track-pass-equivalent selection (consistency,
+context-budget, writing-style, instruction-completeness; baseline skipped on the
+workflow-only diff) against the identical single-step diff and returned two findings,
+fixed at iteration 2: WI1 (should-fix) scoped the single-step terminal-`substate` claim by
+risk tag, and WS1 (suggestion) trimmed a replan restatement. Phase C skipped the
+track-level review under the single-step-high rule — the same four reviewers on the same
+diff add nothing, and a single step has no cross-step interaction to catch.
+
+No findings were deferred and no plan corrections were made; this is the last track. Four
+design-reconciliation items surfaced during the track and are queued for `design-final.md`
+at Phase 4, since the frozen `design.md` is immutable during execution: the D1/D3 new-commit
+count (two boundaries need a new commit, not one), the boundary-5 replan-revert dormancy
+(forward-hygiene only, never read on the replan resume itself), the S2 closure wording
+(the guarantee is non-emptiness, not terminal-value-matches-lifecycle), and the
+single-step-track terminal `substate` (a `medium`/`low` single-step track terminates at
+`review-done-track-open`, not `steps-done-review-pending`). All four are recorded in
+`## Surprises & Discoveries`.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 
