@@ -41,13 +41,10 @@ flowchart LR
     RESOLVE -->|substate empty\n= pre-change ledger| FALLBACK
 ```
 
-- **`workflow-startup-precheck.sh`** (Track 1) — gains the `--substate` append
-  flag and validation, the track-scoped reader `ledger_tail_value_for_track`,
-  the ledger-primary read in `determine_state_from_ledger`, and the
-  wrap-tolerant `roster_scan` fallback fix. The grammar docs
-  (`conventions.md` Phase-ledger glossary, `conventions-execution.md §2.1`,
-  the script-header grammar) and the test surface
-  (`test_workflow_startup_precheck.py`) ship with it.
+- **`workflow-startup-precheck.sh`** (Track 1) — gains the read side: the
+  `--substate` append, a track-scoped ledger reader, the ledger-primary
+  resolution, and the wrap-tolerant `roster_scan` fallback. Grammar docs and
+  tests ship with it (per-function detail in Track 1's `## Plan of Work`).
 - **Resume-protocol docs** (Track 2) — `track-review.md`,
   `step-implementation.md`, `track-code-review.md`, and `inline-replanning.md`
   gain the `--substate` appends at the four committed boundaries (plus the

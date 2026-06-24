@@ -48,14 +48,8 @@ frozen design.md D-records. One block per decision. -->
   the ledger is last-value-wins across the whole file, so a global read would let a
   completed prior track's terminal sub-state leak into the next track's resume; the
   reader keeps the last `substate` on a line whose `track=` equals the active track.
-- **Append cadence (the contract Track 2 implements).** A `substate` append is written
-  as part of a commit the protocol already makes, so the ledger records only sub-states
-  that survive `git reset --hard HEAD` (the implementer's revert path). The four
-  committed boundaries are the A→C boundary, the Phase B→C boundary, the pre-approval
-  code-review-complete boundary, and the track-completion boundary. `failed-step` is
-  not a ledger sub-state: its writes (the `[!]` roster flip, the FAILED episode, the
-  retry rows) are uncommitted in-session and reconciled from the working tree, so
-  there is no committed boundary for it to ride.
+- **Append cadence.** The committed-boundary appends that populate this key are
+  Track 2's contract (its D1) — this read side only consumes the resulting key.
 - **Rejected.** (a) A real `phase=B` token plus flags — widens the phase enum
   `{0, A, C, D, Done}` and so touches every consumer that branches on it
   (`determine_state_from_ledger`, the drift check, `workflow.md` step 5), and still

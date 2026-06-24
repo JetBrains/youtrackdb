@@ -101,7 +101,7 @@ whose description wraps onto continuation lines. This track wires the appends th
 make the ledger read authoritative.
 
 A track's `substate` advances through four states as Phase A, Phase B, and Phase C
-complete. (The top-level phase enum is `{0, A, C, D}` with no `B`: a track running
+complete. (The top-level phase enum is `{0, A, C, D, Done}` with no `B`: a track running
 Phase B is recorded under `phase=C`, and the Phase-A→Phase-C transition is named
 "A→C" with no B in the name. So "every `phase=C` track" and the "A→C" boundary both
 describe a track at or past Phase A, including one still executing Phase B.)
