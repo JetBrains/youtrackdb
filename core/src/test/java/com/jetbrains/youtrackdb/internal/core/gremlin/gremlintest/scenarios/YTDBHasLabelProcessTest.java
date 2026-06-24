@@ -108,6 +108,119 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     checkSize(1, () -> gn().V().hasLabel("Grandparent"));
   }
 
+  @Test
+  public void testPolymorphicByIdHasLabel() {
+    createSimpleHierarchy();
+
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+
+    // The by-ids path (V(id).hasLabel) must honour polymorphism exactly like the class-scan path
+    // (V().hasLabel): a Child IS a Parent IS a Grandparent.
+    checkSize(1, () -> gp().V(childId).hasLabel("Child"));
+    checkSize(1, () -> gp().V(childId).hasLabel("Parent"));
+    checkSize(1, () -> gp().V(childId).hasLabel("Grandparent"));
+  }
+
+  @Test
+  public void testNonPolymorphicByIdHasLabel() {
+    createSimpleHierarchy();
+
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+
+    // Non-polymorphic: only the exact concrete label matches.
+    checkSize(1, () -> gn().V(childId).hasLabel("Child"));
+    checkSize(0, () -> gn().V(childId).hasLabel("Parent"));
+    checkSize(0, () -> gn().V(childId).hasLabel("Grandparent"));
+  }
+
+  @Test
+  public void testPolymorphicHasIdHasLabel() {
+    createSimpleHierarchy();
+
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+
+    // Class-scan with an id filter: V().hasId(id).hasLabel(...) — should be polymorphic.
+    checkSize(1, () -> gp().V().hasId(childId).hasLabel("Child"));
+    checkSize(1, () -> gp().V().hasId(childId).hasLabel("Parent"));
+    checkSize(1, () -> gp().V().hasId(childId).hasLabel("Grandparent"));
+  }
+
+  @Test
+  public void testNonPolymorphicHasIdHasLabel() {
+    createSimpleHierarchy();
+
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+
+    checkSize(1, () -> gn().V().hasId(childId).hasLabel("Child"));
+    checkSize(0, () -> gn().V().hasId(childId).hasLabel("Parent"));
+    checkSize(0, () -> gn().V().hasId(childId).hasLabel("Grandparent"));
+  }
+
+  @Test
+  public void testByIdHasLabelCountHonoursId() {
+    createSimpleHierarchy();
+
+    // Two vertices of the same class; only one is pinned by id. The count() rewrite must keep the
+    // id filter (regression for the count id-drop): without the getIds() guard the strategy would
+    // rewrite g.V(id).hasLabel(...).count() into a whole-class count and report 2 instead of 1.
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+    g().addV("Child").next();
+
+    // checkSize asserts toList().size() and count() agree, so each line also pins the equality.
+    checkSize(1, () -> gp().V(childId).hasLabel("Child"));
+    checkSize(1, () -> gp().V(childId).hasLabel("Parent"));
+    checkSize(1, () -> gp().V(childId).hasLabel("Grandparent"));
+
+    checkSize(1, () -> gn().V(childId).hasLabel("Child"));
+    checkSize(0, () -> gn().V(childId).hasLabel("Parent"));
+    checkSize(0, () -> gn().V(childId).hasLabel("Grandparent"));
+  }
+
+  @Test
+  public void testByIdHasLabelEdgePolymorphism() {
+    // Edge class hierarchy: SubEdge extends SuperEdge. The by-id edge path must honour polymorphism
+    // the same way the by-id vertex path does, since both go through YTDBGraphStep.elements().
+    g().command("CREATE CLASS SuperEdge IF NOT EXISTS EXTENDS E");
+    g().command("CREATE CLASS SubEdge IF NOT EXISTS EXTENDS SuperEdge");
+
+    final var from = g().addV("V").next();
+    final var to = g().addV("V").next();
+    final var edge = g().V(from.id()).addE("SubEdge").to(__.V(to.id())).next();
+    final var edgeId = edge.id();
+
+    // Polymorphic: a SubEdge IS-A SuperEdge, so both the exact and the supertype label match.
+    assertEquals(1, gp().E(edgeId).hasLabel("SubEdge").toList().size());
+    assertEquals(1, gp().E(edgeId).hasLabel("SuperEdge").toList().size());
+
+    // Non-polymorphic: only the exact concrete label matches.
+    assertEquals(1, gn().E(edgeId).hasLabel("SubEdge").toList().size());
+    assertEquals(0, gn().E(edgeId).hasLabel("SuperEdge").toList().size());
+  }
+
+  @Test
+  public void testByIdHasLabelMultipleArguments() {
+    createSimpleHierarchy();
+
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+
+    // Multi-argument hasLabel carries OR semantics within the single container. A Child matches the
+    // "Parent" disjunct polymorphically; it never matches the unrelated "Grandparent" sibling here
+    // by anything other than supertype, so the OR plus polymorphism both get exercised.
+    checkSize(1, () -> gp().V(childId).hasLabel("Child", "Parent"));
+    checkSize(1, () -> gp().V(childId).hasLabel("Parent", "Grandparent"));
+    checkSize(0, () -> gp().V(childId).hasLabel("Unrelated", "AlsoUnrelated"));
+
+    // Non-polymorphic: the OR still applies, but only against the exact concrete class name.
+    checkSize(1, () -> gn().V(childId).hasLabel("Child", "Parent"));
+    checkSize(0, () -> gn().V(childId).hasLabel("Parent", "Grandparent"));
+  }
+
   private static void checkSize(int size, Supplier<GraphTraversal<Vertex, Vertex>> query) {
     assertEquals(size, query.get().toList().size());
     assertEquals(size, query.get().count().next().longValue());

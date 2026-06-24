@@ -62,8 +62,12 @@ public class YTDBGraphCountStrategy
       List<String> classes = List.of();
       boolean polymorphic = polymorphicSetting;
 
-      if (hasContainers.size() == 1 && isLabelFilter(hasContainers.getFirst())) {
+      if (hasContainers.size() == 1
+          && isLabelFilter(hasContainers.getFirst())
+          && step.getIds().length == 0) {
         // g.V().hasLabel('Foo').count()
+        // The getIds() guard keeps an id-bearing count (e.g. g.V(id).hasLabel('Foo').count())
+        // out of this rewrite, which counts a whole class and would otherwise drop the pinned id.
         classes = extractLabels(hasContainers.getFirst());
       } else if (hasContainers.isEmpty() && step.getIds().length == 0) {
         // g.V().count()

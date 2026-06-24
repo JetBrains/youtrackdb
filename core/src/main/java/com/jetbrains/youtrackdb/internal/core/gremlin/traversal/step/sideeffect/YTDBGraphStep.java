@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBLabelMatcher;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
@@ -18,6 +19,7 @@ import java.util.Locale;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
@@ -98,9 +100,32 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
     if (this.ids != null && this.ids.length > 0) {
       /* Got some element IDs, so just get the elements using those */
+      // Partition the containers: "~label" containers carry polymorphism semantics and must run
+      // through YTDBLabelMatcher (which honours the schema hierarchy), while everything else is a
+      // plain property filter handled by HasContainer.testAll. Without this split the by-id path
+      // would apply an exact label match and ignore polymorphism (YTDB-1159).
+      final var labelContainers = new ArrayList<HasContainer>();
+      final var otherContainers = new ArrayList<HasContainer>();
+      for (var hasContainer : this.hasContainers) {
+        if (T.label.getAccessor().equals(hasContainer.getKey())) {
+          labelContainers.add(hasContainer);
+        } else {
+          otherContainers.add(hasContainer);
+        }
+      }
+      final var polymorphicFlag = this.polymorphic;
       return IteratorUtils.filter(
           getElementsByIds.apply(graph, this.ids),
-          element -> HasContainer.testAll(element, this.hasContainers));
+          element -> HasContainer.testAll(element, otherContainers)
+              // AND across distinct hasLabel(...) containers; OR semantics live inside a single
+              // container's predicate (a multi-argument hasLabel("A", "B")).
+              && labelContainers.stream()
+                  .allMatch(
+                      labelContainer -> YTDBLabelMatcher.matches(
+                          element,
+                          //noinspection unchecked
+                          List.of((P<? super String>) labelContainer.getPredicate()),
+                          polymorphicFlag)));
     } else {
       final var builder = new YTDBGraphQueryBuilder(isVertexStep());
       final var labelContainers = new ArrayList<HasContainer>();
