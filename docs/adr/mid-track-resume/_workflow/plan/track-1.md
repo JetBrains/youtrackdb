@@ -377,3 +377,7 @@ Non-testable constraints (hold by construction, not by a unit assertion):
 - This is a §1.7-staged workflow-modifying change: every edit lands under
   `_workflow/staged-workflow/.claude/...` and promotes in Phase 4. No edit touches the
   live `.claude/` tree during this track.
+
+## Base commit
+
+b1621946c39bfb2b24d4d97bd29b60203ff65981
