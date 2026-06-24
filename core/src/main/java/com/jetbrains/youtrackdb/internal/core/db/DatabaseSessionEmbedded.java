@@ -1392,25 +1392,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       // instead of allocating a fresh one plus a param-map copy on every replay.
       ctx = entry.getOrCreateReplayCtx(() -> freshContext(args));
     }
-    // The cache-code re-entrancy guard entered in serveThroughCache is released when that method
-    // returns; the view does NOT hold it across its idle lifetime. The view re-enters the guard
-    // around each row it produces (CachedResultSetView.hasNext brackets computeNext), so a UDF in
-    // WHERE / ORDER BY / RETURN evaluated during a lazy stream pull is bypassed, while a query()
-    // issued by user code between two next() calls legitimately uses the cache.
-    if (entry.getShape() == CacheableShape.DISTINCT_VALUES) {
-      // Distinct value set: reuse the aggregate replay (copy + applyMutation over post-populate ops),
-      // but the view emits the replayed bucket keys as rows rather than the scalar count.
-      var distinctDelta = DeltaBuilder.buildForAggregate(entry, tx, ctx);
-      return CachedResultSetView.forDistinctValues(
-          entry, distinctDelta, this, tx, entry.getPlan(), ctx);
+
+    if (entry.getShape() == CacheableShape.DISTINCT_VALUES || entry.getShape().isAggregate()) {
+      var delta = DeltaBuilder.buildForAggregate(entry, tx, ctx);
+      return CachedResultSetView.forAggregateState(entry, delta, this, tx, entry.getPlan(), ctx);
     }
-    if (entry.getShape().isAggregate()) {
-      // Aggregate: copy the seeded state and replay the post-populate mutations onto the copy; the view
-      // emits the single replayed scalar. The entry holds no stream, so the view's plan slot is null.
-      var aggregateDelta = DeltaBuilder.buildForAggregate(entry, tx, ctx);
-      return CachedResultSetView.forAggregate(entry, aggregateDelta, this, tx, entry.getPlan(),
-          ctx);
-    }
+
     TxDeltaCursor delta = entry.getShape() == CacheableShape.RECORD
         ? DeltaBuilder.buildForRecord(entry, tx, ctx)
         : null;

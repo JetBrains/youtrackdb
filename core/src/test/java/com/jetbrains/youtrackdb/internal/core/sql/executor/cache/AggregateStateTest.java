@@ -1020,7 +1020,7 @@ public class AggregateStateTest {
     entry.setAggregateState(seeded);
 
     var delta = DeltaBuilder.buildForAggregate(entry, tx(), ctx());
-    try (var view = CachedResultSetView.forAggregate(entry, delta, db, tx(), null, ctx())) {
+    try (var view = CachedResultSetView.forAggregateState(entry, delta, db, tx(), null, ctx())) {
       assertTrue("the aggregate view has its single row", view.hasNext());
       var row = view.next();
       assertEquals(3L, row.<Object>getProperty(seeded.getAlias()));
@@ -1050,7 +1050,7 @@ public class AggregateStateTest {
     entry.setAggregateState(seeded);
     var delta = DeltaBuilder.buildForAggregate(entry, tx(), ctx());
 
-    var view = CachedResultSetView.forAggregate(entry, delta, db, tx(), null, ctx());
+    var view = CachedResultSetView.forAggregateState(entry, delta, db, tx(), null, ctx());
     assertEquals("the view pins the entry", 1, entry.getLiveViewCount());
     view.close();
     assertEquals("close releases the pin", 0, entry.getLiveViewCount());

@@ -166,7 +166,7 @@ public final class CachedResultSetView implements ResultSet {
    * cache-code-guard lifetime are identical to the record/K0 path.
    */
   @Nonnull
-  public static CachedResultSetView forAggregate(
+  public static CachedResultSetView forAggregateState(
       @Nonnull CachedEntry entry,
       @Nonnull AggregateState aggregateDelta,
       @Nullable DatabaseSessionEmbedded session,
@@ -174,23 +174,6 @@ public final class CachedResultSetView implements ResultSet {
       @Nullable InternalExecutionPlan executionPlan,
       @Nonnull CommandContext ctx) {
     return new CachedResultSetView(entry, null, aggregateDelta, session, tx, executionPlan, ctx);
-  }
-
-  /**
-   * {@code DISTINCT_VALUES} factory: the view carries the replayed {@link AggregateState} copy (kind
-   * {@code AGGREGATE_COUNT_DISTINCT}) and emits one {@code {alias: value}} row per distinct bucket key,
-   * in first-occurrence order, reproducing a fresh {@code SELECT distinct(prop)}. Pin and cache-code
-   * guard lifetime are identical to the aggregate path.
-   */
-  @Nonnull
-  public static CachedResultSetView forDistinctValues(
-      @Nonnull CachedEntry entry,
-      @Nonnull AggregateState distinctDelta,
-      @Nullable DatabaseSessionEmbedded session,
-      @Nonnull FrontendTransactionImpl tx,
-      @Nullable InternalExecutionPlan executionPlan,
-      @Nonnull CommandContext ctx) {
-    return new CachedResultSetView(entry, null, distinctDelta, session, tx, executionPlan, ctx);
   }
 
   private CachedResultSetView(
