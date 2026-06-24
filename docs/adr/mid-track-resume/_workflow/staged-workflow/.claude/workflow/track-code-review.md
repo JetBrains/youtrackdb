@@ -873,13 +873,17 @@ orchestrator never edits source files itself in Phase C.
    step-implementation-recovery.md:orchestrator:3B §Resume-side
    commit-pattern reference — entry 5). It is distinct from the
    post-approval track-completion commit below, which carries
-   `decomposition-pending` for the *next* track. A single-step track
-   never reaches step 6 (it skips the review loop), so it gets no
-   `review-done-track-open` append; it stays at
-   `steps-done-review-pending` and is carried past review by the
-   track-completion append below, which routes correctly because the
-   resume checks whether review applies before proceeding to
-   completion.
+   `decomposition-pending` for the *next* track. A **`risk: high`**
+   single-step track skips the review loop per §Single-Step Track, so
+   it never reaches step 6 and gets no `review-done-track-open`
+   append; it stays at `steps-done-review-pending` and is carried past
+   review by the track-completion append below. A `risk: medium`/`low`
+   single-step track instead runs the full review loop (§Single-Step
+   Track routes it through **Multi-Step Tracks**), reaches step 6, and
+   on the all-reviews-pass path terminates at `review-done-track-open`
+   like a multi-step track. Both terminal slugs route correctly to
+   completion because the resume checks whether review applies before
+   proceeding.
 
 ---
 

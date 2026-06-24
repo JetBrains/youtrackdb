@@ -267,8 +267,7 @@ preview — they will appear in the next-session State 0 re-run.
   because it is cheap, survives `git reset --hard HEAD`, and keeps the
   track's last-value-wins `substate` from claiming review-pending should any
   future change ever read `substate` while a replan leaves the phase at `C`.
-  Do not drop the `--phase 0` append — that reset is what routes the replan
-  resume.
+  Do not drop the `--phase 0` append.
   The reset routes the next `/execute-tracks` session through State 0, which
   re-runs Phase 2 against the revised plan and catches any consistency drift
   the replan introduced (see
