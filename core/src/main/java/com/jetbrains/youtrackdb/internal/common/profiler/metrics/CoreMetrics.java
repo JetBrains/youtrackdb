@@ -37,8 +37,6 @@ public class CoreMetrics {
               100.0));
 
   // --- Per-transaction query result cache metrics ---
-  // Aggregate rates over the per-tx counters held by QueryCacheMetrics. Definitions only; the
-  // increment/record wiring lands with the cache lookup and eviction code in later steps.
 
   public static final MetricDefinition<MetricScope.Global, TimeRate> QUERY_CACHE_HIT_RATE =
       new MetricDefinition<>(
