@@ -1045,7 +1045,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
         ctx,
         populateMutationVersion);
     if (matchOrigin != null && statement instanceof SQLMatchStatement match) {
-      assert shape == CacheableShape.RECORD : "Etap-A projector installed on a non-RECORD entry";
+      assert shape == CacheableShape.RECORD : "Pojector installed on a non-RECORD entry";
       entry.setReturnProjector(buildMatchReturnProjector(match, matchOrigin, args));
     }
     // Force the lazy key now (the populate has committed to storing an entry); on the empty-cache
@@ -1085,7 +1085,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       @Nonnull CacheableShape shape,
       @Nonnull FrontendTransactionImpl tx,
       @Nonnull QueryResultCache cache) {
-    var metadata = ShapeClassifier.aggregateMetadata(select);
+    var metadata = ShapeClassifier.aggregateMetadata(select, shape);
     if (metadata == null || metadata.kind() != shape) {
       // The classifier accepted the shape but the metadata derivation found no clean single-aggregate
       // (e.g. a computed-expression argument that classify routed elsewhere): there is nothing to seed,
@@ -1197,7 +1197,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       @Nonnull Supplier<CacheKey> key,
       @Nonnull FrontendTransactionImpl tx,
       @Nonnull QueryResultCache cache) {
-    var metadata = ShapeClassifier.distinctValueMetadata(select);
+    var metadata = ShapeClassifier.distinctValueMetadata(select, CacheableShape.DISTINCT_VALUES);
     if (metadata == null || metadata.propertyName() == null) {
       LogManager.instance().warn(this,
           "tx-result cache: DISTINCT_VALUES select yielded no bare-property metadata; running"

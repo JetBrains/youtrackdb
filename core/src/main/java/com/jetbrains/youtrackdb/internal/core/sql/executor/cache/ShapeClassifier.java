@@ -89,8 +89,9 @@ public final class ShapeClassifier {
    * {@code K0_NONE} and never reaches the aggregate path), as do bare {@code COUNT(*)} and every
    * non-aggregate shape.
    */
-  @Nullable public static AggregateMetadata aggregateMetadata(@Nonnull SQLSelectStatement select) {
-    var shape = classify(select);
+  @Nullable public static AggregateMetadata aggregateMetadata(@Nonnull SQLSelectStatement select,
+      @Nonnull CacheableShape shape) {
+    assert shape.isAggregate() : "aggregateMetadata requires an AGGREGATE_* shape, got " + shape;
     if (!shape.isAggregate()) {
       return null;
     }
@@ -757,8 +758,11 @@ public final class ShapeClassifier {
    * {@code DISTINCT_VALUES}; the populate path seeds an {@code AggregateState} of kind
    * {@code AGGREGATE_COUNT_DISTINCT}, whose per-value buckets back the value set.
    */
-  @Nullable public static AggregateMetadata distinctValueMetadata(@Nonnull SQLSelectStatement select) {
-    if (classify(select) != CacheableShape.DISTINCT_VALUES) {
+  @Nullable public static AggregateMetadata distinctValueMetadata(@Nonnull SQLSelectStatement select,
+      @Nonnull CacheableShape shape) {
+    assert shape == CacheableShape.DISTINCT_VALUES
+        : "distinctValueMetadata requires DISTINCT_VALUES shape, got " + shape;
+    if (shape != CacheableShape.DISTINCT_VALUES) {
       return null;
     }
     var projection = select.getProjection();
