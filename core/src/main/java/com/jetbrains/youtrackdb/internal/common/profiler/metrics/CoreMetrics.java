@@ -36,7 +36,7 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
-  // --- Per-transaction query result cache metrics (YTDB-820) ---
+  // --- Per-transaction query result cache metrics ---
   // Aggregate rates over the per-tx counters held by QueryCacheMetrics. Definitions only; the
   // increment/record wiring lands with the cache lookup and eviction code in later steps.
 
