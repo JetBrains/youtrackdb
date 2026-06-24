@@ -13,7 +13,7 @@ Introduce the shared `YTDBLabelMatcher`, route both the by-id branch of
 polymorphism for vertices, edges, and multi-argument labels, and add the
 `getIds().length == 0` guard to `YTDBGraphCountStrategy` so an id-bearing count stops
 dropping the id. Extend `YTDBHasLabelProcessTest` with the count-honors-id, edge
-by-id, and multi-argument by-id scenarios alongside the four committed methods.
+by-id, and multi-argument by-id scenarios alongside the four existing (uncommitted, working-tree) methods.
 
 ## Progress
 - [ ] Review + decomposition
@@ -71,7 +71,7 @@ current state:
 
 Concrete deliverables: a new `YTDBLabelMatcher` class; `YTDBGraphStep` and
 `YTDBHasLabelStep` routed through it; the count-strategy guard; three new test
-methods plus the four already-committed ones.
+methods plus the four already-present (uncommitted, working-tree) ones.
 
 Terminology: *by-id branch* / *class-scan branch* / *polymorphic label match* /
 `hasLabel` *folding* are defined in design.md §"Core Concepts".
@@ -97,7 +97,7 @@ commit regresses a polymorphic by-id count (design.md §"Bug 2", Fix-order const
    across label containers.
 4. Add the `getIds().length == 0` condition to `YTDBGraphCountStrategy`'s label-filter
    branch so an id-bearing count falls through to normal by-id execution.
-5. Extend `YTDBHasLabelProcessTest`: keep the four committed methods; add
+5. Extend `YTDBHasLabelProcessTest`: keep the four existing (uncommitted) methods; add
    count-honors-id (two same-class vertices, one pinned, assert `toList().size()` and
    `count()` agree at 1 for exact and polymorphic supertype labels — the brought-back
    reproduction), edge by-id (edge hierarchy, polymorphic 1 / non-polymorphic 0), and

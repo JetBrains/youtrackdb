@@ -128,11 +128,15 @@ flowchart LR
   > polymorphism for vertices, edges, and multi-argument labels, and add the
   > `getIds().length == 0` guard to `YTDBGraphCountStrategy` so an id-bearing count
   > stops dropping the id. Extend `YTDBHasLabelProcessTest` with the count-honors-id,
-  > edge by-id, and multi-argument by-id scenarios alongside the four committed methods.
+  > edge by-id, and multi-argument by-id scenarios alongside the four existing (uncommitted, working-tree) methods.
   > **Scope:** ~5 files covering the new matcher, two step classes, the count strategy, and the test class
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of `/execute-tracks`
+- [x] Plan review (consistency + structural) — passed at iteration 1
+
+**Auto-fixed (mechanical)**: CR1 — corrected "committed" to "existing (uncommitted, working-tree)" for the four by-id / has-id test methods in the plan and `track-1.md`. The `design.md` occurrences of the same wording are recorded and deferred to the Phase 4 `design-final.md` reconciliation (design frozen after Phase 1).
+
+**Escalated (design decisions)**: none.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
