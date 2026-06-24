@@ -15,6 +15,9 @@ polymorphism for vertices, edges, and multi-argument labels, and add the
 dropping the id. Extend `YTDBHasLabelProcessTest` with the count-honors-id, edge
 by-id, and multi-argument by-id scenarios alongside the four existing (uncommitted, working-tree) methods.
 
+## Base commit
+c5d0812e2d037f1b08c7689182a6294dd368a19b
+
 ## Progress
 - [x] 2026-06-24T15:15Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
