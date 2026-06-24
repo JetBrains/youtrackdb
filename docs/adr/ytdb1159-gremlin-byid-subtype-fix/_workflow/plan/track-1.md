@@ -20,7 +20,8 @@ c5d0812e2d037f1b08c7689182a6294dd368a19b
 
 ## Progress
 - [x] 2026-06-24T15:15Z [ctx=info] Review + decomposition complete
-- [ ] Step implementation
+- [x] 2026-06-24T15:55Z [ctx=safe] Step 1 complete (commit fa590ca9bc)
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
@@ -28,6 +29,12 @@ c5d0812e2d037f1b08c7689182a6294dd368a19b
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- Scoped coverage on the Gremlin scenario tests is not a one-liner: the `coverage`
+  profile's `@{jacocoArgLine}` does not bind under a bare `surefire:test@sequential-tests`
+  invocation, and `YTDBProcessTest` ignores `-Dgremlin.tests` under the lifecycle `test` /
+  `prepare-package` phases (running the full upstream TinkerPop suite). The Phase C coverage
+  check must inject the JaCoCo agent via `-DargLine` on the scoped run or accept the
+  full-suite cost. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -138,7 +145,7 @@ guard, so the fix-order constraint holds by construction.
   does not interfere with it.
 
 ## Concrete Steps
-1. Fix by-id `hasLabel` polymorphism and the count id-drop: add `YTDBLabelMatcher`, route `YTDBHasLabelStep.filter` and `YTDBGraphStep`'s by-id branch through it, add the `getIds().length == 0` guard to `YTDBGraphCountStrategy`'s label-filter branch, and extend `YTDBHasLabelProcessTest` (count-honors-id, edge by-id, multi-arg by-id) while keeping the four existing methods. See `## Plan of Work` for the T1/T2/T3 implementer notes. — risk: medium (multi-file logic changing observable Gremlin label-matching behavior; well test-covered)  [ ]
+1. Fix by-id `hasLabel` polymorphism and the count id-drop: add `YTDBLabelMatcher`, route `YTDBHasLabelStep.filter` and `YTDBGraphStep`'s by-id branch through it, add the `getIds().length == 0` guard to `YTDBGraphCountStrategy`'s label-filter branch, and extend `YTDBHasLabelProcessTest` (count-honors-id, edge by-id, multi-arg by-id) while keeping the four existing methods. See `## Plan of Work` for the T1/T2/T3 implementer notes. — risk: medium (multi-file logic changing observable Gremlin label-matching behavior; well test-covered)  [x] commit: fa590ca9bc
 
 <!-- Single-step track: the whole ~5-file change is one coherent commit, well
 under the ~12 fill target, so no `— size:` under-fill clause applies (nothing
@@ -150,6 +157,34 @@ left to merge — the step is the complete track). Bug 1 (by-id matcher) and Bug
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
 completed step, identified by step number + commit SHA. Empty at
 Phase 1; Phase A does not populate. -->
+
+### Step 1 — commit fa590ca9bc, 2026-06-24T15:55Z [ctx=safe]
+**What was done:** Added `YTDBLabelMatcher`, a shared static helper holding the
+polymorphism-aware label test lifted from `YTDBHasLabelStep`: resolve the schema class
+once, OR each predicate against the concrete class name and, when polymorphic, every
+superclass name; the null-schema guard returns false; non-YouTrackDB elements fall back
+to `element.label()`. Routed `YTDBHasLabelStep.filter` and the by-id branch of
+`YTDBGraphStep.elements` through it. The by-id branch partitions `hasContainers` on the
+`T.label` accessor key, runs non-label containers through `HasContainer.testAll`, and ANDs
+each label container's predicate through the matcher with the step's polymorphic flag (T1
+unchecked cast as at the fold site, T2 AND-across-containers via `allMatch`, T3
+`createClassIterator` left untouched). Added the `getIds().length == 0` guard to
+`YTDBGraphCountStrategy`'s label-filter rewrite branch. Extended `YTDBHasLabelProcessTest`
+with count-honors-id, edge by-id, and multi-argument by-id methods alongside the four
+existing by-id/has-id ones. Suite green (15/15 on the class, 46/46 in the run); changed-line
+coverage 90.9% line, 80.8% branch.
+**What was discovered:** The `coverage` profile's `@{jacocoArgLine}` late-binding does not
+resolve when `surefire:test@sequential-tests` runs outside the full lifecycle, and the
+`YTDBProcessTest` runner ignores `-Dgremlin.tests` under the lifecycle `test` /
+`prepare-package` phases (it runs the whole upstream TinkerPop suite). A scoped coverage run
+must inject the JaCoCo agent via `-DargLine` or accept the full-suite cost. See Surprises &
+Discoveries.
+**Key files:**
+- `YTDBLabelMatcher.java` (new)
+- `YTDBHasLabelStep.java` (modified)
+- `YTDBGraphStep.java` (modified)
+- `YTDBGraphCountStrategy.java` (modified)
+- `YTDBHasLabelProcessTest.java` (modified)
 
 ## Validation and Acceptance
 
