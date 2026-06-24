@@ -263,7 +263,9 @@ public class ShapeClassifierTest extends DbTestBase {
   // ===========================================================================
 
   private ShapeClassifier.AggregateMetadata metadata(String sql) {
-    return ShapeClassifier.aggregateMetadata((SQLSelectStatement) parse(sql));
+    var stmt = (SQLSelectStatement) parse(sql);
+    var shape = ShapeClassifier.classify(stmt);
+    return ShapeClassifier.aggregateMetadata(stmt, shape);
   }
 
   /**
