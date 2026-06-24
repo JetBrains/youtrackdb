@@ -122,14 +122,36 @@ flowchart LR
 - Making `YTDBClassCountStep` id-aware.
 
 ## Checklist
-- [ ] Track 1: Polymorphic by-id `hasLabel` and count id-drop fix
+- [x] Track 1: Polymorphic by-id `hasLabel` and count id-drop fix
   > Introduce the shared `YTDBLabelMatcher`, route both the by-id branch of
   > `YTDBGraphStep` and `YTDBHasLabelStep` through it so by-id `hasLabel` honors
   > polymorphism for vertices, edges, and multi-argument labels, and add the
   > `getIds().length == 0` guard to `YTDBGraphCountStrategy` so an id-bearing count
   > stops dropping the id. Extend `YTDBHasLabelProcessTest` with the count-honors-id,
   > edge by-id, and multi-argument by-id scenarios alongside the four existing (uncommitted, working-tree) methods.
-  > **Scope:** ~5 files covering the new matcher, two step classes, the count strategy, and the test class
+  >
+  > **Track episode:**
+  > Fixed YTDB-1159: the by-id Gremlin path now honors polymorphism and the id
+  > filter exactly as the class-scan path does. Added `YTDBLabelMatcher` (the
+  > polymorphism-aware label test lifted from `YTDBHasLabelStep.filter`), routed
+  > both `YTDBHasLabelStep` and the by-id branch of `YTDBGraphStep.elements`
+  > through it, and added the `getIds().length == 0` guard to
+  > `YTDBGraphCountStrategy`'s label-filter rewrite so an id-bearing count stops
+  > dropping the id. The by-id branch partitions `hasContainers` on the `T.label`
+  > accessor key: non-label containers run through `HasContainer.testAll`, each
+  > label container ANDs through the matcher with the step's polymorphic flag.
+  > Implemented in one MEDIUM-risk commit (`fa590ca9bc`), then hardened in Phase C
+  > — track-level review (six dimensions, no blockers) surfaced test-coverage gaps
+  > on the new by-id partition logic, fixed in `Review fix:` commit `860380ce3a`
+  > (six new/extended tests: label+property AND, chained `hasLabel`
+  > AND-across-containers, multi-pinned-id count, unrelated-sibling exclusion,
+  > edge-path count/toList agreement; plus a clarifying comment). All dimensions
+  > PASS at gate-check, iteration 1/3. No cross-track impact — single
+  > self-contained track. Accepted-as-is suggestions (style, per-element
+  > allocation mirroring the class-scan path, minor test-structure) are recorded
+  > in the track file's Outcomes & Retrospective.
+  >
+  > **Track file:** `plan/track-1.md` (1 step, 0 failed)
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
