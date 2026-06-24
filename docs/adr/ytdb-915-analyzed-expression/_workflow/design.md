@@ -249,10 +249,12 @@ is the first sealed-type use in the codebase.
 
 The five variants and the data each carries:
 
-- `Var(List<String> path)` — an unresolved lexical name path. `["name"]` for a bare
-  identifier, `["p", "name"]` for `p.name`. S0 holds the lexical shape only; S10 will
-  replace `Var` with range-table-resolved references (names bound to their `FROM`-clause
-  source), which is why S0 does not bake in a resolution model.
+- `Var(List<String> path)` — an unresolved lexical name path. S0 lowers **single-segment**
+  `Var`s (`["name"]`); a multi-segment path such as `p.name` is out of the S0 subset and
+  throws `UnsupportedAnalyzedNodeException`, deferred to S1+ (D6-R). The `List<String>`
+  shape is kept for S10, which will replace `Var` with range-table-resolved references
+  (names bound to their `FROM`-clause source) — which is why S0 does not bake in a
+  resolution model.
 - `Const(Object value)` — a literal value (integer, string, boolean, or a negative
   number whose `sign` flag the parser already folded into the literal at parse time, so
   it arrives as one negated value rather than a unary-minus node).
@@ -311,7 +313,8 @@ implementer at compile time — invariant I3.
 
 - D-records: D1 (sealed-interface IR with five record variants), D2 (visitor as
   interface; static `switch` dispatch, no `accept`), D4 (`Cast` variant dropped from S0
-  scope), D6 (`Var` carries a `List<String>` name path)
+  scope), D6 (`Var` carries a `List<String>` name path), D6-R (S0 lowers single-segment
+  `Var`s only; multi-segment paths throw, deferred to S1+)
 - Invariants: I3
 
 ## Transform passes and structural sharing
@@ -442,8 +445,9 @@ these leaf shapes:
 
 - `number` (a `SQLNumber`) → `Const`. A negative literal lowers to a negative `Const`
   (the `sign` flag is already folded in).
-- `identifier` (a `SQLBaseIdentifier`) with no modifier → `Var`; with a modifier
-  (method call) → `FuncCall`.
+- `identifier` (a `SQLBaseIdentifier`) with no modifier → `Var`, **single-segment only**;
+  a multi-segment suffix-chain (`p.name`) is out of the S0 subset and throws (deferred to
+  S1+ — D6-R). With a modifier (method call) → `FuncCall`.
 - `string` / character literal, optionally with a modifier → `Const`, or `FuncCall` for
   a method call.
 - `inputParam` (a bind parameter `?` / `:name`) → throw. S0 does not lower bind
@@ -452,8 +456,9 @@ these leaf shapes:
 
 `SQLBaseIdentifier` has exactly one of `levelZero` (a `SQLLevelZeroIdentifier`) or
 `suffix` (a `SQLSuffixIdentifier`) non-null. `Var`'s name path flattens that identifier
-into a `List<String>` via an `identifierToPath` mapper. The exact suffix-chain shape is a
-Phase-A lowering detail. Boolean `NOT` lowers from `SQLNotBlock` (fields `sub`,
+into a `List<String>` via an `identifierToPath` mapper. S0 supports the single-segment
+shape (a bare column name); a multi-segment chain is out of subset (D6-R), so its exact
+suffix-chain shape stays a deferred S1+ detail. Boolean `NOT` lowers from `SQLNotBlock` (fields `sub`,
 `negate`): `SQLNotBlock(negate=true, sub)` → `UnaryOp(NOT, lower(sub))`; `negate=false`
 is a pass-through to `lower(sub)`.
 
@@ -467,7 +472,8 @@ is a pass-through to `lower(sub)`.
 
 ### Decisions & invariants
 
-- D-records: D6 (`Var` name path from the flattened identifier), D7 (out-of-subset
+- D-records: D6 (`Var` name path from the flattened identifier), D6-R (single-segment
+  only; multi-segment paths throw, deferred to S1+), D7 (out-of-subset
   fields throw `UnsupportedAnalyzedNodeException`), D14 (field-walk is
   exhaustive-or-throw; `value` flagged for Phase-A PSI)
 - Invariants: I2
@@ -639,8 +645,9 @@ AST/IR split:
 ## Comparison: replicate the AST sequence
 
 **TL;DR.** The IR comparison evaluator reproduces `SQLBinaryCondition.evaluate(Result,
-ctx)`'s exact sequence: fetch the collate from the left operand (falling back to the
-right), apply `collate.transform(...)` to both operands when non-null, then delegate to
+ctx)`'s exact sequence: resolve the collate for the left operand's column (falling back
+to the right) by reaching its schema property through the `Result`, apply
+`collate.transform(...)` to both operands when non-null, then delegate to
 the parser's own `SQLBinaryCompareOperator` instance — the same operator object the AST
 holds — rather than calling `QueryOperatorEquals.equals` or `doCompare` statically. This
 makes comparison parity genuinely structural: the IR runs the same code the AST runs.
@@ -655,8 +662,9 @@ slow-path sequence is:
 
 1. Evaluate both operands: `leftVal = left.execute(...)`, `rightVal =
    right.execute(...)`.
-2. Fetch the collate: `collate = left.getCollate(...)`, and if null,
-   `collate = right.getCollate(...)`.
+2. Fetch the collate: `collate = left.getCollate(currentRecord, ctx)`, and if null,
+   `collate = right.getCollate(currentRecord, ctx)`. `getCollate` is not a field read —
+   it uses the `Result` to reach the operand's schema property.
 3. If `collate != null`, transform both operands: `leftVal = collate.transform(leftVal)`
    and `rightVal = collate.transform(rightVal)`.
 4. Delegate: `operator.execute(ctx.getDatabaseSession(), leftVal, rightVal)`.
@@ -678,11 +686,28 @@ runs the AST's exact branch for each operator, so the EQ/NE difference is reprod
 construction. This also reinforces the single-`Result`-overload choice (D3). A `Result` carries the
 projection/property context that `getCollate` reads — the suffix path resolves the
 collate by asking the result's entity for its schema property
-(`currentResult.asEntity()` → `schemaClass.getProperty(...)` → `property.getCollate()`).
+(`currentResult.asEntity()` → `getImmutableSchemaClass(session)` →
+`schemaClass.getProperty(...)` → `property.getCollate()`).
 A bare `Identifiable` is only a record reference with no such context, so the
 `Identifiable`-input overload has nothing to resolve a collate from and skips collation,
 while the `Result` overload applies it. So the IR must follow the `Result` overload,
 because that is the collation-applying path the executor uses.
+
+Because the IR holds a `Var` (a name path), not an `SQLExpression`, it cannot call the
+parser's `getCollate`. The IR comparison evaluator re-implements the single-property
+resolution directly — the step-2 primitive, still tried left-operand-first then right:
+`result.asEntity()` → `getImmutableSchemaClass(session)` →
+`getProperty(name)` → `property.getCollate()`, returning `null` for any non-`Var` operand
+(a literal or computed sub-expression has no column to resolve). S0 lowers
+**single-segment** `Var`s only; a multi-segment path such as `p.name` throws
+`UnsupportedAnalyzedNodeException` and is deferred to S1+ (D6-R). The AST resolves a
+multi-segment collate by a runtime link traversal — `SQLBaseExpression.getCollate`
+executes the path prefix link-by-link, then resolves the terminal property's collate on
+the terminal record's schema — which a substrate slice need not reproduce. Collation is
+not syntactic, so the lowerer cannot carve out collated comparisons by collation; but
+path length **is** syntactic, so throwing on a multi-segment `Var` keeps round-trip
+parity (I1) by construction: the IR evaluates only the operand shapes it faithfully
+reproduces.
 
 The slow path is the parity reference. `SQLBinaryCondition.evaluate` also has an in-place
 comparison fast path (`tryInPlaceComparison`), but it is parity-equivalent — for any case
@@ -702,7 +727,8 @@ the slow path; the fast path is an AST-internal optimization the IR need not mir
 
 - D-records: D3 (single `evaluate(Result, CommandContext)` overload), D11 (IR
   comparison evaluator replicates `SQLBinaryCondition.evaluate` — collate transform
-  plus the parser-operator instance, not bare statics)
+  plus the parser-operator instance, not bare statics), D6-R (collate fetch pinned to the
+  single-property resolution; multi-segment `Var` throws, deferred to S1+)
 - Invariants: I1
 
 ## Evaluator interface: single Result overload

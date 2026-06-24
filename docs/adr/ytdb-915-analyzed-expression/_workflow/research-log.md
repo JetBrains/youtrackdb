@@ -420,6 +420,46 @@ verify reachability first).
 
 **Implemented in:** the lowering track + a Phase-A verification note.
 
+### D6-R — S0 lowers single-segment `Var` only; multi-segment paths throw, deferred to S1+ (2026-06-24, post-freeze design discussion) [ctx=safe]
+
+Narrows D6: the lowerer produces a `Var` only for a single-segment column reference
+(`path.size() == 1`). A multi-segment path (`p.name`) throws
+`UnsupportedAnalyzedNodeException` and is deferred to S1+. The IR comparison
+evaluator's collate fetch is therefore the single-property resolution
+`result.asEntity()` → `getImmutableSchemaClass(session)` → `getProperty(name)` →
+`property.getCollate()` (null for any non-`Var` operand), reproducing the AST's
+single-segment `getCollate` branch (`SQLBaseExpression.java:359-366`,
+`SQLSuffixIdentifier.java:505-521`).
+
+**Why:** the AST's multi-segment collate is a runtime link traversal —
+`SQLBaseExpression.getCollate` executes the path prefix link-by-link
+(`identifier.execute` + `SQLModifier.executeOneLevel`) and resolves the terminal
+property's collate on the terminal record's schema (`SQLBaseExpression.java:374-392`),
+restricted to pure nested-link chains and null for entity-property-type bases
+(`in_`/`out_`) and complex expressions. Collation is non-syntactic (a per-property
+schema attribute), so the lowerer cannot carve out collated comparisons *by
+collation*; but path length **is** syntactic, so a multi-segment `Var` is a clean
+lowering throw. Throwing keeps round-trip parity (I1) by construction — the IR only
+handles operand shapes it faithfully reproduces — and keeps S0 a true substrate (the
+same traversal would otherwise have to be reproduced for value evaluation too). S0
+ships behind no flag with no consumer, so deferring multi-segment paths costs nothing
+live.
+
+**Alternatives rejected:** re-implement the runtime link-chain traversal in the S0 IR
+evaluator (faithful, but pulls link materialization, the `in_`/`out_` carve-out, and
+the nested-links-only restriction into a no-consumer substrate, and is blocked on
+D6's still-open exact-suffix-chain-shape Phase-A item); delegate `getCollate` to the
+originating parse node (violates D6 — `Var` is a lexical path holding no parse-node
+reference).
+
+**Refines:** D6 (S0 `Var` scope → single-segment), D11 (collate fetch pinned to the
+single-property resolution), D14 (multi-segment path joins the field-walk's
+exhaustive-or-throw out-of-subset set).
+
+**Gate note:** settled via post-freeze design discussion; the parity-risk analysis
+(options A/B/C, code-grounded) served the decision-justification function.
+Conservative scope narrowing, not a new fork — no Phase 0→1 adversarial re-run.
+
 ### Invariants to preserve (I1–I3)
 
 - **I1 — Round-trip parity.** For every SQL fragment in the S0 covered subset,
