@@ -23,6 +23,7 @@ behavior, plus the wrap fix). Track 2 wires the append sites that activate it.
 - [ ] Track completion
 
 - [x] 2026-06-24T10:20Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-24T11:03Z [ctx=safe] Step 1 complete (commit f20a70b7ef)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -36,6 +37,13 @@ at Phase 1. -->
   correct `[0-9]*". "*` form, so Step 1 implements the right glob; the frozen
   `design.md` is not edited during execution. Reconcile the shorthand in
   `design-final.md` at Phase 4.
+
+- **Test reads `track-review.md` staged-first (affects Track 2).** Step 1 changed
+  the pre-existing `test_track_review_step6_carries_ac_ledger_append` to resolve
+  `track-review.md` through §1.7(d) read precedence (staged copy first, then
+  `LIVE_REPO_ROOT`). Track 2 edits `track-review.md` to add the `--substate`
+  append; once Track 2 stages a modified copy, this test reads that staged copy.
+  See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -249,12 +257,48 @@ of concrete steps is written at Phase A and listed under `## Concrete Steps`.
 
 ## Concrete Steps
 
-1. Implement the `substate` ledger primitive and the `roster_scan` wrap fix in `workflow-startup-precheck.sh` — the `--substate` append flag with bare-token validation, the `substate` token emitted before the quoted `categories` field, `ledger_tail_value_for_track`, the ledger-first read in `determine_state_from_ledger`'s `phase=C` arm (reusing the `jq -nc --arg` STATE_JSON emit), the continuation-line join in `roster_scan` (terminator `[0-9]*". "*`), and the script-header grammar comment — plus all five test groups in `test_workflow_startup_precheck.py` (ledger path incl. track-scoping and the `categories` decoy; empty-substate fallback; dual-path parity via two `write_ledger` variants; wrapped-roster regression incl. two adjacent wrapped steps; `--substate` append validation), each new test registered in the `TESTS` list — risk: high (workflow machinery: edits the auto-resume state machine and the ledger-grammar schema, and runs at turn 1 of every session)  [ ]
+1. Implement the `substate` ledger primitive and the `roster_scan` wrap fix in `workflow-startup-precheck.sh` — the `--substate` append flag with bare-token validation, the `substate` token emitted before the quoted `categories` field, `ledger_tail_value_for_track`, the ledger-first read in `determine_state_from_ledger`'s `phase=C` arm (reusing the `jq -nc --arg` STATE_JSON emit), the continuation-line join in `roster_scan` (terminator `[0-9]*". "*`), and the script-header grammar comment — plus all five test groups in `test_workflow_startup_precheck.py` (ledger path incl. track-scoping and the `categories` decoy; empty-substate fallback; dual-path parity via two `write_ledger` variants; wrapped-roster regression incl. two adjacent wrapped steps; `--substate` append validation), each new test registered in the `TESTS` list — risk: high (workflow machinery: edits the auto-resume state machine and the ledger-grammar schema, and runs at turn 1 of every session)  [x]  commit: f20a70b7ef
 2. Document the `substate` key — extend the `conventions.md` Phase-ledger glossary prose and add the within-track resume-signal note to `conventions-execution.md §2.1` — risk: low (prose-only workflow edit: documents the key, changes no parsed schema or control flow) — size: ~2 files; (a) no mergeable low/medium work fits — the rest of the track is the high script step, which high-coherence forbids absorbing prose-only doc edits into  *(parallel with Step 1)*  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
 step. Empty at Phase 1. -->
+
+### Step 1 — commit f20a70b7ef, 2026-06-24T11:03Z [ctx=safe]
+
+**What was done:** Added the read side of the `substate` ledger primitive plus
+the YTDB-1134 roster wrap fix to the staged `workflow-startup-precheck.sh`, and
+five test groups (12 tests) to the staged test file. The script gained the
+`--substate` append flag with bare-token validation, the bare `substate` token
+emitted before the quoted `categories` field, `ledger_tail_value_for_track` for
+track-scoped reads, the ledger-first read in `determine_state_from_ledger`'s
+`phase=C` arm (reusing the `jq -nc --arg` STATE_JSON emit), the `roster_scan`
+continuation-line join (terminator `[0-9]*". "*`, factored into a
+`roster_process_step` helper), and the header grammar comment. Every edit landed
+under the §1.7 staged subtree; the live `.claude/scripts` tree is untouched.
+Tests: 115/115 pass.
+
+**What was discovered:** The pre-existing
+`test_track_review_step6_carries_ac_ledger_append` resolved `track-review.md`
+through the bare `REPO_ROOT` anchor, which from the staged test location points
+at the staged-workflow root — a tree that does not carry `track-review.md` on
+this branch, because the A→C append already lives in the live file. It
+false-failed in the staged run. The fix applies §1.7(d) read precedence: prefer
+the staged copy, fall back to `LIVE_REPO_ROOT`. This is forward-compatible for
+Track 2, which edits `track-review.md` to add the `--substate` append — once
+Track 2 stages a modified copy, the test reads that staged copy. The wrap-fix
+regression is non-vacuous by direct check: the unfixed live `roster_scan`
+resolves the wrapped-`[x]`-step fixture to `steps-partial` (the bug), the fixed
+staged scan resolves `steps-done-review-pending`.
+
+**What changed from the plan:** No deviation from the planned items. One in-scope
+addition beyond the roster: the §1.7(d)-precedence fix to the pre-existing
+`track-review.md` resolution in the test file, required for the suite to run
+green from the staged location.
+
+**Key files:**
+- `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/scripts/workflow-startup-precheck.sh` (new staged copy)
+- `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck.py` (new staged copy)
 
 ## Validation and Acceptance
 
