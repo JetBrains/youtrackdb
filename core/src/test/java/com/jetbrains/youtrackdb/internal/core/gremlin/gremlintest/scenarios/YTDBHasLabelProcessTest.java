@@ -169,7 +169,7 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     // rewrite g.V(id).hasLabel(...).count() into a whole-class count and report 2 instead of 1.
     final var child = g().addV("Child").next();
     final var childId = child.id();
-    g().addV("Child").next();
+    final var secondChild = g().addV("Child").next();
 
     // checkSize asserts toList().size() and count() agree, so each line also pins the equality.
     checkSize(1, () -> gp().V(childId).hasLabel("Child"));
@@ -179,6 +179,13 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     checkSize(1, () -> gn().V(childId).hasLabel("Child"));
     checkSize(0, () -> gn().V(childId).hasLabel("Parent"));
     checkSize(0, () -> gn().V(childId).hasLabel("Grandparent"));
+
+    // Two pinned ids: the count guard must fire for ids.length > 1 too, and the per-element filter
+    // is applied independently to each loaded element. Both children match polymorphically, so
+    // count() and toList().size() agree at 2 (a third Child exists but is unpinned).
+    g().addV("Child").next();
+    checkSize(2, () -> gp().V(childId, secondChild.id()).hasLabel("Parent"));
+    checkSize(2, () -> gn().V(childId, secondChild.id()).hasLabel("Child"));
   }
 
   @Test
@@ -193,6 +200,12 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     final var edge = g().V(from.id()).addE("SubEdge").to(__.V(to.id())).next();
     final var edgeId = edge.id();
 
+    // A second SubEdge between fresh vertices makes the count() path falsifiable: the by-id count
+    // guard (YTDBGraphCountStrategy) must keep the id filter and report 1, not the whole-class 2.
+    final var otherFrom = g().addV("V").next();
+    final var otherTo = g().addV("V").next();
+    g().V(otherFrom.id()).addE("SubEdge").to(__.V(otherTo.id())).next();
+
     // Polymorphic: a SubEdge IS-A SuperEdge, so both the exact and the supertype label match.
     assertEquals(1, gp().E(edgeId).hasLabel("SubEdge").toList().size());
     assertEquals(1, gp().E(edgeId).hasLabel("SuperEdge").toList().size());
@@ -200,6 +213,13 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     // Non-polymorphic: only the exact concrete label matches.
     assertEquals(1, gn().E(edgeId).hasLabel("SubEdge").toList().size());
     assertEquals(0, gn().E(edgeId).hasLabel("SuperEdge").toList().size());
+
+    // The edge count path goes through the same id-drop guard as the vertex path; assert count()
+    // agrees with toList().size() for both the polymorphic and the non-polymorphic edge by-id case.
+    assertEquals(1L, gp().E(edgeId).hasLabel("SuperEdge").count().next().longValue());
+    assertEquals(1, gp().E(edgeId).hasLabel("SuperEdge").toList().size());
+    assertEquals(1L, gn().E(edgeId).hasLabel("SubEdge").count().next().longValue());
+    assertEquals(1, gn().E(edgeId).hasLabel("SubEdge").toList().size());
   }
 
   @Test
@@ -219,6 +239,56 @@ public class YTDBHasLabelProcessTest extends YTDBAbstractGremlinTest {
     // Non-polymorphic: the OR still applies, but only against the exact concrete class name.
     checkSize(1, () -> gn().V(childId).hasLabel("Child", "Parent"));
     checkSize(0, () -> gn().V(childId).hasLabel("Parent", "Grandparent"));
+  }
+
+  @Test
+  public void testByIdHasLabelWithPropertyFilter() {
+    createSimpleHierarchy();
+
+    final var child = g().addV("Child").property("name", "keep").next();
+    final var childId = child.id();
+
+    // On the by-id path, a property has(...) lands in otherContainers (HasContainer.testAll) and the
+    // hasLabel in labelContainers (the polymorphic matcher); the two partitions are ANDed. The
+    // polymorphic label matches the same pinned element either way, so the property filter is what
+    // flips the result: it matches only when the property value agrees.
+    checkSize(1, () -> gp().V(childId).hasLabel("Parent").has("name", "keep"));
+    checkSize(0, () -> gp().V(childId).hasLabel("Parent").has("name", "other"));
+  }
+
+  @Test
+  public void testByIdChainedHasLabelIsConjunction() {
+    createSimpleHierarchy();
+    // Sibling shares the Grandparent supertype with Child but is not on Child's own ancestry chain.
+    g().command("CREATE CLASS Sibling IF NOT EXISTS EXTENDS Grandparent");
+
+    final var child = g().addV("Child").next();
+    final var childId = child.id();
+
+    // Two distinct hasLabel containers on the by-id path are ANDed via allMatch (not OR-collapsed).
+    // A Child IS-A Parent AND IS-A Grandparent polymorphically, so the conjunction matches.
+    checkSize(1, () -> gp().V(childId).hasLabel("Parent").hasLabel("Grandparent"));
+
+    // A Child is not a Sibling, so the second container fails the AND and the element is excluded.
+    // An allMatch->anyMatch (AND->OR) regression would wrongly return 1 here.
+    checkSize(0, () -> gp().V(childId).hasLabel("Parent").hasLabel("Sibling"));
+  }
+
+  @Test
+  public void testByIdHasLabelSiblingClassDoesNotMatch() {
+    createSimpleHierarchy();
+    // Sibling IS-A Grandparent but is not a Parent or a Child; it has a real, non-empty superclass
+    // chain (Grandparent) that the polymorphic matcher walks and must still reject for "Parent".
+    g().command("CREATE CLASS Sibling IF NOT EXISTS EXTENDS Grandparent");
+
+    final var sibling = g().addV("Sibling").next();
+    final var siblingId = sibling.id();
+
+    // The pinned element belongs to an unrelated sibling class; the polymorphic supertype walk
+    // matches its real ancestor but excludes the cousin labels.
+    checkSize(1, () -> gp().V(siblingId).hasLabel("Grandparent"));
+    checkSize(0, () -> gp().V(siblingId).hasLabel("Parent"));
+    checkSize(0, () -> gp().V(siblingId).hasLabel("Child"));
   }
 
   private static void checkSize(int size, Supplier<GraphTraversal<Vertex, Vertex>> query) {

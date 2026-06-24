@@ -118,7 +118,9 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
           getElementsByIds.apply(graph, this.ids),
           element -> HasContainer.testAll(element, otherContainers)
               // AND across distinct hasLabel(...) containers; OR semantics live inside a single
-              // container's predicate (a multi-argument hasLabel("A", "B")).
+              // container's predicate (a multi-argument hasLabel("A", "B")). An empty
+              // labelContainers list is vacuously true here, so a by-id traversal carrying only
+              // property filters (or none) passes the label gate on those filters alone.
               && labelContainers.stream()
                   .allMatch(
                       labelContainer -> YTDBLabelMatcher.matches(
