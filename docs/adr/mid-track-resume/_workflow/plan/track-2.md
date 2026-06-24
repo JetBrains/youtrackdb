@@ -453,3 +453,7 @@ Constraints (hold by construction):
 - This is a §1.7-staged workflow-modifying change: every edit lands under
   `_workflow/staged-workflow/.claude/...` and promotes in Phase 4. No edit touches the
   live `.claude/` tree during this track.
+
+## Base commit
+
+386d0ce17db03c4a4e0a61850c2eb74ef61dc1d4
