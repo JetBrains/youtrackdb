@@ -20,7 +20,7 @@ behavior, plus the wrap fix). Track 2 wires the append sites that activate it.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-06-24T10:20Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-24T11:03Z [ctx=safe] Step 1 complete (commit f20a70b7ef)
@@ -355,6 +355,37 @@ intent requires for the row to stay internally consistent.
 **Key files:**
 - `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/workflow/conventions.md` (new staged copy)
 - `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/workflow/conventions-execution.md` (new staged copy)
+
+### Track completion — 2026-06-24T14:23Z [ctx=info]
+
+Landed the read side of the mid-track-resume fix: the track-scoped `substate`
+ledger key, its `--substate` append flag (bare-token-validated), the
+`ledger_tail_value_for_track` reader, the ledger-first read in
+`determine_state_from_ledger`'s `phase=C` arm, and the YTDB-1134 `roster_scan`
+wrap fix — all in the staged precheck script and its 12 new tests, plus the
+`conventions.md`/`conventions-execution.md` glossary documentation. The primitive
+lands **dormant**: with no append site wired, every `substate` read is empty and
+resolution falls back to the wrap-fixed roster (pre-change behavior plus the wrap
+fix), so the track is independently mergeable.
+
+Phase C (track-level review) converged at iteration 1. The decisive catch was a
+**cross-step interaction** invisible to per-step review: Step 2 staging
+`conventions.md` silently moved where the test suite's `_resolve_live_repo_root()`
+anchored, breaking a Step 1 test from the staged location (the suite was 114/115).
+The fix anchors the walk past the `staged-workflow` mirror to the real repo root;
+the staged suite is back to 115/115. Two stale "track file owns the within-track
+sub-state" comments (left unflipped while the parallel `conventions.md` clause was
+flipped) were corrected to the ledger-first contract.
+
+Cross-track carry-overs for Track 2 (the append side): (1) Track 2's edit to
+`track-review.md` will be read staged-first by `test_track_review_step6_carries_ac_ledger_append`
+once it stages a modified copy; (2) a deferred suggestion (WI2) to weigh a
+defensive enum-membership guard when wiring the `--substate` appends, since the
+read side emits any slug and the append validates only bare-token-ness. A Phase 4
+item (WI3): reconcile the frozen `design.md` resolution-flow diagram order against
+the ledger-first implementation in `design-final.md`.
+
+2 steps, 0 failed.
 
 ## Validation and Acceptance
 

@@ -54,15 +54,20 @@ flowchart LR
   key, `substate`, the data contract both tracks share.
 
 ## Checklist
-- [ ] Track 1: Ledger `substate` primitive, dual-path resolution, wrap-fix, tests, grammar
+- [x] Track 1: Ledger `substate` primitive, dual-path resolution, wrap-fix, tests, grammar
   > Land the read side of the fix: the `substate` ledger key and its track-scoped
   > reader, the dual-path resolution in the precheck that prefers the ledger and
   > falls back to a wrap-fixed roster parse, and the full test surface. This track
   > also delivers the literal YTDB-1134 fix (the wrap-tolerant roster) and lands
   > the ledger primitive dormant — it is correct and mergeable with no append site
   > wired yet, because an empty `substate` read routes to the fallback.
-  > **Scope:** ~4 files covering the precheck script, its test suite, the
-  > `conventions.md` Phase-ledger glossary, and `conventions-execution.md §2.1`.
+  >
+  > **Track episode:** Read-side `substate` primitive + YTDB-1134 wrap fix landed
+  > dormant (12 tests); Phase C fixed 1 blocker (staged-suite repo-root anchor) +
+  > 2 stale comments at iteration 1. — see `plan/track-1.md` `## Episodes`
+  > § Track completion. (2 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-1.md`
 
 - [ ] Track 2: Wire the `substate` append sites across the resume protocol
   > Activate the primitive: add a `--substate` append at each of the four
