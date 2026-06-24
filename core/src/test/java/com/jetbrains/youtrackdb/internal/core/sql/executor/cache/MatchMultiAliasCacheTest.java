@@ -176,12 +176,14 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
     session.begin();
     snapshot(session.query(sql)); // populate (cache on) or plain execution (cache off)
     var cache = cacheEnabled ? tx().getQueryResultCache() : null;
-    long invalidationsBefore = cache == null ? 0 : cache.getMetrics().getK0Invalidations();
+    long invalidationsBefore = cache == null ? 0 : (cache.getMetrics().getMatchMultiInvalidations()
+        + cache.getMetrics().getK0Invalidations());
     long hitsBefore = cache == null ? 0 : cache.getMetrics().getHits();
     mutation.run();
     var rows = snapshot(session.query(sql)); // gate-served view (on) or fresh (off)
     long invalidationDelta =
-        cache == null ? 0 : cache.getMetrics().getK0Invalidations() - invalidationsBefore;
+        cache == null ? 0 : (cache.getMetrics().getMatchMultiInvalidations()
+            + cache.getMetrics().getK0Invalidations()) - invalidationsBefore;
     long hitDelta = cache == null ? 0 : cache.getMetrics().getHits() - hitsBefore;
     session.rollback();
     return new ScenarioResult(rows, invalidationDelta, hitDelta);
@@ -391,12 +393,11 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
    * {@code MmPerson} via an unused property, so the RETURN result is unchanged but the gate still
    * fires) and re-queries. Once the threshold is reached the key is bypassed, so a further cycle counts
    * no additional invalidation: total invalidations equal the threshold even though more cycles run.
-   * This also pins the shared {@code k0Strikes} machinery for the MATCH shape.
    */
   @Test
   public void repeatedPatternMutation_routesKeyNonCacheableAtStrikeThreshold() {
     int threshold =
-        GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD
             .getValueAsInteger();
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
     seedGraph();
@@ -406,7 +407,7 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
     try {
       snapshot(session.query(matchSql())); // populate
       var metrics = tx().getQueryResultCache().getMetrics();
-      long invalidationsBefore = metrics.getK0Invalidations();
+      long invalidationsBefore = metrics.getMatchMultiInvalidations();
       for (var cycle = 0; cycle < threshold + 1; cycle++) {
         // Touch every MmPerson with an unused property: a pattern-class mutation that does not change
         // the projected RETURN tuples, so the gate fires on class membership alone.
@@ -415,7 +416,7 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
       }
       assertEquals(
           "invalidations must stop once the key is routed non-cacheable at the strike threshold",
-          threshold, metrics.getK0Invalidations() - invalidationsBefore);
+          threshold, metrics.getMatchMultiInvalidations() - invalidationsBefore);
     } finally {
       session.rollback();
     }
@@ -435,9 +436,9 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
   @Test
   public void repeatedPatternMutation_thresholdCrossingQueryReturnsFullResultNotEmpty() {
     var prevThreshold =
-        GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD
             .getValueAsInteger();
-    GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD.setValue(2);
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD.setValue(2);
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
     seedGraph();
     GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
@@ -462,7 +463,7 @@ public class MatchMultiAliasCacheTest extends DbTestBase {
 
       session.rollback();
     } finally {
-      GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+      GlobalConfiguration.QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD
           .setValue(prevThreshold);
     }
   }
