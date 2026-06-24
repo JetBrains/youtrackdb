@@ -16,7 +16,7 @@ dropping the id. Extend `YTDBHasLabelProcessTest` with the count-honors-id, edge
 by-id, and multi-argument by-id scenarios alongside the four existing (uncommitted, working-tree) methods.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-06-24T15:15Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
@@ -35,6 +35,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+- [x] Technical: PASS at iteration 1 (3 findings: 1 should-fix, 2 suggestions; all accepted and folded into Plan of Work / Concrete Steps). Track classified Simple (1 step), so Risk and Adversarial reviews were skipped per the complexity table.
 
 ## Context and Orientation
 
@@ -107,10 +108,40 @@ Invariants to preserve: non-polymorphic queries keep exact matching; the class-s
 branch is unchanged; `checkSize`'s `toList == count` equality holds on multi-vertex
 data.
 
+### Step sequencing summary (Phase A)
+
+The track decomposes to a single MEDIUM step (Concrete Step 1) covering the whole
+~5-file change in one commit. The five sub-actions above run in the listed order
+within that commit; the matcher and its two call sites land before or with the count
+guard, so the fix-order constraint holds by construction.
+
+### Implementer notes from Phase A technical review
+
+- **T1 (should-fix) — predicate cast.** `HasContainer.getPredicate()` returns `P<?>`,
+  not `P<? super String>`. The by-id branch must pass each label container's predicate
+  into the matcher's `List<P<? super String>>` via an unchecked cast, exactly as the
+  existing fold site does at `YTDBGraphStepStrategy.java:137`
+  (`(P<? super String>) hc.getPredicate()`). Expect and suppress the unchecked-cast
+  warning the same way; do not change the matcher signature to dodge it.
+- **T2 (suggestion) — AND across containers.** Call the matcher once per label
+  container and AND the results (`labelContainers.stream().allMatch(...)`). Do not
+  collapse multiple label containers into a single OR-list — that would turn
+  `hasLabel("A").hasLabel("B")` (AND) into a union. The OR semantics live only
+  *within* one container's predicate list (a single multi-arg `hasLabel("A","B")`).
+- **T3 (suggestion) — leave `createClassIterator` alone.** `YTDBGraphStep.createClassIterator`
+  also reads `~label` containers, but it discriminates on the `YTDBSchemaClass.LABEL`
+  sentinel *value*, not the key, and serves the schema-class meta path. It is out of
+  scope and must stay unchanged; the by-id partition keys on the label accessor and
+  does not interfere with it.
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered
-roster here: one entry per step with description, `risk:` tag, an
-optional `size:` clause, and a `[ ]` status checkbox. -->
+1. Fix by-id `hasLabel` polymorphism and the count id-drop: add `YTDBLabelMatcher`, route `YTDBHasLabelStep.filter` and `YTDBGraphStep`'s by-id branch through it, add the `getIds().length == 0` guard to `YTDBGraphCountStrategy`'s label-filter branch, and extend `YTDBHasLabelProcessTest` (count-honors-id, edge by-id, multi-arg by-id) while keeping the four existing methods. See `## Plan of Work` for the T1/T2/T3 implementer notes. — risk: medium (multi-file logic changing observable Gremlin label-matching behavior; well test-covered)  [ ]
+
+<!-- Single-step track: the whole ~5-file change is one coherent commit, well
+under the ~12 fill target, so no `— size:` under-fill clause applies (nothing
+left to merge — the step is the complete track). Bug 1 (by-id matcher) and Bug 2
+(count guard) land in this one commit, so the guard never precedes the matcher
+(design.md §"Bug 2", fix-order constraint). -->
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per
@@ -141,8 +172,15 @@ Behavioral acceptance criteria for the track:
 verbatim as test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery
-paths once steps are decomposed. -->
+
+Step 1 is a single self-contained commit. Recovery on a failed implementation
+attempt is `git reset --hard HEAD` back to the Phase A commit (the decomposition is
+already committed, so the reset preserves it). The change is purely additive plus
+in-place edits to four existing files and one new file; re-running the step from the
+clean base reproduces the same result. Verification is the `YTDBHasLabelProcessTest`
+suite run via `surefire:test@sequential-tests -Dtest=YTDBProcessTest
+-Dgremlin.tests=...YTDBHasLabelProcessTest` (after `test-compile`); a green run plus
+the `checkSize` `toList == count` equality is the acceptance signal.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Cross-step artifact references that don't
