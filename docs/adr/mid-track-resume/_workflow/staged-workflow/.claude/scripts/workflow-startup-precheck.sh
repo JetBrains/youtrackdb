@@ -76,7 +76,9 @@
 #     mid-flight tier or phase change is recorded by APPENDING a new line rather
 #     than rewriting an old one. `phase` and `track` feed determine_state's
 #     two-level resume (the ledger owns the top-level phase and the active
-#     track; the track file's `## Progress` owns the within-track sub-state).
+#     track; the within-track sub-state is read ledger-first from the
+#     track-scoped `substate` key, falling back to the track file's
+#     `## Progress`/`## Concrete Steps`).
 #   * The append is atomic via temp-file-plus-rename: the new line is written to
 #     a sibling temp file holding `(old contents)+(new line)`, then `mv`'d over
 #     the ledger. A crash mid-write leaves either the prior ledger or the
@@ -1956,8 +1958,9 @@ determine_state_from_ledger() {
       return 0
       ;;
     C)
-      # Execution resume: the ledger owns the active track, the track file owns
-      # the within-track sub-state. Default the active track to 1 for the
+      # Execution resume: the ledger owns the active track and, ledger-first,
+      # the within-track sub-state, with the track file as the fallback source.
+      # Default the active track to 1 for the
       # single-track `minimal` tier whose ledger names no track (D10).
       ledger_tail_value "track"
       track="$LEDGER_VALUE"

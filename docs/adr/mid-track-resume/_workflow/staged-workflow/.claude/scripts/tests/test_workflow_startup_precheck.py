@@ -54,21 +54,29 @@ SCRIPT_PATH = REPO_ROOT / ".claude" / "scripts" / "workflow-startup-precheck.sh"
 
 
 def _resolve_live_repo_root() -> Path:
-    """Walk up from this test file to the first ancestor that holds
-    `.claude/workflow/conventions.md`, returning that ancestor.
+    """Walk up from this test file to the first ancestor *outside the staged
+    mirror* that holds `.claude/workflow/conventions.md`, returning that ancestor.
 
     When this suite runs from its normal home (`.claude/scripts/tests/`),
     `REPO_ROOT` (parents[3]) already holds `.claude/workflow/conventions.md`, so
     this returns the same dir. When the suite runs from the branch-local STAGED
     mirror (`docs/adr/<dir>/_workflow/staged-workflow/.claude/scripts/tests/`),
-    `REPO_ROOT` is the staged-workflow root, which carries the staged script but
-    not (in this step) `conventions.md`. The walk continues up to the real repo
-    root so the § 1.6(h) conformance byte-source resolves against the live
-    `conventions.md` while `SCRIPT_PATH` still points at the co-located (staged)
-    script. The fallback to `REPO_ROOT` keeps the suite's behavior unchanged on a
-    checkout that has no conventions.md anywhere above (the assertion in the
-    conformance test then surfaces the missing byte-source clearly)."""
+    `REPO_ROOT` is the staged-workflow root. That root may itself carry a staged
+    `.claude/workflow/conventions.md` (a branch that staged conventions.md), so a
+    naive walk would stop there and resolve live-file anchors inside the staged
+    mirror — the conformance byte-source and the `track-review.md` fallback would
+    point at the staged subtree, where `track-review.md` need not exist. To avoid
+    that, the walk skips any ancestor whose path contains the `staged-workflow`
+    segment, so it always passes the staged mirror and reaches the real repo root
+    holding the live `.claude/workflow/conventions.md`. The § 1.6(h) conformance
+    byte-source then resolves against the live `conventions.md` while
+    `SCRIPT_PATH` still points at the co-located (staged) script. The fallback to
+    `REPO_ROOT` keeps the suite's behavior unchanged on a checkout that has no
+    conventions.md anywhere above (the assertion in the conformance test then
+    surfaces the missing byte-source clearly)."""
     for parent in Path(__file__).resolve().parents:
+        if "staged-workflow" in parent.parts:
+            continue
         if (parent / ".claude" / "workflow" / "conventions.md").is_file():
             return parent
     return REPO_ROOT
