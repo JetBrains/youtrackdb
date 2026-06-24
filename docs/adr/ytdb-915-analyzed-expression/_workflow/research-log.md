@@ -229,6 +229,197 @@ transform pass — a pass needing special handling for the new variant fails
 silently (default-recurses) rather than at compile time. Make the audit part of
 the variant-addition checklist.
 
+### D5-R — `NumericOps` extraction is whole-enum lift-and-shift (2026-06-24, settled with user) [ctx=safe]
+
+Supersedes the extraction-boundary half of D5. All 12 `SQLMathExpression.Operator`
+constants' promotion logic — typed-pair `apply(...)` overloads, the shared
+`apply(Number, Operator, Number)` widening, per-operator null / Date+Long /
+String-concat handling, and the `toLong` helper — moves to `final class NumericOps`
+in `core/.../sql/util/`. `SQLMathExpression.Operator.apply(...)` becomes a thin
+delegator into `NumericOps`. The `core/.../query/analyzed/` evaluator delegates to
+the same `NumericOps` for `+ - * /`.
+
+**Why:** a clean single-home boundary beats a partial extraction whose shared
+widening helper still straddles two classes. With all promotion logic in one place,
+AST/IR drift is structurally impossible (the original D5 rationale) and there is no
+ambiguous "who owns the shared helper" seam. The larger diff is acceptable because
+every existing AST math test is the acceptance gate — a lift-and-shift that keeps
+all math tests green is self-verifying.
+
+**Alternatives rejected:** narrow extraction of only `+ - * /` (leaves the shared
+widening helper split across `NumericOps` and `Operator`, an unclean seam);
+deferring the boundary to Phase A (the boundary is now understood, no reason to
+defer). Both were on the table at re-validation; the user chose whole-enum.
+
+**Risks/Caveats:** larger blast radius on `SQLMathExpression` than the narrow option
+— the regression surface is the full existing math-test suite, which must stay green
+after the delegation. The 8 operators outside the S0 IR subset (`REM`, shifts,
+bitwise, `NULL_COALESCING`) get extracted but have no S0 IR consumer; that is
+intended (they keep working through the AST delegator).
+
+### Covered-subset wording correction (2026-06-24, settled) [ctx=safe]
+
+Drop "unary minus" from the S0 covered subset. No general unary-minus AST node
+exists (only a parse-time `sign` flag on numeric literals → negative `Const`), so
+the lowering pass never produces `UnaryOp(MINUS)`. `UnaryOp` stays in the IR,
+justified by boolean `NOT` (`SQLNotBlock`) alone. The YTDB-915 issue body (which
+lists both `Cast` and unary minus) needs an edit to match S0 delivery — carried as
+an open item, same as the D4 `Cast` issue-body edit.
+
+### D10 — `SQLParenthesisExpression`: recurse on `expression`, throw on `statement`/CASE (2026-06-24, gate iter1 A1) [ctx=safe]
+
+A parenthesized arithmetic expression `(a + b) * c` is in the S0 covered subset.
+`SQLParenthesisExpression` carries two mutually-exclusive payloads
+(`SQLParenthesisExpression.java:38-72`): `expression` (a parenthesized
+`SQLExpression`, pure grouping — `execute` delegates straight to
+`expression.execute`) and `statement` (a subquery). The lowerer lowers the grouping
+form by recursing (`lower(expression)`) — parentheses affect nesting, which the IR
+tree already expresses, so no `Paren` IR variant is needed. Only `statement != null`
+and `CaseExpression` throw `UnsupportedAnalyzedNodeException`.
+
+**Why:** parentheses are the user's precedence-override mechanism; classing every
+`ParenthesisExpression` as a throw-case (the original re-validation wording) makes I1
+unsatisfiable on `(a + b) * c`, the most common precedence-override input. The
+grouping wrapper is transparent at evaluate time, so recursing reproduces the AST
+exactly.
+
+**Alternatives rejected:** a dedicated `Paren` IR variant (the IR tree's nesting
+already encodes grouping — a paren node would be redundant and the optimizer would
+have to strip it); throwing on all parens (breaks I1 — the blocker that surfaced
+this).
+
+**Implemented in:** the lowering track. **I1 test obligation:** add `(a + b) * c`
+and `a * (b + c)` round-trip cases.
+
+### D11 — IR comparison evaluator replicates `SQLBinaryCondition.evaluate` (collate + parser-operator), not bare statics (2026-06-24, gate iter1 A2/A3) [ctx=safe]
+
+The IR comparison evaluator reproduces `SQLBinaryCondition.evaluate(Result, ctx)`'s
+exact sequence: fetch `collate = left.getCollate(...)` (fallback
+`right.getCollate(...)`), and when non-null apply `collate.transform(...)` to both
+operands; then delegate to the **parser `SQLBinaryCompareOperator` instance's**
+`execute(session, l, r)` — the same operator object the AST holds — rather than
+calling `QueryOperatorEquals.equals` / `SQLBinaryCompareOperator.doCompare`
+statically.
+
+**Why:** two parity gaps in the "comparison parity is structural" claim. (1)
+Collation: the AST transforms both operands through the property's `Collate` before
+comparing, so `name = 'Foo'` against a `ci`-collated `name` returns `true` in the AST
+but `false` for a raw static `equals`. (2) Session threading: `SQLEqualsOperator`
+passes the real session to `QueryOperatorEquals.equals` while `SQLNeOperator` passes
+`null`, which changes `PropertyTypeInternal.convert` behavior for type-coercing
+comparisons. Delegating to the parser operator instance runs the AST's exact code,
+so both nuances are reproduced by construction — parity becomes genuinely
+structural. Note D3's single-`Result`-overload choice is reinforced here: the
+`Identifiable` AST overload deliberately skips collation, so the IR must follow the
+`Result` overload (the collation-applying path the executor uses).
+
+**Alternatives rejected:** bare static `QueryOperatorEquals.equals` + `doCompare`
+(drops collation and the NE null-session nuance — the blocker/should-fix that
+surfaced this); excluding collated columns from the subset (collation is a per-property
+attribute, not syntactic, so it cannot be excluded at the expression level).
+
+**Precision note (gate iter2 A10):** collation parity comes from the explicit
+`getCollate` + `transform` step, and the parser-operator delegation reproduces the
+session threading and the operator's compare semantics — they are two distinct
+mechanisms, both required. `SQLBinaryCondition.evaluate(Result, ctx)` also has an
+in-place comparison fast path (`tryInPlaceComparison`); it is parity-equivalent
+(returns `null` / falls back to the collation-applying slow path), so the **slow
+path is the parity reference** the IR evaluator and the I1 tests target.
+
+**Implemented in:** the evaluator track. **I1 test obligation:** add a collated-column
+comparison case (`ci` string property, mixed-case literal) and a type-coercing NE case.
+
+### D12 — Precedence fold: lowerer builds nested `BinaryOp` by structural precedence-climbing; value semantics come from shared `NumericOps` (2026-06-24, gate iter1 A5) [ctx=safe]
+
+The lowerer converts the flat `SQLMathExpression` (`childExpressions` + `operators`)
+into a nested `BinaryOp` IR tree by a **structural** precedence-and-associativity
+fold (standard precedence-climbing keyed on `Operator.getPriority()` with `<=`
+left-associative reduction, matching the AST's `iterateOnPriorities`). The AST's
+own fold (`calculateWithOpPriority` / `iterateOnPriorities`) is **left untouched**.
+
+**Why:** two folds is the drift surface D5/D5-R eliminated for promotion, so the
+gate (A5) rightly asked whether to share one fold. But the share-the-fold options
+penalize the live path: the AST fold is the **hot** math-eval path
+(`iterateOnPriorities` drives it), while the IR fold is **cold** in S0 (no IR
+consumer until S1). Extracting a generic fold parameterized by a combiner
+(`apply` for eval, `new BinaryOp` for lowering) would inject a functional-interface
+call into the hot AST eval loop — bimorphic across two call sites, likely not
+inlined — which runs directly against the codebase's monomorphic-dispatch grain
+(the same grain D1/D2 cite). Crucially, the fold the lowerer reimplements is
+**purely structural** (it determines nesting only); all *value* semantics — null
+sentinel, numeric promotion, Date+Long, String-concat — come from the shared
+`NumericOps` (D5-R) at evaluate time. So the duplicated logic is just
+precedence+associativity nesting (textbook, low-risk), not the value engine, and
+the genuine drift surface (promotion) stays single-homed.
+
+**Alternatives rejected:** generic shared fold with a combiner lambda (hot-path
+virtual-call cost on the live AST eval path, contra the perf lens); a flat
+`childExpressions`-mirror IR node sharing the fold at evaluate time (defeats the
+nested-tree IR the S3+ optimizer rewrites need).
+
+**Implemented in:** the lowering track. **I1 test obligation:** a precedence-mixing
+parity matrix — `a+b*c`, `a*b+c`, `a-b-c`, `a-b+c`, `a/b/c`, `a-b*c+d`, plus the
+parenthesized D10 cases — asserting the lowered tree evaluates `Objects.equals` to
+the AST.
+
+### D13 — Track decomposition resolved: four tracks, lowering track absorbs paren/collate/precedence coverage (2026-06-24, gate iter1 A4 / resolves OQ6) [ctx=safe]
+
+The S0 work decomposes into four tracks, dependency-ordered:
+
+- **T1 — substrate + framework:** `AnalyzedExpr` sealed IR (5 variants), the
+  `AnalyzedExprVisitor<T>` + static `dispatch`, `AnalyzedExprTransform` +
+  `transformChildren`, and `UnsupportedAnalyzedNodeException`. New package
+  `core/.../query/analyzed/`. No dependencies.
+- **T2 — `NumericOps` whole-enum extraction (D5-R):** new `core/.../sql/util/NumericOps.java`;
+  `SQLMathExpression.Operator.apply` becomes a thin delegator. Acceptance gate = the
+  existing math-test suite stays green. Independent of T1 (touches the AST side only).
+- **T3 — lowering pass:** `SQLExpression`/`SQLMathExpression`/`SQLBooleanExpression`
+  → `AnalyzedExpr`, including the D10 parenthesis recursion and the D12 structural
+  precedence fold. Depends on T1 (needs the IR types).
+- **T4 — evaluator + round-trip parity:** the `AnalyzedExprVisitor`-based evaluator
+  (D11 comparison reuse, `NumericOps` for arithmetic) and the I1 round-trip test
+  suite (D10/D11/D12 test obligations). Depends on T1, T2 (NumericOps), and T3
+  (lowering, to produce trees to evaluate).
+
+**Why:** the boundaries follow the natural artifact seams (types / shared util /
+lowering / evaluation+tests) and keep each track independently reviewable. The
+lowering track (T3) is heavier than the prior sketch — it owns the parenthesis
+recursion (D10) and the structural precedence fold (D12) — so its scope indicator
+must say so; the `NumericOps` track (T2) is the whole-enum lift-and-shift (D5-R),
+larger than the prior narrow sketch. Final step-level sizing is deferred to Phase A
+as usual, but the track shape and scope are fixed here.
+
+**Alternatives rejected:** folding T2 into T3 (couples an AST-side refactor with the
+new IR lowering — separately reviewable, separately mergeable, so keep apart);
+folding T4's evaluator into T3 (lowering and evaluation are distinct visitor
+implementations with distinct review surfaces; the round-trip suite is the T4
+deliverable that needs both).
+
+**Implemented in:** governs the Phase-1 track files.
+
+### D14 — Lowerer field-walk is exhaustive-or-throw; `value` field flagged for Phase-A PSI (2026-06-24, gate iter1 A6) [ctx=safe]
+
+The lowerer's `SQLExpression` field-walk dispatches on the recognized in-subset
+fields and throws `UnsupportedAnalyzedNodeException` on **anything else**, so I2
+(no silent fallback; a successful `lower` means full coverage) holds by construction
+regardless of which fields a future parser change adds. The inherited `SimpleNode.value`
+field and the "old executor" fallback chain in `SQLExpression.execute`
+(`SQLExpression.java:99-119`, commented "only for old executor (manually replaced
+params)") are flagged for **Phase-A PSI verification**: confirm whether `value` is
+ever non-null on the modern parser path. If dead on the modern path, the field-walk
+may ignore it; if reachable, the exhaustive-or-throw default already makes lowering
+throw rather than mis-read.
+
+**Why:** the original field enumeration omitted `value`; asserting field-walk
+completeness over an incomplete inventory is unsound. Defaulting to throw-on-unknown
+makes I2 robust to the inventory gap, and the explicit Phase-A check closes it.
+
+**Alternatives rejected:** enumerate-and-assume-complete (unsound — the surfaced
+`value` gap is the counterexample); handle `value` speculatively now (premature —
+verify reachability first).
+
+**Implemented in:** the lowering track + a Phase-A verification note.
+
 ### Invariants to preserve (I1–I3)
 
 - **I1 — Round-trip parity.** For every SQL fragment in the S0 covered subset,
@@ -306,6 +497,95 @@ throws — see Open Questions).
   `core/.../sql/util/` (the `NumericOps` home). The substrate was never built on
   this branch — it sits exactly at develop's tip with no commits of its own.
 
+### Re-validation against develop 6dba771b5c (2026-06-24, PSI/grep pass) [ctx=safe]
+
+Findings from re-verifying the stale anchors before re-authoring the design. The
+carried D-decisions D1–D4, D6–D9 and invariants I1–I3 survive; D5's scope and the
+covered-subset wording need revision (see Open Questions and the revised entries).
+
+- **`SQLMathExpression.Operator` now has 12 constants, not 4:** `STAR(10)`,
+  `SLASH(10)`, `REM(10)`, `PLUS(20)`, `MINUS(20)`, `LSHIFT(30)`, `RSHIFT(30)`,
+  `RUNSIGNEDSHIFT(30)`, `BIT_AND(40)`, `XOR(50)`, `BIT_OR(60)`, `NULL_COALESCING(25)`.
+  The numeric arg is the precedence priority (lower binds tighter). S0's lowering
+  subset is still only `+ - * /`; the other 8 are out of subset (lower → throw).
+  This widens D5's `NumericOps` extraction surface — see the revised D5 note.
+- **`SQLMathExpression` is an n-ary FLAT list, not a binary tree.** Fields
+  `childExpressions: List<SQLMathExpression>` + `operators: List<Operator>`. The
+  grammar rule `MathExpression()` (`YouTrackDBSql.jjt:2273`) collects ALL operators
+  of mixed precedence into one flat list at one nesting level
+  (`FirstLevelExpression() ( <op> FirstLevelExpression() )*`), then
+  `unwrapIfNeeded()` collapses a single-child node to its child. **Precedence is
+  resolved at execute time**, not parse time, by a shunting-yard fold
+  (`calculateWithOpPriority` → `iterateOnPriorities`, using `Operator.getPriority()`
+  and `<=` left-assoc reduction). **Lowering implication:** the lowerer must
+  replicate this precedence fold to build a correctly-nested `BinaryOp` IR tree, or
+  round-trip parity (I1) breaks on any expression mixing precedence levels
+  (`a + b * c`). The prior design treated math as already-binary; it is not. This
+  is the heaviest re-validation finding and reshapes the lowering track.
+- **No general unary-minus AST node exists.** Unary minus is only a parse-time
+  `sign = -1` flag on numeric literals (`YouTrackDBSql.jjt:941,956`), folded into
+  the `SQLNumber` value. There is no `-expr` node for non-literals. So lowering
+  never emits a `UnaryOp(MINUS)`; negative literals lower to a negative `Const`.
+  The covered-subset phrase "unary minus" (issue + prior scope) is therefore
+  vacuous on the lowering side — `UnaryOp` is justified by boolean `NOT` alone.
+  (Resolves Open Question 1.)
+- **Boolean NOT node is `SQLNotBlock`, not the stale `SQLNegateCondition`** (which
+  does not exist on develop). `SQLNotBlock extends SQLBooleanExpression` carries
+  `sub: SQLBooleanExpression` + `negate: boolean`; `negate=false` is a pass-through.
+  Lowering maps `SQLNotBlock(negate=true, sub)` → `UnaryOp(NOT, lower(sub))`.
+- **`SQLExpression` union is wider than the log recorded.** Current non-null-one-of
+  fields: `rid` (SQLRid), `mathExpression`, `arrayConcatExpression` (SQLArrayConcat),
+  `json` (SQLJson), `booleanExpression`, `booleanValue`, `literalValue`, `isNull`,
+  plus `singleQuotes`/`doubleQuotes` flags. The S0 subset still covers only
+  `mathExpression` / `booleanExpression` / `literalValue` / `booleanValue` / `isNull`;
+  the lowerer's field-walk must throw `UnsupportedAnalyzedNodeException` on `rid`,
+  `arrayConcatExpression`, and `json` (out of subset). Confirms I2 (no silent
+  fallback) matters here.
+- **`SQLBaseExpression` (a `SQLMathExpression`) leaf shape:** one of `number`
+  (SQLNumber → `Const`), `identifier` (SQLBaseIdentifier) + optional `modifier`
+  (bare → `Var`; with modifier → method-call `FuncCall`), `inputParam`
+  (InputParameter → bind param, S0 throws), `string`/CHARACTER_LITERAL + optional
+  modifier (→ `Const`, or method-call `FuncCall`). **`SQLParenthesisExpression`
+  has two mutually-exclusive payloads** (`SQLParenthesisExpression.java:38-72`):
+  `expression != null` is a transparent arithmetic grouping wrapper whose
+  `execute` delegates to `expression.execute(...)` — it is **in-subset** and the
+  lowerer must recurse (`lower(expression)`), not throw (see D10); only
+  `statement != null` (a subquery) and `CaseExpression` (CASE WHEN) are out of S0
+  scope (throw). Function calls proper are `SQLFunctionCall` (`name: SQLIdentifier`,
+  `params: List<SQLExpression>`).
+- **Comparison shape + reuse point (refines the QueryOperatorEquals note).**
+  Comparisons are `SQLBinaryCondition extends SQLBooleanExpression`
+  (`left: SQLExpression`, `operator: SQLBinaryCompareOperator`, `right: SQLExpression`).
+  `evaluate` calls `operator.execute(session, leftVal, rightVal)`. The six S0
+  operators: `SQLEqualsOperator` (=), `SQLNeOperator`/`SQLNeqOperator` (!=, <>),
+  `SQLLtOperator` (<), `SQLLeOperator` (<=), `SQLGtOperator` (>), `SQLGeOperator` (>=).
+  `SQLEqualsOperator.execute` → `QueryOperatorEquals.equals(session, l, r)`;
+  `SQLNeOperator` → the negation **with a `null` session** (`SQLNeOperator.java:23`,
+  vs `SQLEqualsOperator.java:27` which passes the real session); the ordering
+  operators → `SQLBinaryCompareOperator.doCompare(l, r)` compared to 0.
+  **Comparison parity is NOT structural via the bare static methods** — two
+  corrections (see D11): (1) `SQLBinaryCondition.evaluate(Result, ctx)`
+  (`SQLBinaryCondition.java:99-109`) first fetches `collate = left.getCollate(...)`
+  (falling back to `right.getCollate(...)`) and, when non-null, applies
+  `collate.transform(...)` to **both** operands before `operator.execute` — so a
+  comparison against a collated column (e.g. a case-insensitive `ci` string
+  property) diverges unless the IR evaluator replicates the collate transform; and
+  (2) EQ and NE thread the session differently (real vs `null`), so calling one
+  shared `QueryOperatorEquals.equals(session, ...)` for both drifts from the AST on
+  NE. The fix (D11): the IR comparison evaluator replicates the exact
+  `SQLBinaryCondition.evaluate` sequence — fetch collate, transform both operands,
+  then delegate to the **parser `operator` instance's** `execute(session, l, r)`,
+  not the bare static method. This makes comparison parity genuinely structural
+  (it runs the same code the AST runs) and subsumes the EQ/NE session nuance and
+  the ordering `doCompare`-vs-0 mapping.
+- **`SQLBaseIdentifier` shape confirmed:** `levelZero: SQLLevelZeroIdentifier` |
+  `suffix: SQLSuffixIdentifier` (one non-null). The `identifierToPath` flattening
+  (D6) walks whichever is set; the exact `SQLSuffixIdentifier` suffix-chain shape is
+  a lowering-design detail to nail in Phase A.
+- **D3 dual-overload premise holds:** `SQLMathExpression`/`SQLExpression` carry both
+  `execute(Identifiable, ctx)` and `execute(Result, ctx)`; the IR evaluator's single
+  `(Result, ctx)` overload is still the right call.
+
 ## Open Questions
 
 1. **Unary-minus AST node (math side).** The prior research found
@@ -330,8 +610,82 @@ throws — see Open Questions).
    evaluator + round-trip, with the T1→T3/T4 and T2→T4 dependency edges) and the
    slice boundaries against the present SQL layer before committing to a plan.
 
+### Re-validation update (2026-06-24) [ctx=safe]
+
+- **OQ1 (unary-minus node) — RESOLVED.** No general unary-minus node; only a
+  parse-time `sign` flag on numeric literals. Lowering emits negative `Const`, never
+  `UnaryOp(MINUS)`. Drop "unary minus" from the covered-subset wording; keep
+  `UnaryOp` for boolean `NOT` (`SQLNotBlock`).
+- **OQ4/OQ5 (stale anchors, Cast) — RESOLVED.** AST shapes re-verified (see
+  Re-validation block above). `Cast` confirmed absent from grammar; D4 holds; the
+  YTDB-915 issue body still lists `Cast` and needs an edit to match S0 delivery.
+- **OQ3 (`NumericOps` delegation shape) — REFRAMED + ESCALATED.** The enum now has
+  12 operators sharing one widening helper `apply(Number, Operator, Number)`. New
+  question: does S0 extract only the `+ - * /` promotion logic (the IR subset) or
+  the whole 12-operator surface, and where is the extraction boundary given the
+  shared widening helper all 12 use? See revised D5 below. JMH/fast-path question is
+  secondary to this boundary question.
+- **OQ2 (bind parameters) — still open**, unchanged: S0 throws at the
+  `inputParam` leaf; future-slice lowering shape (dedicated `Param` vs evaluate-time
+  threading) deferred.
+- **OQ6 (track decomposition) — needs re-discussion at planning.** The four-track
+  shape is plausible, but the lowering track (T3) is heavier than assumed (it must
+  carry the precedence fold), and the `NumericOps` track (T2) scope depends on the
+  D5 boundary decision. Revisit track sizing once D5 is settled.
+
+### Revised D5 (proposed 2026-06-24, pending user confirmation) [ctx=safe]
+
+D5 carried "extract the numeric-promotion hierarchy out of
+`SQLMathExpression.Operator` into `NumericOps`". The 12-operator reality makes the
+extraction boundary a live decision:
+
+- **Option A (narrow):** extract only the `+ - * /` promotion paths the IR evaluator
+  needs, plus the shared `apply(Number, Operator, Number)` widening they invoke.
+  Smallest surface, smallest parity risk, but the widening helper is shared with the
+  other 8 operators, so the extraction boundary is not clean (either move the shared
+  helper too and have `SQLMathExpression.Operator` delegate back, or duplicate it).
+- **Option B (whole-enum lift-and-shift):** move all 12 operators' promotion logic to
+  `NumericOps`; `SQLMathExpression.Operator.apply` becomes a thin delegator. Clean
+  boundary, larger diff, every existing math test is the acceptance gate.
+
+**Why this matters:** the only S0 *consumer* is the IR evaluator over `+ - * /`. D5's
+original rationale (avoid AST/IR drift) only requires the four operators the IR uses.
+Whole-enum extraction is a cleaner boundary but a bigger, riskier change with no S0
+consumer for the extra 8 operators. Recommend Option A unless the user wants the full
+lift-and-shift now. Decision pending.
+
+### Gate iteration-1 resolutions (2026-06-24) [ctx=safe]
+
+- **OQ3 (NumericOps shape) — SETTLED:** user chose whole-enum lift-and-shift (D5-R).
+  The "Recommend Option A" line above is superseded by D5-R.
+- **OQ6 (track decomposition) — RESOLVED into D13** (four tracks T1–T4; lowering
+  track absorbs the D10 parenthesis + D12 precedence coverage; T2 is the D5-R
+  whole-enum extraction). Closes gate finding A4.
+- **OQ2 (bind parameters) — out of S0 scope, explicitly:** S0's disposition is
+  decided (throw `UnsupportedAnalyzedNodeException` at the `inputParam` leaf,
+  consistent with I2). Only the *future-slice* shape is open; it gates no S0
+  artifact. Annotated per gate finding A8 so it is not mistaken for a blocking gap.
+- **A7/A9 (perf-lens suggestions) — noted:** D5-R adds no hot-path indirection
+  (static, JIT-inlinable; the existing `MathExpressionTest` is the acceptance gate);
+  the D1/D2 monomorphic-dispatch rationale is a forward bet for the S1+ optimizer
+  pipeline, not a measured S0 win (no live IR consumer in S0). Both rationales hold;
+  no decision change.
+
 ## Adversarial gate record
 
-<!-- No adversarial gate has run on this log. It was distilled, not authored
-     through the live Phase-0 loop. The resumed /create-plan Phase-0→1 gate
-     (create-plan §Step 4) writes the first verdict heading here. -->
+### Adversarial review of this log (2026-06-24) — NEEDS REVISION: 2 blocker, 4 should-fix, 3 suggestion
+
+Iteration 1. Review file: `_workflow/reviews/research-log-adversarial-iter1.md`.
+Lenses: Architecture / cross-component coordination, Performance hot path. Blockers
+A1 (parenthesized arithmetic in-subset) and A2 (collation in comparisons) and
+should-fix A3–A6 addressed by D10–D14 and the Re-validation-block corrections;
+suggestions A7–A9 annotated. Re-challenged at iteration 2.
+
+### Adversarial review of this log (2026-06-24) — PASS
+
+Iteration 2. Review file: `_workflow/reviews/research-log-adversarial-iter2.md`.
+All iteration-1 findings A1–A9 VERIFIED (blockers A1/A2 resolved by D10/D11;
+should-fix A3–A6 by D11/D13/D12/D14). One new suggestion A10 (the
+`tryInPlaceComparison` fast path is parity-equivalent; the slow path is the parity
+reference) folded into D11's precision note — no decision change. Gate clears; the
+log is frozen-ready as the Phase-1 design seed.
