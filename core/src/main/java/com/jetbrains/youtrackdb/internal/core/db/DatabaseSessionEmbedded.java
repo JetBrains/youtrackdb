@@ -1583,7 +1583,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * Builds the Etap-A RETURN projector for a single-alias MATCH: a transform that takes a raw cached
+   * Builds a RETURN projector for a single-alias MATCH: a transform that takes a raw cached
    * or inject record row (an identifiable {@link Result} wrapping the single bound record), wraps it
    * back into the {@code {alias -> record}} shape the MATCH executor's first step produces, and runs
    * the RETURN projection over it so the emitted row is the RETURN tuple a fresh MATCH would yield
