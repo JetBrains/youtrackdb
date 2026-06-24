@@ -22,6 +22,7 @@ Track 1 read resolves it directly and never falls back for a current plan.
 - [ ] Track completion
 
 - [x] 2026-06-24T15:53Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-24T16:23Z [ctx=safe] Step 1 complete (commit 8609dbd4b4)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -59,6 +60,17 @@ at Phase 1. -->
   the doc-only append boundary. Track 2 is the sole writer of `substate` values, so the
   typo backstop is the `## Validation` slug-byte-identity check, not a runtime guard. A
   future Track-1-scope follow-up can add the enum guard if desired.
+
+- **Phase 4 reconciliation — single-step-track terminal `substate` (track file + frozen
+  `design.md`).** The Phase B step-level review (WI1) found the new `track-code-review.md`
+  step-6 prose claimed unconditionally that a single-step track stays at
+  `steps-done-review-pending`. That holds only for a `risk: high` single-step track; a
+  `risk: medium`/`low` single-step track runs the full review loop, reaches step 6, and
+  terminates at `review-done-track-open` (both slugs route correctly to completion). The
+  staged `track-code-review.md` is now scoped correctly, but the same overbroad framing
+  remains in this track's `## Plan of Work` boundary 3 and the `## Edge cases` bullet, and
+  in the frozen `design.md`. Reconcile the wording in `design-final.md` at Phase 4. See
+  Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -318,11 +330,61 @@ and the track-advance `decomposition-pending` append land together, so no interm
 commit can leave a `phase=C` track without a `substate`. All edits land under
 `_workflow/staged-workflow/.claude/...` (§1.7 staging).
 
-1. Wire the `substate` append cadence across the five staged resume-protocol files: (1) the A→C `steps-partial` append at `track-review.md` step 6 (`:596`) and its recovery path (`:1048`); (2) a NEW Phase-B-complete Workflow-update commit at `step-implementation.md` §Phase B Completion carrying the `steps-done-review-pending` append + the `Step implementation [x]` flip, placed after step 1/step 3 and before step 4, staging only the track file + ledger, guarded to the all-`[x]`/`[~]` completion path; (3) a NEW pre-approval step-6 Workflow-update commit at `track-code-review.md` (`:826`) carrying the `review-done-track-open` append + the `Track complete` Progress flip, gated on all-reviews-pass, plus the track-advance `decomposition-pending` append at `:1409`; (4) the replan-revert `steps-partial` append at `inline-replanning.md` (`:249`/`:266`) alongside (not replacing) the `--phase 0` reset; (5) the entry-5 enumeration addition at `step-implementation-recovery.md` listing the new Phase-B-complete commit. Each append writes a slug byte-identical to the four canonical slugs. — risk: high (workflow machinery — edits the auto-resume state-machine control-flow protocol)  [ ]
+1. Wire the `substate` append cadence across the five staged resume-protocol files: (1) the A→C `steps-partial` append at `track-review.md` step 6 (`:596`) and its recovery path (`:1048`); (2) a NEW Phase-B-complete Workflow-update commit at `step-implementation.md` §Phase B Completion carrying the `steps-done-review-pending` append + the `Step implementation [x]` flip, placed after step 1/step 3 and before step 4, staging only the track file + ledger, guarded to the all-`[x]`/`[~]` completion path; (3) a NEW pre-approval step-6 Workflow-update commit at `track-code-review.md` (`:826`) carrying the `review-done-track-open` append + the `Track complete` Progress flip, gated on all-reviews-pass, plus the track-advance `decomposition-pending` append at `:1409`; (4) the replan-revert `steps-partial` append at `inline-replanning.md` (`:249`/`:266`) alongside (not replacing) the `--phase 0` reset; (5) the entry-5 enumeration addition at `step-implementation-recovery.md` listing the new Phase-B-complete commit. Each append writes a slug byte-identical to the four canonical slugs. — risk: high (workflow machinery — edits the auto-resume state-machine control-flow protocol)  [x]  commit: 8609dbd4b4
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
 step. Empty at Phase 1. -->
+
+### Step 1 — commit 8609dbd4b4, 2026-06-24T16:23Z [ctx=safe]
+
+**What was done:** Wired the `--substate` append cadence across the five staged
+resume-protocol docs, the single coherent HIGH step. Added `--substate
+steps-partial` to the A→C append in `track-review.md` (step 6 and the recovery
+path). Inserted a new Phase-B-complete Workflow-update commit in
+`step-implementation.md` §Phase B Completion — guarded to the all-`[x]`/`[~]`
+completion path, staging only the track file and ledger — carrying the `Step
+implementation [x]` flip plus a `--substate steps-done-review-pending` append.
+Inserted a new pre-approval step-6 Workflow-update commit in
+`track-code-review.md`, gated on the all-reviews-pass path, carrying the `Track
+complete` Progress flip plus a `--substate review-done-track-open` append, and
+added `--substate decomposition-pending` to the track-advance `--track <N+1>`
+append (the last-track `--phase D` append carries none). Added `--substate
+steps-partial` to the `inline-replanning.md` replan-revert alongside the
+`--phase 0` reset, framed as forward-hygiene. Added both new scaffolding commits
+to the entry-5 enumeration in `step-implementation-recovery.md`. A step-level
+dimensional review (consistency, context-budget, writing-style,
+instruction-completeness — the full track-pass-equivalent selection under the
+single-step-high override; baseline skipped on the workflow-only diff) returned
+two findings, both fixed at iteration 2 in `Review fix:` commit `754f5df27c`:
+WI1 (should-fix) and WS1 (suggestion).
+
+**What was discovered:** The single-step-track terminal-`substate` claim was
+overbroad. WI1 caught it in the new `track-code-review.md` step-6 block, now
+scoped: a `risk: high` single-step track skips the review loop and stays at
+`steps-done-review-pending`, while a `risk: medium`/`low` single-step track runs
+the full review loop, reaches step 6, and terminates at `review-done-track-open`
+(both slugs route correctly to completion). The same overbroad framing still
+lives in the track file's `## Plan of Work` boundary 3 and the `## Edge cases`
+bullet, and the frozen `design.md` carries it too. Those are tactical and design
+context, not the promoted staged surface, so reconcile them in `design-final.md`
+at Phase 4 — a fourth reconciliation item alongside D1/D3 commit count,
+boundary-5 dormancy, and S2 closure wording. See `## Surprises & Discoveries`.
+
+**What changed from the plan:** None for the wiring. The entry-5 enumeration in
+`step-implementation-recovery.md` names both new scaffolding commits (the
+Phase-B-complete commit and the Phase-C review-pass commit), one more than the
+plan's literal "the new Phase-B-complete commit," to meet the stated A2 goal of
+naming every scaffolding commit.
+
+**Key files:** the five staged resume-protocol docs under
+`_workflow/staged-workflow/.claude/workflow/` — `track-review.md`,
+`step-implementation.md`, `track-code-review.md`, `inline-replanning.md`,
+`step-implementation-recovery.md`.
+
+**Critical context:** The pre-approval step-6 commit and the track-advance
+append landed at line offsets later than the plan's `:826`/`:1409`, because the
+step-6 insertion shifted the file; the content targets were unambiguous.
 
 ## Validation and Acceptance
 
