@@ -17,15 +17,25 @@ ledger every read is empty and routes to the fallback (the pre-this-change
 behavior, plus the wrap fix). Track 2 wires the append sites that activate it.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+
+- [x] 2026-06-24T10:20Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- **Phase 4 reconciliation item (frozen design.md divergence).** The Phase A
+  adversarial review found the same loose wrap-fix terminator shorthand
+  (`[0-9]*". "` without the trailing `*`) in the frozen `design.md` in three
+  places. The track file is the live decision carrier (D7) and now states the
+  correct `[0-9]*". "*` form, so Step 1 implements the right glob; the frozen
+  `design.md` is not edited during execution. Reconcile the shorthand in
+  `design-final.md` at Phase 4.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -90,6 +100,10 @@ frozen design.md D-records. One block per decision. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 2 (4 findings, 4 accepted) — T1/T2 should-fix drove the terminator-glob and glossary-key-set fixes; T3/T4 suggestions strengthened test-helper attribution and the emit/precedence note.
+- [x] Risk: PASS at iteration 2 (4 findings, 4 accepted) — R1 should-fix (wrap-join runs on the resume hot loop) is covered by the `high` tag on Step 1 plus the two-adjacent-wrapped-steps regression; R2 should-fix made the dual-path parity test non-vacuous; R3/R4 suggestions noted the `TESTS` registry and the empty-substate assumption (already in D2).
+- [x] Adversarial: PASS at iteration 2 (3 findings, 3 accepted) — A1 confirmed the terminator bug (≡ T1); A2/A3 suggestions added the parity-non-vacuity wording and the S1 `categories`-decoy test. S2/S6, the emit-order safety invariant, and the ~4-file scope/sizing cut survived construction (INFEASIBLE to violate / independently mergeable while dormant).
 
 ## Context and Orientation
 
@@ -180,9 +194,14 @@ The reader and dual-path read:
    single-track `minimal` tier), call
    `ledger_tail_value_for_track substate <active-track>` before the
    `determine_c_substate` call. When the value is non-empty, emit it directly as the
-   `substate` in `STATE_JSON`. When empty, fall through to `determine_c_substate`. The
+   `substate` in `STATE_JSON`, reusing the same `jq -nc --arg s … '{phase:"C",
+   substate:$s}'` construction the fallback arm already uses so escaping stays
+   uniform across both paths. When empty, fall through to `determine_c_substate`. The
    empty case is the unambiguous signal of a ledger written before this change (D3,
-   owned by Track 2).
+   owned by Track 2). Because this read is ledger-only, a non-empty ledger `substate`
+   resolves even when the track file is absent or unreadable — the ledger is
+   authoritative for the within-track sub-state and the ledger path never touches the
+   roster; only the empty-`substate` fallback depends on the track file.
 
 The wrap fix:
 
@@ -193,24 +212,35 @@ The wrap fix:
    it. The fix joins each wrapped entry before reading it:
    1. Buffer a column-0 `N. ` line that carries no `risk:`.
    2. Append the following non-column-0 continuation lines to the buffer.
-   3. Stop the join at the next column-0 step line (matched by `[0-9]*". "`), the
-      next `## ` heading, or EOF — so two adjacent wrapped steps never merge.
+   3. Stop the join at the next column-0 step line (matched by the `case` glob
+      `[0-9]*". "*`, the same glob the existing column-0 guard in `roster_scan`
+      uses), the next `## ` heading, or EOF — so two adjacent wrapped steps
+      never merge.
    4. Read the `risk:` tail and the status checkbox from the joined text.
 
    A column-0 line that already carries its `risk:` tail (the common unwrapped case)
    is read as-is, unchanged. The existing fenced-code and blockquote guards stay as
    they are.
 
-   The terminator `[0-9]*". "` is correct bash: `[0-9]*` matches a digit followed by
-   anything, then the literal `. ` — i.e. the start of the next numbered step.
+   The terminator is the `case` glob `[0-9]*". "*` — one digit, then any
+   characters, the literal `. `, then any characters — so it matches a full
+   next-step line such as `12. Twelfth step — risk: low  [ ]`. The trailing `*`
+   is load-bearing: a `case` glob is anchored at both ends, so `[0-9]*". "`
+   without the trailing `*` matches only a string ending exactly at `. ` and
+   never fires on a real next-step line. This mirrors the existing column-0
+   guard in live `roster_scan` (`[0-9]*". "*)`), the precedent this fix follows.
 
 The documentation:
 
 7. **Update the ledger-grammar comment** in the script header: add `substate` to the
    key set and to the validated bare-token list in the grammar block.
-8. **`conventions.md` Phase-ledger glossary.** Add `substate` to the
-   `{ phase, track, tier, categories, s17, paused }` key set, making it the seventh
-   key, named as the within-track resume signal the precheck reads ledger-first.
+8. **`conventions.md` Phase-ledger glossary.** The glossary's Phase-ledger row
+   names the key set in prose ("the resume phase, the active track, the change
+   tier and its matched categories, the §1.7 staging mode, and pause events"),
+   not as a literal brace set — the `{ phase, track, tier, categories, s17,
+   paused }` brace set lives in the script-header grammar comment, which is item
+   7's target, not this one. Extend the glossary prose to name `substate` as the
+   within-track resume signal the precheck reads ledger-first.
 9. **`conventions-execution.md §2.1`.** Note that the ledger `substate` now owns the
    within-track resume routing signal (the roster stays the fallback source).
 
@@ -218,7 +248,9 @@ The tests (item 10) are listed in `## Validation and Acceptance` below. The rost
 of concrete steps is written at Phase A and listed under `## Concrete Steps`.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+
+1. Implement the `substate` ledger primitive and the `roster_scan` wrap fix in `workflow-startup-precheck.sh` — the `--substate` append flag with bare-token validation, the `substate` token emitted before the quoted `categories` field, `ledger_tail_value_for_track`, the ledger-first read in `determine_state_from_ledger`'s `phase=C` arm (reusing the `jq -nc --arg` STATE_JSON emit), the continuation-line join in `roster_scan` (terminator `[0-9]*". "*`), and the script-header grammar comment — plus all five test groups in `test_workflow_startup_precheck.py` (ledger path incl. track-scoping and the `categories` decoy; empty-substate fallback; dual-path parity via two `write_ledger` variants; wrapped-roster regression incl. two adjacent wrapped steps; `--substate` append validation), each new test registered in the `TESTS` list — risk: high (workflow machinery: edits the auto-resume state machine and the ledger-grammar schema, and runs at turn 1 of every session)  [ ]
+2. Document the `substate` key — extend the `conventions.md` Phase-ledger glossary prose and add the within-track resume-signal note to `conventions-execution.md §2.1` — risk: low (prose-only workflow edit: documents the key, changes no parsed schema or control flow) — size: ~2 files; (a) no mergeable low/medium work fits — the rest of the track is the high script step, which high-coherence forbids absorbing prose-only doc edits into  *(parallel with Step 1)*  [ ]
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -230,7 +262,14 @@ All five test groups pass in `test_workflow_startup_precheck.py`; the wrapped-ro
 regression (YTDB-1134's literal acceptance: count a wrapped step) passes; dual-path
 parity holds. The tests reuse the existing `write_ledger` (writes and commits a
 verbatim ledger) and `_substate` / `_track_doc` helpers (compose a State-C plan and
-read the resolved `state`).
+read the resolved `state`). Helper-per-group is load-bearing: the ledger-path and
+dual-path groups MUST drive the ledger through `write_ledger` (writing a ledger that
+carries — or, on the fallback arm, omits — the `substate` token), because `_substate`
+alone composes the track file and drives the legacy non-ledger walk; a "ledger-path"
+test built from `_substate` without a `write_ledger` ledger would never exercise the
+new ledger-first read. New test functions must be added to the hand-maintained
+`TESTS` registry in the file — the suite is not auto-collected, so an unregistered
+`def test_*` silently never runs.
 
 The five test groups:
 
@@ -238,19 +277,30 @@ The five test groups:
   carries `phase=C track=2 substate=<slug>` resolves `state.substate` to that slug,
   regardless of the roster shape (the roster is not read on this path). One case proves
   track-scoping: a ledger carrying track 1's terminal `substate` followed by track 2's
-  `substate` resolves track 2's value, not track 1's.
+  `substate` resolves track 2's value, not track 1's. One case pins the
+  pre-`categories` read (S1): a ledger line whose quoted `categories="…"` field embeds
+  a decoy ` track=<other>` and ` substate=<other>` span resolves the real bare
+  `track=` / `substate=` tokens that precede the quoted field, never the decoy inside
+  it.
 - **Fallback path (empty `substate`).** A `phase=C` ledger with no `substate` key
   resolves through `determine_c_substate` and the wrap-fixed `roster_scan`, emitting the
   roster-derived slug — the pre-this-change behavior.
-- **Dual-path parity (D2 mandate).** A fixture whose ledger carries `substate=<slug>`
-  and whose roster/Progress imply the same `<slug>`: the ledger path and the
-  ledger-stripped fallback path resolve to the identical sub-state. The fallback arm
-  MUST strip the ledger `substate`; running the same fixture twice without stripping
-  would make both arms read the ledger and the assertion vacuous.
+- **Dual-path parity (D2 mandate).** One track-file fixture run through two ledger
+  variants written by `write_ledger`: a ledger-path variant carrying `substate=<slug>`
+  and a fallback variant with no `substate` token, where the roster/Progress imply the
+  same `<slug>`. Both resolve to the identical sub-state. Non-vacuity is a fixture
+  property, not a code guarantee — `determine_c_substate` reads no ledger, so the
+  fallback arm exercises the roster path only when its ledger omits `substate`. The
+  "strip" is therefore building the fallback fixture's ledger without the token (no new
+  harness helper needed); a fallback fixture that left `substate` on its ledger would
+  make both arms read the ledger and the assertion vacuous.
 - **Wrapped-roster regression (the issue's criterion).** A track whose step
   description wraps onto a continuation line carrying the `risk:` tail and `[x]` status:
   the wrap-fixed `roster_scan` counts the step and the fallback resolves
-  `steps-done-review-pending`, where the current scan resolves `steps-partial`.
+  `steps-done-review-pending`, where the current scan resolves `steps-partial`. A
+  second case has **two adjacent wrapped steps** and asserts the join terminator
+  (`[0-9]*". "*`) stops at the next column-0 step line so the two never merge and both
+  are counted — this is the case the trailing `*` fixes and `[0-9]*". "` would fail.
 - **`--substate` append validation.** `--append-ledger --substate <bad>` with a space
   or newline in the value exits 3 with a stderr diagnostic, mirroring the existing
   bare-token rejection tests.
