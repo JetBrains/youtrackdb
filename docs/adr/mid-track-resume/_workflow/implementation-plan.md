@@ -68,6 +68,12 @@ flowchart LR
   > § Track completion. (2 steps, 0 failed)
   >
   > **Track file:** `plan/track-1.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 1's read side landed dormant and nothing
+  > it found weakens Track 2's plan. The deferred WI2 enum guard is declined for
+  > Track 2 (Track-1-scope script hardening, outside the doc-only append boundary);
+  > the staged-first test read is handled additively (the A→C append adds
+  > `--substate steps-partial` to the line the existing test already checks).
 
 - [ ] Track 2: Wire the `substate` append sites across the resume protocol
   > Activate the primitive: add a `--substate` append at each of the four
