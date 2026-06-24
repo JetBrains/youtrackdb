@@ -18,14 +18,18 @@ first consumer; S3+ port the optimizer rewrites onto the IR.
 
 S0's core is a Java 21 sealed interface with five immutable record
 variants (`Var`, `Const`, `BinaryOp`, `UnaryOp`, `FuncCall`). Sealing lets the
-compiler enforce an exhaustive `switch` over the variant set, so dispatch needs no
-`accept(visitor)` method on the nodes and each visitor call stays a direct
-(monomorphic) call after one central switch resolves.
+compiler enforce an exhaustive `switch` over the variant set, so the nodes need no
+`accept(visitor)` method. Each visitor call is then a direct (monomorphic) call.
 
-Four pieces are built to fit the substrate: a visitor/transform framework over the
-sealed type; a lowering pass that converts the covered AST subset to `AnalyzedExpr`;
-a runtime evaluator over that IR; and a `NumericOps` helper extracted from the AST so
-both evaluators share one promotion engine. Acceptance is round-trip parity — for
+S0 builds four pieces over the sealed type:
+
+- A visitor/transform framework.
+- A lowering pass that converts the covered AST subset to `AnalyzedExpr`.
+- A runtime evaluator over that IR.
+- A `NumericOps` helper extracted from the AST so both evaluators share one
+  promotion engine.
+
+Acceptance is round-trip parity — for
 every covered SQL fragment, `lower(parse(sql)).evaluate(row, ctx)` equals
 `parse(sql).execute(row, ctx)` — with no existing test changed.
 
@@ -44,7 +48,7 @@ re-definition in the Parts that follow.
 
 **Sealed IR with record variants.** `AnalyzedExpr` is a sealed Java interface
 permitting exactly five immutable record variants. The variants carry data only —
-equality, hashing, and accessors come from record defaults, no behavior. Replaces
+equality, hashing, and accessors come from record defaults, no behavior. It replaces
 the abstract-class-plus-subclasses idiom the AST uses (`SQLBooleanExpression` plus 21
 subclasses), where each node carries its own `evaluate`/`execute` behavior. → Part 1
 §"Sealed IR and exhaustive dispatch".
@@ -52,28 +56,28 @@ subclasses), where each node carries its own `evaluate`/`execute` behavior. → 
 **Static visitor dispatch.** A visitor is an interface (`AnalyzedExprVisitor<T>`)
 with one `visitX` method per variant; a single static `AnalyzedExpr.dispatch(expr,
 visitor)` carries the one `switch` over the sealed type and calls the right `visitX`.
-The nodes have no `accept(visitor)` method. Replaces the classic Visitor pattern's
+The nodes have no `accept(visitor)` method. It replaces the classic Visitor pattern's
 per-node virtual `accept` call. → Part 1 §"Sealed IR and exhaustive dispatch".
 
 **Structural sharing.** A rewrite pass (`AnalyzedExprTransform`) that changes one
 subtree returns the *same instance* for every unchanged node, rebuilding only the
 nodes on the path from the change to the root. "Same" is reference identity (`==`),
-not value equality. Replaces nothing in the AST (the AST has no transform framework);
+not value equality. It replaces nothing in the AST (the AST has no transform framework);
 it is the shape S3+ optimizer passes will use. → Part 1 §"Transform passes and
 structural sharing".
 
 **`NumericOps`.** A neutral `final` all-static class at `core/.../sql/util/` that
 owns the numeric-promotion engine — typed-pair widening, per-operator null handling,
-`Date + Long`, and `String` concatenation. Extracted whole from
+`Date + Long`, and `String` concatenation. It is extracted whole from
 `SQLMathExpression.Operator`; the AST's `Operator.apply(...)` and the new evaluator
-both delegate to it. Replaces the promotion logic that currently lives only inside
+both delegate to it. It replaces the promotion logic that currently lives only inside
 the AST enum. → Part 3 §"NumericOps: one shared promotion engine".
 
 **Structural precedence fold.** The AST stores arithmetic as a flat list of operands
 and mixed-precedence operators and resolves precedence at evaluate time. The lowerer
 reproduces that precedence-and-associativity nesting structurally to build a
 correctly-nested `BinaryOp` tree; it reproduces only the *nesting*, never the value
-arithmetic (that comes from `NumericOps`). Replaces nothing — the AST keeps its own
+arithmetic (that comes from `NumericOps`). It replaces nothing — the AST keeps its own
 fold untouched. → Part 2 §"Precedence fold: flat AST list to nested BinaryOp".
 
 **Round-trip parity.** The S0 acceptance test: lowering then evaluating a covered SQL
@@ -210,11 +214,12 @@ sequenceDiagram
 
 The sequence shows the load-bearing reuse points. Arithmetic value semantics come
 from the shared `NumericOps` (Part 3), not from a fold the lowerer reimplements. The
-comparison delegates to the parser's own `SQLBinaryCompareOperator` instance — the
-same operator object the AST holds — so collation and session-threading nuances are
-reproduced by construction (Part 3, §"Comparison: replicate the AST sequence"). The
-lowerer's field-walk is exhaustive-or-throw (Part 2), so a covered fragment lowers
-fully and an out-of-subset shape throws rather than mis-reading.
+evaluator calls the AST's own `SQLBinaryCompareOperator` instance for the comparison.
+Because it is the same operator object, the comparison inherits the AST's collation and
+its EQ/NE session handling unchanged (Part 3, §"Comparison: replicate the AST sequence").
+The lowerer's field-walk visits each recognized field of the AST node and throws on any
+field outside the S0 subset. It is exhaustive-or-throw (Part 2): a covered fragment lowers
+fully, and an out-of-subset shape throws rather than mis-reading.
 
 # Part 1 — The substrate
 
@@ -246,8 +251,8 @@ The five variants and the data each carries:
 
 - `Var(List<String> path)` — an unresolved lexical name path. `["name"]` for a bare
   identifier, `["p", "name"]` for `p.name`. S0 holds the lexical shape only; S10 will
-  replace `Var` with range-table-resolved references, which is why S0 does not bake in
-  a resolution model.
+  replace `Var` with range-table-resolved references (names bound to their `FROM`-clause
+  source), which is why S0 does not bake in a resolution model.
 - `Const(Object value)` — a literal value (integer, string, boolean, or a negative
   number whose `sign` flag the parser already folded into the literal at parse time, so
   it arrives as one negated value rather than a unary-minus node).
@@ -266,8 +271,8 @@ grammar has no `CAST(x AS T)` form (the grammar file `YouTrackDBSql.jjt` has no 
 production), so type coercion is written as method-call syntax — `.asInteger()`,
 `.asDate()` — carried on `SQLModifier.methodCall` and structurally a function call.
 Those already lower through `FuncCall`. A dedicated `Cast` variant would have to carry a
-target-type tag (the `INTEGER` / `DATE` / … a `CAST` would name) that no S0 lowering or
-evaluator path would read, so it would be a variant with no consumer. A later slice can add `Cast` if explicit `CAST` grammar
+target-type tag — the type a `CAST` would name, e.g. `INTEGER` or `DATE` — that no S0
+lowering or evaluator path would read, so it would be a variant with no consumer. A later slice can add `Cast` if explicit `CAST` grammar
 or an optimizer rewrite ever needs it. Two alternatives were rejected:
 
 - Keep `Cast` and lower the method-call coercions into it — rejected because it invents a
@@ -420,20 +425,20 @@ plus the `singleQuotes` / `doubleQuotes` flags. The S0 subset covers only
 `mathExpression`, `booleanExpression`, `literalValue`, `booleanValue`, and `isNull`;
 `rid`, `arrayConcatExpression`, and `json` are out of subset and must throw.
 
-The walk does not enumerate-and-assume-complete. It dispatches on the recognized
-in-subset fields and throws on everything else as the default. This matters because the
-field inventory is a moving target: the inherited `SimpleNode.value` field and the "old
-executor" fallback chain in `SQLExpression.execute` (commented "only for old executor —
-manually replaced params") were omitted from the original inventory. Asserting field-walk
-completeness over an incomplete inventory would be unsound. Defaulting to throw-on-unknown
+The walk does not assume the recognized fields are the complete set. It dispatches on the
+recognized in-subset fields and throws on everything else as the default. This matters
+because the field set changes as the parser evolves: the inherited `SimpleNode.value` field
+and the "old executor" fallback chain in `SQLExpression.execute` (commented "only for old
+executor — manually replaced params") were missing from the field set inventoried above.
+Asserting field-walk completeness over an incomplete field set would be unsound. Defaulting to throw-on-unknown
 makes I2 robust to the gap: an unrecognized non-null field throws rather than being
 silently mis-read. Whether `SimpleNode.value` is ever non-null on the modern parser path
 is a Phase-A PSI verification note — if dead, the walk may ignore it; if reachable, the
 throw-default already makes lowering throw rather than mis-read.
 
-The leaf shapes the walk descends into, once it reaches `mathExpression`
-(`SQLBaseExpression extends SQLMathExpression`, fields `number`, `identifier`,
-`inputParam`, `string`, `modifier`):
+Once the walk reaches `mathExpression` (`SQLBaseExpression extends SQLMathExpression`,
+fields `number`, `identifier`, `inputParam`, `string`, `modifier`), it descends into
+these leaf shapes:
 
 - `number` (a `SQLNumber`) → `Const`. A negative literal lowers to a negative `Const`
   (the `sign` flag is already folded in).
@@ -445,9 +450,9 @@ The leaf shapes the walk descends into, once it reaches `mathExpression`
   parameters; the future-slice shape (dedicated `Param` variant vs evaluate-time
   threading) is an open question that gates no S0 artifact.
 
-`Var`'s name path comes from flattening `SQLBaseIdentifier` — one of `levelZero`
-(a `SQLLevelZeroIdentifier`) or `suffix` (a `SQLSuffixIdentifier`) is non-null — into a
-`List<String>` via an `identifierToPath` mapper. The exact suffix-chain shape is a
+`SQLBaseIdentifier` has exactly one of `levelZero` (a `SQLLevelZeroIdentifier`) or
+`suffix` (a `SQLSuffixIdentifier`) non-null. `Var`'s name path flattens that identifier
+into a `List<String>` via an `identifierToPath` mapper. The exact suffix-chain shape is a
 Phase-A lowering detail. Boolean `NOT` lowers from `SQLNotBlock` (fields `sub`,
 `negate`): `SQLNotBlock(negate=true, sub)` → `UnaryOp(NOT, lower(sub))`; `negate=false`
 is a pass-through to `lower(sub)`.
@@ -455,7 +460,7 @@ is a pass-through to `lower(sub)`.
 ### Edge cases / Gotchas
 
 - `value` field gap: the field-walk's throw-default is the safety net for any AST field
-  the inventory missed (`SimpleNode.value` is the known example), so an inventory gap
+  the field set missed (`SimpleNode.value` is the known example), so a field-set gap
   degrades to a throw, never to a wrong value.
 - Bind parameters throw in S0 by design; do not mistake the open future-slice question
   for a blocking gap.
@@ -476,7 +481,7 @@ recursing — `lower(expression)` — and throws only when `statement != null` o
 `CaseExpression`. No `Paren` IR variant exists.
 
 Parentheses are the user's precedence-override mechanism, so `(a + b) * c` is one of the
-most common precedence inputs; classing every `ParenthesisExpression` as a throw-case
+most common precedence inputs; treating every `ParenthesisExpression` as a throw-case
 would make round-trip parity (I1) unsatisfiable on it. The grouping wrapper is
 transparent at evaluate time — the AST's `expression` form delegates straight to
 `expression.execute(...)` — so recursing through it reproduces the AST exactly. The IR
@@ -533,13 +538,13 @@ fold is *cold* in S0 (no IR consumer until S1). Extracting a generic fold parame
 by a combiner would inject a functional-interface call into the hot AST eval loop. The
 shared fold would be called with two different combiner lambdas (the AST's `apply`,
 lowering's `new BinaryOp`), so the call site sees two receiver types — bimorphic — which
-the JIT cannot collapse to one inlinable target. That cuts against the codebase's
+the JIT cannot collapse to one inlinable target. That conflicts with the codebase's
 preference for monomorphic call sites the JIT can inline (the same preference D1/D2's
 static dispatch follows). The reimplemented fold is *purely structural*: it determines nesting
-only. Every value semantic — null sentinel, numeric promotion, `Date + Long`,
-`String` concat — comes from the shared `NumericOps` at evaluate time. So the duplicated
-logic is a textbook precedence-climbing reduction (low risk), not the value engine,
-and the genuine drift surface (promotion) stays single-homed.
+only. All value semantics — null sentinel, numeric promotion, `Date + Long`,
+`String` concat — come from the shared `NumericOps` at evaluate time. So the duplicated
+logic is a textbook precedence-climbing reduction — low risk. The genuine drift surface,
+promotion, stays single-homed in `NumericOps`.
 
 ### Edge cases / Gotchas
 
@@ -580,14 +585,19 @@ already means typed method dispatch.
 
 The extraction is whole-enum, not narrow. `SQLMathExpression.Operator` is an inner enum
 with 12 constants — `STAR`, `SLASH`, `REM`, `PLUS`, `MINUS`, three shifts, `BIT_AND`,
-`XOR`, `BIT_OR`, `NULL_COALESCING` — and the numeric argument on each is its precedence
-priority. The promotion engine all 12 share is: five abstract typed-pair `apply(...)`
-overloads (`Integer`, `Long`, `Float`, `Double`, `BigDecimal`), a fallback
-`apply(Object, Object)`, the shared widening entry `apply(Number a, Operator operation,
-Number b)` that widens by the right operand's runtime type, and a private static `toLong`
-helper. The narrow alternative — extract only the `+ - * /` paths — leaves the shared
-widening helper split across `NumericOps` and `Operator`, an unclean seam, because the
-other eight operators invoke the same widening. Whole-enum extraction gives a clean
+`XOR`, `BIT_OR`, `NULL_COALESCING`. The numeric argument on each constant is its
+precedence priority. The promotion engine all 12 share has four parts:
+
+- The five abstract typed-pair `apply(...)` overloads (`Integer`, `Long`, `Float`,
+  `Double`, `BigDecimal`).
+- The fallback `apply(Object, Object)`.
+- The shared widening entry `apply(Number, Operator, Number)`, which widens by the right
+  operand's runtime type.
+- The private static `toLong` helper.
+
+The narrow alternative extracts only the `+ - * /` paths. The other eight operators
+invoke the same widening, so the shared widening helper would be split across
+`NumericOps` and `Operator` — an unclean seam. Whole-enum extraction gives a clean
 single home and a self-verifying acceptance gate: every existing AST math test must stay
 green after `Operator.apply` becomes a delegator.
 
@@ -607,8 +617,8 @@ AST/IR split:
 
 - The eight operators outside the S0 IR subset (`REM`, shifts, bitwise,
   `NULL_COALESCING`) get extracted but have no S0 IR consumer. That is intended — they
-  keep working through the AST delegator; only the larger AST-side blast radius is the
-  cost.
+  keep working through the AST delegator; the only cost is the larger set of AST-side
+  call sites the extraction touches.
 - `NumericOps` is all-static with a private constructor and stays JIT-inlinable; the
   extraction adds no hot-path indirection. The acceptance gate is the existing math-test
   suite (e.g. `MathExpressionTest`), green after the delegation.
@@ -623,7 +633,7 @@ AST/IR split:
     place it under `sql/method/` (that package already means typed method dispatch).
     D5-R supersedes only D5's scope half (whole-enum vs narrow extraction); the
     placement fork above remains live.
-  - D5-R (`NumericOps` extraction is whole-enum lift-and-shift)
+  - D5-R (`NumericOps` extraction moves the whole enum out unchanged)
 - Invariants: I1
 
 ## Comparison: replicate the AST sequence
@@ -753,17 +763,17 @@ The test matrix exercises each non-obvious lowering and evaluation mechanism:
 | `(a + b) * c` | Parenthesis recursion overrides precedence (D10) |
 | `a * (b + c)` | Parenthesis recursion, grouping on the right |
 | `ci-column = 'Foo'` (mixed case) | Collation transform in comparison (D11) |
-| type-coercing `!=` | NE null-session threading vs EQ (D11) |
+| type-coercing `!=` | NE passes a null session to coercion, EQ the live one (D11) |
 
 Each row asserts the lowered IR tree evaluates `Objects.equals` to the AST. The
 arithmetic rows pin both the structural fold (Part 2) and the shared promotion engine
 (Part 3); the parenthesis rows pin D10; the two comparison rows pin the collation and
-session-threading nuances of D11.
+the EQ/NE session difference of D11.
 
 ### Edge cases / Gotchas
 
-- The matrix is the floor, not the ceiling. Any covered fragment is fair game; these are
-  the cases that pin a specific mechanism a naive implementation would get wrong.
+- The matrix is the minimum required set, not an exhaustive one. Any covered fragment may
+  be tested; these rows pin a mechanism a naive implementation would get wrong.
 - Null and `Date + Long` outcomes are part of parity (`Objects.equals` over the produced
   values), so null-propagation rows and a `Date + Long` row belong in the suite even
   though they are not listed above as precedence/collation pins.
@@ -810,10 +820,10 @@ Phase-A concern; the track shape and scope are fixed here.
 ### Edge cases / Gotchas
 
 - T2 has no S0 IR consumer for its extra eight operators, yet it is its own track: the
-  AST-side blast radius (the full math-test regression surface) is what justifies a
+  full math-test regression surface it must keep green is what justifies a
   separate review, not the IR's needs.
 - T3 is the heaviest track — it owns parenthesis recursion and the precedence fold — so
-  its scope indicator must say so; the prior sketch under-weighted it.
+  its scope indicator must reflect that weight.
 
 ### Decisions & invariants
 
