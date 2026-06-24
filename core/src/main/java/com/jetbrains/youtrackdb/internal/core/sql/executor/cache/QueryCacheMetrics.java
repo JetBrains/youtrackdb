@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
  *       planner emitted an unexpected execution-plan shape.
  *   <li>{@code k0Invalidations} — K0_NONE entries invalidated because an intervening mutation
  *       advanced the mutation version past the entry's populate version.
+ *   <li>{@code matchMultiInvalidations} — MULTI_MATCH entries invalidated.
  *   <li>{@code overflows} — entries removed by a cache bound: either LRU eviction at the per-tx entry
  *       count ({@code maxEntries}) or a populate crossing the per-entry record cap
  *       ({@code maxRecordsPerEntry}). Both route the key to the non-cacheable set.
@@ -39,6 +40,7 @@ public final class QueryCacheMetrics {
   private long misses;
   private long spliceFailures;
   private long k0Invalidations;
+  private long matchMultiInvalidations;
   private long overflows;
 
   /**
@@ -49,6 +51,7 @@ public final class QueryCacheMetrics {
   private final TimeRate missRate;
   private final TimeRate spliceFailureRate;
   private final TimeRate k0InvalidationRate;
+  private final TimeRate multiInvalidationRate;
   private final TimeRate overflowRate;
 
   public QueryCacheMetrics() {
@@ -56,7 +59,7 @@ public final class QueryCacheMetrics {
   }
 
   /**
-   * Resolves the five global rate sinks from {@code registry} (or {@link TimeRate#NOOP} when it is
+   * Resolves the six global rate sinks from {@code registry} (or {@link TimeRate#NOOP} when it is
    * null). Package-visible so a test can pass a registry built on a deterministic ticker and assert the
    * bridge records into the global metric, without standing up a full engine.
    */
@@ -66,11 +69,12 @@ public final class QueryCacheMetrics {
         globalRate(registry, CoreMetrics.QUERY_CACHE_MISS_RATE),
         globalRate(registry, CoreMetrics.QUERY_CACHE_SPLICE_FAILURE_RATE),
         globalRate(registry, CoreMetrics.QUERY_CACHE_K0_INVALIDATION_RATE),
+        globalRate(registry, CoreMetrics.QUERY_CACHE_MULTI_INVALIDATION_RATE),
         globalRate(registry, CoreMetrics.QUERY_CACHE_OVERFLOW_RATE));
   }
 
   /**
-   * Direct-injection constructor for the five global rate sinks. Package-visible so a test can pass
+   * Direct-injection constructor for the six global rate sinks. Package-visible so a test can pass
    * recording stubs and assert each {@code increment*} call feeds the matching sink exactly once.
    */
   QueryCacheMetrics(
@@ -78,11 +82,13 @@ public final class QueryCacheMetrics {
       TimeRate missRate,
       TimeRate spliceFailureRate,
       TimeRate k0InvalidationRate,
+      TimeRate multiInvalidationRate,
       TimeRate overflowRate) {
     this.hitRate = hitRate;
     this.missRate = missRate;
     this.spliceFailureRate = spliceFailureRate;
     this.k0InvalidationRate = k0InvalidationRate;
+    this.multiInvalidationRate = multiInvalidationRate;
     this.overflowRate = overflowRate;
   }
 
@@ -116,6 +122,11 @@ public final class QueryCacheMetrics {
     k0InvalidationRate.record();
   }
 
+  public void incrementMultiInvalidations() {
+    matchMultiInvalidations++;
+    multiInvalidationRate.record();
+  }
+
   public void incrementOverflows() {
     overflows++;
     overflowRate.record();
@@ -135,6 +146,10 @@ public final class QueryCacheMetrics {
 
   public long getK0Invalidations() {
     return k0Invalidations;
+  }
+
+  public long getMatchMultiInvalidations() {
+    return matchMultiInvalidations;
   }
 
   public long getOverflows() {

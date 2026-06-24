@@ -83,6 +83,17 @@ public class CoreMetrics {
                   TimeInterval.of(1, TimeUnit.SECONDS),
                   TimeUnit.SECONDS));
 
+  public static final MetricDefinition<MetricScope.Global,
+      TimeRate> QUERY_CACHE_MULTI_INVALIDATION_RATE =
+          new MetricDefinition<>(
+              "QueryCacheMultiInvalidationRate",
+              "Query Result Cache Multi Invalidation Rate",
+              "The rate of tx-result-cache multi alias match invalidations (per second) for the last 60 seconds",
+              MetricType.rate(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  TimeUnit.SECONDS));
+
   public static final MetricDefinition<MetricScope.Global, TimeRate> QUERY_CACHE_OVERFLOW_RATE =
       new MetricDefinition<>(
           "QueryCacheOverflowRate",
@@ -101,6 +112,7 @@ public class CoreMetrics {
       QUERY_CACHE_MISS_RATE,
       QUERY_CACHE_SPLICE_FAILURE_RATE,
       QUERY_CACHE_K0_INVALIDATION_RATE,
+      QUERY_CACHE_MULTI_INVALIDATION_RATE,
       QUERY_CACHE_OVERFLOW_RATE);
 
   // ===================== DATABASE ===================== //

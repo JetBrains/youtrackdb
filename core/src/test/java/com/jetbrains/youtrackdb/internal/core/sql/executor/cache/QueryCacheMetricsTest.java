@@ -44,11 +44,12 @@ public class QueryCacheMetricsTest {
     assertEquals(0L, metrics.getMisses());
     assertEquals(0L, metrics.getSpliceFailures());
     assertEquals(0L, metrics.getK0Invalidations());
+    assertEquals(0L, metrics.getMatchMultiInvalidations());
     assertEquals(0L, metrics.getOverflows());
   }
 
   /**
-   * Each increment advances exactly its own counter and leaves the others untouched, so the five
+   * Each increment advances exactly its own counter and leaves the others untouched, so the six
    * metric streams stay independent.
    */
   @Test
@@ -60,6 +61,7 @@ public class QueryCacheMetricsTest {
     assertEquals(0L, metrics.getMisses());
     assertEquals(0L, metrics.getSpliceFailures());
     assertEquals(0L, metrics.getK0Invalidations());
+    assertEquals(0L, metrics.getMatchMultiInvalidations());
     assertEquals(0L, metrics.getOverflows());
 
     metrics.incrementMisses();
@@ -70,6 +72,9 @@ public class QueryCacheMetricsTest {
 
     metrics.incrementK0Invalidations();
     assertEquals(1L, metrics.getK0Invalidations());
+
+    metrics.incrementMultiInvalidations();
+    assertEquals(1L, metrics.getMatchMultiInvalidations());
 
     metrics.incrementOverflows();
     assertEquals(1L, metrics.getOverflows());
@@ -91,13 +96,17 @@ public class QueryCacheMetricsTest {
     for (var i = 0; i < 3; i++) {
       metrics.incrementMisses();
     }
+    for (var i = 0; i < 2; i++) {
+      metrics.incrementMultiInvalidations();
+    }
     assertEquals(5L, metrics.getHits());
     assertEquals(3L, metrics.getMisses());
+    assertEquals(2L, metrics.getMatchMultiInvalidations());
   }
 
   /**
    * Each {@code increment*} call records exactly one event into its own global rate sink and none into
-   * the other four, so the five global rate streams stay independent and each tracks its counter
+   * the other five, so the six global rate streams stay independent and each tracks its counter
    * one-to-one. Injecting recording sinks via the package-visible constructor makes the bridge routing
    * assertable without standing up an engine or a real metrics registry.
    */
@@ -107,14 +116,16 @@ public class QueryCacheMetricsTest {
     var miss = new RecordingRate();
     var splice = new RecordingRate();
     var k0 = new RecordingRate();
+    var multi = new RecordingRate();
     var overflow = new RecordingRate();
-    var metrics = new QueryCacheMetrics(hit, miss, splice, k0, overflow);
+    var metrics = new QueryCacheMetrics(hit, miss, splice, k0, multi, overflow);
 
     metrics.incrementHits();
     assertEquals(1L, hit.recordCount);
     assertEquals(0L, miss.recordCount);
     assertEquals(0L, splice.recordCount);
     assertEquals(0L, k0.recordCount);
+    assertEquals(0L, multi.recordCount);
     assertEquals(0L, overflow.recordCount);
 
     metrics.incrementMisses();
@@ -125,6 +136,9 @@ public class QueryCacheMetricsTest {
 
     metrics.incrementK0Invalidations();
     assertEquals(1L, k0.recordCount);
+
+    metrics.incrementMultiInvalidations();
+    assertEquals(1L, multi.recordCount);
 
     metrics.incrementOverflows();
     assertEquals(1L, overflow.recordCount);
@@ -142,7 +156,7 @@ public class QueryCacheMetricsTest {
     var hit = new RecordingRate();
     var metrics =
         new QueryCacheMetrics(hit, new RecordingRate(), new RecordingRate(), new RecordingRate(),
-            new RecordingRate());
+            new RecordingRate(), new RecordingRate());
     for (var i = 0; i < 4; i++) {
       metrics.incrementHits();
     }

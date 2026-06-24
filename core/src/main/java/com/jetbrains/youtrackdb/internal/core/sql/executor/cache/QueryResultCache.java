@@ -27,8 +27,8 @@ import javax.annotation.Nullable;
  * re-populate and churn the LRU, and counts an overflow.
  *
  * <p><b>Pinned-entry removal.</b> Every path that takes an entry out of {@link #entries} — LRU
- * eviction, the K0_NONE / multi-alias MATCH invalidation gate ({@link #invalidate}), bulk-DML {@link
- * #invalidateAll}, and per-entry overflow ({@link #overflowEntry}) — goes through {@link
+ * eviction, the K0_NONE invalidation gate, the multi-alias MATCH invalidation gate ({@link #invalidateMatchMulti}),
+ * bulk-DML {@link #invalidateAll}, and per-entry overflow ({@link #overflowEntry}) — goes through {@link
  * #closeOrDefer}, which closes the stream immediately only when the entry is unpinned. A still-pinned
  * entry has its close deferred to the last pin release (the entry is marked via {@link
  * CachedEntry#markCloseWhenUnpinned} and parked in {@link #closePending}), so a removal never closes a
@@ -65,6 +65,7 @@ public final class QueryResultCache {
   private final int maxEntries;
   private final int maxRecordsPerEntry;
   private final int k0NoneInvalidationThreshold;
+  private final int multiInvalidationThreshold;
 
   /**
    * The cached entries in access order. {@code accessOrder=true} so a successful lookup moves an entry
@@ -106,6 +107,9 @@ public final class QueryResultCache {
         GlobalConfiguration.QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY.getValueAsInteger();
     this.k0NoneInvalidationThreshold =
         GlobalConfiguration.QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD
+            .getValueAsInteger();
+    this.multiInvalidationThreshold =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD
             .getValueAsInteger();
   }
 
@@ -292,9 +296,9 @@ public final class QueryResultCache {
       return;
     }
     invalidate(key, entry);
-    metrics.incrementK0Invalidations();
+    metrics.incrementMultiInvalidations();
     var strikes = k0Strikes.merge(key, 1, Integer::sum);
-    if (strikes >= k0NoneInvalidationThreshold) {
+    if (strikes >= multiInvalidationThreshold) {
       nonCacheableKeys.add(key);
     }
   }
