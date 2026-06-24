@@ -18,12 +18,13 @@ behavior, plus the wrap fix). Track 2 wires the append sites that activate it.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-24T10:20Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-24T11:03Z [ctx=safe] Step 1 complete (commit f20a70b7ef)
+- [x] 2026-06-24T11:09Z [ctx=safe] Step 2 complete (commit 7b0b52b2c7)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -258,7 +259,7 @@ of concrete steps is written at Phase A and listed under `## Concrete Steps`.
 ## Concrete Steps
 
 1. Implement the `substate` ledger primitive and the `roster_scan` wrap fix in `workflow-startup-precheck.sh` — the `--substate` append flag with bare-token validation, the `substate` token emitted before the quoted `categories` field, `ledger_tail_value_for_track`, the ledger-first read in `determine_state_from_ledger`'s `phase=C` arm (reusing the `jq -nc --arg` STATE_JSON emit), the continuation-line join in `roster_scan` (terminator `[0-9]*". "*`), and the script-header grammar comment — plus all five test groups in `test_workflow_startup_precheck.py` (ledger path incl. track-scoping and the `categories` decoy; empty-substate fallback; dual-path parity via two `write_ledger` variants; wrapped-roster regression incl. two adjacent wrapped steps; `--substate` append validation), each new test registered in the `TESTS` list — risk: high (workflow machinery: edits the auto-resume state machine and the ledger-grammar schema, and runs at turn 1 of every session)  [x]  commit: f20a70b7ef
-2. Document the `substate` key — extend the `conventions.md` Phase-ledger glossary prose and add the within-track resume-signal note to `conventions-execution.md §2.1` — risk: low (prose-only workflow edit: documents the key, changes no parsed schema or control flow) — size: ~2 files; (a) no mergeable low/medium work fits — the rest of the track is the high script step, which high-coherence forbids absorbing prose-only doc edits into  *(parallel with Step 1)*  [ ]
+2. Document the `substate` key — extend the `conventions.md` Phase-ledger glossary prose and add the within-track resume-signal note to `conventions-execution.md §2.1` — risk: low (prose-only workflow edit: documents the key, changes no parsed schema or control flow) — size: ~2 files; (a) no mergeable low/medium work fits — the rest of the track is the high script step, which high-coherence forbids absorbing prose-only doc edits into  *(parallel with Step 1)*  [x]  commit: 7b0b52b2c7
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed
@@ -299,6 +300,38 @@ green from the staged location.
 **Key files:**
 - `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/scripts/workflow-startup-precheck.sh` (new staged copy)
 - `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck.py` (new staged copy)
+
+### Step 2 — commit 7b0b52b2c7, 2026-06-24T11:09Z [ctx=safe]
+
+**What was done:** Documented the `substate` ledger key in both convention docs,
+routing both edits to the §1.7 staged subtree. In `conventions.md §1.1` the
+Phase-ledger glossary row now lists the within-track sub-state in the key set and
+replaces the stale "the track file's `## Progress` still owns the within-track
+sub-state" clause with the ledger-first / roster-fallback description: the
+precheck reads the track-scoped `substate` first and falls back to `## Progress`
+plus `## Concrete Steps` only when the ledger carries no `substate` for the
+active track. In `conventions-execution.md §2.1` the `## Progress` description
+gained a note naming the ledger `substate` as the routing signal, and the
+Section-lifecycle table's `## Progress` row was reworded to name `## Progress` as
+the fallback within-track sub-state source. `workflow-reindex.py --check` passes
+on the staged copies.
+
+**What was discovered:** The `workflow-reindex.py` validator's in-scope globs
+already cover the staged subtree and prefer the staged copy over the live one, so
+`--check` validates the staged edits directly without promotion. No new TOC entry
+or in-file `§X.Y(z)` reference needed stamping; the cross-file `conventions.md
+§1.1` reference was normalized to the backticked-filename idiom used elsewhere in
+`conventions-execution.md`.
+
+**What changed from the plan:** No deviation. Both planned items (8:
+`conventions.md` glossary prose; 9: `conventions-execution.md §2.1` note)
+implemented as specified. The glossary edit also corrected the now-stale
+"`## Progress` still owns the within-track sub-state" sentence, which item 8's
+intent requires for the row to stay internally consistent.
+
+**Key files:**
+- `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/workflow/conventions.md` (new staged copy)
+- `docs/adr/mid-track-resume/_workflow/staged-workflow/.claude/workflow/conventions-execution.md` (new staged copy)
 
 ## Validation and Acceptance
 
