@@ -35,6 +35,7 @@ import org.junit.Test;
  * - setOriginalStatement(null) → NPE
  * - end-to-end: inline property filters (eq via buildWhereClause) and
  *   MatchWhereBuilder-built predicates (isDefined / isNull / isNotDefined / in)
+ *   verified by scenario-tag identity, not just match count
  */
 @SuppressWarnings("resource")
 public class GqlMatchStatementTest extends GraphBaseTest {
