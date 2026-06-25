@@ -576,6 +576,21 @@ public abstract class SchemaShared implements CloseableInStorage {
         classes.put(newName, cls);
       }
 
+      if (txLocal && newName != null && !session.isSeedingTxSchemaState()) {
+        // Transaction-local rename: record the new name only. A renamed class keeps its committed
+        // per-class record RID, so the commit rewrites that record under the new name. The old name
+        // must not be recorded: a name in the changed-class set that is absent from the tx-local
+        // copy reads as a drop at commit, which would delete the renamed class's record. The seeding
+        // guard mirrors the create and drop sites; copyForTx re-parses committed classes through
+        // other paths and never through a rename, but the guard keeps the recording uniform.
+        var txState = session.getTxSchemaState();
+        if (txState == null) {
+          throw new IllegalStateException(
+              "a tx-local rename must run with a seeded tx-local schema state");
+        }
+        txState.markClassChanged(newName);
+      }
+
     } finally {
       releaseSchemaWriteLock(session);
     }

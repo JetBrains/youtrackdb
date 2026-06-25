@@ -40,10 +40,15 @@ import javax.annotation.Nullable;
  * <p>This class ships the engage path, the same-thread loud-reject, and the normal release fired in
  * the owning transaction's outermost teardown. The full abnormal-termination handshake (the
  * teardown-intent mark, the monotonic acquire ordinal, the foreign-teardown heal) and the freezer
- * gate are a later track. The {@link #releaseFor(DatabaseSessionEmbedded)} compare-and-clear is
- * already session-keyed so that this track's normal release and the later track's compare-and-clear
- * can both target the same permit without ever double-releasing it: whichever runs first clears the
- * holder, and the other observes a foreign or absent holder and no-ops.
+ * gate are a later track. In this track the release is race-free because the only releaser is the
+ * owning thread in the outermost teardown, gated by the session-side {@code metadataMutexEngaged}
+ * marker so the permit is released at most once per transaction; there is no concurrent foreign
+ * releaser yet. The {@link #releaseFor(DatabaseSessionEmbedded)} clear-then-release reads and writes
+ * the {@code holder} without an atomic compare-and-set, which is correct only under that
+ * single-releaser premise. When a later track adds the concurrent foreign-releaser path (a pool
+ * shutdown reaping a still-checked-out session while the owner thread races its own teardown),
+ * {@code holder} must become an {@code AtomicReference<Holder>} and the release must compare-and-set
+ * it, so two releasers cannot both observe themselves as the owner and double-increment the permit.
  */
 public final class MetadataWriteMutex {
 
@@ -97,12 +102,17 @@ public final class MetadataWriteMutex {
 
   /**
    * Releases the permit for {@code session} in the transaction's outermost teardown, using a
-   * session-keyed compare-and-clear: the permit is released only while {@code session} is still the
-   * recorded holder. A no-op when the permit is free or owned by another session, which makes the
-   * release idempotent -- the later track's abnormal-termination compare-and-clear can run against
-   * the same permit without either releaser double-incrementing the counter. Releasing clears the
-   * holder first and then calls {@link Semaphore#release()}, so a concurrent engage cannot observe a
-   * stale owner once the permit is handed off.
+   * session-keyed check: the permit is released only while {@code session} is still the recorded
+   * holder, and it is a no-op when the permit is free or owned by another session. In this track the
+   * check-then-clear is race-free because the only releaser is the owning thread in the outermost
+   * teardown, gated by the session-side {@code metadataMutexEngaged} marker; there is no concurrent
+   * foreign releaser, so the plain {@code holder} read and write below need no atomic
+   * compare-and-set. Releasing clears the holder first and then calls {@link Semaphore#release()}, so
+   * a concurrent engage cannot observe a stale owner once the permit is handed off. The later track
+   * that adds a concurrent foreign releaser (a pool shutdown reaping a still-checked-out session as
+   * the owner races its own teardown) must convert {@code holder} to an {@code AtomicReference<Holder>}
+   * and gate this clear with a {@code compareAndSet}, so the two releasers cannot both
+   * clear-and-release and double-increment the permit.
    */
   public void releaseFor(final DatabaseSessionEmbedded session) {
     final var current = holder;

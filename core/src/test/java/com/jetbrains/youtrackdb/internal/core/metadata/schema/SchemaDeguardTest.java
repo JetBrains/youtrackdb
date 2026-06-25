@@ -469,4 +469,64 @@ public class SchemaDeguardTest extends DbTestBase {
         state.getChangedClasses().isEmpty());
     session.rollback();
   }
+
+  /**
+   * A class created inside a transaction is recorded in the tx-local changed-class set, so the
+   * commit knows to write its new per-class record. The superclass is plain and NON-indexed, so the
+   * created subclass appears in the changed set only because the create path itself records it, not
+   * because an index-membership ripple recorded its owning class. Without the create-path recording
+   * the commit would silently skip a tx-created class's per-class record.
+   */
+  @Test
+  public void createClassInsideTransactionRecordsChangedClass() {
+    var schema = session.getMetadata().getSchema();
+    // A plain, non-indexed superclass committed at the top level. Creating a subclass of it inside
+    // the transaction triggers no index-membership ripple, so the only way the subclass can land in
+    // the changed-class set is the create path recording it.
+    var superCls = schema.createClass("PlainCreateSuper");
+
+    session.executeInTx(
+        tx -> {
+          var created = schema.createClass("PlainCreateSub", superCls);
+          assertNotNull("the in-transaction subclass create must succeed", created);
+
+          var state = session.getTxSchemaState();
+          assertNotNull("an in-transaction create must have seeded the tx-local state", state);
+          assertTrue(
+              "the created class must be recorded in the tx-local changed-class set",
+              state.getChangedClasses().contains("PlainCreateSub"));
+        });
+  }
+
+  /**
+   * A class renamed inside a transaction records the NEW name in the tx-local changed-class set and
+   * does NOT record the old name. A renamed class keeps its committed per-class record RID, so the
+   * commit rewrites that record under the new name. Recording the old name would make it read as a
+   * drop at commit and delete the renamed class's record, so the test pins that the old name is
+   * absent from the changed set.
+   */
+  @Test
+  public void renameClassInsideTransactionRecordsNewNameOnly() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("RenameBefore");
+
+    session.executeInTx(
+        tx -> {
+          var cls = schema.getClass("RenameBefore");
+          assertNotNull("the class must exist before the in-transaction rename", cls);
+          // Public single-argument setName goes through the routing seam (SchemaClassProxy), which
+          // resolves the write target into the tx-local copy. The two-argument internal variant
+          // would bypass the proxy.
+          cls.setName("RenameAfter");
+
+          var state = session.getTxSchemaState();
+          assertNotNull("an in-transaction rename must have seeded the tx-local state", state);
+          assertTrue(
+              "the rename must record the new name in the tx-local changed-class set",
+              state.getChangedClasses().contains("RenameAfter"));
+          assertFalse(
+              "the rename must NOT record the old name (an absent name reads as a drop at commit)",
+              state.getChangedClasses().contains("RenameBefore"));
+        });
+  }
 }
