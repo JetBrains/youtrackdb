@@ -3,8 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gql.parser;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
-import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,13 +13,10 @@ import org.junit.Test;
 /**
  * Unit tests for {@link GqlMatchStatement#createExecutionPlan} {@code prettyPrint(0, 2)} output.
  */
-public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
+public class GqlMatchStatementPlanPrettyPrintTest extends GqlGraphTestBase {
 
   private GqlExecutionContext createCtx() {
-    var gi = (YTDBGraphInternal) graph;
-    var tx = gi.tx();
-    tx.readWrite();
-    return new GqlExecutionContext(tx.getDatabaseSession());
+    return new GqlExecutionContext(readWriteSession());
   }
 
   // =========================================================================
@@ -47,7 +42,7 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
       assertThat(output).contains("+ CALCULATE PROJECTIONS");
       assertThat(output).doesNotContain("+ FILTER ITEMS WHERE");
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -79,7 +74,7 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
       assertThat(output).contains("a");
       assertThat(output).contains("+ CALCULATE PROJECTIONS");
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -109,7 +104,7 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
       // equality the rendered filter must still be one conjunct — no spurious AND.
       assertThat(output).doesNotContain(" AND ");
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -150,7 +145,7 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
           .contains("k = \"v2\"")
           .doesNotContain("k = \"v1\"");
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
