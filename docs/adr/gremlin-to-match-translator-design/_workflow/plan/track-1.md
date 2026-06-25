@@ -14,7 +14,7 @@ Foundation track: creates the shared `match/builder/` package consumed by both G
 > technical and adversarial reviews (`reviews/track-1-technical.md`,
 > `reviews/track-1-adversarial.md`); Phase B delivered the shared builder
 > package, the behavior-preserving GQL refactor, and the presence-operator
-> factories, verified green by the Track 1 test suite (190 tests). Track 1 is
+> factories, verified green by the Track 1 test suite (191 tests). Track 1 is
 > the only executed track on this branch — Tracks 2–6 remain not started.
 
 - [x] Review + decomposition
@@ -56,7 +56,7 @@ scope-downs, dependency reveals, gate-override reasons. -->
   security surface), so the always-on track-level review plus the builder and
   GQL test suites were the gate.
 - Completion summary: the shared `match/builder/` package and the
-  behavior-preserving GQL refactor landed green — 90 `GqlMatchStatementTest`
+  behavior-preserving GQL refactor landed green — 91 `GqlMatchStatementTest`
   cases pass and four `GqlMatchStatementPlanPrettyPrintTest` cases pin plan
   shape via fragment assertions. The presence-operator factories (`isDefined` /
   `isNotDefined`) are ready for Track 4's `has(key)` / `hasNot(key)` mapping.
@@ -169,7 +169,7 @@ returning an immutable `PatternIR(Pattern, aliasClasses, aliasFilters)`.
 and delegates to `Pattern.addExpression(...)` so the well-tested
 `getOrCreateNode` path performs implicit endpoint creation. `build()`
 defensively copies the alias maps so a returned snapshot is not mutated by
-later calls. `MatchPatternBuilderTest` (30 tests) covers single-node /
+later calls. `MatchPatternBuilderTest` (31 tests) covers single-node /
 multi-hop / each direction / optional / implicit-creation / null-alias NPE /
 unsupported-feature throw / snapshot semantics.
 
@@ -225,12 +225,12 @@ moved out of `GqlMatchStatement` into `GqlMatchPatternAssembler` so
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementPlanPrettyPrintTest.java` (new)
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementTest.java` (modified — builder predicates)
 
-**Cross-track impact:** none — all 90 `GqlMatchStatementTest` cases pass and
+**Cross-track impact:** none — all 91 `GqlMatchStatementTest` cases pass and
 the four prettyPrint tests pass; the eq-path AST is byte-identical to the
 pre-refactor output.
 
 ## Validation and Acceptance
-- The shared builders produce IR identical to what `GqlMatchStatement` built inline before the refactor — verified by GQL's existing test suite (90 `GqlMatchStatementTest` cases + 4 prettyPrint fragment tests + 8 assembler tests).
+- The shared builders produce IR identical to what `GqlMatchStatement` built inline before the refactor — verified by GQL's existing test suite (91 `GqlMatchStatementTest` cases + 4 prettyPrint fragment tests + 8 assembler tests).
 - `MatchWhereBuilder.isDefined(field)` / `isNotDefined(field)` construct the existing presence AST nodes and render to `"<field> is defined"` / `"<field> is not defined"`.
 - No grammar or evaluator logic changes. The only parser-package edits are public accessors on `SQLInCondition` (`get/setOperator`) and on `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` (`get/setExpression`) so the builder factories can wire their children.
 
