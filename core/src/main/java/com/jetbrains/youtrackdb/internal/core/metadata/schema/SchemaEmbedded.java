@@ -208,6 +208,22 @@ public class SchemaEmbedded extends SchemaShared {
 
       addCollectionClassMap(cls);
 
+      if (txLocal && !session.isSeedingTxSchemaState()) {
+        // Transaction-local create: only the tx-local schema metadata changed now. Record the
+        // created class so the commit knows to write its new per-class record (the structural
+        // collection/index allocation is reconciled at commit). The seeding guard is load-bearing:
+        // copyForTx -> fromStream re-creates every committed class through this same path while
+        // seeding the tx-local copy, so without the guard the seed would dump the entire committed
+        // schema into the changed-class set and re-enter the mutex engage. This mirrors the seeding
+        // guard the index-manager membership site already applies.
+        var txState = session.getTxSchemaState();
+        if (txState == null) {
+          throw new IllegalStateException(
+              "a tx-local create must run with a seeded tx-local schema state");
+        }
+        txState.markClassChanged(className);
+      }
+
     } finally {
       releaseSchemaWriteLock(session);
     }
