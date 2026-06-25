@@ -458,7 +458,18 @@ these leaf shapes:
 `suffix` (a `SQLSuffixIdentifier`) non-null. `Var`'s name path flattens that identifier
 into a `List<String>` via an `identifierToPath` mapper. S0 supports the single-segment
 shape (a bare column name); a multi-segment chain is out of subset (D6-R), so its exact
-suffix-chain shape stays a deferred S1+ detail. Boolean `NOT` lowers from `SQLNotBlock` (fields `sub`,
+suffix-chain shape stays a deferred S1+ detail. Only the `suffix` form lowers: a
+single-segment `suffix` column → `Var`, and a `suffix` carrying a method-call modifier →
+`FuncCall`. The `levelZero` form is out of the S0 subset — a `SQLLevelZeroIdentifier`
+carrying a top-level `functionCall` (including the iteration functions `any()` / `all()`),
+the `self` reference (`@this`), or an inline `collection` (`[..]`). `identifierToPath`
+handles only the `suffix` shape, so a `levelZero` identifier hits the field-walk's
+exhaustive-or-throw default (D14/D7) and throws `UnsupportedAnalyzedNodeException`.
+`any()` / `all()` must throw specifically: they carry property-iteration semantics
+(`SQLBinaryCondition.evaluate(Result)`'s `isFunctionAny` / `isFunctionAll` branches) that
+the IR comparison evaluator, replicating only the slow comparison sequence, does not
+reproduce. So `FuncCall` comes solely from a method-call modifier (`SQLModifier.methodCall`),
+never from a top-level `levelZero` function call. Boolean `NOT` lowers from `SQLNotBlock` (fields `sub`,
 `negate`): `SQLNotBlock(negate=true, sub)` → `UnaryOp(NOT, lower(sub))`; `negate=false`
 is a pass-through to `lower(sub)`.
 
@@ -625,9 +636,20 @@ AST/IR split:
   `NULL_COALESCING`) get extracted but have no S0 IR consumer. That is intended — they
   keep working through the AST delegator; the only cost is the larger set of AST-side
   call sites the extraction touches.
-- `NumericOps` is all-static with a private constructor and stays JIT-inlinable; the
-  extraction adds no hot-path indirection. The acceptance gate is the existing math-test
-  suite (e.g. `MathExpressionTest`), green after the delegation.
+- `NumericOps` is all-static with a private constructor, and the extraction touches the
+  **live** AST arithmetic hot path (`Operator.apply` runs on every AST math eval via
+  `iterateOnPriorities`). Perf-neutrality rests on leaving the existing **two-hop** virtual
+  dispatch intact: `operator.apply(left, right)` → the per-constant `apply(Object, Object)`
+  body → the shared widening `apply(Number, Operator, Number)`, which itself re-dispatches
+  virtually via `operation.apply(typed, typed)`. The whole-enum lift-and-shift moves the
+  shared widening into the all-static `NumericOps` and adds only a monomorphic `NumericOps`
+  delegation around it — no new virtual indirection, and the added static call inlines. The
+  typed `apply(...)` overloads either stay on the enum (with `NumericOps` calling back) or
+  move with it; **T2 must state that boundary**. S0's acceptance gate stays the existing
+  math-test suite (e.g. `MathExpressionTest`, correctness) green after the delegation;
+  runtime perf-neutrality is verified at S1's LDBC JMH gate (YTDB-916's CCX33-neutral
+  acceptance and YTDB-901's umbrella JMH-neutrality requirement), the first slice with a
+  live consumer to measure — not a standalone S0 Hetzner run.
 
 ### Decisions & invariants
 
@@ -688,10 +710,15 @@ projection/property context that `getCollate` reads — the suffix path resolves
 collate by asking the result's entity for its schema property
 (`currentResult.asEntity()` → `getImmutableSchemaClass(session)` →
 `schemaClass.getProperty(...)` → `property.getCollate()`).
-A bare `Identifiable` is only a record reference with no such context, so the
-`Identifiable`-input overload has nothing to resolve a collate from and skips collation,
-while the `Result` overload applies it. So the IR must follow the `Result` overload,
-because that is the collation-applying path the executor uses.
+The `Identifiable`-input overload skips collation — but not because a bare `Identifiable`
+lacks that context. An `Identifiable` is a record reference (a RID); loading it yields an
+`EntityImpl` whose `getImmutableSchemaClass` → `getProperty` → `getCollate` chain is
+exactly what the resolution above consumes, so the schema context is recoverable. The
+overload simply never attempts it: the skip is a deliberate AST behavioral inconsistency
+(the inline author comments mark it intentional fast-path design), not a missing-context
+limitation. The analyzed layer unifies that inconsistency by applying collation uniformly
+through the one `Result` overload. So the IR must follow the `Result` overload, because
+that is the collation-applying path the executor uses — and the collation-*correct* one.
 
 Because the IR holds a `Var` (a name path), not an `SQLExpression`, it cannot call the
 parser's `getCollate`. The IR comparison evaluator re-implements the single-property
@@ -713,7 +740,23 @@ The slow path is the parity reference. `SQLBinaryCondition.evaluate` also has an
 comparison fast path (`tryInPlaceComparison`), but it is parity-equivalent — for any case
 the slow path's collation handling would change, the fast path returns `FALLBACK` (null)
 and the code falls through to the slow path. So the IR evaluator and the I1 tests target
-the slow path; the fast path is an AST-internal optimization the IR need not mirror.
+the slow path; the IR *structure* need not encode the fast path at all.
+
+Slow-path-only is correct **for S0** precisely because S0 ships with no live executor
+consumer (Overview; Part 4) — there is no production path to regress, and round-trip
+parity is the only acceptance criterion. That changes at S1: when YTDB-916 wires the
+evaluator into `FilterStep` on the hot path, the evaluator must reproduce the AST's
+evaluation fast paths or it regresses the most common filter shapes (and the LDBC JMH
+neutrality S1 requires). Two carry the obligation: (a) the in-place comparison
+(`tryInPlaceComparison` → `EntityImpl.isPropertyEqualTo` / `comparePropertyTo`, avoiding
+property deserialization for `property <op> constant`; it is also the parity-preserving
+seam — it returns `FALLBACK` whenever collation or coercion could change the result and
+falls through to the slow path, so the S1 equivalent must keep that fall-through), and
+(b) boolean `AND`/`OR` short-circuit (`SQLAndBlock` / `SQLOrBlock` stop at the first
+decisive sub-block) — the latter is correctness as well as performance, since eager
+evaluation can throw where the AST short-circuits past it. `AND`/`OR` are out of the S0 IR
+operator set today (the comparison and arithmetic operators are the whole `BinaryOperator`
+enum), so the short-circuit obligation lands when S1 extends lowering to `SQLWhereClause`.
 
 ### Edge cases / Gotchas
 
@@ -734,22 +777,33 @@ the slow path; the fast path is an AST-internal optimization the IR need not mir
 ## Evaluator interface: single Result overload
 
 **TL;DR.** The evaluator exposes one `evaluate(expr, row, ctx)` overload over `Result`.
-The rare `Identifiable`-only caller arriving in S1+ wraps its input in a synthetic
-`Result` via a small adapter helper. A single overload keeps every visitor from
-implementing two paths.
+An `Identifiable`-only caller arriving in S1+ wraps its input in a synthetic entity-backed
+`Result` via a small adapter helper, so it too evaluates through the collation-applying
+path. A single overload keeps every visitor from implementing two paths.
 
 The AST carries dual `(Result, …)` and `(Identifiable, …)` overloads for historical
-reasons. The analyzed tree is greenfield and serves higher-layer callers (executor steps,
-optimizer passes) that already operate on `Result`. A single overload keeps the
-visitor simple, and — as the comparison section shows — the `Result` overload is the one
-that applies collation, which is the path parity requires. The adapter allocates a
-synthetic `Result` per `Identifiable` call, which is trivial; if a hot path later cannot
-tolerate the wrap, the visitor can grow a second path without breaking existing code.
+reasons, and — as the comparison section shows — only the `Result` overload applies
+collation; the `Identifiable` overload's skip is a deliberate AST inconsistency. The
+analyzed tree is greenfield and serves higher-layer callers (executor steps, optimizer
+passes) that already operate on `Result`, so a single `Result` overload keeps the visitor
+simple and unifies that inconsistency: an `Identifiable`-only caller wrapped in a synthetic
+entity-backed `Result` evaluates through the collation-applying path. This is not a rare
+edge — `evaluate(Identifiable)` has ~12 production callers, including `SQLWhereClause` and
+`SecurityEngine` — so the unification is an observable, deliberate behavior change: a
+`ci`-collated comparison (and a `ci`-collated security predicate) begins matching
+case-insensitively where the AST `Identifiable` path did not. S0's I1 round-trip parity
+exercises only the `Result` overload, so it is unaffected; the divergence is an S1+
+concern, and S1 (`FilterStep` / WHERE, YTDB-916) and S7 (`SecurityEngine`, YTDB-922) must
+validate it when they wire the `Identifiable` path. The adapter's synthetic-`Result`
+allocation is trivial, and a hot path that later cannot tolerate the wrap can grow a second
+path without breaking existing code.
 
 ### Edge cases / Gotchas
 
-- The adapter's synthetic-`Result` allocation is the only cost of the single-overload
-  choice, and it falls on the rare `Identifiable` caller, not the common `Result` path.
+- The adapter's synthetic-`Result` allocation is the only *cost* of the single-overload
+  choice. Its *behavioral* consequence — collation now applies on the `Identifiable` path —
+  is the deliberate convergence above, validated by S1/S7 against the ~12 callers, not an
+  incidental side effect.
 
 ### Decisions & invariants
 

@@ -460,6 +460,157 @@ exhaustive-or-throw out-of-subset set).
 (options A/B/C, code-grounded) served the decision-justification function.
 Conservative scope narrowing, not a new fork — no Phase 0→1 adversarial re-run.
 
+### D15 — AST `evaluate(Identifiable)` collation skip is a deliberate AST inconsistency the analyzed layer unifies; collation applies uniformly via the single `Result` overload (2026-06-25, DD-review batch) [ctx=safe]
+
+The AST's `SQLBinaryCondition.evaluate(Identifiable, ctx)` overload skips collation: it
+goes straight to `operator.execute(...)` after evaluating both operands and never calls
+`getCollate` (`SQLBinaryCondition.java:44-67`), and inline author comments (`:45-46`,
+`:79-82`) mark the skip as intentional fast-path design. The `evaluate(Result, ctx)`
+overload applies collation (`getCollate` + `transform`, `:99-109`). This records the
+divergence as a **deliberate AST behavioral inconsistency the analyzed layer unifies** —
+a correctness convergence, not a defect fix: the IR exposes one `Result`-shaped evaluator
+that applies collation uniformly (D3), so when S1+ wraps an `Identifiable`-only caller in
+a synthetic entity-backed `Result`, collation is applied on that path too.
+
+**Why:** the design previously justified the skip as "a bare `Identifiable` has no schema
+context." That is false — `Identifiable` is a RID (`Identifiable.java` = `getIdentity()`
+only), and `SQLSuffixIdentifier.getCollate` (`:505-521`) needs only
+`isEntity()`/`asEntity()` → `EntityImpl` → `getImmutableSchemaClass` → `getProperty` →
+`getCollate`. A loaded `Identifiable` yields exactly that `EntityImpl`, so the schema
+context is recoverable; the AST overload simply does not attempt it. The corrected framing
+makes the single-`Result`-overload (D3) the collation-*correct* path, not merely the
+convenient one. S0 is unaffected — its round-trip tests use `Result` rows, which already
+apply collation — so this is a framing correction plus an S1+ forward commitment.
+
+**Blast radius:** `evaluate(Identifiable)` is not a rare caller — PSI find-usages returns
+~12 production callers including `SQLWhereClause` and `SecurityEngine`, so the S1+
+convergence changes observable collated-comparison behavior on live WHERE and security
+paths (e.g. a `ci`-collated security predicate `name = 'admin'` would begin matching
+`'Admin'`/`'ADMIN'`). The convergence is a deliberate, recorded behavior change, not an
+incidental side effect: S1 (FilterStep/WHERE, YTDB-916) and the SecurityEngine slice
+(S7, YTDB-922) must validate those callers — especially the security-comparison change —
+before wiring the `Identifiable` path.
+
+**Alternatives rejected:** keep the "no context" justification (factually wrong; a DD
+reviewer flagged it); preserve the AST `Identifiable` skip in the S1+ adapter for strict
+behavioral parity (rejected — the umbrella's goal is one correct analyzed layer;
+preserving a deliberate-but-inconsistent skip perpetuates the divergence, so the analyzed
+layer unifies on the collation-applying behavior, with the blast radius recorded for
+S1/S7 validation).
+
+**Refines:** D3 (the single `Result` overload is the collation-*correct* path, not just
+the simpler one), D11 (the Identifiable-skip is an AST inconsistency the IR does not
+replicate). Touches I1: parity is asserted against the AST's `Result` overload (S0's only
+exercised path); the Identifiable-path collation difference is an intentional, recorded
+divergence deferred to S1+ and validated against the ~12 callers there.
+
+**Gate note:** DD-review batch (D15 review-hold queue); Phase 0→1 adversarial gate iter3
+PASS — A11 should-fix (intentional-skip framing + 12-caller/SecurityEngine blast radius)
+applied; user confirmed the unify-and-record disposition.
+
+### D16 — "Fast path need not mirror" scoped to S0; the S1+ evaluator must reproduce the AST evaluation fast paths on the hot path (2026-06-25, DD-review batch) [ctx=safe]
+
+The claim that the comparison fast path (`tryInPlaceComparison`) "is an AST-internal
+optimization the IR need not mirror" is correct *for S0* — S0 ships with no live executor
+consumer, so its only acceptance is round-trip parity and there is no production path to
+regress — but it is not a permanent property of the evaluator. When S1 (YTDB-916) lowers
+`SQLWhereClause` and `FilterStep` evaluates `AnalyzedExpr` on the hot path, the analyzed
+evaluator must reproduce the AST evaluation fast paths or it regresses the most common
+filter shapes: (a) the in-place comparison (`tryInPlaceComparison` →
+`EntityImpl.isPropertyEqualTo`/`comparePropertyTo`, avoiding property deserialization for
+`property <op> constant`; it is also the parity-preserving seam — it returns `FALLBACK`
+whenever collation or coercion could change the result and falls through to the slow path,
+so the S1 equivalent must keep that fall-through and never let the fast path change an
+answer), and (b) boolean AND/OR short-circuit
+(`SQLAndBlock`/`SQLOrBlock` stop at the first decisive operand) — the latter is
+correctness as well as performance, since eager evaluation can throw where the AST
+short-circuits past it.
+
+**Why:** the flat wording conflates the IR *structure* (which need not encode a fast path
+— permanent) with the *evaluator behavior* (slow-path-only — true only for S0). Left
+unscoped, an S1 implementer could ship a slow-path-only evaluator into `FilterStep` and
+regress the LDBC JMH suite (YTDB-916's "neutral on CCX33" acceptance). Recording the
+obligation here and on YTDB-916 keeps the S1 implementer from inheriting a silent
+regression.
+
+**Alternatives rejected:** pull the fast path into S0's T4 evaluator now (rejected — S0
+has no consumer, so it is dead optimization with no parity or perf signal to validate it);
+leave the claim flat (rejected — it is the source of a latent S1 regression).
+
+**Refines:** D11 (the S0 evaluator's slow-path-only scope is explicit, with the S1+
+fast-path obligation recorded). Carried to YTDB-916 as a durable comment (the research log
+is ephemeral).
+
+**Gate note:** DD-review batch; validated by gate iter3.
+
+### D17 — `NumericOps` extraction touches the live AST arithmetic hot path; perf-neutrality basis recorded, runtime measurement deferred to S1's LDBC JMH gate (2026-06-25, DD-review batch) [ctx=safe]
+
+The `NumericOps` whole-enum extraction (D5/D5-R) is the only S0 change that modifies live
+production code: `SQLMathExpression.Operator.apply(...)` becomes a thin delegator to the
+all-static `NumericOps`, and `Operator.apply` is called by `iterateOnPriorities` on every
+AST arithmetic evaluation today. The perf-neutrality basis is recorded as: the existing
+**two-hop** virtual dispatch is left intact — `operator.apply(left, right)` → the
+per-constant `apply(Object, Object)` body → the shared widening
+`apply(Number, Operator, Number)`, which itself re-dispatches virtually via
+`operation.apply(typed, typed)` (`SQLMathExpression.java:568-580,582-655`). The whole-enum
+lift-and-shift moves the shared widening into the all-static `NumericOps` and adds only a
+monomorphic `NumericOps` delegation around it; the typed `apply(...)` overloads either
+stay on the enum (with `NumericOps` calling back) or move with it — **a boundary T2 must
+state**. No new virtual indirection is introduced, and the added `invokestatic` inlines,
+so no hot-path indirection is added. S0's acceptance gate stays the existing
+math-test suite (`MathExpressionTest`, correctness); runtime perf-neutrality is verified at
+S1 against the LDBC JMH suite (YTDB-916's "neutral on CCX33" acceptance and YTDB-901's
+umbrella JMH-neutrality requirement), the first slice with a live consumer to measure.
+
+**Why:** the design asserts neutrality but names only a correctness gate. A live-hot-path
+change with no perf signal is a gap given YTDB-901 explicitly mandates JMH-LDBC neutrality
+measurement. Recording the inlining rationale plus deferring measurement to S1's existing
+JMH gate closes the gap without burdening S0 (no IR consumer; arithmetic is light on the
+LDBC short-query path) with a standalone Hetzner JMH run.
+
+**Alternatives rejected:** add a standalone LDBC JMH run as an S0/T2 acceptance gate
+(rejected — heavyweight Hetzner run for a low-risk change S1's gate already covers, sooner
+than the change reaches a hot consumer); claim neutrality with no recorded basis (rejected
+— the inlining argument should be on record).
+
+**Refines:** D5, D5-R (records the perf-neutrality basis and the verification owner).
+
+**Gate note:** DD-review batch; validated by gate iter3.
+
+### D18 — `SQLBaseIdentifier.levelZero` form (top-level function calls incl. `any()`/`all()`, `@this`, collections) is out of the S0 subset and throws; `FuncCall` comes only from method-call modifiers (2026-06-25, DD-review batch) [ctx=safe]
+
+S0 lowers `FuncCall` only from a method-call modifier on a suffix identifier
+(`SQLModifier.methodCall`, e.g. `name.asInteger()`). The `SQLBaseIdentifier.levelZero`
+form — a `SQLLevelZeroIdentifier` carrying `functionCall` (including the special iteration
+functions `any()`/`all()`), or `self` (`@this`), or an inline `collection` (`[..]`) — is
+out of the S0 subset: `Var`'s `identifierToPath` handles only the single-segment `suffix`
+column shape, so a `levelZero` identifier hits the field-walk's exhaustive-or-throw
+default (D14) and throws `UnsupportedAnalyzedNodeException`. `any()`/`all()` must throw
+specifically because they carry property-iteration semantics
+(`SQLBinaryCondition.evaluate(Result)`'s `isFunctionAny`/`isFunctionAll` branches,
+`:71-77,151-177`) that the IR comparison evaluator — replicating only the slow comparison
+sequence — does not reproduce.
+
+**Why:** the lowering leaf-shape enumeration never addresses the `levelZero` payloads, and
+the `FuncCall`-is-"a function call" wording leaves it ambiguous whether `levelZero.functionCall`
+lowers to `FuncCall`. If `any()`/`all()` lowered to `FuncCall`, `BinaryOp(EQ, FuncCall(any),
+…)` would reach the comparison evaluator and be mis-evaluated — a silent parity hole.
+Stating the boundary explicitly (rather than relying on the throw-default) closes it in the
+spec and preserves I1/I2 by construction.
+
+**Alternatives rejected:** lower `any()`/`all()` to `FuncCall` and special-case them in the
+evaluator (rejected — pulls ANY/ALL iteration semantics into a no-consumer substrate, out
+of S0 scope); rely silently on the D14 throw-default without stating it (rejected —
+unverifiable from the spec; a DD reviewer correctly could not confirm the boundary).
+
+**Refines:** D7, D14 (the `levelZero` form joins the explicit out-of-subset throw set),
+and clarifies the `FuncCall` source (method-call modifiers only). Symmetric with D6-R on
+the in-subset side: the only single-`SQLBaseIdentifier` shapes S0 lowers are the
+single-segment `suffix` column → `Var` (D6-R) and a `suffix` carrying a method-call
+modifier → `FuncCall`; every `levelZero` payload is excluded.
+
+**Gate note:** DD-review batch; validated by gate iter3.
+
 ### Invariants to preserve (I1–I3)
 
 - **I1 — Round-trip parity.** For every SQL fragment in the S0 covered subset,
@@ -729,3 +880,18 @@ should-fix A3–A6 by D11/D13/D12/D14). One new suggestion A10 (the
 `tryInPlaceComparison` fast path is parity-equivalent; the slow path is the parity
 reference) folded into D11's precision note — no decision change. Gate clears; the
 log is frozen-ready as the Phase-1 design seed.
+
+### Adversarial review of this log (2026-06-25) — PASS
+
+Iteration 3 (DD-review batch re-run, verdict-producer variant). Review file:
+`_workflow/reviews/research-log-adversarial-iter3.md`. Lenses: Architecture /
+cross-component coordination, Performance hot path. Challenged the four DD-review-batch
+decisions D15–D18; the previously-cleared D1–D14 / D5-R / D6-R were confirmed not
+undermined. Four findings, none re-decisions: A11 should-fix (D15 — "bug" framing
+overstated a deliberate AST fast-path inconsistency, and "rare `Identifiable` caller"
+understated the ~12-caller incl. WHERE/`SecurityEngine` blast radius) applied via the
+D15 reframe to a recorded correctness convergence (user-confirmed disposition (a)); A13
+should-fix (D17 — perf basis must name the two-hop `operator.apply` → typed
+`operation.apply` re-dispatch seam and the T2 typed-`apply` boundary) applied; A12 / A14
+suggestions (D16 FALLBACK-seam clause, D18 D6-R symmetry cross-reference) applied. Gate
+clears.
