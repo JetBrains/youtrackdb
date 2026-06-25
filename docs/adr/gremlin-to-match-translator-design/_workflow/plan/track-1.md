@@ -39,9 +39,10 @@ scope-downs, dependency reveals, gate-override reasons. -->
   reference a later track. The baseline-backed text predicates `containsText`
   (`SQLContainsTextCondition`) and `startsWith` (half-open `>= AND <` range)
   ship in this track. See Episodes §Step 2.
-- **dependency-reveal** — the `SQLInCondition` operator field has no public
-  setter, so `MatchWhereBuilder.in` binds it through the small reflection
-  helper `SqlInOperatorBinding` rather than modifying the parser-package class.
+- **dependency-reveal** — the `SQLInCondition` operator field had no public
+  setter at decomposition time; Track 1 initially used reflection via
+  `SqlInOperatorBinding`, then replaced it with public `get/setOperator`
+  accessors on `SQLInCondition` (same pattern as `SQLIsDefinedCondition`).
   See Episodes §Step 2.
 
 ## Outcomes & Retrospective
@@ -124,13 +125,12 @@ parser-emitted AST shape, so a built tree is interchangeable with one parsed
 from SQL text. `startsWith` compiles to a half-open `field >= prefix AND
 field < prefix⁺` range (last-code-point increment, surrogate-pair and
 overflow-carry safe) rather than a `LIKE`, keeping the predicate index-aware.
-`in` binds the `SQLInCondition` operator through the new reflection helper
-`SqlInOperatorBinding` (the operator field has no public setter). The
-presence factories construct the existing `SQLIsDefinedCondition` /
-`SQLIsNotDefinedCondition` and wire their child `SQLExpression` via newly
-added `get/setExpression` accessors. `MatchWhereBuilderTest` (38 tests) pins
-each AST shape and a rendered-SQL sample; `SqlInOperatorBindingTest` (4
-tests) covers the binding helper.
+`in` wires the `SQLInCondition` operator via `setOperator(new SQLInOperator(-1))`
+after adding public `get/setOperator` accessors on `SQLInCondition` (same
+pattern as the presence nodes). The presence factories construct the existing
+`SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` and wire their child
+`SQLExpression` via newly added `get/setExpression` accessors.
+`MatchWhereBuilderTest` (38 tests) pins each AST shape and a rendered-SQL sample.
 
 **What was discovered:**
 - `SQLOrBlock` exposes only `addSubBlock`, while `SQLAndBlock` also has
@@ -146,15 +146,15 @@ find-mode) is introduced by Track 4's D-TEXT-OPS work and is absent at this
 track's baseline, so building them here would forward-reference a later track.
 The two presence AST nodes gained `get/setExpression` accessors — a minimal
 parser-package edit (no grammar / evaluator change) the factories need to wire
-their child. See Decision Log.
+their child. `SQLInCondition` gained matching `get/setOperator` accessors so
+`in(...)` can populate the operator without reflection. See Decision Log.
 
 **Key files:**
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchWhereBuilder.java` (new)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/SqlInOperatorBinding.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLInCondition.java` (modified — accessors)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLIsDefinedCondition.java` (modified — accessors)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLIsNotDefinedCondition.java` (modified — accessors)
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchWhereBuilderTest.java` (new)
-- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/SqlInOperatorBindingTest.java` (new)
 
 **Cross-track impact:** Track 4 consumes the full predicate surface and adds
 `endsWith` / `matchesRegex` once D-TEXT-OPS lands the AST nodes. The `notIn`
@@ -239,8 +239,8 @@ the pre-refactor output.
 <!-- Continuous-log (rare). Cross-step artifact references. Often empty. -->
 
 ## Interfaces and Dependencies
-**In scope (new):** `internal/core/sql/executor/match/builder/MatchPatternBuilder.java` (carries the nested `PatternIR` record), `MatchWhereBuilder.java`, `MatchLiteralBuilder.java`, `SqlInOperatorBinding.java` + their unit tests.
-**In scope (modified):** `GqlMatchStatement.java` (refactor `buildPlan` / `buildWhereClause` / `toLiteral` onto the builders); `SQLIsDefinedCondition.java` / `SQLIsNotDefinedCondition.java` (public `get/setExpression` accessors only — no grammar / evaluator change).
+**In scope (new):** `internal/core/sql/executor/match/builder/MatchPatternBuilder.java` (carries the nested `PatternIR` record), `MatchWhereBuilder.java`, `MatchLiteralBuilder.java` + their unit tests.
+**In scope (modified):** `GqlMatchStatement.java` (refactor `buildPlan` / `buildWhereClause` / `toLiteral` onto the builders); `SQLInCondition.java` (public `get/setOperator` accessors only — no grammar / evaluator change); `SQLIsDefinedCondition.java` / `SQLIsNotDefinedCondition.java` (public `get/setExpression` accessors only — no grammar / evaluator change).
 **Out of scope:** the grammar (`YouTrackDBSql.jjt`), `MatchExecutionPlanner`, every execution step, and the text-suffix / regex AST (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) that Track 4 introduces for `endsWith` / `matchesRegex`.
 **Inter-track dependencies:** supplies the builder package + presence factories to Track 2 (strategy skeleton uses `MatchPatternBuilder`), Track 4 (`isDefined` / `isNotDefined` for `has(key)` / `hasNot(key)`), and Track 5 (`hasProperty`-based presence check shares the same entity-presence primitive).
 **Signatures:** `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` constructors and `isDefinedFor(...)` are the existing primitives the factories wrap.
