@@ -340,9 +340,9 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `MatchWhereBuilder.isDefined` / `isNotDefined` factories wrapping the
   > pre-existing `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` AST nodes
   > (D-IS-DEFINED) — wiring only, no grammar / parser / evaluator changes.
-  > **Scope:** ~7 files covering three builder classes, the behavior-preserving
-  > GQL refactor, the two presence-operator factories, builder unit tests, and
-  > golden-string regression tests.
+  > **Scope:** ~9 files covering three builder classes, `GqlMatchPatternAssembler`,
+  > the behavior-preserving GQL refactor, the two presence-operator factories,
+  > builder unit tests, and prettyPrint plan regression tests.
   > **Size:** ~7 in-scope files — below the ~12-file floor, kept standalone by
   > justification: the `match/builder/` package is foundational and is adopted
   > by GQL independently of the translator, so it stands alone as an
@@ -435,7 +435,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Implementation state
 
-Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor, and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites (180 tests: 38 + 30 + 16 + 4 builder, 86 GQL, 6 golden-plan). No translator strategy, walker, recogniser, plan cache, or boundary step is present yet — those land in Tracks 2–6 — so the `core` build compiles and the existing Gremlin / MATCH behavior is unchanged.
+Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites (190 tests: 16 + 41 + 31 + 8 assembler + 4 prettyPrint + 90 GQL). No translator strategy, walker, recogniser, plan cache, or boundary step is present yet — those land in Tracks 2–6 — so the `core` build compiles and the existing Gremlin / MATCH behavior is unchanged.
 
 | Track | Code | Notes |
 |---|---|---|

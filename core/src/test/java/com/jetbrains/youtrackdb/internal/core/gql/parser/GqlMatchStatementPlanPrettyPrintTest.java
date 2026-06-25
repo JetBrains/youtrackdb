@@ -15,7 +15,6 @@ import org.junit.Test;
 /**
  * Unit tests for {@link GqlMatchStatement#createExecutionPlan} {@code prettyPrint(0, 2)} output.
  */
-@SuppressWarnings("resource")
 public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
 
   private GqlExecutionContext createCtx() {
@@ -106,8 +105,8 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GraphBaseTest {
       assertThat(output).contains("+ FILTER ITEMS WHERE");
       assertThat(output).contains("k = \"x\"");
       assertThat(output).contains("+ CALCULATE PROJECTIONS");
-      // buildWhereClause wraps a lone property without an SQLAndBlock; the rendered
-      // filter must not pick up a second conjunct from an over-eager AND merge.
+      // buildWhereClause always wraps properties in an SQLAndBlock; with a single
+      // equality the rendered filter must still be one conjunct — no spurious AND.
       assertThat(output).doesNotContain(" AND ");
     } finally {
       ((YTDBGraphInternal) graph).tx().commit();
