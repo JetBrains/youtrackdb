@@ -334,7 +334,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Checklist
 
-- [ ] Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` builder factories
+- [x] Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` builder factories
   > Foundation track: creates the shared `match/builder/` package consumed by
   > both GQL and the upcoming Gremlin translator, and exposes
   > `MatchWhereBuilder.isDefined` / `isNotDefined` factories wrapping the
@@ -432,6 +432,23 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > harness, type-compatibility + terminator-composition tests, and the Cucumber
   > re-run + fixes.
   > **Depends on:** Track 5.
+
+## Implementation state
+
+Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor, and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites (180 tests: 38 + 30 + 16 + 4 builder, 86 GQL, 6 golden-plan). No translator strategy, walker, recogniser, plan cache, or boundary step is present yet — those land in Tracks 2–6 — so the `core` build compiles and the existing Gremlin / MATCH behavior is unchanged.
+
+| Track | Code | Notes |
+|---|---|---|
+| 1 | done | shared builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` factories |
+| 2 | not started | strategy skeleton, walker / registry / cache / boundary step |
+| 3 | not started | edge traversal — direction handlers, folded edge chains, non-adjacent edge filtering |
+| 4 | not started | full `P` / `Text` / `TextP` algebra incl. D-TEXT-OPS, logical filters, presence forms |
+| 5 | not started | result shaping — labels / dedup, projections, order / pagination, aggregations |
+| 6 | not started | union, list-shaping terminators, Cucumber re-run, JMH baseline |
+
+Decision conformance: D6 (one shared builder package serving both front-ends) and D-IS-DEFINED (the presence-operator factories) are satisfied by Track 1. The remaining decisions — D1–D5, D7–D11, and D-TEXT-OPS — belong to Tracks 2–6 and are not yet implemented.
+
+Track 1 deferral: `MatchWhereBuilder.endsWith` / `matchesRegex` are not built in this track. Their AST backing (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) is introduced by Track 4's D-TEXT-OPS work; the baseline-backed `containsText` (`SQLContainsTextCondition`) and `startsWith` (half-open range) ship in Track 1. See plan/track-1.md § Decision Log.
 
 ## Plan Review
 - [x] Plan review (consistency + structural) — passed at iteration 1
