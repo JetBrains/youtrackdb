@@ -200,7 +200,7 @@ to preserve the `$c<N>` and `"V"` defaults. `buildWhereClause` keeps its
 package-private static signature (all 17 visitor call sites stay byte-
 identical, resolving adversarial blocker A2) but now drives
 `MatchWhereBuilder.eq` + `MatchLiteralBuilder.toLiteral`. Added
-`GqlMatchStatementPlanGoldenTest` (6 tests) snapshotting `plan.prettyPrint`
+`GqlMatchStatementPlanPrettyPrintTest` (6 tests) pinning `plan.prettyPrint`
 for representative GQL queries; cartesian-product shapes assert structural
 elements rather than full strings because the planner's tiebreak between
 equally-selective branches is not deterministic.
@@ -217,7 +217,7 @@ delegate — no internal callers remained.
 
 **Key files:**
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatement.java` (modified)
-- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementPlanGoldenTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementPlanPrettyPrintTest.java` (new)
 
 **Cross-track impact:** none — all 86 `GqlMatchStatementTest` cases pass
 unchanged and the 6 golden tests pass; the eq-path AST is byte-identical to
