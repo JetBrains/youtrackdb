@@ -86,13 +86,6 @@ public class MatchPatternBuilderTest {
   }
 
   @Test
-  public void addNode_nullAlias_throwsNPE() {
-    assertThrows(
-        NullPointerException.class,
-        () -> new MatchPatternBuilder().addNode(null, "V", null, false));
-  }
-
-  @Test
   public void addNode_repeatedWithDifferentClass_overwritesAliasClass() {
     // Pins the documented merge contract: a non-null/non-blank className
     // overwrites the previously-registered class for the same alias.
@@ -307,22 +300,6 @@ public class MatchPatternBuilderTest {
     assertThrows(
         UnsupportedOperationException.class,
         () -> b.addEdge("a", "b", Direction.OUT, "E", null, null, 5));
-  }
-
-  @Test
-  public void addEdge_nullFromAlias_throwsNPE() {
-    var b = new MatchPatternBuilder();
-    assertThrows(
-        NullPointerException.class,
-        () -> b.addEdge(null, "b", Direction.OUT, "E", null, null, null));
-  }
-
-  @Test
-  public void addEdge_nullToAlias_throwsNPE() {
-    var b = new MatchPatternBuilder();
-    assertThrows(
-        NullPointerException.class,
-        () -> b.addEdge("a", null, Direction.OUT, "E", null, null, null));
   }
 
   @Test

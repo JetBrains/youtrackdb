@@ -8,8 +8,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
+import javax.annotation.Nonnull;
 
 /**
  * Converts a Java literal value into an {@link SQLExpression} suitable for the unified
@@ -30,10 +30,10 @@ import java.util.Set;
  *       copy)
  * </ul>
  *
- * <p>{@code null} is not supported; passing {@code null} throws {@link NullPointerException}.
- * Callers are responsible for filtering nulls upstream. This is intentional behavior inherited
- * from the original {@code GqlMatchStatement.toLiteral} extraction; treating {@code null} as a
- * literal would silently drop predicates that the parser already rejects upstream.
+ * <p>{@code null} is not supported; callers must filter nulls upstream. This is intentional
+ * behavior inherited from the original {@code GqlMatchStatement.toLiteral} extraction; treating
+ * {@code null} as a literal would silently drop predicates that the parser already rejects
+ * upstream.
  */
 public final class MatchLiteralBuilder {
 
@@ -42,11 +42,9 @@ public final class MatchLiteralBuilder {
 
   /**
    * Converts a Java literal {@code value} into an {@link SQLExpression} matching the type table
-   * in the class Javadoc. Throws {@link IllegalArgumentException} for any type not listed there,
-   * and {@link NullPointerException} when {@code value} is {@code null}.
+   * in the class Javadoc. Throws {@link IllegalArgumentException} for any type not listed there.
    */
-  public static SQLExpression toLiteral(Object value) {
-    Objects.requireNonNull(value, "value must not be null");
+  public static SQLExpression toLiteral(@Nonnull Object value) {
     var expr = new SQLExpression(-1);
     switch (value) {
       case String s -> {

@@ -435,7 +435,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Implementation state
 
-Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites (191 tests: 16 + 41 + 31 + 8 assembler + 4 prettyPrint + 91 GQL). No translator strategy, walker, recogniser, plan cache, or boundary step is present yet — those land in Tracks 2–6 — so the `core` build compiles and the existing Gremlin / MATCH behavior is unchanged.
+Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites (187 tests: 15 + 41 + 28 + 8 assembler + 4 prettyPrint + 91 GQL). No translator strategy, walker, recogniser, plan cache, or boundary step is present yet — those land in Tracks 2–6 — so the `core` build compiles and the existing Gremlin / MATCH behavior is unchanged.
 
 | Track | Code | Notes |
 |---|---|---|
