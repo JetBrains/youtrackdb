@@ -12,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.math.BigDecimal;
@@ -32,6 +33,7 @@ import org.junit.Test;
  * - end-to-end: inline property filters (eq via buildWhereClause) and
  *   MatchWhereBuilder-built predicates (isDefined / isNull / isNotDefined / in)
  *   verified by scenario-tag identity, not just match count
+ * - buildWhereClause: single-property input always wraps in SQLAndBlock (AST pin)
  */
 @SuppressWarnings("resource")
 public class GqlMatchStatementTest extends GqlGraphTestBase {
@@ -392,6 +394,19 @@ public class GqlMatchStatementTest extends GqlGraphTestBase {
         filter("b", "Animal"));
     var statement = new GqlMatchStatement(patterns);
     Assert.assertEquals(patterns, statement.getMatchFilters());
+  }
+
+  /**
+   * {@link GqlMatchStatement#buildWhereClause} always wraps conditions in an
+   * {@link SQLAndBlock}, even for a single property — not {@code MatchWhereBuilder.and()},
+   * which would unwrap a lone operand for parser parity and shift plan shape.
+   */
+  @Test
+  public void buildWhereClause_singleProperty_wrapsInSQLAndBlock() {
+    var clause = GqlMatchStatement.buildWhereClause(Map.of("k", "x"));
+    Assert.assertTrue(
+        "single-property buildWhereClause must always produce SQLAndBlock",
+        clause.getBaseExpression() instanceof SQLAndBlock);
   }
 
   // ── buildWhereClause with RID value ──

@@ -75,10 +75,12 @@ is `private` with no external callers — body delegated to
 
 ### T9 [suggestion] — ACCEPTED in step decomposition
 **Issue**: Regression test specification was vague ("same step structure").
-**Resolution**: Step 4 adds three golden-string regression tests over
-`plan.prettyPrint(0, 2)` for representative GQL queries: (1) single-node
-anonymous, (2) multi-property AND filter, (3) multi-filter map.
-Full-string equality assertion.
+**Resolution**: Step 4 adds four prettyPrint fragment regression tests in
+`GqlMatchStatementPlanPrettyPrintTest` over `plan.prettyPrint(0, 2)` for
+representative GQL queries: (1) single-node anonymous, (2) multi-property AND
+filter, (3) single-property WHERE (no spurious AND conjunct), (4) multi-filter
+map cartesian product. Assertions use `contains` on plan fragments (same style
+as `ExpandStepPrettyPrintTest`), not full-string golden equality.
 
 ### T10 [suggestion] — RESOLVED in step decomposition
 **Issue**: `addEdge(fromAlias, toAlias, ...)` contract for missing `fromAlias`.

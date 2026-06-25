@@ -62,14 +62,15 @@ but not byte-identical plans.
 **Resolution**: Plan file invariant reworded from "byte-identical execution
 plans" to "structurally equivalent plan tree (same step types in same order,
 same alias bindings, equivalent prettyPrint output)". The regression test
-specification (T9) operates on `prettyPrint` output, which captures structural
-equivalence without over-specifying field-by-field byte equality.
+specification (T9) operates on `prettyPrint` fragment assertions (`contains`
+on alias-scoped blocks), which captures structural equivalence without
+full-string golden equality or field-by-field byte comparison.
 
 ### A7 [suggestion] — REJECTED with rationale
 **Challenge**: Split Track 1 into 1a (greenfield builders) + 1b (GQL
 refactor) to isolate test risk.
 **Resolution**: With A2 resolved (delegate strategy), the GQL refactor
 no longer carries test-call-site risk — it's a body-only change. The
-remaining "risk" is plan-equivalence regression, mitigated by the golden-string
-regression tests in Step 4. Splitting adds workflow overhead without
+remaining "risk" is plan-equivalence regression, mitigated by the prettyPrint
+fragment regression tests in Step 4. Splitting adds workflow overhead without
 proportional risk reduction. Track stays unified.
