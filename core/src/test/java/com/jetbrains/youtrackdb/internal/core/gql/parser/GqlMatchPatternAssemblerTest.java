@@ -3,10 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.gql.parser;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.List;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -63,6 +65,19 @@ public class GqlMatchPatternAssemblerTest {
     var ir = GqlMatchPatternAssembler.fromFilters(List.of(filter("v", "")));
 
     assertEquals("V", ir.aliasClasses().get("v"));
+  }
+
+  @Test
+  public void fromFilters_withNodeWhereClause_populatesAliasFilters() {
+    var matchFilter = SQLMatchFilter.fromGqlNode("p", "Person");
+    var where = GqlMatchStatement.buildWhereClause(Map.of("age", 30L));
+    matchFilter.setFilter(where);
+
+    var ir = GqlMatchPatternAssembler.fromFilters(List.of(matchFilter));
+
+    assertSame(where, ir.aliasFilters().get("p"));
+    assertEquals("Person", ir.aliasClasses().get("p"));
+    assertNotNull(ir.pattern().aliasToNode.get("p"));
   }
 
   @Test

@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsTextCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
@@ -83,6 +84,21 @@ public class MatchWhereBuilderTest {
     assertTrue("operator must be a SQLInOperator instance",
         in.getOperator() instanceof SQLInOperator);
     assertEquals("status IN [1, 2, 3]", render(expr));
+  }
+
+  /**
+   * {@link SQLInCondition#supportsBasicCalculation()} dereferences {@code operator}
+   * without a null guard — a builder-built {@code IN} must populate it the same way
+   * the parser does, or plan-time index inference NPEs.
+   */
+  @Test
+  public void in_operatorPopulated_supportsBasicCalculationWithoutNpe() {
+    var expr = b.in(
+        "status",
+        List.of(
+            MatchLiteralBuilder.toLiteral(1L),
+            MatchLiteralBuilder.toLiteral(2L)));
+    assertTrue(((SQLInCondition) expr).supportsBasicCalculation());
   }
 
   @Test
@@ -282,6 +298,16 @@ public class MatchWhereBuilderTest {
     assertEquals("a = 1 OR b = 2", render(result));
   }
 
+  @Test
+  public void or_threeOperands_returnsSQLOrBlock() {
+    var a = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
+    var c = b.eq("c", MatchLiteralBuilder.toLiteral(3L));
+    var d = b.eq("d", MatchLiteralBuilder.toLiteral(4L));
+    var result = b.or(a, c, d);
+    assertTrue(result instanceof SQLOrBlock);
+    assertEquals("a = 1 OR c = 3 OR d = 4", render(result));
+  }
+
   // ── not ──
 
   @Test
@@ -445,13 +471,19 @@ public class MatchWhereBuilderTest {
   @Test
   public void isDefined_expressionChildIsSetCorrectly() {
     var expr = b.isDefined("foo");
-    assertNotNull(((SQLIsDefinedCondition) expr).getExpression());
+    var inner = ((SQLIsDefinedCondition) expr).getExpression();
+    assertNotNull(inner);
+    assertEquals("foo", render(inner));
+    var nullInner = ((SQLIsNullCondition) b.isNull("foo")).getExpression();
+    assertEquals(render(nullInner), render(inner));
   }
 
   @Test
   public void isNotDefined_expressionChildIsSetCorrectly() {
     var expr = b.isNotDefined("foo");
-    assertNotNull(((SQLIsNotDefinedCondition) expr).getExpression());
+    var inner = ((SQLIsNotDefinedCondition) expr).getExpression();
+    assertNotNull(inner);
+    assertEquals("foo", render(inner));
   }
 
   // ── Combined: deeply nested AND/OR ──
@@ -486,6 +518,12 @@ public class MatchWhereBuilderTest {
   // ── helpers ──
 
   private static String render(SQLBooleanExpression expr) {
+    var sb = new StringBuilder();
+    expr.toString(new HashMap<>(), sb);
+    return sb.toString();
+  }
+
+  private static String render(SQLExpression expr) {
     var sb = new StringBuilder();
     expr.toString(new HashMap<>(), sb);
     return sb.toString();
