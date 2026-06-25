@@ -1,8 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter;
 
 import com.jetbrains.youtrackdb.api.gremlin.embedded.YTDBElement;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBElementImpl;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -39,43 +37,15 @@ public class YTDBHasLabelStep<S extends YTDBElement> extends FilterStep<S> {
     return predicates;
   }
 
-  private boolean test(String className) {
-    return predicates.stream().anyMatch(p -> p.test(className));
-  }
-
   @Override
   protected boolean filter(Admin<S> traverser) {
 
     // will it make sense to add a step-level cache for storing the names of the classes
     // that fit or don't fit the predicate? should it be thread-safe?
 
-    if (traverser.get() instanceof YTDBElementImpl ytdbElement) {
-
-      final var entity = (EntityImpl) ytdbElement.getRawEntity();
-      // Use the lightweight immutable schema snapshot rather than getSchemaClass(), which resolves
-      // the class against the live schema on every call. Both yield the same class for label tests.
-      final var schemaClass = entity.getImmutableSchemaClass(entity.getSession());
-      if (schemaClass == null) {
-        // this shouldn't ever happen, I suppose
-        return false;
-      }
-      if (test(schemaClass.getName())) {
-        return true;
-      }
-      if (!polymorphic) {
-        return false;
-      }
-
-      for (var c : schemaClass.getAllSuperClasses()) {
-        if (test(c.getName())) {
-          return true;
-        }
-      }
-
-      return false;
-    } else {
-      return test(traverser.get().label());
-    }
+    // Delegate to the shared matcher so the class-scan path (this step) and the by-id path in
+    // YTDBGraphStep apply identical polymorphism-aware label matching.
+    return YTDBLabelMatcher.matchesAny(traverser.get(), predicates, polymorphic);
   }
 
   @Override
