@@ -25,7 +25,7 @@ a doc over ~300 lines never produces a single whole-doc slice. It pairs that
 partition with an agent-side guard that flags a collapse-to-one-slice as a wiring
 error. It adds
 **orchestrator-side section-keyed settled-state**: the orchestrator tracks, per
-`##` section, whether that section is settled (clean or held), drops re-flags on
+`##` section, whether that section is settled (returned clean), drops re-flags on
 unchanged settled sections, and re-audits only changed ones — while the auditor
 itself stays fully cold, so the cold-read guarantee is intact. And it
 **relocates** all Phase-1 authoring-loop params and review files from
@@ -37,13 +37,13 @@ home), `create-plan/SKILL.md` Step 4b (the track path, by cross-reference),
 `readability-auditor.md`, and `conventions-execution.md` §2.5 — so the design
 treats them together.
 
-Core Concepts defines the seven load-bearing terms; Class Design and Workflow
+Core Concepts defines the six load-bearing terms; Class Design and Workflow
 model the components and one loop round; Parts 1–3 then cover slicing,
 convergence, and relocation-and-meta.
 
 ## Core Concepts
 
-This design introduces seven load-bearing ideas. Each is named and used without re-definition in the Parts that follow; if a Part references one of these, its definition is here. Each entry pairs the concept with what it replaces, so the delta from the baseline is visible at a glance.
+This design introduces six load-bearing ideas. Each is named and used without re-definition in the Parts that follow; if a Part references one of these, its definition is here. Each entry pairs the concept with what it replaces, so the delta from the baseline is visible at a glance.
 
 **Deterministic slice partition.** A rule that maps a document's line count to an exact set of auditor slices: ~200-line windows aligned on `##` / `# Part` boundaries, capped at ~6 windows, one auditor spawn per window. Deterministic means two orchestrator runs on the same document produce the same slice set. Replaces "the auditor is range-sliced" with no stated rule. → Part 1 §"Deterministic design-path slice partition".
 
@@ -54,8 +54,6 @@ This design introduces seven load-bearing ideas. Each is named and used without 
 **Agent-side whole-doc guard.** A secondary detector inside the auditor: it flags a wiring error when its params file says `slice_count == 1 AND total_lines > ~300`. Because the cold auditor cannot learn the document's total length on its own (its read-scope bars it), the orchestrator passes `slice_count` and `total_lines` as params. A legitimate single-slice short doc under the floor does not fire the guard. Replaces silent reliance on the orchestrator never collapsing the fan-out. → Part 1 §"The agent-side whole-doc guard".
 
 **Section-keyed settled-state.** Orchestrator-side memory keyed per `##` / `# Part` section (never per line range), recording whether each section is settled and storing its content hash. On the next round the orchestrator drops re-flags on unchanged settled sections and re-audits only changed ones. Replaces the loop's whole-document re-roll every round. → Part 2 §"Section-keyed settled-state".
-
-**Calibrated hold.** A deliberate orchestrator decision to accept a dense-but-followable should-fix finding rather than send it back to the author, recorded with the finding's verbatim quote and a one-line reason. A held section counts as settled. Each calibrated hold is an individual decision, recorded one finding at a time. The only backstop against over-accepting prose holds is the user veto: the orchestrator presents the held set for review at the end of the loop (D15). Replaces re-litigating the same accepted finding every round. → Part 2 §"Calibrated holds and the convergence backstop".
 
 **Standing anchor.** A section the auditor always reads in addition to its slice, so it can resolve cross-references without false-positiving on every defined term. On the design path the anchors are `## Overview` plus `## Core Concepts` (when present). The settled-state content hash folds the anchors in, because an anchor edit changes what the auditor sees and so re-opens dependent sections. → Part 2 §"The anchor-folded content hash".
 
@@ -72,13 +70,11 @@ classDiagram
         +sectionKey(section) SectionKey
         +contentHash(section, anchors) Hash
         +filterFindings(round_findings) FilteredFindings
-        +calibratedHolds: HoldSet
     }
     class SettledState {
         +sectionKey: SectionKey
         +settled: boolean
         +contentHash: Hash
-        +heldFindings: HoldSet
     }
     class ReadabilityAuditor {
         +target: design|tracks
@@ -99,7 +95,7 @@ classDiagram
     SettledState --> StandingAnchors : hash folds anchors in
 ```
 
-The orchestrator owns every cross-round decision: it computes the partition and the expected slice count, spawns the auditors, computes each section's content hash, and filters the returned findings against the settled-state. The auditor owns only the read of its own slice plus the standing anchors, and the secondary whole-doc guard; it holds no cross-round memory and reads no research log. `SettledState` is orchestrator working memory (not a file), one record per section, carrying the section's settled flag, its anchor-folded content hash, and the verbatim quotes of any calibrated holds. The `slice_count` and `total_lines` fields on the auditor are the slicing metadata the orchestrator passes so the guard is computable — they are the same for every slice in a round, so they cannot nudge any auditor toward a particular finding.
+The orchestrator owns every cross-round decision: it computes the partition and the expected slice count, spawns the auditors, computes each section's content hash, and filters the returned findings against the settled-state. The auditor owns only the read of its own slice plus the standing anchors, and the secondary whole-doc guard; it holds no cross-round memory and reads no research log. `SettledState` is orchestrator working memory (not a file), one record per section, carrying the section's settled flag and its anchor-folded content hash. The `slice_count` and `total_lines` fields on the auditor are the slicing metadata the orchestrator passes so the guard is computable — they are the same for every slice in a round, so they cannot nudge any auditor toward a particular finding.
 
 ### Decisions & invariants
 
@@ -233,7 +229,7 @@ new params fields.
 
 The orchestrator's partition obligation is the primary enforcement — it spawns exactly the computed count, ≥2 above the floor. But a stated obligation can be violated silently if the orchestrator collapses the fan-out, and the issue asks for the collapse to be detectable rather than silent. A check script would have provided that detection; without the script, the agent guard recovers most of it.
 
-The guard cannot read the document's total length on its own. The auditor's read-scope (the S1 cold-read invariant) bars it from reading anything but `house-style.md`, its slice, and the standing anchors — so it cannot count the lines of a document it only ever sees one slice of. The guard is therefore computable only if the orchestrator hands it the two facts: how many slices the round fanned out into (`slice_count`) and how long the whole document is (`total_lines`). Both are constant across a round's fan-out and are slicing metadata, not conclusions about the prose, so passing them does not prime the reader and does not violate the cold-read guarantee (the same S1 reasoning that keeps the held-set off the auditor, Part 2).
+The guard cannot read the document's total length on its own. The auditor's read-scope (the S1 cold-read invariant) bars it from reading anything but `house-style.md`, its slice, and the standing anchors — so it cannot count the lines of a document it only ever sees one slice of. The guard is therefore computable only if the orchestrator hands it the two facts: how many slices the round fanned out into (`slice_count`) and how long the whole document is (`total_lines`). Both are constant across a round's fan-out and are slicing metadata, not conclusions about the prose, so passing them does not prime the reader and does not violate the cold-read guarantee (the same S1 reasoning that keeps the settled-state off the auditor, Part 2).
 
 The auditor params file therefore gains two fields — `slice_count` and `total_lines` — added to the existing `target`, `target_path`, and `range`. The auditor fires the guard when `slice_count == 1 AND total_lines > ~300`: a single slice over the floor is a collapse and is reported as a wiring error. A single-slice short doc under the floor is legitimate and does not fire the guard. The floor condition therefore lives in two places: the orchestrator's partition produces ≥2 slices above it, and the guard checks it again from inside the auditor.
 
@@ -272,20 +268,19 @@ The root cause of the oscillation is that the auditor is a stateless cold spawn 
 
 But the per-round state (round, budget, `flagged_passages`) lives only in orchestrator working memory. The author re-grounds only the flagged passages, not the whole document. So each round's auditor is a fully cold spawn with no do-not-re-flag set, and it re-litigates settled dense prose — a slice that returned 0 findings one round can return 5 on byte-identical prose the next. That variance is the dominant source of the 13 → 8 → 3 → 8 finding counts.
 
-**The state lives entirely orchestrator-side (D3).** The auditor is never handed a held-set and never told which passages are accepted; it reads its slice plus the anchors fully cold every spawn. The orchestrator holds the settled-state, decides which sections to re-spawn, and filters the returned findings. This resolves the issue's stated tension by construction: with zero state on the agent there is no conclusion-priming, so the cold-read guarantee — the auditor's whole value — is strictly intact. The rejected alternative was an exclusion-list-in-spawn: passing a `do_not_reflag` list into each later-round spawn. That was rejected on two grounds. First, it primes the reader ("these passages are blessed"), the exact conclusion-priming the issue warns against. Second, a per-round-varying params list invalidates the shared-prompt cache the fan-out relies on.
+**The state lives entirely orchestrator-side (D3).** The auditor is never handed the settled-state and never told which sections are settled; it reads its slice plus the anchors fully cold every spawn. The orchestrator holds the settled-state, decides which sections to re-spawn, and filters the returned findings. This resolves the issue's stated tension by construction: with zero state on the agent there is no conclusion-priming, so the cold-read guarantee — the auditor's whole value — is strictly intact. The rejected alternative was an exclusion-list-in-spawn: passing a `do_not_reflag` list into each later-round spawn. That was rejected on two grounds. First, it primes the reader ("these passages are blessed"), the exact conclusion-priming the issue warns against. Second, a per-round-varying params list invalidates the shared-prompt cache the fan-out relies on.
 
 **Keyed per section, not per line (D4).** The state is tracked per `##` / `# Part` section, keyed on section identity plus a content hash, never on line ranges. Line ranges would break, because the document grows between rounds and the deterministic partition (Part 1) can regroup sections into different windows — so any line-keyed memory is stale after the next partition. Section identity survives re-partitioning: a section is the same section whether it lands in slice 2 this round or slice 3 next round.
 
-**Settled, and what the orchestrator does with it.** A section is **settled** when it has no open finding the orchestrator intends to act on — either it returned clean, or its only findings were accepted as calibrated holds (next section). The orchestrator then does one of two things per section each round:
+**Settled, and what the orchestrator does with it.** A section is **settled** when it returned clean — no open finding. The orchestrator then does one of two things per section each round:
 
 - **Settled and unchanged** (hash matches last round): drop all the section's findings. The orchestrator may also skip re-spawning a slice that covers only such sections — a cost optimization, since the filter would drop the findings anyway. This is what kills the clean→dirty oscillation on byte-identical prose.
-- **Changed** (hash differs, or never settled): re-audit fresh. Drop any returned finding whose verbatim quote is an accepted hold that still appears, keep genuinely new findings, then re-evaluate the section's settled-state.
+- **Changed** (hash differs, or never settled): re-audit fresh, keep the returned findings, then re-evaluate the section's settled-state.
 
-The unified settled notion (clean-or-held) collapses the issue's two carry-forward sources — already-fixed findings and accepted holds — into one mechanical filter the orchestrator runs without re-reading the document. The literal passage-level do-not-re-flag list from the issue comment was rejected because a clean slice (round 7's 0 findings) leaves no quotes to carry forward, so a passage list cannot suppress the clean→dirty oscillation that is the dominant variance source. The section hash can suppress it, because it carries the "this section was clean and is unchanged" verdict that a quote list cannot.
+The settled-and-unchanged filter collapses the issue's main carry-forward source — already-clean prose re-rolled through a fresh cold spawn — into one mechanical filter the orchestrator runs without re-reading the document. The literal passage-level do-not-re-flag list from the issue comment was rejected because a clean slice (round 7's 0 findings) leaves no quotes to carry forward, so a passage list cannot suppress the clean→dirty oscillation that is the dominant variance source. The section hash can suppress it, because it carries the "this section was clean and is unchanged" verdict that a quote list cannot.
 
 ### Edge cases / Gotchas
 
-- A section that was held last round and edited this round is "changed": its hash differs, so it re-audits fresh and the hold is re-evaluated against the new text.
 - Skipping the re-spawn of an all-settled slice is optional; the filter alone is correct, and an orchestrator that re-spawns every slice still converges because the filter drops the re-flags.
 
 ### Decisions & invariants
@@ -319,30 +314,51 @@ The hash therefore folds in the standing anchors that exist. On `target=design` 
   reads, tolerating an absent Core Concepts)
 - Invariants: the auditor reads no research log (S1)
 
-## Calibrated holds and the convergence backstop
+## Convergence backstop: the iteration budget and S5
 
-**TL;DR.** A calibrated hold is a deliberate orchestrator decision to accept a
-dense-but-followable should-fix rather than send it to the author, recorded with
-the verbatim quote and a one-line reason — never a bulk dismiss. A held section
-counts as settled. The only backstop against over-accepting prose holds to force
-convergence is the user veto at the D15 presentation, where the held set is
-surfaced; the comprehension gate is not a prose-hold backstop.
+**TL;DR.** The loop does not depend on every section reaching clean. A section
+the auditor never returns clean on, because its prose is irreducibly dense but
+acceptable, never becomes settled, so it re-audits each round. The loop is
+bounded anyway: `iteration_budget` (default 3) caps the rounds, and on budget
+exhaustion it exits through the existing S5 user-is-the-gate path. No separate
+hold mechanism is added.
 
-A calibrated hold lets the loop converge on prose that is dense but followable — a should-fix the orchestrator judges acceptable as written. The hold is recorded with the finding's verbatim quote and a one-line calibration reason, so the decision is auditable and is not a bulk dismiss of every open finding. A section whose only open findings are calibrated holds is settled, so it stops being re-audited the same way a clean section does.
+The settled-state filter from the previous sections kills the dominant
+clean→dirty oscillation, but it cannot settle a section the auditor flags every
+round on irreducible density: floor vocabulary the audience already knows,
+glossed once in the doc's footers, where an inline gloss everywhere would only
+bloat the prose. Such a section stays unsettled and re-audits each round.
 
-The risk a hold introduces is over-acceptance: an orchestrator could hold every finding to force a clean loop. The backstop against that, for **prose** holds, is the user veto at the D15 presentation. When the plan is presented for the user's pre-persist confirmation, the held set is surfaced, and the user can veto a hold and send the finding back to the author. This is the only prose-hold backstop, for a specific reason. The comprehension gate, run cold with its prior warm context stripped, runs no prose AI-tell axis. The S4 one-owner-per-surface rule put that axis on the auditor alone, so the only prose owner is the very auditor the hold suppresses. An over-held prose finding therefore has no second catcher, which leaves the D15 user veto as its only backstop.
+That is not a non-termination risk, because the loop is already bounded. The
+`iteration_budget` caps the rounds at 3 by default, and on budget exhaustion with
+only should-fix findings open (no blockers), the orchestrator takes the existing
+S5 user-is-the-gate path: it applies the cheap unambiguous fixes in a final
+targeted pass and surfaces the residual for the user to accept or push back on.
+S5 already owns this accept-the-residual decision, so converging on
+dense-but-acceptable prose needs no new machinery.
 
-The comprehension gate and the iteration-budget escalation remain backstops only for the comprehension / structural and decision-shaped axes. A decision-shaped hold re-opens the S3 freeze-order gate, because a held decision is a decision the loop has not actually settled. The S3 gate blocks the comprehension review while an unresolved log-adversarial entry is open — the entry the Phase-0→1 adversarial gate leaves open on the research log when a decision is still contested.
+A per-finding **calibrated-hold** mechanism was considered and rejected: accept a
+dense-but-followable should-fix, record its verbatim quote and a reason, and mark
+the section settled so the loop reaches dual-clean and exits before the budget.
+It would buy early self-termination and a per-finding accept trail, but it adds a
+hold concept the reader must track and a user-veto backstop that exists only
+because S4 leaves the prose axis with no second catcher, and it applies a
+verbatim-quote ritual to findings that are often cold-spawn variance rather than
+real defects. The budget cap plus S5 already terminate the loop, so the hold
+layer is removable.
 
 ### Edge cases / Gotchas
 
-- A hold on a decision-shaped finding is not a prose hold: it re-opens the S3 gate rather than relying on the D15 user veto, because the decision must survive challenge before the comprehension gate runs.
-- A held finding whose quote no longer appears (the author rewrote the passage) is no longer a live hold; the section is re-evaluated on its new text.
+- A decision-shaped finding is never a prose-density case: it re-opens the S3
+  freeze-order gate, because a contested decision must survive challenge before
+  the comprehension gate runs. Only prose-density should-fix findings ride the
+  budget-plus-S5 tail.
 
 ### Decisions & invariants
 
-- D-records: D4 (a calibrated hold makes a section settled; the D15 user veto is
-  the only prose-hold backstop)
+- D-records: D8 (calibrated holds dropped; a section is settled only when it
+  returned clean; the never-clean tail is bounded by `iteration_budget` and the
+  existing S5 user-is-the-gate path)
 - Invariants: the prose AI-tell axis has one owner — the auditor (S4); the
   comprehension gate reads no log and runs no prose axis
 

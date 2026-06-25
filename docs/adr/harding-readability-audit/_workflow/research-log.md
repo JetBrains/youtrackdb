@@ -281,6 +281,38 @@ protocol (the dual-clean review-iteration loop). **§1.7 routing = full staging*
   orchestration loops are executable procedure, and live-editing would
   destabilize the branch's own later phases.
 
+### D8 (Concern B): Drop calibrated holds — settled = returned-clean only; the tail is the existing iteration-budget + S5
+
+2026-06-25 [ctx=safe]. Supersedes the calibrated-hold rules in D4. Remove the
+calibrated-hold mechanism and its D15-veto backstop from the design. A section is
+**settled** only when it returned clean (no open finding); there is no
+accept-as-held path. The settled-state filter (D3/D4) still kills the dominant
+clean→dirty oscillation: a section that returned clean and is unchanged has its
+re-flags dropped. The never-clean tail — a section the cold auditor never returns
+clean on because the residual is irreducibly dense but acceptable prose (e.g.
+floor vocabulary the audience already knows) — is bounded by `iteration_budget`
+(default 3) and exits through the **existing** S5 user-is-the-gate path: the
+orchestrator applies the cheap unambiguous fixes and the user accepts or pushes
+back on the residual. No separate hold mechanism, no held-set surfaced at the D15
+presentation, no S4-one-owner backstop argument.
+
+- **Why:** Convergence (termination) is already guaranteed by the settled-state
+  filter (kills the oscillation on clean sections) plus the `iteration_budget`
+  cap and the S5 escalation that handles budget exhaustion. Calibrated holds were
+  a droppable early-exit-and-audit-trail layer, not a convergence requirement,
+  and their backstop (the D15 user veto, leaned on because S4 leaves the prose
+  axis with no second catcher) added conceptual surface a reader gets lost in.
+  Much of the tail residual the holds would record is cold-spawn variance, not
+  real defects, so dignifying it with a verbatim-quote-plus-reason ritual is the
+  fragility. Dropping holds matches the lightness call already made in D1 (prose
+  over a helper script); S5 already owns the accept-the-residual decision the
+  holds duplicated.
+- **Alternatives rejected:** Keep calibrated holds (D4 as originally written) —
+  rejected: it lets the loop self-terminate early on acceptable-density docs and
+  records a per-finding accept trail, but at the cost of the hold concept, the
+  D15-veto-as-only-backstop plumbing, and the S4 backstop argument; the existing
+  iteration-budget + S5 already terminate the loop without it.
+
 ## Surprises & Discoveries
 
 <!-- Append-only. Codebase / workflow realities surfaced during exploration. -->
