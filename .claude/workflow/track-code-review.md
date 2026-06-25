@@ -839,6 +839,52 @@ orchestrator never edits source files itself in Phase C.
    per the track-completion flow below, not in Progress; Progress
    carries only the one-line phase-state signal.
 
+   **Append the pre-approval ledger boundary, then commit and push
+   the `Track complete` Progress flip — only when reviews passed.**
+   The `Track complete` Progress entry above is otherwise uncommitted
+   until the post-approval track-completion commit below; the resume
+   must read the ledger to know review is done, so this boundary
+   needs its own committed append that survives `git reset --hard
+   HEAD`. Run this commit **only on the all-reviews-pass path**, not
+   when the loop exited with blockers still open after 3 iterations
+   (step 5): a blockers-persist exit is not "review done," and its
+   residual findings are surfaced to the user at track completion. On
+   the blockers-persist path, skip this commit — the Progress entry
+   above (which records the loop ending, not a clean pass) rides the
+   post-approval track-completion commit below as before. Append the
+   boundary, then stage **explicit paths only** — the track file
+   (the `Track complete` Progress flip) and the phase ledger (the
+   append) — never `git add -A`, symmetric with the Phase B→C commit
+   at `step-implementation.md` §Phase B Completion:
+
+   ```bash
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger \
+       --ctx <level> --phase C --track <N> \
+       --substate review-done-track-open
+   git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
+           docs/adr/<dir-name>/_workflow/phase-ledger.md
+   git commit -m "Record Phase C review pass for <track>"
+   git push
+   ```
+
+   This is a single Workflow update commit (per the table in
+   `commit-conventions.md` § Commit type prefixes), and is registered
+   as scaffolding in the resume orphan detection (see
+   step-implementation-recovery.md:orchestrator:3B §Resume-side
+   commit-pattern reference — entry 5). It is distinct from the
+   post-approval track-completion commit below, which carries
+   `decomposition-pending` for the *next* track. A **`risk: high`**
+   single-step track skips the review loop per §Single-Step Track, so
+   it never reaches step 6 and gets no `review-done-track-open`
+   append; it stays at `steps-done-review-pending` and is carried past
+   review by the track-completion append below. A `risk: medium`/`low`
+   single-step track instead runs the full review loop (§Single-Step
+   Track routes it through **Multi-Step Tracks**), reaches step 6, and
+   on the all-reviews-pass path terminates at `review-done-track-open`
+   like a multi-step track. Both terminal slugs route correctly to
+   completion because the resume checks whether review applies before
+   proceeding.
+
 ---
 
 ## Implementer Spawns
@@ -1402,11 +1448,18 @@ proceed directly to track completion **in the same session**.
    Workflow update commit. First append the completion boundary to the
    phase ledger (the machine-read resume signal — D3): advance the active
    `track` to the next track when one remains, or cross to `phase=D` when
-   this is the last track and Phase 4 is next:
+   this is the last track and Phase 4 is next. When a next track remains,
+   the append also sets `--substate decomposition-pending`, so the advanced
+   track N+1 sits at `decomposition-pending` before its own Phase A runs —
+   making "empty `substate` on a `phase=C` track" mean exactly one thing
+   (a pre-this-change ledger) rather than conflating "not decomposed" with
+   "append lost" (D3). The last-track `--phase D` append carries no
+   `--substate`: phase `D` has no within-track sub-state.
 
    ```bash
    # Next track remains (lite/full multi-track):
-   .claude/scripts/workflow-startup-precheck.sh --append-ledger --track <N+1>
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger \
+       --track <N+1> --substate decomposition-pending
    # Last track complete (every tier, including minimal):
    .claude/scripts/workflow-startup-precheck.sh --append-ledger --phase D
    ```

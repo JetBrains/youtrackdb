@@ -243,15 +243,31 @@ preview — they will appear in the next-session State 0 re-run.
 
 - **Review PASS** — update the plan file with the revised plan **and
   reset review state to State 0** by appending a `phase=0` boundary to the
-  phase ledger:
+  phase ledger. The same append also sets `--substate steps-partial`: an
+  inline replan that adds `[ ]` steps to a review-pending track reverts it
+  to partial, so the track's last `substate` must no longer claim
+  `steps-done-review-pending` or `review-done-track-open`:
 
   ```bash
-  .claude/scripts/workflow-startup-precheck.sh --append-ledger --phase 0
+  .claude/scripts/workflow-startup-precheck.sh --append-ledger \
+      --phase 0 --substate steps-partial
   ```
 
   The ledger is append-only and last-value-wins, so a `phase=0` appended
   after the prior `phase=A` makes `0` the resolved phase; `determine_state`
   reads it as State 0 (the replan invalidates the earlier passed verdict).
+  **The `--phase 0` reset is the routing signal; the `--substate
+  steps-partial` token is forward-hygiene, not the reopen mechanism.**
+  `determine_state_from_ledger` handles `phase=0` in its `0 | A | D | Done`
+  arm and returns before the `phase=C` arm that reads `substate`, so the
+  `--substate steps-partial` written here is **never read on the replan
+  resume itself** — the next session enters State 0, and only when the
+  reopened track re-runs Phase A does its A→C append write the
+  `steps-partial` the resume actually reads. The append is kept anyway
+  because it is cheap, survives `git reset --hard HEAD`, and keeps the
+  track's last-value-wins `substate` from claiming review-pending should any
+  future change ever read `substate` while a replan leaves the phase at `C`.
+  Do not drop the `--phase 0` append.
   The reset routes the next `/execute-tracks` session through State 0, which
   re-runs Phase 2 against the revised plan and catches any consistency drift
   the replan introduced (see

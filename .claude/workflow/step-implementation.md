@@ -1096,7 +1096,55 @@ code changes committed to git):
    `dev-workflow` tag (or skips with a notice if the YouTrack MCP
    server is unreachable); reflection produces no commit. Then
    proceed to Step 4.
-4. **End the session.** Do not proceed to Phase C in the same
+4. **Append the Phase B→C ledger boundary, then commit and push the
+   `Step implementation [x]` flip.** This is the only Phase B
+   Completion step that commits — steps 2 and 3 stage nothing
+   (informing the user and reflection produce no on-disk workflow
+   change), so the new commit carries step 1's flip plus the ledger
+   append, symmetric with the A→C boundary commit at
+   `track-review.md` §What You Do step 6. Without it the
+   `Step implementation [x]` flip and the sub-state advance would
+   stay uncommitted, and the next implementer's `git reset --hard
+   HEAD` would discard both — but the resume must read the ledger to
+   route a Phase B→C handoff, so the boundary needs a committed
+   append that survives the reset.
+
+   **Guard: normal completion path only.** Run this step **only when
+   every roster step in `## Concrete Steps` is `[x]` or `[~]`** (a
+   `[~]` skipped step counts as complete). Do **not** run it on a
+   context-window-warning exit, a two-failure exit, or any other
+   early-exit path that leaves a roster step `[ ]`: such a track is
+   still `steps-partial`, and a `steps-done-review-pending` append
+   would mis-route the resume into Phase C with steps unimplemented.
+   (Step 3's reflection is mandatory on every exit including
+   early-exit; this commit is not.)
+
+   Read the statusline per
+   episode-format-reference.md:orchestrator:3A,3B,3C §Sub-step 0 —
+   fall back to `unknown` on a missing file. Append the boundary,
+   then stage **explicit paths only** — the track file (carrying
+   step 1's `[x]` flip) and the phase ledger (the append) — never
+   `git add -A`, symmetric with the A→C commit at
+   `track-review.md`:
+
+   ```bash
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger \
+       --ctx <level> --phase C --track <N> \
+       --substate steps-done-review-pending
+   git add docs/adr/<dir-name>/_workflow/plan/track-<N>.md \
+           docs/adr/<dir-name>/_workflow/phase-ledger.md
+   git commit -m "Record Phase B completion for <track>"
+   git push
+   ```
+
+   This is a single Workflow update commit (per the table in
+   `commit-conventions.md` § Commit type prefixes). The slug
+   `steps-done-review-pending` is byte-identical to the canonical
+   sub-state the ledger grammar enumerates; the resume reads it as
+   "Phase B done, Phase C next." Its correct resolution on resume is
+   the behaviour Track 1's `steps-done-review-pending` ledger-path
+   test verifies.
+5. **End the session.** Do not proceed to Phase C in the same
    session.
 
 **Why.** Phase B accumulates implementation-flavoured context — the

@@ -93,6 +93,13 @@ is tabulated in the *Section lifecycle* subsection below.
    `/tmp/claude-code-context-usage-$PPID.txt` immediately before each
    write; `unknown` if the file is missing).
 
+   The within-track resume routing signal now lives on the phase
+   ledger's track-scoped `substate` key (`conventions.md` `§1.1` *Phase
+   ledger*), which the precheck reads ledger-first. This section, with
+   the `## Concrete Steps` roster, is the fallback source the precheck
+   reads only when the ledger carries no `substate` for the active
+   track.
+
    ```markdown
    ## Progress
    - [x] 2026-05-15T11:50Z [ctx=safe] Review + decomposition done
@@ -274,7 +281,7 @@ per D6 and D10:
 | Section | Phase 1 writer | Phase A writer | Phase B writer | Phase C writer | Readers |
 |---|---|---|---|---|---|
 | `## Purpose / Big Picture` | BLUF + intro paragraph + Move 2 placeholder | — | — | — | Phase 2 reviews; Phase A/B/C orchestration; Phase 4 aggregation |
-| `## Progress` | four pre-seeded phase-checkpoint entries (`- [ ] Review + decomposition`, `- [ ] Step implementation`, `- [ ] Track-level code review`, `- [ ] Track completion`) — State C resume reads these as phase markers | decomposition-complete entry **(D12 statusline read → `[ctx=<level>]`; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | per-step entry **(sub-step 7; same D12 read)** | per-iteration entry + track-completion entry **(same D12 read)** | resume-readers (most-recent entry = current phase); Phase 4 |
+| `## Progress` | four pre-seeded phase-checkpoint entries (`- [ ] Review + decomposition`, `- [ ] Step implementation`, `- [ ] Track-level code review`, `- [ ] Track completion`) — read as the fallback within-track sub-state source when the ledger carries no `substate` for the active track | decomposition-complete entry **(D12 statusline read → `[ctx=<level>]`; falls back to `unknown` when /tmp/claude-code-context-usage-$PPID.txt is missing)** | per-step entry **(sub-step 7; same D12 read)** | per-iteration entry + track-completion entry **(same D12 read)** | resume-readers (most-recent entry = current phase); Phase 4 |
 | `## Surprises & Discoveries` | (empty) | (rare — Pre-Flight clarification surfaces a cross-cutting fact) | promotion from per-step episode at sub-step 7 (when cross-cutting) | promotion from review iteration findings (when cross-cutting) | Phase A Pre-Flight Panel 1; Phase 4 |
 | `## Decision Log` | full inline Decision Records (D7; seeded from `design.md` D-records in `full`, from the research log in `lite`/`minimal`) | — | promotion from per-step episode at sub-step 7 (when decision-worthy) | gate-override / inline-replan entries + cross-track propagation supersession notes | Phase A reviews; Phase 2 consistency / structural; Phase 4 |
 | `## Outcomes & Retrospective` | (empty) | Phase A review iteration entries (prefix: `Technical:` / `Risk:` / `Adversarial:`) | (occasional — dimensional review iteration entries) | review iteration entries + track completion summary (prefix: `Track-level code review iteration N…` / `Track complete`) | Phase A reviews; Phase 4 |
