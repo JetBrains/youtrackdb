@@ -314,8 +314,12 @@ prefixes):
    siblings, resume from the dimensional review loop.
 5. **Other Workflow update commits** — touch only `_workflow/`
    but are not episode commits (Phase 1 init, Phase A
-   decomposition, Phase B base-commit recording, plan-corrections
-   application, track-completion mark, inline-replanning update,
+   decomposition, Phase B base-commit recording, Phase B completion
+   recording — the `Step implementation [x]` flip plus the
+   `steps-done-review-pending` ledger append — plan-corrections
+   application, Phase C review-pass recording — the `Track complete`
+   flip plus the `review-done-track-open` ledger append —
+   track-completion mark, inline-replanning update,
    Phase C iteration-count Progress updates, Phase C iteration-
    failure Progress updates with the `FAILURE` fields embedded in
    the commit message body). They are scaffolding and **not**

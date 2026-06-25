@@ -587,14 +587,17 @@ review-mode rounds.
 
    First append the A→C boundary to the phase ledger. This records "Phase A
    done, Phase B next" so a fresh `/execute-tracks` resumes into Phase B/C
-   instead of re-running Phase A from the top. Reuse the same `<level>`
+   instead of re-running Phase A from the top. The `--substate steps-partial`
+   token records the within-track sub-state the ledger-primary resume read
+   routes on: a `phase=C` track whose last `substate` is `steps-partial`
+   resumes into Phase B step implementation. Reuse the same `<level>`
    sub-step 5 read for its `## Progress` entry (`unknown` when that
    statusline read missed — a valid bare `--ctx` token), so there is no
    second statusline read:
 
    ```bash
    .claude/scripts/workflow-startup-precheck.sh --append-ledger \
-       --ctx <level> --phase C --track <N>
+       --ctx <level> --phase C --track <N> --substate steps-partial
    ```
 
    Then commit and push, staging both the track file and the ledger so the
@@ -1046,7 +1049,7 @@ After writing the track file with all decomposed steps:
 
    ```bash
    .claude/scripts/workflow-startup-precheck.sh --append-ledger \
-       --ctx <level> --phase C --track <N>
+       --ctx <level> --phase C --track <N> --substate steps-partial
    git add docs/adr/<dir-name>/_workflow/phase-ledger.md
    git commit -m "Append A->C phase-ledger boundary for <track>"
    git push

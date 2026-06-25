@@ -54,21 +54,29 @@ SCRIPT_PATH = REPO_ROOT / ".claude" / "scripts" / "workflow-startup-precheck.sh"
 
 
 def _resolve_live_repo_root() -> Path:
-    """Walk up from this test file to the first ancestor that holds
-    `.claude/workflow/conventions.md`, returning that ancestor.
+    """Walk up from this test file to the first ancestor *outside the staged
+    mirror* that holds `.claude/workflow/conventions.md`, returning that ancestor.
 
     When this suite runs from its normal home (`.claude/scripts/tests/`),
     `REPO_ROOT` (parents[3]) already holds `.claude/workflow/conventions.md`, so
     this returns the same dir. When the suite runs from the branch-local STAGED
     mirror (`docs/adr/<dir>/_workflow/staged-workflow/.claude/scripts/tests/`),
-    `REPO_ROOT` is the staged-workflow root, which carries the staged script but
-    not (in this step) `conventions.md`. The walk continues up to the real repo
-    root so the § 1.6(h) conformance byte-source resolves against the live
-    `conventions.md` while `SCRIPT_PATH` still points at the co-located (staged)
-    script. The fallback to `REPO_ROOT` keeps the suite's behavior unchanged on a
-    checkout that has no conventions.md anywhere above (the assertion in the
-    conformance test then surfaces the missing byte-source clearly)."""
+    `REPO_ROOT` is the staged-workflow root. That root may itself carry a staged
+    `.claude/workflow/conventions.md` (a branch that staged conventions.md), so a
+    naive walk would stop there and resolve live-file anchors inside the staged
+    mirror — the conformance byte-source and the `track-review.md` fallback would
+    point at the staged subtree, where `track-review.md` need not exist. To avoid
+    that, the walk skips any ancestor whose path contains the `staged-workflow`
+    segment, so it always passes the staged mirror and reaches the real repo root
+    holding the live `.claude/workflow/conventions.md`. The § 1.6(h) conformance
+    byte-source then resolves against the live `conventions.md` while
+    `SCRIPT_PATH` still points at the co-located (staged) script. The fallback to
+    `REPO_ROOT` keeps the suite's behavior unchanged on a checkout that has no
+    conventions.md anywhere above (the assertion in the conformance test then
+    surfaces the missing byte-source clearly)."""
     for parent in Path(__file__).resolve().parents:
+        if "staged-workflow" in parent.parts:
+            continue
         if (parent / ".claude" / "workflow" / "conventions.md").is_file():
             return parent
     return REPO_ROOT
@@ -4034,16 +4042,18 @@ def test_track_review_step6_carries_ac_ledger_append() -> None:
     piece was the instruction to call it. A regression guard the bug fix requires
     per CLAUDE.md.
 
-    Resolution: `track-review.md` is read via the module's `REPO_ROOT` anchor
-    (`Path(__file__).resolve().parents[3]`, the same anchor `SCRIPT_PATH` uses),
-    NOT `LIVE_REPO_ROOT`. Under § 1.7(b) staging this test file and the fixed
-    `track-review.md` are co-located in the staged subtree, so `REPO_ROOT` reads
-    the staged *fixed* copy (carrying the append) while `LIVE_REPO_ROOT` would
-    walk up to the develop-state *unfixed* live copy and false-fail the guard
-    during this branch's own Phase B — the fix self-applies only at the Phase 4
-    promotion. After promotion the two anchors coincide on the fixed file, so
-    `REPO_ROOT` keeps the guard green both during the branch and after. This
-    mirrors § 1.7(d)'s "staged copy authoritative when present."
+    Resolution (§ 1.7(d) read precedence): `track-review.md` is read from the
+    STAGED copy under the module's `REPO_ROOT` anchor
+    (`Path(__file__).resolve().parents[3]`, the same anchor `SCRIPT_PATH` uses)
+    when that copy is present, else from the LIVE copy under `LIVE_REPO_ROOT`
+    (walked up to the real repo root). A branch that STAGES a fixed
+    `track-review.md` is checked against its staged fix during its own Phase B/C;
+    a branch that does NOT stage `track-review.md` — because the A→C append
+    already lives in the live file, as on this branch — is checked against the
+    live copy, which carries the fix. After the Phase 4 promotion the two anchors
+    coincide on the fixed file, so the guard stays green during the branch and
+    after. This is § 1.7(d)'s "staged copy authoritative when present, otherwise
+    the live file."
 
     Match shape: the three flags `--append-ledger`, `--phase C`, and `--track`
     are matched ORDER-INDEPENDENTLY within the step-6 region — never as a fixed
@@ -4059,10 +4069,21 @@ def test_track_review_step6_carries_ac_ledger_append() -> None:
     instruction's presence."""
     import re
 
-    track_review = REPO_ROOT / ".claude" / "workflow" / "track-review.md"
+    # § 1.7(d) read precedence: prefer the STAGED copy (co-located under
+    # REPO_ROOT, parents[3]) when present, else fall back to the LIVE copy
+    # (LIVE_REPO_ROOT, walked up to the real repo root). A branch that has staged
+    # a FIXED track-review.md is checked against the fix during its own Phase B/C;
+    # a branch that did NOT stage track-review.md (the A→C append already lives in
+    # the live file, as on this branch) checks the live copy, which carries the
+    # fix. After the Phase 4 promotion the two anchors coincide on the fixed file.
+    staged_track_review = REPO_ROOT / ".claude" / "workflow" / "track-review.md"
+    live_track_review = LIVE_REPO_ROOT / ".claude" / "workflow" / "track-review.md"
+    track_review = (
+        staged_track_review if staged_track_review.is_file() else live_track_review
+    )
     assert track_review.is_file(), (
-        f"track-review.md must exist at the REPO_ROOT anchor, looked at "
-        f"{track_review} (REPO_ROOT={REPO_ROOT})"
+        f"track-review.md must exist at the staged anchor ({staged_track_review}) "
+        f"or the live anchor ({live_track_review})"
     )
     text = track_review.read_text(encoding="utf-8")
 
@@ -4090,6 +4111,395 @@ def test_track_review_step6_carries_ac_ledger_append() -> None:
             f"the §What You Do step-6 region must carry {flag!r} so the A→C "
             f"ledger append cannot be silently dropped again (YTDB-1140); the "
             f"region read was:\n{region}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Ledger-first sub-state read — the `substate` ledger key (D1).
+#
+# The State-C sub-state now comes from a track-scoped `substate` ledger key
+# read BEFORE the roster: when the ledger carries a `substate` for the active
+# track the precheck emits that slug directly, never touching the track-file
+# roster; an empty `substate` falls through to the wrap-fixed `roster_scan`
+# fallback. These groups pin the four committed slugs, track-scoping, the S1
+# pre-`categories` decoy guard, the empty-substate fallback, dual-path parity,
+# the wrapped-roster regression (YTDB-1134), and `--substate` append validation.
+# Each fixture stamps its artifacts with a real HEAD commit so the drift half of
+# the same `full` run stays a clean all-stamped read.
+#
+# The four committed slugs the ledger path emits 1:1 (workflow.md step 5 routes
+# on these byte-for-byte). `failed-step` and `section-discrepancy` are NOT
+# committed slugs — they exist only on the roster fallback path, so they never
+# appear as a ledger `substate` value.
+_COMMITTED_SUBSTATES = (
+    "decomposition-pending",
+    "steps-partial",
+    "steps-done-review-pending",
+    "review-done-track-open",
+)
+
+
+def _ledger_substate_state(
+    ledger_body: str, *, track_num: int = 2, track_body: Optional[str] = None
+) -> dict:
+    """Run `--mode full` against a no-plan branch whose phase ledger is
+    `ledger_body` (written verbatim) and return the `state` object. When
+    `track_body` is given a stamped `plan/track-<track_num>.md` is authored so
+    the fallback arm has a roster to read; the ledger-path tests deliberately
+    pass a roster that implies a DIFFERENT slug than the ledger, proving the
+    ledger value wins and the roster is not consulted. With no `track_body` the
+    ledger-only read is exercised (the substate resolves even with no track file
+    on disk). The stamp keeps the drift half clean: the ledger is unstamped by
+    design (excluded from the walk), and the track file, when present, carries
+    the HEAD stamp."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.write_ledger(ledger_body)
+        if track_body is not None:
+            fx.write_track_only(track_num, track_body, stamp=head)
+        return _state(run_precheck("--mode", "full", cwd=fx.path))
+
+
+# A track-file roster that resolves to steps-partial on the fallback path: one
+# step is `[ ]`. Used by the ledger-path tests as the decoy roster — the ledger
+# `substate` must win over whatever this roster would imply.
+_ROSTER_IMPLIES_PARTIAL = (
+    "<!-- track fixture -->\n# Track 2\n\n## Progress\n"
+    "- [x] 2026-06-20T00:00Z [ctx=info] Review + decomposition complete\n"
+    "- [ ] Step implementation\n\n## Concrete Steps\n\n"
+    "1. only step — risk: high  [ ]\n"
+)
+
+
+def test_ledger_substate_four_committed_slugs_resolve() -> None:
+    """Ledger path: for each of the four committed slugs, a ledger tail carrying
+    `phase=C track=2 substate=<slug>` resolves `state.substate` to that slug,
+    regardless of the roster shape. Each case pairs the ledger slug with a roster
+    that implies steps-partial, so a roster read would give a different answer;
+    resolving the ledger slug proves the roster is never consulted on this path."""
+    for slug in _COMMITTED_SUBSTATES:
+        ledger = f"[2026-06-20T12:00Z] [ctx=info] phase=C track=2 substate={slug}\n"
+        state = _ledger_substate_state(
+            ledger, track_num=2, track_body=_ROSTER_IMPLIES_PARTIAL
+        )
+        assert state == {"phase": "C", "substate": slug}, (
+            f"ledger substate={slug} must resolve to that slug over the "
+            f"steps-partial roster, got {state!r}"
+        )
+
+
+def test_ledger_substate_resolves_without_track_file() -> None:
+    """Ledger path, ledger-only: a `phase=C track=2 substate=review-done-track-open`
+    ledger with NO `plan/track-2.md` on disk still resolves the slug. The ledger
+    is authoritative for the within-track sub-state, so the read never depends on
+    the track file — only the empty-substate fallback does. This is what lets a
+    no-plan minimal branch resume its recorded sub-state even before (or without)
+    a track file present.
+
+    The fixture writes a stamped `plan/track-1.md` as the drift anchor (so the
+    all-stamped drift read stays clean with the plan dropped) but names track 2 on
+    the ledger, so track-2.md is genuinely absent."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        head = fx.head_sha()
+        fx.write_ledger(
+            "[2026-06-20T12:00Z] [ctx=info] phase=C track=2 "
+            "substate=review-done-track-open\n"
+        )
+        # A stamped track-1.md anchors the drift walk; track-2.md (the active
+        # track) is deliberately absent so the read is ledger-only.
+        fx.write_track_only(
+            1,
+            "<!-- t -->\n# Track 1\n\n## Progress\n- [ ] Review + decomposition\n",
+            stamp=head,
+        )
+        assert not (fx.plan_dir / "_workflow" / "plan" / "track-2.md").exists(), (
+            "the ledger-only fixture must have no track-2.md on disk"
+        )
+        state = _state(run_precheck("--mode", "full", cwd=fx.path))
+    assert state == {"phase": "C", "substate": "review-done-track-open"}, (
+        "a ledger substate must resolve even with the active track file absent, "
+        f"got {state!r}"
+    )
+
+
+def test_ledger_substate_track_scoped_not_global_last() -> None:
+    """Ledger path, track-scoping (S1): a ledger carrying track 1's terminal
+    `substate` followed by track 2's `substate` resolves track 2's value, NOT the
+    global last value. A global last-value-wins read would wrongly return track
+    1's terminal sub-state if track 1's line came last; here track 2's line is the
+    active track, so the track-scoped reader keeps track 2's value. This guards
+    the leak the track-scoping is built to prevent: a completed prior track's
+    terminal sub-state bleeding into the next track's resume."""
+    # Two lines: track 1 finished (review-done-track-open), then track 2 partial.
+    # The active track is 2 (the last `track=` the phase=C arm resolves), so the
+    # reader must return track 2's substate, ignoring track 1's terminal value.
+    ledger = (
+        "[2026-06-20T10:00Z] [ctx=info] phase=C track=1 "
+        "substate=review-done-track-open\n"
+        "[2026-06-20T11:00Z] [ctx=info] phase=C track=2 substate=steps-partial\n"
+    )
+    state = _ledger_substate_state(ledger, track_num=2, track_body=_ROSTER_IMPLIES_PARTIAL)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        "the track-scoped read must return track 2's substate, not track 1's "
+        f"terminal review-done-track-open, got {state!r}"
+    )
+
+
+def test_ledger_substate_track_scoped_keeps_last_for_track() -> None:
+    """Ledger path, track-scoping resolves the LAST value FOR THE ACTIVE TRACK:
+    two lines for track 2 (an earlier steps-partial, then a later
+    steps-done-review-pending) resolve the later one, while an interleaved track 1
+    line is ignored entirely. This proves the reader is last-value-wins WITHIN the
+    track's lines, not merely first-match."""
+    ledger = (
+        "[2026-06-20T09:00Z] [ctx=info] phase=C track=2 substate=steps-partial\n"
+        "[2026-06-20T10:00Z] [ctx=info] phase=C track=1 "
+        "substate=review-done-track-open\n"
+        "[2026-06-20T11:00Z] [ctx=info] phase=C track=2 "
+        "substate=steps-done-review-pending\n"
+    )
+    state = _ledger_substate_state(ledger, track_num=2, track_body=_ROSTER_IMPLIES_PARTIAL)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "the track-scoped read must keep track 2's LAST substate "
+        f"(steps-done-review-pending), ignoring the interleaved track 1 line, "
+        f"got {state!r}"
+    )
+
+
+def test_ledger_substate_categories_decoy_does_not_win() -> None:
+    """Ledger path, the pre-`categories` read (S1): a ledger line whose quoted
+    `categories="…"` field embeds a decoy ` track=9 substate=decoy-slug` span
+    resolves the REAL bare `track=2` / `substate=steps-done-review-pending` tokens
+    that precede the quoted field, never the decoy inside it. The append emitter
+    writes every bare reader-consumed key BEFORE the one quoted field, and the
+    token reader takes the first ` track=` / ` substate=` match and stops, so the
+    decoy after the quote can never win. This pins the emit-order safety
+    invariant the whole scheme rests on."""
+    # The bare track=2 / substate=… precede the quoted categories that embeds a
+    # same-named decoy. The reader must resolve the bare tokens.
+    ledger = (
+        '[2026-06-20T12:00Z] [ctx=info] phase=C track=2 '
+        'substate=steps-done-review-pending '
+        'categories="Workflow machinery track=9 substate=decoy-slug"\n'
+    )
+    state = _ledger_substate_state(ledger, track_num=2, track_body=_ROSTER_IMPLIES_PARTIAL)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "the real bare track=/substate= before the quoted categories must win "
+        f"over the decoy embedded inside it, got {state!r}"
+    )
+
+
+def test_ledger_empty_substate_falls_through_to_roster() -> None:
+    """Fallback path (S2): a `phase=C track=2` ledger with NO `substate` key
+    resolves through `determine_c_substate` and the wrap-fixed `roster_scan`,
+    emitting the roster-derived slug — the pre-this-change behavior. The roster
+    here implies steps-partial, so the absence of a ledger `substate` must surface
+    that roster-derived slug, proving the fallback fires when the ledger is
+    silent (a ledger written before this key existed)."""
+    ledger = "[2026-06-20T12:00Z] [ctx=info] phase=C track=2\n"
+    state = _ledger_substate_state(ledger, track_num=2, track_body=_ROSTER_IMPLIES_PARTIAL)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        "an empty ledger substate must fall through to the roster-derived slug "
+        f"(steps-partial here), got {state!r}"
+    )
+
+
+def test_ledger_dual_path_parity_same_substate() -> None:
+    """Dual-path parity (S3, the D2 mandate): ONE track-file fixture run through
+    TWO ledger variants resolves to the IDENTICAL sub-state on both arms. The
+    ledger-path variant carries `substate=steps-done-review-pending`; the fallback
+    variant omits the `substate` token, and the track-file roster (all steps `[x]`,
+    code review not yet done) independently implies the same
+    steps-done-review-pending. Both must resolve identically.
+
+    Non-vacuity is a fixture property: `determine_c_substate` reads no ledger, so
+    the fallback arm exercises the roster path ONLY because its ledger omits
+    `substate`. Building the fallback fixture's ledger WITHOUT the token (no new
+    harness helper needed) is the 'strip'; a fallback fixture that left `substate`
+    on its ledger would make both arms read the ledger and the assertion vacuous —
+    so the fallback ledger below carries phase/track only."""
+    # The shared track-file roster: every step done, code-review entry not yet
+    # `[x]` -> the roster independently resolves steps-done-review-pending.
+    track_body = (
+        "<!-- t -->\n# Track 2\n\n## Progress\n"
+        "- [x] 2026-06-20T00:00Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-20T01:00Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [ ] Track-level code review\n\n## Concrete Steps\n\n"
+        "1. only step — risk: high  [x] commit: abc123\n"
+    )
+    expected = "steps-done-review-pending"
+    # Ledger-path arm: the ledger carries the substate.
+    ledger_path_arm = (
+        f"[2026-06-20T12:00Z] [ctx=info] phase=C track=2 substate={expected}\n"
+    )
+    state_ledger = _ledger_substate_state(
+        ledger_path_arm, track_num=2, track_body=track_body
+    )
+    # Fallback arm: SAME track-file roster, ledger STRIPPED of the substate token.
+    fallback_arm = "[2026-06-20T12:00Z] [ctx=info] phase=C track=2\n"
+    state_fallback = _ledger_substate_state(
+        fallback_arm, track_num=2, track_body=track_body
+    )
+    assert state_ledger == state_fallback == {"phase": "C", "substate": expected}, (
+        "the ledger path and the ledger-stripped fallback path must resolve to "
+        f"the identical sub-state ({expected}); got ledger={state_ledger!r}, "
+        f"fallback={state_fallback!r}"
+    )
+
+
+def test_wrapped_roster_step_counted_via_fallback() -> None:
+    """Wrapped-roster regression (S5, YTDB-1134's literal criterion): a track whose
+    single step description wraps onto a continuation line carrying the `risk:`
+    tail and `[x]` status. The wrap-fixed `roster_scan` JOINS the column-0 `N. `
+    line with its continuation line, reads the `[x]` status from the joined text,
+    counts the step, and the fallback resolves steps-done-review-pending. Before
+    the wrap fix the scan found no `risk:` on the column-0 line, skipped the entry
+    WITHOUT counting it, and the empty roster resolved steps-partial — the bug.
+
+    Exercised through the EMPTY-substate fallback (the ledger omits `substate`) so
+    the roster is actually read; a ledger `substate` would bypass the roster and
+    not test the wrap fix."""
+    # The roster's single step wraps: the column-0 line has NO risk: tail; the
+    # continuation line carries `— risk: low  [x]`. Decomposition + code review are
+    # both done in Progress, so a correctly-counted all-done roster resolves
+    # steps-done-review-pending. (Code-review entry omitted -> review pending.)
+    track_body = (
+        "<!-- t -->\n# Track 2\n\n## Progress\n"
+        "- [x] 2026-06-20T00:00Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-20T01:00Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [ ] Track-level code review\n\n## Concrete Steps\n\n"
+        "1. A very long step description that runs past the line width and\n"
+        "   wraps onto this indented continuation line — risk: low  [x] commit: abc123\n"
+    )
+    ledger = "[2026-06-20T12:00Z] [ctx=info] phase=C track=2\n"
+    state = _ledger_substate_state(ledger, track_num=2, track_body=track_body)
+    assert state == {"phase": "C", "substate": "steps-done-review-pending"}, (
+        "the wrap-fixed roster_scan must count the wrapped [x] step so the "
+        f"fallback resolves steps-done-review-pending (not steps-partial), got "
+        f"{state!r}"
+    )
+
+
+def test_wrapped_roster_two_adjacent_wrapped_steps_both_counted() -> None:
+    """Wrapped-roster regression, the join terminator (S5): TWO ADJACENT wrapped
+    steps. The join must stop at the next column-0 step line (matched by the glob
+    `[0-9]*". "*`) so the two steps never merge into one — both are counted
+    separately. Here step 1 wraps and is `[x]`, step 2 wraps and is `[ ]`; the
+    correct read is two steps, one done and one todo -> steps-partial. If the two
+    wrapped steps merged into one buffer, the single joined entry would read only
+    step 2's trailing `[ ]` status and the count would be 1, not 2 — and the
+    intervening `[x]` would be lost. This is the case the trailing `*` in the
+    terminator glob fixes; `[0-9]*". "` (no trailing `*`) would never match a real
+    next-step line and the two would wrongly merge.
+
+    Exercised through the empty-substate fallback so the roster is read."""
+    track_body = (
+        "<!-- t -->\n# Track 2\n\n## Progress\n"
+        "- [x] 2026-06-20T00:00Z [ctx=info] Review + decomposition complete\n"
+        "- [x] 2026-06-20T01:00Z [ctx=safe] Step 1 complete (commit abc123)\n"
+        "- [ ] Step implementation\n\n## Concrete Steps\n\n"
+        "1. First long step whose description runs past the width and wraps\n"
+        "   onto this continuation line — risk: medium  [x] commit: abc123\n"
+        "2. Second long step whose description also runs past the width and\n"
+        "   wraps onto its own continuation line — risk: medium  [ ]\n"
+    )
+    ledger = "[2026-06-20T12:00Z] [ctx=info] phase=C track=2\n"
+    state = _ledger_substate_state(ledger, track_num=2, track_body=track_body)
+    assert state == {"phase": "C", "substate": "steps-partial"}, (
+        "two adjacent wrapped steps must be counted separately (one [x], one "
+        f"[ ]) so the fallback resolves steps-partial, got {state!r}"
+    )
+
+
+def test_append_substate_rejects_space() -> None:
+    """`--substate` append validation (S6): a space in the `substate` value is
+    rejected (exit 3 + stderr diagnostic), the ledger is NOT written, and the
+    diagnostic names the bare-token cause. `substate` is a bare metacharacter-free
+    token, so it joins phase/track/tier/s17/paused under the existing bare-token
+    rejection — a space would let the reader split the value or spawn a spurious
+    `key=value` token."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "C", "--substate", "steps partial",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 3, (
+            f"a space in substate must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "bare token" in proc.stderr, (
+            f"the reject must name the bare-token cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_substate_rejects_newline() -> None:
+    """`--substate` append validation (S6): a newline smuggled into the `substate`
+    value is rejected (exit 3 + stderr diagnostic naming the newline cause) and the
+    ledger is NOT written. Without the guard the newline would write a second
+    physical line whose smuggled tail the last-value-wins reader would resolve,
+    routing resume to the wrong state — the same hazard the other field guards
+    cover."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "C",
+            "--substate", "steps-partial\nphase=Done",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 3, (
+            f"a newline in substate must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "newline" in proc.stderr, (
+            f"the reject must name the newline cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_substate_written_before_categories() -> None:
+    """`--substate` append: a valid substate is written as a BARE token in the
+    pre-`categories` block — `substate=<slug>` appears before the quoted
+    `categories="…"` field on the line. This pins the emit-order invariant the
+    track-scoped reader's first-match safety depends on (a substate written after
+    categories could lose to a decoy inside the quoted span)."""
+    import re
+
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--phase", "C", "--track", "2",
+            "--substate", "steps-partial",
+            "--categories", "Workflow machinery",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"a valid substate append must exit 0, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        line = _ledger_text(fx).splitlines()[0]
+        # substate is a bare token and precedes the quoted categories field.
+        assert re.search(r"\bsubstate=steps-partial\b", line), (
+            f"the substate token must be written, got {line!r}"
+        )
+        sub_pos = line.index("substate=")
+        cat_pos = line.index('categories="')
+        assert sub_pos < cat_pos, (
+            "substate must be emitted BEFORE the quoted categories field "
+            f"(emit-order invariant), got {line!r}"
         )
 
 
@@ -4205,6 +4615,19 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("append_ledger_no_orphan_temp_on_failure", test_append_ledger_no_orphan_temp_on_failure),
     # -- doc-presence guard: the A->C ledger append call is present in step 6 ---
     ("track_review_step6_carries_ac_ledger_append", test_track_review_step6_carries_ac_ledger_append),
+    # -- ledger-first sub-state read: the `substate` key (D1) -------------------
+    ("ledger_substate_four_committed_slugs_resolve", test_ledger_substate_four_committed_slugs_resolve),
+    ("ledger_substate_resolves_without_track_file", test_ledger_substate_resolves_without_track_file),
+    ("ledger_substate_track_scoped_not_global_last", test_ledger_substate_track_scoped_not_global_last),
+    ("ledger_substate_track_scoped_keeps_last_for_track", test_ledger_substate_track_scoped_keeps_last_for_track),
+    ("ledger_substate_categories_decoy_does_not_win", test_ledger_substate_categories_decoy_does_not_win),
+    ("ledger_empty_substate_falls_through_to_roster", test_ledger_empty_substate_falls_through_to_roster),
+    ("ledger_dual_path_parity_same_substate", test_ledger_dual_path_parity_same_substate),
+    ("wrapped_roster_step_counted_via_fallback", test_wrapped_roster_step_counted_via_fallback),
+    ("wrapped_roster_two_adjacent_wrapped_steps_both_counted", test_wrapped_roster_two_adjacent_wrapped_steps_both_counted),
+    ("append_substate_rejects_space", test_append_substate_rejects_space),
+    ("append_substate_rejects_newline", test_append_substate_rejects_newline),
+    ("append_substate_written_before_categories", test_append_substate_written_before_categories),
 ]
 
 

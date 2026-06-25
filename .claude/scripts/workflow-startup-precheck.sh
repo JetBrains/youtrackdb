@@ -17,7 +17,8 @@
 #       [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
 #   workflow-startup-precheck.sh --append-ledger \
 #       [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] \
-#       [--categories <text>] [--s17 <token>] [--paused <event>]
+#       [--categories <text>] [--s17 <token>] [--paused <event>] \
+#       [--substate <slug>]
 #
 # Modes:
 #   full              Full startup detection: {divergence, drift, handoffs,
@@ -48,20 +49,25 @@
 # boundaries it flips plan checkboxes today. The grammar is fixed and is the
 # contract `determine_state` greps and Track 2's runtime consumers read:
 #
-#   [<ISO>] [ctx=<level>] phase=<v> track=<v> tier=<v> categories="<v>" s17=<v> paused=<v>
+#   [<ISO>] [ctx=<level>] phase=<v> track=<v> tier=<v> substate=<v> categories="<v>" s17=<v> paused=<v>
 #
 #   * One entry per line; the leading `[<ISO>]` timestamp and `[ctx=<level>]`
 #     marker are always present, then the `key=value` fields that the append
 #     was given (an unsupplied key is simply omitted from that line).
-#   * The key set is exactly { phase, track, tier, categories, s17, paused }.
+#   * The key set is exactly
+#     { phase, track, tier, substate, categories, s17, paused }.
 #     `categories` is the one quoted value (it may carry spaces and commas, e.g.
 #     `categories="Workflow machinery,Architecture"`); every other value is a
-#     bare metacharacter-free token.
+#     bare metacharacter-free token. `substate` is the within-track resume signal
+#     (one of the four committed slugs); it is emitted in the pre-`categories`
+#     block so the first-match token reader cannot lose it to a decoy inside the
+#     one quoted field.
 #   * Values are VALIDATED on append, mirroring the read path's loud-reject
 #     posture: a newline in any field, a space in a bare-token field
-#     (phase/track/tier/s17/paused/ctx), or a double quote in `categories` is
-#     rejected with a stderr diagnostic and exit 3, because each would split or
-#     truncate the line and silently corrupt last-value-wins resolution. The
+#     (phase/track/tier/substate/s17/paused/ctx), or a double quote in
+#     `categories` is rejected with a stderr diagnostic and exit 3, because each
+#     would split or truncate the line and silently corrupt last-value-wins
+#     resolution. The
 #     orchestrator is the sole caller and passes controlled tokens, but the
 #     grammar is the contract other tracks build on, so a malformed value fails
 #     loudly rather than corrupting the tail.
@@ -70,7 +76,9 @@
 #     mid-flight tier or phase change is recorded by APPENDING a new line rather
 #     than rewriting an old one. `phase` and `track` feed determine_state's
 #     two-level resume (the ledger owns the top-level phase and the active
-#     track; the track file's `## Progress` owns the within-track sub-state).
+#     track; the within-track sub-state is read ledger-first from the
+#     track-scoped `substate` key, falling back to the track file's
+#     `## Progress`/`## Concrete Steps`).
 #   * The append is atomic via temp-file-plus-rename: the new line is written to
 #     a sibling temp file holding `(old contents)+(new line)`, then `mv`'d over
 #     the ledger. A crash mid-write leaves either the prior ledger or the
@@ -112,12 +120,18 @@ LEDGER_TIER=""
 LEDGER_CATEGORIES=""
 LEDGER_S17=""
 LEDGER_PAUSED=""
+# substate is the within-track resume signal — one of the four committed slugs
+# (decomposition-pending / steps-partial / steps-done-review-pending /
+# review-done-track-open). It is a bare metacharacter-free token emitted in the
+# pre-`categories` block so the first-match token reader never loses it to a
+# decoy inside the one quoted field.
+LEDGER_SUBSTATE=""
 
 usage() {
   # Usage text goes to stderr so it never contaminates the JSON on stdout.
   cat >&2 <<'USAGE'
 Usage: workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
-       workflow-startup-precheck.sh --append-ledger [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] [--categories <text>] [--s17 <token>] [--paused <event>]
+       workflow-startup-precheck.sh --append-ledger [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] [--categories <text>] [--s17 <token>] [--paused <event>] [--substate <slug>]
 USAGE
 }
 
@@ -168,6 +182,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --paused)
       LEDGER_PAUSED="$2"
+      shift 2
+      ;;
+    --substate)
+      LEDGER_SUBSTATE="$2"
       shift 2
       ;;
     *)
@@ -1296,6 +1314,22 @@ progress_entry_token() {
 # not a well-formed roster step (Phase A guarantees the tag) and is skipped, so a
 # stray numbered prose line never miscounts.
 #
+# Wrap handling (the YTDB-1134 fix): a long step description wraps onto indented
+# continuation lines, leaving the column-0 `N. ` line WITHOUT its `— risk: <tag>
+# [<glyph>]` tail (the tail is on a continuation line). The old scan read the
+# status only from the column-0 line, found no `risk:` there, and skipped the
+# entry WITHOUT counting it — miscounting a finished track as partial. The scan
+# now JOINS each wrapped entry before reading it: a column-0 `N. ` line that
+# carries no `risk:` is buffered, the following non-column-0 continuation lines
+# are appended to the buffer, and the join stops at the next column-0 step line
+# (matched by the `case` glob `[0-9]*". "*`, the same glob the column-0 guard
+# uses), the next `## ` heading, or EOF — so two ADJACENT wrapped steps never
+# merge. The `risk:` tail and the status checkbox are then read from the joined
+# text. A column-0 line that already carries its `risk:` tail (the common
+# unwrapped case) is read as-is, unchanged. The existing fenced-code guard stays:
+# a fence inside the section is skipped, and a fence boundary flushes any pending
+# buffer first so a fenced line never joins into a step.
+#
 # Runs inline (sets script-scoped variables, no command substitution) so a
 # parse_error on a malformed status glyph terminates the whole script rather than
 # a subshell.
@@ -1303,9 +1337,71 @@ ROSTER_HAS_FAIL="0"
 ROSTER_HAS_TODO="0"
 ROSTER_STEP_COUNT="0"
 ROSTER_PAIRS=""
+
+# Read one (possibly joined) roster step from $1 and fold it into the four
+# ROSTER_* outputs. Factored out of roster_scan's loop so the same reader runs on
+# both an immediate column-0 line that carries its own `risk:` tail and a buffer
+# joined from a wrapped entry's column-0 + continuation lines. A line beginning
+# `N. ` with no `risk:` anywhere in the joined text is not a well-formed roster
+# step (Phase A guarantees the tag), so it is skipped WITHOUT counting — the same
+# skip the old per-line scan applied, now applied to the joined entry so a real
+# wrapped step (whose tail IS present once joined) is never dropped.
+roster_process_step() {
+  local entry="$1"
+  local tail body tok step_num
+  # The status checkbox is the checkbox AFTER the last `risk:` token. Split the
+  # joined entry at the last `risk:`; with no `risk:` anywhere it is not a
+  # well-formed roster step, so skip it without counting.
+  case "$entry" in
+    *"risk:"*)
+      tail="${entry##*risk:}"
+      ;;
+    *)
+      return
+      ;;
+  esac
+  # Find the status checkbox `[<glyph>]` in the post-`risk:` tail. The tail is
+  # `<space><tag>\`  [<glyph>]( commit: <SHA>)?` (the tag may carry a closing
+  # backtick / paren); the checkbox is the first `[...]` in that tail.
+  #
+  # Assumption: the status box is the FIRST `[...]` after `risk:`. This is safe
+  # because the canonical roster grammar (`conventions-execution.md` § 2.1) writes
+  # risk-note annotations parenthesized `(...)`, never bracketed `[...]`; a
+  # bracketed tail annotation BEFORE the status box (e.g. `risk: high [note]  [ ]`)
+  # would be mis-read as the status box, so risk-note annotations must stay
+  # parenthesized. Switching to the last `[...]` is not the fix — it introduces
+  # its own edge cases with trailing `commit:`-adjacent tokens.
+  case "$tail" in
+    *"["*"]"*)
+      body="${tail#*[}"
+      body="${body%%]*}"
+      ;;
+    *)
+      # A roster step line with a `risk:` tag but no status checkbox is
+      # malformed; name it so the closed-enum contract holds for the roster too.
+      parse_error "## Concrete Steps" "$entry"
+      ;;
+  esac
+  tok="$(classify_marker "$body")"
+  if [ "$tok" = "BAD" ]; then
+    parse_error "## Concrete Steps" "$entry"
+  fi
+  ROSTER_STEP_COUNT=$((ROSTER_STEP_COUNT + 1))
+  case "$tok" in
+    fail) ROSTER_HAS_FAIL="1" ;;
+    todo) ROSTER_HAS_TODO="1" ;;
+  esac
+  # Record the `<N>:<token>` pair. The step number N is the leading digits before
+  # the first `.` (the `[0-9]*". "*` guard already confirmed the entry opens with
+  # one or more digits then `. `). The step-number/status join the
+  # section-discrepancy edge runs reads these pairs without re-walking.
+  step_num="${entry%%.*}"
+  ROSTER_PAIRS="$ROSTER_PAIRS $step_num:$tok"
+}
+
 roster_scan() {
   local file="$1"
-  local in_section="0" in_fence="0" line tail body tok step_num
+  local in_section="0" in_fence="0" line pending=""
   ROSTER_HAS_FAIL="0"
   ROSTER_HAS_TODO="0"
   ROSTER_STEP_COUNT="0"
@@ -1313,6 +1409,12 @@ roster_scan() {
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       '```'*)
+        # A fence boundary flushes any pending buffered step (a fenced line must
+        # never join into the step above it), then toggles the fence state.
+        if [ -n "$pending" ]; then
+          roster_process_step "$pending"
+          pending=""
+        fi
         if [ "$in_fence" = "1" ]; then in_fence="0"; else in_fence="1"; fi
         continue
         ;;
@@ -1328,66 +1430,56 @@ roster_scan() {
     fi
     case "$line" in
       "## "*)
+        # A new `## ` heading ends the section: flush any pending buffered step
+        # first (its continuation lines are exhausted) so a wrapped LAST step is
+        # counted, then return.
+        if [ -n "$pending" ]; then
+          roster_process_step "$pending"
+          pending=""
+        fi
         return
         ;;
     esac
-    # A column-0 numbered roster line: `<digit(s)>. ...`. A leading-space or
-    # blockquoted line is not a column-0 roster step and is skipped (the
-    # description below a step may wrap onto indented continuation lines).
+    # A column-0 numbered roster line: `<digit(s)>. `. This is both the join
+    # terminator and a new step's start, so it first flushes any pending buffer
+    # (the previous wrapped step's continuation lines are done — two adjacent
+    # wrapped steps never merge), then either processes this line immediately (it
+    # already carries its `risk:` tail, the common unwrapped case) or starts a new
+    # buffer (no `risk:` here — the tail wrapped onto a continuation line).
     case "$line" in
-      [0-9]*". "*) ;;
-      *) continue ;;
-    esac
-    # The status checkbox is the checkbox AFTER the last `risk:` token. Split the
-    # line at the last `risk:`; if there is no `risk:`, the line is not a
-    # well-formed roster step (Phase A guarantees the tag), so skip it without
-    # counting it.
-    case "$line" in
-      *"risk:"*)
-        tail="${line##*risk:}"
-        ;;
-      *)
+      [0-9]*". "*)
+        if [ -n "$pending" ]; then
+          roster_process_step "$pending"
+          pending=""
+        fi
+        case "$line" in
+          *"risk:"*)
+            # Unwrapped: the column-0 line carries its own tail, read it now.
+            roster_process_step "$line"
+            ;;
+          *)
+            # Wrapped: buffer the column-0 line; continuation lines append below.
+            pending="$line"
+            ;;
+        esac
         continue
         ;;
     esac
-    # Find the status checkbox `[<glyph>]` in the post-`risk:` tail. The tail is
-    # `<space><tag>\`  [<glyph>]( commit: <SHA>)?` (the tag may carry a closing
-    # backtick / paren); the checkbox is the first `[...]` in that tail.
-    #
-    # Assumption: the status box is the FIRST `[...]` after `risk:`. This is safe
-    # because the canonical roster grammar (`conventions-execution.md` § 2.1) writes
-    # risk-note annotations parenthesized `(...)`, never bracketed `[...]`; a
-    # bracketed tail annotation BEFORE the status box (e.g. `risk: high [note]  [ ]`)
-    # would be mis-read as the status box, so risk-note annotations must stay
-    # parenthesized. Switching to the last `[...]` is not the fix — it introduces
-    # its own edge cases with trailing `commit:`-adjacent tokens.
-    case "$tail" in
-      *"["*"]"*)
-        body="${tail#*[}"
-        body="${body%%]*}"
-        ;;
-      *)
-        # A roster step line with a `risk:` tag but no status checkbox is
-        # malformed; name it so the closed-enum contract holds for the roster too.
-        parse_error "## Concrete Steps" "$line"
-        ;;
-    esac
-    tok="$(classify_marker "$body")"
-    if [ "$tok" = "BAD" ]; then
-      parse_error "## Concrete Steps" "$line"
+    # A non-column-0 line. When a wrapped step is buffered, this is one of its
+    # continuation lines — append it to the buffer (a single space joins the
+    # column-0 text to the tail that wrapped). When nothing is buffered, it is a
+    # leading-space / blockquoted line outside a step (e.g. a prose paragraph) and
+    # is skipped, exactly as the old per-line scan skipped it.
+    if [ -n "$pending" ]; then
+      pending="$pending $line"
     fi
-    ROSTER_STEP_COUNT=$((ROSTER_STEP_COUNT + 1))
-    case "$tok" in
-      fail) ROSTER_HAS_FAIL="1" ;;
-      todo) ROSTER_HAS_TODO="1" ;;
-    esac
-    # Record the `<N>:<token>` pair. The step number N is the leading digits
-    # before the first `.` (the `[0-9]*". "` guard above already confirmed the
-    # line opens with one or more digits then `. `). The step-number/status join
-    # the section-discrepancy edge runs reads these pairs without re-walking.
-    step_num="${line%%.*}"
-    ROSTER_PAIRS="$ROSTER_PAIRS $step_num:$tok"
   done < "$file"
+  # EOF inside the section: flush a wrapped final step whose continuation lines
+  # ran to the end of file with no terminating heading.
+  if [ -n "$pending" ]; then
+    roster_process_step "$pending"
+    pending=""
+  fi
 }
 
 # Scan the active track file's `## Progress` continuous log, setting
@@ -1549,7 +1641,8 @@ ledger_path() {
 #   * a NEWLINE in ANY field — a newline writes a second physical line, and the
 #     last-value-wins reader would treat the smuggled `phase=Done` tail of that
 #     line as the resolved phase, routing resume to the wrong state;
-#   * a SPACE in any BARE-token field (phase/track/tier/s17/paused/ctx) — the
+#   * a SPACE in any BARE-token field
+#     (phase/track/tier/substate/s17/paused/ctx) — the
 #     reader splits a bare value at the first space, so a space would truncate
 #     the value or spawn a spurious key=value token. `categories` is the one
 #     field that may carry spaces, so it is exempt from the space check;
@@ -1601,6 +1694,7 @@ append_ledger() {
   reject_bad_ledger_value "phase"      "$LEDGER_PHASE"      bare
   reject_bad_ledger_value "track"      "$LEDGER_TRACK"      bare
   reject_bad_ledger_value "tier"       "$LEDGER_TIER"       bare
+  reject_bad_ledger_value "substate"   "$LEDGER_SUBSTATE"   bare
   reject_bad_ledger_value "s17"        "$LEDGER_S17"        bare
   reject_bad_ledger_value "paused"     "$LEDGER_PAUSED"     bare
   reject_bad_ledger_value "categories" "$LEDGER_CATEGORIES" quoted
@@ -1622,6 +1716,11 @@ append_ledger() {
   [ -n "$LEDGER_PHASE" ]      && line="$line phase=$LEDGER_PHASE"
   [ -n "$LEDGER_TRACK" ]      && line="$line track=$LEDGER_TRACK"
   [ -n "$LEDGER_TIER" ]       && line="$line tier=$LEDGER_TIER"
+  # substate is bare and goes BEFORE the quoted categories field: the token
+  # reader takes the first ` substate=` match and stops, so a bare substate
+  # written ahead of the one quoted field can never lose to a decoy `substate=`
+  # embedded inside a quoted `categories="…"` span.
+  [ -n "$LEDGER_SUBSTATE" ]   && line="$line substate=$LEDGER_SUBSTATE"
   [ -n "$LEDGER_CATEGORIES" ] && line="$line categories=\"$LEDGER_CATEGORIES\""
   [ -n "$LEDGER_S17" ]        && line="$line s17=$LEDGER_S17"
   [ -n "$LEDGER_PAUSED" ]     && line="$line paused=$LEDGER_PAUSED"
@@ -1706,6 +1805,63 @@ ledger_tail_value() {
   done < "$ledger"
 }
 
+# Set LEDGER_VALUE to the LAST (most-recent) value of $key on a line whose
+# `track=` token equals $track — the TRACK-SCOPED variant of ledger_tail_value.
+# The global ledger_tail_value above is last-value-wins across the WHOLE file,
+# which would let a completed prior track's terminal `substate` leak into the
+# next track's resume; this reader keeps only the matching track's value. Set to
+# the empty string when no line for $track carries $key (or the ledger is
+# absent), the unambiguous signal that the desired key was never recorded for
+# this track.
+#
+# Both `track=` and `$key=` are anchored at a token boundary (line start or after
+# a space) and read from the PRE-`categories` block, the same emit-order
+# invariant ledger_tail_value relies on: append_ledger writes every bare
+# reader-consumed key (`track`, `substate`) before the one quoted `categories`
+# field, so the first ` track=` / ` $key=` match on a line is always the real
+# bare token, never a decoy inside the quoted span. A line that carries $key but
+# no `track=` token cannot match the active track and is skipped — track-scoping
+# is strict.
+#
+# Sets a script-scoped variable (no command substitution) like the other inline
+# parse helpers. Args: $1 = the key name; $2 = the active track number.
+ledger_tail_value_for_track() {
+  local key="$1" track="$2" ledger line line_track rest val
+  LEDGER_VALUE=""
+  ledger="$(ledger_path)"
+  [ -f "$ledger" ] || return
+  while IFS= read -r line || [ -n "$line" ]; do
+    # Resolve this line's `track=` value (bare token, first ` track=` match).
+    # A line with no `track=` cannot belong to the active track, so skip it.
+    case " $line" in
+      *" track="*)
+        rest="${line#*" track="}"
+        line_track="${rest%% *}"
+        ;;
+      *)
+        continue
+        ;;
+    esac
+    [ "$line_track" = "$track" ] || continue
+    # This line is for the active track: keep its $key value if present. The
+    # value is bare (substate is a metacharacter-free token); for symmetry with
+    # ledger_tail_value the quoted-value branch is handled too, in case a future
+    # quoted key is read track-scoped.
+    case " $line" in
+      *" $key="*)
+        rest="${line#*" $key="}"
+        if [ "${rest#\"}" != "$rest" ]; then
+          rest="${rest#\"}"
+          val="${rest%%\"*}"
+        else
+          val="${rest%% *}"
+        fi
+        LEDGER_VALUE="$val"
+        ;;
+    esac
+  done < "$ledger"
+}
+
 # Args: $1 = track file path; $2 = the plan-file track checkbox token for this
 # track (the classify_marker token the Checklist walk read; "todo" here by
 # construction, passed for explicitness and future use).
@@ -1776,7 +1932,7 @@ determine_c_substate() {
 # the active track is `track-1` by construction (single-track tier, D10's
 # `plan/track-1.md` secondary signal) when the ledger names no track.
 determine_state_from_ledger() {
-  local branch plan_dir ledger phase track track_file
+  local branch plan_dir ledger phase track track_file substate
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
   plan_dir="docs/adr/${branch}"
   ledger="$plan_dir/_workflow/phase-ledger.md"
@@ -1802,12 +1958,36 @@ determine_state_from_ledger() {
       return 0
       ;;
     C)
-      # Execution resume: the ledger owns the active track, the track file owns
-      # the within-track sub-state. Default the active track to 1 for the
+      # Execution resume: the ledger owns the active track and, ledger-first,
+      # the within-track sub-state, with the track file as the fallback source.
+      # Default the active track to 1 for the
       # single-track `minimal` tier whose ledger names no track (D10).
       ledger_tail_value "track"
       track="$LEDGER_VALUE"
       [ -n "$track" ] || track="1"
+
+      # Ledger-first sub-state read (D1). Prefer the track-scoped ledger
+      # `substate` over the track-file roster: the ledger line commits atomically
+      # with the track-file change, so the ledger is the authoritative,
+      # crash-consistent within-track signal. The read is track-scoped because the
+      # ledger is last-value-wins across the whole file — a global read would let a
+      # completed prior track's terminal sub-state leak into this track's resume.
+      # When the ledger carries a `substate` for this track, emit it directly,
+      # reusing the same `jq -nc --arg` STATE_JSON construction the fallback arm
+      # uses so escaping stays uniform across both paths. Because this read is
+      # ledger-only, a non-empty `substate` resolves even when the track file is
+      # absent or unreadable; only the empty-substate fallback below touches the
+      # roster.
+      ledger_tail_value_for_track "substate" "$track"
+      substate="$LEDGER_VALUE"
+      if [ -n "$substate" ]; then
+        STATE_JSON="$(jq -nc --arg s "$substate" '{phase:"C", substate:$s}')"
+        return 0
+      fi
+
+      # Empty `substate` — the unambiguous signal of a ledger written before this
+      # change (the append side is Track 2's contract). Fall back to the
+      # roster-driven sub-state from the track file.
       track_file="$plan_dir/_workflow/plan/track-${track}.md"
       if [ -f "$track_file" ]; then
         determine_c_substate "$track_file" "todo"
