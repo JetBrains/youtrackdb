@@ -14,7 +14,7 @@ Foundation track: creates the shared `match/builder/` package consumed by both G
 > technical and adversarial reviews (`reviews/track-1-technical.md`,
 > `reviews/track-1-adversarial.md`); Phase B delivered the shared builder
 > package, the behavior-preserving GQL refactor, and the presence-operator
-> factories, verified green by the Track 1 test suite (191 tests). Track 1 is
+> factories, verified green by the Track 1 test suite (187 tests). Track 1 is
 > the only executed track on this branch — Tracks 2–6 remain not started.
 
 - [x] Review + decomposition
@@ -96,7 +96,7 @@ toLiteral(Object value)` method, the body extracted verbatim from
 `GqlMatchStatement.toLiteral`. The class Javadoc documents the per-type AST
 routing (String, Number, Boolean, Date, List, Set, Map, byte[],
 `RecordIdInternal`) and the deliberate NPE-on-null contract.
-`MatchLiteralBuilderTest` (16 tests) covers every branch including the empty
+`MatchLiteralBuilderTest` (15 tests) covers every branch including the empty
 string, each numeric subtype, the RID path, the collection / map paths, the
 unsupported-type `IllegalArgumentException`, and the documented null NPE.
 
@@ -169,7 +169,7 @@ returning an immutable `PatternIR(Pattern, aliasClasses, aliasFilters)`.
 and delegates to `Pattern.addExpression(...)` so the well-tested
 `getOrCreateNode` path performs implicit endpoint creation. `build()`
 defensively copies the alias maps so a returned snapshot is not mutated by
-later calls. `MatchPatternBuilderTest` (31 tests) covers single-node /
+later calls. `MatchPatternBuilderTest` (28 tests) covers single-node /
 multi-hop / each direction / optional / implicit-creation / null-alias NPE /
 unsupported-feature throw / snapshot semantics.
 
