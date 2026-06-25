@@ -192,7 +192,7 @@ unsupported-feature throw / snapshot semantics.
 must add the missing parser setters or use reflection; flagged via the
 `UnsupportedOperationException`.
 
-### Step 4 — commit 9c1ae818be, 2026-06-25 [ctx=safe]
+### Step 4 — commit 9811b3cb9d, 2026-06-25 [ctx=safe]
 **What was done:** Refactored `GqlMatchStatement.buildPlan` to drive a
 `MatchPatternBuilder` instead of mutating `Pattern.aliasToNode` and the alias
 maps inline; the GQL-specific `effectiveAlias` / `effectiveType` helpers stay
