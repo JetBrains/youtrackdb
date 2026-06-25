@@ -488,6 +488,61 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
         freshBreak, cachedBreak);
   }
 
+  /**
+   * An aggregate over a <em>computed argument</em> ({@code sum(price * 2)}) classifies K0_NONE, not an
+   * {@code AGGREGATE_*} shape, for every kind. The side-tap reconciles by reading one named property off
+   * each contributing record; it cannot evaluate {@code price * 2}. The K0 version gate re-executes the
+   * real plan, so the cached scalar equals a parallel fresh run across a CREATE for all of
+   * COUNT/SUM/AVG/MIN/MAX. (See {@link #sumOverComputedArgumentDoesNotThrowUnderCache} for the crash
+   * this routing prevents.)
+   */
+  @Test
+  public void aggregateOverComputedArgumentServedByK0None() {
+    for (var agg : new String[] {
+        "count(" + VALUE + " * 2)",
+        "sum(" + VALUE + " * 2)",
+        "avg(" + VALUE + " * 2)",
+        "min(" + VALUE + " * 2)",
+        "max(" + VALUE + " * 2)"
+    }) {
+      assertEquivalent(agg, new int[] {10, 20, 30}, createMatching(40));
+    }
+  }
+
+  /**
+   * Regression for the computed-argument crash. Before the {@code isBarePropertyAggregate} gate,
+   * {@code SELECT sum(price * 2) ...} classified {@code AGGREGATE_SUM} with property name
+   * {@code "price * 2"} (the expression's default alias), and the populate path called
+   * {@code result.getProperty("price * 2")}, which threw {@code IllegalArgumentException: Invalid
+   * property name 'price * 2'} — a query that runs fine uncached became a hard failure under the cache.
+   * It must now run under the cache and equal a fresh uncached execution, and a repeat read must be
+   * stable through the K0 gate.
+   */
+  @Test
+  public void sumOverComputedArgumentDoesNotThrowUnderCache() {
+    clearClass();
+    commitMatching(10);
+    commitMatching(20);
+    var sql =
+        "SELECT sum(" + VALUE + " * 2) AS s FROM " + CLASS_NAME + " WHERE " + FLAG + " = true";
+
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    session.begin();
+    var fresh = scalar(session.query(sql));
+    session.rollback();
+
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    session.begin();
+    // Before the fix this first query threw IllegalArgumentException during the side-tap populate.
+    var firstCached = scalar(session.query(sql));
+    var secondCached = scalar(session.query(sql));
+    session.rollback();
+
+    assertEquals("cached sum(price * 2) must equal a fresh uncached execution", fresh, firstCached);
+    assertEquals("repeat read of sum(price * 2) is stable via the K0 gate", firstCached,
+        secondCached);
+  }
+
   // ===========================================================================
   // COUNT(field) Regression Tests for Nullable Properties
   // ===========================================================================

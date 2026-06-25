@@ -157,6 +157,48 @@ public class ShapeClassifierTest extends DbTestBase {
   }
 
   /**
+   * An aggregate whose <em>argument</em> is a computed expression ({@code sum(age * 2)}) classifies
+   * K0_NONE, not AGGREGATE_SUM. This is distinct from arithmetic <em>on top of</em> the aggregate
+   * ({@code sum(age) * 2}): here the expression is inside the call. The side-tap reconciles an
+   * aggregate by reading one named property off each contributing record; it cannot evaluate
+   * {@code age * 2}. Left as AGGREGATE_SUM, the populate path would call {@code getProperty("age * 2")}
+   * and throw {@code IllegalArgumentException} (the expression text is not a valid property name),
+   * turning a query that runs fine uncached into a failure. K0_NONE re-executes the real plan instead.
+   */
+  @Test
+  public void sumOverComputedArgumentClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select sum(age * 2) from OUser where name = ?")));
+  }
+
+  /**
+   * The computed-argument rejection is not specific to SUM: COUNT/AVG/MIN/MAX over an expression all
+   * classify K0_NONE, since none can be replayed from a single per-record property read.
+   */
+  @Test
+  public void valueAggregatesOverComputedArgumentClassifyAsK0None() {
+    for (var agg : new String[] {"count", "avg", "min", "max"}) {
+      var sql = "select " + agg + "(age * 2) from OUser where name = ?";
+      Assert.assertEquals(
+          agg + "(age * 2) must classify K0_NONE",
+          CacheableShape.K0_NONE,
+          ShapeClassifier.classify(parse(sql)));
+    }
+  }
+
+  /**
+   * An aggregate over a path/link chain ({@code max(parent.age)}) also classifies K0_NONE: the side-tap
+   * reads a single base property, not a traversal, so it cannot reproduce {@code parent.age}.
+   */
+  @Test
+  public void aggregateOverPathArgumentClassifiesAsK0None() {
+    Assert.assertEquals(
+        CacheableShape.K0_NONE,
+        ShapeClassifier.classify(parse("select max(parent.age) from OUser where name = ?")));
+  }
+
+  /**
    * {@code COUNT(DISTINCT(prop))} classifies K0_NONE, not a distinct-count aggregate shape. The engine
    * has no native distinct-count and computes {@code count(distinct(prop))} as a plain row count, so the
    * K0 version gate (re-execute on any mutation) reproduces the engine's result exactly; modelling a

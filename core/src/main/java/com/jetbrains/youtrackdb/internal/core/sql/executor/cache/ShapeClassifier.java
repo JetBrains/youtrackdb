@@ -42,9 +42,11 @@ import javax.annotation.Nullable;
  *       no LET, no UNWIND, a class (not subquery) target, and no aggregate function anywhere in its
  *       projection. Its rows are individual records the delta builder reconciles one at a time.
  *   <li><b>Single-aggregate SELECT &rarr; {@code AGGREGATE_*}.</b> A SELECT whose single projection
- *       item is exactly one of the recognised scalar aggregates over a plain property, with no
+ *       item is exactly one of the recognised scalar aggregates over a bare property, with no
  *       arithmetic applied. An aggregate buried under arithmetic ({@code count(*) + 1}) is not the bare
- *       scalar the replay path produces and routes to {@code K0_NONE} instead. Bare {@code COUNT(*)
+ *       scalar the replay path produces and routes to {@code K0_NONE} instead; so does an aggregate
+ *       over a computed argument or path ({@code sum(price * 2)}, {@code max(assignee.age)}), which the
+ *       side-tap cannot reproduce from a single property lookup. Bare {@code COUNT(*)
  *       FROM C} (no WHERE) is hardwired in the planner to an O(1) {@code CountFromClassStep} that the
  *       aggregate side-tap can never reach, so it also routes to {@code K0_NONE}; a {@code COUNT(*)}
  *       with a (non-indexed) WHERE does build the aggregation step and stays {@code AGGREGATE_COUNT}.
@@ -110,9 +112,10 @@ public final class ShapeClassifier {
   /**
    * The property name a single-argument value aggregate reads, when its argument is a bare property
    * reference ({@code SUM(price)} &rarr; {@code price}); {@code null} for anything else (no argument, a
-   * computed-expression argument, multiple arguments). A computed or multi-argument aggregate classifies
-   * {@code K0_NONE} upstream, so a {@code null} here on a shape that reached the aggregate path means the
-   * caller falls back to uncached execution.
+   * computed-expression argument, multiple arguments). {@link #singleAggregateShape} routes any
+   * aggregate over a computed-expression or multi-argument form to {@code K0_NONE} before the aggregate
+   * path is reached (see {@link #isBarePropertyAggregate}), so on an {@code AGGREGATE_*} shape this
+   * returns {@code null} only for {@code COUNT(*)}, which reads no property.
    */
   @Nullable private static String baseIdentifierArg(@Nonnull SQLFunctionCall call) {
     var params = call.getParams();
@@ -124,11 +127,15 @@ public final class ShapeClassifier {
 
   /**
    * The bare property name an aggregate argument expression refers to, or {@code null} when the argument
-   * is anything other than a single base identifier. {@code SQLExpression.getDefaultAlias} yields the
-   * identifier text for a base-property expression (e.g. {@code price}); a computed expression has no
-   * such base alias and yields {@code null}.
+   * is anything other than a single base identifier. The {@code isBaseIdentifier} guard is load-bearing:
+   * {@code SQLExpression.getDefaultAlias} returns the identifier text for a base-property expression
+   * (e.g. {@code price}) but the full expression text for a computed one ({@code price * 2}), never
+   * {@code null}, so testing the alias alone cannot tell a property from an expression.
    */
   @Nullable private static String basePropertyName(@Nonnull SQLExpression arg) {
+    if (!arg.isBaseIdentifier()) {
+      return null;
+    }
     var defaultAlias = arg.getDefaultAlias();
     if (defaultAlias == null) {
       return null;
@@ -793,9 +800,12 @@ public final class ShapeClassifier {
 
   /**
    * Returns the {@code AGGREGATE_*} shape when the projection is exactly one recognised scalar
-   * aggregate over a plain property (or {@code COUNT(*)}), otherwise {@code null}. A projection with
-   * more than one item, or an aggregate wrapping an expression, is not a clean single-aggregate shape
-   * and returns {@code null} so the caller can route it to RECORD or K0_NONE as appropriate.
+   * aggregate over a bare property (or {@code COUNT(*)}). Returns {@code K0_NONE} for an aggregate the
+   * side-tap cannot replay verbatim: {@code COUNT(DISTINCT prop)}, a bare untappable {@code COUNT(*)}
+   * with no WHERE, or an aggregate over a computed argument or path ({@code SUM(price * 2)},
+   * {@code MAX(assignee.age)}). Returns {@code null} only when the projection is not a single aggregate
+   * at all (more than one item, or an aggregate buried under arithmetic such as {@code count(*) + 1}),
+   * so the caller can route it to RECORD or K0_NONE as appropriate.
    *
    * <p>{@code hasWhereClause} distinguishes the bare {@code COUNT(*) FROM C} shape (hardwired and
    * untappable, routed to K0_NONE) from {@code COUNT(*) FROM C WHERE non-indexed-predicate} (which
@@ -840,7 +850,32 @@ public final class ShapeClassifier {
       // (the splice finds a CountFromClassStep, not an aggregation step, and falls back uncached).
       return CacheableShape.K0_NONE;
     }
+    if (!isBarePropertyAggregate(call)) {
+      // The aggregate's argument is not a bare property reference (e.g. SUM(price * 2),
+      // COUNT(price + 1), MAX(link.field)). The aggregate side-tap reconciles by reading a single
+      // named property off each contributing record; it cannot evaluate an argument expression. Left
+      // as an AGGREGATE_* shape, the populate would call result.getProperty("price * 2") and throw
+      // (the expression text is not a valid property name) or silently miscount. Route it to K0_NONE,
+      // whose version gate re-executes the real plan and reproduces the engine result exactly.
+      // COUNT(*) is exempt above via isStar(): the star carries no property argument.
+      return CacheableShape.K0_NONE;
+    }
     return shape;
+  }
+
+  /**
+   * True when the aggregate reads a value the side-tap can reproduce with a single property lookup:
+   * {@code COUNT(*)} (no argument), or a one-argument aggregate over a bare property reference
+   * ({@code SUM(price)}). A computed-expression argument ({@code SUM(price * 2)}), a path/link chain
+   * ({@code MAX(assignee.age)}), or multiple arguments returns {@code false}, because the tap reads one
+   * named property off each record and cannot evaluate such an argument.
+   */
+  private static boolean isBarePropertyAggregate(@Nonnull SQLFunctionCall call) {
+    if (call.isStar()) {
+      return true;
+    }
+    var params = call.getParams();
+    return params != null && params.size() == 1 && params.getFirst().isBaseIdentifier();
   }
 
   /**
