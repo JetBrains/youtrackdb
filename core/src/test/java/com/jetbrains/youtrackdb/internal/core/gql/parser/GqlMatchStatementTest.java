@@ -17,7 +17,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.*;
-
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
