@@ -28,25 +28,29 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/// Fluent builder for `WHERE`-clause AST trees in the unified MATCH IR.
-///
-/// Each operation maps to the same parser-emitted AST shape that
-/// [com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql] produces, so
-/// the resulting condition tree is interchangeable with one obtained from parsing
-/// SQL text — the planner and executor cannot tell the difference.
-///
-/// The builder is **stateless**: every method returns a fresh AST node and never
-/// mutates `this`. Instances exist only for fluent ergonomics; reuse a single
-/// instance freely or construct one per call.
+/**
+ * Fluent builder for {@code WHERE}-clause AST trees in the unified MATCH IR.
+ *
+ * <p>Each operation maps to the same parser-emitted AST shape that {@link
+ * com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql} produces, so the resulting
+ * condition tree is interchangeable with one obtained from parsing SQL text — the planner and
+ * executor cannot tell the difference.
+ *
+ * <p>The builder is stateless: every method returns a fresh AST node and never mutates {@code
+ * this}. Instances exist only for fluent ergonomics; reuse a single instance freely or construct
+ * one per call.
+ */
 public final class MatchWhereBuilder {
 
-  /// Builds `field = value`.
+  /** Builds {@code field = value}. */
   public SQLBooleanExpression eq(String field, SQLExpression value) {
     return op(field, SQLEqualsOperator.INSTANCE, value);
   }
 
-  /// Builds `field {op} value` for any [SQLBinaryCompareOperator]
-  /// (`=`, `!=`, `>`, `>=`, `<`, `<=`, `LIKE`, …).
+  /**
+   * Builds {@code field {op} value} for any {@link SQLBinaryCompareOperator} ({@code =}, {@code
+   * !=}, {@code >}, {@code >=}, {@code <}, {@code <=}, {@code LIKE}, …).
+   */
   public SQLBooleanExpression op(String field, SQLBinaryCompareOperator operator,
       SQLExpression value) {
     var condition = new SQLBinaryCondition(-1);
@@ -56,12 +60,14 @@ public final class MatchWhereBuilder {
     return condition;
   }
 
-  /// Builds `field IN [v1, v2, …]`. Element expressions are wrapped in an
-  /// [SQLCollection] under a synthetic [SQLBaseExpression] / [SQLBaseIdentifier]
-  /// chain — the same shape the parser emits for inline literal lists, so the
-  /// runtime's [SQLInCondition] evaluator picks up the values via its
-  /// `rightMathExpression` branch. Populates [SQLInCondition#setOperator] so
-  /// plan-time paths such as [SQLInCondition#supportsBasicCalculation] do not NPE.
+  /**
+   * Builds {@code field IN [v1, v2, …]}. Element expressions are wrapped in an {@link SQLCollection}
+   * under a synthetic {@link SQLBaseExpression} / {@link SQLBaseIdentifier} chain — the same shape
+   * the parser emits for inline literal lists, so the runtime's {@link SQLInCondition} evaluator
+   * picks up the values via its {@code rightMathExpression} branch. Populates
+   * {@link SQLInCondition#setOperator} so plan-time paths such as
+   * {@link SQLInCondition#supportsBasicCalculation} do not NPE.
+   */
   public SQLBooleanExpression in(String field, List<SQLExpression> values) {
     var condition = new SQLInCondition(-1);
     condition.setLeft(fieldExpression(field));
@@ -70,16 +76,20 @@ public final class MatchWhereBuilder {
     return condition;
   }
 
-  /// Builds `NOT (field IN [v1, v2, …])`. Composes via [#not(SQLBooleanExpression)]
-  /// instead of producing an `SQLNotInCondition` directly — that AST class has no
-  /// public setters reachable from outside the parser package.
+  /**
+   * Builds {@code NOT (field IN [v1, v2, …])}. Composes via {@link #not(SQLBooleanExpression)}
+   * instead of producing an {@code SQLNotInCondition} directly — that AST class has no public
+   * setters reachable from outside the parser package.
+   */
   public SQLBooleanExpression notIn(String field, List<SQLExpression> values) {
     return not(in(field, values));
   }
 
-  /// Builds `field BETWEEN lo AND hi`. Uses [SQLBetweenCondition] (the parser-
-  /// emitted shape) rather than `lo <= field AND field <= hi` so range-aware
-  /// index lookups remain available in the planner.
+  /**
+   * Builds {@code field BETWEEN lo AND hi}. Uses {@link SQLBetweenCondition} (the parser-emitted
+   * shape) rather than {@code lo <= field AND field <= hi} so range-aware index lookups remain
+   * available in the planner.
+   */
   public SQLBooleanExpression between(String field, SQLExpression lo, SQLExpression hi) {
     var condition = new SQLBetweenCondition(-1);
     condition.setFirst(fieldExpression(field));
@@ -88,8 +98,10 @@ public final class MatchWhereBuilder {
     return condition;
   }
 
-  /// Builds `field CONTAINSTEXT 'substring'`. CONTAINSTEXT is a YTDB-native
-  /// operator distinct from LIKE; uses [SQLContainsTextCondition].
+  /**
+   * Builds {@code field CONTAINSTEXT 'substring'}. CONTAINSTEXT is a YTDB-native operator distinct
+   * from LIKE; uses {@link SQLContainsTextCondition}.
+   */
   public SQLBooleanExpression containsText(String field, String substring) {
     var condition = new SQLContainsTextCondition(-1);
     condition.setLeft(fieldExpression(field));
@@ -97,17 +109,18 @@ public final class MatchWhereBuilder {
     return condition;
   }
 
-  /// Builds a prefix match `field >= prefix AND field < prefix⁺` as two range
-  /// conditions (no dedicated prefix AST node). A `startingWith(p)` match selects
-  /// exactly the strings in the half-open range `[p, p⁺)`, where `p⁺` is `p` with
-  /// its last code point incremented. Range operators are index-aware, so a B-tree
-  /// index on the field turns this into a prefix range scan. The engine applies
-  /// the field's collation to both range operands automatically (see
-  /// [SQLBinaryCondition]), so the case rule follows the property collation.
-  ///
-  /// Throws [IllegalArgumentException] on an empty prefix: the upper bound `p⁺` is
-  /// undefined for an empty string. Callers decline (return `Optional.empty()`)
-  /// before reaching this method.
+  /**
+   * Builds a prefix match {@code field >= prefix AND field < prefix⁺} as two range conditions (no
+   * dedicated prefix AST node). A {@code startingWith(p)} match selects exactly the strings in the
+   * half-open range {@code [p, p⁺)}, where {@code p⁺} is {@code p} with its last code point
+   * incremented. Range operators are index-aware, so a B-tree index on the field turns this into a
+   * prefix range scan. The engine applies the field's collation to both range operands automatically
+   * (see {@link SQLBinaryCondition}), so the case rule follows the property collation.
+   *
+   * <p>Throws {@link IllegalArgumentException} on an empty prefix: the upper bound {@code p⁺} is
+   * undefined for an empty string. Callers decline (return {@code Optional.empty()}) before
+   * reaching this method.
+   */
   public SQLBooleanExpression startsWith(String field, String prefix) {
     if (prefix.isEmpty()) {
       throw new IllegalArgumentException("startsWith prefix must be non-empty");
@@ -117,36 +130,45 @@ public final class MatchWhereBuilder {
     return and(lower, upper);
   }
 
-  /// Combines operands with logical AND.
-  ///
-  /// - Empty input throws [IllegalStateException] — avoids the silent `true`
-  ///   tautology that would change query semantics if a caller bug produced
-  ///   no operands.
-  /// - Single operand is returned as-is, matching parser parity (the parser
-  ///   never wraps a lone condition in a one-element block).
-  /// - Two or more operands produce an [SQLAndBlock] with [SQLAndBlock#setSubBlocks].
+  /**
+   * Combines operands with logical AND.
+   *
+   * <ul>
+   *   <li>Empty input throws {@link IllegalStateException} — avoids the silent {@code true}
+   *       tautology that would change query semantics if a caller bug produced no operands.
+   *   <li>Single operand is returned as-is, matching parser parity (the parser never wraps a lone
+   *       condition in a one-element block).
+   *   <li>Two or more operands produce an {@link SQLAndBlock} with {@link SQLAndBlock#setSubBlocks}.
+   * </ul>
+   */
   public SQLBooleanExpression and(SQLBooleanExpression... ops) {
     return combine(ops, /*isAnd=*/ true);
   }
 
-  /// Combines operands with logical OR. Same cardinality semantics as
-  /// [#and(SQLBooleanExpression...)].
+  /**
+   * Combines operands with logical OR. Same cardinality semantics as {@link
+   * #and(SQLBooleanExpression...)}.
+   */
   public SQLBooleanExpression or(SQLBooleanExpression... ops) {
     return combine(ops, /*isAnd=*/ false);
   }
 
-  /// AND-merges optional operands. Mirrors [#and] but tolerates `null` entries
-  /// and an empty input — useful at recogniser merge sites where some
-  /// contributing filters may be absent (e.g. polymorphism class-narrowing only
-  /// applies in non-polymorphic mode; a multi-RID filter only applies when more
-  /// than one ID was supplied).
-  ///
-  /// Three behaviours by effective cardinality:
-  /// - 0 effective operands (all-null or empty input) → returns `null`. Callers
-  ///   typically interpret this as "nothing to write".
-  /// - 1 effective operand → returned as-is, matching [#and]'s parser-parity rule.
-  /// - 2+ effective operands → produces a single [SQLAndBlock] with all operands
-  ///   as sub-blocks.
+  /**
+   * AND-merges optional operands. Mirrors {@link #and} but tolerates {@code null} entries and an
+   * empty input — useful at recogniser merge sites where some contributing filters may be absent
+   * (e.g. polymorphism class-narrowing only applies in non-polymorphic mode; a multi-RID filter
+   * only applies when more than one ID was supplied).
+   *
+   * <p>Three behaviours by effective cardinality:
+   *
+   * <ul>
+   *   <li>0 effective operands (all-null or empty input) → returns {@code null}. Callers typically
+   *       interpret this as "nothing to write".
+   *   <li>1 effective operand → returned as-is, matching {@link #and}'s parser-parity rule.
+   *   <li>2+ effective operands → produces a single {@link SQLAndBlock} with all operands as
+   *       sub-blocks.
+   * </ul>
+   */
   public SQLBooleanExpression andOptional(SQLBooleanExpression... ops) {
     if (ops == null || ops.length == 0) {
       return null;
@@ -168,63 +190,73 @@ public final class MatchWhereBuilder {
     return block;
   }
 
-  /// Builds `field IS NULL` for a property reference (parsed shape:
-  /// [SQLIdentifier]). The runtime evaluator uses `expression.execute() == null`, so
-  /// document stores conflate "property absent" and "property set to literal null".
-  /// Used by the `eq(null)` / `neq(null)` predicate adapters (Track 4). Gremlin
-  /// {@code hasNot(key)} maps to [#isNotDefined(String)], not here — {@code IS NULL}
-  /// would over-match vertices that store the key with a null value.
+  /**
+   * Builds {@code field IS NULL} for a property reference (parsed shape: {@link SQLIdentifier}).
+   * The runtime evaluator uses {@code expression.execute() == null}, so document stores conflate
+   * "property absent" and "property set to literal null". Used by the {@code eq(null)} /
+   * {@code neq(null)} predicate adapters (Track 4). Gremlin {@code hasNot(key)} maps to
+   * {@link #isNotDefined(String)}, not here — {@code IS NULL} would over-match vertices that store
+   * the key with a null value.
+   */
   public SQLBooleanExpression isNull(String field) {
     return isNull(fieldExpression(field));
   }
 
-  /// Builds `expression IS NULL` for any [SQLExpression] left-side — accepts
-  /// both [SQLIdentifier]-wrapped property references and
-  /// [SQLRecordAttribute]-wrapped record attributes (e.g. `@class IS NULL`).
+  /**
+   * Builds {@code expression IS NULL} for any {@link SQLExpression} left-side — accepts both
+   * {@link SQLIdentifier}-wrapped property references and {@link SQLRecordAttribute}-wrapped record
+   * attributes (e.g. {@code @class IS NULL}).
+   */
   public SQLBooleanExpression isNull(SQLExpression expression) {
     var condition = new SQLIsNullCondition(-1);
     condition.setExpression(expression);
     return condition;
   }
 
-  /// Builds `attribute IS NULL` for a record-attribute left-side (e.g.
-  /// `@class IS NULL`). Convenience wrapper that constructs the
-  /// [SQLRecordAttribute] / [SQLExpression] chain so callers don't have to.
+  /**
+   * Builds {@code attribute IS NULL} for a record-attribute left-side (e.g. {@code @class IS
+   * NULL}). Convenience wrapper that constructs the {@link SQLRecordAttribute} / {@link
+   * SQLExpression} chain so callers don't have to.
+   */
   public SQLBooleanExpression isNullAttribute(String attributeName) {
     var attr = new SQLRecordAttribute(-1);
     attr.setName(attributeName);
     return isNull(new SQLExpression(attr, null));
   }
 
-  /// Builds `field IS DEFINED` — entity-presence predicate distinct from
-  /// `IS NULL`. Returns true when the record carries `field` at the storage
-  /// layer, regardless of value (including literal `null`); the AST node's
-  /// evaluator routes through `SQLExpression.isDefinedFor`. Used by the
-  /// Gremlin translator's `has(key)` filter mapping where TinkerPop's
-  /// `Property.isPresent()` semantics require the entity-layer view, not
-  /// the value-layer view that `IS NOT NULL` provides.
+  /**
+   * Builds {@code field IS DEFINED} — entity-presence predicate distinct from {@code IS NULL}.
+   * Returns true when the record carries {@code field} at the storage layer, regardless of value
+   * (including literal {@code null}); the AST node's evaluator routes through
+   * {@code SQLExpression.isDefinedFor}. Used by the Gremlin translator's {@code has(key)} filter
+   * mapping where TinkerPop's {@code Property.isPresent()} semantics require the entity-layer view,
+   * not the value-layer view that {@code IS NOT NULL} provides.
+   */
   public SQLBooleanExpression isDefined(String field) {
     var condition = new SQLIsDefinedCondition(-1);
     condition.setExpression(fieldExpression(field));
     return condition;
   }
 
-  /// Builds `field IS NOT DEFINED` — symmetric to [#isDefined(String)].
-  /// Used by the Gremlin translator's `hasNot(key)` filter mapping. NOT
-  /// equivalent to `IS NULL`: a property stored with literal `null` value
-  /// returns false from `IS NOT DEFINED` (the property exists, just with a
-  /// null value) but true from `IS NULL`, mirroring TinkerPop's
-  /// `Property.isPresent()` returning true for null-valued YTDB properties.
+  /**
+   * Builds {@code field IS NOT DEFINED} — symmetric to {@link #isDefined(String)}. Used by the
+   * Gremlin translator's {@code hasNot(key)} filter mapping. NOT equivalent to {@code IS NULL}: a
+   * property stored with literal {@code null} value returns false from {@code IS NOT DEFINED} (the
+   * property exists, just with a null value) but true from {@code IS NULL}, mirroring TinkerPop's
+   * {@code Property.isPresent()} returning true for null-valued YTDB properties.
+   */
   public SQLBooleanExpression isNotDefined(String field) {
     var condition = new SQLIsNotDefinedCondition(-1);
     condition.setExpression(fieldExpression(field));
     return condition;
   }
 
-  /// Builds `NOT (sub)`. The returned [SQLNotBlock] has both `sub` set and
-  /// `negate=true`; the latter is essential because [SQLNotBlock]'s default of
-  /// `false` would silently produce a pass-through that evaluates the inner
-  /// block with no negation.
+  /**
+   * Builds {@code NOT (sub)}. The returned {@link SQLNotBlock} has both {@code sub} set and
+   * {@code negate=true}; the latter is essential because {@link SQLNotBlock}'s default of
+   * {@code false} would silently produce a pass-through that evaluates the inner block with no
+   * negation.
+   */
   public SQLBooleanExpression not(SQLBooleanExpression sub) {
     var block = new SQLNotBlock(-1);
     block.setSub(sub);
@@ -232,8 +264,10 @@ public final class MatchWhereBuilder {
     return block;
   }
 
-  /// Wraps a boolean expression in an [SQLWhereClause] so it can be plugged
-  /// into the unified MATCH IR's `aliasFilters` map directly.
+  /**
+   * Wraps a boolean expression in an {@link SQLWhereClause} so it can be plugged into the unified
+   * MATCH IR's {@code aliasFilters} map directly.
+   */
   public SQLWhereClause wrap(SQLBooleanExpression expr) {
     var clause = new SQLWhereClause(-1);
     clause.setBaseExpression(expr);
@@ -242,21 +276,22 @@ public final class MatchWhereBuilder {
 
   // ── Internal helpers ──
 
-  /// Computes `p⁺`: the smallest string strictly greater than every string that
-  /// starts with `prefix`, used as the exclusive upper bound of the half-open
-  /// prefix range `[prefix, prefix⁺)`. The last *code point* of `prefix` is
-  /// incremented by one. Surrogate pairs are handled by reading the trailing code
-  /// point with [String#codePointBefore] (which spans the full pair) and replacing
-  /// it via [String#appendCodePoint].
-  ///
-  /// Overflow carry: if the trailing code point is the maximum
-  /// ([Character#MAX_CODE_POINT], `U+10FFFF`), it cannot be incremented in place.
-  /// The method drops that code point and increments the preceding one instead —
-  /// `"a􏿿"` (an `a` followed by the max code point) becomes `"b"`. If
-  /// every code point is the maximum (e.g. a lone `U+10FFFF`), no finite upper
-  /// bound exists, so the method throws [IllegalArgumentException] and the caller
-  /// declines. This is a pathological input that cannot occur from a realistic
-  /// prefix string.
+  /**
+   * Computes {@code p⁺}: the smallest string strictly greater than every string that starts with
+   * {@code prefix}, used as the exclusive upper bound of the half-open prefix range
+   * {@code [prefix, prefix⁺)}. The last code point of {@code prefix} is incremented by one.
+   * Surrogate pairs are handled by reading the trailing code point with
+   * {@link String#codePointBefore} (which spans the full pair) and replacing it via
+   * {@link String#appendCodePoint}.
+   *
+   * <p>Overflow carry: if the trailing code point is the maximum ({@link Character#MAX_CODE_POINT},
+   * {@code U+10FFFF}), it cannot be incremented in place. The method drops that code point and
+   * increments the preceding one instead — {@code "a􏿿"} (an {@code a} followed by the max code
+   * point) becomes {@code "b"}. If every code point is the maximum (e.g. a lone {@code U+10FFFF}),
+   * no finite upper bound exists, so the method throws {@link IllegalArgumentException} and the
+   * caller declines. This is a pathological input that cannot occur from a realistic prefix
+   * string.
+   */
   private static String incrementLastCodePoint(String prefix) {
     var cp = prefix.codePointBefore(prefix.length());
     // Number of UTF-16 chars the trailing code point occupies (2 for a surrogate
@@ -295,8 +330,10 @@ public final class MatchWhereBuilder {
     return block;
   }
 
-  /// Builds an [SQLExpression] referencing `name` as a base identifier — the
-  /// shape the parser produces for a bare property reference inside a `WHERE`.
+  /**
+   * Builds an {@link SQLExpression} referencing {@code name} as a base identifier — the shape the
+   * parser produces for a bare property reference inside a {@code WHERE}.
+   */
   private static SQLExpression fieldExpression(String name) {
     return new SQLExpression(new SQLIdentifier(name));
   }
@@ -307,12 +344,13 @@ public final class MatchWhereBuilder {
     return expr;
   }
 
-  /// Wraps `values` in the AST chain
-  /// `SQLBaseExpression → SQLBaseIdentifier → SQLLevelZeroIdentifier → SQLCollection`,
-  /// matching the parser's representation of an inline literal list (e.g.
-  /// `WHERE x IN [1, 2, 3]`). [SQLInCondition.evaluateRight] resolves this via
-  /// `rightMathExpression.execute(...)`, which recurses into the collection's
-  /// element expressions.
+  /**
+   * Wraps {@code values} in the AST chain {@code SQLBaseExpression → SQLBaseIdentifier →
+   * SQLLevelZeroIdentifier → SQLCollection}, matching the parser's representation of an inline
+   * literal list (e.g. {@code WHERE x IN [1, 2, 3]}). {@link SQLInCondition#evaluateRight} resolves
+   * this via {@code rightMathExpression.execute(...)}, which recurses into the collection's element
+   * expressions.
+   */
   private static SQLBaseExpression literalCollectionExpression(List<SQLExpression> values) {
     var coll = new SQLCollection(-1);
     for (var v : values) {
