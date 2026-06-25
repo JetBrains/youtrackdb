@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.List;
