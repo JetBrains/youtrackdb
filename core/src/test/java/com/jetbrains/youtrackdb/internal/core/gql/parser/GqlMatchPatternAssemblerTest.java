@@ -19,6 +19,10 @@ import org.junit.Test;
  */
 public class GqlMatchPatternAssemblerTest {
 
+  /**
+   * A single anonymous filter mints {@code $c0}, defaults the label to {@code V}, and leaves
+   * {@code aliasFilters} empty.
+   */
   @Test
   public void fromFilters_singleAnonymous_mintsC0AndDefaultsLabelToV() {
     var ir = GqlMatchPatternAssembler.fromFilters(List.of(filter(null, null)));
@@ -29,6 +33,7 @@ public class GqlMatchPatternAssemblerTest {
     assertNull(ir.aliasFilters().get("$c0"));
   }
 
+  /** Blank alias is treated as anonymous and mints {@code $c0}; explicit label is preserved. */
   @Test
   public void fromFilters_blankAlias_mintsC0() {
     var ir = GqlMatchPatternAssembler.fromFilters(List.of(filter("", "Person")));
@@ -37,6 +42,7 @@ public class GqlMatchPatternAssemblerTest {
     assertEquals("Person", ir.aliasClasses().get("$c0"));
   }
 
+  /** Named alias from the visitor is preserved; no {@code $c0} node is created. */
   @Test
   public void fromFilters_namedAlias_preservesAlias() {
     var ir = GqlMatchPatternAssembler.fromFilters(List.of(filter("p", "Person")));
@@ -46,6 +52,7 @@ public class GqlMatchPatternAssemblerTest {
     assertNull(ir.pattern().aliasToNode.get("$c0"));
   }
 
+  /** Multiple anonymous filters mint incrementing {@code $c<N>} aliases; named aliases pass through. */
   @Test
   public void fromFilters_multipleAnonymous_incrementsCounter() {
     var ir =
@@ -60,6 +67,7 @@ public class GqlMatchPatternAssemblerTest {
     assertEquals("C", ir.aliasClasses().get("named"));
   }
 
+  /** Blank label defaults to {@code V} per GQL convention. */
   @Test
   public void fromFilters_blankLabel_defaultsToV() {
     var ir = GqlMatchPatternAssembler.fromFilters(List.of(filter("v", "")));
@@ -67,6 +75,7 @@ public class GqlMatchPatternAssemblerTest {
     assertEquals("V", ir.aliasClasses().get("v"));
   }
 
+  /** Node-level where clause from {@link SQLMatchFilter} lands in {@code aliasFilters} for that alias. */
   @Test
   public void fromFilters_withNodeWhereClause_populatesAliasFilters() {
     var matchFilter = SQLMatchFilter.fromGqlNode("p", "Person");
@@ -81,6 +90,7 @@ public class GqlMatchPatternAssemblerTest {
     assertNull("only the explicit filter carries a where clause", ir.aliasFilters().get("$c0"));
   }
 
+  /** Where clause attaches only to the filter that carried it; other aliases stay filter-free. */
   @Test
   public void fromFilters_whereClauseAttached_onlyOnMatchingAlias() {
     var where = GqlMatchStatement.buildWhereClause(Map.of("age", 30L));
@@ -95,6 +105,8 @@ public class GqlMatchPatternAssemblerTest {
     assertEquals(1, ir.aliasFilters().size());
   }
 
+  /** Incremental {@link GqlMatchPatternAssembler#add} / {@link GqlMatchPatternAssembler#build} matches
+   * {@link GqlMatchPatternAssembler#fromFilters} for the same filter sequence. */
   @Test
   public void incrementalAdd_matchesFromFilters() {
     var assembler = new GqlMatchPatternAssembler();
@@ -108,6 +120,7 @@ public class GqlMatchPatternAssemblerTest {
     assertEquals("Thing", ir.aliasClasses().get("x"));
   }
 
+  /** Builds a {@link SQLMatchFilter} for tests via the GQL factory. */
   private static SQLMatchFilter filter(String alias, String label) {
     return SQLMatchFilter.fromGqlNode(alias, label);
   }

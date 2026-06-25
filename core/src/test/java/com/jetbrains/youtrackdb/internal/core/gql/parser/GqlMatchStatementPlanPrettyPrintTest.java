@@ -15,14 +15,15 @@ import org.junit.Test;
  */
 public class GqlMatchStatementPlanPrettyPrintTest extends GqlGraphTestBase {
 
+  /** Creates a read/write {@link GqlExecutionContext} bound to the test graph session. */
   private GqlExecutionContext createCtx() {
     return new GqlExecutionContext(readWriteSession());
   }
 
-  // =========================================================================
-  // Single anonymous node — no property filter
-  // =========================================================================
-
+  /**
+   * Single anonymous node plan: prefetches {@code $c0}, fetches the class, sets projection — no
+   * {@code FILTER ITEMS WHERE} step.
+   */
   @Test
   public void prettyPrint_singleNodeAnonymous() {
     graph.addVertex(T.label, "PlanMatchA", "k", "v");
@@ -46,10 +47,10 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GqlGraphTestBase {
     }
   }
 
-  // =========================================================================
-  // Named alias with multi-property WHERE filter
-  // =========================================================================
-
+  /**
+   * Named alias with a multi-property AND filter: plan shows {@code FILTER ITEMS WHERE} with both
+   * conjuncts rendered.
+   */
   @Test
   public void prettyPrint_multiPropertyAndFilter() {
     graph.addVertex(T.label, "PlanMatchB", "firstName", "Karl", "age", 30);
@@ -78,10 +79,10 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GqlGraphTestBase {
     }
   }
 
-  // =========================================================================
-  // Single-property WHERE — no spurious AND conjunct
-  // =========================================================================
-
+  /**
+   * Single-property where clause renders as one conjunct — no spurious {@code AND} from the
+   * always-{@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock} wrapper.
+   */
   @Test
   public void prettyPrint_singlePropertyWhereClause() {
     graph.addVertex(T.label, "PlanMatchD", "k", "x");
@@ -108,10 +109,10 @@ public class GqlMatchStatementPlanPrettyPrintTest extends GqlGraphTestBase {
     }
   }
 
-  // =========================================================================
-  // Cartesian product — alias-scoped filter bindings (prefetch order varies)
-  // =========================================================================
-
+  /**
+   * Cartesian product of two filtered patterns: each alias prefetch block carries only its own
+   * filter binding (prefetch sibling order is not fixed).
+   */
   @Test
   public void prettyPrint_multiFilterMap_cartesianProduct() {
     graph.addVertex(T.label, "PlanMatchC", "k", "v1");
