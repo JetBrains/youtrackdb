@@ -395,7 +395,7 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > forward-carried contracts (schema version now 6; write-lock-only schema
   > serializer) land on Tracks 8 and 7, not Track 3.
 
-- [ ] Track 3: Tx-local schema view, transactional enablement, and the metadata-write mutex (D1, D4, D5, D7, D8)
+- [x] Track 3: Tx-local schema view, transactional enablement, and the metadata-write mutex (D1, D4, D5, D7, D8)
   > Seed a per-session tx-local `SchemaShared` (a `fromStream` re-parse) on the
   > first schema write, route `SchemaProxy` reads and writes to it with three-tier
   > proxy resolution, de-guard the throw-guard and self-commit mutation entry
@@ -403,8 +403,37 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > `Semaphore(1)` with its engage point above the shared locks and its same-thread
   > loud-reject. Ships the mutex primitive and normal release; the abnormal-termination
   > handshake is Track 7.
-  > **Scope:** ~16 files covering the proxy/routing classes, `TxSchemaState`, `SchemaShared.copyForTx`, the de-guarded entry points, the new mutex, and isolation/rollback tests.
-  > **Depends on:** Track 2
+  >
+  > **Track episode:**
+  > Delivered the enablement half of transactional schema. A schema or index change
+  > made inside a user transaction routes to a per-session tx-local `SchemaShared`
+  > copy (seeded by a `fromStream` re-parse of committed state, per-class RIDs
+  > preserved), is visible only to that transaction, rolls back for free, and
+  > serializes against other schema-changing transactions through the new
+  > `MetadataWriteMutex` `Semaphore(1)` (engaged above the shared metadata locks,
+  > same-thread loud-reject, normal release in the outermost teardown). The
+  > throw-guards and self-commit membership sites were de-guarded to write into the
+  > tx-local view; eager structural build and commit-time promotion are Track 4/5.
+  > Phase C cleared 1 blocker (BC1: the tx-local seed re-entered the mutex engage
+  > through the inheritance rebuild's index ripple, fixed with a transient
+  > `seedingTxSchemaState` guard) plus 9 should-fix over 2 iterations; a Review-mode
+  > completion pass (`00d81f43dc`) then made the tx-local changed-class set record
+  > class create and rename (previously only drop and index-membership) and corrected
+  > the `MetadataWriteMutex` foreign-releaser Javadoc overclaim.
+  > Cross-track: Track 4 (commit reconciliation) can rely on `getChangedClasses()`
+  > carrying create and rename (a rename records the new name only; a set name absent
+  > from the tx-local copy means a drop) and on the seed-failure release as the
+  > liveness complement. Track 5 (index overlay) must route
+  > `recordMembershipChangeIntoTxLocalView`'s index lookup through tx-local index
+  > definitions; today it reads the shared registry, so a same-tx membership change
+  > against a tx-deferred index hits a loud null-class `IndexException`. Track 5 must
+  > also honor the `Index.markDeferred` read contract. Track 7 (mutex hardening) must
+  > convert `MetadataWriteMutex.holder` to `AtomicReference<Holder>` with a
+  > `compareAndSet`-gated release so normal and abnormal releases never double-release
+  > the permit. CS1 (rolled-back in-tx create leaves a recovery-visible stray
+  > collection) is Track-4-owned per D2/D10.
+  >
+  > **Track file:** `plan/track-3.md` (4 steps, 0 failed)
 
 - [ ] Track 4: Commit-time reconciliation and the schema-carrying commit lock (D1, D2, D3, D6, D9, D10, D19)
   > Make the commit compute the structural delta as a set difference over committed

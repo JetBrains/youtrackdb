@@ -20,8 +20,8 @@ permit handshake and the freezer gate are Track 7.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review
+- [x] Track completion
 - [x] 2026-06-17T07:40Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-17T08:41Z [ctx=safe] Step 1 complete (commit a760ab91a7)
 - [x] 2026-06-17T10:04Z [ctx=safe] Step 2 complete (commit f465ad7ef6)
@@ -29,9 +29,8 @@ permit handshake and the freezer gate are Track 7.
 - [x] 2026-06-17T12:30Z [ctx=info] Step 4 complete (commit 1e99e6dc73)
 - [x] 2026-06-17T13:49Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-17T14:20Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
-
-**PAUSED 2026-06-25 at Phase C Track 3 Completion (Review mode) pending the buffered doc-accuracy fix + further review observations**
-- Handoff: handoff-track-3-phaseC.md
+- [x] 2026-06-25T16:52Z [ctx=safe] Review-mode completion fix (commit 00d81f43dc): tx-local create/rename changed-class recording + mutex Javadoc accuracy
+- [x] 2026-06-25T16:52Z [ctx=safe] Track completion: episode written, description collapsed, Track 3 marked complete
 
 ## Surprises & Discoveries
 - **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
