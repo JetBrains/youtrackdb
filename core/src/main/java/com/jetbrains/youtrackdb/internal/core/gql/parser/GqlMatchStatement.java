@@ -7,10 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
