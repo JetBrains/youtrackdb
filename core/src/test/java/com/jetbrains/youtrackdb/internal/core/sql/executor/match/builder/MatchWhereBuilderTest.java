@@ -406,7 +406,7 @@ public class MatchWhereBuilderTest {
 
   @Test
   public void isNull_recordAttributeViaIsNullAttribute_producesIsNullCondition() {
-    // hasNot("@class") path: record-attribute left-side flows through isNullAttribute.
+    // Record-attribute left-side (@class) via isNullAttribute — distinct from isDefined/isNotDefined.
     var expr = b.isNullAttribute("@class");
     assertTrue(expr instanceof SQLIsNullCondition);
     assertEquals("@class is null", render(expr));
@@ -484,6 +484,14 @@ public class MatchWhereBuilderTest {
     var inner = ((SQLIsNotDefinedCondition) expr).getExpression();
     assertNotNull(inner);
     assertEquals("foo", render(inner));
+  }
+
+  /** Presence operators must stay distinct from value-layer null checks in render output. */
+  @Test
+  public void presencePredicates_renderDistinctFromNullChecks() {
+    assertEquals("name is defined", render(b.isDefined("name")));
+    assertEquals("name is not defined", render(b.isNotDefined("name")));
+    assertEquals("name is null", render(b.isNull("name")));
   }
 
   // ── Combined: deeply nested AND/OR ──

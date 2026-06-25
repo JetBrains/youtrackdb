@@ -78,6 +78,21 @@ public class GqlMatchPatternAssemblerTest {
     assertSame(where, ir.aliasFilters().get("p"));
     assertEquals("Person", ir.aliasClasses().get("p"));
     assertNotNull(ir.pattern().aliasToNode.get("p"));
+    assertNull("only the explicit filter carries a where clause", ir.aliasFilters().get("$c0"));
+  }
+
+  @Test
+  public void fromFilters_whereClauseAttached_onlyOnMatchingAlias() {
+    var where = GqlMatchStatement.buildWhereClause(Map.of("age", 30L));
+    var withWhere = SQLMatchFilter.fromGqlNode("a", "Person");
+    withWhere.setFilter(where);
+    var withoutWhere = SQLMatchFilter.fromGqlNode("b", "Person");
+
+    var ir = GqlMatchPatternAssembler.fromFilters(List.of(withWhere, withoutWhere));
+
+    assertSame(where, ir.aliasFilters().get("a"));
+    assertNull(ir.aliasFilters().get("b"));
+    assertEquals(1, ir.aliasFilters().size());
   }
 
   @Test

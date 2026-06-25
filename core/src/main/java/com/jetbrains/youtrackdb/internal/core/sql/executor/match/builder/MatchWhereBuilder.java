@@ -60,7 +60,8 @@ public final class MatchWhereBuilder {
   /// [SQLCollection] under a synthetic [SQLBaseExpression] / [SQLBaseIdentifier]
   /// chain — the same shape the parser emits for inline literal lists, so the
   /// runtime's [SQLInCondition] evaluator picks up the values via its
-  /// `rightMathExpression` branch.
+  /// `rightMathExpression` branch. Populates [SQLInCondition#setOperator] so
+  /// plan-time paths such as [SQLInCondition#supportsBasicCalculation] do not NPE.
   public SQLBooleanExpression in(String field, List<SQLExpression> values) {
     var condition = new SQLInCondition(-1);
     condition.setLeft(fieldExpression(field));
@@ -168,11 +169,11 @@ public final class MatchWhereBuilder {
   }
 
   /// Builds `field IS NULL` for a property reference (parsed shape:
-  /// [SQLIdentifier]). The runtime evaluator dispatches the IS-NULL check
-  /// uniformly across record-attribute and identifier left-sides; document
-  /// stores conflate "property absent" and "property set to null" in the same
-  /// branch. Used by `hasNot(key)` and the `eq(null)` / `neq(null)` predicate
-  /// adapters.
+  /// [SQLIdentifier]). The runtime evaluator uses `expression.execute() == null`, so
+  /// document stores conflate "property absent" and "property set to literal null".
+  /// Used by the `eq(null)` / `neq(null)` predicate adapters (Track 4). Gremlin
+  /// {@code hasNot(key)} maps to [#isNotDefined(String)], not here — {@code IS NULL}
+  /// would over-match vertices that store the key with a null value.
   public SQLBooleanExpression isNull(String field) {
     return isNull(fieldExpression(field));
   }

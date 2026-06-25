@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
@@ -15,8 +17,10 @@ import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.Base64;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -667,52 +671,49 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   // ── End-to-end: MatchWhereBuilder-built predicates ──
 
   /**
-   * {@code IS DEFINED} is entity-presence: a stored property with literal {@code null}
-   * still counts as defined; only vertices that never carried the property match
-   * {@code IS NOT DEFINED}.
+   * Shared fixture for entity-presence vs value-layer predicates. Each vertex carries a
+   * distinct {@code scenario} tag so assertions pin identity, not just match count.
    */
+  private void seedNamePresenceScenario(String className) {
+    graph.addVertex(T.label, className, "name", "Alice", "scenario", "value");
+    graph.addVertex(T.label, className, "name", null, "scenario", "nullValue");
+    graph.addVertex(T.label, className, "scenario", "absent");
+  }
+
   @Test
   public void buildPlan_builderIsDefined_matchesPresentPropertyIncludingNull() {
-    graph.addVertex(T.label, "MatchDefF", "name", "Alice");
-    graph.addVertex(T.label, "MatchDefF", "name", null, "tag", "null-valued");
-    graph.addVertex(T.label, "MatchDefF", "tag", "absent-name");
+    seedNamePresenceScenario("MatchDefF");
     graph.tx().commit();
 
     var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isDefined("name"));
-    Assert.assertEquals(2, countMatches("MatchDefF", where));
+    Assert.assertEquals(
+        Set.of("value", "nullValue"), matchedScenarioTags("MatchDefF", where));
   }
 
-  /**
-   * {@code IS NULL} uses value execution ({@code expression.execute() == null}): both
-   * absent properties and literal {@code null} values match.
-   */
   @Test
   public void buildPlan_builderIsNull_matchesAbsentAndNullValue() {
-    graph.addVertex(T.label, "MatchNullF", "name", "Alice");
-    graph.addVertex(T.label, "MatchNullF", "name", null, "tag", "null-valued");
-    graph.addVertex(T.label, "MatchNullF", "tag", "absent-name");
+    seedNamePresenceScenario("MatchNullF");
     graph.tx().commit();
 
     var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isNull("name"));
-    Assert.assertEquals(2, countMatches("MatchNullF", where));
+    Assert.assertEquals(
+        Set.of("nullValue", "absent"), matchedScenarioTags("MatchNullF", where));
   }
 
   @Test
   public void buildPlan_builderIsNotDefined_matchesOnlyAbsentProperty() {
-    graph.addVertex(T.label, "MatchNotDefF", "name", "Alice");
-    graph.addVertex(T.label, "MatchNotDefF", "name", null, "tag", "null-valued");
-    graph.addVertex(T.label, "MatchNotDefF", "tag", "absent-name");
+    seedNamePresenceScenario("MatchNotDefF");
     graph.tx().commit();
 
     var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isNotDefined("name"));
-    Assert.assertEquals(1, countMatches("MatchNotDefF", where));
+    Assert.assertEquals(Set.of("absent"), matchedScenarioTags("MatchNotDefF", where));
   }
 
   @Test
   public void buildPlan_builderIn_matchesExpectedVertices() {
-    graph.addVertex(T.label, "MatchInF", "status", 1);
-    graph.addVertex(T.label, "MatchInF", "status", 2);
-    graph.addVertex(T.label, "MatchInF", "status", 3);
+    graph.addVertex(T.label, "MatchInF", "status", 1, "scenario", "s1");
+    graph.addVertex(T.label, "MatchInF", "status", 2, "scenario", "s2");
+    graph.addVertex(T.label, "MatchInF", "status", 3, "scenario", "s3");
     graph.tx().commit();
 
     var wb = new MatchWhereBuilder();
@@ -723,7 +724,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
                 List.of(
                     MatchLiteralBuilder.toLiteral(1L),
                     MatchLiteralBuilder.toLiteral(2L))));
-    Assert.assertEquals(2, countMatches("MatchInF", where));
+    Assert.assertEquals(Set.of("s1", "s2"), matchedScenarioTags("MatchInF", where));
   }
 
   // ── End-to-end: inline BINARY filter ──
@@ -1637,20 +1638,29 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     Assert.assertNotNull(firstFilter(stm).getFilter());
   }
 
-  private int countMatches(String className, SQLWhereClause where) {
+  private Set<String> matchedScenarioTags(String className, SQLWhereClause where) {
     var filter = SQLMatchFilter.fromGqlNode("a", className);
     filter.setFilter(where);
     var statement = new GqlMatchStatement(List.of(filter));
     var ctx = createCtx();
+    var tags = new HashSet<String>();
     try {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
-      var count = 0;
+      var session = ctx.session();
+      var tx = session.getActiveTransaction();
       while (stream.hasNext()) {
-        stream.next();
-        count++;
+        var row = (Result) stream.next();
+        var bound = row.getProperty("a");
+        if (bound instanceof Result nested) {
+          tags.add(nested.getProperty("scenario"));
+        } else if (bound instanceof Identifiable id) {
+          tags.add(tx.<Entity>load(id).getProperty("scenario"));
+        } else {
+          Assert.fail("unexpected binding type for alias 'a': " + bound.getClass());
+        }
       }
-      return count;
+      return tags;
     } finally {
       ((YTDBGraphInternal) graph).tx().commit();
     }
