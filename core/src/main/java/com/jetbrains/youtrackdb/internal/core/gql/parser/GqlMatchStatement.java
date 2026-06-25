@@ -6,7 +6,6 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
@@ -20,8 +19,6 @@ import javax.annotation.Nullable;
 /// Builds the shared MATCH IR ([Pattern] + alias maps) directly from GQL match filters (unified YQL IR)
 /// and delegates execution to the unified YQL [MatchExecutionPlanner].
 public class GqlMatchStatement implements GqlStatement {
-
-  private static final String DEFAULT_TYPE = "V";
 
   private final List<SQLMatchFilter> matchFilters;
   private String originalStatement;
@@ -79,21 +76,7 @@ public class GqlMatchStatement implements GqlStatement {
       return GqlExecutionPlan.empty();
     }
 
-    // Drive the shared MATCH IR builder so the topology + alias maps land in a single
-    // immutable record consumed by the planner. effectiveAlias / effectiveType keep
-    // the GQL-specific defaults ($c<N> for missing aliases, "V" for missing labels).
-    var builder = new MatchPatternBuilder();
-    var anonymousCounter = 0;
-    for (var filter : matchFilters) {
-      var rawAlias = filter.getAlias();
-      var alias = effectiveAlias(rawAlias, anonymousCounter);
-      if (rawAlias == null || rawAlias.isBlank()) {
-        anonymousCounter++;
-      }
-      builder.addNode(
-          alias, effectiveType(filter.getClassName(null)), filter.getFilter(), /*optional=*/ false);
-    }
-    var ir = builder.build();
+    var ir = GqlMatchPatternAssembler.fromFilters(matchFilters);
 
     var commandContext = new BasicCommandContext(ctx.session());
     var planner = new MatchExecutionPlanner(ir.pattern(), ir.aliasClasses(), ir.aliasFilters());
@@ -120,13 +103,5 @@ public class GqlMatchStatement implements GqlStatement {
           .add(whereBuilder.eq(entry.getKey(), MatchLiteralBuilder.toLiteral(entry.getValue())));
     }
     return whereBuilder.wrap(andBlock);
-  }
-
-  private static String effectiveAlias(@Nullable String alias, int anonymousCounter) {
-    return (alias != null && !alias.isBlank()) ? alias : ("$c" + anonymousCounter);
-  }
-
-  private static String effectiveType(@Nullable String label) {
-    return (label == null || label.isBlank()) ? DEFAULT_TYPE : label;
   }
 }
