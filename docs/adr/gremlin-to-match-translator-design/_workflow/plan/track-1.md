@@ -115,7 +115,7 @@ unsupported-type `IllegalArgumentException`, and the documented null NPE.
 
 **Cross-track impact:** none — the class has no call sites until Step 4 and later tracks.
 
-### Step 2 — commit 07e85078d8, 2026-06-25 [ctx=safe]
+### Step 2 — commit 64871ba7c5, 2026-06-25 [ctx=safe]
 **What was done:** Created the stateless fluent `MatchWhereBuilder` with
 `eq`, `op`, `in`, `notIn`, `between`, `containsText`, `startsWith`,
 `and`/`or`/`andOptional`, `not`, the three `isNull` forms, `wrap`, and the
