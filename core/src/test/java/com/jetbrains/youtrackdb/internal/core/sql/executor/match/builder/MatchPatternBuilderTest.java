@@ -77,18 +77,22 @@ public class MatchPatternBuilderTest {
     assertNotNull("the node itself is still registered", ir.pattern().aliasToNode.get("a"));
   }
 
+  /**
+   * Caller is responsible for default-alias generation; the builder must not rewrite.
+   */
   @Test
   public void addNode_anonymousAlias_isPreservedExactly() {
-    // Caller is responsible for default-alias generation; the builder must not rewrite.
     var ir = new MatchPatternBuilder().addNode("$c0", "V", null, false).build();
     assertNotNull(ir.pattern().aliasToNode.get("$c0"));
     assertEquals("$c0", ir.pattern().aliasToNode.get("$c0").alias);
   }
 
+  /**
+   * Pins the documented merge contract: a non-null/non-blank {@code className}
+   * overwrites the previously-registered class for the same alias.
+   */
   @Test
   public void addNode_repeatedWithDifferentClass_overwritesAliasClass() {
-    // Pins the documented merge contract: a non-null/non-blank className
-    // overwrites the previously-registered class for the same alias.
     var ir =
         new MatchPatternBuilder()
             .addNode("a", "Person", null, false)
@@ -98,10 +102,12 @@ public class MatchPatternBuilderTest {
     assertEquals("Employee", ir.aliasClasses().get("a"));
   }
 
+  /**
+   * Pins the documented merge contract: a non-null where-clause overwrites
+   * the previously-registered clause for the same alias.
+   */
   @Test
   public void addNode_repeatedWithDifferentWhere_overwritesAliasFilter() {
-    // Pins the documented merge contract: a non-null where-clause overwrites
-    // the previously-registered clause for the same alias.
     var b2 = new MatchWhereBuilder();
     var w1 = b2.wrap(b2.eq("a", MatchLiteralBuilder.toLiteral(1L)));
     var w2 = b2.wrap(b2.eq("a", MatchLiteralBuilder.toLiteral(2L)));
@@ -114,11 +120,13 @@ public class MatchPatternBuilderTest {
     assertSame("second where clause must win on overwrite", w2, ir.aliasFilters().get("a"));
   }
 
+  /**
+   * The skip-on-blank guard keeps a previously-registered class in place when a later
+   * {@link MatchPatternBuilder#addNode} call passes null/blank — this lets edge-target
+   * re-registration upgrade {@code optional} without erasing class info.
+   */
   @Test
   public void addNode_repeatedWithBlankClassNameSecond_preservesOriginalClass() {
-    // The "skip-on-blank" guard keeps a previously-registered class in place
-    // when a later addNode call passes null/blank — this lets edge-target
-    // re-registration upgrade `optional` without erasing class info.
     var ir =
         new MatchPatternBuilder()
             .addNode("a", "Person", null, false)
@@ -134,9 +142,9 @@ public class MatchPatternBuilderTest {
         ir.pattern().aliasToNode.get("a").isOptionalNode());
   }
 
+  /** Documented monotonic-upgrade contract for optional: once true, never cleared. */
   @Test
   public void addNode_optionalIsMonotonic_falseDoesNotClearTrue() {
-    // Documented monotonic-upgrade contract for optional: once true, never cleared.
     var ir =
         new MatchPatternBuilder()
             .addNode("a", "Person", null, true)
@@ -169,10 +177,13 @@ public class MatchPatternBuilderTest {
     assertSame(bNode, edge.in);
   }
 
+  /**
+   * Direction-encoding lives inside {@code SQLMatchPathItem.method.methodName}
+   * ({@code "in"} / {@code "out"} / {@code "both"}), not in topology counts.
+   * Render the path item to verify the right method name landed.
+   */
   @Test
   public void addEdge_outDirection_pathItemRendersAsOutMethodCall() {
-    // Direction-encoding lives inside SQLMatchPathItem.method.methodName ("in"/"out"/"both"),
-    // not in topology counts. Render the path item to verify the right method name landed.
     var ir =
         new MatchPatternBuilder()
             .addEdge("a", "b", Direction.OUT, "Knows", null, null, null)
@@ -217,27 +228,29 @@ public class MatchPatternBuilderTest {
     assertEquals(1, ir.pattern().getNumOfEdges());
   }
 
+  /**
+   * When {@code edgeLabel} is null, {@code SQLMatchPathItem.graphPath} substitutes the literal
+   * class name {@code "E"}. Asserting {@code .out(E){...}} pins the exact default rather than
+   * any string containing the letter {@code E} — a future change to e.g. {@code "Edge"} would
+   * render {@code .out(Edge){...}} and fail.
+   */
   @Test
   public void addEdge_nullEdgeLabel_pathItemRendersWithDefaultEdgeClass() {
-    // When edgeLabel is null, SQLMatchPathItem.graphPath substitutes the literal
-    // class name "E". Asserting `.out(E){...` (with the trailing closing paren)
-    // pins the exact default rather than any string containing the letter "E" —
-    // a future change to e.g. "Edge" would render `.out(Edge){...` and fail.
     var ir =
         new MatchPatternBuilder()
             .addEdge("a", "b", Direction.OUT, null, null, null, null)
             .build();
     var rendered = renderPathItemFor(ir);
-    // The class name is rendered with surrounding quotes by SQLBaseExpression's
-    // string-quoting (see graphPath); pin the exact rendered shape so a change
-    // to a different default class (e.g. "Edge") would render '.out("Edge")'
-    // and fail this assertion.
+    // SQLBaseExpression string-quoting (see graphPath) wraps the class name in quotes.
     assertEquals(".out(\"E\"){as: b}", rendered);
   }
 
+  /**
+   * Neither alias was registered via {@link MatchPatternBuilder#addNode}; {@link
+   * MatchPatternBuilder#addEdge} must implicitly create both.
+   */
   @Test
   public void addEdge_implicitlyCreatesUnregisteredEndpoints() {
-    // Neither alias was registered via addNode; addEdge must implicitly create both.
     var ir =
         new MatchPatternBuilder()
             .addEdge("fresh1", "fresh2", Direction.OUT, "E", null, null, null)
@@ -312,30 +325,27 @@ public class MatchPatternBuilderTest {
 
   // ── hasAlias ──
 
+  /**
+   * Pins the explicit-registration branch of {@link MatchPatternBuilder#hasAlias(String)}.
+   * Production callers (the pattern-form NOT recogniser's origin-presence check) rely on
+   * {@code hasAlias} returning true once an alias has been registered via
+   * {@link MatchPatternBuilder#addNode}, and false for any alias the builder has never seen.
+   */
   @Test
   public void hasAlias_returnsTrueAfterAddNode_falseForUnknown() {
-    // Pins the explicit-registration branch of hasAlias. Production callers
-    // (the pattern-form NOT recogniser's origin-presence check) rely on
-    // hasAlias returning true once an alias has been registered via addNode,
-    // and false for any alias the builder has never seen. A regression that
-    // narrowed the lookup to only edge-registered aliases would silently
-    // accept an in-progress pattern that has no positive-pattern node for the
-    // NOT origin.
     var b = new MatchPatternBuilder().addNode("v0", "Person", null, false);
     assertTrue("alias registered via addNode must be reported as present", b.hasAlias("v0"));
     assertFalse(
         "unknown alias must be reported as absent", b.hasAlias("phantom"));
   }
 
+  /**
+   * Pins the implicit-registration branch of {@link MatchPatternBuilder#hasAlias(String)}.
+   * {@link MatchPatternBuilder#addEdge} calls {@code Pattern.addExpression} internally,
+   * which performs {@code getOrCreateNode} for both endpoints.
+   */
   @Test
   public void hasAlias_returnsTrueAfterAddEdgeImplicitRegistration() {
-    // Pins the implicit-registration branch of hasAlias. addEdge calls
-    // Pattern.addExpression internally which performs getOrCreateNode for
-    // both endpoints, so the target alias becomes pattern-registered even
-    // without an explicit addNode call. The pattern-form NOT recogniser's
-    // origin-presence check must observe this branch — a regression that
-    // routed hasAlias around Pattern.get (e.g. against a private addNode-only
-    // map) would miss the implicit-registration case and incorrectly decline.
     var b =
         new MatchPatternBuilder()
             .addNode("origin", "Person", null, false)
@@ -345,14 +355,12 @@ public class MatchPatternBuilderTest {
         b.hasAlias("target"));
   }
 
+  /**
+   * Pins the documented null-input guard: {@link MatchPatternBuilder#hasAlias(String)}
+   * returns false for a null alias instead of throwing.
+   */
   @Test
   public void hasAlias_nullAlias_returnsFalse() {
-    // Pins the documented null-input guard: hasAlias(null) returns false
-    // instead of throwing. Callers that funnel a possibly-null boundary
-    // alias through hasAlias (e.g. the pattern-form NOT recogniser's
-    // defensive null-boundary check) rely on the guard so they do not have
-    // to pre-filter; a regression that removed the null check would turn
-    // every such call into a NullPointerException at runtime.
     assertFalse("null alias must be reported as absent", new MatchPatternBuilder().hasAlias(null));
   }
 
@@ -388,13 +396,15 @@ public class MatchPatternBuilderTest {
     assertSame(where, internalFilters.get("p"));
   }
 
+  /**
+   * The one-shot contract makes the ownership transfer to the planner explicit: any further
+   * mutation after {@link MatchPatternBuilder#build()} must fail loudly rather than half-update
+   * the previously-returned IR (whose {@code Pattern} is shared by reference).
+   */
   @Test
   public void build_oneShot_subsequentAddNodeThrows() {
     var b = new MatchPatternBuilder().addNode("a", "Person", null, false);
     b.build();
-    // The one-shot contract makes the ownership-transfer to the planner explicit:
-    // any further mutation after build() must fail loudly rather than half-update
-    // the previously-returned IR (whose Pattern is shared by reference).
     assertThrows(IllegalStateException.class, () -> b.addNode("b", "Place", null, false));
   }
 
@@ -416,7 +426,7 @@ public class MatchPatternBuilderTest {
 
   // ── helpers ──
 
-  // Renders the outgoing path item for fromAlias (direction + edge label).
+  /** Renders the outgoing path item for {@code fromAlias} (direction + edge label). */
   private static String renderPathItemFor(MatchPatternBuilder.PatternIR ir) {
     var node = ir.pattern().aliasToNode.get("a");
     assertNotNull("node '" + "a" + "' must exist", node);
