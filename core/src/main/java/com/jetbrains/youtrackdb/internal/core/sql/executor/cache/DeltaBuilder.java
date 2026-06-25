@@ -228,7 +228,8 @@ public final class DeltaBuilder {
    * contribute to this aggregate and are skipped, mirroring the record path.
    *
    * <p><b>Membership dispatch (collapse safety).</b> {@link AggregateState#applyMutation} derives
-   * its transition from cache membership and {@code matchAfter}, not from the operation type, so a
+   * its transition from cache membership and {@code matchAfter} (with a {@code DELETED} op forcing a
+   * drop), not from the operation type as a stand-in for the before-state, so a
    * collapsed pre-populate CREATE that the version filter admits is reconciled correctly. {@code
    * matchAfter} re-evaluates the entry's WHERE against the post-mutation record using the original
    * query's context, so {@code :param} bindings resolve identically to the populating execution.

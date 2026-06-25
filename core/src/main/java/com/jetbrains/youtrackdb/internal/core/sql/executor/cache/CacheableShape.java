@@ -5,22 +5,26 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
  * ShapeClassifier#classify}. The shape selects which delta-reconciliation path the cache runs when a
  * cached entry is replayed against in-transaction mutations.
  *
- * <p>Two shapes:
+ * <p>The shapes:
  *
  * <ul>
  *   <li>{@link #RECORD} — a plain SELECT whose rows are individual records the delta builder can
  *       reconcile one record at a time (add a tx-CREATED row, drop a tx-DELETED row, re-position a
- *       tx-UPDATED row).
+ *       tx-UPDATED row). A single-alias MATCH folds onto this shape.
+ *   <li>The {@code AGGREGATE_*} family ({@link #AGGREGATE_COUNT}, {@link #AGGREGATE_SUM}, {@link
+ *       #AGGREGATE_AVG}, {@link #AGGREGATE_MIN}, {@link #AGGREGATE_MAX}) — single-aggregate SELECTs
+ *       replayed through an {@link AggregateState}. {@link #AGGREGATE_COUNT_DISTINCT} is not produced
+ *       by {@link ShapeClassifier#classify} as an entry shape; it is the {@code AggregateState} kind
+ *       that backs {@link #DISTINCT_VALUES} (and a reserved future scalar distinct-count shape).
+ *   <li>{@link #DISTINCT_VALUES} — {@code SELECT distinct(prop) ... ORDER BY prop}, replayed through
+ *       the same per-value buckets as the distinct-count kind but emitting the bucket keys as rows.
+ *   <li>{@link #MATCH_TUPLE_MULTI} — a multi-alias MATCH tuple, served verbatim under a class-scoped
+ *       version gate.
  *   <li>{@link #K0_NONE} — a query whose result is deterministically reproducible from storage plus
  *       the AST but cannot be reconciled record by record (carries SKIP / LIMIT, GROUP BY, LET, a
  *       subquery, or an expression aggregate). A {@code K0_NONE} entry serves cached reads only while
  *       no mutation has happened since it was populated, and re-executes after any tx-write.
  * </ul>
- *
- * <p>The remaining values — the {@code AGGREGATE_*} family and {@link #MATCH_TUPLE_MULTI} — are the
- * * <p>All shapes defined below — including the {@code AGGREGATE_*} family,
- *  * {@link #DISTINCT_VALUES}, and {@link #MATCH_TUPLE_MULTI} — are fully supported by the transaction
- *  * cache layer, routing through their respective incremental replay or version-gated views.
  *
  */
 public enum CacheableShape {
@@ -43,7 +47,12 @@ public enum CacheableShape {
   /** {@code MAX(prop)} single-aggregate SELECT. */
   AGGREGATE_MAX,
 
-  /** {@code COUNT(DISTINCT prop)} single-aggregate SELECT. */
+  /**
+   * The {@link AggregateState} kind for per-value distinct buckets. Not produced by {@link
+   * ShapeClassifier#classify} as an entry shape — scalar {@code COUNT(DISTINCT prop)} routes to {@link
+   * #K0_NONE} because this engine computes it as a row count, not a true distinct count. It backs the
+   * {@link #DISTINCT_VALUES} view and is reserved for a future engine with a native distinct count.
+   */
   AGGREGATE_COUNT_DISTINCT,
 
   /**
@@ -63,7 +72,8 @@ public enum CacheableShape {
    * bare property, emitted as one row per distinct value. Reconciled incrementally through the same
    * per-value RID buckets as {@code AGGREGATE_COUNT_DISTINCT} (the entry carries an {@code AggregateState}
    * of that kind); the view emits the bucket keys as rows instead of their count. Distinct projections
-   * over a path or expression, multiple columns, or carrying ORDER BY route to {@link #K0_NONE} instead.
+   * over a path or expression, multiple columns, or lacking a deterministic ORDER BY on the projected
+   * column route to {@link #K0_NONE} instead.
    */
   DISTINCT_VALUES,
 

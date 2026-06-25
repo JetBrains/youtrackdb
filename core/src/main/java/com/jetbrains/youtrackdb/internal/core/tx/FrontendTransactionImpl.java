@@ -117,11 +117,13 @@ public class FrontendTransactionImpl implements
   protected int txStartCounter;
   private final boolean readOnly;
 
-  // Monotonic per-transaction mutation counter. Incremented on every addRecordOperation call
-  // (new record or collapse-update of an existing op), so it advances even when the collapse path
-  // leaves recordOperations.size() unchanged. The tx-result cache stamps an entry's
-  // populateMutationVersion from this value and filters operations by version > that stamp; the
-  // counter is transient per-tx state with no on-disk footprint and resets to 0 when the tx ends.
+  // Monotonic mutation counter. Incremented on every addRecordOperation call (new record or
+  // collapse-update of an existing op), so it advances even when the collapse path leaves
+  // recordOperations.size() unchanged. The tx-result cache stamps an entry's populateMutationVersion
+  // from this value and filters operations by version > that stamp. Transient state with no on-disk
+  // footprint; it is never reset (unlike cacheCodeDepth), so a reused transaction object keeps
+  // incrementing. That is harmless because the cache is per-transaction (cleared at tx end) and every
+  // version comparison is relative to a stamp taken within the same transaction.
   private long mutationVersion;
 
   // Re-entrancy depth for the tx-result cache lookup-and-view scope. The session brackets the

@@ -740,8 +740,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * cacheCodeDepth > 0}, the re-entrancy guard, so a {@code query()} issued from a UDF in a WHERE
    * clause does not recurse into the cache); the statement is not a SELECT or MATCH; the statement
    * references a non-deterministic function or per-row context variable; or the classified shape has no
-   * wired path. {@code RECORD}, {@code K0_NONE}, the {@code AGGREGATE_*} family, and {@code
-   * MATCH_TUPLE_MULTI} all route through the cache. The {@code AGGREGATE_*} miss takes its own
+   * wired path. {@code RECORD}, {@code K0_NONE}, the {@code AGGREGATE_*} family, {@code
+   * DISTINCT_VALUES}, and {@code MATCH_TUPLE_MULTI} all route through the cache. The {@code AGGREGATE_*} miss takes its own
    * eager-drive populate path with a side-tap splice and falls back uncached on an untappable plan
    * shape. A {@code MATCH_TUPLE_MULTI} (multi-alias MATCH) entry replays verbatim under a class-scoped
    * version gate: a hit whose pattern read-classes saw a post-populate mutation is invalidated and
@@ -768,7 +768,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     // classification cost on every cache HIT — the exact work the cache exists to save. They run
     // only on the miss/populate branch below, where the result is needed to build the entry; a hit
     // trusts the stored entry's shape because the statement was already proven deterministic and
-    // RECORD/K0_NONE-shaped when that entry was populated.
+    // assigned a cacheable shape when that entry was populated.
     if (cache == null
         || tx.getCacheCodeDepth() > 0
         || !(statement instanceof SQLSelectStatement || statement instanceof SQLMatchStatement)) {
@@ -969,7 +969,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     var original = executeUncached(statement, args);
     if (!(original instanceof LocalResultSet localResult)) {
       // Invariant breach, not a routine fallback. The serveThroughCache gate routes only
-      // RECORD/K0_NONE SELECT/MATCH here, and both shapes classify from execution that yields a
+      // RECORD / K0_NONE / MATCH_TUPLE_MULTI SELECT/MATCH here, and these shapes classify from
+      // execution that yields a
       // LocalResultSet, so reaching this branch means a query we classified cacheable produced an
       // unexpected result type. The fallback stays correct — `original` carries the right rows, and the
       // cache is left untouched (its only mutation, the cache.put below, runs after this gate, so there
@@ -1072,10 +1073,10 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    *
    * <p>It independently enforces the same three populate contracts as the record-shaped path: stamp the
    * populate mutation version BEFORE driving so the delta builder admits only post-populate ops; release
-   * the cache-code guard on every exit (the caller's {@code viewOwnsGuard} transfer covers the
-   * view-built path, this method's own fallbacks return an uncached result so the guard is released by
-   * the caller's finally); and close the plan idempotently (the outer finally closes it, the entry holds
-   * no stream to close).
+   * the cache-code guard on every exit (the caller's {@code serveThroughCache} finally always exits the
+   * guard, whether this method returns a cache view or an uncached fallback; the returned view re-enters
+   * the guard per row during iteration); and close the plan idempotently (the outer finally closes it,
+   * the entry holds no stream to close).
    *
    * @param select the parsed single-aggregate SELECT (already shape-gated by the caller)
    */
@@ -1372,7 +1373,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * gate already proved no mutation happened since populate, so there is nothing to merge). The view's
    * command context for the merge is the entry's populate-time context when still live, else a fresh
    * context with the same parameter bindings. Rebuilding from params alone is sound for every shape
-   * that reaches the delta path: only RECORD-classified plain SELECTs build a delta, and a statement
+   * that reaches the delta path: every shape that builds a delta here (RECORD plain SELECT /
+   * single-alias MATCH, the {@code AGGREGATE_*} family, and {@code DISTINCT_VALUES}) re-evaluates WHERE
+   * and compares ORDER BY against the rebuilt context, and a statement
    * referencing any per-row context variable ({@code $current}, {@code $parent}, a {@code LET}
    * binding, ...) is excluded upstream — the non-determinism detector bypasses {@code $}-prefixed
    * identifiers, and the shape classifier routes {@code LET} to K0_NONE (which builds no delta). So
@@ -1422,13 +1425,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * The subclass closure of the statement's read classes for the entry's delta class filter. A
-   * plain SELECT resolves its FROM target class; a single-alias MATCH resolves its one
-   * bound alias's class so the RECORD delta filter is non-empty and reconciles in-tx mutations;
-   * anything without a resolvable single class target (subquery target, RID target, multi-alias
-   * MATCH) yields the empty set, so the delta filter matches nothing and the entry behaves as a pure
-   * replay — correct because only RECORD-classified plain SELECTs and single-alias MATCH reach the
-   * delta path here.
+   * The subclass closure of the statement's read classes for the entry's delta / version-gate class
+   * filter. A plain SELECT resolves its FROM target class; a single-alias MATCH resolves its one
+   * bound alias's class so the RECORD delta filter is non-empty and reconciles in-tx mutations; a
+   * multi-alias MATCH ({@code MATCH_TUPLE_MULTI}) returns the union of every alias-node and
+   * traversal-edge class (each with its subclass closure) for the class-scoped version gate; anything
+   * without a resolvable class target (a subquery or RID target) yields the empty set, so the filter
+   * matches nothing and the entry behaves as a pure replay.
    */
   private Set<String> effectiveFromClasses(@Nonnull SQLStatement statement) {
     if (statement instanceof SQLSelectStatement select && select.getTarget() != null) {

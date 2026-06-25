@@ -38,7 +38,8 @@ import javax.annotation.Nullable;
  *
  * <p><b>Re-entrancy.</b> A query issued from inside the cache's own lookup-and-view scope must not
  * recursively consult the cache. The transaction-level {@code cacheCodeDepth} counter on {@code
- * FrontendTransactionImpl} brackets the whole lookup-and-view scope at the session: a re-entrant
+ * FrontendTransactionImpl} brackets the synchronous lookup-and-build scope at the session (a
+ * returned view re-enters the bracket per row during iteration, holding no guard while idle): a re-entrant
  * {@code query()} (for example a user-defined function in a WHERE clause issuing its own {@code
  * query()}) sees {@code cacheCodeDepth > 0} before {@link #lookup} is reached and falls back to
  * uncached execution, so {@code lookup} never runs a second time on the same thread.
@@ -71,7 +72,8 @@ public final class QueryResultCache {
    * The cached entries in access order. {@code accessOrder=true} so a successful lookup moves an entry
    * to the most-recently-used end and eviction always targets the cold end. Auto-eviction via {@code
    * removeEldestEntry} is disabled (it cannot skip a pinned eldest); eviction is driven manually in
-   * {@link #put} so it can walk past pinned entries.
+   * {@link #put}, which evicts the eldest only when it is unpinned and otherwise stays over the bound
+   * rather than scanning for another victim.
    */
   private final LinkedHashMap<CacheKey, CachedEntry> entries =
       new LinkedHashMap<>(16, 0.75f, true);

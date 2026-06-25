@@ -970,9 +970,10 @@ public enum GlobalConfiguration {
 
   QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY(
       "youtrackdb.query.txResultCache.maxRecordsPerEntry",
-      "Per-entry cap on the number of records a cached query result may hold. When populating"
-          + " crosses this cap the entry overflows: it is removed from the cache and its key is"
-          + " marked non-cacheable for the rest of the transaction, while the consumer still"
+      "Per-entry cap on the number of records a cached query result may hold (and, for a cached"
+          + " aggregate, the size of its per-contributor collections). When populating crosses this"
+          + " cap the entry overflows: its key is marked non-cacheable for the rest of the"
+          + " transaction (and an already-stored entry is removed), while the consumer still"
           + " receives every result from the live stream.",
       Integer.class,
       10000,

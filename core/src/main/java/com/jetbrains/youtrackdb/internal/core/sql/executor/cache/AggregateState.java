@@ -21,8 +21,8 @@ import javax.annotation.Nullable;
 
 /**
  * The replay state for one cached single-aggregate query ({@code SELECT
- * COUNT|SUM|AVG|MIN|MAX|COUNT(DISTINCT prop) FROM C [WHERE p]}). It is seeded at cache-put by the
- * aggregate side-tap, which {@link #observe}s every contributing record before the aggregation step
+ * COUNT|SUM|AVG|MIN|MAX|COUNT(DISTINCT prop) FROM C [WHERE p]}). It is seeded during populate, before
+ * the entry is stored, by the aggregate side-tap, which {@link #observe}s every contributing record before the aggregation step
  * collapses them into a scalar; at view construction the delta builder {@link #copy copies} it and
  * {@link #applyMutation replays} the transaction's post-populate mutations onto the copy, so {@link
  * #toResult} returns exactly the scalar a fresh uncached execution would compute at that moment.
@@ -48,7 +48,7 @@ import javax.annotation.Nullable;
  * cross-{@code Number}-subtype equality hazard.
  *
  * <p><b>COUNT(DISTINCT).</b> {@link #distinctBuckets} maps each distinct value to the set of
- * RIDs currently contributing it; the scalar is the live bucket count, recomputed at {@link
+ * RIDs currently contributing it; the scalar is the live bucket count, read at {@link
  * #toResult}. Bucket keys use raw {@code Object.equals}/{@code hashCode}, mirroring {@code
  * SQLFunctionDistinct}'s {@code LinkedHashSet<Object>}, so {@code Long(5)} and {@code Integer(5)} are
  * distinct buckets exactly as in storage.
@@ -63,12 +63,13 @@ import javax.annotation.Nullable;
  * {@code CREATED} op can carry a record already observed by the populate-time tap and already a
  * contributor; keying on {@code op.type} would misread it as brand-new and leave a stale contributor.
  *
- * <p><b>Memory cap.</b> The cache installs a contributor cap and a one-shot overflow callback at put
- * time (mirroring {@link CachedEntry}'s record cap, but bounding the per-contributor collections
- * rather than {@code results}: high-cardinality COUNT(DISTINCT)/MIN/MAX is the real OOM vector for an
- * aggregate, whose {@code results} holds a single scalar row). The first {@link #observe} that pushes
- * a tracked collection past the cap fires the callback once; the cache then removes the entry and
- * routes the key non-cacheable, while the in-flight populate still completes.
+ * <p><b>Memory cap.</b> The cache installs a contributor cap and a one-shot overflow callback before
+ * the populate drive (mirroring {@link CachedEntry}'s record cap, but bounding the per-contributor
+ * collections rather than {@code results}: high-cardinality COUNT(DISTINCT)/MIN/MAX is the real OOM
+ * vector for an aggregate, whose {@code results} holds a single scalar row). The first {@link #observe}
+ * that pushes a tracked collection past the cap fires the callback once, routing the key non-cacheable;
+ * the in-flight populate still completes and serves its result once, but the subsequent {@code put}
+ * then declines to store the entry (the key is already non-cacheable), so it is never reused.
  *
  * <p>Single-transaction state observed only by the owning thread; no field is synchronised.
  */
@@ -171,8 +172,8 @@ public final class AggregateState {
 
   /**
    * Installs the contributor cap and the one-shot overflow callback the cache fires when an {@link
-   * #observe} crosses it. Called once by the cache when the entry is stored. A cap of {@code
-   * Integer.MAX_VALUE} (the default for a state never stored) disables the check.
+   * #observe} crosses it. Called once by the cache before the populate drive (before the entry is
+   * stored). A cap of {@code Integer.MAX_VALUE} (the default for a state never stored) disables the check.
    */
   public void setOverflowGuard(int maxContributors, @Nonnull Runnable onOverflow) {
     this.maxContributors = maxContributors;
@@ -496,8 +497,8 @@ public final class AggregateState {
 
   /**
    * Fires the one-shot overflow callback the first time a tracked collection crosses the cap. The
-   * cache reacts by removing the entry and routing the key non-cacheable; the in-flight populate still
-   * completes (the populating view holds the entry directly), so the result is served once but never
+   * cache reacts by routing the key non-cacheable; the in-flight populate still completes and serves
+   * its result once, but the subsequent {@code put} declines to store the entry, so it is never
    * retained for reuse.
    */
   private void checkOverflow(int size) {

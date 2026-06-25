@@ -13,8 +13,8 @@ import org.junit.Test;
  * Verifies the lifecycle contract of {@link CachedEntry} and the idempotent-close behaviour of {@link
  * IdempotentExecutionStream}. These two classes carry the cache's close-path safety: the underlying
  * execution stream must be closed exactly once even when both the cache and the consumer-facing
- * result set reach it at transaction end. The view-pin refcount and the K0_NONE strike counter are
- * also exercised because later steps depend on their exact increment/decrement semantics.
+ * result set reach it at transaction end. The view-pin refcount ({@code liveViewCount}) increment and
+ * decrement semantics are also exercised.
  */
 public class CachedEntryTest {
 

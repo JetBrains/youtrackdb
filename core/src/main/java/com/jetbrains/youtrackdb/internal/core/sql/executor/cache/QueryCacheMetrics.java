@@ -29,9 +29,12 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
  *   <li>{@code k0Invalidations} — K0_NONE entries invalidated because an intervening mutation
  *       advanced the mutation version past the entry's populate version.
  *   <li>{@code matchMultiInvalidations} — MULTI_MATCH entries invalidated.
- *   <li>{@code overflows} — entries removed by a cache bound: either LRU eviction at the per-tx entry
- *       count ({@code maxEntries}) or a populate crossing the per-entry record cap
- *       ({@code maxRecordsPerEntry}). Both route the key to the non-cacheable set.
+ *   <li>{@code overflows} — counted when a cache bound is hit: LRU eviction at the per-tx entry
+ *       count ({@code maxEntries}), a record-shaped populate crossing the per-entry record cap
+ *       ({@code maxRecordsPerEntry}), or an aggregate populate crossing that same cap on its
+ *       per-contributor collections. All route the key to the non-cacheable set; the LRU and
+ *       record-cap paths also remove a stored entry, while the aggregate path fires before the entry
+ *       is stored, so {@code put} simply declines it.
  * </ul>
  */
 public final class QueryCacheMetrics {

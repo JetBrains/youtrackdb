@@ -727,7 +727,7 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
     session.begin();
     scalar(session.query(sql)); // populate (scalar = 10)
     deleteRecord(only).accept(tx()); // delete the only contributor
-    var rows = scalarRows(session.query(sql)); // must replay to a single null-scalar row
+    var rows = scalarRows(session.query(sql)); // value aggregate over an emptied set must replay to zero rows
     session.rollback();
     return rows;
   }

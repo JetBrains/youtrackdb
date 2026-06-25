@@ -39,8 +39,9 @@ import javax.annotation.Nullable;
  * <p><b>Aggregate path (single scalar row).</b> An {@code AGGREGATE_*} entry carries no cache cursor
  * and no stream to pull: the side-tap already drove the populating plan to exhaustion at cache-put, so
  * the per-RID material lives entirely in the entry's {@link AggregateState}. The view carries the
- * replayed delta copy ({@link DeltaBuilder#buildForAggregate}) and emits exactly one row, {@link
- * AggregateState#toResult}, then drains. {@code hasNext()} is true once.
+ * replayed delta copy ({@link DeltaBuilder#buildForAggregate}) and emits at most one row, {@link
+ * AggregateState#toResult}, then drains. {@code hasNext()} is true at most once: a value aggregate
+ * (SUM/AVG/MIN/MAX) over an empty contributor set emits no row, matching fresh execution.
  *
  * <p><b>Stream-pull unification.</b> Both paths share one {@link #pullOneFromStream} helper. On the
  * RECORD path it drops any pulled row whose RID is in the delta skip-set (closing the lazy-pull gap:
@@ -65,7 +66,8 @@ import javax.annotation.Nullable;
  * the guard indefinitely.
  *
  * <p><b>Idempotent close.</b> {@link #close()} is a no-op after the first call and releases the pin
- * and the cache-code guard exactly once. The view never closes the entry's shared stream itself: the
+ * (the entry's live-view count) exactly once. It does not touch the cache-code guard, which is held
+ * only per row inside {@link #hasNext()} (see above), never across the view's lifetime. The view never closes the entry's shared stream itself: the
  * stream is owned by the {@link CachedEntry} (closed at tx-end cache clear) and possibly other views,
  * so closing it here would truncate them.
  *
@@ -100,9 +102,9 @@ public final class CachedResultSetView implements ResultSet {
   @Nullable private DatabaseSessionEmbedded session;
 
   /**
-   * The transaction whose cache-code guard this view holds for its iteration lifetime. The session
-   * entered the guard around the lookup and passed ownership here; the view exits it exactly once on
-   * close / exhaustion via {@link #releasePin()}.
+   * The transaction whose cache-code guard this view re-enters for each row-production window inside
+   * {@link #hasNext()} (entered and exited around {@link #computeNext}, never held while the view is
+   * idle). The session, not the view, brackets the guard around the synchronous lookup and build.
    */
   private final FrontendTransactionImpl tx;
 
@@ -142,8 +144,8 @@ public final class CachedResultSetView implements ResultSet {
   private boolean closed;
 
   /**
-   * Guards the single release of the pin AND the cache-code guard so {@link #close()} and exhaustion
-   * together release each at most once.
+   * Guards the single release of the pin (the entry's live-view count) so {@link #close()} and
+   * exhaustion together decrement it at most once.
    */
   private boolean pinReleased;
 
@@ -255,8 +257,8 @@ public final class CachedResultSetView implements ResultSet {
   }
 
   /**
-   * {@code DISTINCT_VALUES} emit: one {@code {alias: value}} row per distinct bucket key, in
-   * first-occurrence order, then {@code null}. The key list is snapshotted once from the replayed
+   * {@code DISTINCT_VALUES} emit: one {@code {alias: value}} row per distinct bucket key, sorted by
+   * the entry's ORDER BY, then {@code null}. The key list is snapshotted once from the replayed
    * {@link #aggregateDelta} (kind {@code AGGREGATE_COUNT_DISTINCT}), so it reflects the post-delta value
    * set fixed at view construction, matching a fresh {@code SELECT distinct(prop)} at this moment.
    */

@@ -41,8 +41,9 @@ import javax.annotation.Nullable;
  * pair ({@link #cachedSkipSet} / {@link #cachedInjectList} tagged by {@link #cachedDeltaVersion}) so
  * a second view at the same version reuses it instead of re-walking the mutation log. The cached pair
  * is overwritten when a view at a fresher version triggers a rebuild; older views keep their own
- * reference to the prior pair until they are done. These fields are written by the delta builder in a
- * later step; this foundation establishes their storage and the entry lifecycle.
+ * reference to the prior pair until they are done. These fields are written by the delta builder
+ * ({@link DeltaBuilder#buildForRecord}) at view-build time; this foundation establishes their storage
+ * and the entry lifecycle.
  *
  * <p><b>Idempotent close.</b> {@link #close} closes the stream and then the plan, null-guarding and
  * early-returning on a second call. The entry is the sole closer of both today: the consumer-facing
@@ -118,7 +119,7 @@ public final class CachedEntry {
 
   private boolean exhausted;
 
-  // Cross-view delta-pair cache (written by the delta builder in a later step).
+  // Cross-view delta-pair cache (written by the delta builder at view-build time).
   @Nullable private Set<RID> cachedSkipSet;
 
   @Nullable private List<Result> cachedInjectList;
@@ -150,11 +151,12 @@ public final class CachedEntry {
   private boolean relayMode;
 
   /**
-   * Number of live views iterating this entry. A pinned ({@code > 0}) entry is exempt from every
-   * cache-removal path — LRU eviction, the K0_NONE / multi-alias MATCH invalidation gate, bulk-DML
-   * {@code invalidateAll}, and per-entry overflow — so a mid-iteration view never loses rows: a removal
-   * that finds the entry pinned defers the stream close to {@link #decrementLiveViewCount} via {@link
-   * #markCloseWhenUnpinned}. Incremented/decremented by the view.
+   * Number of live views iterating this entry. A pinned ({@code > 0}) entry is protected against
+   * mid-iteration truncation on every cache-removal path: LRU eviction skips a pinned eldest outright
+   * (the entry stays in the map), while the K0_NONE / multi-alias MATCH invalidation gate, bulk-DML
+   * {@code invalidateAll}, and per-entry overflow detach the entry from the map but defer its stream
+   * close to {@link #decrementLiveViewCount} via {@link #markCloseWhenUnpinned}, so a mid-iteration
+   * view never loses rows. Incremented/decremented by the view.
    */
   private int liveViewCount;
 

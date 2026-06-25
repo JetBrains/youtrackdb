@@ -17,9 +17,10 @@ import javax.annotation.Nullable;
  * returns the same {@link SQLStatement} instance for identical query text, so {@link #equals}
  * short-circuits on instance identity ({@code stmt == other.stmt}) before any structural walk. When
  * the statement cache has evicted and re-parsed the text, the instances differ; the deep path then
- * delegates to {@link SQLStatement#equals(Object)}, which is structural on the SELECT statement
- * (target, projection, WHERE, GROUP BY, ORDER BY, SKIP, LIMIT, and so on). The structural path is
- * what the eviction-plus-re-parse regression test exercises.
+ * delegates to the parsed statement's structural {@code equals}, overridden by the concrete subtype
+ * ({@code SQLSelectStatement} compares target, projection, WHERE, GROUP BY, ORDER BY, SKIP, LIMIT,
+ * and so on; {@code SQLMatchStatement} compares its match expressions and RETURN items). The
+ * structural path is what the eviction-plus-re-parse regression test exercises.
  *
  * <p><b>Parameter normalisation.</b> The two {@code query()} entry points pass either positional
  * {@code Object[]} arguments or a parameter {@code Map}. Both are normalised here to an immutable

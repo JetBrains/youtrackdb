@@ -12,7 +12,9 @@ import javax.annotation.Nonnull;
  * <p>The cache stores the live execution stream of a populating query and substitutes this wrapper
  * into both the cached entry and the populating {@code LocalResultSet}'s stream slot. On the current
  * wiring only one owner ever closes the underlying stream: the cached entry, via {@code
- * CachedEntry.close()} fired from the tx-end cache clear. The consumer-facing {@code
+ * CachedEntry.close()} — fired at the tx-end cache clear, or earlier when the entry is evicted,
+ * invalidated, or overflowed (deferred via the pin mechanism until the last live view releases it).
+ * The consumer-facing {@code
  * CachedResultSetView} deliberately never closes the shared stream, and the populating {@code
  * LocalResultSet} is orphaned (never registered in the session's active-query set), so its own {@code
  * close()} never runs. The idempotency here is therefore a defensive guard, not a live double-close

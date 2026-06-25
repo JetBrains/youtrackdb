@@ -175,8 +175,8 @@ public final class ShapeClassifier {
    *
    * <p>This method is schema-free: it reads the parsed AST only, with no session or schema lookup, so
    * it can run on the {@code query()} hot path. Checks that need schema resolution or populate-time
-   * record counts (the {@code n + m <= maxRecordsPerEntry} cap) are deferred to entry construction,
-   * where the session and schema are available.
+   * record counts (the per-entry {@code maxRecordsPerEntry} row cap, enforced while the populate drive
+   * buffers rows) are deferred to entry construction, where the session and schema are available.
    *
    * <p>The gates, in order:
    *
@@ -196,8 +196,9 @@ public final class ShapeClassifier {
    *       label: the multi-alias class-scoped gate needs the pattern's read-class closure, which an
    *       unconstrained or parameter-resolved label cannot seed from the AST alone, so the gate could
    *       never fire and the entry must ride the global version gate instead.
-   *   <li><b>A cross-alias-state WHERE</b> (a {@code $matched.otherAlias} reference, detected via {@link
-   *       SQLWhereClause#getMatchPatternInvolvedAliases}): the result depends on another alias's state
+   *   <li><b>A cross-alias-state WHERE</b> (a {@code $matched.otherAlias} reference, detected via the
+   *       WHERE root expression's {@link SQLBooleanExpression#getMatchPatternInvolvedAliases}): the
+   *       result depends on another alias's state
    *       outside this node's class, which the class-scoped closure does not cover.
    *   <li><b>A link-path-dereference WHERE</b> ({@code where:(assignee.name = ?)}): a dotted path whose
    *       head is a property/link rather than the bound alias reaches into a class outside the pattern's
@@ -822,8 +823,11 @@ public final class ShapeClassifier {
       // dedupes to 2 rows, but the count+distinct aggregate composition counts rows). The K0 version gate
       // (re-execute on any mutation) reproduces that engine row-count semantics exactly; a true
       // distinct-count replay via AggregateState's bucket map would return the deduplicated count and
-      // silently diverge from fresh execution. The AggregateState COUNT_DISTINCT machinery is retained
-      // for a future engine that adds a native distinct-count, but no production path reaches it in v1.
+      // silently diverge from fresh execution. The AggregateState COUNT_DISTINCT bucket machinery IS
+      // reached in v1, but only through the DISTINCT_VALUES shape (whose view emits the bucket keys as
+      // rows). What stays unreached is the scalar distinct-count output: the AGGREGATE_COUNT_DISTINCT
+      // entry shape and the AggregateState.scalar() bucket count, retained for a future engine that adds
+      // a native distinct-count.
       return CacheableShape.K0_NONE;
     }
     if (shape == CacheableShape.AGGREGATE_COUNT && call.isStar() && !hasWhereClause) {

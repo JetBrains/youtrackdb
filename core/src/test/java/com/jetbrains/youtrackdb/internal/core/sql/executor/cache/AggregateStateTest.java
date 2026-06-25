@@ -407,10 +407,8 @@ public class AggregateStateTest {
   /**
    * The SUM/AVG re-fold is deferred to a single fold per build, not run once per replayed mutation
    * (the running scalar is never read between mutations). Replaying several SUM-affecting mutations
-   * onto a copy and reading the scalar once must produce the correct final fold; the deferral is
-   * observable through {@code copy()} carrying the dirty flag — the copy folds lazily on its first read
-   * rather than the original having folded eagerly per observe. This pins that intermediate folds are
-   * collapsed without changing the observable result.
+   * onto one state and reading the scalar once must produce the correct final fold. This pins that
+   * intermediate folds are collapsed without changing the observable result.
    */
   @Test
   public void sumDeferredFoldProducesCorrectFinalScalarAfterManyMutations() {

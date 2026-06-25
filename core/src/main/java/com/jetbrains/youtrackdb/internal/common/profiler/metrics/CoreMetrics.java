@@ -36,7 +36,7 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
-  // --- Per-transaction query result cache metrics ---
+  // --- Query result cache rate metrics (global scope, fed by per-transaction counters) ---
 
   public static final MetricDefinition<MetricScope.Global, TimeRate> QUERY_CACHE_HIT_RATE =
       new MetricDefinition<>(
