@@ -18,9 +18,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.cache;
  * </ul>
  *
  * <p>The remaining values — the {@code AGGREGATE_*} family and {@link #MATCH_TUPLE_MULTI} — are the
- * final enum constants the classifier returns, but their delta-build and view paths land in later
- * tracks. Until then a query the classifier maps to one of those shapes is executed uncached: the
- * session routes only {@code RECORD} and {@code K0_NONE} through the cache.
+ * * <p>All shapes defined below — including the {@code AGGREGATE_*} family,
+ *  * {@link #DISTINCT_VALUES}, and {@link #MATCH_TUPLE_MULTI} — are fully supported by the transaction
+ *  * cache layer, routing through their respective incremental replay or version-gated views.
+ *
  */
 public enum CacheableShape {
 
