@@ -14,9 +14,8 @@ Foundation track: creates the shared `match/builder/` package consumed by both G
 > technical and adversarial reviews (`reviews/track-1-technical.md`,
 > `reviews/track-1-adversarial.md`); Phase B delivered the shared builder
 > package, the behavior-preserving GQL refactor, and the presence-operator
-> factories, verified green by the `core` suite (180 builder + GQL tests).
-> Track 1 is the only executed track on this branch — Tracks 2–6 remain not
-> started.
+> factories, verified green by the Track 1 test suite (187 tests). Track 1 is
+> the only executed track on this branch — Tracks 2–6 remain not started.
 
 - [x] Review + decomposition
 - [x] Step implementation (4/4 complete)
@@ -39,9 +38,10 @@ scope-downs, dependency reveals, gate-override reasons. -->
   reference a later track. The baseline-backed text predicates `containsText`
   (`SQLContainsTextCondition`) and `startsWith` (half-open `>= AND <` range)
   ship in this track. See Episodes §Step 2.
-- **dependency-reveal** — the `SQLInCondition` operator field has no public
-  setter, so `MatchWhereBuilder.in` binds it through the small reflection
-  helper `SqlInOperatorBinding` rather than modifying the parser-package class.
+- **dependency-reveal** — the `SQLInCondition` operator field had no public
+  setter at decomposition time; Track 1 initially used reflection via
+  `SqlInOperatorBinding`, then replaced it with public `get/setOperator`
+  accessors on `SQLInCondition` (same pattern as `SQLIsDefinedCondition`).
   See Episodes §Step 2.
 
 ## Outcomes & Retrospective
@@ -56,10 +56,10 @@ scope-downs, dependency reveals, gate-override reasons. -->
   security surface), so the always-on track-level review plus the builder and
   GQL test suites were the gate.
 - Completion summary: the shared `match/builder/` package and the
-  behavior-preserving GQL refactor landed green — 86 `GqlMatchStatementTest`
-  cases pass unchanged and the new golden-plan tests pin the refactor. The
-  presence-operator factories (`isDefined` / `isNotDefined`) are ready for
-  Track 4's `has(key)` / `hasNot(key)` mapping.
+  behavior-preserving GQL refactor landed green — 91 `GqlMatchStatementTest`
+  cases pass and four `GqlMatchStatementPlanPrettyPrintTest` cases pin plan
+  shape via fragment assertions. The presence-operator factories (`isDefined` /
+  `isNotDefined`) are ready for Track 4's `has(key)` / `hasNot(key)` mapping.
 
 ## Context and Orientation
 The MATCH IR classes (`Pattern`, `PatternNode`, `PatternEdge`, `SQLMatchExpression`, `SQLMatchPathItem`, `SQLMatchFilter`, the `SQLBooleanExpression` hierarchy) already exist and are constructed inline today in two places: the SQL `MATCH` parser path and `GqlMatchStatement`. `GqlMatchStatement.buildPlan` builds a `PatternNode` per `SQLMatchFilter`, populates `aliasClasses` / `aliasFilters`, and uses two private helpers — `buildWhereClause(Map<String,Object>)` (AND-block of equality conditions) and `toLiteral(Object)` (Java value → `SQLExpression`).
@@ -75,7 +75,7 @@ New package: `internal/core/sql/executor/match/builder/`.
    - `MatchLiteralBuilder` — `toLiteral(Object)`.
 2. Add `isDefined` / `isNotDefined` factories: each constructs the existing `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition`, wires the `SQLExpression` child to point at `field` on the boundary alias, and returns it as a `SQLBooleanExpression`.
 3. Refactor `GqlMatchStatement` onto the builders, behavior-preserving (D6): the `for` loop calls `MatchPatternBuilder.addNode(...)`; `buildWhereClause` becomes a chain of `MatchWhereBuilder.eq(field, MatchLiteralBuilder.toLiteral(value))` + `.and(...).wrap()`; `toLiteral` becomes a one-line delegate. Public API and existing GQL test assertions unchanged.
-4. Builder unit tests: round-trip pins for the presence factories (`isDefined("foo")` renders `"foo is defined"`, `isNotDefined("foo")` renders `"foo is not defined"`); golden-string regression tests for the node/where/literal builders. The existing parser/evaluator are already SQL-tested, so this track tests only the builder wrappers.
+4. Builder unit tests: round-trip pins for the presence factories (`isDefined("foo")` renders `"foo is defined"`, `isNotDefined("foo")` renders `"foo is not defined"`); prettyPrint fragment tests for the GQL refactor. The existing parser/evaluator are already SQL-tested, so this track tests only the builder wrappers and plan shape.
 
 Ordering: builders first, then the GQL refactor consumes them, then the presence factories (independent of GQL). The GQL refactor must keep GQL's tests green at each step.
 
@@ -84,11 +84,11 @@ Ordering: builders first, then the GQL refactor consumes them, then the presence
 1. Create `MatchLiteralBuilder` (verbatim extraction of `GqlMatchStatement.toLiteral`) — `risk: low`  [x]
 2. Create `MatchWhereBuilder` + presence factories `isDefined` / `isNotDefined` — `risk: medium`  [x]
 3. Create `MatchPatternBuilder` (node / edge accumulation, `PatternIR` snapshot) — `risk: low`  [x]
-4. Refactor `GqlMatchStatement` onto the builders + golden-plan regression tests — `risk: medium`  [x]
+4. Refactor `GqlMatchStatement` onto the builders + prettyPrint plan regression tests — `risk: medium`  [x]
 
 ## Episodes
 
-### Step 1 — commit bb0c94ba6f, 2026-06-25 [ctx=safe]
+### Step 1 — commit d347090823, 2026-06-25 [ctx=safe]
 **What was done:** Created
 `core/.../sql/executor/match/builder/MatchLiteralBuilder.java` as a final
 class with a private constructor and one `public static SQLExpression
@@ -96,7 +96,7 @@ toLiteral(Object value)` method, the body extracted verbatim from
 `GqlMatchStatement.toLiteral`. The class Javadoc documents the per-type AST
 routing (String, Number, Boolean, Date, List, Set, Map, byte[],
 `RecordIdInternal`) and the deliberate NPE-on-null contract.
-`MatchLiteralBuilderTest` (16 tests) covers every branch including the empty
+`MatchLiteralBuilderTest` (15 tests) covers every branch including the empty
 string, each numeric subtype, the RID path, the collection / map paths, the
 unsupported-type `IllegalArgumentException`, and the documented null NPE.
 
@@ -115,7 +115,7 @@ unsupported-type `IllegalArgumentException`, and the documented null NPE.
 
 **Cross-track impact:** none — the class has no call sites until Step 4 and later tracks.
 
-### Step 2 — commit 07e85078d8, 2026-06-25 [ctx=safe]
+### Step 2 — commit 64871ba7c5, 2026-06-25 [ctx=safe]
 **What was done:** Created the stateless fluent `MatchWhereBuilder` with
 `eq`, `op`, `in`, `notIn`, `between`, `containsText`, `startsWith`,
 `and`/`or`/`andOptional`, `not`, the three `isNull` forms, `wrap`, and the
@@ -124,13 +124,12 @@ parser-emitted AST shape, so a built tree is interchangeable with one parsed
 from SQL text. `startsWith` compiles to a half-open `field >= prefix AND
 field < prefix⁺` range (last-code-point increment, surrogate-pair and
 overflow-carry safe) rather than a `LIKE`, keeping the predicate index-aware.
-`in` binds the `SQLInCondition` operator through the new reflection helper
-`SqlInOperatorBinding` (the operator field has no public setter). The
-presence factories construct the existing `SQLIsDefinedCondition` /
-`SQLIsNotDefinedCondition` and wire their child `SQLExpression` via newly
-added `get/setExpression` accessors. `MatchWhereBuilderTest` (38 tests) pins
-each AST shape and a rendered-SQL sample; `SqlInOperatorBindingTest` (4
-tests) covers the binding helper.
+`in` wires the `SQLInCondition` operator via `setOperator(new SQLInOperator(-1))`
+after adding public `get/setOperator` accessors on `SQLInCondition` (same
+pattern as the presence nodes). The presence factories construct the existing
+`SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` and wire their child
+`SQLExpression` via newly added `get/setExpression` accessors.
+`MatchWhereBuilderTest` (41 tests) pins each AST shape and a rendered-SQL sample.
 
 **What was discovered:**
 - `SQLOrBlock` exposes only `addSubBlock`, while `SQLAndBlock` also has
@@ -146,22 +145,22 @@ find-mode) is introduced by Track 4's D-TEXT-OPS work and is absent at this
 track's baseline, so building them here would forward-reference a later track.
 The two presence AST nodes gained `get/setExpression` accessors — a minimal
 parser-package edit (no grammar / evaluator change) the factories need to wire
-their child. See Decision Log.
+their child. `SQLInCondition` gained matching `get/setOperator` accessors so
+`in(...)` can populate the operator without reflection. See Decision Log.
 
 **Key files:**
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchWhereBuilder.java` (new)
-- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/SqlInOperatorBinding.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLInCondition.java` (modified — accessors)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLIsDefinedCondition.java` (modified — accessors)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLIsNotDefinedCondition.java` (modified — accessors)
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/MatchWhereBuilderTest.java` (new)
-- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/match/builder/SqlInOperatorBindingTest.java` (new)
 
 **Cross-track impact:** Track 4 consumes the full predicate surface and adds
 `endsWith` / `matchesRegex` once D-TEXT-OPS lands the AST nodes. The `notIn`
 composition is observable as `NOT(IN ...)`; evaluation equivalence holds, the
 index hot-path difference is deferred per the plan's index-awareness note.
 
-### Step 3 — commit 66eba8eb6c, 2026-06-25 [ctx=safe]
+### Step 3 — commit 7e15914862, 2026-06-25 [ctx=safe]
 **What was done:** Created the stateful `MatchPatternBuilder` with
 `addNode(alias, className, where, optional)`, `addEdge(fromAlias, toAlias,
 direction, edgeLabel, edgeFilter, whileCondition, maxDepth)`, and `build()`
@@ -170,7 +169,7 @@ returning an immutable `PatternIR(Pattern, aliasClasses, aliasFilters)`.
 and delegates to `Pattern.addExpression(...)` so the well-tested
 `getOrCreateNode` path performs implicit endpoint creation. `build()`
 defensively copies the alias maps so a returned snapshot is not mutated by
-later calls. `MatchPatternBuilderTest` (30 tests) covers single-node /
+later calls. `MatchPatternBuilderTest` (28 tests) covers single-node /
 multi-hop / each direction / optional / implicit-creation / null-alias NPE /
 unsupported-feature throw / snapshot semantics.
 
@@ -192,18 +191,21 @@ unsupported-feature throw / snapshot semantics.
 must add the missing parser setters or use reflection; flagged via the
 `UnsupportedOperationException`.
 
-### Step 4 — commit 9c1ae818be, 2026-06-25 [ctx=safe]
-**What was done:** Refactored `GqlMatchStatement.buildPlan` to drive a
-`MatchPatternBuilder` instead of mutating `Pattern.aliasToNode` and the alias
-maps inline; the GQL-specific `effectiveAlias` / `effectiveType` helpers stay
-to preserve the `$c<N>` and `"V"` defaults. `buildWhereClause` keeps its
-package-private static signature (all 17 visitor call sites stay byte-
-identical, resolving adversarial blocker A2) but now drives
+### Step 4 — commit 9811b3cb9d, 2026-06-25 [ctx=safe]
+**What was done:** Refactored `GqlMatchStatement.buildPlan` to delegate IR
+assembly to package-private `GqlMatchPatternAssembler` (GQL-specific `$c<N>`
+alias minting and `"V"` label default) backed by `MatchPatternBuilder`.
+`buildWhereClause` keeps its package-private static signature (all 17 visitor
+call sites stay byte-identical, resolving adversarial blocker A2) but now drives
 `MatchWhereBuilder.eq` + `MatchLiteralBuilder.toLiteral`. Added
-`GqlMatchStatementPlanGoldenTest` (6 tests) snapshotting `plan.prettyPrint`
-for representative GQL queries; cartesian-product shapes assert structural
-elements rather than full strings because the planner's tiebreak between
-equally-selective branches is not deterministic.
+`GqlMatchPatternAssemblerTest` (8 tests) for assembler defaults and where-clause
+propagation. Added `GqlMatchStatementPlanPrettyPrintTest` (4 tests) pinning
+`plan.prettyPrint` via fragment assertions (same style as
+`ExpandStepPrettyPrintTest`); the cartesian-product case slices each alias
+prefetch block because sibling prefetch order is not fixed. Extended
+`GqlMatchStatementTest` with four end-to-end builder-predicate cases
+(`isDefined` / `isNull` / `isNotDefined` / `in`) that assert matched vertex
+identity via a `scenario` tag, not just row count.
 
 **What was discovered:**
 - `MatchWhereBuilder.and(c)` returns the lone operand unwrapped (parser
@@ -212,21 +214,25 @@ equally-selective branches is not deterministic.
   preserve plan shape. Documented in the method Javadoc.
 
 **What changed from the plan:** the private `toLiteral` delegate was removed
-once `buildWhereClause` no longer needed it, rather than kept as a one-line
-delegate — no internal callers remained.
+once `buildWhereClause` no longer needed it. GQL-specific alias/type defaults
+moved out of `GqlMatchStatement` into `GqlMatchPatternAssembler` so
+`MatchPatternBuilder` stays front-end-neutral for Track 2.
 
 **Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchPatternAssembler.java` (new)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatement.java` (modified)
-- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementPlanGoldenTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchPatternAssemblerTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementPlanPrettyPrintTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/gql/parser/GqlMatchStatementTest.java` (modified — builder predicates)
 
-**Cross-track impact:** none — all 86 `GqlMatchStatementTest` cases pass
-unchanged and the 6 golden tests pass; the eq-path AST is byte-identical to
-the pre-refactor output.
+**Cross-track impact:** none — all 91 `GqlMatchStatementTest` cases pass and
+the four prettyPrint tests pass; the eq-path AST is byte-identical to the
+pre-refactor output.
 
 ## Validation and Acceptance
-- The shared builders produce IR identical to what `GqlMatchStatement` built inline before the refactor — verified by GQL's existing test suite passing unchanged (86 `GqlMatchStatementTest` cases + 6 golden-plan tests).
+- The shared builders produce IR identical to what `GqlMatchStatement` built inline before the refactor — verified by GQL's existing test suite (91 `GqlMatchStatementTest` cases + 4 prettyPrint fragment tests + 8 assembler tests).
 - `MatchWhereBuilder.isDefined(field)` / `isNotDefined(field)` construct the existing presence AST nodes and render to `"<field> is defined"` / `"<field> is not defined"`.
-- No grammar or evaluator logic changes. The only parser-package edits are public `get/setExpression` accessors on `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` so the presence factories can wire their child expression.
+- No grammar or evaluator logic changes. The only parser-package edits are public accessors on `SQLInCondition` (`get/setOperator`) and on `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` (`get/setExpression`) so the builder factories can wire their children.
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -239,8 +245,8 @@ the pre-refactor output.
 <!-- Continuous-log (rare). Cross-step artifact references. Often empty. -->
 
 ## Interfaces and Dependencies
-**In scope (new):** `internal/core/sql/executor/match/builder/MatchPatternBuilder.java` (carries the nested `PatternIR` record), `MatchWhereBuilder.java`, `MatchLiteralBuilder.java`, `SqlInOperatorBinding.java` + their unit tests.
-**In scope (modified):** `GqlMatchStatement.java` (refactor `buildPlan` / `buildWhereClause` / `toLiteral` onto the builders); `SQLIsDefinedCondition.java` / `SQLIsNotDefinedCondition.java` (public `get/setExpression` accessors only — no grammar / evaluator change).
+**In scope (new):** `internal/core/sql/executor/match/builder/MatchPatternBuilder.java` (carries the nested `PatternIR` record), `MatchWhereBuilder.java`, `MatchLiteralBuilder.java` + their unit tests.
+**In scope (modified):** `GqlMatchStatement.java` (refactor `buildPlan` / `buildWhereClause` onto the builders); `GqlMatchPatternAssembler.java` (new — GQL-specific IR assembly); `SQLInCondition.java` (public `get/setOperator` accessors only — no grammar / evaluator change); `SQLIsDefinedCondition.java` / `SQLIsNotDefinedCondition.java` (public `get/setExpression` accessors only — no grammar / evaluator change).
 **Out of scope:** the grammar (`YouTrackDBSql.jjt`), `MatchExecutionPlanner`, every execution step, and the text-suffix / regex AST (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) that Track 4 introduces for `endsWith` / `matchesRegex`.
 **Inter-track dependencies:** supplies the builder package + presence factories to Track 2 (strategy skeleton uses `MatchPatternBuilder`), Track 4 (`isDefined` / `isNotDefined` for `has(key)` / `hasNot(key)`), and Track 5 (`hasProperty`-based presence check shares the same entity-presence primitive).
 **Signatures:** `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` constructors and `isDefinedFor(...)` are the existing primitives the factories wrap.
