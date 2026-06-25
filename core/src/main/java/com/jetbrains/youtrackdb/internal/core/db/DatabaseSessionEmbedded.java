@@ -3567,10 +3567,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * point reached by both the explicit {@code commit()}/{@code rollback()} paths and the
    * {@code executeInTx*} wrappers once the outermost frame closes. The release is gated on the
    * session-side {@code metadataMutexEngaged} marker (which survives the transaction's custom-data
-   * wipe) and uses the mutex's session-keyed compare-and-clear, so it is idempotent: the marker is
-   * cleared before the release runs and the compare-and-clear no-ops on a free or foreign permit,
-   * which keeps this normal release and the later track's abnormal-termination compare-and-clear
-   * from ever double-releasing the single permit.
+   * wipe): the marker is cleared before the release runs, so the permit is released at most once per
+   * transaction. In this track that gate is sufficient because the only releaser is the owning thread
+   * in this outermost teardown; there is no concurrent foreign releaser, so the mutex's session-keyed
+   * check in {@code releaseFor} needs no atomic compare-and-set. The later track that adds the
+   * concurrent foreign-releaser path (a pool shutdown reaping a still-checked-out session while the
+   * owner races its own teardown) must convert the mutex {@code holder} to an
+   * {@code AtomicReference<Holder>} with a {@code compareAndSet}-gated release so this normal release
+   * and that abnormal-termination release can never both clear-and-release the single permit.
    */
   public void releaseMetadataWriteMutexForTx() {
     if (!metadataMutexEngaged) {
