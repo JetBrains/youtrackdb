@@ -648,7 +648,14 @@ following the same params-file-plus-byte-identical-prompt contract. The
 auditor's params file carries `target=design`, `target_path=<design_path>`, and
 a whole-document `range` (the sync re-distills the whole `design.md`, so it is
 not range-sliced like a creation-kind fan-out); it names **no**
-`research_log_path` (S1 — the auditor never reads the log). The auditor's
+`research_log_path` (S1 — the auditor never reads the log). It intentionally
+**omits** `slice_count` and `total_lines`: this single whole-document pass is not
+a fan-out, so the agent-side whole-doc guard must stay inert here (per
+`readability-auditor.md` § The whole-doc guard, the guard applies only when both
+params are present). Passing them would falsely trip the guard, since a
+whole-document `design.md` over 300 lines is exactly the collapse shape the guard
+catches on the design-creation path — but here it is the legitimate sync surface,
+not a bypassed partition. The auditor's
 findings merge into the same single-agent fix loop (Step 6) as the
 comprehension-gate findings; the loop's inline fixes re-distill the flagged
 prose, and the loop re-runs the auditor on the next iteration like any other
@@ -892,9 +899,13 @@ terminal exit, not a pathology**: the `iteration_budget` caps the rounds, and on
 budget exhaustion with only should-fix findings open the loop exits through the
 existing S5 user-is-the-gate path (apply the cheap unambiguous fixes, surface the
 residual for the user to accept or push back on; see §"Outcomes when either loop
-exits"). The budget-plus-S5 tail is the expected terminal path for a
-dense-but-acceptable doc, alongside the early dual-clean exit for a doc with no
-such tail — not a fallback for a malfunction.
+exits"). A never-clearing **blocker** at budget exhaustion (a persistent
+wiring-error the agent-side guard or absorption check raises every round, never
+resolved) is not the should-fix tail: it exits through the same generic S5
+budget-exhaustion path surfaced to the user as a non-self-correcting failure, not
+the apply-cheap-fixes-and-accept-residual should-fix path. The budget-plus-S5
+tail is the expected terminal path for a dense-but-acceptable doc; the early
+dual-clean exit is the expected path for a doc with no such tail.
 
 #### The canonical convergence mechanism (section-keyed settled-state)
 
@@ -929,7 +940,11 @@ per-round shared-prompt cache are both why that alternative is rejected.
   round) has all its findings dropped, and its slice may be skipped entirely as a
   cost optimization. A section that is **changed** (hash differs, or never
   settled) is re-audited fresh, its findings kept, then its settled-state
-  re-evaluated.
+  re-evaluated. A **wiring-error `blocker`** (the agent-side whole-doc guard, or
+  any non-prose structural blocker) is the exception: it is never section-scoped
+  and is never dropped by the settled-state filter — it surfaces regardless of the
+  section's settled state, because it reports a partition/wiring fault, not the
+  section's prose.
 - **The anchor-folded content hash.** The hash folds in not just the section's
   own text but the standing anchors that exist, because the auditor reads those
   anchors and resolves cross-references (e.g. "defined in Core Concepts") against
@@ -945,16 +960,13 @@ per-round shared-prompt cache are both why that alternative is rejected.
   because the cold auditor's reading of every section can shift when the anchor it
   resolves against changes.
 
-The settled-state filter kills the dominant clean→dirty oscillation (a section
-that returned clean and is unchanged has its re-flags dropped), so the
-oscillation a stateless cold spawn would otherwise produce on byte-identical
-prose cannot recur. A decision-shaped finding is never a prose-density case: it
-re-opens the S3 freeze-order gate (above), so only prose-density should-fix
-findings ride the budget-plus-S5 tail. The hash suppresses what a literal
-passage-level do-not-re-flag list cannot — a clean slice leaves no quotes to
-carry forward, so a passage list cannot suppress the clean→dirty swing, but the
-section hash carries the "this section was clean and is unchanged" verdict that
-can.
+A literal passage-level do-not-re-flag list cannot suppress the clean→dirty
+swing: a clean slice leaves no quotes to carry forward. The section hash carries
+the "this section was clean and is unchanged" verdict instead, which is why it
+kills the oscillation a stateless cold spawn would otherwise produce on
+byte-identical prose. A decision-shaped finding is never a prose-density case — it
+re-opens the S3 freeze-order gate above — so only prose-density should-fix
+findings ride the budget-plus-S5 tail.
 
 After the inner loop reports dual-clean, run the **comprehension gate** (Step 4),
 S3-gated for `phase1-creation`. A decision-shaped comprehension-gate finding

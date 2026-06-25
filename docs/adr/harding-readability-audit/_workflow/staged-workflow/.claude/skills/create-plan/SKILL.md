@@ -816,7 +816,11 @@ Help the user develop the plan:
      track-path fan-out per track file: one `readability-auditor` spawn per
      `plan/track-N.md` (in track-number order), its params file carrying
      `target=tracks`, `target_path` set to that one track file, and a
-     whole-file `range` (line 1 to the file's last line).** The single
+     whole-file `range` (line 1 to the file's last line).** This per-file fan-out
+     **omits** `slice_count` and `total_lines` — those two params are passed only
+     on the design-path creation-kind fan-out, so the agent-side whole-doc guard
+     stays inert on the track path (per `readability-auditor.md` § The whole-doc
+     guard, the guard applies only when both params are present). The single
      `(target_path, range)` slice model that `edit-design/SKILL.md` § Step 4
      defines for the design path (one ~200-line window in the single
      `design.md`) does not partition N track files on its own; this per-file
@@ -862,10 +866,15 @@ Help the user develop the plan:
    `##` / `# Part` section as on the design path), and the **standing-anchor
    set** the anchor-folded content hash folds in is the plan Component Map plus
    each track's `## Purpose / Big Picture` (not `## Overview` + `## Core
-   Concepts`). A track that returned clean and is unchanged (its anchor-folded
-   hash matches last round) has its re-flags dropped; a Component Map edit
-   re-opens every track's settled-state, the same way an Overview edit does on
-   the design path. The standing anchors are byte-stable for the loop's
+   Concepts`). Fold in only the track-path anchors that exist, mirroring the
+   design-path "when present" tolerance: each track's `## Purpose / Big Picture`,
+   plus the Component Map when the plan carries one. An absent Component Map on a
+   thin `minimal` plan is not an error and does not force a re-audit by itself —
+   the hash simply folds fewer anchors. A track that returned clean and is
+   unchanged (its anchor-folded hash matches last round) has its re-flags dropped;
+   a Component Map edit re-opens every track's settled-state, the same way an
+   Overview edit does on the design path. The standing anchors are byte-stable
+   for the loop's
    duration — items 1-8 settle the plan Component Map and the track skeletons
    *before* this item's dual-clean loop runs — so the hash does not churn (this
    holds in `lite` / `minimal` too: the Component Map is not still in flux

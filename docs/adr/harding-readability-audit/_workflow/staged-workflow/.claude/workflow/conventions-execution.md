@@ -14,7 +14,7 @@
 | §Manifest-plus-sections file | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields. |
 | §Anchored addressing and count validation (S4/S6) | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback. |
 | §Verdict-producer manifest variant | orchestrator,planner,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3C | The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate. |
-| §Third-scope review-file home (plan-scoped authoring-loop scaffolding) | planner,orchestrator,final-designer,reviewer-adversarial | 1,4 | The plan-scoped home for authoring-loop review scaffolding (the Phase-0→1 gate, Phase-1 design/track authoring, Phase-4 design-final authoring) before any track directory exists, and their commit/sweep lifecycle. |
+| §Third-scope review-file home (plan-scoped authoring-loop scaffolding) | planner,orchestrator,final-designer,reviewer-adversarial | 1,4 | Plan-scoped home for authoring-loop review files before any track directory exists, and its commit/sweep lifecycle. |
 | §Coverage (S5) | decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection. |
 
 <!--Document index end-->
@@ -705,7 +705,7 @@ grants covers both the gate writer (`reviewer-adversarial` at phase `1`)
 and the `create-plan` reader (`planner` at phase `1`) on the variant row.
 
 ### Third-scope review-file home (plan-scoped authoring-loop scaffolding)
-<!-- roles=planner,orchestrator,final-designer,reviewer-adversarial phases=1,4 summary="The plan-scoped home for authoring-loop review scaffolding (the Phase-0→1 gate, Phase-1 design/track authoring, Phase-4 design-final authoring) before any track directory exists, and their commit/sweep lifecycle." -->
+<!-- roles=planner,orchestrator,final-designer,reviewer-adversarial phases=1,4 summary="Plan-scoped home for authoring-loop review files before any track directory exists, and its commit/sweep lifecycle." -->
 
 The plan-scoped home `docs/adr/<dir-name>/_workflow/reviews/` holds the review
 scaffolding of the **authoring loop** — the review and params files written
