@@ -43,6 +43,10 @@ public class MatchWhereBuilderTest {
 
   // ── eq / op ──
 
+  /**
+   * {@link MatchWhereBuilder#eq} produces a {@link SQLBinaryCondition} with
+   * {@link SQLEqualsOperator#INSTANCE} and the expected render output.
+   */
   @Test
   public void eq_producesBinaryConditionWithEqualsOperator() {
     var rhs = MatchLiteralBuilder.toLiteral("Karl");
@@ -56,6 +60,9 @@ public class MatchWhereBuilderTest {
     assertEquals("firstName = \"Karl\"", render(expr));
   }
 
+  /**
+   * {@link MatchWhereBuilder#op} passes through the supplied {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCompareOperator}.
+   */
   @Test
   public void op_producesBinaryConditionWithGivenOperator() {
     var rhs = MatchLiteralBuilder.toLiteral(30L);
@@ -69,6 +76,10 @@ public class MatchWhereBuilderTest {
 
   // ── in / notIn ──
 
+  /**
+   * {@link MatchWhereBuilder#in} produces a {@link SQLInCondition} with a literal collection
+   * and a populated {@link SQLInOperator}.
+   */
   @Test
   public void in_producesInConditionWithLiteralCollection() {
     var values = List.of(
@@ -101,6 +112,7 @@ public class MatchWhereBuilderTest {
     assertTrue(((SQLInCondition) expr).supportsBasicCalculation());
   }
 
+  /** An empty value list renders as {@code field IN []}. */
   @Test
   public void in_emptyValues_producesEmptyCollection() {
     var expr = b.in("status", List.of());
@@ -108,6 +120,7 @@ public class MatchWhereBuilderTest {
     assertEquals("status IN []", render(expr));
   }
 
+  /** {@link MatchWhereBuilder#notIn} composes {@code NOT (field IN …)} via {@link SQLNotBlock}. */
   @Test
   public void notIn_composesAsNotOverIn() {
     var values = List.of(MatchLiteralBuilder.toLiteral(7L));
@@ -121,6 +134,7 @@ public class MatchWhereBuilderTest {
 
   // ── between ──
 
+  /** {@link MatchWhereBuilder#between} produces a {@link SQLBetweenCondition} with correct bounds. */
   @Test
   public void between_producesSQLBetweenCondition() {
     var lo = MatchLiteralBuilder.toLiteral(10L);
@@ -243,11 +257,13 @@ public class MatchWhereBuilderTest {
 
   // ── and / or — cardinality matrix 0/1/2/3 ──
 
+  /** Zero-operand {@link MatchWhereBuilder#and} throws {@link IllegalStateException}. */
   @Test
   public void and_zeroOperands_throwsIllegalState() {
     assertThrows(IllegalStateException.class, () -> b.and());
   }
 
+  /** Single-operand {@link MatchWhereBuilder#and} returns the operand unwrapped. */
   @Test
   public void and_singleOperand_returnsOperandUnwrapped() {
     var c = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -255,6 +271,7 @@ public class MatchWhereBuilderTest {
     assertSame("single-operand and(c) must return c without wrapping", c, result);
   }
 
+  /** Two-operand {@link MatchWhereBuilder#and} produces an {@link SQLAndBlock}. */
   @Test
   public void and_twoOperands_returnsSQLAndBlock() {
     var c1 = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -264,6 +281,7 @@ public class MatchWhereBuilderTest {
     assertEquals("a = 1 AND b = 2", render(result));
   }
 
+  /** Three-operand {@link MatchWhereBuilder#and} produces a flat {@link SQLAndBlock}. */
   @Test
   public void and_threeOperands_returnsSQLAndBlock() {
     var c1 = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -274,6 +292,7 @@ public class MatchWhereBuilderTest {
     assertEquals("a = 1 AND b = 2 AND c = 3", render(result));
   }
 
+  /** Zero-operand {@link MatchWhereBuilder#or} throws {@link IllegalStateException}. */
   @Test
   public void or_zeroOperands_throwsIllegalState() {
     assertThrows(IllegalStateException.class, () -> b.or());
@@ -294,6 +313,7 @@ public class MatchWhereBuilderTest {
         "single-operand or(c) must NOT wrap in SQLOrBlock", result instanceof SQLOrBlock);
   }
 
+  /** Two-operand {@link MatchWhereBuilder#or} produces an {@link SQLOrBlock}. */
   @Test
   public void or_twoOperands_returnsSQLOrBlock() {
     var c1 = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -303,6 +323,7 @@ public class MatchWhereBuilderTest {
     assertEquals("a = 1 OR b = 2", render(result));
   }
 
+  /** Three-operand {@link MatchWhereBuilder#or} produces a flat {@link SQLOrBlock}. */
   @Test
   public void or_threeOperands_returnsSQLOrBlock() {
     var a = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -315,6 +336,10 @@ public class MatchWhereBuilderTest {
 
   // ── not ──
 
+  /**
+   * {@link MatchWhereBuilder#not} wraps the inner expression in {@link SQLNotBlock} with
+   * {@code negate=true}.
+   */
   @Test
   public void not_setsSubAndNegateTrue() {
     var inner = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -329,6 +354,7 @@ public class MatchWhereBuilderTest {
 
   // ── wrap ──
 
+  /** {@link MatchWhereBuilder#wrap} produces a {@link SQLWhereClause} carrying the expression. */
   @Test
   public void wrap_producesSQLWhereClauseCarryingTheExpression() {
     var inner = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -372,6 +398,7 @@ public class MatchWhereBuilderTest {
     assertSame(c, b.andOptional(c, null));
   }
 
+  /** Two non-null operands produce a flat {@link SQLAndBlock}. */
   @Test
   public void andOptional_twoNonNullOperands_producesSQLAndBlock() {
     var c1 = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -381,6 +408,10 @@ public class MatchWhereBuilderTest {
     assertEquals("a = 1 AND b = 2", render(result));
   }
 
+  /**
+   * Null operands are filtered out; two surviving operands produce a flat {@link SQLAndBlock}
+   * without a null sub-block.
+   */
   @Test
   public void andOptional_threeOperandsWithMiddleNull_dropsNullKeepsSurvivors() {
     var c1 = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -392,6 +423,7 @@ public class MatchWhereBuilderTest {
     assertEquals("a = 1 AND c = 3", render(result));
   }
 
+  /** Four non-null operands collapse into a single flat {@link SQLAndBlock}. */
   @Test
   public void andOptional_fourNonNullOperands_collapsesToSingleSQLAndBlock() {
     var c1 = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
@@ -406,6 +438,7 @@ public class MatchWhereBuilderTest {
 
   // ── isNull — both left-side shapes ──
 
+  /** {@link MatchWhereBuilder#isNull(String)} produces a {@link SQLIsNullCondition}. */
   @Test
   public void isNull_propertyIdentifier_producesIsNullCondition() {
     var expr = b.isNull("name");
@@ -493,6 +526,10 @@ public class MatchWhereBuilderTest {
     assertEquals(render(nullInner), render(inner));
   }
 
+  /**
+   * Symmetric to {@link #isDefined_expressionChildIsSetCorrectly} for
+   * {@link MatchWhereBuilder#isNotDefined}.
+   */
   @Test
   public void isNotDefined_expressionChildIsSetCorrectly() {
     var expr = b.isNotDefined("foo");
@@ -539,18 +576,21 @@ public class MatchWhereBuilderTest {
 
   // ── helpers ──
 
+  /** Renders a {@link SQLBooleanExpression} to its SQL text form. */
   private static String render(SQLBooleanExpression expr) {
     var sb = new StringBuilder();
     expr.toString(new HashMap<>(), sb);
     return sb.toString();
   }
 
+  /** Renders a {@link SQLExpression} to its SQL text form. */
   private static String render(SQLExpression expr) {
     var sb = new StringBuilder();
     expr.toString(new HashMap<>(), sb);
     return sb.toString();
   }
 
+  /** Renders a {@link SQLWhereClause} to its SQL text form. */
   private static String render(SQLWhereClause clause) {
     var sb = new StringBuilder();
     clause.toString(new HashMap<>(), sb);
