@@ -489,6 +489,102 @@ public class AggregateCacheEquivalenceTest extends DbTestBase {
   }
 
   // ===========================================================================
+  // COUNT(field) Regression Tests for Nullable Properties
+  // ===========================================================================
+
+  /**
+   * Regression for COUNT(field) value-blind bug.
+   * Verifies that during populate, rows where the target field is NULL are skipped,
+   * matching the engine's fresh execution semantics.
+   */
+  @Test
+  public void countFieldEquivalence_populatesIgnoringNullValues() {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    commitMatching(10);
+    commitMatching(20);
+
+    session.begin();
+    var e = session.newEntity(CLASS_NAME);
+    e.setProperty(VALUE, null); // explicit NULL
+    e.setProperty(FLAG, true);
+    session.commit();
+
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    var sql = "SELECT count(" + VALUE + ") FROM " + CLASS_NAME + " WHERE " + FLAG + " = true";
+
+    session.begin();
+    var result = scalar(session.query(sql));
+    assertEquals("COUNT(field) must ignore null fields during populate", 2L,
+        ((Number) result).longValue());
+    session.rollback();
+  }
+
+  /**
+   * Regression for COUNT(field) value-blind bug.
+   * Verifies that a post-populate mutation changing a field from NULL to NON-NULL
+   * correctly increments the replayed cached counter.
+   */
+  @Test
+  public void countFieldEquivalence_nullToNonNullUpdateIncrementsCount() {
+    var cached = runCountFieldMutationScenario(true, true, 99);
+    var fresh = runCountFieldMutationScenario(false, true, 99);
+
+    assertEquals("COUNT(field) cached replay must increment on null->non-null mutation", fresh,
+        cached);
+  }
+
+  /**
+   * Regression for COUNT(field) value-blind bug.
+   * Verifies that a post-populate mutation changing a field from NON-NULL to NULL
+   * correctly decrements the replayed cached counter.
+   */
+  @Test
+  public void countFieldEquivalence_nonNullToNullUpdateDecrementsCount() {
+    var cached = runCountFieldMutationScenario(true, false, null);
+    var fresh = runCountFieldMutationScenario(false, false, null);
+
+    assertEquals("COUNT(field) cached replay must decrement on non-null->null mutation", fresh,
+        cached);
+  }
+
+  // ---- Specialized Helper for Null Field Mutation Scenarios ----
+
+  /**
+   * Drives the cache-on and cache-off pair specifically for custom null-value mutations.
+   * Generates the target record INSIDE the scenario life-cycle to protect it from clearClass().
+   */
+  private Object runCountFieldMutationScenario(boolean cacheEnabled, boolean startAsNull,
+      Object newValue) {
+    clearClass();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(false);
+    commitMatching(50); // baseline background row
+
+    // 1. Generate the target record inside the scenario loop safely
+    session.begin();
+    var e = session.newEntity(CLASS_NAME);
+    e.setProperty(VALUE, startAsNull ? null : 10);
+    e.setProperty(FLAG, true);
+    var targetRid = ((RecordAbstract) e).getIdentity();
+    session.commit();
+
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheEnabled);
+    var sql = "SELECT count(" + VALUE + ") FROM " + CLASS_NAME + " WHERE " + FLAG + " = true";
+
+    session.begin();
+    scalar(session.query(sql)); // populate (cache enabled) or plain initial query (cache disabled)
+
+    // 2. Apply the post-populate mutation log operation using the safely created RID
+    Entity mutationRec = session.load(targetRid);
+    mutationRec.setProperty(VALUE, newValue);
+    tx().addRecordOperation((RecordAbstract) mutationRec, RecordOperation.UPDATED);
+
+    var result = scalar(session.query(sql)); // replayed (on) vs fresh re-execution (off)
+    session.rollback();
+    return result;
+  }
+
+  // ===========================================================================
   // Contributor-cap overflow — high-cardinality SUM over a per-row distinct value
   // ===========================================================================
 
