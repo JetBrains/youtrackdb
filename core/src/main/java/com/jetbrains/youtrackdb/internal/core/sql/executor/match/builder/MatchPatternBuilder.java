@@ -9,7 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Objects;
+import javax.annotation.Nonnull;
 
 /**
  * Stateful accumulator for the unified MATCH IR that {@link
@@ -78,9 +78,8 @@ public final class MatchPatternBuilder {
    * @throws IllegalStateException if {@link #build()} has already been called on this builder
    */
   public MatchPatternBuilder addNode(
-      String alias, String className, SQLWhereClause where, boolean optional) {
+      @Nonnull String alias, String className, SQLWhereClause where, boolean optional) {
     checkNotBuilt();
-    Objects.requireNonNull(alias, "alias must not be null");
     var node =
         pattern.aliasToNode.computeIfAbsent(
             alias,
@@ -118,17 +117,14 @@ public final class MatchPatternBuilder {
    * Phase 1.
    */
   public MatchPatternBuilder addEdge(
-      String fromAlias,
-      String toAlias,
-      Direction dir,
+      @Nonnull String fromAlias,
+      @Nonnull String toAlias,
+      @Nonnull Direction dir,
       String edgeLabel,
       SQLWhereClause edgeFilter,
       SQLWhereClause whileCondition,
       Integer maxDepth) {
     checkNotBuilt();
-    Objects.requireNonNull(fromAlias, "fromAlias must not be null");
-    Objects.requireNonNull(toAlias, "toAlias must not be null");
-    Objects.requireNonNull(dir, "dir must not be null");
     if (whileCondition != null || maxDepth != null) {
       throw new UnsupportedOperationException(
           "whileCondition / maxDepth are not yet supported by MatchPatternBuilder; "
