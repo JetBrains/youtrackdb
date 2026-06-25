@@ -16,13 +16,13 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsTextConditio
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import org.junit.Test;
@@ -69,7 +69,7 @@ public class MatchWhereBuilderTest {
   // ── in / notIn ──
 
   @Test
-  public void in_producesInConditionWithLiteralCollection() throws Exception {
+  public void in_producesInConditionWithLiteralCollection() {
     var values = List.of(
         MatchLiteralBuilder.toLiteral(1L),
         MatchLiteralBuilder.toLiteral(2L),
@@ -77,9 +77,11 @@ public class MatchWhereBuilderTest {
     var expr = b.in("status", values);
 
     assertTrue(expr instanceof SQLInCondition);
-    // Operator field must be populated so SQLInCondition.supportsBasicCalculation() doesn't NPE.
-    var operatorField = readField(expr, "operator", Object.class);
-    assertNotNull("SQLInCondition.operator must not be null", operatorField);
+    var in = (SQLInCondition) expr;
+    // Operator must be populated so SQLInCondition.supportsBasicCalculation() doesn't NPE.
+    assertNotNull("SQLInCondition.operator must not be null", in.getOperator());
+    assertTrue("operator must be a SQLInOperator instance",
+        in.getOperator() instanceof SQLInOperator);
     assertEquals("status IN [1, 2, 3]", render(expr));
   }
 
@@ -493,20 +495,5 @@ public class MatchWhereBuilderTest {
     var sb = new StringBuilder();
     clause.toString(new HashMap<>(), sb);
     return sb.toString();
-  }
-
-  @SuppressWarnings("unchecked")
-  private static <T> T readField(Object owner, String fieldName, Class<T> type) throws Exception {
-    Class<?> c = owner.getClass();
-    while (c != null) {
-      try {
-        Field f = c.getDeclaredField(fieldName);
-        f.setAccessible(true);
-        return (T) f.get(owner);
-      } catch (NoSuchFieldException ignored) {
-        c = c.getSuperclass();
-      }
-    }
-    throw new NoSuchFieldException(fieldName + " on " + owner.getClass());
   }
 }

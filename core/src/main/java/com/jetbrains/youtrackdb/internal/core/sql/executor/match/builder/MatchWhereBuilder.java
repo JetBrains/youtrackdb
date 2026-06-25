@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
@@ -64,7 +65,7 @@ public final class MatchWhereBuilder {
     var condition = new SQLInCondition(-1);
     condition.setLeft(fieldExpression(field));
     condition.setRightMathExpression(literalCollectionExpression(values));
-    SqlInOperatorBinding.setOperator(condition);
+    condition.setOperator(new SQLInOperator(-1));
     return condition;
   }
 
