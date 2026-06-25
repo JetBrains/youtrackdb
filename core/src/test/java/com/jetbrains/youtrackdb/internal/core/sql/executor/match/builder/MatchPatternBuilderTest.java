@@ -3,12 +3,16 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder.Direction;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.lang.reflect.Field;
 import java.util.HashMap;
+import java.util.Map;
 import org.junit.Test;
 
 /**
@@ -377,6 +381,38 @@ public class MatchPatternBuilderTest {
 
   // ── build() one-shot contract ──
 
+  /**
+   * {@link MatchPatternBuilder#build()} must hand back defensive copies of the alias
+   * maps so callers can mutate the returned {@link MatchPatternBuilder.PatternIR}
+   * without corrupting the builder's internal accumulator state.
+   */
+  @Test
+  public void build_defensiveCopy_aliasMapsIsolatedFromBuilderState() throws Exception {
+    var wb = new MatchWhereBuilder();
+    var where = wb.wrap(wb.eq("age", MatchLiteralBuilder.toLiteral(30L)));
+    var b = new MatchPatternBuilder().addNode("p", "Person", where, false);
+    var ir = b.build();
+
+    assertNotSame(
+        "aliasClasses must be copied out of the builder",
+        readField(b, "aliasClasses"),
+        ir.aliasClasses());
+    assertNotSame(
+        "aliasFilters must be copied out of the builder",
+        readField(b, "aliasFilters"),
+        ir.aliasFilters());
+
+    ir.aliasClasses().put("p", "Hacked");
+    ir.aliasFilters().put("p", where);
+
+    @SuppressWarnings("unchecked")
+    Map<String, String> internalClasses = readField(b, "aliasClasses");
+    @SuppressWarnings("unchecked")
+    Map<String, SQLWhereClause> internalFilters = readField(b, "aliasFilters");
+    assertEquals("Person", internalClasses.get("p"));
+    assertSame(where, internalFilters.get("p"));
+  }
+
   @Test
   public void build_oneShot_subsequentAddNodeThrows() {
     var b = new MatchPatternBuilder().addNode("a", "Person", null, false);
@@ -416,5 +452,20 @@ public class MatchPatternBuilderTest {
     var sb = new StringBuilder();
     edge.item.toString(new HashMap<>(), sb);
     return sb.toString();
+  }
+
+  @SuppressWarnings("unchecked")
+  private static <T> T readField(Object owner, String fieldName) throws Exception {
+    Class<?> c = owner.getClass();
+    while (c != null) {
+      try {
+        Field f = c.getDeclaredField(fieldName);
+        f.setAccessible(true);
+        return (T) f.get(owner);
+      } catch (NoSuchFieldException ignored) {
+        c = c.getSuperclass();
+      }
+    }
+    throw new NoSuchFieldException(fieldName + " on " + owner.getClass());
   }
 }
