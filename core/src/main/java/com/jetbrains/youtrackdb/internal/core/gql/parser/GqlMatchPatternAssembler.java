@@ -1,16 +1,19 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import java.util.List;
 import javax.annotation.Nullable;
 
-/// Converts GQL visitor output ([SQLMatchFilter] list) into the shared MATCH IR
-/// ([MatchPatternBuilder.PatternIR]) that [MatchExecutionPlanner] consumes.
-///
-/// Owns GQL-specific defaults that the shared [MatchPatternBuilder] deliberately
-/// does not apply: anonymous aliases minted as {@code $c<N>} and missing labels
-/// resolved to {@code "V"}.
+/**
+ * Converts GQL visitor output ({@link SQLMatchFilter} list) into the shared MATCH IR
+ * ({@link MatchPatternBuilder.PatternIR}) that {@link MatchExecutionPlanner} consumes.
+ *
+ * <p>Owns GQL-specific defaults that the shared {@link MatchPatternBuilder} deliberately
+ * does not apply: anonymous aliases minted as {@code $c<N>} and missing labels
+ * resolved to {@code "V"}.
+ */
 final class GqlMatchPatternAssembler {
 
   private static final String DEFAULT_TYPE = "V";
@@ -18,7 +21,7 @@ final class GqlMatchPatternAssembler {
   private final MatchPatternBuilder builder = new MatchPatternBuilder();
   private int anonymousCounter = 0;
 
-  /// Registers every filter as a node on a fresh assembler and returns the built IR.
+  /** Registers every filter on a fresh assembler and returns the built IR. */
   static MatchPatternBuilder.PatternIR fromFilters(List<SQLMatchFilter> matchFilters) {
     var assembler = new GqlMatchPatternAssembler();
     for (var filter : matchFilters) {

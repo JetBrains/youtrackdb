@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
@@ -16,11 +17,13 @@ import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 
-/// Represents a parsed GQL MATCH statement.
-///
-/// Builds the shared MATCH IR ([Pattern] + alias maps) from GQL match filters via
-/// [GqlMatchPatternAssembler] and delegates execution to the unified YQL
-/// [MatchExecutionPlanner].
+/**
+ * Represents a parsed GQL MATCH statement.
+ *
+ * <p>Builds the shared MATCH IR ({@link Pattern} + alias maps) from GQL match filters via
+ * {@link GqlMatchPatternAssembler} and delegates execution to the unified YQL
+ * {@link MatchExecutionPlanner}.
+ */
 public class GqlMatchStatement implements GqlStatement {
 
   private final List<SQLMatchFilter> matchFilters;
@@ -49,7 +52,7 @@ public class GqlMatchStatement implements GqlStatement {
     return createExecutionPlan(ctx, true);
   }
 
-  /// Create an execution plan, optionally using cache.
+  /** Creates an execution plan, optionally using the GQL plan cache. */
   public GqlExecutionPlan createExecutionPlan(GqlExecutionContext ctx, boolean useCache) {
     var session = ctx.session();
 
@@ -88,16 +91,18 @@ public class GqlMatchStatement implements GqlStatement {
     return GqlExecutionPlan.forSqlMatchPlan(sqlPlan);
   }
 
-  /// Converts inline property filters (e.g. `{firstName: 'Karl', age: 30}`) into a
-  /// `SQLWhereClause` with AND-combined equality conditions.
-  /// The resulting clause is: `WHERE firstName = 'Karl' AND age = 30`.
-  ///
-  /// The output always wraps the conditions in an [SQLAndBlock] — including the
-  /// single-property case — so the plan tree shape is independent of the input map
-  /// size. {@link MatchWhereBuilder#and(SQLBooleanExpression...)} would unwrap a single
-  /// operand for parser-parity,
-  /// which would shift the plan tree shape; this method preserves the historical
-  /// shape that GQL tests and the visitor have depended on.
+  /**
+   * Converts inline property filters (e.g. {@code {firstName: 'Karl', age: 30}}) into a
+   * {@link SQLWhereClause} with AND-combined equality conditions.
+   *
+   * <p>The resulting clause is equivalent to {@code WHERE firstName = 'Karl' AND age = 30}.
+   *
+   * <p>The output always wraps the conditions in an {@link SQLAndBlock} — including the
+   * single-property case — so the plan tree shape is independent of the input map
+   * size. {@link MatchWhereBuilder#and(SQLBooleanExpression...)} would unwrap a single
+   * operand for parser-parity, which would shift the plan tree shape; this method preserves the
+   * historical shape that GQL tests and the visitor have depended on.
+   */
   static SQLWhereClause buildWhereClause(Map<String, Object> properties) {
     var whereBuilder = new MatchWhereBuilder();
     var andBlock = new SQLAndBlock(-1);
