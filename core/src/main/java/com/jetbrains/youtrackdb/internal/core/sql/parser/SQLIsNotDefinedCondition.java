@@ -52,6 +52,14 @@ public class SQLIsNotDefinedCondition extends SQLBooleanExpression {
     return !expression.isDefinedFor(currentRecord);
   }
 
+  public SQLExpression getExpression() {
+    return expression;
+  }
+
+  public void setExpression(SQLExpression expression) {
+    this.expression = expression;
+  }
+
   @Override
   public boolean supportsBasicCalculation() {
     return true;
