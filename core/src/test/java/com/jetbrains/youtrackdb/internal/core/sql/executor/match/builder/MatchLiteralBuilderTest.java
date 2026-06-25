@@ -30,7 +30,7 @@ import org.junit.Test;
  *
  * <p>Coverage hits every branch of {@code toLiteral}: String, Number (Long, Integer, Double,
  * BigDecimal), Boolean, RecordIdInternal, Date, List, Set, Map, byte[], plus the unsupported-type
- * IllegalArgumentException branch and the documented null-input NullPointerException behavior.
+ * IllegalArgumentException branch.
  *
  * <p>Reflection is necessary because {@link SQLExpression} exposes setters but no getters for
  * {@code booleanValue} and {@code literalValue}, and {@link SQLBaseExpression} keeps its
@@ -59,10 +59,12 @@ public class MatchLiteralBuilderTest {
     assertNoOtherFieldSet(expr, "mathExpression");
   }
 
+  /**
+   * An empty input still triggers the String branch. {@link SQLBaseExpression} wraps it in quotes,
+   * so the stored field is non-null even though the original input is {@code ""}.
+   */
   @Test
   public void toLiteral_emptyString_isPreservedAsBaseExpressionString() throws Exception {
-    // An empty input still triggers the String branch. SQLBaseExpression wraps it in quotes,
-    // so the stored field is non-null even though the original input is "".
     var expr = MatchLiteralBuilder.toLiteral("");
     var math = expr.getMathExpression();
     assertTrue(math instanceof SQLBaseExpression);
@@ -173,10 +175,12 @@ public class MatchLiteralBuilderTest {
 
   // ── Unsupported / null ──
 
+  /**
+   * Uses {@code this} (the test instance) as a non-supported Java type — guaranteed not to match
+   * any of the {@code instanceof} branches.
+   */
   @Test
   public void toLiteral_unsupportedType_throwsIAEWithDescriptiveMessage() {
-    // The test uses `this` (the test instance) as a non-supported Java type — guaranteed not
-    // to match any of the instanceof branches.
     var ex =
         assertThrows(IllegalArgumentException.class, () -> MatchLiteralBuilder.toLiteral(this));
     assertTrue(
@@ -201,7 +205,7 @@ public class MatchLiteralBuilderTest {
     assertNull("string field must remain unset when the input is a Number", stringField);
   }
 
-  // Read a (possibly inherited) field by name from the given object.
+  /** Reads a (possibly inherited) field by name from the given object. */
   private static <T> T readField(Object owner, String fieldName, Class<T> type) throws Exception {
     Class<?> c = owner.getClass();
     while (c != null) {
@@ -230,7 +234,7 @@ public class MatchLiteralBuilderTest {
     return legacy != null && legacy;
   }
 
-  // Asserts that all SQLExpression payload fields except expectedField are unset.
+  /** Asserts that all {@link SQLExpression} payload fields except {@code expectedField} are unset. */
   private static void assertNoOtherFieldSet(SQLExpression expr, String expectedField)
       throws Exception {
     for (var name : payloadFieldNames()) {
