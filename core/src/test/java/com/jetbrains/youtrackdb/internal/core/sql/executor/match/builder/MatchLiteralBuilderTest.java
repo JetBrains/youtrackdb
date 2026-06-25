@@ -42,6 +42,10 @@ public class MatchLiteralBuilderTest {
 
   // ── Strings ──
 
+  /**
+   * String literals route through {@code mathExpression → SQLBaseExpression.string}; no other
+   * {@link SQLExpression} payload field is set.
+   */
   @Test
   public void toLiteral_string_routesThroughSQLBaseExpressionStringField() throws Exception {
     var expr = MatchLiteralBuilder.toLiteral("hello");
@@ -73,6 +77,10 @@ public class MatchLiteralBuilderTest {
 
   // ── Numbers ──
 
+  /**
+   * {@code Long} literals route through {@code mathExpression → SQLBaseExpression → SQLInteger};
+   * the Java value is preserved as {@link Number} inside {@link SQLInteger}.
+   */
   @Test
   public void toLiteral_long_routesThroughSQLBaseExpressionWithSQLInteger() throws Exception {
     var expr = MatchLiteralBuilder.toLiteral(42L);
@@ -80,18 +88,21 @@ public class MatchLiteralBuilderTest {
     assertNoOtherFieldSet(expr, "mathExpression");
   }
 
+  /** {@code int} literals use the same {@link SQLInteger} AST routing as {@code Long}. */
   @Test
   public void toLiteral_integer_routesThroughSQLBaseExpressionWithSQLInteger() throws Exception {
     var expr = MatchLiteralBuilder.toLiteral(7);
     assertSQLBaseExpressionWithSQLIntegerValue(expr, 7);
   }
 
+  /** {@code double} literals use the same {@link SQLInteger} AST routing as integral types. */
   @Test
   public void toLiteral_double_routesThroughSQLBaseExpressionWithSQLInteger() throws Exception {
     var expr = MatchLiteralBuilder.toLiteral(3.14);
     assertSQLBaseExpressionWithSQLIntegerValue(expr, 3.14);
   }
 
+  /** {@link BigDecimal} literals use the same {@link SQLInteger} AST routing; value is preserved. */
   @Test
   public void toLiteral_bigDecimal_routesThroughSQLBaseExpressionWithSQLInteger() throws Exception {
     var bd = new BigDecimal("1234567890.12345");
@@ -101,6 +112,7 @@ public class MatchLiteralBuilderTest {
 
   // ── Booleans ──
 
+  /** {@code true} populates {@code booleanValue} and no other {@link SQLExpression} payload field. */
   @Test
   public void toLiteral_booleanTrue_setsBooleanValueAndNothingElse() throws Exception {
     var expr = MatchLiteralBuilder.toLiteral(Boolean.TRUE);
@@ -108,6 +120,7 @@ public class MatchLiteralBuilderTest {
     assertNoOtherFieldSet(expr, "booleanValue");
   }
 
+  /** {@code false} populates {@code booleanValue} and no other {@link SQLExpression} payload field. */
   @Test
   public void toLiteral_booleanFalse_setsBooleanValueAndNothingElse() throws Exception {
     var expr = MatchLiteralBuilder.toLiteral(Boolean.FALSE);
@@ -117,6 +130,10 @@ public class MatchLiteralBuilderTest {
 
   // ── RID ──
 
+  /**
+   * {@link RecordId} literals populate {@code rid} with legacy flag and collection/position
+   * identifiers matching the input.
+   */
   @Test
   public void toLiteral_recordId_setsRidWithLegacyFlagAndCorrectIdentifiers() throws Exception {
     var rid = new RecordId(12, 345);
@@ -132,6 +149,7 @@ public class MatchLiteralBuilderTest {
 
   // ── Date / List / Set / Map / byte[] (literalValue branch) ──
 
+  /** {@link Date} is stored opaquely in {@code literalValue} for {@code SQLExpression.copy()} parity. */
   @Test
   public void toLiteral_date_isStoredAsLiteralValueObject() throws Exception {
     var date = new Date(1_700_000_000_000L);
@@ -140,6 +158,7 @@ public class MatchLiteralBuilderTest {
     assertNoOtherFieldSet(expr, "literalValue");
   }
 
+  /** {@link List} is stored opaquely in {@code literalValue}. */
   @Test
   public void toLiteral_list_isStoredAsLiteralValueObject() throws Exception {
     var list = List.of(1, 2, 3);
@@ -148,6 +167,7 @@ public class MatchLiteralBuilderTest {
     assertNoOtherFieldSet(expr, "literalValue");
   }
 
+  /** {@link Set} is stored opaquely in {@code literalValue}. */
   @Test
   public void toLiteral_set_isStoredAsLiteralValueObject() throws Exception {
     Set<String> set = new HashSet<>();
@@ -156,6 +176,7 @@ public class MatchLiteralBuilderTest {
     assertSame(set, readField(expr, "literalValue", Object.class));
   }
 
+  /** {@link Map} is stored opaquely in {@code literalValue}. */
   @Test
   public void toLiteral_map_isStoredAsLiteralValueObject() throws Exception {
     Map<String, Object> map = new HashMap<>();
@@ -164,6 +185,7 @@ public class MatchLiteralBuilderTest {
     assertSame(map, readField(expr, "literalValue", Object.class));
   }
 
+  /** {@code byte[]} is stored opaquely in {@code literalValue} with byte-for-byte equality. */
   @Test
   public void toLiteral_byteArray_isStoredAsLiteralValueObject() throws Exception {
     var bytes = new byte[] {1, 2, 3};
@@ -173,7 +195,7 @@ public class MatchLiteralBuilderTest {
     assertArrayEquals(bytes, (byte[]) stored);
   }
 
-  // ── Unsupported / null ──
+  // ── Unsupported ──
 
   /**
    * Uses {@code this} (the test instance) as a non-supported Java type — guaranteed not to match
@@ -190,6 +212,7 @@ public class MatchLiteralBuilderTest {
 
   // ── Helpers ──
 
+  /** Asserts numeric routing through {@code mathExpression → SQLBaseExpression → SQLInteger}. */
   private static void assertSQLBaseExpressionWithSQLIntegerValue(
       SQLExpression expr, Object expectedNumericValue) throws Exception {
     var math = expr.getMathExpression();
@@ -222,6 +245,7 @@ public class MatchLiteralBuilderTest {
     throw new NoSuchFieldException(fieldName + " on " + owner.getClass());
   }
 
+  /** Reads an {@link SQLInteger} child field and returns its numeric value as {@code int}. */
   private static int readSQLIntegerValue(Object owner, String fieldName) throws Exception {
     var integer = readField(owner, fieldName, SQLInteger.class);
     assertNotNull(integer);
@@ -229,6 +253,7 @@ public class MatchLiteralBuilderTest {
     return integer.getValue().intValue();
   }
 
+  /** Returns whether the {@link SQLRid#legacy} flag is set on the given node. */
   private static boolean isLegacy(SQLRid rid) throws Exception {
     var legacy = readField(rid, "legacy", Boolean.class);
     return legacy != null && legacy;
@@ -252,6 +277,7 @@ public class MatchLiteralBuilderTest {
     }
   }
 
+  /** Collects non-primitive, non-static field names on {@link SQLExpression} (literal payloads). */
   private static List<String> payloadFieldNames() {
     var names = new ArrayList<String>();
     for (var f : SQLExpression.class.getDeclaredFields()) {

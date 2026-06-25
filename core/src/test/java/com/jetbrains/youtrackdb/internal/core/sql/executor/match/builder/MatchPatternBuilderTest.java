@@ -28,6 +28,10 @@ public class MatchPatternBuilderTest {
 
   // ── addNode ──
 
+  /**
+   * A single {@link MatchPatternBuilder#addNode} call registers the alias in the pattern,
+   * populates {@code aliasClasses}, leaves {@code aliasFilters} empty, and creates no edges.
+   */
   @Test
   public void addNode_singleNode_populatesAliasToNodeAndAliasClasses() {
     var ir = new MatchPatternBuilder().addNode("a", "Person", null, false).build();
@@ -42,6 +46,7 @@ public class MatchPatternBuilderTest {
     assertEquals(0, ir.pattern().getNumOfEdges());
   }
 
+  /** A non-null where clause passed to {@link MatchPatternBuilder#addNode} lands in {@code aliasFilters}. */
   @Test
   public void addNode_withWhereClause_populatesAliasFilters() {
     var b = new MatchPatternBuilder();
@@ -53,12 +58,17 @@ public class MatchPatternBuilderTest {
     assertSame(where, ir.aliasFilters().get("p"));
   }
 
+  /** {@code optional=true} on {@link MatchPatternBuilder#addNode} marks the node optional in the pattern. */
   @Test
   public void addNode_optionalTrue_marksNodeOptional() {
     var ir = new MatchPatternBuilder().addNode("p", "Person", null, true).build();
     assertTrue(ir.pattern().aliasToNode.get("p").isOptionalNode());
   }
 
+  /**
+   * Repeated {@link MatchPatternBuilder#addNode} with the same alias reuses the existing
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode}.
+   */
   @Test
   public void addNode_idempotentByAlias_reusesExistingNode() {
     var b = new MatchPatternBuilder();
@@ -70,6 +80,7 @@ public class MatchPatternBuilderTest {
         ir.pattern().aliasToNode.get("p").isOptionalNode());
   }
 
+  /** Blank {@code className} is ignored; the node is still registered in the pattern. */
   @Test
   public void addNode_blankClassName_doesNotPopulateAliasClasses() {
     var ir = new MatchPatternBuilder().addNode("a", "", null, false).build();
@@ -157,6 +168,10 @@ public class MatchPatternBuilderTest {
 
   // ── addEdge ──
 
+  /**
+   * {@link MatchPatternBuilder.Direction#OUT} creates one edge with correct {@code out}/{@code in}
+   * topology between two pre-registered nodes.
+   */
   @Test
   public void addEdge_outDirection_createsEdgeBetweenAliases() {
     var ir =
@@ -196,6 +211,10 @@ public class MatchPatternBuilderTest {
         rendered.contains("Knows"));
   }
 
+  /**
+   * {@link MatchPatternBuilder.Direction#IN} renders as {@code .in(...)} and creates the expected
+   * two-node / one-edge topology.
+   */
   @Test
   public void addEdge_inDirection_pathItemRendersAsInMethodCall() {
     var ir =
@@ -212,6 +231,10 @@ public class MatchPatternBuilderTest {
     assertEquals(1, ir.pattern().getNumOfEdges());
   }
 
+  /**
+   * {@link MatchPatternBuilder.Direction#BOTH} renders as {@code .both(...)} and creates the
+   * expected two-node / one-edge topology.
+   */
   @Test
   public void addEdge_bothDirection_pathItemRendersAsBothMethodCall() {
     var ir =
@@ -261,6 +284,9 @@ public class MatchPatternBuilderTest {
     assertTrue("implicit endpoints have no class registered", ir.aliasClasses().isEmpty());
   }
 
+  /**
+   * {@code edgeFilter} is attached to the target path item's filter, not to {@code aliasFilters}.
+   */
   @Test
   public void addEdge_withEdgeFilter_attachesFilterToTargetPathItem() {
     var b2 = new MatchWhereBuilder();
@@ -279,6 +305,7 @@ public class MatchPatternBuilderTest {
         edge.item.getFilter().getFilter());
   }
 
+  /** Three consecutive OUT hops accumulate three edges and four nodes. */
   @Test
   public void addEdge_multiHopChain_accumulatesEdges() {
     var ir =
@@ -296,6 +323,10 @@ public class MatchPatternBuilderTest {
     assertEquals(1, ir.pattern().aliasToNode.get("d").in.size());
   }
 
+  /**
+   * {@code whileCondition} is not yet supported; {@link MatchPatternBuilder#addEdge} must throw
+   * {@link UnsupportedOperationException} rather than silently ignore it.
+   */
   @Test
   public void addEdge_whileConditionPresent_throwsUnsupported() {
     var b2 = new MatchWhereBuilder();
@@ -307,6 +338,10 @@ public class MatchPatternBuilderTest {
         () -> b.addEdge("a", "b", Direction.OUT, "E", null, whileC, null));
   }
 
+  /**
+   * {@code maxDepth} is not yet supported; {@link MatchPatternBuilder#addEdge} must throw
+   * {@link UnsupportedOperationException} rather than silently ignore it.
+   */
   @Test
   public void addEdge_maxDepthPresent_throwsUnsupported() {
     var b = new MatchPatternBuilder();
@@ -315,6 +350,7 @@ public class MatchPatternBuilderTest {
         () -> b.addEdge("a", "b", Direction.OUT, "E", null, null, 5));
   }
 
+  /** A null {@code dir} argument fails at the {@code switch (dir)} dispatch with NPE. */
   @Test
   public void addEdge_nullDirection_throwsNPE() {
     var b = new MatchPatternBuilder();
@@ -408,6 +444,10 @@ public class MatchPatternBuilderTest {
     assertThrows(IllegalStateException.class, () -> b.addNode("b", "Place", null, false));
   }
 
+  /**
+   * After {@link MatchPatternBuilder#build()}, a subsequent {@link MatchPatternBuilder#addEdge}
+   * call must throw {@link IllegalStateException}.
+   */
   @Test
   public void build_oneShot_subsequentAddEdgeThrows() {
     var b = new MatchPatternBuilder().addNode("a", "Person", null, false);
@@ -417,6 +457,10 @@ public class MatchPatternBuilderTest {
         () -> b.addEdge("a", "b", Direction.OUT, "E", null, null, null));
   }
 
+  /**
+   * After {@link MatchPatternBuilder#build()}, a second {@link MatchPatternBuilder#build()} call
+   * must throw {@link IllegalStateException}.
+   */
   @Test
   public void build_oneShot_secondBuildThrows() {
     var b = new MatchPatternBuilder().addNode("a", "Person", null, false);
@@ -437,6 +481,7 @@ public class MatchPatternBuilderTest {
     return sb.toString();
   }
 
+  /** Reads a private field from {@code owner} via reflection (used to inspect builder internals). */
   @SuppressWarnings("unchecked")
   private static <T> T readField(Object owner, String fieldName) throws Exception {
     Class<?> c = owner.getClass();
