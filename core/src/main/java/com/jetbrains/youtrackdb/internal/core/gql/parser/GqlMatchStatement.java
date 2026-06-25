@@ -8,8 +8,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionP
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
@@ -98,11 +100,12 @@ public class GqlMatchStatement implements GqlStatement {
   static SQLWhereClause buildWhereClause(Map<String, Object> properties) {
     var whereBuilder = new MatchWhereBuilder();
     var andBlock = new SQLAndBlock(-1);
+    var subBlocks = new ArrayList<SQLBooleanExpression>(properties.size());
     for (var entry : properties.entrySet()) {
-      andBlock
-          .getSubBlocks()
-          .add(whereBuilder.eq(entry.getKey(), MatchLiteralBuilder.toLiteral(entry.getValue())));
+      subBlocks.add(
+          whereBuilder.eq(entry.getKey(), MatchLiteralBuilder.toLiteral(entry.getValue())));
     }
+    andBlock.setSubBlocks(subBlocks);
     return whereBuilder.wrap(andBlock);
   }
 }
