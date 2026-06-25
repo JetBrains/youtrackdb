@@ -16,8 +16,9 @@ import javax.annotation.Nullable;
 
 /// Represents a parsed GQL MATCH statement.
 ///
-/// Builds the shared MATCH IR ([Pattern] + alias maps) directly from GQL match filters (unified YQL IR)
-/// and delegates execution to the unified YQL [MatchExecutionPlanner].
+/// Builds the shared MATCH IR ([Pattern] + alias maps) from GQL match filters via
+/// [GqlMatchPatternAssembler] and delegates execution to the unified YQL
+/// [MatchExecutionPlanner].
 public class GqlMatchStatement implements GqlStatement {
 
   private final List<SQLMatchFilter> matchFilters;
