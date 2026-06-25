@@ -45,7 +45,7 @@ public class YTDBHasLabelStep<S extends YTDBElement> extends FilterStep<S> {
 
     // Delegate to the shared matcher so the class-scan path (this step) and the by-id path in
     // YTDBGraphStep apply identical polymorphism-aware label matching.
-    return YTDBLabelMatcher.matches(traverser.get(), predicates, polymorphic);
+    return YTDBLabelMatcher.matchesAny(traverser.get(), predicates, polymorphic);
   }
 
   @Override

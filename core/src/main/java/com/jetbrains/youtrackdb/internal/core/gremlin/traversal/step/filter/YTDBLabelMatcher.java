@@ -31,7 +31,7 @@ public final class YTDBLabelMatcher {
   /// @param polymorphic whether supertype labels should also match
   /// @return true if any predicate matches the concrete class name, or (when polymorphic) any
   /// superclass name
-  public static boolean matches(
+  public static boolean matchesAny(
       Element element, List<P<? super String>> predicates, boolean polymorphic) {
     if (element instanceof YTDBElementImpl ytdbElement) {
       final var entity = (EntityImpl) ytdbElement.getRawEntity();

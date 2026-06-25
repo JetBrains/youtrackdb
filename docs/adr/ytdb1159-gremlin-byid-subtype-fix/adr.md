@@ -55,7 +55,7 @@ flowchart LR
     CS["YTDBGraphCountStrategy<br/>(count optimization)"] -- "reads ids + hasContainers" --> GS
 ```
 
-- **`YTDBLabelMatcher`** (new) — a stateless static helper. `matches(element,
+- **`YTDBLabelMatcher`** (new) — a stateless static helper. `matchesAny(element,
   predicates, polymorphic)` resolves the schema class once for a `YTDBElementImpl`, tests
   each predicate against the concrete class name, and when polymorphic also against every
   superclass name from `getAllSuperClasses()`; a null schema class returns false;
@@ -66,7 +66,7 @@ flowchart LR
   `YTDBLabelMatcher` (AND across containers via `allMatch`), and keeps non-label on
   `HasContainer.testAll`. The class-scan branch is untouched.
 - **`YTDBHasLabelStep`** — `filter()` delegates its whole predicate list to
-  `YTDBLabelMatcher.matches` instead of inlining the concrete-plus-superclass walk.
+  `YTDBLabelMatcher.matchesAny` instead of inlining the concrete-plus-superclass walk.
 - **`YTDBGraphCountStrategy`** — the label-filter branch of `apply()` gained the
   `getIds().length == 0` guard its empty-containers sibling already had, so an id-bearing
   count falls through to normal by-id execution.
@@ -82,7 +82,7 @@ branch) would have reproduced the drift risk. Caveat: any future label-test call
 must route through the helper to stay consistent.
 
 **D2: Helper is a predicate-list static utility, package-neutral.** Implemented as
-planned. `matches` takes the predicate **list** (OR semantics) so `YTDBHasLabelStep`
+planned. `matchesAny` takes the predicate **list** (OR semantics) so `YTDBHasLabelStep`
 keeps its single superclass walk per element. A standalone utility keeps the by-id step
 (under `step.sideeffect`) and the label step (under `step.filter`) from depending on each
 other; the matcher lives in `step.filter` and carries no back-reference to either step.
@@ -116,9 +116,9 @@ fetch-filter-count over the named ids; the id set is bounded by the query.
 
 ### Integration Points
 
-- `YTDBGraphStep.elements()` by-id branch calls `YTDBLabelMatcher.matches(...)` for label
+- `YTDBGraphStep.elements()` by-id branch calls `YTDBLabelMatcher.matchesAny(...)` for label
   containers.
-- `YTDBHasLabelStep.filter()` delegates to `YTDBLabelMatcher.matches(...)`.
+- `YTDBHasLabelStep.filter()` delegates to `YTDBLabelMatcher.matchesAny(...)`.
 - `YTDBGraphCountStrategy.apply()` label-filter branch reads `step.getIds()` and
   `step.getHasContainers()`.
 

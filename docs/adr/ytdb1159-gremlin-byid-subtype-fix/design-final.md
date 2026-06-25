@@ -70,7 +70,7 @@ classDiagram
     }
     class YTDBLabelMatcher {
         <<utility>>
-        +matches(element, predicates, polymorphic)$ boolean
+        +matchesAny(element, predicates, polymorphic)$ boolean
     }
     class YTDBGraphCountStrategy {
         +apply(traversal) void
@@ -80,7 +80,7 @@ classDiagram
     YTDBGraphCountStrategy ..> YTDBGraphStep : reads ids + hasContainers
 ```
 
-`YTDBLabelMatcher` is the shared helper. Its single static `matches` method answers
+`YTDBLabelMatcher` is the shared helper. Its single static `matchesAny` method answers
 one question: does this element satisfy any of these label predicates, given the
 polymorphic flag? It holds exactly the logic that lived inline in
 `YTDBHasLabelStep.filter()`: for a YouTrackDB element (`YTDBElementImpl`), resolve the
@@ -108,7 +108,7 @@ flowchart TD
     B -- "yes (g.V(id))" --> C["fetch elements by id"]
     C --> D["split hasContainers:<br/>label vs non-label"]
     D --> E["non-label: HasContainer.testAll"]
-    D --> F["label: YTDBLabelMatcher.matches<br/>per container (polymorphic-aware)"]
+    D --> F["label: YTDBLabelMatcher.matchesAny<br/>per container (polymorphic-aware)"]
     E --> G["emit surviving elements"]
     F --> G
     B -- "no (g.V())" --> H["build polymorphic FROM query"]
@@ -160,7 +160,7 @@ predicate shapes, not just the `hasLabel`-generated `eq` / `within` ones.
 
 Non-label containers (property predicates, id predicates) keep their exact
 `HasContainer.testAll` semantics. Label containers route through
-`YTDBLabelMatcher.matches`, called once per label container per element, combined
+`YTDBLabelMatcher.matchesAny`, called once per label container per element, combined
 with AND across containers (`labelContainers.stream().allMatch(...)`) so
 `hasLabel("A").hasLabel("B")` still requires both. An empty label-container list is
 vacuously true under `allMatch`, so a by-id traversal carrying only property filters

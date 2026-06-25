@@ -123,7 +123,7 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
               // property filters (or none) passes the label gate on those filters alone.
               && labelContainers.stream()
                   .allMatch(
-                      labelContainer -> YTDBLabelMatcher.matches(
+                      labelContainer -> YTDBLabelMatcher.matchesAny(
                           element,
                           //noinspection unchecked
                           List.of((P<? super String>) labelContainer.getPredicate()),
