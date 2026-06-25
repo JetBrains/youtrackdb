@@ -293,3 +293,6 @@ This is a prose-machinery change with no unit tests, so each invariant is verifi
 - **Whole-doc floor.** The partition never emits a single whole-doc slice for a doc over ~300 lines. Verified by inspection of the Step 4 partition rule (the 200-line window forces ≥2 slices above ~250) and the agent-side guard that re-checks the floor.
 - **Deterministic-partition obligation.** Two orchestrator runs on the same document produce the same slice set (pure function of total line count, the ~200-line window, the ~6 cap). Verified by inspection that the Step 4 rule names only deterministic inputs.
 - **Verifiable-count obligation.** The orchestrator computes the expected slice count and self-checks `slices_spawned == expected_slice_count`, surfacing a mismatch as a wiring error. Verified by inspection that the Step 4 self-check is stated and paired with the agent-side guard as the independent second detector.
+
+## Base commit
+b6900398902f1ebde5f55bd6026c666a8167226d
