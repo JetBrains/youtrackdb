@@ -161,7 +161,7 @@ their child. See Decision Log.
 composition is observable as `NOT(IN ...)`; evaluation equivalence holds, the
 index hot-path difference is deferred per the plan's index-awareness note.
 
-### Step 3 — commit 66eba8eb6c, 2026-06-25 [ctx=safe]
+### Step 3 — commit 7e15914862, 2026-06-25 [ctx=safe]
 **What was done:** Created the stateful `MatchPatternBuilder` with
 `addNode(alias, className, where, optional)`, `addEdge(fromAlias, toAlias,
 direction, edgeLabel, edgeFilter, whileCondition, maxDepth)`, and `build()`
