@@ -79,15 +79,16 @@ public final class AggregateState {
 
   /**
    * The property the aggregate reads from each contributing record ({@code SUM(price)} &rarr; {@code
-   * price}). {@code null} for {@code COUNT(*)}, which observes membership only and reads no value.
+   * price}). {@code null} for {@code COUNT(*)} (which observes membership only and reads no value),
+   * and non-null for {@code COUNT(field)} to filter out records where the field is null.
    */
   @Nullable private final String propertyName;
 
   /** The projection alias the single scalar row carries in {@link #toResult} (e.g. {@code count(*)}). */
   private final String alias;
 
-  // ---- COUNT(*) ----
-  /** RIDs contributing to a {@code COUNT(*)}; the scalar is its size. Unused for the other kinds. */
+  // ---- COUNT(*) / COUNT(field) ----
+  /** RIDs contributing to a COUNT aggregate; the scalar is its size. Unused for value-folding kinds. */
   private final Set<RID> contributingRids = new HashSet<>();
 
   // ---- SUM / AVG / MIN / MAX / COUNT_DISTINCT ----
