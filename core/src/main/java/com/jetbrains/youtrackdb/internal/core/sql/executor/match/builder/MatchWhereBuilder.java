@@ -183,7 +183,7 @@ public final class MatchWhereBuilder {
       return null;
     }
     if (kept.size() == 1) {
-      return kept.get(0);
+      return kept.getFirst();
     }
     var block = new SQLAndBlock(-1);
     block.setSubBlocks(new ArrayList<>(kept));
@@ -226,8 +226,8 @@ public final class MatchWhereBuilder {
 
   /**
    * Builds {@code field IS DEFINED} — entity-presence predicate distinct from {@code IS NULL}.
-   * Returns true when the record carries {@code field} at the storage layer, regardless of value
-   * (including literal {@code null}); the AST node's evaluator routes through
+   * The emitted condition matches when the record carries {@code field} at the storage layer,
+   * regardless of value (including literal {@code null}); the AST node's evaluator routes through
    * {@code SQLExpression.isDefinedFor}. Used by the Gremlin translator's {@code has(key)} filter
    * mapping where TinkerPop's {@code Property.isPresent()} semantics require the entity-layer view,
    * not the value-layer view that {@code IS NOT NULL} provides.
@@ -241,9 +241,9 @@ public final class MatchWhereBuilder {
   /**
    * Builds {@code field IS NOT DEFINED} — symmetric to {@link #isDefined(String)}. Used by the
    * Gremlin translator's {@code hasNot(key)} filter mapping. NOT equivalent to {@code IS NULL}: a
-   * property stored with literal {@code null} value returns false from {@code IS NOT DEFINED} (the
-   * property exists, just with a null value) but true from {@code IS NULL}, mirroring TinkerPop's
-   * {@code Property.isPresent()} returning true for null-valued YTDB properties.
+   * property stored with literal {@code null} value is false under {@code IS NOT DEFINED} (the
+   * property exists, just with a null value) but true under {@code IS NULL}, mirroring TinkerPop's
+   * {@code Property.isPresent()} as true for null-valued YTDB properties.
    */
   public SQLBooleanExpression isNotDefined(String field) {
     var condition = new SQLIsNotDefinedCondition(-1);
@@ -281,8 +281,7 @@ public final class MatchWhereBuilder {
    * {@code prefix}, used as the exclusive upper bound of the half-open prefix range
    * {@code [prefix, prefix⁺)}. The last code point of {@code prefix} is incremented by one.
    * Surrogate pairs are handled by reading the trailing code point with
-   * {@link String#codePointBefore} (which spans the full pair) and replacing it via
-   * {@link String#appendCodePoint}.
+   * {@link String#codePointBefore} (which spans the full pair) and replacing it via.
    *
    * <p>Overflow carry: if the trailing code point is the maximum ({@link Character#MAX_CODE_POINT},
    * {@code U+10FFFF}), it cannot be incremented in place. The method drops that code point and

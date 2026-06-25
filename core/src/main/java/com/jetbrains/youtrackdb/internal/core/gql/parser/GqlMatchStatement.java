@@ -91,7 +91,8 @@ public class GqlMatchStatement implements GqlStatement {
   ///
   /// The output always wraps the conditions in an [SQLAndBlock] — including the
   /// single-property case — so the plan tree shape is independent of the input map
-  /// size. [MatchWhereBuilder.and] would unwrap a single operand for parser-parity,
+  /// size. {@link MatchWhereBuilder#and(SQLBooleanExpression...)} would unwrap a single
+  /// operand for parser-parity,
   /// which would shift the plan tree shape; this method preserves the historical
   /// shape that GQL tests and the visitor have depended on.
   static SQLWhereClause buildWhereClause(Map<String, Object> properties) {
