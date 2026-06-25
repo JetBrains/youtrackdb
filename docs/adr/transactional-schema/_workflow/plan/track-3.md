@@ -30,6 +30,9 @@ permit handshake and the freezer gate are Track 7.
 - [x] 2026-06-17T13:49Z [ctx=safe] Track-level code review iteration 1 complete (1/3 iterations)
 - [x] 2026-06-17T14:20Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
 
+**PAUSED 2026-06-25 at Phase C Track 3 Completion (Review mode) pending the buffered doc-accuracy fix + further review observations**
+- Handoff: handoff-track-3-phaseC.md
+
 ## Surprises & Discoveries
 - **Phase A — I-A7 leak mechanism mis-located in the frozen design.** All three
   Phase A reviewers confirmed via PSI that `executeInTxInternal` is reentrant:
