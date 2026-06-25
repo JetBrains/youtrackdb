@@ -137,10 +137,12 @@ public class MatchWhereBuilderTest {
 
   // ── containsText ──
 
+  /**
+   * Full-string render assertion to catch a swap of operands (substring {@code "contains"}
+   * would silently pass on {@code "needle" CONTAINSTEXT body}).
+   */
   @Test
   public void containsText_producesSQLContainsTextCondition() {
-    // Full-string render assertion to catch a swap of operands (substring "contains"
-    // would silently pass on `"needle" CONTAINSTEXT body`).
     var expr = b.containsText("body", "needle");
     assertTrue(expr instanceof SQLContainsTextCondition);
     assertEquals("body CONTAINSTEXT \"needle\"", render(expr));
@@ -277,11 +279,14 @@ public class MatchWhereBuilderTest {
     assertThrows(IllegalStateException.class, () -> b.or());
   }
 
+  /**
+   * Single-operand {@link MatchWhereBuilder#or(SQLBooleanExpression...)} must NOT wrap in
+   * {@link SQLOrBlock} — parser parity contract. {@code GqlMatchStatement.buildWhereClause}
+   * depends on this unwrap behavior to avoid shifting plan tree shape when a where clause has a
+   * single property.
+   */
   @Test
   public void or_singleOperand_returnsOperandUnwrapped() {
-    // Single-operand or(c) must NOT wrap in SQLOrBlock — parser parity contract.
-    // GqlMatchStatement.buildWhereClause depends on this unwrap behavior to avoid
-    // shifting plan tree shape when a where clause has a single property.
     var c = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
     var result = b.or(c);
     assertSame(c, result);
@@ -334,29 +339,34 @@ public class MatchWhereBuilderTest {
 
   // ── andOptional — null-tolerant AND merge ──
 
+  /** No operands → no filter to write; callers translate null into skip writing. */
   @Test
   public void andOptional_emptyInput_returnsNull() {
-    // No operands → no filter to write; callers translate null into "skip writing".
     assertNull(b.andOptional());
   }
 
+  /** {@code (null, null)} is functionally the same as the empty case — no-op merge. */
   @Test
   public void andOptional_allNullOperands_returnsNull() {
-    // (null, null) is functionally the same as the empty case — no-op merge.
     assertNull(b.andOptional(null, null));
   }
 
+  /**
+   * Mirrors {@link MatchWhereBuilder#and(SQLBooleanExpression...)} parser-parity: a lone operand
+   * never gets wrapped in an {@link SQLAndBlock}.
+   */
   @Test
   public void andOptional_singleNonNullOperand_returnsItUnwrapped() {
-    // Mirrors and(c)'s parser-parity: a lone operand never gets wrapped in an SQLAndBlock.
     var c = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
     assertSame(c, b.andOptional(c));
   }
 
+  /**
+   * The empty-prior → write-directly rule from the recogniser merge contract: a null contribution
+   * drops away, the surviving operand passes through unwrapped.
+   */
   @Test
   public void andOptional_nullPlusNonNull_returnsTheNonNull() {
-    // The "empty prior → write directly" rule from the recogniser merge contract: a null
-    // contribution drops away, the surviving operand passes through unwrapped.
     var c = b.eq("x", MatchLiteralBuilder.toLiteral(1L));
     assertSame(c, b.andOptional(null, c));
     assertSame(c, b.andOptional(c, null));
@@ -404,18 +414,20 @@ public class MatchWhereBuilderTest {
     assertEquals("name is null", render(expr));
   }
 
+  /** Record-attribute left-side ({@code @class}) via {@link MatchWhereBuilder#isNullAttribute}. */
   @Test
   public void isNull_recordAttributeViaIsNullAttribute_producesIsNullCondition() {
-    // Record-attribute left-side (@class) via isNullAttribute — distinct from isDefined/isNotDefined.
     var expr = b.isNullAttribute("@class");
     assertTrue(expr instanceof SQLIsNullCondition);
     assertEquals("@class is null", render(expr));
   }
 
+  /**
+   * The {@link SQLExpression} overload accepts any pre-built expression — the predicate adapter
+   * uses this for non-trivial left-sides built upstream.
+   */
   @Test
   public void isNull_arbitraryExpression_isPassedThroughUnchanged() {
-    // The SQLExpression overload accepts any pre-built expression — the predicate
-    // adapter uses this for non-trivial left-sides built upstream.
     var inner = new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression(
         new com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier("custom"));
     var expr = b.isNull(inner);
@@ -424,10 +436,13 @@ public class MatchWhereBuilderTest {
     assertEquals("custom is null", render(expr));
   }
 
+  /**
+   * Pins the {@code neq(non-null) ↦ or(isNull, op(NE))} predicate-adapter path: {@link
+   * MatchWhereBuilder#isNull(String)} is composable with {@link MatchWhereBuilder#not} and
+   * {@link MatchWhereBuilder#or}.
+   */
   @Test
   public void isNull_canBeNegatedToEmulateNotNull() {
-    // Pins the "neq(non-null) ↦ or(isNull, op(NE))" predicate-adapter path: isNull is
-    // composable with not(), or(), and the rest of the WHERE algebra.
     var expr = b.not(b.isNull("name"));
     assertTrue(expr instanceof SQLNotBlock);
     assertEquals("NOT name is null", render(expr));
@@ -496,18 +511,17 @@ public class MatchWhereBuilderTest {
 
   // ── Combined: deeply nested AND/OR ──
 
+  /**
+   * Expected AST: {@code AndBlock[a = 1, OrBlock[c = 3, d = 4]]}. Pin the structure directly —
+   * the rendered string {@code a = 1 AND c = 3 OR d = 4} does NOT carry precedence parentheses
+   * and would re-parse as {@code (a = 1 AND c = 3) OR d = 4} under SQL's standard
+   * AND-tighter-than-OR rule.
+   */
   @Test
   public void deeplyNestedBooleanExpression_buildsCorrectAstShape() {
     var a = b.eq("a", MatchLiteralBuilder.toLiteral(1L));
     var c = b.eq("c", MatchLiteralBuilder.toLiteral(3L));
     var d = b.eq("d", MatchLiteralBuilder.toLiteral(4L));
-    // Expected AST: AndBlock[a = 1, OrBlock[c = 3, d = 4]]. Pin the structure
-    // directly — the rendered string `a = 1 AND c = 3 OR d = 4` does NOT carry
-    // precedence parentheses and would re-parse as `(a = 1 AND c = 3) OR d = 4`
-    // under SQL's standard AND-tighter-than-OR rule, so an assertion on the
-    // rendered string cannot prove the structural intent. The runtime
-    // evaluator dispatches off the AST, not the rendered form, so structural
-    // pinning is what actually matters.
     var combined = b.and(a, b.or(c, d));
     assertTrue(combined instanceof SQLAndBlock);
     var andBlock = (SQLAndBlock) combined;
