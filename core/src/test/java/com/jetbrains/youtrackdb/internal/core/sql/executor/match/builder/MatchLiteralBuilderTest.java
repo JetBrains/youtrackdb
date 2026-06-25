@@ -215,15 +215,16 @@ public class MatchLiteralBuilderTest {
     assertNull("string field must remain unset when the input is a Number", stringField);
   }
 
-  /// Read a (possibly inherited) field by name from the given object.
-  @SuppressWarnings("unchecked")
+  // Read a (possibly inherited) field by name from the given object.
   private static <T> T readField(Object owner, String fieldName, Class<T> type) throws Exception {
     Class<?> c = owner.getClass();
     while (c != null) {
       try {
         Field f = c.getDeclaredField(fieldName);
-        f.setAccessible(true);
-        return (T) f.get(owner);
+        if (!f.trySetAccessible()) {
+          throw new IllegalAccessException("Cannot access field " + fieldName + " on " + c);
+        }
+        return type.cast(f.get(owner));
       } catch (NoSuchFieldException ignored) {
         c = c.getSuperclass();
       }
@@ -234,7 +235,8 @@ public class MatchLiteralBuilderTest {
   private static int readSQLIntegerValue(Object owner, String fieldName) throws Exception {
     var integer = readField(owner, fieldName, SQLInteger.class);
     assertNotNull(integer);
-    return ((Number) integer.getValue()).intValue();
+    assertNotNull(integer.getValue());
+    return integer.getValue().intValue();
   }
 
   private static boolean isLegacy(SQLRid rid) throws Exception {
@@ -242,12 +244,7 @@ public class MatchLiteralBuilderTest {
     return legacy != null && legacy;
   }
 
-  /// Asserts that all of SQLExpression's payload fields except {@code expectedField}
-  /// are unset. Catches accidental dual-write bugs (e.g. populating both rid and
-  /// mathExpression). The candidate list is driven reflectively from
-  /// {@link SQLExpression}'s declared instance fields — non-static, non-primitive —
-  /// so future fields added to the AST are covered automatically rather than silently
-  /// missed by a stale hardcoded list.
+  // Asserts that all SQLExpression payload fields except expectedField are unset.
   private static void assertNoOtherFieldSet(SQLExpression expr, String expectedField)
       throws Exception {
     for (var name : payloadFieldNames()) {
