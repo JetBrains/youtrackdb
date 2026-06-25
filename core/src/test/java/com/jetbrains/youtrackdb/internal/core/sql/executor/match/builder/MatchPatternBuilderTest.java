@@ -184,7 +184,7 @@ public class MatchPatternBuilderTest {
         new MatchPatternBuilder()
             .addEdge("a", "b", Direction.OUT, "Knows", null, null, null)
             .build();
-    var rendered = renderPathItemFor(ir, "a");
+    var rendered = renderPathItemFor(ir);
     assertTrue(
         "OUT direction must produce '.out(...)' method call: " + rendered,
         rendered.startsWith(".out("));
@@ -198,7 +198,7 @@ public class MatchPatternBuilderTest {
         new MatchPatternBuilder()
             .addEdge("a", "b", Direction.IN, "Wrote", null, null, null)
             .build();
-    var rendered = renderPathItemFor(ir, "a");
+    var rendered = renderPathItemFor(ir);
     assertTrue(
         "IN direction must produce '.in(...)' method call: " + rendered,
         rendered.startsWith(".in("));
@@ -214,7 +214,7 @@ public class MatchPatternBuilderTest {
         new MatchPatternBuilder()
             .addEdge("a", "b", Direction.BOTH, "Friend", null, null, null)
             .build();
-    var rendered = renderPathItemFor(ir, "a");
+    var rendered = renderPathItemFor(ir);
     assertTrue(
         "BOTH direction must produce '.both(...)' method call: " + rendered,
         rendered.startsWith(".both("));
@@ -234,7 +234,7 @@ public class MatchPatternBuilderTest {
         new MatchPatternBuilder()
             .addEdge("a", "b", Direction.OUT, null, null, null, null)
             .build();
-    var rendered = renderPathItemFor(ir, "a");
+    var rendered = renderPathItemFor(ir);
     // The class name is rendered with surrounding quotes by SQLBaseExpression's
     // string-quoting (see graphPath); pin the exact rendered shape so a change
     // to a different default class (e.g. "Edge") would render '.out("Edge")'
@@ -405,9 +405,7 @@ public class MatchPatternBuilderTest {
     ir.aliasClasses().put("p", "Hacked");
     ir.aliasFilters().put("p", where);
 
-    @SuppressWarnings("unchecked")
     Map<String, String> internalClasses = readField(b, "aliasClasses");
-    @SuppressWarnings("unchecked")
     Map<String, SQLWhereClause> internalFilters = readField(b, "aliasFilters");
     assertEquals("Person", internalClasses.get("p"));
     assertSame(where, internalFilters.get("p"));
@@ -441,12 +439,10 @@ public class MatchPatternBuilderTest {
 
   // ── helpers ──
 
-  /// Renders the single outgoing path item attached to the node bound to `fromAlias`.
-  /// Path-item rendering carries the direction-encoding method call ("in"/"out"/"both")
-  /// plus the edge label, which is what these tests need to verify.
-  private static String renderPathItemFor(MatchPatternBuilder.PatternIR ir, String fromAlias) {
-    var node = ir.pattern().aliasToNode.get(fromAlias);
-    assertNotNull("node '" + fromAlias + "' must exist", node);
+  // Renders the outgoing path item for fromAlias (direction + edge label).
+  private static String renderPathItemFor(MatchPatternBuilder.PatternIR ir) {
+    var node = ir.pattern().aliasToNode.get("a");
+    assertNotNull("node '" + "a" + "' must exist", node);
     assertEquals(1, node.out.size());
     var edge = node.out.iterator().next();
     var sb = new StringBuilder();
@@ -460,8 +456,10 @@ public class MatchPatternBuilderTest {
     while (c != null) {
       try {
         Field f = c.getDeclaredField(fieldName);
-        f.setAccessible(true);
-        return (T) f.get(owner);
+        if (!f.trySetAccessible()) {
+          throw new IllegalAccessException("Cannot access field " + fieldName + " on " + c);
+        }
+        return ((Class<T>) Map.class).cast(f.get(owner));
       } catch (NoSuchFieldException ignored) {
         c = c.getSuperclass();
       }
