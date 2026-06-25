@@ -7,7 +7,10 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
 import java.util.Base64;
@@ -26,6 +29,8 @@ import org.junit.Test;
  *   cache hit returns copy
  * - getters: originalStatement, matchFilters
  * - setOriginalStatement(null) → NPE
+ * - end-to-end: inline property filters (eq via buildWhereClause) and
+ *   MatchWhereBuilder-built predicates (isDefined / isNull / isNotDefined / in)
  */
 @SuppressWarnings("resource")
 public class GqlMatchStatementTest extends GraphBaseTest {
@@ -657,6 +662,68 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     } finally {
       ((YTDBGraphInternal) graph).tx().commit();
     }
+  }
+
+  // ── End-to-end: MatchWhereBuilder-built predicates ──
+
+  /**
+   * {@code IS DEFINED} is entity-presence: a stored property with literal {@code null}
+   * still counts as defined; only vertices that never carried the property match
+   * {@code IS NOT DEFINED}.
+   */
+  @Test
+  public void buildPlan_builderIsDefined_matchesPresentPropertyIncludingNull() {
+    graph.addVertex(T.label, "MatchDefF", "name", "Alice");
+    graph.addVertex(T.label, "MatchDefF", "name", null, "tag", "null-valued");
+    graph.addVertex(T.label, "MatchDefF", "tag", "absent-name");
+    graph.tx().commit();
+
+    var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isDefined("name"));
+    Assert.assertEquals(2, countMatches("MatchDefF", where));
+  }
+
+  /**
+   * {@code IS NULL} uses value execution ({@code expression.execute() == null}): both
+   * absent properties and literal {@code null} values match.
+   */
+  @Test
+  public void buildPlan_builderIsNull_matchesAbsentAndNullValue() {
+    graph.addVertex(T.label, "MatchNullF", "name", "Alice");
+    graph.addVertex(T.label, "MatchNullF", "name", null, "tag", "null-valued");
+    graph.addVertex(T.label, "MatchNullF", "tag", "absent-name");
+    graph.tx().commit();
+
+    var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isNull("name"));
+    Assert.assertEquals(2, countMatches("MatchNullF", where));
+  }
+
+  @Test
+  public void buildPlan_builderIsNotDefined_matchesOnlyAbsentProperty() {
+    graph.addVertex(T.label, "MatchNotDefF", "name", "Alice");
+    graph.addVertex(T.label, "MatchNotDefF", "name", null, "tag", "null-valued");
+    graph.addVertex(T.label, "MatchNotDefF", "tag", "absent-name");
+    graph.tx().commit();
+
+    var where = new MatchWhereBuilder().wrap(new MatchWhereBuilder().isNotDefined("name"));
+    Assert.assertEquals(1, countMatches("MatchNotDefF", where));
+  }
+
+  @Test
+  public void buildPlan_builderIn_matchesExpectedVertices() {
+    graph.addVertex(T.label, "MatchInF", "status", 1);
+    graph.addVertex(T.label, "MatchInF", "status", 2);
+    graph.addVertex(T.label, "MatchInF", "status", 3);
+    graph.tx().commit();
+
+    var wb = new MatchWhereBuilder();
+    var where =
+        wb.wrap(
+            wb.in(
+                "status",
+                List.of(
+                    MatchLiteralBuilder.toLiteral(1L),
+                    MatchLiteralBuilder.toLiteral(2L))));
+    Assert.assertEquals(2, countMatches("MatchInF", where));
   }
 
   // ── End-to-end: inline BINARY filter ──
@@ -1568,5 +1635,24 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     // The same keyword works when backtick-quoted.
     var stm = parseMatch("MATCH (a:V {`path`: '/home'})");
     Assert.assertNotNull(firstFilter(stm).getFilter());
+  }
+
+  private int countMatches(String className, SQLWhereClause where) {
+    var filter = SQLMatchFilter.fromGqlNode("a", className);
+    filter.setFilter(where);
+    var statement = new GqlMatchStatement(List.of(filter));
+    var ctx = createCtx();
+    try {
+      var plan = statement.createExecutionPlan(ctx, false);
+      var stream = plan.start(ctx.session());
+      var count = 0;
+      while (stream.hasNext()) {
+        stream.next();
+        count++;
+      }
+      return count;
+    } finally {
+      ((YTDBGraphInternal) graph).tx().commit();
+    }
   }
 }
