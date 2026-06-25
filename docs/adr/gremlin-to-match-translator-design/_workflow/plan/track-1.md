@@ -88,7 +88,7 @@ Ordering: builders first, then the GQL refactor consumes them, then the presence
 
 ## Episodes
 
-### Step 1 — commit bb0c94ba6f, 2026-06-25 [ctx=safe]
+### Step 1 — commit d347090823, 2026-06-25 [ctx=safe]
 **What was done:** Created
 `core/.../sql/executor/match/builder/MatchLiteralBuilder.java` as a final
 class with a private constructor and one `public static SQLExpression
