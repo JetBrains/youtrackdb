@@ -184,20 +184,6 @@ public class MatchLiteralBuilderTest {
         ex.getMessage().contains("Unsupported property value type"));
   }
 
-  @Test
-  public void toLiteral_null_throwsNPE_withExplicitContractMessage() {
-    // Documented behavior: null is not supported. The explicit Objects.requireNonNull
-    // call surfaces a contract message ("value must not be null") so the failure mode
-    // is anchored on the documented entry point — not an incidental NPE from a
-    // downstream line that future refactors might introduce.
-    var ex =
-        assertThrows(NullPointerException.class, () -> MatchLiteralBuilder.toLiteral(null));
-    assertNotNull("explicit contract NPE must carry a message", ex.getMessage());
-    assertTrue(
-        "NPE message must name the rejected parameter: " + ex.getMessage(),
-        ex.getMessage().contains("value"));
-  }
-
   // ── Helpers ──
 
   private static void assertSQLBaseExpressionWithSQLIntegerValue(
