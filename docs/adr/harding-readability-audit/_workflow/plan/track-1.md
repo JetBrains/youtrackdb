@@ -14,7 +14,7 @@ This track hardens three things, all as workflow-prose edits routed through §1.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-25T16:11Z [ctx=info] Review + decomposition complete
