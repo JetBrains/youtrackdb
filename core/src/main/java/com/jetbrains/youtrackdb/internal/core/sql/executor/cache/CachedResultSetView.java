@@ -55,15 +55,14 @@ import javax.annotation.Nullable;
  * {@link #close()} (or natural exhaustion) decrements it exactly once, pinning the entry against LRU
  * eviction while this view iterates so a mid-iteration view never loses rows.
  *
- * <p><b>Re-entrancy guard ownership.</b> The session opens the transaction's cache-code guard
- * ({@code FrontendTransactionImpl.enterCacheCode()}) around the synchronous lookup and hands the open
- * guard to this view. The view holds it for its whole iteration lifetime and releases it
- * ({@code exitCacheCode()}) exactly once, paired with the pin release on close / exhaustion. This is
- * load-bearing: the rows of a cached query are pulled lazily during {@link #next()} /
- * {@link #pullOneFromStream}, after the session's {@code serveThroughCache} has already returned, so a
- * UDF embedded in the populating query's WHERE / projection fires during that lazy pull. Holding the
- * guard across iteration keeps such a re-entrant {@code query()} bypassed (depth &gt; 0) for the whole
- * consumption window, not just the lookup window.
+ * <p><b>Re-entrancy guard coverage.</b> The session opens the transaction's cache-code guard
+ * ({@code FrontendTransactionImpl.enterCacheCode()}) around the synchronous lookup. The view then
+ * re-enters that guard for each row-production window (inside {@link #hasNext()} around {@link
+ * #computeNext}): lazy stream pulls, delta merge, and MATCH RETURN projection can evaluate a UDF that
+ * issues a nested {@code query()}, which must bypass the cache (depth &gt; 0) while that row is being
+ * produced. The guard is released immediately after the row is computed, so a user-issued {@code
+ * query()} between two {@link #next()} calls still uses the cache, and an abandoned view does not hold
+ * the guard indefinitely.
  *
  * <p><b>Idempotent close.</b> {@link #close()} is a no-op after the first call and releases the pin
  * and the cache-code guard exactly once. The view never closes the entry's shared stream itself: the

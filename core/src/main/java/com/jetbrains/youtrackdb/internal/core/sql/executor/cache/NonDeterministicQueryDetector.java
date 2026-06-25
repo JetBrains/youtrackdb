@@ -37,7 +37,7 @@ import javax.annotation.Nonnull;
  * <p><b>Fail-open by design.</b> The denylist enumerates the known non-deterministic functions; a new
  * non-deterministic builtin added without a denylist entry would slip through and be cached. {@code
  * FunctionDeterminismEnumerationTest} is the completeness guard: it walks every function registered
- * across the three service-loaded factories and fails the build when one is neither denylisted nor in
+ * across the four service-loaded factories and fails the build when one is neither denylisted nor in
  * the known-deterministic allowlist, so a forgotten entry becomes a build break rather than a silent
  * miscache. That test reads {@link #NON_DETERMINISTIC_FUNCTIONS} directly, so the two cannot drift.
  * The {@code NOCACHE} hint remains the escape valve for non-deterministic user functions the denylist

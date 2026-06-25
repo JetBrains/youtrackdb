@@ -1070,11 +1070,12 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * computed at populate, so the entry holds no live stream (its stream/plan/ctx are {@code null} on the
    * {@link CachedEntry}).
    *
-   * <p>It independently re-mirrors the three Track-1 populate contracts: stamp the populate mutation
-   * version BEFORE driving so the delta builder admits only post-populate ops; release the cache-code
-   * guard on every exit (the caller's {@code viewOwnsGuard} transfer covers the view-built path, this
-   * method's own fallbacks return an uncached result so the guard is released by the caller's finally);
-   * and close the plan idempotently (the outer finally closes it, the entry holds no stream to close).
+   * <p>It independently enforces the same three populate contracts as the record-shaped path: stamp the
+   * populate mutation version BEFORE driving so the delta builder admits only post-populate ops; release
+   * the cache-code guard on every exit (the caller's {@code viewOwnsGuard} transfer covers the
+   * view-built path, this method's own fallbacks return an uncached result so the guard is released by
+   * the caller's finally); and close the plan idempotently (the outer finally closes it, the entry holds
+   * no stream to close).
    *
    * @param select the parsed single-aggregate SELECT (already shape-gated by the caller)
    */

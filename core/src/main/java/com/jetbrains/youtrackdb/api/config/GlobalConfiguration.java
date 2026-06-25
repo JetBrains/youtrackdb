@@ -989,7 +989,7 @@ public enum GlobalConfiguration {
       true),
 
   QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD(
-      "youtrackdb.query.txResultCache.deltaUnreconcilableInvalidationThreshold",
+      "youtrackdb.query.txResultCache.matchMultiInvalidationThreshold",
       "Number of times a multi alias match cached entry may be invalidated by an"
           + " intervening mutation before its key is routed to the per-transaction non-cacheable"
           + " set, bypassing the cache for the remainder of the transaction. Bounds repopulate"

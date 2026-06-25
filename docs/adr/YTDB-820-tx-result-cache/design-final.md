@@ -12,7 +12,7 @@ The load-bearing primitives already existed before this work: `SQLStatement.equa
 
 Two knobs bound per-transaction memory: `maxEntries` (LRU cap, default 200) and `maxRecordsPerEntry` (per-entry result-count cap, default 10000).
 
-This design is for contributors who maintain the query-execution path (`DatabaseSessionEmbedded`, `FrontendTransactionImpl`, the `sql/executor` step classes) and assumes familiarity with the tx-aware executor's record-iteration semantics and the `ResultSet` / `ExecutionStream` contract. The rest of the document is structured as: Core Concepts, then Class Design and Workflow, then Part 1 (the read path: key, pause/resume, lazy merge, per-shape reconciliation), Part 2 (invalidation and the version gate), Part 3 (non-determinism, memory, concurrency, lifecycle), and finally invariants, known limitations, and deferred work.
+This design is for contributors who maintain the query-execution path (`DatabaseSessionEmbedded`, `FrontendTransactionImpl`, the `sql/executor` step classes) and assumes familiarity with the tx-aware executor's record-iteration semantics and the `ResultSet` / `ExecutionStream` contract. The rest of the document is structured as: Core Concepts, then Class Design and Control Flow, then Part 1 (the read path: key, pause/resume, lazy merge, per-shape reconciliation), Part 2 (invalidation and the version gate), Part 3 (non-determinism, memory, concurrency, lifecycle), and finally invariants, known limitations, and deferred work.
 
 ## Core Concepts
 
@@ -172,7 +172,7 @@ The fields enumerated on `CachedEntry` are exactly the as-built set: a single `r
 - D1: cache value type is `List<Result>` → Part 1 §"Frozen output, live record state".
 - Invariant 1 (clear on every tx-end), Invariant 7 (view delta frozen post-construction) → § Invariants.
 
-## Workflow
+## Control Flow
 
 **TL;DR.** Every `query()`, hit or miss, ends by building a delta from the current record-operations snapshot and returning a fresh `CachedResultSetView`. A miss runs real execution and lazily populates the entry's `results` as the consumer iterates. A hit reuses the immutable entry. Each `view.next()` sorted-merges the cached cursor with the view's frozen delta-cursor (RECORD), or reads the replayed `AggregateState.toResult()` (aggregate), or replays verbatim (`K0_NONE` and `MATCH_TUPLE_MULTI`). Mutations land in the transaction's record-operation log without touching the cache; only the next `query()` sees them through a fresh delta. Transaction end clears the whole cache.
 
@@ -277,7 +277,7 @@ This makes repeated `query()` calls within a transaction idempotent in the consu
 ### References
 
 - D4: pause/resume via a shared stream plus per-view position counters → this section.
-- D15: the delta snapshot is taken at view construction and not refreshed mid-iteration → this section, § Workflow.
+- D15: the delta snapshot is taken at view construction and not refreshed mid-iteration → this section, § Control Flow.
 - Invariant 3 (paused-stream lifetime ≤ entry), Invariant 7 (view delta frozen) → § Invariants.
 
 ## Lazy merge-on-read
