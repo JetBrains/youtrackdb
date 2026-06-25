@@ -1,13 +1,14 @@
 package com.jetbrains.youtrackdb.internal.core.gql.parser;
 
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionContext;
 import com.jetbrains.youtrackdb.internal.core.gql.executor.GqlExecutionPlanCache;
 import com.jetbrains.youtrackdb.internal.core.gql.planner.GqlPlanner;
-import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
@@ -15,12 +16,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.math.BigDecimal;
 import java.text.SimpleDateFormat;
-import java.util.Base64;
-import java.util.Date;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.junit.Assert;
 import org.junit.Test;
@@ -38,18 +35,36 @@ import org.junit.Test;
  *   verified by scenario-tag identity, not just match count
  */
 @SuppressWarnings("resource")
-public class GqlMatchStatementTest extends GraphBaseTest {
+public class GqlMatchStatementTest extends GqlGraphTestBase {
 
   private GqlExecutionContext createCtx() {
-    var gi = (YTDBGraphInternal) graph;
-    var tx = gi.tx();
-    tx.readWrite();
-    return new GqlExecutionContext(tx.getDatabaseSession());
+    return new GqlExecutionContext(readWriteSession());
   }
 
-  /// Helper to create SQLMatchFilter (unified YQL IR) from alias and label.
+  // Helper to create SQLMatchFilter (unified YQL IR) from alias and label.
   private static SQLMatchFilter filter(String alias, String label) {
     return SQLMatchFilter.fromGqlNode(alias, label);
+  }
+
+  private static GqlMatchStatement parseMatch(String gql) {
+    return requireMatchStatement(GqlPlanner.parse(gql));
+  }
+
+  private static GqlMatchStatement matchStatement(String query) {
+    return requireMatchStatement(GqlPlanner.getStatement(query, null));
+  }
+
+  private static GqlMatchStatement requireMatchStatement(Object parsed) {
+    if (!(parsed instanceof GqlMatchStatement match)) {
+      throw new AssertionError("expected GqlMatchStatement, got " + parsed.getClass());
+    }
+    return match;
+  }
+
+  private static SQLMatchFilter firstFilter(GqlMatchStatement stm) {
+    Assert.assertNotNull(stm.getMatchFilters());
+    Assert.assertFalse(stm.getMatchFilters().isEmpty());
+    return stm.getMatchFilters().getFirst();
   }
 
   // ── buildPlan: empty patterns ──
@@ -63,7 +78,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var stream = plan.start(null);
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -81,11 +96,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -103,10 +118,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -124,10 +139,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("myAlias"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -147,12 +162,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       var names = row.getPropertyNames();
       Assert.assertTrue(names.contains("$c0"));
       Assert.assertTrue(names.contains("$c1"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -173,13 +188,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       var names = row.getPropertyNames();
       Assert.assertTrue("Should contain $c0", names.contains("$c0"));
       Assert.assertTrue("Should contain $c1", names.contains("$c1"));
       Assert.assertTrue("Should contain $c2", names.contains("$c2"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -200,12 +215,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       var names = row.getPropertyNames();
       Assert.assertTrue("Should contain $c0", names.contains("$c0"));
       Assert.assertTrue("Should contain $c1", names.contains("$c1"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -225,11 +240,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       Assert.assertTrue(stream.hasNext());
-      var row = (Result) stream.next();
+      var row = requireResult(stream.next());
       Assert.assertTrue(row.getPropertyNames().contains("x"));
       Assert.assertTrue(row.getPropertyNames().contains("$c0"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -237,14 +252,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   @Test
   public void buildPlan_nullLabel_usesDefaultTypeV() {
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "MatchNL", "k", "v");
+    graph.addVertex(T.label, "MatchNL", "k", "v");
     graph.tx().commit();
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var statement = new GqlMatchStatement(
           List.of(filter("x", null)));
@@ -256,7 +268,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
         stream.next();
       }
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
@@ -264,14 +276,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   @Test
   public void buildPlan_blankLabel_usesDefaultTypeV() {
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "MatchBL", "k", "v");
+    graph.addVertex(T.label, "MatchBL", "k", "v");
     graph.tx().commit();
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var statement = new GqlMatchStatement(
           List.of(filter("y", "")));
@@ -283,7 +292,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
         stream.next();
       }
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
@@ -292,20 +301,17 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   @Test
   public void createExecutionPlan_singleArgOverload_usesCacheByDefault() {
     var query = "MATCH (n:OUser)";
-    var statement = (GqlMatchStatement) GqlPlanner.parse(query);
+    var statement = parseMatch(query);
     statement.setOriginalStatement(query);
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan = statement.createExecutionPlan(ctx);
       Assert.assertNotNull(plan);
       Assert.assertTrue(GqlExecutionPlanCache.instance(session).contains(query));
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
@@ -313,20 +319,17 @@ public class GqlMatchStatementTest extends GraphBaseTest {
 
   @Test
   public void createExecutionPlan_cacheFalse_createsDifferentInstances() {
-    var statement = (GqlMatchStatement) GqlPlanner.parse("MATCH (n:OUser)");
+    var statement = parseMatch("MATCH (n:OUser)");
     statement.setOriginalStatement("MATCH (n:OUser)");
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan1 = statement.createExecutionPlan(ctx, false);
       var plan2 = statement.createExecutionPlan(ctx, false);
       Assert.assertNotSame(plan1, plan2);
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
@@ -337,16 +340,13 @@ public class GqlMatchStatementTest extends GraphBaseTest {
     var statement = new GqlMatchStatement(
         List.of(filter("n", "OUser")));
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan = statement.createExecutionPlan(ctx, true);
       Assert.assertNotNull(plan);
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
@@ -355,14 +355,11 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   @Test
   public void createExecutionPlan_cacheHit_returnsDifferentInstance() {
     var query = "MATCH (cc:OUser)";
-    var statement = (GqlMatchStatement) GqlPlanner.getStatement(query, null);
+    var statement = matchStatement(query);
     statement.setOriginalStatement(query);
 
-    var graphInternal = (YTDBGraphInternal) graph;
-    var tx = graphInternal.tx();
-    tx.readWrite();
+    var session = readWriteSession();
     try {
-      var session = tx.getDatabaseSession();
       var ctx = new GqlExecutionContext(session);
       var plan1 = statement.createExecutionPlan(ctx, true);
       var plan2 = statement.createExecutionPlan(ctx, true);
@@ -371,7 +368,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       Assert.assertNotSame(plan1, plan2);
       Assert.assertTrue(GqlExecutionPlanCache.instance(session).contains(query));
     } finally {
-      tx.commit();
+      commitGraphTx();
     }
   }
 
@@ -450,7 +447,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for age=30", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -476,7 +473,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for active=true", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -502,7 +499,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for city='NYC'", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -528,7 +525,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for price=19.99", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -556,7 +553,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for ref=<rid>", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -583,7 +580,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for tags=['java','database']", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -610,7 +607,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for metadata={...}", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -638,7 +635,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for eventDate=2024-01-01", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -665,7 +662,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for age=30 AND city='NYC'", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -752,7 +749,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for data=<binary>", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -780,7 +777,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for price=19.99 (BigDecimal)", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -808,7 +805,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for tags={java,database}", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -845,7 +842,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Expected exactly 1 match for refs={rid1,rid2}", 1, count);
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -853,16 +850,6 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   // GQL Parser path tests — exercise GqlMatchVisitor.extractLiteralValue()
   // and helper methods through full GQL parsing pipeline
   // ══════════════════════════════════════════════════════════════════
-
-  private static GqlMatchStatement parseMatch(String gql) {
-    return (GqlMatchStatement) GqlPlanner.parse(gql);
-  }
-
-  private static SQLMatchFilter firstFilter(GqlMatchStatement stm) {
-    Assert.assertNotNull(stm.getMatchFilters());
-    Assert.assertFalse(stm.getMatchFilters().isEmpty());
-    return stm.getMatchFilters().getFirst();
-  }
 
   // ── Parser: string literal ──
 
@@ -1065,7 +1052,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1084,7 +1071,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1103,7 +1090,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1124,7 +1111,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1143,7 +1130,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1162,7 +1149,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1183,7 +1170,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1205,7 +1192,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1226,7 +1213,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1247,7 +1234,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1268,7 +1255,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1289,7 +1276,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1307,7 +1294,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse(stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1344,14 +1331,15 @@ public class GqlMatchStatementTest extends GraphBaseTest {
   }
 
   @Test
+  @SuppressWarnings("unused")
   public void extractLiteralValue_escapedQuoteProducesCorrectString() {
     // Verify the actual extracted value contains a literal quote character.
     var stm = parseMatch("MATCH (a:V {name: 'it\\'s'})");
     var filter = firstFilter(stm);
     // Execute on a matching vertex to verify the filter works end-to-end
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "V",
+    graph.addVertex(T.label, "V",
         "name", "it's");
-    graph.addVertex(org.apache.tinkerpop.gremlin.structure.T.label, "V",
+    graph.addVertex(T.label, "V",
         "name", "its");
     graph.tx().commit();
 
@@ -1363,7 +1351,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       stream.next();
       Assert.assertFalse("Should match exactly one vertex", stream.hasNext());
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1400,16 +1388,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_indexedPropertyFilter_usesIndex() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("IdxPrs",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createIndex("IdxPrs.name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "name");
-    });
+    prepareIndexedVertexClass(
+        "IdxPrs",
+        List.of(schemaProperty("name", PropertyType.STRING)),
+        List.of(schemaIndex("IdxPrs.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name")));
 
     graph.addVertex(T.label, "IdxPrs", "name", "Alice");
     graph.addVertex(T.label, "IdxPrs", "name", "Bob");
@@ -1424,7 +1406,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           "Indexed property filter should use FETCH FROM INDEX, plan was:\n" + planStr,
           planStr.contains("FETCH FROM INDEX"));
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1450,7 +1432,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           "Non-indexed filter should use FETCH FROM CLASS, plan was:\n" + planStr,
           planStr.contains("FETCH FROM CLASS"));
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1460,16 +1442,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_indexedPropertyFilter_correctResults() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("IdxPrs2",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("age",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.INTEGER);
-      clazz.createIndex("IdxPrs2.age",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "age");
-    });
+    prepareIndexedVertexClass(
+        "IdxPrs2",
+        List.of(schemaProperty("age", PropertyType.INTEGER)),
+        List.of(schemaIndex("IdxPrs2.age", SchemaClass.INDEX_TYPE.NOTUNIQUE, "age")));
 
     graph.addVertex(T.label, "IdxPrs2", "name", "Young", "age", 25);
     graph.addVertex(T.label, "IdxPrs2", "name", "Old", "age", 60);
@@ -1493,7 +1469,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Should find exactly 2 vertices with age=25", 2, count);
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1503,16 +1479,10 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_indexedPropertyFilter_showsSpecificIndexName() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("IdxNameChk",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("email",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createIndex("IdxNameChk.email",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.UNIQUE,
-          "email");
-    });
+    prepareIndexedVertexClass(
+        "IdxNameChk",
+        List.of(schemaProperty("email", PropertyType.STRING)),
+        List.of(schemaIndex("IdxNameChk.email", SchemaClass.INDEX_TYPE.UNIQUE, "email")));
 
     graph.addVertex(T.label, "IdxNameChk", "email", "alice@test.com");
     graph.tx().commit();
@@ -1526,7 +1496,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
           "Plan should reference the specific index name, plan was:\n" + planStr,
           planStr.contains("IdxNameChk.email"));
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1536,18 +1506,17 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_compositeIndexFilter_usesCompositeIndex() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("CmpIdx",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("firstName",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createProperty("lastName",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createIndex("CmpIdx.fullName",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "firstName", "lastName");
-    });
+    prepareIndexedVertexClass(
+        "CmpIdx",
+        List.of(
+            schemaProperty("firstName", PropertyType.STRING),
+            schemaProperty("lastName", PropertyType.STRING)),
+        List.of(
+            schemaIndex(
+                "CmpIdx.fullName",
+                SchemaClass.INDEX_TYPE.NOTUNIQUE,
+                "firstName",
+                "lastName")));
 
     graph.addVertex(T.label, "CmpIdx", "firstName", "Karl", "lastName", "Marx");
     graph.addVertex(T.label, "CmpIdx", "firstName", "Karl", "lastName", "Lagerfeld");
@@ -1572,7 +1541,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Should find exactly 1 vertex matching both properties", 1, count);
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1583,19 +1552,12 @@ public class GqlMatchStatementTest extends GraphBaseTest {
    */
   @Test
   public void explain_partialIndexMatch_usesIndexAndFilter() {
-    var graphInternal = (YTDBGraphInternal) graph;
-    graphInternal.executeSchemaCode(s -> {
-      var clazz = s.getMetadata().getSchema().createClass("PartIdx",
-          s.getMetadata().getSchema().getClass("V"));
-      clazz.createProperty("name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      clazz.createProperty("city",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType.STRING);
-      // Only 'name' is indexed, 'city' is not
-      clazz.createIndex("PartIdx.name",
-          com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE.NOTUNIQUE,
-          "name");
-    });
+    prepareIndexedVertexClass(
+        "PartIdx",
+        List.of(
+            schemaProperty("name", PropertyType.STRING),
+            schemaProperty("city", PropertyType.STRING)),
+        List.of(schemaIndex("PartIdx.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name")));
 
     graph.addVertex(T.label, "PartIdx", "name", "Alice", "city", "Berlin");
     graph.addVertex(T.label, "PartIdx", "name", "Alice", "city", "London");
@@ -1621,7 +1583,7 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       }
       Assert.assertEquals("Should find exactly 1 vertex (Alice in Berlin)", 1, count);
     } finally {
-      graphInternal.tx().commit();
+      commitGraphTx();
     }
   }
 
@@ -1649,21 +1611,60 @@ public class GqlMatchStatementTest extends GraphBaseTest {
       var plan = statement.createExecutionPlan(ctx, false);
       var stream = plan.start(ctx.session());
       var session = ctx.session();
-      var tx = session.getActiveTransaction();
       while (stream.hasNext()) {
-        var row = (Result) stream.next();
-        var bound = row.getProperty("a");
-        if (bound instanceof Result nested) {
-          tags.add(nested.getProperty("scenario"));
-        } else if (bound instanceof Identifiable id) {
-          tags.add(tx.<Entity>load(id).getProperty("scenario"));
-        } else {
-          Assert.fail("unexpected binding type for alias 'a': " + bound.getClass());
-        }
+        var row = requireResult(stream.next());
+        tags.add(scenarioFromAliasBinding(row.getProperty("a"), session));
       }
       return tags;
     } finally {
-      ((YTDBGraphInternal) graph).tx().commit();
+      commitGraphTx();
     }
+  }
+
+  private static Result requireResult(Object row) {
+    if (!(row instanceof Result result)) {
+      throw new AssertionError("expected Result, got " + row.getClass());
+    }
+    return result;
+  }
+
+  private static String scenarioFromAliasBinding(Object bound, DatabaseSessionEmbedded session) {
+    if (bound instanceof Result nested) {
+      return nested.getProperty("scenario");
+    }
+    if (bound instanceof Identifiable id) {
+      return session.getActiveTransaction().<Entity>load(id).getProperty("scenario");
+    }
+    throw new AssertionError("unexpected binding type for alias 'a': " + bound.getClass());
+  }
+
+  private record SchemaProperty(String name, PropertyType type) {
+  }
+
+  private record SchemaIndex(String name, SchemaClass.INDEX_TYPE type, List<String> fields) {
+  }
+
+  private static SchemaProperty schemaProperty(String name, PropertyType type) {
+    return new SchemaProperty(name, type);
+  }
+
+  private static SchemaIndex schemaIndex(
+      String name, SchemaClass.INDEX_TYPE type, String... fields) {
+    return new SchemaIndex(name, type, List.of(fields));
+  }
+
+  private void prepareIndexedVertexClass(
+      String className, List<SchemaProperty> properties, List<SchemaIndex> indexes) {
+    ytdbGraph().executeSchemaCode(s -> {
+      var schema = s.getMetadata().getSchema();
+      var clazz = schema.createClass(className, Objects.requireNonNull(schema.getClass("V")));
+      for (var property : properties) {
+        clazz.createProperty(property.name(), property.type());
+      }
+      for (var index : indexes) {
+        clazz.createIndex(
+            index.name(), index.type(), index.fields().toArray(String[]::new));
+      }
+    });
   }
 }
