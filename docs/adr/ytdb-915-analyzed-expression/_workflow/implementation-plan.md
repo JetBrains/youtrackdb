@@ -58,16 +58,19 @@ flowchart TD
   Depends on T1 (types), T2 (`NumericOps`), and T3 (trees to evaluate).
 
 ## Checklist
-- [ ] Track 1: Substrate + framework
+- [x] Track 1: Substrate + framework
   > Track 1 builds the greenfield `AnalyzedExpr` substrate: a Java 21 sealed interface
   > with five immutable record variants, the static-dispatch visitor and
   > structural-sharing transform framework over it, and the
   > `UnsupportedAnalyzedNodeException` lowering-failure type. It is the foundation the
   > lowering pass and evaluator build on and has no dependency on the rest of S0.
-  > **Scope:** ~10 files covering the sealed `AnalyzedExpr` IR + 5 record variants, the
-  > `BinaryOperator`/`UnaryOperator` enums, `AnalyzedExprVisitor` + `AnalyzedExprTransform`
-  > with the static `dispatch`/`transformChildren`, `UnsupportedAnalyzedNodeException`,
-  > and a substrate unit test.
+  >
+  > **Track episode:** Sealed `AnalyzedExpr` IR + 5 nested records, static
+  > `dispatch`/`transformChildren`, visitor/transform framework, and
+  > `UnsupportedAnalyzedNodeException` shipped (7 files, 15/15 tests, 100%/100% cov) —
+  > see `plan/track-1.md` `## Episodes` § Track completion. (1 step, 0 failed)
+  >
+  > **Track file:** `plan/track-1.md`
 
 - [ ] Track 2: NumericOps whole-enum extraction
   > Track 2 extracts the whole numeric-promotion engine out of

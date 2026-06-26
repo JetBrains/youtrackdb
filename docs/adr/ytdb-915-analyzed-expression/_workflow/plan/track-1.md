@@ -25,11 +25,12 @@ It has no dependency on the rest of S0.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 
 - [x] 2026-06-26T12:46Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-26T15:28Z [ctx=safe] Step 1 complete (commit b6fa587564)
+- [x] 2026-06-26T15:38Z [ctx=safe] Track-level code review skipped (single-step high), track complete
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-26): "first sealed-type use" is false.** D1's Risks/Caveats,
@@ -369,6 +370,38 @@ leaf test), which the reviewer marked correct-by-construction since `Const`'s va
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/query/analyzed/UnaryOperator.java` (new)
 - `core/src/main/java/com/jetbrains/youtrackdb/internal/core/query/analyzed/UnsupportedAnalyzedNodeException.java` (new)
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/query/analyzed/AnalyzedExprTest.java` (new)
+
+### Track completion — 2026-06-26T15:38Z [ctx=safe]
+Track 1 landed the greenfield `AnalyzedExpr` substrate (`core/.../query/analyzed/`, 7 files,
+660 lines): a sealed `AnalyzedExpr` interface with five nested record variants (`Var`, `Const`,
+`BinaryOp`, `UnaryOp`, `FuncCall`); two static helpers — `dispatch` (one default-free `switch`)
+and `transformChildren` (recurse-and-rebuild with reference-identity structural sharing); the
+IR's own `BinaryOperator` (`+ - * /` plus the six comparisons) and `UnaryOperator` (`NOT`) enums;
+`AnalyzedExprVisitor<T>` (no defaults) and `AnalyzedExprTransform` (recurse-into-children
+defaults); and `UnsupportedAnalyzedNodeException(Class)`. The substrate test is 15/15 green at
+100% line / 100% branch coverage. S0 ships no live consumer, so the substrate test plus the
+compiler are the whole acceptance gate.
+
+The cross-track contract Tracks 3 (lowering) and 4 (evaluator) build on: `BinaryOperator`
+constants `PLUS/MINUS/STAR/SLASH/EQ/NE/LT/LE/GT/GE`; `UnaryOperator` is `NOT` only; visitor
+methods `visitVar/visitConst/visitBinaryOp/visitUnaryOp/visitFuncCall` with no defaults, so the
+Track 4 evaluator must implement all five. `FuncCall.args()` is read-only by caller convention —
+the record does not defensively copy; the rebuilt-arg path returns an unmodifiable list and the
+unchanged path returns the caller's list by reference, so Tracks 3 and 4 must treat `args()` as
+read-only (the contract is convention, not record-enforced). I3 (exhaustive visitor dispatch) is
+a compile-time guarantee everywhere except `AnalyzedExprTransform`, whose recurse-into-children
+defaults let a new variant pass through silently; the `VARIANT-ADDITION` anchor on the transform
+is the backstop.
+
+Plan deviation: the five record variants ship as nested records inside `AnalyzedExpr.java` (the
+established `StorageReadResult` sealed idiom), so the track is 7 files rather than the ~11 the
+sizing estimate named. No type and no decision changed. The step-level review ran the full
+track-pass-equivalent selection (this is the sole high step, so Phase C's review portion was
+skipped) and found 0 blockers, 1 should-fix, 10 suggestions; all in-scope items were fixed in
+`Review fix: harden analyzed-expr substrate tests and FuncCall rebuild` and gate-verified PASS.
+The one declined suggestion was a `Const(null)` leaf test, marked correct-by-construction.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 S0 ships with no live consumer, so this track's acceptance is its own substrate unit
