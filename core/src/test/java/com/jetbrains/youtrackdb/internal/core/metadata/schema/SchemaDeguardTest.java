@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
@@ -12,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.HashSet;
 import java.util.Set;
 import org.junit.Test;
 
@@ -528,5 +530,218 @@ public class SchemaDeguardTest extends DbTestBase {
               "the rename must NOT record the old name (an absent name reads as a drop at commit)",
               state.getChangedClasses().contains("RenameBefore"));
         });
+  }
+
+  /**
+   * A class created inside a transaction carries a provisional collection id, not a real one. The
+   * eager, self-committing collection allocation is replaced by a provisional placeholder drawn from
+   * the {@code <= -2} sub-range, so during the transaction the class's collection id is provisional.
+   * Pinning the id range proves the create no longer allocates a real (non-negative) collection id
+   * before commit — the precondition for the rollback guarantee the next test checks.
+   */
+  @Test
+  public void inTransactionCreateCarriesProvisionalCollectionId() {
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          var created = schema.createClass("ProvisionalCreate");
+          assertNotNull("the in-transaction create must succeed", created);
+
+          var collectionIds = created.getCollectionIds();
+          assertTrue("a plain class must own at least one collection", collectionIds.length > 0);
+          for (var collectionId : collectionIds) {
+            assertTrue(
+                "a tx-created class must carry a provisional collection id (<= -2), got "
+                    + collectionId,
+                SchemaShared.isProvisionalCollectionId(collectionId));
+            assertNotEquals(
+                "a provisional id must be disjoint from the abstract-class marker (-1)",
+                SchemaShared.ABSTRACT_COLLECTION_ID, collectionId);
+          }
+        });
+  }
+
+  /**
+   * The stray-collection-on-rollback defect: a class created inside a transaction that then rolls
+   * back must leave NO collection on disk. Before the provisional-id inversion the create eagerly
+   * self-committed a real storage collection, which survived the user transaction's rollback as an
+   * orphan. With the provisional allocation the create touches no storage collection during the
+   * transaction, so the storage collection set is byte-for-byte identical before and after the
+   * rolled-back transaction, and the committed schema never sees the class. The class is also
+   * absent from the storage-level collection registry (no {@code <class>_<n>} collection leaked).
+   */
+  @Test
+  public void rolledBackInTransactionCreateLeavesNoCollectionOnDisk() {
+    var committed = session.getSharedContext().getSchema();
+    var collectionsBefore = new HashSet<>(session.getCollectionNames());
+
+    session.begin();
+    session.getMetadata().getSchema().createClass("StrayCollectionProbe");
+    assertFalse("an in-transaction create must not touch the committed shared schema",
+        committed.existsClass("StrayCollectionProbe"));
+    session.rollback();
+
+    var collectionsAfter = new HashSet<>(session.getCollectionNames());
+    assertEquals(
+        "a rolled-back in-transaction create must leave the storage collection set unchanged"
+            + " (no stray collection on disk)",
+        collectionsBefore, collectionsAfter);
+    assertFalse("after rollback the created class must be absent from the committed schema",
+        committed.existsClass("StrayCollectionProbe"));
+    // No collection carrying the class's naming prefix leaked into the storage registry.
+    for (var collectionName : collectionsAfter) {
+      assertFalse(
+          "no collection for the rolled-back class may survive on disk, found " + collectionName,
+          collectionName.startsWith("straycollectionprobe_"));
+    }
+  }
+
+  /**
+   * An abstract class created inside a transaction still reads the single abstract marker
+   * {@code -1}, not a provisional id. The provisional sub-range is {@code <= -2} precisely so it
+   * cannot collide with the abstract marker; this test pins that the two id families stay disjoint
+   * on the tx-local create path (an abstract create takes the {@code {-1}} branch, never the
+   * provisional allocator).
+   */
+  @Test
+  public void inTransactionAbstractCreateStillReadsMinusOne() {
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          var created = schema.createAbstractClass("AbstractInTx");
+          assertNotNull("the in-transaction abstract create must succeed", created);
+          assertTrue("an abstract class must report isAbstract", created.isAbstract());
+
+          var collectionIds = created.getCollectionIds();
+          assertEquals("an abstract class owns exactly the single abstract marker",
+              1, collectionIds.length);
+          assertEquals("an abstract class's collection id is the abstract marker (-1)",
+              SchemaShared.ABSTRACT_COLLECTION_ID, collectionIds[0]);
+          assertFalse(
+              "the abstract marker must not be classified as a provisional id",
+              SchemaShared.isProvisionalCollectionId(collectionIds[0]));
+        });
+  }
+
+  /**
+   * Two classes created inside the same transaction receive distinct provisional collection ids.
+   * The per-transaction provisional allocator decrements on each allocation, so no two tx-created
+   * collections share a provisional id within a transaction (the uniqueness the in-memory reverse
+   * map relies on when it treats provisional ids as pending-real). Reusing a provisional id across
+   * classes would later collide both classes onto one real collection at commit.
+   */
+  @Test
+  public void provisionalCollectionIdsAreUniqueWithinMultiClassTransaction() {
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          var first = schema.createClass("MultiClassA");
+          var second = schema.createClass("MultiClassB");
+
+          var allProvisionalIds = new HashSet<Integer>();
+          for (var collectionId : first.getCollectionIds()) {
+            assertTrue("first class's ids must be provisional",
+                SchemaShared.isProvisionalCollectionId(collectionId));
+            assertTrue("a provisional id must be unique across the transaction's classes",
+                allProvisionalIds.add(collectionId));
+          }
+          for (var collectionId : second.getCollectionIds()) {
+            assertTrue("second class's ids must be provisional",
+                SchemaShared.isProvisionalCollectionId(collectionId));
+            assertTrue("a provisional id must be unique across the transaction's classes",
+                allProvisionalIds.add(collectionId));
+          }
+          assertEquals(
+              "the two classes' provisional id sets must be disjoint",
+              first.getCollectionIds().length + second.getCollectionIds().length,
+              allProvisionalIds.size());
+
+          // The in-memory reverse map resolves each provisional id back to its owning tx-created
+          // class during the transaction (the pending-real treatment): a missed in-memory map site
+          // would leave the provisional id unmapped here.
+          var txLocal = session.getTxSchemaState().getTxLocalSchema();
+          for (var collectionId : first.getCollectionIds()) {
+            assertEquals("the provisional id must resolve to its owning class in the reverse map",
+                "MultiClassA", txLocal.getClassByCollectionId(collectionId).getName());
+          }
+        });
+  }
+
+  /**
+   * The {@link TxSchemaState} provisional&rarr;real carrier round-trips: a recorded resolution reads
+   * back the real id, an unrecorded provisional id reads the {@code -1} not-resolved sentinel, and
+   * the allocator hands out a strictly decreasing, disjoint-from-{@code -1} sequence. This is the
+   * carrier the commit-time reconciliation populates and the patch list reads to re-point every
+   * provisional reference to its real id before any record serializes.
+   */
+  @Test
+  public void txSchemaStateProvisionalToRealCarrierRoundTrips() {
+    session.executeInTx(
+        tx -> {
+          // Seed the tx-local state by routing one schema write through the proxy, then read the
+          // state's carrier directly (the carrier is the substrate the commit consumes).
+          session.getMetadata().getSchema().createClass("CarrierSeed");
+          var state = session.getTxSchemaState();
+          assertNotNull("a routed schema write must have seeded the tx-local state", state);
+
+          var firstProvisional = state.allocateProvisionalCollectionId();
+          var secondProvisional = state.allocateProvisionalCollectionId();
+          assertTrue("an allocated provisional id must be in the <= -2 sub-range",
+              SchemaShared.isProvisionalCollectionId(firstProvisional));
+          assertTrue("an allocated provisional id must be in the <= -2 sub-range",
+              SchemaShared.isProvisionalCollectionId(secondProvisional));
+          assertTrue("successive provisional ids must strictly decrease (stay unique)",
+              secondProvisional < firstProvisional);
+          assertNotEquals("a provisional id must never equal the abstract marker",
+              SchemaShared.ABSTRACT_COLLECTION_ID, firstProvisional);
+
+          assertEquals("an unrecorded provisional id must read the not-resolved sentinel (-1)",
+              SchemaShared.ABSTRACT_COLLECTION_ID, state.getResolvedCollectionId(firstProvisional));
+
+          state.recordResolvedCollectionId(firstProvisional, 42);
+          assertEquals("a recorded provisional id must read back its real id",
+              42, state.getResolvedCollectionId(firstProvisional));
+          assertEquals("an unrecorded provisional id stays at the not-resolved sentinel",
+              SchemaShared.ABSTRACT_COLLECTION_ID,
+              state.getResolvedCollectionId(secondProvisional));
+          assertEquals("the live resolution map must carry exactly the one recorded mapping",
+              1, state.getResolvedCollectionIds().size());
+        });
+  }
+
+  /**
+   * The predicate split keeps the abstract-class marker {@code -1} skipped at every in-memory map
+   * site. Creating an abstract class (committed path) and then dropping it drives the single
+   * {@code -1} marker through the uniqueness check ({@code checkCollectionsAreAbsent}), the
+   * reverse-map populate ({@code addCollectionClassMap}), and the reverse-map remove
+   * ({@code removeCollectionClassMap}). Each must skip the abstract marker exactly as before the
+   * split: the marker is never entered into the reverse map, and the create/drop succeed. This pins
+   * that the {@code <= -2} vs {@code -1} split left the abstract half of the predicate behaviourally
+   * unchanged (only the {@code <= -2} provisional half is newly treated as pending-real).
+   */
+  @Test
+  public void abstractClassMarkerStaysSkippedAtInMemoryMapSites() {
+    var schema = session.getMetadata().getSchema();
+    var committed = session.getSharedContext().getSchema();
+
+    // Abstract create: the class's collection id list is {-1}. checkCollectionsAreAbsent must skip
+    // the marker (no SchemaException for a duplicate), and addCollectionClassMap must skip it (no
+    // reverse-map entry for an abstract class).
+    var cls = schema.createAbstractClass("AbstractMarkerProbe");
+    assertTrue("the class must be abstract", cls.isAbstract());
+    assertEquals("an abstract class owns only the abstract marker", 1,
+        cls.getCollectionIds().length);
+    assertEquals("an abstract class's only collection id is the abstract marker (-1)",
+        SchemaShared.ABSTRACT_COLLECTION_ID, cls.getCollectionIds()[0]);
+    assertEquals("the abstract marker must never be mapped to a class in the reverse map",
+        null, committed.getClassByCollectionId(SchemaShared.ABSTRACT_COLLECTION_ID));
+
+    // Drop: removeCollectionClassMap iterates the class's ids ({-1}) and must skip the abstract
+    // marker (no spurious reverse-map removal). The drop succeeds and the class is gone.
+    schema.dropClass("AbstractMarkerProbe");
+    assertFalse("the dropped abstract class must be gone from the committed schema",
+        committed.existsClass("AbstractMarkerProbe"));
+    assertEquals("dropping an abstract class must leave the abstract marker unmapped",
+        null, committed.getClassByCollectionId(SchemaShared.ABSTRACT_COLLECTION_ID));
   }
 }
