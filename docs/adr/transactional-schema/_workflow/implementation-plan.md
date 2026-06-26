@@ -434,6 +434,13 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > collection) is Track-4-owned per D2/D10.
   >
   > **Track file:** `plan/track-3.md` (4 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — no contradiction with the remaining tracks.
+  > Track 3's late changed-class create/rename recording and the engaged mutex are
+  > exactly what Track 4's D9 set-difference diff and four-lock acquisition consume.
+  > Two planned hand-offs now land on Track 4 as designed: CS1 (a rolled-back in-tx
+  > create must leave no recovery-visible stray collection, D2/D10) and the deferred
+  > D6 write-amplification win plus the F59 root-omission regression.
 
 - [ ] Track 4: Commit-time reconciliation and the schema-carrying commit lock (D1, D2, D3, D6, D9, D10, D19)
   > Make the commit compute the structural delta as a set difference over committed
