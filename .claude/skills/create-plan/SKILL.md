@@ -779,9 +779,12 @@ Help the user develop the plan:
    `design-author`, the `readability-auditor`, and the `absorption-check`) plus
    the de-warmed `comprehension-review` gate. Each is an agent definition with a
    minimal `tools:` allow-list spawned by `subagent_type` basename, with its
-   per-spawn parameters in a params file under `_workflow/plan/` (one file per
-   spawn) and a byte-identical spawn-prompt body that names only that file, so
-   the shared prompt body caches across the fan-out. The spawn contracts, the
+   per-spawn parameters in a params file under `_workflow/reviews/` (one file per
+   spawn; the plan-scoped authoring-loop review home, `conventions-execution.md`
+   `§2.5` Third-scope review-file home — the same home `edit-design/SKILL.md`
+   § Step 4 uses) and a byte-identical spawn-prompt body that names only that
+   file, so the shared prompt body caches across the fan-out. The spawn
+   contracts, the
    params-file keys, and the fan-out cache warm-up are the same ones
    `edit-design/SKILL.md` § Step 4 defines for the creation kinds; this item
    reuses them with the track-path values below rather than restating them.
@@ -813,7 +816,11 @@ Help the user develop the plan:
      track-path fan-out per track file: one `readability-auditor` spawn per
      `plan/track-N.md` (in track-number order), its params file carrying
      `target=tracks`, `target_path` set to that one track file, and a
-     whole-file `range` (line 1 to the file's last line).** The single
+     whole-file `range` (line 1 to the file's last line).** This per-file fan-out
+     **omits** `slice_count` and `total_lines` — those two params are passed only
+     on the design-path creation-kind fan-out, so the agent-side whole-doc guard
+     stays inert on the track path (per `readability-auditor.md` § The whole-doc
+     guard, the guard applies only when both params are present). The single
      `(target_path, range)` slice model that `edit-design/SKILL.md` § Step 4
      defines for the design path (one ~200-line window in the single
      `design.md`) does not partition N track files on its own; this per-file
@@ -849,6 +856,33 @@ Help the user develop the plan:
    contract the Step 4 part 2 gate and `edit-design/SKILL.md` § Step 6 carry —
    the cap is restated here so the loop carries its own termination rather than
    borrowing it across skills.
+
+   **Cross-round convergence: the same mechanism, parameterized.** The track
+   path runs the identical cross-round convergence mechanism the design path
+   does — `edit-design/SKILL.md` § Step 6 "The canonical convergence mechanism
+   (section-keyed settled-state)" is the canonical statement; this loop
+   cross-references it rather than restating it. Apply it with the track-path
+   parameters: the **settled-state key** is per `track-N.md` file (not per
+   `##` / `# Part` section as on the design path), and the **standing-anchor
+   set** the anchor-folded content hash folds in is the plan Component Map plus
+   each track's `## Purpose / Big Picture` (not `## Overview` + `## Core
+   Concepts`). Fold in only the track-path anchors that exist, mirroring the
+   design-path "when present" tolerance: each track's `## Purpose / Big Picture`,
+   plus the Component Map when the plan carries one. An absent Component Map on a
+   thin `minimal` plan is not an error and does not force a re-audit by itself —
+   the hash simply folds fewer anchors. A track that returned clean and is
+   unchanged (its anchor-folded hash matches last round) has its re-flags dropped;
+   a Component Map edit re-opens every track's settled-state, the same way an
+   Overview edit does on the design path. The standing anchors are byte-stable
+   for the loop's
+   duration — items 1-8 settle the plan Component Map and the track skeletons
+   *before* this item's dual-clean loop runs — so the hash does not churn (this
+   holds in `lite` / `minimal` too: the Component Map is not still in flux
+   during the loop). This adds **only** the convergence-mechanism cross-
+   reference. The **slicing unit stays per-file as already stated above** — one
+   `readability-auditor` spawn per `plan/track-N.md`, whole-file `range`; do not
+   read this as "apply the same partition," which is the design-path per-window
+   rule that does not partition N track files.
 
    **The gate-A7 warm-up deferral (inherited from Track 1).** The fan-out cache
    warm-up is a cost lever, not a correctness dependency: the loop must produce
