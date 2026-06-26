@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntMaps;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import java.util.HashSet;
 import java.util.Set;
@@ -59,6 +60,18 @@ import javax.annotation.Nonnull;
  */
 public final class TxSchemaState {
 
+  /**
+   * The "no resolution recorded yet" sentinel {@link #getResolvedCollectionId} returns on a miss.
+   * {@link Integer#MIN_VALUE} is deliberately distinct from every meaningful collection-id value: a
+   * real id ({@code >= 0}), the abstract-class marker {@code -1}
+   * ({@link SchemaShared#ABSTRACT_COLLECTION_ID}), and every provisional id the allocator hands out
+   * (which start at {@code -2} and decrement, so they never reach {@link Integer#MIN_VALUE} — the
+   * allocator asserts it stays in range). Using a dedicated sentinel rather than {@code -1} keeps a
+   * not-resolved result from being misread as "resolved to the abstract collection" by the
+   * commit-time consumer.
+   */
+  public static final int NO_RESOLUTION = Integer.MIN_VALUE;
+
   private final SchemaShared txLocalSchema;
   private final Set<String> changedClasses = new HashSet<>();
 
@@ -85,9 +98,11 @@ public final class TxSchemaState {
    */
   public TxSchemaState(@Nonnull SchemaShared txLocalSchema) {
     this.txLocalSchema = txLocalSchema;
-    // A real collection id is always non-negative, so -1 is an unambiguous "no resolution recorded"
-    // sentinel for getResolvedCollectionId — distinct from every real id a commit could store.
-    this.provisionalToReal.defaultReturnValue(SchemaShared.ABSTRACT_COLLECTION_ID);
+    // NO_RESOLUTION (Integer.MIN_VALUE) is the "no resolution recorded" sentinel
+    // getResolvedCollectionId returns on a miss. It is disjoint from every real id (>= 0), the
+    // abstract marker (-1), and every provisional id the allocator hands out, so a not-resolved
+    // result is never confused with a meaningful collection id.
+    this.provisionalToReal.defaultReturnValue(NO_RESOLUTION);
   }
 
   /**
@@ -124,7 +139,14 @@ public final class TxSchemaState {
    * the provisional id to its real id before any record serializes.
    */
   public int allocateProvisionalCollectionId() {
-    return nextProvisionalCollectionId--;
+    var allocated = nextProvisionalCollectionId--;
+    // Guard the (practically unreachable) wrap past Integer.MIN_VALUE: a wrapped counter would
+    // hand out a non-negative id that the downstream sign-class predicate reclassifies as a real
+    // id, silently corrupting the tx-local reverse map. The assert is zero-cost in production and
+    // mirrors the invariant recordResolvedCollectionId asserts on the resolution side.
+    assert SchemaShared.isProvisionalCollectionId(allocated)
+        : "provisional collection id space exhausted, allocator produced " + allocated;
+    return allocated;
   }
 
   /**
@@ -145,21 +167,25 @@ public final class TxSchemaState {
   }
 
   /**
-   * The real collection id the commit assigned to {@code provisionalCollectionId}, or {@code -1}
-   * (the {@link SchemaShared#ABSTRACT_COLLECTION_ID} sentinel, which is never a valid real id) when
-   * no resolution has been recorded for it yet.
+   * The real collection id the commit assigned to {@code provisionalCollectionId}, or
+   * {@link #NO_RESOLUTION} when no resolution has been recorded for it yet. The consumer must test
+   * for resolution against {@link #NO_RESOLUTION} (or via {@link #getResolvedCollectionIds}
+   * {@code containsKey}), never against {@code -1}, because {@code -1} is the abstract-class marker
+   * elsewhere in the schema.
    */
   public int getResolvedCollectionId(int provisionalCollectionId) {
     return provisionalToReal.get(provisionalCollectionId);
   }
 
   /**
-   * The live provisional&rarr;real resolution map, for the commit-time reconciliation to read and
-   * the patch list to apply. The returned map is the backing instance; callers must not mutate it
-   * outside {@link #recordResolvedCollectionId}.
+   * A read-only view of the provisional&rarr;real resolution map, for the commit-time reconciliation
+   * to read and the patch list to apply. The view is unmodifiable: writes must route through
+   * {@link #recordResolvedCollectionId}, which validates the provisional and real id ranges. The
+   * view's {@code defaultReturnValue} is {@link #NO_RESOLUTION}, so a {@code get} for an unresolved
+   * id returns the same not-resolved sentinel as {@link #getResolvedCollectionId}.
    */
   @Nonnull
   public Int2IntMap getResolvedCollectionIds() {
-    return provisionalToReal;
+    return Int2IntMaps.unmodifiable(provisionalToReal);
   }
 }
