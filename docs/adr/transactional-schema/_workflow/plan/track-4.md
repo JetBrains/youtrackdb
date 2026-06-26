@@ -26,6 +26,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] 2026-06-26T08:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-26T10:04Z [ctx=safe] Step 1 complete (commit 7c7a157efa)
 - [x] 2026-06-26T12:52Z [ctx=info] Step 2 complete (commit 346e87ae9d)
+- [x] 2026-06-26T16:40Z [ctx=info] Step 3 complete (commit 9d71010531)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -103,6 +104,20 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
     commit, then insert records in a separate tx. ErrorProne bans `System.out` in
     production code (use `LogManager.instance().warn`).
   See Decision Log 2026-06-26T15:39Z.
+- 2026-06-26T16:40Z Step 3 landed the lock-free commit-window read substrate. Two
+  forward facts the later work needs without re-reading the full episode:
+  - **BC1 (Step 4 enumeration).** PSI confirmed only `getPhysicalCollectionNameById`
+    and `readRecordInternal` take `stateLock` on the `session.load` → `executeReadRecord`
+    path, so the substrate covers exactly those. `recordExists` and `getCollectionName(2)`
+    also take the read lock but are off the `load` path. When Step 4 wraps the full
+    reconciliation-plus-promotion body in the window, re-run the PSI enumeration of
+    `stateLock.readLock()`-taking methods reachable from inside the window and either make
+    `recordExists` window-aware or record it as provably unreachable.
+  - **Seam reuse (Track 5/6).** The commit-window seam (`enterCommitWindow` /
+    `exitCommitWindow` / `isCommitWindowActive`) generalizes to any commit-body method
+    that re-enters `stateLock.readLock()` under the held write lock. Track 5's commit-time
+    index build and overlay publish should reuse it rather than add new lock-free variants.
+  See Episodes §Step 3.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -280,7 +295,7 @@ promotion under `SchemaShared.lock` before `stateLock`.
 
 1. Extract the lock-free commit-window primitives in `AbstractStorage`: pull `doAddIndexEngine` / `doDeleteIndexEngine(atomicOperation, …)` out of the public `addIndexEngine` / `deleteIndexEngine` bodies, add a lock-free `doGetIndexEngine(int)` that reads `indexEngines.get(id)` without taking `stateLock` (mirroring the existing lock-free `doGetAndCheckCollection`), and split the collection/engine create primitives so id-allocation plus file/engine creation is separable from in-memory registry publication (`collections` / `collectionMap` / `indexEngines` / `indexEngineNameMap`). Public methods stay behavior-preserving wrappers; unit tests confirm the wrappers preserve behavior and that `doGetIndexEngine` resolves while a write lock is held. — risk: high (crash-safety/durability: `AbstractStorage` storage-component primitives; concurrency: a new lock-free read of shared mutable state)  [x] commit: 7c7a157efa
 2. Produce D2 provisional collection ids in the tx-local create path: replace the eager, self-committing `session.addCollection` in `SchemaEmbedded.createCollections` (and any sibling tx-local create path) with provisional `<= -2` sentinel allocation, so an in-tx `createClass` carries a provisional id instead of a durable real collection; split the `collectionId < 0` predicate into abstract `-1` vs provisional `<= -2` across the in-memory map sites (`SchemaShared.checkCollectionCanBeAdded`, `addCollectionClassMap`, `getClassByCollectionId`, and the other ~11 `< 0` sites), keeping file/storage sites skipping all negatives; populate `collectionsToClasses` with provisional ids as pending-real (reverse map populated, uniqueness validated); carry the provisional→real id mapping on `TxSchemaState`. Closes the Track 3 CS1 stray-collection-on-rollback defect — a rolled-back in-tx create now leaves no collection on disk. This is the D2 production substrate the reconciliation core consumes. (Depends on Step 1.) — risk: high (architecture: inverts the eager structural collection allocation, the storage-leads dependency inversion's tx-local half; crash-safety/durability: a rolled-back or crashed-before-commit in-tx create must leave no stray collection; concurrency: the tx-local predicate-split sites)  [x] commit: 346e87ae9d
-3. Build the lock-free commit-window record-read substrate so commit-time schema serialization and promotion can read records while holding `stateLock.writeLock()`. `txLocalSchema.toStream` and `committedSchema.fromStream` read records via `session.load` → `executeReadRecord` → the security `getCollectionNameById` → `getPhysicalCollectionNameById` → `stateLock.readLock()`, which busy-spins forever because the non-reentrant `ScalableRWLock` never grants a read to the thread already holding the write lock. Add lock-free read variants (mirroring the existing `doGetIndexEngine` / `doGetAndCheckCollection` pattern) for every `stateLock.readLock()`-taking method the commit body reaches under the write lock: at minimum a lock-free `getPhysicalCollectionNameById` / `getCollectionNameById` for the security check and a lock-free `storage.readRecord` for genuine cache misses, exposed through a commit-window read path the schema `toStream` / `fromStream` and the position-allocation / `commitEntry` loop can call. Enumerate the full reachable readLock set with PSI find-usages (the D3/T1 enumeration extended from the index path to the record/schema read path) and confirm each is replaced or already lock-free; leave the non-reentrant lock and the pure-data read-lock path unchanged. White-box tests prove a lock-free read resolves while a write lock is held. Covers the D3/T1 readLock-re-entry hazard for the record-read surface the reconciliation core (Step 4) rests on. (Depends on Steps 1 and 2.) — risk: high (concurrency: lock-free reads of shared mutable state under the held write lock, across the session / security / storage read path; crash-safety/durability: the commit-window record-read correctness the reconciliation core rests on)  [ ]
+3. Build the lock-free commit-window record-read substrate so commit-time schema serialization and promotion can read records while holding `stateLock.writeLock()`. `txLocalSchema.toStream` and `committedSchema.fromStream` read records via `session.load` → `executeReadRecord` → the security `getCollectionNameById` → `getPhysicalCollectionNameById` → `stateLock.readLock()`, which busy-spins forever because the non-reentrant `ScalableRWLock` never grants a read to the thread already holding the write lock. Add lock-free read variants (mirroring the existing `doGetIndexEngine` / `doGetAndCheckCollection` pattern) for every `stateLock.readLock()`-taking method the commit body reaches under the write lock: at minimum a lock-free `getPhysicalCollectionNameById` / `getCollectionNameById` for the security check and a lock-free `storage.readRecord` for genuine cache misses, exposed through a commit-window read path the schema `toStream` / `fromStream` and the position-allocation / `commitEntry` loop can call. Enumerate the full reachable readLock set with PSI find-usages (the D3/T1 enumeration extended from the index path to the record/schema read path) and confirm each is replaced or already lock-free; leave the non-reentrant lock and the pure-data read-lock path unchanged. White-box tests prove a lock-free read resolves while a write lock is held. Covers the D3/T1 readLock-re-entry hazard for the record-read surface the reconciliation core (Step 4) rests on. (Depends on Steps 1 and 2.) — risk: high (concurrency: lock-free reads of shared mutable state under the held write lock, across the session / security / storage read path; crash-safety/durability: the commit-window record-read correctness the reconciliation core rests on)  [x] commit: 9d71010531
 4. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`, reading records through the Step 3 lock-free commit-window read substrate. Also apply the two prerequisites the first attempt validated (see Surprises 2026-06-26T15:39Z): the `isWriteTransaction()` schema-signal fix so a schema-only tx reaches `storage.commit`, and the `TxSchemaState` provisional→name carrier so the real collection is created under its generated name. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Steps 1, 2, and 3.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [ ]
 5. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 4.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [ ]
 6. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 4; *(parallel with Step 5)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
@@ -381,6 +396,64 @@ BOTH producers (`createCollections` and `setAbstractInternal`) by calling
 `-1`. The I-A2 durable-bytes half (commit → reload → real id survives, no `<= -2` on disk)
 and the crash-before-commit variant are deferred to Step 3's reconciliation plus the
 crash-restore harness; the Step 2 tests carry breadcrumbs to those.
+
+### Step 3 — commit 9d71010531, 2026-06-26T16:40Z [ctx=info]
+**What was done:** Built the lock-free commit-window record-read substrate in
+`AbstractStorage` so a schema-carrying commit can read records while holding
+`stateLock.writeLock()` without self-deadlocking the non-reentrant `ScalableRWLock`.
+A per-thread commit window (`enterCommitWindow()` / `exitCommitWindow()`, package-visible
+for Step 4, plus a private `isCommitWindowActive()` backed by a `ThreadLocal<int[]>` depth
+counter) lets the two read-lock-taking methods on the record-read path skip
+`stateLock.readLock()` while it is open: `getPhysicalCollectionNameById` (the security
+collection-name lookup) and `readRecordInternal` (a genuine record-cache miss). The held
+write lock supplies the exclusion and the happens-before edge; a thread that does not hold
+the write lock never opens the window, so the pure-data read-lock fast path and the
+non-reentrant lock are both unchanged. `exitCommitWindow` clamps the decrement at zero and
+removes the `ThreadLocal` once the depth returns to zero, so an over-exit cannot drive the
+counter negative and a reused pooled thread never observes leftover window state.
+
+**What was discovered:** The reachable read-lock set on the commit's record-read surface is
+tighter than the worst case. PSI find-usages over `session.load` → `executeReadRecord`
+confirmed exactly two storage methods take `stateLock` on that path; `doGetAndCheckCollection`
+(used inside `readRecordInternal`) was already lock-free from Step 1, and `recordExists` /
+`getCollectionName(2)` take the read lock but are not reached by `session.load` (schema
+serialization uses `load`, not `exists`). `ScalableRWLock` exposes `isWriteLocked()` but no
+`isWriteLockedByCurrentThread()` (a `StampedLock` tracks no owner thread), so the lock-free
+methods document the write-lock-held precondition rather than asserting it, mirroring the
+`doGetIndexEngine` contract from Step 1. The core test module runs with `-ea`, so an over-exit
+driven through `exitCommitWindow` trips the assert before the production clamp runs; the
+over-exit test pins both halves of the contract under `-ea` while the balanced paths cover the
+clamp branch for the gate.
+
+**What changed from the plan:** None. The step landed as decomposed (this step is itself the
+product of the 2026-06-26T15:39Z re-decomposition). Step-level review ran bugs-concurrency,
+crash-safety, performance, and test-concurrency and reached PASS at iteration 2: TX1
+(leaked-window hazard untested) and TX2 (negative control proved only the returned name, not
+that the lock is taken outside the window) were should-fix and are fixed, alongside the bundled
+BC2 (over-exit `assert`-only guard). BC3 / CS1 (the write-lock-held precondition has no runtime
+guard) are accepted as documented, since `ScalableRWLock` exposes no owner-thread query. PF1
+(per-read `ThreadLocal.get()` cost) and CS3 (informational) were confirmed non-issues; TX3 (a
+concurrent-registrar test) is deferred as optional, since the exclusion premise rests on the
+held write lock and is now exercised by the TX1/TX2 tests.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorageCommitPrimitivesTest.java` (modified)
+
+**Critical context:** Step 4 (the reconciliation core) MUST call `enterCommitWindow()` right
+after taking `stateLock.writeLock()` and `exitCommitWindow()` in a `finally`, wrapping every
+record read it performs under the write lock (`txLocalSchema.toStream`,
+`committedSchema.fromStream`, and the position-allocation / `commitEntry` reads). The window
+is a per-thread depth counter, so balanced nesting is required: a leaked open window makes
+later reads on the same pooled thread skip the read lock unsafely. The session side needs no
+change — `executeReadRecord` already calls `getPhysicalCollectionNameById` and
+`storage.readRecord`, which now self-route on the window. BC1 forward note: when Step 4 wraps
+the full reconciliation-plus-promotion body, re-run the PSI enumeration of
+`stateLock.readLock()`-taking methods reachable from inside the window and either make
+`recordExists` window-aware or record it as provably unreachable. The seam generalizes —
+Track 5's commit-time index build and overlay publish should reuse the same window rather than
+add new lock-free variants. The track's code-only cumulative diff stands at ~1292 lines with
+the heaviest step (Step 4) still ahead, so Phase C should watch the review burden.
 
 ## Validation and Acceptance
 - One transaction creates two classes (16 collections, 2+ engines) plus records,
