@@ -79,56 +79,66 @@ Three open design questions carried from the issue:
   change; bundling it couples a model experiment with a structural refactor.
   Not a downgrade — Opus stays everywhere, so [[no-weak-models-for-cost-levers]]
   is not in play.
-- **Knock-on:** YTDB-1162 stated it subsumes YTDB-1100. With Fable deferred,
-  YTDB-1100 is only *partially* absorbed here (its step-level-review reshape,
-  see D3); its implementer-upgrade part stays open. Bookkeeping to reconcile at
-  issue-close time (do not close YTDB-1100 as fully subsumed).
+- **Knock-on (revised after gate A1 + the D3 reversal):** YTDB-1162 stated it
+  subsumes YTDB-1100 and YTDB-1056 Part 2 via the step-level-review reshape.
+  That reshape is **no longer adopted** — revised D3 keeps the live
+  localized-versus-buried rule. Combined with the Fable deferral, **YTDB-1100
+  is now fully out of scope** here (neither its implementer upgrade nor its
+  step-level reshape lands) and **YTDB-1056 Part 2 is not adopted** either.
+  Only **YTDB-1056 Part 1** (the `review-test-behavior` + `review-test-completeness`
+  → `review-test-quality` merge) remains in scope. At issue-close: do **not**
+  close YTDB-1100 or YTDB-1056-P2 as subsumed; only YTDB-1056-P1 is absorbed.
+  The issue body's §"What this subsumes" and §"Step-level review" are walked
+  back accordingly.
 - **Alternatives rejected:** include Fable for `high` steps now (the issue's
   stated consumer 2) — deferred per user.
 
-### D3: Step-level review = all domain-triggered TEST reviewers, production omitted
-- 2026-06-26T09:20Z [ctx=safe]
-- Phase B sub-step 4 (fires on `risk: high` steps only) runs **every** test
-  reviewer whose domain trigger matches the step's changes — all related ones,
-  not just one — and **omits production code reviewers** entirely. One
-  iteration, no production panel, no iteration loop.
-- **Why:** across 12/12 audited Java high steps, step-level dimensional review
-  caught 0 production-logic bugs; the finding mass was test-quality
-  ([[substep4-catch-rate-study]]). Phase C re-runs the full production panel
-  over the cumulative diff, so step-level production review is redundant.
-  Running all *triggered* test reviewers (vs the issue's single one) keeps the
-  test-side feedback thorough while the step is fresh: a high step touching
-  two domains (e.g. concurrency + crash-safety) gets both test-concurrency and
-  test-crash-safety, not an arbitrary single pick.
-- **Alternatives rejected:** (a) the issue's "one trigger-matched test
-  reviewer" — too thin for multi-domain steps; (b) the current full
-  dimensional panel incl. production reviewers — wasteful per the catch-rate
-  evidence; (c) no step-level review at all — loses fresh-context test feedback
-  the orchestrator can act on before moving to the next step.
+### D3: Step-level review keeps the live localized-versus-buried rule (REVISED after gate A1)
+- 2026-06-26T09:20Z (decided) → **reversed 2026-06-26T10:40Z** after adversarial
+  gate finding A1.
+- Step-level review (Phase B sub-step 4, fires on `risk: high` steps) keeps the
+  **live `localized-versus-buried` rule** (`review-agent-selection.md`
+  §Step-level vs track-level routing) unchanged *in logic*; only the agent
+  roster is adapted to the split/merge:
+  - At a multi-step high step, the **bug-catcher runs at the step** (its
+    bug/logic/leak/null findings get buried once the step diff folds into the
+    cumulative diff) and the **test baselines defer to the Phase C track pass**
+    (they read whole-suite quality off the cumulative diff identically, so the
+    step adds nothing). After the split, the combined `review-bugs-concurrency`
+    step-level burial role is inherited by **`review-bugs`** (always) +
+    **`review-concurrency`** (when the concurrency category is present — a race
+    in the step diff is buriable too). The merged **`review-test-quality`**
+    inherits the deferred-to-track-pass role of the two test baselines.
+  - The single-step-high override (a sole-step track runs the full
+    track-pass-equivalent selection at the step, since Phase C is skipped) is
+    unchanged.
+- **Why:** the live rule is a reasoned single source of truth for step-vs-track
+  timing; the burial argument is sound, and this change should adapt the rule
+  to the new roster, not silently invert it. Gate A1 showed the earlier D3
+  ("all triggered test reviewers at the step, production omitted") ran exactly
+  the reviewers the live rule says add nothing at the step and dropped the one
+  the burial test keeps. User chose "minimal change to the live rule."
+- **Consequence:** the per-track complexity tag does **not** drive step-level
+  selection — step-level stays gated on the per-**step** `risk: high` tag plus
+  the live burial routing. The tag drives Phase-A panel breadth and Phase-C
+  rigor only (D6). The substep4 evidence ([[substep4-catch-rate-study]]) and
+  YTDB-1100's step-level reshape are **not** adopted (see D2 knock-on).
+- **Alternatives rejected:** (a) D3-as-originally-stated (test reviewers at
+  step, production omitted) — inverts the live rule; (b) keep `review-bugs` +
+  add triggered test reviewers (the gate's compromise option) — still runs the
+  low-value test passes at the step that Phase C catches identically.
 
-### D4: Step-level review runs verification-side reviewers; one symmetric rule
-- 2026-06-26T09:30Z [ctx=safe]
-- Generalizes D3 across both code and workflow machinery: **at a high step,
-  run the verification-side reviewers triggered by the step's domain; defer
-  the judgment/production reviewers to Phase C.**
-  - **Code side** — test reviewers (e.g. test-concurrency, test-crash-safety,
-    test-quality) run; production reviewers (bugs, concurrency, security,
-    code-quality, performance, crash-safety) omitted.
-  - **Workflow side** — `review-workflow-consistency` (always — cross-file
-    integrity: phantom refs, broken wiring, threshold/glossary drift) plus
-    `review-workflow-hook-safety` (when the step touches scripts/hooks/
-    settings) run; the judgment reviewers (writing-style, prompt-design,
-    instruction-completeness, context-budget) omitted.
-- **Why:** the verification reviewers catch *mechanical breakage* — a failing
-  test, a phantom reference, a broken hook — that is cheap to fix while the
-  step is fresh and expensive once later steps build on it (the D3
-  fresh-feedback rationale). The judgment/production reviewers assess quality
-  and are redundant with the Phase-C cumulative pass that re-runs the full
-  domain-selected panel.
-- **Alternatives rejected:** hook-safety only for workflow steps (the earlier
-  read) — misses cross-file breakage introduced mid-track that propagates;
-  full panel at step level — re-bloats step review with judgment passes Phase C
-  already re-runs.
+### D4: (SUPERSEDED by revised D3) no separate symmetric step-level rule
+- 2026-06-26T09:30Z → **superseded 2026-06-26T10:40Z** after gate A1.
+- The earlier D4 generalized the rejected D3 into a "step-level runs
+  verification reviewers, defers judgment/production" symmetric rule. With D3
+  reversed to keep the live rule, that framing is dropped: the live
+  `review-agent-selection.md` §Step-level vs track-level routing **already**
+  governs both the code-review and workflow-review groups' step-vs-track
+  routing. Step-level review for a workflow-machinery high step follows the
+  live rule's **workflow-review-group narrowing**, roster-adapted only — not a
+  new symmetric rule. The design reads that paragraph for the exact
+  workflow-reviewer step/track split; no new D4 rule is invented.
 
 ### D5: Reconciliation runs at Phase A, before Phase B, on any upward divergence
 - 2026-06-26T09:50Z [ctx=safe]
@@ -148,6 +158,17 @@ Three open design questions carried from the issue:
   3. Re-runs to PASS through the existing Phase-A review-iteration loop
      (cap 3); converges because the intensity ceiling is `high`.
   The reconciled tag (`max(steps)`) then governs Phase C as normal (D6).
+- **Reconciliation re-entry / termination (resolves gate A4).** The missed
+  reviewers run as ordinary Phase-A review passes — each its own review type
+  under the existing **per-review-type cap-3** on sub-step 3, exactly like the
+  predicted-intensity panel. Reconciliation itself fires **at most once per
+  Phase A**: after the missed reviewers run and any re-decomposition lands, the
+  divergence comparison is **not** re-evaluated against a second upward miss —
+  the panel is already at the `high` ceiling, so there is no decompose↔re-review
+  ping-pong. If re-decomposition raises `max(step tags)` again it can only reach
+  `high`, which the missed-reviewer pass already covered. Design states the
+  exact sub-step the missed-reviewer pass re-enters (it appends review types to
+  the sub-step-3 panel, then returns to sub-step 4 once) so the loop is bounded.
 - **Downward divergence** (`max(steps)` < prediction): no missed reviewers —
   the panel already over-ran (banked, safe). Phase C reads `max(steps)`,
   floored. Light flag to the decomposer to confirm the steps were not
@@ -182,6 +203,13 @@ Three open design questions carried from the issue:
     This re-keys today's tier-driven panel onto the per-track tag with no
     structural change (Adversarial = the default extra at medium+, Risk = the
     high-stakes add, because a `high` tag *is* a HIGH-trigger characteristic).
+    **Adversarial dropped on `low` is confirmed (gate A5, user choice):** the
+    live rule runs Adversarial in every lite/full track; here a genuinely
+    `low` track (pure refactor / tests / docs) gets Technical only. An
+    architecture-central track does **not** fall through this gap — it hits the
+    Architecture HIGH trigger (evaluated over the track's planned work, D9) and
+    so tags `high` → Risk + Adversarial; the risk-tag override is the backstop
+    for a subtle case the prediction misses.
   - **Phase C** runs the dimensional panel. **Domain alone** selects the
     reviewer set (the category→agent map); the set is **identical at every
     complexity level**. Complexity moves only the **rigor dial** — iteration
@@ -291,6 +319,72 @@ Three open design questions carried from the issue:
   multi-track only — same two flaws plus it strips the new design+single cell
   of a decision record.
 
+### D9: The per-track tag is computed over the track's planned work, not a file-path list
+- 2026-06-26T10:40Z [ctx=safe] — resolves gate A6.
+- The pre-decomposition track-tag prediction is computed by running the
+  `risk-tagging.md` HIGH-trigger criteria over the track's **planned work** —
+  its `## Plan of Work` (the prose sequence of edits) plus its `## Interfaces
+  and Dependencies` (the in-scope file set) — **not** over a bare file-path
+  list. The HIGH triggers are **content predicates** ("introduces
+  synchronization", "modifies WAL recovery", "adds an abstraction layer / SPI
+  registration"); a path list alone cannot evaluate them. The planner has
+  described the planned edits by the end of Phase 1, so the prediction has the
+  content to read. It remains a **prediction** (the planner's described work,
+  not the realized diff), reconciled with `max(step tags)` after decomposition
+  (D5).
+- **Two taxonomies, two purposes.** The **complexity tag** runs the 7
+  `risk-tagging.md` HIGH triggers (the same set the per-step risk tag uses).
+  **Phase-C reviewer selection** runs the 13 `code-review` file categories.
+  They overlap but are distinct and stay distinct: the tag answers "how hard"
+  (drives Phase-A breadth + Phase-C rigor, D6); the categories answer "which
+  dimensions" (drives the Phase-C reviewer set, D6). The design states the
+  mapping but does not merge them.
+- **Why:** the whole model rests on the tag being computable pre-decomposition;
+  grounding it in the planned work (content) rather than file paths is what
+  makes the HIGH content predicates evaluable, and the D5 reconciliation
+  absorbs the residual prediction error against the content-based step tags.
+- **Alternatives rejected:** compute from the `## Interfaces` file-path set
+  alone (the issue's loose "from the in-scope file set" wording) — file paths
+  cannot evaluate verb-on-change HIGH triggers, so the prediction would be a
+  crude path-location heuristic with a large reconciliation gap.
+
+### D10: Ledger schema delta + resume disambiguation
+- 2026-06-26T10:40Z [ctx=safe] — resolves gate A2 / A3 / A7.
+- The phase ledger is the persistence home for the new state the removed
+  `tier=` field used to carry, plus the new per-track tag. The schema delta:
+  - **Remove** `tier=`.
+  - **Add** `design_gate=` (`yes`/`no`) — the change-level design decision,
+    seeded at Phase 1; replaces the `tier`-keyed model/effort pin and the
+    consistency/structural-review design-presence gates.
+  - **Add** a **plan-presence / track-count** signal (e.g. `tracks=N` or
+    `plan=yes/no`), decided at end of Step 4b — replaces the `tier=minimal`
+    trigger the no-plan/single-track resume machinery keys off (precheck's
+    "default active track to 1", `workflow.md` "single-track ⇒ track-1, no
+    `## Checklist`"). Resolves A3.
+  - **Add** a **Phase-1-complete marker** so Step 1c distinguishes the new
+    `design + single-track` steady state (`design.md` present, no plan, one
+    track file, Phase-1 marker set) from a `full`-tier **mid-authoring crash**
+    (`design.md` present, plan absent, Phase-1 marker **unset**). File
+    presence alone cannot tell these apart — that is the A2 collision. The
+    Step-1c router gains this ledger check. Resolves A2.
+  - **Add** the **per-track reconciled-tag home** (the `max(steps)` value per
+    track, written at the A→C boundary) so a fresh Phase-C session reads it for
+    rigor selection (D6) and the Phase-4 `adr.md` predicate reads it for the
+    "∃ track ≥ medium" test (D8). Resolves A7.
+- **Touch list:** `workflow-startup-precheck.sh` (the `--append-ledger` key
+  set + validation), its 2 test files, `determine_state`, and the Step-1c
+  router in `create-plan/SKILL.md`. These are the executable workflow-machinery
+  edits that force §1.7 staging.
+- **Why:** D5's Phase-C governance and D8's `adr.md` predicate both dereference
+  a per-track-tag persistence site from fresh sessions; D8's new cell creates a
+  resume collision; D1 removed the `tier=minimal` resume trigger. All four need
+  a concrete ledger address, co-resolved here as one schema delta.
+- **Alternatives rejected:** persist the per-track tag in the **track file**
+  (a marker the Phase-C / Phase-4 reader greps) — workable, but a fresh
+  session would parse N track files for a value the ledger already centralizes
+  for resume; the ledger is the established resume-state home (it already
+  carried `tier`), so the tag joins it.
+
 ## Surprises & Discoveries
 
 - 2026-06-26T09:10Z [ctx=safe] The tier serves **three distinct mechanical
@@ -393,9 +487,10 @@ Three open design questions carried from the issue:
 ## Open Questions
 
 - 2026-06-26T09:20Z [ctx=safe] **The "test reviewer" set under D3 for a
-  workflow-machinery high step** — RESOLVED by D4: consistency (always) +
-  hook-safety (when scripts/hooks/settings touched); judgment reviewers defer
-  to Phase C.
+  workflow-machinery high step** — SUPERSEDED. The original answer (a new
+  symmetric verification-reviewer rule, old D4) is gone after the D3 reversal.
+  The answer is now the **live** `review-agent-selection.md` workflow-review-group
+  step/track narrowing, roster-adapted (revised D3 / superseded D4).
 - 2026-06-26T09:50Z [ctx=safe] Reconciliation rule (issue OQ1) — RESOLVED by
   D5. Reviewer floor + `domain × complexity` shape (issue OQ2) — RESOLVED by
   D6 (floor defined; complexity = rigor at Phase C, count at Phase A).
@@ -405,35 +500,32 @@ Three open design questions carried from the issue:
 - 2026-06-26T10:00Z [ctx=safe] Issue OQ3 (bugs/concurrency boundary) —
   RESOLVED by D7 (cognitive-mode ownership + backstop).
 
-All three of the issue's open questions are now resolved (D5 / D6 / D7). The
-core model is settled (D1-D7). Remaining items are **design-phase detail** to
-settle while authoring `design.md`, not foundational research:
+All three of the issue's open questions are resolved (D5 / D6 / D7), and the
+adversarial gate's iter-1 findings are resolved into the Decision Log (A1 →
+revised D3; A2/A3/A7 → D10; A4 → D5; A5 → D6; A6 → D9; A8/A9 noted below).
+The core model is settled (D1-D10). Remaining items are genuine design-phase
+detail, not foundational:
 
-- 2026-06-26T10:00Z [ctx=safe] **Where the per-track tags are persisted.** The
-  reconciled `max(steps)` tag governs Phase C, read by a *fresh*
-  `/execute-tracks` Phase C session, so it must be durable — ledger field vs
-  track-file marker. Lean ledger (a fresh session reads it without parsing the
-  track). The pre-decomposition prediction also needs a home if it is to be
-  compared at reconciliation.
-- 2026-06-26T10:00Z [ctx=safe] **When/who computes the track-tag prediction.**
-  From the track's in-scope file set in `## Interfaces and Dependencies`
-  (populated at Phase 1) via the risk-tagging HIGH criteria — computed by the
-  Phase-1 planner, or by the Phase-A orchestrator at panel-selection time.
-  Either works; pick one for determinism.
-- 2026-06-26T10:00Z [ctx=safe] **Domain taxonomy reconciliation.** Complexity
-  tagging uses risk-tagging's 7 HIGH triggers; reviewer selection uses
-  code-review's 13 file categories. They overlap but are not identical — design
-  must state which taxonomy drives the complexity tag vs the Phase-C reviewer
-  selection, and how they map.
-- 2026-06-26T10:00Z [ctx=safe] **Finding prefixes for the split agents.**
-  `review-bugs-concurrency` used `BC`; `review-bugs` and `review-concurrency`
-  need prefixes (test side uses `TX` for `review-test-concurrency`). Minor;
-  affects `finding-synthesis-recipe.md` example + references. Merged
-  `review-test-quality` keeps `TB` + `TC` verbatim per the issue.
-- 2026-06-26T10:00Z [ctx=safe] **Ledger schema change.** Remove the `tier=`
-  field; add `design_gate=` (and the per-track tag home above). Touches
-  `workflow-startup-precheck.sh` + its 2 test files +
-  `determine_state`/Step-1c readers.
+- 2026-06-26T10:40Z [ctx=safe] **Where the per-track tags are persisted** —
+  RESOLVED by D10 (ledger, per-track reconciled-tag home).
+- 2026-06-26T10:40Z [ctx=safe] **When/who computes the track-tag prediction** —
+  RESOLVED by D9 (the Phase-1 planner, over the track's planned work).
+- 2026-06-26T10:40Z [ctx=safe] **Domain taxonomy reconciliation** — RESOLVED by
+  D9 (7 HIGH triggers drive the tag; 13 categories drive reviewer selection;
+  separate, mapped not merged).
+- 2026-06-26T10:40Z [ctx=safe] **Ledger schema change** — RESOLVED by D10
+  (remove `tier=`; add `design_gate`, plan/track-count, Phase-1-complete
+  marker, per-track tag home).
+- 2026-06-26T10:40Z [ctx=safe] **STILL OPEN (design/impl detail, gate A9):**
+  finding prefixes for the split agents. `review-bugs-concurrency` used `BC`;
+  `review-bugs` and `review-concurrency` need prefixes (test side uses `TX`).
+  Minor; affects `finding-synthesis-recipe.md` + references. Merged
+  `review-test-quality` keeps `TB` + `TC` verbatim. Decide while authoring the
+  agent files.
+- 2026-06-26T10:40Z [ctx=safe] **Noted (gate A8/A9), no log change:** at
+  issue-close, do not close YTDB-1100 / YTDB-1056-P2 as subsumed (D2 knock-on);
+  author the two split agents in lockstep with the D7 cognitive-mode clauses +
+  the triage backstop verbatim.
 
 ## Baseline and re-validation
 
