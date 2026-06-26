@@ -231,4 +231,19 @@ public class PromoteStaticRidsFromFiltersTest {
 
     assertThat(aliasRids).containsKey("c");
   }
+
+  /**
+   * Operand-reversed RID equality (literal on the left-hand side) must also be promoted
+   * to ensure order-independence across incoming user queries.
+   */
+  @Test
+  public void reversedOperandLiteralRid_isPromoted() {
+    Map<String, SQLWhereClause> aliasFilters = new HashMap<>();
+    aliasFilters.put("c", parseWhere("SELECT FROM Comment WHERE #25:7 = @rid"));
+    Map<String, SQLRid> aliasRids = new HashMap<>();
+
+    MatchExecutionPlanner.promoteStaticRidsFromFilters(aliasFilters, aliasRids, ctx);
+
+    assertThat(aliasRids).containsKey("c");
+  }
 }
