@@ -2827,12 +2827,14 @@ public abstract class AbstractStorage
    * given atomic operation, without publishing the engine into the in-memory registries
    * ({@code indexEngineNameMap} / {@code indexEngines}). Everything this method touches is
    * buffered as WAL-reverted intent in {@code atomicOperation}, so a rolled-back or
-   * crashed-before-commit operation leaves no engine files behind. The caller publishes
-   * the returned engine into the registries separately via {@link #publishIndexEngine(int,
-   * BaseIndexEngine)} only after the atomic operation has committed, so a failed commit
-   * leaves no phantom in-memory registration. This mirrors the existing {@link
-   * #deleteIndexEngine(int)} discipline, which also defers its in-memory map mutation to
-   * after the atomic operation.
+   * crashed-before-commit operation leaves no engine files behind. Splitting creation from
+   * registry publication ({@link #publishIndexEngine(int, BaseIndexEngine)}) lets a caller
+   * defer the in-memory publish past commit so a failed commit leaves no phantom
+   * registration; the public {@link #addIndexEngine(IndexMetadata, Map)} wrapper still
+   * publishes inside the same atomic operation (its existing crash-safe behavior is
+   * unchanged), and the commit window that defers the publish is wired separately. This
+   * mirrors the existing {@link #deleteIndexEngine(int)} discipline, which already defers
+   * its in-memory map mutation to after the atomic operation.
    *
    * <p>The caller is responsible for id allocation: {@code engineData.getIndexId()} is the
    * caller-chosen internal id. The public {@link #addIndexEngine(IndexMetadata, Map)} uses
@@ -3320,9 +3322,14 @@ public abstract class AbstractStorage
    * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
    * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
    *
-   * <p>The caller must hold {@code stateLock.writeLock()} (commit window) or {@code
-   * stateLock.readLock()} (the public wrapper) so the read of the {@code indexEngines}
-   * registry is safe against a concurrent registrar.
+   * <p><b>Precondition the caller MUST satisfy:</b> this method does no in-method
+   * synchronization and reads the plain (non-{@code volatile}, non-concurrent) {@code
+   * indexEngines} list directly, so the caller MUST hold {@code stateLock} across the call:
+   * {@code writeLock()} for the commit window, {@code readLock()} for the public wrapper.
+   * That held lock is the only thing that excludes a concurrent registrar and
+   * supplies the happens-before edge making the registry read visibility-safe; off-lock
+   * use (or use under only the metadata write locks, not {@code stateLock}) is a data race
+   * on a plain {@code ArrayList} and is unsupported.
    *
    * @param internalId the already-extracted internal index id (not the external,
    *                   API-version-tagged id).
@@ -5118,11 +5125,14 @@ public abstract class AbstractStorage
    * caller-allocated {@code collectionPos}, without publishing the collection into the
    * in-memory collections list and the name-keyed collection map. Everything this
    * method touches is buffered as WAL-reverted intent in {@code atomicOperation}, so a
-   * rolled-back or crashed-before-commit operation leaves no collection file behind. The
-   * caller publishes the returned collection separately via {@link
-   * #registerCollection(StorageCollection)} only after the atomic operation has committed,
-   * so a failed commit leaves no phantom in-memory registration. This is the
-   * collection-side analogue of {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
+   * rolled-back or crashed-before-commit operation leaves no collection file behind.
+   * Splitting creation from registry publication ({@link
+   * #registerCollection(StorageCollection)}) lets a caller defer the in-memory publish past
+   * commit so a failed commit leaves no phantom registration; the public {@link
+   * #doAddCollection(AtomicOperation, String)} wrapper still publishes inside the same
+   * atomic operation (its existing crash-safe behavior is unchanged), and the commit window
+   * that defers the publish is wired separately. This is the collection-side analogue of
+   * {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
    *
    * <p>The caller owns id allocation: the public {@link #doAddCollection(AtomicOperation,
    * String)} scans for the first null slot; the commit window uses a commit-local
