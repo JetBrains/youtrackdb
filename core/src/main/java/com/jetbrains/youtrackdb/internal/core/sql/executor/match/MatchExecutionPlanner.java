@@ -4617,7 +4617,83 @@ public class MatchExecutionPlanner {
     this.aliasRids = aliasRids;
     this.inferredWhileExprAliases = inferredAliases;
 
+    // Promote `WHERE: (@rid = <literal|param>)` into aliasRids before
+    // estimateRootEntries() and the topological schedule run. With a RID slot
+    // populated, the estimate collapses to 1, so a 2M-row class restricted to
+    // one RID stops losing root selection to a 10K-row unfiltered class.
+    // The promotion also lets createSelectStatement() take the FetchFromRids
+    // fast path instead of a class scan with post-filter.
+    // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
+    // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
+    // join in the pre-filter pass.
+    // The @rid term stays in aliasFilters on purpose. When the alias is not
+    // picked as a root, the existing DirectRid pre-filter pass on the
+    // producing edge still relies on findRidEquality() to attach a singleton
+    // intersection descriptor.
+    promoteStaticRidsFromFilters(aliasFilters, aliasRids, ctx);
+
     rebindFilters(aliasFilters);
+  }
+
+  /**
+   * Promotes static {@code @rid = <literal|param>} equalities from
+   * {@code aliasFilters} into {@code aliasRids} so that
+   * {@link #estimateRootEntries} returns 1 for those aliases and
+   * {@link #createSelectStatement} uses a direct RID fetch.
+   *
+   * <p>The original {@code @rid} term is intentionally left in the filter. When
+   * the alias does not end up as a root, the pre-filter pass on the producing
+   * edge still relies on {@link SQLWhereClause#findRidEquality()} to attach a
+   * {@code DirectRid} intersection descriptor.
+   *
+   * <p>Skipped:
+   * <ul>
+   *   <li>aliases that already have a RID slot (e.g.
+   *       {@code {as: a, rid: #1:2}})
+   *   <li>{@code @rid = $matched.X.@rid} back-refs (handled by
+   *       {@code EdgeRidLookup} or Pattern A back-ref hash join)
+   *   <li>expressions that are not early-calculable (depend on per-row context)
+   * </ul>
+   */
+  // Visible for testing
+  static void promoteStaticRidsFromFilters(
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, SQLRid> aliasRids,
+      CommandContext ctx) {
+    for (var entry : aliasFilters.entrySet()) {
+      var alias = entry.getKey();
+      var filter = entry.getValue();
+      if (filter == null) {
+        continue;
+      }
+      // Don't overwrite an explicit RID slot from the parser.
+      if (aliasRids.containsKey(alias)) {
+        continue;
+      }
+      var ridExpr = filter.findRidEquality();
+      if (ridExpr == null) {
+        continue;
+      }
+      // Back-ref `@rid = $matched.X.@rid`: leave it for EdgeRidLookup.
+      var involved = ridExpr.getMatchPatternInvolvedAliases();
+      if (involved != null && !involved.isEmpty()) {
+        continue;
+      }
+      // Reject anything else that needs per-row context.
+      if (!ridExpr.isEarlyCalculated(ctx)) {
+        continue;
+      }
+      // Wrap the value-side expression in a SQLRid via its non-legacy
+      // expression slot. SQLRid.toRecordId() executes the expression and
+      // unwraps the resulting Identifiable, which works for both literal
+      // RIDs (`#25:7`) and parameters (`:rid`).
+      var rid = new SQLRid(-1);
+      SQLRid.internalPromoteExpression(rid, ridExpr);
+      aliasRids.put(alias, rid);
+      logger.debug(
+          "MATCH planner: promoted @rid filter to aliasRids for alias '{}'",
+          alias);
+    }
   }
 
   /**

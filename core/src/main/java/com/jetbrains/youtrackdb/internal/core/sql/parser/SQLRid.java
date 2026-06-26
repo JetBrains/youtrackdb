@@ -10,6 +10,8 @@ import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import org.jspecify.annotations.NonNull;
+
 import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
@@ -32,6 +34,10 @@ public class SQLRid extends SimpleNode {
 
   @Override
   public String toString(String prefix) {
+    if (expression != null) {
+      // node has been promoted, safely render expression text
+      return "#" + expression.toString(prefix);
+    }
     return "#" + collection.getValue() + ":" + position.getValue();
   }
 
@@ -138,6 +144,24 @@ public class SQLRid extends SimpleNode {
 
   public void setLegacy(boolean b) {
     this.legacy = b;
+  }
+
+  void setExpression(SQLExpression expression) {
+    this.expression = expression;
+    // Transition this node to pure expression form matching what grammar produces for {"@rid": <expr>}
+    // (legacy=false, no literal pair) to prevent toString/equals/copy from triggering NullPointerExceptions
+    // or operating on contradictory hybrid state.
+    this.legacy = false;
+    this.collection = null;
+    this.position = null;
+  }
+
+  /**
+   * Internal bridge method to allow the MatchExecutionPlanner to promote static expressions
+   * without exposing a destructive multi-field setter to the public API surface.
+   */
+  public static void internalPromoteExpression(@NonNull SQLRid rid, SQLExpression expression) {
+    rid.setExpression(expression);
   }
 
   public SQLInteger getCollection() {
