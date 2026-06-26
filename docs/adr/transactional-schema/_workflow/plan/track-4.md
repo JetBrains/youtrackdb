@@ -246,3 +246,6 @@ verbatim as test method names. Empty until Move 3 lands. -->
   commit window; a commit-local structural-id allocator (collection and engine axes)
   seeded inside the write lock; the schema-carry branch reading the unified
   schema-or-index signal at commit entry.
+
+## Base commit
+1dd9c0424f40e7aa9ec90858f6eb4b235f3a2c5f
