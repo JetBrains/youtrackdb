@@ -44,11 +44,14 @@ flowchart TD
   that cross-reference the canonical homes above; no rule is duplicated.
 
 ## Checklist
-- [ ] Track 1: Harden readability-auditor slicing and convergence
+- [x] Track 1: Harden readability-auditor slicing and convergence
   > Make the design-path auditor fan-out a deterministic orchestrator
   > obligation with an agent-side collapse guard, give the dual-clean loop
   > orchestrator-side section-keyed settled-state so it stops re-flagging
   > settled prose while the auditor stays fully cold, and relocate the
   > Phase-1 authoring-loop files from `plan/` to `_workflow/reviews/`. All
   > edits route through §1.7 full staging.
-  > **Scope:** ~6 files covering edit-design Step 4/6, readability-auditor.md, conventions-execution §2.5, create-plan Step 4b item 9, design-document-rules.md, readability-feedback.md
+  >
+  > **Track episode:** Hardened the dual-clean readability-auditor loop (deterministic slice partition + agent-side collapse guard + section-keyed settled-state convergence + file relocation), staged under §1.7. — see `plan/track-1.md` `## Episodes` § Track completion. (1 step, 0 failed)
+  >
+  > **Track file:** `plan/track-1.md`

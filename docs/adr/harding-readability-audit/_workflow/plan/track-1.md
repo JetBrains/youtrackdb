@@ -15,10 +15,11 @@ This track hardens three things, all as workflow-prose edits routed through §1.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 - [x] 2026-06-25T16:11Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-25T16:57Z [ctx=info] Step 1 complete (commit e45dff3ce6)
+- [x] 2026-06-26T07:16Z [ctx=safe] Track complete (1 step, 0 failed)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -249,6 +250,16 @@ Across every edit, three invariants hold: the auditor still reads no research lo
 **Key files:** `edit-design/SKILL.md` (Step 4 + Step 6), `readability-auditor.md`, `conventions-execution.md` (§2.5), `create-plan/SKILL.md` (item 9), `design-document-rules.md`, `readability-feedback/SKILL.md` — all under `_workflow/staged-workflow/.claude/...`.
 
 **Critical context:** This is a single-step `high` track, so the step-level review ran the full track-pass-equivalent selection. Phase C therefore skips code review and goes straight to track completion (`code-review-protocol.md` §Single-step tracks).
+
+### Track completion — 2026-06-26T07:16Z [ctx=safe]
+
+Hardened the Phase-1 dual-clean `readability-auditor` loop against under-catching on long docs and round-to-round oscillation, shipped as one staged workflow-prose diff (§1.7 full staging, promoted live in Phase 4). `edit-design` Step 4 gained the deterministic ~200-line / `##`-`# Part` / cap-6 slice partition, the whole-doc floor, the expected-slice-count self-check, and the `slice_count` / `total_lines` spawn params (D1/D2). Step 6 gained the canonical section-keyed settled-state convergence mechanism — anchor-folded content hash, settled = returned-clean, drop-on-unchanged / re-audit-on-changed — and reconciled the live monotonic-convergence paragraph so the never-clean dense-but-acceptable tail reads as a designed `iteration_budget` + S5 exit (D4/D5/D8). `readability-auditor.md` turned "Range-sliced fan-out" into a hard requirement, added the whole-doc guard plus the two params and guard condition to its `## Inputs` block, and stated the settled-state is orchestrator-side (D2/D3). `conventions-execution.md` §2.5 generalized its third-scope home to plan-scoped authoring-loop review scaffolding; the authoring-loop params and `output_path` files relocated to `_workflow/reviews/`; cross-references landed in `create-plan` item 9, `design-document-rules.md`, and `readability-feedback` (D2/D5/D6).
+
+Key discovery: step-level review caught one blocker the guard introduced — it read `slice_count` / `total_lines` unconditionally, but the track-path per-file fan-out and the `design-sync` single whole-doc pass omit both params, and `design-sync` over a >300-line `design.md` is exactly the wiring-error shape the guard flags. Fixed by self-gating the guard (it applies only when both params are present) plus inert-guard notes at both spawn sites. This closes a gap inside D2's intent (D2 left the param-absent behavior unstated), not a plan deviation. Generalizing §2.5 also widened that section's annotation axes (roles `+orchestrator,final-designer`, phases `+4`) on the TOC row and section comment, since the authoring-loop callers write into the home at phases 1 and 4.
+
+No cross-track impact (single track). Step-level review ran the full track-pass-equivalent selection (5 workflow reviewers) and passed at iteration 2 — 1 blocker plus 10 should-fix/suggestion refinements, all gate-verified — so Phase C skipped code review per the single-step-high rule. The Phase A adversarial gate ran on opus (Fable 5 unavailable in env, D14-documented degradation, decision not reopened).
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 <!-- AUTHOR: track-level behavioral acceptance criteria (what holds after the
