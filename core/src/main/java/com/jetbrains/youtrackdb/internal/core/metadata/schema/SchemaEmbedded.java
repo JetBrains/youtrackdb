@@ -353,10 +353,38 @@ public class SchemaEmbedded extends SchemaShared {
       minimumCollections = 1;
     }
 
+    // Inside a schema transaction a create does not allocate a real storage collection: that is the
+    // eager, self-committing allocation the metadata-first inversion removes, because it leaves a
+    // stray collection on disk if the transaction rolls back. Instead the class carries a provisional
+    // id (<= -2) the commit resolves to a real id once it creates the real collection inside the
+    // commit's own atomic operation. The seeding guard mirrors the create-path recording guard in
+    // createClassInternal: copyForTx -> fromStream re-creates every committed class through this same
+    // path while seeding the tx-local copy, and a committed class already owns real collection ids,
+    // so the seed must take the eager branch (it loads existing collections, it does not allocate).
+    final boolean provisional = txLocal && !session.isSeedingTxSchemaState();
+    final TxSchemaState txState;
+    if (provisional) {
+      txState = session.getTxSchemaState();
+      if (txState == null) {
+        throw new IllegalStateException(
+            "a tx-local collection allocation must run with a seeded tx-local schema state");
+      }
+    } else {
+      txState = null;
+    }
+
     var collectionIds = new int[minimumCollections];
     for (var i = 0; i < minimumCollections; i++) {
+      // The name still advances the tx-local collection counter so a single transaction creating
+      // several classes generates distinct names; the commit uses these names when it creates the
+      // real collections. The name is computed even on the provisional branch to keep the counter in
+      // step with the eager branch.
       var collectionName = lowerName + "_" + nextCollectionIndex();
-      collectionIds[i] = session.addCollection(collectionName);
+      if (provisional) {
+        collectionIds[i] = txState.allocateProvisionalCollectionId();
+      } else {
+        collectionIds[i] = session.addCollection(collectionName);
+      }
     }
 
     return collectionIds;
@@ -368,7 +396,9 @@ public class SchemaEmbedded extends SchemaShared {
     }
 
     for (var collectionId : iCollectionIds) {
-      if (collectionId < 0) {
+      // A provisional id (<= -2) is validated like a real id — it must not already belong to a
+      // class in the in-memory reverse map. Only the abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         continue;
       }
 
@@ -547,7 +577,9 @@ public class SchemaEmbedded extends SchemaShared {
 
   private void removeCollectionClassMap(final SchemaClassImpl cls) {
     for (var collectionId : cls.getCollectionIds()) {
-      if (collectionId < 0) {
+      // Remove provisional ids too so a class created-then-dropped within the same transaction
+      // leaves no pending-real entry behind. Only the abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         continue;
       }
 
@@ -563,7 +595,9 @@ public class SchemaEmbedded extends SchemaShared {
       DatabaseSessionEmbedded session, final int collectionId, final SchemaClassImpl cls) {
     acquireSchemaWriteLock(session);
     try {
-      if (collectionId < 0) {
+      // A provisional id (<= -2) is registered like a real id in the in-memory reverse map; only the
+      // abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         return;
       }
 
@@ -587,7 +621,9 @@ public class SchemaEmbedded extends SchemaShared {
   void removeCollectionForClass(DatabaseSessionEmbedded session, int collectionId) {
     acquireSchemaWriteLock(session);
     try {
-      if (collectionId < 0) {
+      // A provisional id (<= -2) is removed from the in-memory reverse map like a real id; only the
+      // abstract-class marker is skipped.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         return;
       }
 

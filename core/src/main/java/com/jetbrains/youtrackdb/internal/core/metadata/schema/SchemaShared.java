@@ -86,6 +86,34 @@ public abstract class SchemaShared implements CloseableInStorage {
       new Int2ObjectOpenHashMap<>();
 
   /**
+   * The single collection id an abstract class carries. An abstract class has no real storage
+   * collection, so it owns only this marker; it never appears in {@link #collectionsToClasses} or in
+   * the storage layer.
+   */
+  public static final int ABSTRACT_COLLECTION_ID = -1;
+
+  /**
+   * The highest (closest to zero) id a provisional collection can carry. A class created inside a
+   * schema transaction does not allocate a real storage collection during the transaction; it
+   * carries a provisional id drawn from the sub-range {@code <= -2}, resolved to a real id at commit
+   * (mirroring temp RIDs). The sub-range starts at {@code -2} rather than {@code -1} so it cannot
+   * collide with {@link #ABSTRACT_COLLECTION_ID}: the schema layer tests {@code collectionId < 0} to
+   * spot a special id, so a provisional id that fell on {@code -1} would be mistaken for the abstract
+   * marker. The in-memory maps treat a provisional id as a pending-real id (reverse map populated,
+   * uniqueness validated); the file/storage layer keeps skipping every negative id.
+   */
+  public static final int PROVISIONAL_COLLECTION_ID_CEILING = -2;
+
+  /**
+   * Whether {@code collectionId} is a provisional id allocated for a transaction-local create
+   * (drawn from the {@code <= -2} sub-range), as distinct from the abstract-class marker
+   * {@link #ABSTRACT_COLLECTION_ID} ({@code -1}) and from a real (non-negative) collection id.
+   */
+  public static boolean isProvisionalCollectionId(int collectionId) {
+    return collectionId <= PROVISIONAL_COLLECTION_ID_CEILING;
+  }
+
+  /**
    * Monotonically increasing counter for generating unique collection names.
    * Each new collection gets a name like {@code <lowercase_classname>_<counter>}.
    * Protected by the schema write lock.
@@ -414,7 +442,10 @@ public abstract class SchemaShared implements CloseableInStorage {
       SchemaClassImpl cls) {
     acquireSchemaReadLock();
     try {
-      if (collectionId < 0) {
+      // Skip only the abstract-class marker. A provisional id (<= -2) is validated like a real id:
+      // the in-memory maps treat it as pending-real, so a duplicate provisional id within the
+      // transaction is rejected here.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         return;
       }
 
@@ -1065,7 +1096,10 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   protected void addCollectionClassMap(final SchemaClassImpl cls) {
     for (var collectionId : cls.getCollectionIds()) {
-      if (collectionId < 0) {
+      // Populate the reverse map for provisional ids too: a provisional id (<= -2) is pending-real,
+      // so getClassByCollectionId resolves a tx-created class during the transaction. Only the
+      // abstract-class marker is skipped (an abstract class owns no collection in this map).
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         continue;
       }
 

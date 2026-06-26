@@ -19,6 +19,8 @@
      */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
+import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -47,11 +49,34 @@ import javax.annotation.Nonnull;
  * changed-class set. Routing reads and writes to the copy, seeding it on the first schema write, and
  * promoting it at commit are the responsibility of the proxy-routing and commit-reconciliation work,
  * not of this holder.
+ *
+ * <p>A class created inside the transaction allocates no real storage collection during the
+ * transaction; it carries a provisional id drawn from the {@code <= -2} sub-range (see
+ * {@link SchemaShared#PROVISIONAL_COLLECTION_ID_CEILING}). This state owns the per-transaction
+ * provisional-id allocator ({@link #allocateProvisionalCollectionId}) and the provisional&rarr;real
+ * mapping ({@link #recordResolvedCollectionId} / {@link #getResolvedCollectionId}) that the commit
+ * populates once it creates the real collections.
  */
 public final class TxSchemaState {
 
   private final SchemaShared txLocalSchema;
   private final Set<String> changedClasses = new HashSet<>();
+
+  /**
+   * The next provisional collection id to hand out. Starts at the ceiling
+   * ({@link SchemaShared#PROVISIONAL_COLLECTION_ID_CEILING}, {@code -2}) and decrements on each
+   * allocation, so successive provisional ids are {@code -2, -3, -4, ...} — each unique within the
+   * transaction and disjoint from the abstract-class marker {@code -1}.
+   */
+  private int nextProvisionalCollectionId = SchemaShared.PROVISIONAL_COLLECTION_ID_CEILING;
+
+  /**
+   * Maps each provisional collection id this transaction allocated to the real id the commit
+   * assigned it. Empty until the commit-time reconciliation creates the real collections and records
+   * the resolution; the resolution patches every provisional reference to its real id before any
+   * record serializes.
+   */
+  private final Int2IntOpenHashMap provisionalToReal = new Int2IntOpenHashMap();
 
   /**
    * @param txLocalSchema the tx-local {@link SchemaShared} copy, seeded by
@@ -60,6 +85,9 @@ public final class TxSchemaState {
    */
   public TxSchemaState(@Nonnull SchemaShared txLocalSchema) {
     this.txLocalSchema = txLocalSchema;
+    // A real collection id is always non-negative, so -1 is an unambiguous "no resolution recorded"
+    // sentinel for getResolvedCollectionId — distinct from every real id a commit could store.
+    this.provisionalToReal.defaultReturnValue(SchemaShared.ABSTRACT_COLLECTION_ID);
   }
 
   /**
@@ -86,5 +114,52 @@ public final class TxSchemaState {
   @Nonnull
   public Set<String> getChangedClasses() {
     return changedClasses;
+  }
+
+  /**
+   * Allocates the next provisional collection id for a class created inside this transaction. The
+   * ids run {@code -2, -3, -4, ...}: each is unique within the transaction (the counter never
+   * repeats) and is disjoint from the abstract-class marker {@code -1}. The id is a placeholder a
+   * record can carry through the transaction; the commit creates the real collection and resolves
+   * the provisional id to its real id before any record serializes.
+   */
+  public int allocateProvisionalCollectionId() {
+    return nextProvisionalCollectionId--;
+  }
+
+  /**
+   * Records that the commit resolved a provisional collection id to a real one. Idempotent for a
+   * given provisional id only insofar as the caller passes a consistent real id; recording two
+   * different real ids for the same provisional id is a commit-reconciliation bug.
+   *
+   * @param provisionalCollectionId a provisional id this transaction previously allocated (must be
+   *     {@code <= -2})
+   * @param realCollectionId the non-negative real id the commit created for it
+   */
+  public void recordResolvedCollectionId(int provisionalCollectionId, int realCollectionId) {
+    assert SchemaShared.isProvisionalCollectionId(provisionalCollectionId)
+        : "only a provisional id (<= -2) can be resolved, got " + provisionalCollectionId;
+    assert realCollectionId >= 0
+        : "a provisional id must resolve to a non-negative real id, got " + realCollectionId;
+    provisionalToReal.put(provisionalCollectionId, realCollectionId);
+  }
+
+  /**
+   * The real collection id the commit assigned to {@code provisionalCollectionId}, or {@code -1}
+   * (the {@link SchemaShared#ABSTRACT_COLLECTION_ID} sentinel, which is never a valid real id) when
+   * no resolution has been recorded for it yet.
+   */
+  public int getResolvedCollectionId(int provisionalCollectionId) {
+    return provisionalToReal.get(provisionalCollectionId);
+  }
+
+  /**
+   * The live provisional&rarr;real resolution map, for the commit-time reconciliation to read and
+   * the patch list to apply. The returned map is the backing instance; callers must not mutate it
+   * outside {@link #recordResolvedCollectionId}.
+   */
+  @Nonnull
+  public Int2IntMap getResolvedCollectionIds() {
+    return provisionalToReal;
   }
 }
