@@ -23,13 +23,39 @@ framework over it, and the `UnsupportedAnalyzedNodeException` lowering-failure t
 It has no dependency on the rest of S0.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
+- [x] 2026-06-26T12:46Z [ctx=info] Review + decomposition complete
+
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+- **Phase A review (2026-06-26): "first sealed-type use" is false.** D1's Risks/Caveats,
+  `## Context and Orientation`, and `design.md:248` all call the `AnalyzedExpr` substrate
+  the first Java 21 sealed-type use in the codebase. Phase A technical (T1) and risk (R1)
+  reviews PSI-confirmed otherwise: ~19 sealed types already exist, two of them
+  sealed-interface-permitting-record analogs of this exact idiom —
+  `com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult` and
+  `com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult`
+  (both PSI-verified `sealed interface`). The claim is wrong; the design is unaffected and
+  arguably strengthened, because the idiom already compiles on the project's Java 21 level,
+  which de-risks the I3 exhaustive-`switch` mechanism. D1 and `design.md` are frozen, so the
+  wording correction is **deferred to the Phase-4 `design-final.md` reconciliation**
+  ("first sealed-type use in the SQL/query layer", or "follows the established
+  `StorageReadResult` / `SqlCommandExecutionResult` idiom"). The implementation step points
+  the implementer at those precedents for naming and style instead of treating the idiom as
+  unprecedented.
+- **Phase A review (2026-06-26): I3 has no backstop on the transform path (A1).** D9
+  deliberately and correctly exempts `AnalyzedExprTransform` from I3 — its
+  recurse-into-children defaults make a new variant pass through silently, which is the right
+  transform default. The design's only mitigation is prose ("make the audit part of the
+  variant-addition checklist"), and S0 ships no checklist artifact and no compile- or
+  test-time backstop. The implementation step folds in the S0-feasible backstop: a
+  `VARIANT-ADDITION` anchor comment on the sealed `AnalyzedExpr` root and on
+  `AnalyzedExprTransform`, stating that adding a variant obliges an audit of every transform
+  pass. The mechanical backstop — a reflective visitX/variant-count test — is an **S1+
+  obligation**: S0 has no transform pass to test it against.
 
 ## Decision Log
 <!-- Full inline Decision Records this track owns (four-bullet form). One block per decision: -->
@@ -185,7 +211,25 @@ It has no dependency on the rest of S0.
 <!-- **Full design**: design.md §"Transform passes and structural sharing" -->
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 1 (2 findings, 1 should-fix accepted). T1 (should-fix) —
+  "first sealed-type use" false → Phase-4 reconciliation + Surprises log + implementer
+  oriented to the `StorageReadResult` precedent. T2 (suggestion) — the `(Class)` constructor
+  must build its own message and call `super(String)` (the parent has no `(Class)` ctor) →
+  folded into the step.
+- [x] Risk: PASS at iteration 1 (3 findings, 1 should-fix accepted). R1 (should-fix) = T1
+  (same finding). R2 (suggestion) = T2 (same finding). R3 (suggestion) — `transformChildren`
+  branch coverage concentrates on one method → explicit branch-row enumeration folded into
+  Validation.
+- [x] Adversarial: PASS at iteration 1 (4 findings, 1 should-fix accepted; narrowed per D9,
+  cross-track-episode challenge dropped on the first track). A1 (should-fix) — the I3/D9
+  transform backstop gap → anchor comment now, reflective backstop deferred to S1+ (see
+  Surprises). A2 (suggestion) — D8 test does not exercise the equal-but-rebuilt-copy path →
+  negative test folded into Validation. A3 (suggestion) — D13 sizing rationale under-sells
+  the two-consumer fan-out → Phase-4 polish note. A4 (suggestion) — D2 static dispatch
+  confirmed sound, no action.
+- 0 blockers across all three reviews; 0 design decisions escalated. Every decision
+  (D1/D2/D4/D6/D7/D8/D9) survives. The should-fix items are documentation accuracy (T1/R1),
+  a mitigation backstop (A1), and test enumeration (R3/A2) — none changes a decision.
 
 ## Context and Orientation
 The target package `core/.../query/analyzed/`
@@ -230,8 +274,45 @@ defaults (D9 — the strictness that backs I3); `transformChildren` compares chi
 reference identity, not value equality (D8); the `dispatch` `switch` has no `default`
 clause (I3).
 
+**Phase A decomposition notes (review findings folded in):**
+
+- *Follow the existing sealed idiom (T1/R1).* This is not the first sealed type in the
+  codebase. Mirror the established sealed-interface + record-variant + centralized
+  static-dispatch idiom of
+  `com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult` and
+  `com.jetbrains.youtrackdb.internal.core.gremlin.sqlcommand.SqlCommandExecutionResult`
+  for naming and style. (The "first sealed-type use" wording in D1 / C&O / `design.md` is
+  frozen; its correction is a Phase-4 item — see `## Surprises & Discoveries`.)
+- *Exception constructor (T2/R2).* `CommandExecutionException` has no `(Class)` constructor
+  (only `(String)`, `(String, String)`, `(DatabaseSessionEmbedded, String)`, and the
+  self-type copy constructor). `UnsupportedAnalyzedNodeException(Class)` therefore renders
+  the class name into the message itself and calls `super(String)` — e.g.
+  `super("unsupported analyzed node: " + astNodeClass.getName())`. Optionally add a
+  self-type copy constructor to match the `CoreException`-subclass house convention.
+- *I3 transform backstop (A1).* Add a `VARIANT-ADDITION:` anchor comment on the sealed
+  `AnalyzedExpr` root and on `AnalyzedExprTransform`, stating that adding a sixth variant
+  obliges auditing every transform pass — the one place D9 lets I3's compile-time guarantee
+  not reach. The mechanical reflective backstop is an S1+ obligation (S0 has no transform
+  pass to test).
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the numbered roster here. -->
+The substrate is one coherent greenfield abstraction layer (~11 files) and one
+HIGH-category change (architecture: a new abstraction layer), so per the high-isolation
+decomposition rule it stays a single high-tagged step — the whole layer lands in one diff
+so its step-level dimensional review sees dispatch and the transform framework together.
+The five-stage build order is in `## Plan of Work`; the folded review findings are in the
+Phase A decomposition notes there.
+
+1. Build the greenfield `AnalyzedExpr` substrate in `core/.../query/analyzed/` — the sealed
+   `AnalyzedExpr` interface with its two static helpers (`dispatch`, `transformChildren`),
+   the five record variants (`Var`, `Const`, `BinaryOp`, `UnaryOp`, `FuncCall`), the IR
+   `BinaryOperator` / `UnaryOperator` enums, `AnalyzedExprVisitor<T>` (no defaults),
+   `AnalyzedExprTransform` (recurse-into-children defaults),
+   `UnsupportedAnalyzedNodeException(Class)`, the `VARIANT-ADDITION` anchor comments, and the
+   substrate unit test — per `## Plan of Work`, `## Validation and Acceptance`, and
+   `## Interfaces and Dependencies`, in one atomic greenfield commit. — risk: high
+   (architecture: introduces a new abstraction layer — the analyzed-expression IR and its
+   dispatch/transform framework, the foundation Tracks 3 and 4 build on)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -246,18 +327,41 @@ test plus the compiler:
   `visitX`. The compile-time half of I3 (a sealed `switch` with no `default`, a base
   visitor with no defaults) is enforced by the compiler, not a runtime assertion: adding a
   sixth variant would fail to compile.
-- **Structural sharing by reference identity.** A transform that changes one subtree
-  returns the *same instance* (`==`) for every unchanged node and a new parent only on the
-  changed path; a transform that changes nothing returns the original root by reference.
-  The test asserts reference identity (`assertSame`), not value equality, so it catches a
-  transform that rebuilds an `equals`-but-distinct copy.
+- **Structural sharing by reference identity (`transformChildren`).** The branch-coverage
+  target lands almost entirely on `transformChildren`, so the test enumerates its branches
+  as explicit rows rather than one summary assertion (R3): (a) a leaf variant (`Var`,
+  `Const`) is returned by reference; (b) a compound variant with no child changed returns the
+  parent by reference (`assertSame`); (c) a compound variant with one child changed returns a
+  new parent while the unchanged sibling is shared by reference; (d) a `FuncCall` with no
+  argument changed returns the same argument list and the same node; (e) a `FuncCall` with a
+  middle argument changed returns a new list while the leading arguments are shared by
+  reference. Identity checks use `assertSame`. **Negative case (A2):** a transform that
+  rebuilds an `equals`-but-distinct copy of an unchanged node is counted as "changed" and
+  defeats the sharing — the test asserts this, so the reference-identity rule (not value
+  equality) is exercised, not just the happy path.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+Per-step acceptance (Step 1):
+- WHEN `AnalyzedExpr.dispatch(expr, visitor)` is called for each of the five variants, THE
+  substrate SHALL invoke the matching `visitX` and return its result (dispatch
+  exhaustiveness).
+- WHEN a `transformChildren` pass leaves every child unchanged, THE helper SHALL return the
+  input node by reference; WHEN exactly one child changes, THE helper SHALL return a new
+  parent and share every unchanged subtree by reference.
+- THE substrate unit test SHALL meet the 85% line / 70% branch coverage gate on the new
+  dispatch and transform machinery.
+- THE `core` module SHALL compile and `./mvnw -pl core clean test` SHALL pass for the new
+  test.
 
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+The step is pure-additive greenfield: it creates new files under
+`core/.../query/analyzed/` and modifies no existing class, so it is idempotent in the
+trivial sense — re-running it produces the same files. Recovery from a failed attempt is
+`git reset --hard HEAD` (the implementer's standard revert), which removes the new files and
+leaves the tree at the pre-step commit; there is no on-disk state, schema, or external side
+effect to unwind. S0 has no live consumer of the substrate, so a partial or reverted attempt
+cannot leave any other component in a broken state.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
