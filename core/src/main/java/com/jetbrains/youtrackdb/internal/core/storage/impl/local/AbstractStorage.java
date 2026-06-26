@@ -374,6 +374,23 @@ public abstract class AbstractStorage
   // Object.equals/hashCode.
   protected final Set<TsMinHolder> tsMins = newTsMinsSet();
 
+  // Commit-window re-entry counter, per thread. A schema-carrying commit takes
+  // stateLock.writeLock() from the start and then, while still holding it,
+  // reads records to serialize and re-parse the schema (txLocalSchema.toStream,
+  // committedSchema.fromStream reached through session.load). Those reads route
+  // back into this storage's stateLock.readLock()-taking methods. The
+  // ScalableRWLock is non-reentrant, so a read re-acquire from the write-lock
+  // holder busy-spins forever. While this counter is positive on the current
+  // thread, the readLock-taking record-read methods skip the readLock: the held
+  // write lock already excludes every concurrent registrar and supplies the
+  // happens-before edge, so the read is safe and lock-free. The counter is a
+  // depth, not a flag, so nested enter/exit pairs compose. It is set only by the
+  // commit window via enterCommitWindow()/exitCommitWindow(); a thread that does
+  // not hold the write lock never enters the window, so the pure-data read-lock
+  // fast path is unchanged.
+  private final ThreadLocal<int[]> commitWindowDepth =
+      ThreadLocal.withInitial(() -> new int[1]);
+
   static Set<TsMinHolder> newTsMinsSet() {
     return Sets.newSetFromMap(new MapMaker().weakKeys().makeMap());
   }
@@ -3343,6 +3360,57 @@ public abstract class AbstractStorage
     return engine;
   }
 
+  /**
+   * Opens the lock-free commit-window read path on the current thread. The
+   * schema-carrying commit calls this immediately after taking {@code
+   * stateLock.writeLock()} and before any record read it performs while still
+   * holding that write lock (schema serialization and promotion read records via
+   * {@code session.load}, which routes back into this storage's
+   * readLock-taking record-read methods). While the window is open, {@link
+   * #getPhysicalCollectionNameById(int)} and {@link #readRecordInternal} skip
+   * {@code stateLock.readLock()} so they do not deadlock re-acquiring the
+   * non-reentrant {@link ScalableRWLock} the commit already holds for writing.
+   *
+   * <p><b>Precondition the caller MUST satisfy:</b> the current thread holds
+   * {@code stateLock.writeLock()} for the duration of the window. That held
+   * write lock is the only thing that excludes a concurrent registrar and
+   * supplies the happens-before edge that makes the lock-free reads of {@code
+   * collections} / the collection stores visibility-safe. Opening the window
+   * without the write lock is a data race and is unsupported.
+   *
+   * <p>Re-entrant: nested enter/exit pairs compose via a depth counter, so the
+   * window stays open until the outermost {@link #exitCommitWindow()} runs. Every
+   * {@code enterCommitWindow()} MUST be balanced by an {@code exitCommitWindow()}
+   * in a {@code finally}, or later reads on the same (pooled) thread would wrongly
+   * skip the read lock.
+   */
+  void enterCommitWindow() {
+    commitWindowDepth.get()[0]++;
+  }
+
+  /**
+   * Closes one nesting level of the lock-free commit-window read path opened by
+   * {@link #enterCommitWindow()}. The window stays open until the depth returns to
+   * zero. MUST be called in a {@code finally} balancing each {@code
+   * enterCommitWindow()}; a leaked open window would make later reads on the same
+   * pooled thread skip the read lock unsafely.
+   */
+  void exitCommitWindow() {
+    final var depth = commitWindowDepth.get();
+    assert depth[0] > 0 : "exitCommitWindow without a matching enterCommitWindow";
+    depth[0]--;
+  }
+
+  /**
+   * True when the current thread is inside a commit window opened by {@link
+   * #enterCommitWindow()} and so holds {@code stateLock.writeLock()}. The
+   * readLock-taking record-read methods consult this to decide whether to take
+   * the read lock (normal callers) or run lock-free (commit-window callers).
+   */
+  private boolean isCommitWindowActive() {
+    return commitWindowDepth.get()[0] > 0;
+  }
+
   public <T> void callIndexEngine(
       final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
@@ -3894,18 +3962,23 @@ public abstract class AbstractStorage
   @Nullable @Override
   public final String getPhysicalCollectionNameById(final int iCollectionId) {
     try {
-      stateLock.readLock().lock();
+      // The commit window (a schema-carrying commit holding stateLock.writeLock())
+      // reaches this method through the security check in session.executeReadRecord
+      // while serializing/promoting the schema. Re-acquiring the read lock there would
+      // deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+      // already excludes registrars and supplies the visibility edge.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
         checkOpennessAndMigration();
 
-        if (iCollectionId < 0 || iCollectionId >= collections.size()) {
-          return null;
-        }
-
-        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
-            : null;
+        return doGetPhysicalCollectionNameById(iCollectionId);
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -3914,6 +3987,22 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /**
+   * Lock-free body of {@link #getPhysicalCollectionNameById(int)}. Reads the plain
+   * {@code collections} list directly without taking {@code stateLock}. The public
+   * wrapper holds {@code stateLock.readLock()} for normal callers; the commit window
+   * holds {@code stateLock.writeLock()} and skips the read lock. Either held lock is
+   * the precondition: off-lock use is a data race on a plain {@code ArrayList}.
+   */
+  private String doGetPhysicalCollectionNameById(final int iCollectionId) {
+    if (iCollectionId < 0 || iCollectionId >= collections.size()) {
+      return null;
+    }
+
+    return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
+        : null;
   }
 
   @Override
@@ -4689,7 +4778,15 @@ public abstract class AbstractStorage
               + name
               + '\'');
     }
-    stateLock.readLock().lock();
+    // The commit window (a schema-carrying commit holding stateLock.writeLock())
+    // reaches this method through session.executeReadRecord on a genuine record-cache
+    // miss while serializing/promoting the schema. Re-acquiring the read lock there
+    // would deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+    // already excludes registrars and supplies the visibility edge.
+    final boolean lockFree = isCommitWindowActive();
+    if (!lockFree) {
+      stateLock.readLock().lock();
+    }
     try {
       checkOpennessAndMigration();
       final StorageCollection collection;
@@ -4700,7 +4797,9 @@ public abstract class AbstractStorage
       }
       return doReadRecord(collection, rid, atomicOperation);
     } finally {
-      stateLock.readLock().unlock();
+      if (!lockFree) {
+        stateLock.readLock().unlock();
+      }
     }
   }
 
