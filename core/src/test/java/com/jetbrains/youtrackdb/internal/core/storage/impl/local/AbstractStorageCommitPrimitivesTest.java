@@ -134,8 +134,19 @@ public class AbstractStorageCommitPrimitivesTest {
   // schema-carrying commit holding stateLock.writeLock() can reach engines during the
   // index-apply path without the non-reentrant self-deadlock the public getIndexEngine
   // would cause. The test holds the write lock on the calling thread, then resolves.
-  @Test
+  //
+  // A regression that re-took stateLock.readLock() here would busy-spin forever on the
+  // non-reentrant ScalableRWLock (it loops Thread.yield while the write lock is held, with no
+  // same-thread relief) rather than throwing — and core surefire sets no fork timeout, so the
+  // hang would wedge the build instead of failing red. The bound converts that hang into a
+  // clean TestTimedOutException naming this method, matching the ScalableRWLockTest convention
+  // in this package.
+  @Test(timeout = 30_000)
   public void doGetIndexEngineResolvesWhileWriteLockHeld() throws Exception {
+    // @Test(timeout) runs this body on a JUnit watchdog thread; the session is thread-bound
+    // (a ThreadLocal activation flag), so re-activate it on this thread before touching the db.
+    db.activateOnCurrentThread();
+
     SchemaClass cls = db.createVertexClass("PersonLockFree");
     cls.createProperty("email", PropertyType.STRING);
     cls.createIndex("PersonLockFree_email", SchemaClass.INDEX_TYPE.UNIQUE, "email");
