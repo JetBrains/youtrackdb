@@ -554,3 +554,14 @@ Pointer: `_workflow/reviews/research-log-adversarial-iter1.md`.
   unresolved (A6); name the tag persistence site + ledger schema delta (A7).
 - **A8/A9 [suggestion]** — YTDB-1100 not fully subsumed (A8, already in D2);
   author the split agents in lockstep with prefixes (A9, design-phase).
+
+### Adversarial review of this log (2026-06-26T10:55Z) — PASS
+Pointer: `_workflow/reviews/research-log-adversarial-iter2.md`. Verdict-producer
+iter2: all 9 iter-1 findings **VERIFIED** (2 blockers + 5 should-fix + 2
+suggestions resolved into D1–D10). One **new** suggestion **A10** (non-gating):
+D1 unwelds single-track from no-design, so two single-track-no-plan shapes now
+exist (old `minimal` = design_gate no; new D8 cell = design_gate yes); D10
+supplies every ledger field to route both, but whether Step 1c collapses the
+old `tier=minimal` single-track resume branch and the new design+single branch
+into one `design_gate`-keyed branch or keeps them separate is a design-phase
+rendering detail (no log change). **Gate CLEARED** — releases Step 4a.
