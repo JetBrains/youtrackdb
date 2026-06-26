@@ -538,6 +538,13 @@ public class SchemaDeguardTest extends DbTestBase {
    * the {@code <= -2} sub-range, so during the transaction the class's collection id is provisional.
    * Pinning the id range proves the create no longer allocates a real (non-negative) collection id
    * before commit — the precondition for the rollback guarantee the next test checks.
+   *
+   * <p>This pins only the tx-local-view half of the no-provisional-id-on-disk guarantee. The
+   * durable-bytes half (commit then reload yields a real id, with no {@code <= -2} provisional id
+   * surviving on disk) is verified once the commit-time reconciliation core lands, because nothing
+   * resolves the provisional id to a real collection yet — a commit-then-reload assertion written
+   * here would either fail (no resolution wired) or pass vacuously (the create never materializes a
+   * real collection).
    */
   @Test
   public void inTransactionCreateCarriesProvisionalCollectionId() {
@@ -569,6 +576,12 @@ public class SchemaDeguardTest extends DbTestBase {
    * transaction, so the storage collection set is byte-for-byte identical before and after the
    * rolled-back transaction, and the committed schema never sees the class. The class is also
    * absent from the storage-level collection registry (no {@code <class>_<n>} collection leaked).
+   *
+   * <p>This covers the explicit-{@code rollback()} half of the no-stray-collection guarantee. The
+   * crash-before-commit half (close without flush, then WAL replay) is verified once the
+   * crash-restore integration harness exercises a partially-reconciled commit; on the provisional
+   * create path a crash before commit is now trivially a no-op (no file was ever created), so the
+   * load-bearing crash test belongs where the commit-time reconciliation can leave files.
    */
   @Test
   public void rolledBackInTransactionCreateLeavesNoCollectionOnDisk() {
@@ -593,6 +606,61 @@ public class SchemaDeguardTest extends DbTestBase {
       assertFalse(
           "no collection for the rolled-back class may survive on disk, found " + collectionName,
           collectionName.startsWith("straycollectionprobe_"));
+    }
+  }
+
+  /**
+   * The stray-collection-on-rollback defect on the abstract&rarr;concrete alter path: making an
+   * abstract class concrete inside a transaction that then rolls back must leave NO collection on
+   * disk. Before the provisional-id inversion was extended to this path, {@code setAbstract(false)}
+   * inside a transaction eagerly self-committed a real storage collection (the same eager allocation
+   * the create path inverted), which survived the user transaction's rollback as an orphan. With the
+   * provisional allocation the alter touches no storage collection during the transaction: the
+   * tx-local class carries a provisional id ({@code <= -2}) the commit would resolve, and on
+   * rollback the storage collection set is byte-for-byte identical. The class also stays abstract in
+   * the committed schema, since the transaction never committed.
+   */
+  @Test
+  public void rolledBackInTransactionSetAbstractFalseLeavesNoCollectionOnDisk() {
+    var committed = session.getSharedContext().getSchema();
+    // Commit an abstract class first, so the in-tx alter exercises the make-non-abstract branch.
+    session.getMetadata().getSchema().createAbstractClass("AbstractToConcreteProbe");
+    assertTrue("the class must be abstract before the test",
+        committed.getClass("AbstractToConcreteProbe").isAbstract());
+
+    var collectionsBefore = new HashSet<>(session.getCollectionNames());
+
+    session.begin();
+    var inTx = session.getMetadata().getSchema().getClass("AbstractToConcreteProbe");
+    inTx.setAbstract(false);
+    // During the tx the class now owns a provisional collection id (<= -2), not an eagerly allocated
+    // real one — proving setAbstract(false) no longer self-commits a real collection.
+    for (var collectionId : inTx.getCollectionIds()) {
+      assertTrue(
+          "an in-transaction setAbstract(false) must carry a provisional collection id (<= -2), got "
+              + collectionId,
+          SchemaShared.isProvisionalCollectionId(collectionId));
+    }
+    var state = session.getTxSchemaState();
+    assertNotNull("the in-transaction alter must have seeded the tx-local state", state);
+    assertTrue("the altered class must be recorded in the tx-local changed-class set",
+        state.getChangedClasses().contains("AbstractToConcreteProbe"));
+    assertTrue("an in-transaction alter must not touch the committed shared schema",
+        committed.getClass("AbstractToConcreteProbe").isAbstract());
+    session.rollback();
+
+    var collectionsAfter = new HashSet<>(session.getCollectionNames());
+    assertEquals(
+        "a rolled-back in-transaction setAbstract(false) must leave the storage collection set"
+            + " unchanged (no stray collection on disk)",
+        collectionsBefore, collectionsAfter);
+    assertTrue("after rollback the class must remain abstract in the committed schema",
+        committed.getClass("AbstractToConcreteProbe").isAbstract());
+    // No collection carrying the class's naming prefix leaked into the storage registry.
+    for (var collectionName : collectionsAfter) {
+      assertFalse(
+          "no collection for the rolled-back alter may survive on disk, found " + collectionName,
+          collectionName.startsWith("abstracttoconcreteprobe_"));
     }
   }
 
@@ -669,10 +737,17 @@ public class SchemaDeguardTest extends DbTestBase {
 
   /**
    * The {@link TxSchemaState} provisional&rarr;real carrier round-trips: a recorded resolution reads
-   * back the real id, an unrecorded provisional id reads the {@code -1} not-resolved sentinel, and
-   * the allocator hands out a strictly decreasing, disjoint-from-{@code -1} sequence. This is the
-   * carrier the commit-time reconciliation populates and the patch list reads to re-point every
-   * provisional reference to its real id before any record serializes.
+   * back the real id, an unrecorded provisional id reads the {@link TxSchemaState#NO_RESOLUTION}
+   * not-resolved sentinel (deliberately distinct from the abstract-class marker {@code -1}), and the
+   * allocator hands out a strictly decreasing, disjoint-from-{@code -1} sequence. This is the carrier
+   * the commit-time reconciliation populates and the patch list reads to re-point every provisional
+   * reference to its real id before any record serializes.
+   *
+   * <p>This test pins the tx-local-view half of the no-provisional-id-on-disk guarantee (a
+   * provisional id is exposed only in the tx carrier) with a hand-fed real id; the durable-bytes
+   * half (commit then reload yields a real id with no {@code <= -2} survivor on disk) is verified
+   * once the commit-time reconciliation core that resolves provisional ids and re-points property
+   * values lands.
    */
   @Test
   public void txSchemaStateProvisionalToRealCarrierRoundTrips() {
@@ -695,14 +770,18 @@ public class SchemaDeguardTest extends DbTestBase {
           assertNotEquals("a provisional id must never equal the abstract marker",
               SchemaShared.ABSTRACT_COLLECTION_ID, firstProvisional);
 
-          assertEquals("an unrecorded provisional id must read the not-resolved sentinel (-1)",
-              SchemaShared.ABSTRACT_COLLECTION_ID, state.getResolvedCollectionId(firstProvisional));
+          assertEquals(
+              "an unrecorded provisional id must read the not-resolved sentinel (NO_RESOLUTION)",
+              TxSchemaState.NO_RESOLUTION, state.getResolvedCollectionId(firstProvisional));
+          assertNotEquals(
+              "the not-resolved sentinel must be distinct from the abstract-class marker (-1)",
+              SchemaShared.ABSTRACT_COLLECTION_ID, TxSchemaState.NO_RESOLUTION);
 
           state.recordResolvedCollectionId(firstProvisional, 42);
           assertEquals("a recorded provisional id must read back its real id",
               42, state.getResolvedCollectionId(firstProvisional));
           assertEquals("an unrecorded provisional id stays at the not-resolved sentinel",
-              SchemaShared.ABSTRACT_COLLECTION_ID,
+              TxSchemaState.NO_RESOLUTION,
               state.getResolvedCollectionId(secondProvisional));
           assertEquals("the live resolution map must carry exactly the one recorded mapping",
               1, state.getResolvedCollectionIds().size());
