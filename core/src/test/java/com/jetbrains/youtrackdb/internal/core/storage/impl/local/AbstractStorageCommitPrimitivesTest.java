@@ -6,9 +6,12 @@ import com.jetbrains.youtrackdb.api.DatabaseType;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
+import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.UUID;
@@ -31,10 +34,21 @@ import org.junit.Test;
  * busy-spin forever there because it re-acquires {@code stateLock.readLock()} on the
  * non-reentrant {@code ScalableRWLock}; the lock-free resolver must not.
  *
+ * <p>The class also pins the lock-free commit-window <i>record-read</i> substrate: while a
+ * schema-carrying commit holds {@code stateLock.writeLock()}, it serializes and re-parses the
+ * schema by reading records through {@code session.load}, which routes back into this storage's
+ * {@code getPhysicalCollectionNameById} (the security check) and {@code readRecordInternal} (a
+ * record cache miss). Both re-acquire {@code stateLock.readLock()} on the normal path and so
+ * would deadlock the non-reentrant {@code ScalableRWLock} under the held write lock. The commit
+ * opens a per-thread commit window ({@code enterCommitWindow()} / {@code exitCommitWindow()})
+ * that makes those two methods skip the read lock; the tests prove a read resolves under the held
+ * write lock when the window is open, the normal path is unchanged when it is closed, and the
+ * window's depth counter composes and closes balanced.
+ *
  * <p>The test lives in the storage package so it can read {@code storage.stateLock} for
- * white-box lock-holding, and uses reflection only for the two {@code private} members it
- * must reach directly: the {@code indexEngines} registry (to find an engine's internal id)
- * and {@code doGetIndexEngine(int)} (the method under test).
+ * white-box lock-holding, and uses reflection only for the {@code private} members it
+ * must reach directly: the {@code indexEngines} registry (to find an engine's internal id),
+ * {@code doGetIndexEngine(int)}, and {@code isCommitWindowActive()} (the window predicate).
  */
 public class AbstractStorageCommitPrimitivesTest {
 
@@ -170,6 +184,131 @@ public class AbstractStorageCommitPrimitivesTest {
     } finally {
       storage.stateLock.writeLock().unlock();
     }
+  }
+
+  // ---- The load-bearing property: record reads resolve lock-free in the commit window ----
+
+  // getPhysicalCollectionNameById is the security-check leg of the commit-window record read
+  // (session.executeReadRecord -> session.getCollectionNameById -> storage). With the commit
+  // window open on a thread that holds stateLock.writeLock(), it must resolve the collection
+  // name without re-taking stateLock.readLock(); re-taking it would busy-spin forever on the
+  // non-reentrant ScalableRWLock. The 30 s bound converts that hang into a clean
+  // TestTimedOutException naming this method (core surefire sets no fork timeout).
+  @Test(timeout = 30_000)
+  public void getPhysicalCollectionNameByIdResolvesLockFreeWhileWriteLockHeld() throws Exception {
+    db.activateOnCurrentThread();
+
+    db.createVertexClass("NameLookupProbe");
+    var storage = (AbstractStorage) db.getStorage();
+
+    // Pick one real collection id of the class and its expected name from the normal
+    // (read-lock) path, captured before we take the write lock.
+    var collectionName =
+        storage.getCollectionNames().stream()
+            .filter(n -> n.startsWith("namelookupprobe"))
+            .findFirst()
+            .orElseThrow();
+    int collectionId = storage.getCollectionIdByName(collectionName);
+    assertThat(collectionId).as("precondition: a real collection id").isGreaterThanOrEqualTo(0);
+
+    // Hold the write lock exactly as a schema-carrying commit does, then open the commit window
+    // and resolve the name lock-free. Without the window this call would deadlock.
+    storage.stateLock.writeLock().lock();
+    try {
+      storage.enterCommitWindow();
+      try {
+        assertThat(storage.getPhysicalCollectionNameById(collectionId))
+            .as("getPhysicalCollectionNameById must resolve lock-free under the held write lock")
+            .isEqualTo(collectionName);
+      } finally {
+        storage.exitCommitWindow();
+      }
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+  }
+
+  // readRecordInternal is the record-cache-miss leg of the commit-window record read
+  // (session.executeReadRecord -> storage.readRecord -> readRecordInternal). With the commit
+  // window open under the held write lock, reading a persistent record must resolve its raw
+  // buffer lock-free rather than deadlocking on the read-lock re-acquire. The atomic operation
+  // the read needs is started under segmentLock, which is disjoint from stateLock, so it does
+  // not interact with the held write lock.
+  @Test(timeout = 30_000)
+  public void readRecordResolvesLockFreeWhileWriteLockHeld() throws Exception {
+    db.activateOnCurrentThread();
+
+    db.createVertexClass("RecordReadProbe");
+
+    db.begin();
+    var v = db.newVertex("RecordReadProbe");
+    v.setProperty("k", "v");
+    db.commit();
+    var rid = (RecordIdInternal) v.getIdentity();
+    assertThat(rid.isPersistent()).as("precondition: the saved record has a persistent rid")
+        .isTrue();
+
+    var storage = (AbstractStorage) db.getStorage();
+
+    storage.stateLock.writeLock().lock();
+    try {
+      storage.enterCommitWindow();
+      try {
+        StorageReadResult result =
+            storage.getAtomicOperationsManager()
+                .calculateInsideAtomicOperation(op -> storage.readRecord(rid, op));
+        assertThat(result)
+            .as("readRecord must resolve a persistent record lock-free under the held write lock")
+            .isInstanceOf(RawBuffer.class);
+        assertThat(((RawBuffer) result).buffer())
+            .as("the resolved raw buffer must be non-empty")
+            .isNotEmpty();
+      } finally {
+        storage.exitCommitWindow();
+      }
+    } finally {
+      storage.stateLock.writeLock().unlock();
+    }
+  }
+
+  // The commit window is a depth counter, so a nested enter/exit pair leaves the window open
+  // until the outermost exit; a leaked window would make later reads on a pooled thread skip the
+  // read lock unsafely. This pins the compose-and-close-balanced contract via the private
+  // isCommitWindowActive() predicate, and confirms the normal record-read path reverts to taking
+  // the read lock once the window closes (the pure-data fast path is unaffected).
+  @Test
+  public void commitWindowDepthComposesAndClosesBalanced() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+
+    Method active = AbstractStorage.class.getDeclaredMethod("isCommitWindowActive");
+    active.setAccessible(true);
+
+    assertThat((boolean) active.invoke(storage))
+        .as("window is closed before any enter").isFalse();
+
+    storage.enterCommitWindow();
+    assertThat((boolean) active.invoke(storage))
+        .as("window opens on the first enter").isTrue();
+
+    storage.enterCommitWindow();
+    storage.exitCommitWindow();
+    assertThat((boolean) active.invoke(storage))
+        .as("a nested enter/exit pair leaves the window open at depth 1").isTrue();
+
+    storage.exitCommitWindow();
+    assertThat((boolean) active.invoke(storage))
+        .as("the outermost exit closes the window").isFalse();
+
+    // After the window closes, the normal record-read path resolves with the read lock again.
+    db.createVertexClass("PostWindowProbe");
+    var collectionName =
+        storage.getCollectionNames().stream()
+            .filter(n -> n.startsWith("postwindowprobe"))
+            .findFirst()
+            .orElseThrow();
+    assertThat(storage.getPhysicalCollectionNameById(storage.getCollectionIdByName(collectionName)))
+        .as("the normal read-lock path still resolves once the window is closed")
+        .isEqualTo(collectionName);
   }
 
   // ---- Helpers ----
