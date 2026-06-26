@@ -52,6 +52,57 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
   against it, never against `-1`. The I-A2 durable-bytes half and the
   crash-before-commit variant are deferred to Step 3 (test breadcrumbs in
   place). See Episodes §Step 2.
+- 2026-06-26T15:39Z The first reconciliation-core attempt (Alternative A, reverted at
+  the re-decomposition that created the new Step 3) implemented and validated the whole
+  commit-carry structure end-to-end except the readLock-under-writeLock deadlock. The
+  Step 4 implementer (the reconciliation core, renumbered from Step 3 by this split)
+  re-applies it on top of the new Step 3 lock-free read substrate. Reusable findings:
+  - **`isWriteTransaction()` gap (hard prerequisite for Step 4).**
+    `FrontendTransactionImpl.isWriteTransaction()` returns
+    `!recordOperations.isEmpty() || !indexEntries.isEmpty()`, so a schema-only tx (a
+    class create with no records) enrolls no record ops (tx-local `saveInternal` is a
+    no-op) and `doCommit` skips `storage.commit` entirely, silently dropping the schema
+    change. Fix: OR in `getCustomData(DatabaseSessionEmbedded.TX_SCHEMA_STATE_KEY) != null`
+    and make `TX_SCHEMA_STATE_KEY` public.
+  - **Provisional collection name is lost (hard prerequisite for Step 4).** Step 2's
+    `createCollections` / `setAbstractInternal` compute the `<class>_<counter>` name on
+    the provisional branch but keep only the id; the commit cannot regenerate it (the
+    tx-local counter already advanced). Add a provisional→name carrier on `TxSchemaState`
+    (`allocateProvisionalCollectionId(String name)` plus `getProvisionalCollectionName(s)`),
+    populated at both producer sites.
+  - **Index-apply deadlock fix verified (D3/T1).** The only index-path readLock re-entry
+    is `lockIndexes` → `IndexAbstract.acquireAtomicExclusiveLock` (IndexAbstract.java:930)
+    → public `getIndexEngine(int)` → `stateLock.readLock()`; every other apply path
+    (`commitIndexes` / `applyTxChanges` / `doPut` / `doRemove`) reads `indexEngines.get(id)`
+    lock-free. Fix: a `lockIndexesLockFree` resolving via `doGetIndexEngine`. This is a
+    no-op for Track 4 (index ops are empty until Track 5) but load-bearing for Track 5.
+  - **The "XXX two implementations of commit" comment (~`AbstractStorage`:2223) is stale.**
+    There is a single `commit(FrontendTransactionImpl, boolean)`; both `commit` and
+    `commitPreAllocated` funnel through it. Nothing to keep in sync.
+  - **Validated commit-carry shape (re-apply in Step 4).** Branch on
+    `session.getTxSchemaState() != null` into `commitSchemaCarry` versus `commitPureData`
+    (the original body extracted unchanged via `computeCommitWorkingSet` /
+    `applyCommitOperations` / `finishCommit`). Four-lock order:
+    `committedSchema.acquireSchemaWriteLock` → `indexManager.acquireExclusiveLockForCommit`
+    (new no-side-effect wrappers) → `stateLock.writeLock`. Inside the write lock:
+    `reconcileCollections` (D9 set-diff via `getRealCollectionIds()`; drop via
+    `dropCollectionInternal`; create via `doCreateCollection` at a commit-local
+    first-null-slot id, then `registerCollection`, then `recordResolvedCollectionId`) →
+    `resolveProvisionalCollectionIds` (two-pass: patch all
+    `SchemaClassImpl.collectionIds` / `defaultCollectionId` / `polymorphicCollectionIds`,
+    then rebuild `collectionsToClasses` wholesale, per A3), wrapped in the tx-local
+    schema's own write lock → `txLocalSchema.toStream` → `computeCommitWorkingSet` (after
+    `toStream` so the new per-class and root records join it) → `applyCommitOperations`.
+    A1/R1 deferral was implemented as publish-during-reconcile plus undo-on-failure
+    (chosen over defer-to-success because the position loop needs `doGetAndCheckCollection`
+    to resolve the new collection during apply; D10 permits the undo-on-failure variant).
+    Promotion: `committedSchema.fromStream(session, committedRoot)` plus one `forceSnapshot`.
+  - **Test caveats for Step 4/5.** `session.newEntity("X")` of a class created in the same
+    uncommitted tx fails ("Class X not found") because `newEntity` resolves via the
+    immutable schema snapshot, not the tx-local view; apply-path tests create-class and
+    commit, then insert records in a separate tx. ErrorProne bans `System.out` in
+    production code (use `LogManager.instance().warn`).
+  See Decision Log 2026-06-26T15:39Z.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -80,6 +131,29 @@ design.md D-records this track owns. -->
   provisional seam. No other track clearly owned the alter path, so completing
   it here keeps the I-A1 invariant whole for tx-local collection allocation.
   See Episodes §Step 2.
+- 2026-06-26T15:39Z (dependency-reveal / re-decomposition) The Step 3 implementer built
+  the Alternative-A reconciliation core end-to-end (the integration shape the user chose
+  at the first escalation: in-commit, resolve-then-serialize, storage-owned) and a thread
+  dump caught a second self-deadlock the decomposition never assigned a producer for.
+  Commit-time schema serialization and promotion read records while holding
+  `stateLock.writeLock()`: `txLocalSchema.toStream` and `committedSchema.fromStream` call
+  `session.load` → `executeReadRecord` → the security `getCollectionNameById` →
+  `getPhysicalCollectionNameById` → `stateLock.readLock()`, which busy-spins forever
+  because the non-reentrant `ScalableRWLock` never grants a read to the thread already
+  holding the write lock. D3/T1 anticipated this hazard class, but Step 1 supplied only
+  the storage/index primitives; the real readLock surface reached through `session.load`
+  is the whole session record-read path (security, collection-name lookup, cache-miss
+  `storage.readRecord`). Resolution (user-approved, alternative A1): split a lock-free
+  commit-window record-read substrate into a new Step 3 — lock-free variants for every
+  `stateLock.readLock()`-taking method the commit body reaches under the write lock,
+  mirroring the `doGetIndexEngine` / `doGetAndCheckCollection` pattern — renumbering the
+  reconciliation core to Step 4, selective write to Step 5, and read-site conversions to
+  Step 6. The non-reentrant lock stays unchanged: A3 (reentrant read-under-write) was
+  rejected as a storage-wide primitive mutation that would obsolete Step 1's lock-free
+  primitives, and A2 (pre-serialize outside the lock) was rejected by the frozen design's
+  F33 upgrade window and F58 corruption case. No Decision Record changed; D3 already
+  mandates lock-free variants for every commit-body readLock path. See Surprises
+  2026-06-26T15:39Z and Concrete Steps §Step 3.
 
 #### D1 (commit facet): Storage reconciles structure at commit
 - **Alternatives considered**: keep storage-leading (the enablement facet's rejected alternative).
@@ -206,9 +280,10 @@ promotion under `SchemaShared.lock` before `stateLock`.
 
 1. Extract the lock-free commit-window primitives in `AbstractStorage`: pull `doAddIndexEngine` / `doDeleteIndexEngine(atomicOperation, …)` out of the public `addIndexEngine` / `deleteIndexEngine` bodies, add a lock-free `doGetIndexEngine(int)` that reads `indexEngines.get(id)` without taking `stateLock` (mirroring the existing lock-free `doGetAndCheckCollection`), and split the collection/engine create primitives so id-allocation plus file/engine creation is separable from in-memory registry publication (`collections` / `collectionMap` / `indexEngines` / `indexEngineNameMap`). Public methods stay behavior-preserving wrappers; unit tests confirm the wrappers preserve behavior and that `doGetIndexEngine` resolves while a write lock is held. — risk: high (crash-safety/durability: `AbstractStorage` storage-component primitives; concurrency: a new lock-free read of shared mutable state)  [x] commit: 7c7a157efa
 2. Produce D2 provisional collection ids in the tx-local create path: replace the eager, self-committing `session.addCollection` in `SchemaEmbedded.createCollections` (and any sibling tx-local create path) with provisional `<= -2` sentinel allocation, so an in-tx `createClass` carries a provisional id instead of a durable real collection; split the `collectionId < 0` predicate into abstract `-1` vs provisional `<= -2` across the in-memory map sites (`SchemaShared.checkCollectionCanBeAdded`, `addCollectionClassMap`, `getClassByCollectionId`, and the other ~11 `< 0` sites), keeping file/storage sites skipping all negatives; populate `collectionsToClasses` with provisional ids as pending-real (reverse map populated, uniqueness validated); carry the provisional→real id mapping on `TxSchemaState`. Closes the Track 3 CS1 stray-collection-on-rollback defect — a rolled-back in-tx create now leaves no collection on disk. This is the D2 production substrate the reconciliation core consumes. (Depends on Step 1.) — risk: high (architecture: inverts the eager structural collection allocation, the storage-leads dependency inversion's tx-local half; crash-safety/durability: a rolled-back or crashed-before-commit in-tx create must leave no stray collection; concurrency: the tx-local predicate-split sites)  [x] commit: 346e87ae9d
-3. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Steps 1 and 2.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [ ]
-4. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 3.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [ ]
-5. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 3; *(parallel with Step 4)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
+3. Build the lock-free commit-window record-read substrate so commit-time schema serialization and promotion can read records while holding `stateLock.writeLock()`. `txLocalSchema.toStream` and `committedSchema.fromStream` read records via `session.load` → `executeReadRecord` → the security `getCollectionNameById` → `getPhysicalCollectionNameById` → `stateLock.readLock()`, which busy-spins forever because the non-reentrant `ScalableRWLock` never grants a read to the thread already holding the write lock. Add lock-free read variants (mirroring the existing `doGetIndexEngine` / `doGetAndCheckCollection` pattern) for every `stateLock.readLock()`-taking method the commit body reaches under the write lock: at minimum a lock-free `getPhysicalCollectionNameById` / `getCollectionNameById` for the security check and a lock-free `storage.readRecord` for genuine cache misses, exposed through a commit-window read path the schema `toStream` / `fromStream` and the position-allocation / `commitEntry` loop can call. Enumerate the full reachable readLock set with PSI find-usages (the D3/T1 enumeration extended from the index path to the record/schema read path) and confirm each is replaced or already lock-free; leave the non-reentrant lock and the pure-data read-lock path unchanged. White-box tests prove a lock-free read resolves while a write lock is held. Covers the D3/T1 readLock-re-entry hazard for the record-read surface the reconciliation core (Step 4) rests on. (Depends on Steps 1 and 2.) — risk: high (concurrency: lock-free reads of shared mutable state under the held write lock, across the session / security / storage read path; crash-safety/durability: the commit-window record-read correctness the reconciliation core rests on)  [ ]
+4. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`, reading records through the Step 3 lock-free commit-window read substrate. Also apply the two prerequisites the first attempt validated (see Surprises 2026-06-26T15:39Z): the `isWriteTransaction()` schema-signal fix so a schema-only tx reaches `storage.commit`, and the `TxSchemaState` provisional→name carrier so the real collection is created under its generated name. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Steps 1, 2, and 3.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [ ]
+5. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 4.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [ ]
+6. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 4; *(parallel with Step 5)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
