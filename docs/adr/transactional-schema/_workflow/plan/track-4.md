@@ -25,6 +25,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [ ] Track completion
 - [x] 2026-06-26T08:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-26T10:04Z [ctx=safe] Step 1 complete (commit 7c7a157efa)
+- [x] 2026-06-26T12:52Z [ctx=info] Step 2 complete (commit 346e87ae9d)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -39,6 +40,18 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
   `db.activateOnCurrentThread()` as its first body statement (the session is
   thread-bound via a `ThreadLocal`; JUnit runs a timed body on a separate
   watchdog thread). See Episodes §Step 1.
+- 2026-06-26T12:52Z Step 2 found two tx-local provisional-collection-id
+  producers, not one: the create path (`SchemaEmbedded.createCollections`) and
+  the abstract→concrete alter path (`SchemaClassEmbedded.setAbstractInternal`,
+  PSI-confirmed tx-reachable). Both now allocate provisional `<= -2` ids via
+  `TxSchemaState.allocateProvisionalCollectionId` and record `markClassChanged`.
+  Step 3's reconciliation must resolve provisional ids from BOTH producers
+  before any `toStream` in promotion. The not-resolved sentinel is
+  `TxSchemaState.NO_RESOLUTION` (`Integer.MIN_VALUE`), disjoint from real
+  (`>= 0`), abstract (`-1`), and provisional (`<= -2`); consumers must test
+  against it, never against `-1`. The I-A2 durable-bytes half and the
+  crash-before-commit variant are deferred to Step 3 (test breadcrumbs in
+  place). See Episodes §Step 2.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -59,6 +72,14 @@ design.md D-records this track owns. -->
   and read-site conversions to Step 5. The new step also closes the Track 3 CS1
   stray-collection-on-rollback defect. No Decision Record changed; D2 already
   specifies provisional ids. See Concrete Steps §Step 2.
+- 2026-06-26T12:52Z (scope-up / review-driven) Step 2's step-level review
+  (BC1/CS1) expanded the step from the create path alone to also invert the
+  tx-local abstract→concrete alter path (`SchemaClassEmbedded.setAbstractInternal`),
+  PSI-confirmed reachable inside a transaction and carrying the same I-A1
+  stray-collection-on-rollback exposure. Both producers now route through the
+  provisional seam. No other track clearly owned the alter path, so completing
+  it here keeps the I-A1 invariant whole for tx-local collection allocation.
+  See Episodes §Step 2.
 
 #### D1 (commit facet): Storage reconciles structure at commit
 - **Alternatives considered**: keep storage-leading (the enablement facet's rejected alternative).
@@ -184,7 +205,7 @@ promotion under `SchemaShared.lock` before `stateLock`.
 ## Concrete Steps
 
 1. Extract the lock-free commit-window primitives in `AbstractStorage`: pull `doAddIndexEngine` / `doDeleteIndexEngine(atomicOperation, …)` out of the public `addIndexEngine` / `deleteIndexEngine` bodies, add a lock-free `doGetIndexEngine(int)` that reads `indexEngines.get(id)` without taking `stateLock` (mirroring the existing lock-free `doGetAndCheckCollection`), and split the collection/engine create primitives so id-allocation plus file/engine creation is separable from in-memory registry publication (`collections` / `collectionMap` / `indexEngines` / `indexEngineNameMap`). Public methods stay behavior-preserving wrappers; unit tests confirm the wrappers preserve behavior and that `doGetIndexEngine` resolves while a write lock is held. — risk: high (crash-safety/durability: `AbstractStorage` storage-component primitives; concurrency: a new lock-free read of shared mutable state)  [x] commit: 7c7a157efa
-2. Produce D2 provisional collection ids in the tx-local create path: replace the eager, self-committing `session.addCollection` in `SchemaEmbedded.createCollections` (and any sibling tx-local create path) with provisional `<= -2` sentinel allocation, so an in-tx `createClass` carries a provisional id instead of a durable real collection; split the `collectionId < 0` predicate into abstract `-1` vs provisional `<= -2` across the in-memory map sites (`SchemaShared.checkCollectionCanBeAdded`, `addCollectionClassMap`, `getClassByCollectionId`, and the other ~11 `< 0` sites), keeping file/storage sites skipping all negatives; populate `collectionsToClasses` with provisional ids as pending-real (reverse map populated, uniqueness validated); carry the provisional→real id mapping on `TxSchemaState`. Closes the Track 3 CS1 stray-collection-on-rollback defect — a rolled-back in-tx create now leaves no collection on disk. This is the D2 production substrate the reconciliation core consumes. (Depends on Step 1.) — risk: high (architecture: inverts the eager structural collection allocation, the storage-leads dependency inversion's tx-local half; crash-safety/durability: a rolled-back or crashed-before-commit in-tx create must leave no stray collection; concurrency: the tx-local predicate-split sites)  [ ]
+2. Produce D2 provisional collection ids in the tx-local create path: replace the eager, self-committing `session.addCollection` in `SchemaEmbedded.createCollections` (and any sibling tx-local create path) with provisional `<= -2` sentinel allocation, so an in-tx `createClass` carries a provisional id instead of a durable real collection; split the `collectionId < 0` predicate into abstract `-1` vs provisional `<= -2` across the in-memory map sites (`SchemaShared.checkCollectionCanBeAdded`, `addCollectionClassMap`, `getClassByCollectionId`, and the other ~11 `< 0` sites), keeping file/storage sites skipping all negatives; populate `collectionsToClasses` with provisional ids as pending-real (reverse map populated, uniqueness validated); carry the provisional→real id mapping on `TxSchemaState`. Closes the Track 3 CS1 stray-collection-on-rollback defect — a rolled-back in-tx create now leaves no collection on disk. This is the D2 production substrate the reconciliation core consumes. (Depends on Step 1.) — risk: high (architecture: inverts the eager structural collection allocation, the storage-leads dependency inversion's tx-local half; crash-safety/durability: a rolled-back or crashed-before-commit in-tx create must leave no stray collection; concurrency: the tx-local predicate-split sites)  [x] commit: 346e87ae9d
 3. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Steps 1 and 2.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [ ]
 4. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 3.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [ ]
 5. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 3; *(parallel with Step 4)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
@@ -232,6 +253,59 @@ grow-with-gap branch (id > size) and `doCreateCollection`'s null-name no-op bran
 unexercised by the public path and exist for Step 2's commit-local allocator, which
 may hand back a reused hole id below the live size. Timed tests in this package must
 call `db.activateOnCurrentThread()` first (thread-bound session under `@Test(timeout)`).
+
+### Step 2 — commit 346e87ae9d, 2026-06-26T12:52Z [ctx=info]
+**What was done:** Inverted the eager, self-committing collection allocation in the
+tx-local schema paths. `SchemaEmbedded.createCollections` and
+`SchemaClassEmbedded.setAbstractInternal` (the abstract→concrete switch) now allocate a
+provisional `<= -2` collection id from a per-transaction allocator on `TxSchemaState`
+when `txLocal && !isSeedingTxSchemaState()`, recording the class as changed; the
+committed/non-tx/seeding path keeps the real-id `addCollection`. Added
+`ABSTRACT_COLLECTION_ID` (-1), `PROVISIONAL_COLLECTION_ID_CEILING` (-2),
+`isProvisionalCollectionId`, and `NO_RESOLUTION` (`Integer.MIN_VALUE`) to
+`SchemaShared`/`TxSchemaState`. Split the `collectionId < 0` predicate at the six
+in-memory reverse-map sites to skip only the abstract marker and treat `<= -2` as
+pending-real; file/storage sites still skip all negatives. Added the provisional→real
+carrier on `TxSchemaState` (`allocateProvisionalCollectionId`, `recordResolvedCollectionId`,
+`getResolvedCollectionId`, `getResolvedCollectionIds`). Covers I-A1 (a rolled-back in-tx
+create or abstract→concrete alter leaves no collection on disk) and I-A2 (a provisional
+id is exposed only in the tx-local view).
+
+**What was discovered:** This step was created mid-Phase-B by splitting the original
+Step 2 — the reconciliation core depended on a D2 provisional-id production substrate no
+step produced (see Decision Log 2026-06-26T10:04Z). Two eager self-commit call sites
+existed, not one: the create path and the abstract→concrete alter path
+(`setAbstractInternal`). The alter path is reachable inside a transaction (PSI:
+`setAbstract` → `resolveForWrite` → `rebindToTxLocal`, no tx-active guard), so it carried
+the same I-A1 stray-collection-on-rollback exposure; the step-level review
+(bugs-concurrency, crash-safety, test-crash-safety; PASS at iteration 2) flagged it
+(BC1/CS1) and the fix routed it through the same provisional seam with its own rollback
+regression test (`rolledBackInTransactionSetAbstractFalseLeavesNoCollectionOnDisk`). The
+make-non-abstract branch never registered into `collectionsToClasses` even on the eager
+path, so the inversion swaps only the allocation source plus `markClassChanged`, with no
+other behavior change.
+
+**What changed from the plan:** The BC1/CS1 review expanded the step from the create path
+alone to also cover the abstract→concrete alter path (`setAbstractInternal`), since both
+are tx-local collection allocators with the same I-A1 exposure and no other track clearly
+owned the alter path. This gives Step 3 two provisional-id producers to resolve, not one.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaClassEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/TxSchemaState.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaDeguardTest.java` (modified)
+
+**Critical context:** Step 3 (reconciliation core) must resolve every provisional id from
+BOTH producers (`createCollections` and `setAbstractInternal`) by calling
+`recordResolvedCollectionId`, then patch every provisional reference (class id-lists,
+`collectionsToClasses` re-key, changed-class records' property values) before any
+`toStream` in the promotion path. Consumers must test resolution against
+`TxSchemaState.NO_RESOLUTION` (or `getResolvedCollectionIds().containsKey`), never against
+`-1`. The I-A2 durable-bytes half (commit → reload → real id survives, no `<= -2` on disk)
+and the crash-before-commit variant are deferred to Step 3's reconciliation plus the
+crash-restore harness; the Step 2 tests carry breadcrumbs to those.
 
 ## Validation and Acceptance
 - One transaction creates two classes (16 collections, 2+ engines) plus records,
