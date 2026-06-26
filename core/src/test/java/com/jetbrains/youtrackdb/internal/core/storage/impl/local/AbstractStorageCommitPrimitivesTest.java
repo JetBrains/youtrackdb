@@ -15,6 +15,10 @@ import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -299,6 +303,16 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThat((boolean) active.invoke(storage))
         .as("the outermost exit closes the window").isFalse();
 
+    // Negative control: with the window closed, the predicate must report inactive, so the
+    // record-read path below takes the read-lock branch rather than running lock-free. This is
+    // the branch-decision assertion the value-equality check alone cannot make — name equality
+    // is identical under either branch in a single-threaded test, so a regression that left the
+    // predicate stuck-true (the worst-case leak) would pass the equality check silently. Pinning
+    // isCommitWindowActive() false here catches that regression.
+    assertThat((boolean) active.invoke(storage))
+        .as("outside the window the predicate is inactive — the read takes stateLock.readLock()")
+        .isFalse();
+
     // After the window closes, the normal record-read path resolves with the read lock again.
     db.createVertexClass("PostWindowProbe");
     var collectionName =
@@ -309,6 +323,129 @@ public class AbstractStorageCommitPrimitivesTest {
     assertThat(storage.getPhysicalCollectionNameById(storage.getCollectionIdByName(collectionName)))
         .as("the normal read-lock path still resolves once the window is closed")
         .isEqualTo(collectionName);
+  }
+
+  // The substrate's most dangerous failure mode is a window left open on a thread: a single
+  // unbalanced enterCommitWindow() (a missing finally, or a commit that throws between enter and
+  // exit) leaves the depth positive, so a later, unrelated read on the same thread silently skips
+  // stateLock.readLock() and races a concurrent registrar on the plain collections list. This pins
+  // that a leaked (unbalanced) enter leaves the window active rather than self-healing — the
+  // predicate the production code relies on must reflect the leak so the hazard is observable. The
+  // matching exit in the finally cleans up so the worker thread is not poisoned for sibling tests.
+  @Test
+  public void leakedWindowStaysActiveOnTheSameThread() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    Method active = AbstractStorage.class.getDeclaredMethod("isCommitWindowActive");
+    active.setAccessible(true);
+
+    storage.enterCommitWindow(); // deliberately NOT balanced inside the try
+    try {
+      assertThat((boolean) active.invoke(storage))
+          .as("a leaked (unbalanced) enter leaves the window active — the pooled-thread hazard")
+          .isTrue();
+    } finally {
+      storage.exitCommitWindow(); // clean up so this thread is not poisoned for sibling tests
+    }
+  }
+
+  // The pooled-thread-reuse hazard is the leaked window's real-world shape: the storage runs on
+  // pooled threads, so a window left open (or stale state from a prior task) survives task
+  // boundaries on a reused worker. exitCommitWindow() remove()s the ThreadLocal once the depth
+  // returns to zero precisely so a subsequent unrelated task on the same thread starts from a fresh
+  // closed window. This runs a balanced enter/exit on a single-thread executor, then re-uses that
+  // exact thread for a second task and asserts the window reads closed there — proving the depth
+  // does not leak across tasks and the predicate self-heals after a balanced close. Running both
+  // tasks on a single-thread ExecutorService guarantees thread reuse (a @Test(timeout) watchdog
+  // thread is not the production pool, so it would not exercise the reuse path).
+  @Test(timeout = 30_000)
+  public void balancedWindowDoesNotLeakAcrossTasksOnAReusedPooledThread() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    Method active = AbstractStorage.class.getDeclaredMethod("isCommitWindowActive");
+    active.setAccessible(true);
+
+    ExecutorService pool = Executors.newSingleThreadExecutor();
+    try {
+      // Task 1: a balanced enter/exit pair. After it returns the depth must be zero and, thanks to
+      // the remove()-at-zero hardening, the ThreadLocal cell is cleared on this worker thread.
+      Boolean activeInsideTask1 =
+          pool.submit(
+              (Callable<Boolean>) () -> {
+                storage.enterCommitWindow();
+                try {
+                  return (boolean) active.invoke(storage);
+                } finally {
+                  storage.exitCommitWindow();
+                }
+              })
+              .get(10, TimeUnit.SECONDS);
+      assertThat(activeInsideTask1)
+          .as("the window is open inside the balanced task while the depth is positive")
+          .isTrue();
+
+      // Task 2: a different, unrelated task on the SAME pooled thread. It must observe a closed
+      // window — no leftover depth from task 1. A regression that failed to reset the depth at zero
+      // would leak the window here and make this read lock-free unsafely.
+      Boolean activeInTask2 =
+          pool.submit((Callable<Boolean>) () -> (boolean) active.invoke(storage))
+              .get(10, TimeUnit.SECONDS);
+      assertThat(activeInTask2)
+          .as("a later unrelated task on the reused pooled thread sees a fresh closed window")
+          .isFalse();
+    } finally {
+      pool.shutdownNow();
+      assertThat(pool.awaitTermination(10, TimeUnit.SECONDS))
+          .as("the single-thread executor terminates cleanly").isTrue();
+    }
+  }
+
+  // An over-exit (one stray exitCommitWindow without a matching enter, e.g. a mis-placed finally)
+  // must not corrupt the per-thread depth so that a later legitimate window silently reads closed.
+  // In production (asserts disabled) the over-exit is absorbed by the clamp in exitCommitWindow,
+  // which leaves the depth at zero rather than driving it negative; a negative depth would make the
+  // next enterCommitWindow leave the counter at or below zero, so isCommitWindowActive() reads
+  // false while the commit holds the write lock and the next lock-free-intended read re-acquires
+  // stateLock.readLock() and re-introduces the busy-spin deadlock the substrate removes.
+  //
+  // Under -ea (this test module) the assert in exitCommitWindow fires first on the unbalanced call,
+  // before the clamp runs, so the over-exit is caught loudly — and because the decrement sits after
+  // the assert the depth is never written, leaving the cell at zero exactly as the production clamp
+  // would. This test pins both halves of that contract: the unbalanced exit is detected under -ea,
+  // and the depth is left at zero so a subsequent legitimate window opens normally.
+  @Test
+  public void overExitIsDetectedUnderAssertionsAndLeavesDepthClampedAtZero() throws Exception {
+    var storage = (AbstractStorage) db.getStorage();
+    Method active = AbstractStorage.class.getDeclaredMethod("isCommitWindowActive");
+    active.setAccessible(true);
+
+    assertThat((boolean) active.invoke(storage))
+        .as("precondition: the window starts closed on this thread").isFalse();
+
+    // A stray over-exit on a closed window. Under -ea the assert in exitCommitWindow fires; the
+    // decrement after it never runs, so the depth stays at zero rather than going negative.
+    AssertionError caught = null;
+    try {
+      storage.exitCommitWindow();
+    } catch (AssertionError e) {
+      caught = e;
+    }
+    assertThat(caught)
+        .as("under -ea an unbalanced exit is detected loudly rather than silently corrupting depth")
+        .isNotNull();
+
+    assertThat((boolean) active.invoke(storage))
+        .as("the over-exit left the depth clamped at zero, so the window reads closed")
+        .isFalse();
+
+    // A legitimate window opened after the over-exit must still report active: the depth was not
+    // skewed negative, so this enter takes it cleanly to one.
+    storage.enterCommitWindow();
+    try {
+      assertThat((boolean) active.invoke(storage))
+          .as("a window opened after an over-exit still opens — the depth was not driven negative")
+          .isTrue();
+    } finally {
+      storage.exitCommitWindow();
+    }
   }
 
   // ---- Helpers ----
