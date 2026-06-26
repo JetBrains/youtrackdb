@@ -15,12 +15,11 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregationContext;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.metadata.IndexMetadataPath;
+import com.jetbrains.youtrackdb.internal.core.sql.util.NumericOps;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
@@ -54,27 +53,27 @@ public class SQLMathExpression extends SimpleNode {
     STAR(10) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left * right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left * right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return left * right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return left * right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return left.multiply(right);
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
@@ -83,39 +82,33 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     SLASH(10) {
       @Override
       public Number apply(Integer left, Integer right) {
-        if (left % right == 0) {
-          return left / right;
-        }
-        return ((double) left) / right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        if (left % right == 0) {
-          return left / right;
-        }
-        return ((double) left) / right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return left / right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return left / right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return left.divide(right, RoundingMode.HALF_UP);
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
@@ -124,33 +117,33 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     REM(10) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left % right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left % right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return left % right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return left % right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return left.remainder(right);
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
@@ -159,142 +152,99 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     PLUS(20) {
       @Override
       public Number apply(Integer left, Integer right) {
-        final var sum = left + right;
-        if (sum < 0 && left > 0 && right > 0)
-        // SPECIAL CASE: UPGRADE TO LONG
-        {
-          return left.longValue() + right;
-        }
-        return sum;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left + right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return left + right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return left + right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return left.add(right);
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Object apply(Object left, Object right) {
-        if (left == null && right == null) {
-          return null;
-        }
-        if (left == null) {
-          return right;
-        }
-        if (right == null) {
-          return left;
-        }
-        if (left instanceof Number && right instanceof Number) {
-          return super.apply(left, right);
-        }
-        if (left instanceof Date || right instanceof Date) {
-          var result = apply(toLong(left), toLong(right));
-          return new Date(result.longValue());
-        }
-        return String.valueOf(left) + right;
+        return NumericOps.plusObject(left, right);
       }
     },
     MINUS(20) {
       @Override
       public Number apply(Integer left, Integer right) {
-        var result = left - right;
-        if (result > 0 && left.intValue() < 0 && right.intValue() > 0)
-        // SPECIAL CASE: UPGRADE TO LONG
-        {
-          return left.longValue() - right;
-        }
-
-        return result;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left - right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return left - right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return left - right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return left.subtract(right);
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Object apply(Object left, Object right) {
-        Object result = null;
-        if (left == null && right == null) {
-          result = null;
-        } else if (left instanceof Number && right == null) {
-          result = left;
-        } else if (right instanceof Number && left == null) {
-          result = apply(0, this, (Number) right);
-        } else if (left instanceof Number && right instanceof Number) {
-          result = apply((Number) left, this, (Number) right);
-        } else if (left instanceof Date || right instanceof Date) {
-          var r = apply(toLong(left), toLong(right));
-          result = new Date(r.longValue());
-        }
-
-        return result;
+        return NumericOps.minusObject(left, right);
       }
     },
     LSHIFT(30) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left << right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left << right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Float left, Float right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Double left, Double right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
@@ -303,36 +253,36 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     RSHIFT(30) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left >> right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left >> right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Float left, Float right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Double left, Double right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
@@ -341,36 +291,36 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     RUNSIGNEDSHIFT(30) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left >>> right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left >>> right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Float left, Float right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Double left, Double right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
@@ -379,34 +329,34 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     BIT_AND(40) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left & right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left & right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return apply(left.longValue(), right.longValue());
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return apply(left.longValue(), right.longValue());
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
@@ -415,138 +365,110 @@ public class SQLMathExpression extends SimpleNode {
         if (left == null || right == null) {
           return null;
         }
-        return super.apply(left, right);
+        return NumericOps.applyObject(this, left, right);
       }
     },
     XOR(50) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left ^ right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left ^ right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Float left, Float right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Double left, Double right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Object apply(Object left, Object right) {
-        if (left == null && right == null) {
-          return null;
-        }
-        if (left instanceof Number && right == null) {
-          return apply((Number) left, this, 0);
-        }
-        if (right instanceof Number && left == null) {
-          return apply(0, this, (Number) right);
-        }
-
-        if (left instanceof Number && right instanceof Number) {
-          return apply((Number) left, this, (Number) right);
-        }
-
-        return null;
+        return NumericOps.xorObject(left, right);
       }
     },
     BIT_OR(60) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left | right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left | right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Float left, Float right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(Double left, Double right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Nullable
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return null;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       @Nullable
       public Object apply(Object left, Object right) {
-        if (left == null && right == null) {
-          return null;
-        }
-        return super.apply(left == null ? 0 : left, right == null ? 0 : right);
+        return NumericOps.bitOrObject(left, right);
       }
     },
     NULL_COALESCING(25) {
       @Override
       public Number apply(Integer left, Integer right) {
-        return left != null ? left : right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Long left, Long right) {
-        return left != null ? left : right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Float left, Float right) {
-        return left != null ? left : right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(Double left, Double right) {
-        return left != null ? left : right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Number apply(BigDecimal left, BigDecimal right) {
-        return left != null ? left : right;
+        return NumericOps.apply(this, left, right);
       }
 
       @Override
       public Object apply(Object left, Object right) {
-        return left != null ? left : right;
+        return NumericOps.nullCoalescingObject(left, right);
       }
     };
-
-    @Nullable
-    private static Long toLong(Object left) {
-      if (left instanceof Number) {
-        return ((Number) left).longValue();
-      }
-      if (left instanceof Date) {
-        return ((Date) left).getTime();
-      }
-      return null;
-    }
 
     private final int priority;
 
@@ -566,92 +488,7 @@ public class SQLMathExpression extends SimpleNode {
 
     @Nullable
     public Object apply(Object left, Object right) {
-      if (left == null) {
-        return right;
-      }
-      if (right == null) {
-        return left;
-      }
-      if (left instanceof Number && right instanceof Number) {
-        return apply((Number) left, this, (Number) right);
-      }
-
-      return null;
-    }
-
-    public Number apply(final Number a, final Operator operation, final Number b) {
-      if (a == null || b == null) {
-        throw new IllegalArgumentException("Cannot increment a null value");
-      }
-
-      if (a instanceof Integer || a instanceof Short) {
-        if (b instanceof Integer || b instanceof Short) {
-          return operation.apply(a.intValue(), b.intValue());
-        } else if (b instanceof Long) {
-          return operation.apply(a.longValue(), b.longValue());
-        } else if (b instanceof Float) {
-          return operation.apply(a.floatValue(), b.floatValue());
-        } else if (b instanceof Double) {
-          return operation.apply(a.doubleValue(), b.doubleValue());
-        } else if (b instanceof BigDecimal) {
-          return operation.apply(new BigDecimal((Integer) a), (BigDecimal) b);
-        }
-      } else if (a instanceof Long) {
-        if (b instanceof Integer || b instanceof Long || b instanceof Short) {
-          return operation.apply(a.longValue(), b.longValue());
-        } else if (b instanceof Float) {
-          return operation.apply(a.floatValue(), b.floatValue());
-        } else if (b instanceof Double) {
-          return operation.apply(a.doubleValue(), b.doubleValue());
-        } else if (b instanceof BigDecimal) {
-          return operation.apply(new BigDecimal((Long) a), (BigDecimal) b);
-        }
-      } else if (a instanceof Float) {
-        if (b instanceof Short || b instanceof Integer || b instanceof Long || b instanceof Float) {
-          return operation.apply(a.floatValue(), b.floatValue());
-        } else if (b instanceof Double) {
-          return operation.apply(a.doubleValue(), b.doubleValue());
-        } else if (b instanceof BigDecimal) {
-          return operation.apply(BigDecimal.valueOf((Float) a), (BigDecimal) b);
-        }
-
-      } else if (a instanceof Double) {
-        if (b instanceof Short
-            || b instanceof Integer
-            || b instanceof Long
-            || b instanceof Float
-            || b instanceof Double) {
-          return operation.apply(a.doubleValue(), b.doubleValue());
-        } else if (b instanceof BigDecimal) {
-          return operation.apply(BigDecimal.valueOf((Double) a), (BigDecimal) b);
-        }
-
-      } else if (a instanceof BigDecimal) {
-        if (b instanceof Integer) {
-          return operation.apply((BigDecimal) a, new BigDecimal((Integer) b));
-        } else if (b instanceof Long) {
-          return operation.apply((BigDecimal) a, new BigDecimal((Long) b));
-        } else if (b instanceof Short) {
-          return operation.apply((BigDecimal) a, new BigDecimal((Short) b));
-        } else if (b instanceof Float) {
-          return operation.apply((BigDecimal) a, BigDecimal.valueOf((Float) b));
-        } else if (b instanceof Double) {
-          return operation.apply((BigDecimal) a, BigDecimal.valueOf((Double) b));
-        } else if (b instanceof BigDecimal) {
-          return operation.apply((BigDecimal) a, (BigDecimal) b);
-        }
-      }
-
-      throw new IllegalArgumentException(
-          "Cannot increment value '"
-              + a
-              + "' ("
-              + a.getClass()
-              + ") with '"
-              + b
-              + "' ("
-              + b.getClass()
-              + ")");
+      return NumericOps.applyObject(this, left, right);
     }
 
     public int getPriority() {
