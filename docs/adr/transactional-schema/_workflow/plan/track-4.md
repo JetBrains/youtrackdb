@@ -24,9 +24,21 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-26T08:43Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-26T10:04Z [ctx=safe] Step 1 complete (commit 7c7a157efa)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-06-26T10:04Z Step 1 established the create/publish seam — the create
+  primitives (`doAddIndexEngine`, `doCreateCollection`) build files and config
+  inside the atomic operation and return the engine/collection unpublished;
+  `publishIndexEngine`/`registerCollection` mutate the in-memory maps
+  separately. Step 2's reconciliation and Track 5's overlay publish both consume
+  this seam. `setIndexEngine`/`setCollection` grow-and-set, so Step 2's
+  commit-local allocator must handle a reused hole id below the live size. A
+  `@Test(timeout)` in the `AbstractStorage` package needs
+  `db.activateOnCurrentThread()` as its first body statement (the session is
+  thread-bound via a `ThreadLocal`; JUnit runs a timed body on a separate
+  watchdog thread). See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -155,13 +167,54 @@ promotion under `SchemaShared.lock` before `stateLock`.
 
 ## Concrete Steps
 
-1. Extract the lock-free commit-window primitives in `AbstractStorage`: pull `doAddIndexEngine` / `doDeleteIndexEngine(atomicOperation, …)` out of the public `addIndexEngine` / `deleteIndexEngine` bodies, add a lock-free `doGetIndexEngine(int)` that reads `indexEngines.get(id)` without taking `stateLock` (mirroring the existing lock-free `doGetAndCheckCollection`), and split the collection/engine create primitives so id-allocation plus file/engine creation is separable from in-memory registry publication (`collections` / `collectionMap` / `indexEngines` / `indexEngineNameMap`). Public methods stay behavior-preserving wrappers; unit tests confirm the wrappers preserve behavior and that `doGetIndexEngine` resolves while a write lock is held. — risk: high (crash-safety/durability: `AbstractStorage` storage-component primitives; concurrency: a new lock-free read of shared mutable state)  [ ]
+1. Extract the lock-free commit-window primitives in `AbstractStorage`: pull `doAddIndexEngine` / `doDeleteIndexEngine(atomicOperation, …)` out of the public `addIndexEngine` / `deleteIndexEngine` bodies, add a lock-free `doGetIndexEngine(int)` that reads `indexEngines.get(id)` without taking `stateLock` (mirroring the existing lock-free `doGetAndCheckCollection`), and split the collection/engine create primitives so id-allocation plus file/engine creation is separable from in-memory registry publication (`collections` / `collectionMap` / `indexEngines` / `indexEngineNameMap`). Public methods stay behavior-preserving wrappers; unit tests confirm the wrappers preserve behavior and that `doGetIndexEngine` resolves while a write lock is held. — risk: high (crash-safety/durability: `AbstractStorage` storage-component primitives; concurrency: a new lock-free read of shared mutable state)  [x] commit: 7c7a157efa
 2. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Step 1.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [ ]
 3. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 2.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [ ]
 4. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 2; *(parallel with Step 3)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 7c7a157efa, 2026-06-26T10:04Z [ctx=safe]
+**What was done:** Extracted the lock-free commit-window primitives out of the
+public structural methods on `AbstractStorage`, keeping the public methods as
+behavior-preserving wrappers with no call-site changes. Added `doGetIndexEngine(int)`
+(a lock-free engine resolver mirroring `doGetAndCheckCollection`; `getIndexEngine`
+now delegates to it inside the read lock), `doAddIndexEngine` + `publishIndexEngine`
++ `setIndexEngine` (the create-then-publish split for engines), `doDeleteIndexEngine`
+(the atomic-op delete half), and `doCreateCollection` (the create-then-publish split
+for collections, with `registerCollection` as the publish half). A same-package
+white-box test `AbstractStorageCommitPrimitivesTest` pins wrapper create/register/drop
+behavior and the load-bearing case that `doGetIndexEngine` resolves while the calling
+thread holds `stateLock.writeLock()`.
+
+**What was discovered:** The collection-side publish (`registerCollection`) ran
+before the WAL-reverted config/component work in the original `doAddCollection`,
+but it is safely reorderable: the collection id is fixed at `collectionPos` before
+that work, and `addCollection` guards the duplicate-name case before the atomic
+operation, so the split moves publication last with no behavior change. A vertex
+class names its collections `<class>_<counter>` (e.g. `collpublishprobe_9..16`), not
+the bare class name. Step-level review (bugs-concurrency, crash-safety,
+test-concurrency; PASS at iteration 2) left two findings intentionally unfixed: BC1
+(the pre-lock `checkIndexId` in `getIndexEngine` is now redundant with the under-lock
+check in `doGetIndexEngine`, but harmless, since the under-lock check closes a TOCTOU
+window) and TX2 (a negative control / true multi-threaded race test, deferred to
+Step 2).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorageCommitPrimitivesTest.java` (new)
+
+**Critical context:** The new primitives are additive; no consumer wires the
+create/publish split or the lock-free resolver into the commit yet — that is Step 2's
+reconciliation core. The seam it must use: call the create primitive inside the atomic
+operation and publish (`publishIndexEngine`/`registerCollection`) only on the
+post-`commitChanges` success path (undo in the failure `finally`), so a failed commit
+leaves no phantom in-memory registration (D10, A1/R1). `setIndexEngine`'s
+grow-with-gap branch (id > size) and `doCreateCollection`'s null-name no-op branch are
+unexercised by the public path and exist for Step 2's commit-local allocator, which
+may hand back a reused hole id below the live size. Timed tests in this package must
+call `db.activateOnCurrentThread()` first (thread-bound session under `@Test(timeout)`).
 
 ## Validation and Acceptance
 - One transaction creates two classes (16 collections, 2+ engines) plus records,
