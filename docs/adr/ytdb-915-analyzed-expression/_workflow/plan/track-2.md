@@ -26,11 +26,12 @@ consumer the shared home exists for.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-26T16:39Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-26T19:06Z [ctx=info] Step 1 complete (commit 9dc97c2c4c)
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-26): `SQLMathExpression` is in the build-excluded `sql/parser/`
@@ -67,6 +68,18 @@ consumer the shared home exists for.
   because moving them off the enum would break `MathExpressionTest`'s direct calls (the
   acceptance gate itself). The "move overloads into `NumericOps`" arm is rejected for S0 as a
   gate-weakening edit. (A2/R4.)
+- **Phase B Step 1 (2026-06-26): the cross-track `NumericOps` contract for Track 4 is fixed.**
+  Track 4's IR evaluator delegates `+ - * /` through `NumericOps.apply(Number, Operator, Number)`
+  / `applyObject(Operator, Object, Object)` and reuses `plusObject`/`minusObject` for Date
+  coercion (not the package-private `toLong`). The 24-test `NumericOpsTest` pins every typed-pair
+  arm and widening combination, so it is the behavioral contract Track 4 must hold against.
+  See Episodes §Step 1.
+- **Phase B Step 1 (2026-06-26): the whole-enum lift surfaced latent coverage debt.** The lifted
+  arms lived in the JaCoCo-excluded `sql/parser/` zone and were never coverage-measured; in
+  `sql/util/` they are, and the `+ - * /` characterization tests alone left `NumericOps` at
+  ~70% line / ~58% branch. Clearing the 85/70 gate required the full arm-by-arm `NumericOpsTest`
+  (the deferred TC3–TC6 findings, un-deferred because the gate is a hard acceptance criterion).
+  See Episodes §Step 1.
 
 ## Decision Log
 <!-- Full inline Decision Records this track owns (four-bullet form). One block per decision: -->
@@ -145,6 +158,27 @@ consumer the shared home exists for.
 - **Implemented in**: this track (step references added during execution)
 <!-- **Full design**: design.md §"NumericOps: one shared promotion engine" / Part 4 -->
 
+#### D-E1 (execution, Phase B Step 1): two exact-preservation divergences pinned, not restored
+- **Alternatives considered**: restore the pre-lift behavior exactly on both paths (rejected —
+  one path threw a `ClassCastException` that the lifted form removes, a clean latent-bug fix;
+  the other is an unreachable-from-normal-AST error path where the cleaner exception is
+  preferable); leave the divergences silent and untested (rejected — violates the
+  "semantics preserved exactly" invariant without a record).
+- **Rationale**: the dimensional review (BC1/CQ1, BC2) found the lift changed behavior on two
+  paths. PSI confirmed both reachable. The implementer pinned the current behavior with
+  characterization tests and documented each at its call site rather than restoring the old
+  behavior: (1) `Short` operand against `BigDecimal` now computes a value
+  (`new BigDecimal(a.intValue())`) where the pre-lift `new BigDecimal((Integer) a)` cast threw
+  `ClassCastException` — reachable via `shortField op decimalField`; (2) `Date ± non-Number-
+  non-Date` now throws `IllegalArgumentException` where the typed-overload path threw
+  `NullPointerException`. The exact-preservation invariant is thus scoped to the reachable
+  `+ - * /` success paths, with these two documented exceptions on edge/error paths that are
+  improvements, not regressions.
+- **Risks/Caveats**: neither divergence affects any `+ - * /` success-path result; both are
+  pinned by tests (`testShortWithBigDecimalWidens`, `testDateWithNonNumericThrowsIllegalArgument`)
+  so a future change cannot re-break them silently.
+- **Implemented in**: this track, Step 1 (commit 9dc97c2c4c). See Episodes §Step 1.
+
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 3 (5 findings, 5 accepted) — T1 (acceptance-gate gap) +
   T2 (parser-zone exclusions) should-fix and T3 (3-hop chain) + T4 (moving-surface
@@ -158,6 +192,16 @@ consumer the shared home exists for.
   independence confirmed) + A5 (D13 sizing survives) affirming suggestions recorded. Ran on
   the session default (opus); D14's `full → Fable 5` pin degraded to opus (this host has no
   Fable), the documented degradation.
+- [x] Phase B Step 1 dimensional review (2026-06-26): PASS. Full track-pass-equivalent selection
+  (single-step-high track, so Phase C review portion skips): code-quality, bugs-concurrency,
+  test-behavior, test-completeness, performance, test-structure. Initial pass = 12 findings
+  (0 blocker, 3 should-fix BC1/TC1/TC2, 9 suggestion); performance PASS (D17 perf-neutrality
+  holds). All in-scope findings fixed (commit 887a1c285a) and gate-verified PASS on all five
+  re-checked dimensions (iteration 2). The 85/70 coverage build-gate, found failing at
+  ~70%/58% after the in-scope fixes, was closed by the arm-by-arm `NumericOpsTest` (commit
+  9dc97c2c4c) — `coverage-gate.py` PASS at 100% line / 93.6% branch. A focused test-behavior
+  review of the new tests returned PASS (2 accepted-minor suggestions). Dropped: CQ2
+  (Spotless-green 100-col cosmetic).
 
 ## Context and Orientation
 The target package `core/.../sql/util/`
@@ -267,10 +311,67 @@ must be identical after the delegation):
   `toString()`-ed).
 
 ## Concrete Steps
-1. Lift the whole `SQLMathExpression.Operator` promotion engine into a new all-static `NumericOps` (`core/.../sql/util/`), rewrite the enum's `apply` family — including the nine `super.apply` callbacks (STAR, SLASH, REM, PLUS, LSHIFT, RSHIFT, RUNSIGNEDSHIFT, BIT_AND, BIT_OR) → `NumericOps.applyObject` — as delegators keeping the enum's public typed + `apply(Object,Object)` signatures (D17), modernize `instanceof`+cast for ErrorProne, hand-format the `sql/parser/` edit, and add characterization tests for divide-widening / `+ - * /` null-propagation / `Date ± Long` / `String` concat; full sequence in `## Plan of Work`, gates in `## Validation and Acceptance`. — risk: high (performance hot path: modifies the AST arithmetic dispatch the precedence fold runs per evaluation)  [ ]
+1. Lift the whole `SQLMathExpression.Operator` promotion engine into a new all-static `NumericOps` (`core/.../sql/util/`), rewrite the enum's `apply` family — including the nine `super.apply` callbacks (STAR, SLASH, REM, PLUS, LSHIFT, RSHIFT, RUNSIGNEDSHIFT, BIT_AND, BIT_OR) → `NumericOps.applyObject` — as delegators keeping the enum's public typed + `apply(Object,Object)` signatures (D17), modernize `instanceof`+cast for ErrorProne, hand-format the `sql/parser/` edit, and add characterization tests for divide-widening / `+ - * /` null-propagation / `Date ± Long` / `String` concat; full sequence in `## Plan of Work`, gates in `## Validation and Acceptance`. — risk: high (performance hot path: modifies the AST arithmetic dispatch the precedence fold runs per evaluation)  [x] commit: 9dc97c2c4c
 
 ## Episodes
-<!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 9dc97c2c4c, 2026-06-26T19:06Z [ctx=info]
+**What was done:** Lifted the whole `SQLMathExpression.Operator` numeric-promotion engine into
+a new all-static `final NumericOps` (`core/.../sql/util/`), leaving the enum's public typed and
+`apply(Object,Object)` signatures as thin delegators (D17). The nine former `super.apply`
+callbacks (STAR, SLASH, REM, PLUS, LSHIFT, RSHIFT, RUNSIGNEDSHIFT, BIT_AND, BIT_OR) now call
+`NumericOps.applyObject`; the per-constant Object bodies call dedicated `NumericOps` helpers.
+Modernized `instanceof`+cast to pattern-matching `instanceof` for ErrorProne (`NumericOps` sits
+outside the `sql/parser/` exclusions); hand-formatted the Spotless-excluded `SQLMathExpression`
+edit. Added characterization tests: six in `MathExpressionTest` (divide-widening, `+ - * /`
+null propagation, `Date ± Long`, `String` concat, plus the two pinned divergences below) and a
+new 24-test `NumericOpsTest` covering every typed-pair arm, every mixed-type widening
+combination, both widening throw paths, and every object-level entry. The step-level dimensional
+review ran the full track-pass-equivalent selection (code-quality, bugs-concurrency,
+test-behavior, test-completeness, performance, test-structure) because this is the track's sole
+high step, so Phase C's review portion will skip. Performance returned PASS — the delegation
+adds only static monomorphic calls, no new virtual indirection (D17 holds). 12 findings (0
+blocker, 3 should-fix, 9 suggestion); every in-scope item was fixed across commits 887a1c285a
+and 9dc97c2c4c and gate-verified PASS on all dimensions. Final state: 426 core tests green
+(NumericOpsTest 24, MathExpressionTest 15, DocValidationTest 387); `coverage-gate.py` reports
+`NumericOps.java` at 100% line / 92.8% branch and the overall changed-code gate PASS at 100%
+line / 93.6% branch.
+
+**What was discovered:** The cross-track contract Track 4's IR evaluator delegates into is now
+fixed: `NumericOps.applyObject(Operator, Object, Object)` (base entry),
+`apply(Number, Operator, Number)` (widening entry), five typed-pair `apply(Operator, T, T)`
+methods (Integer/Long/Float/Double/BigDecimal), and the per-operator Object helpers
+`plusObject`/`minusObject`/`xorObject`/`bitOrObject`/`nullCoalescingObject`; `toLong` is
+package-private. Track 4 delegates `+ - * /` through `apply`/`applyObject` and reuses
+`plusObject`/`minusObject` for Date coercion rather than `toLong`. `NumericOpsTest` is the
+behavioral contract for the shared engine — any drift the IR path introduces against these
+pinned result types and values surfaces there. The whole-enum lift surfaced latent test-debt:
+the lifted arms lived in the JaCoCo-excluded parser zone and were never coverage-measured;
+moving them to `sql/util/` (not excluded) measured them for the first time, and the `+ - * /`
+characterization tests alone left `NumericOps` at ~70% line / ~58% branch, which forced the
+full arm-by-arm `NumericOpsTest` to clear the 85/70 gate (the deferred TC3–TC6 findings).
+
+**What changed from the plan:** Two deliberate behavioral divergences from the pre-lift enum
+are pinned and documented rather than restored, both PSI-confirmed reachable and recorded in
+the Decision Log (D-E1): (1) `Short + BigDecimal` (and the sibling Short-operand widening) now
+computes a value where the pre-lift `new BigDecimal((Integer) a)` cast threw
+`ClassCastException` — a latent-bug fix reachable via `shortField op decimalField`; (2)
+`Date ± non-Number-non-Date` now throws `IllegalArgumentException` where the typed-overload
+path threw `NullPointerException` — a cleaner error on an out-of-scope error path. Neither
+touches any `+ - * /` success-path semantics. The exhaustive arm characterization lives in a
+new `NumericOpsTest` class (the finding's permitted "focused new test class" option),
+co-located with the production class and kept separate from the AST-level `MathExpressionTest`.
+Two final-review test-comment suggestions (a per-widening-test orthogonality note; one explicit
+`.getClass()` assertion per left-type) are accepted-minor and not applied — they do not weaken
+falsifiability.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/util/NumericOps.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMathExpression.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/parser/MathExpressionTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/util/NumericOpsTest.java` (new)
+
+**Critical context:** none — the coverage gate is closed and no open decision remains.
 
 ## Validation and Acceptance
 The acceptance gate is behavioral plus two build gates the runtime tests cannot see. Phase A
