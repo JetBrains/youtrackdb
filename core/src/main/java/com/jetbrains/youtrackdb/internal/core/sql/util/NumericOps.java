@@ -64,6 +64,11 @@ public final class NumericOps {
       return applyObject(Operator.PLUS, left, right);
     }
     if (left instanceof Date || right instanceof Date) {
+      // `Date op (non-Number, non-Date)` is an out-of-scope error path: `toLong` yields null for
+      // the non-Date operand, so the widening entry's null guard throws IllegalArgumentException.
+      // The pre-lift form called the typed `apply(Long, Long)` overload, which threw
+      // NullPointerException on the unboxing of a null operand. This NPE->IAE shift on an
+      // already-failing path is a deliberate, cleaner error; normal `Date +/- Long` is unaffected.
       var result = apply(toLong(left), Operator.PLUS, toLong(right));
       return new Date(result.longValue());
     }
@@ -85,6 +90,10 @@ public final class NumericOps {
     } else if (left instanceof Number leftNumber && right instanceof Number rightNumber) {
       result = apply(leftNumber, Operator.MINUS, rightNumber);
     } else if (left instanceof Date || right instanceof Date) {
+      // See plusObject: `Date - (non-Number, non-Date)` throws IllegalArgumentException from the
+      // widening entry's null guard, where the pre-lift typed-overload path threw
+      // NullPointerException. Deliberate NPE->IAE shift on an out-of-scope error path; normal
+      // `Date - Long` is unaffected.
       var r = apply(toLong(left), Operator.MINUS, toLong(right));
       result = new Date(r.longValue());
     }
@@ -254,6 +263,11 @@ public final class NumericOps {
       } else if (b instanceof Double) {
         return apply(operation, a.doubleValue(), b.doubleValue());
       } else if (b instanceof BigDecimal bigDecimal) {
+        // `a.intValue()` widens both Integer and Short, which the enclosing
+        // `a instanceof Integer || a instanceof Short` branch admits. The pre-lift form was
+        // `new BigDecimal((Integer) a)`, which threw ClassCastException for a Short left operand
+        // (e.g. a `shortField op decimalField` arithmetic expression). The .intValue() form is a
+        // deliberate latent-bug fix: Short + BigDecimal now computes a value instead of throwing.
         return apply(operation, new BigDecimal(a.intValue()), bigDecimal);
       }
     } else if (a instanceof Long) {

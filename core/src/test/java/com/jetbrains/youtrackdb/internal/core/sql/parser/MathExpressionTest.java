@@ -70,6 +70,14 @@ public class MathExpressionTest {
         SQLMathExpression.Operator.PLUS.apply(Integer.MAX_VALUE, 1).getClass(), Long.class);
     Assert.assertEquals(
         SQLMathExpression.Operator.MINUS.apply(Integer.MIN_VALUE, 1).getClass(), Long.class);
+
+    // The widened result must be the correct long, not the wrapped int. A regression that widened
+    // after the int wrap (e.g. (long)(left + right)) would still return a Long but the wrong value.
+    Assert.assertEquals(2147483648L, SQLMathExpression.Operator.PLUS.apply(Integer.MAX_VALUE, 1));
+    Assert.assertEquals(
+        -2147483649L, SQLMathExpression.Operator.MINUS.apply(Integer.MIN_VALUE, 1));
+    // The non-overflow case must stay Integer (the upgrade branch must not fire spuriously).
+    Assert.assertEquals(Integer.valueOf(3), SQLMathExpression.Operator.PLUS.apply(1, 2));
   }
 
   @Test
@@ -232,13 +240,25 @@ public class MathExpressionTest {
     Assert.assertEquals(Long.valueOf(3L), Operator.SLASH.apply(6L, 2L));
 
     // Non-exact integer division widens to Double.
-    Object intResult = Operator.SLASH.apply(7, 2);
+    var intResult = Operator.SLASH.apply(7, 2);
     Assert.assertEquals(Double.class, intResult.getClass());
     Assert.assertEquals(3.5, intResult);
 
-    Object longResult = Operator.SLASH.apply(7L, 2L);
+    var longResult = Operator.SLASH.apply(7L, 2L);
     Assert.assertEquals(Double.class, longResult.getClass());
     Assert.assertEquals(3.5, longResult);
+
+    // Divide-by-zero diverges by operand type, and the divergence is invisible in the diff.
+    // Integer/Long SLASH throw ArithmeticException (the `left % right == 0` exact-division check
+    // evaluates `%` first, which throws on a zero divisor); BigDecimal SLASH throws too. Float and
+    // Double SLASH do not throw; they yield Infinity / NaN. Pin all four so a future edit to the
+    // exact-division shortcut cannot silently change which exception fires, or whether one fires.
+    Assert.assertThrows(ArithmeticException.class, () -> Operator.SLASH.apply(1, 0));
+    Assert.assertThrows(ArithmeticException.class, () -> Operator.SLASH.apply(1L, 0L));
+    Assert.assertThrows(
+        ArithmeticException.class, () -> Operator.SLASH.apply(BigDecimal.ONE, BigDecimal.ZERO));
+    Assert.assertEquals(Float.POSITIVE_INFINITY, Operator.SLASH.apply(1f, 0f));
+    Assert.assertTrue(((Double) Operator.SLASH.apply(0d, 0d)).isNaN());
   }
 
   // Characterization test for + - * / null propagation through Operator.apply(Object, Object).
@@ -273,17 +293,24 @@ public class MathExpressionTest {
   public void testDateArithmetic() {
     var base = new Date(1_000L);
 
-    Object plusRight = Operator.PLUS.apply(base, 500L);
+    var plusRight = Operator.PLUS.apply(base, 500L);
     Assert.assertEquals(Date.class, plusRight.getClass());
     Assert.assertEquals(1_500L, ((Date) plusRight).getTime());
+    // The engine builds a fresh Date; the operand must be neither mutated nor handed back.
+    Assert.assertEquals(1_000L, base.getTime());
+    Assert.assertNotSame(base, plusRight);
 
-    Object plusLeft = Operator.PLUS.apply(500L, base);
+    var plusLeft = Operator.PLUS.apply(500L, base);
     Assert.assertEquals(Date.class, plusLeft.getClass());
     Assert.assertEquals(1_500L, ((Date) plusLeft).getTime());
+    Assert.assertEquals(1_000L, base.getTime());
+    Assert.assertNotSame(base, plusLeft);
 
-    Object minus = Operator.MINUS.apply(base, 250L);
+    var minus = Operator.MINUS.apply(base, 250L);
     Assert.assertEquals(Date.class, minus.getClass());
     Assert.assertEquals(750L, ((Date) minus).getTime());
+    Assert.assertEquals(1_000L, base.getTime());
+    Assert.assertNotSame(base, minus);
   }
 
   // Characterization test for String concatenation through PLUS. When either operand is a String,
@@ -293,5 +320,35 @@ public class MathExpressionTest {
     Assert.assertEquals("ab", Operator.PLUS.apply("a", "b"));
     Assert.assertEquals("a1", Operator.PLUS.apply("a", 1));
     Assert.assertEquals("1b", Operator.PLUS.apply(1, "b"));
+  }
+
+  // Characterization test pinning a deliberate divergence from the pre-lift enum: a Short left
+  // operand against a BigDecimal right operand. The old widening code was `new BigDecimal((Integer)
+  // a)`, which threw ClassCastException for a Short (reachable via a `shortField op decimalField`
+  // arithmetic expression). The lifted form widens via `a.intValue()`, which handles both Integer
+  // and Short, so Short + BigDecimal now computes a value. This pins the improved behavior so the
+  // path is no longer untested. The symmetric BigDecimal + Short case always computed; it is
+  // confirmed unchanged.
+  @Test
+  public void testShortWithBigDecimalWidens() {
+    Assert.assertEquals(new BigDecimal(5), Operator.PLUS.apply((short) 2, BigDecimal.valueOf(3)));
+    Assert.assertEquals(new BigDecimal(6), Operator.STAR.apply((short) 2, BigDecimal.valueOf(3)));
+    // Symmetric direction (BigDecimal left, Short right) computed before and after the lift.
+    Assert.assertEquals(new BigDecimal(5), Operator.PLUS.apply(BigDecimal.valueOf(2), (short) 3));
+  }
+
+  // Characterization test pinning a deliberate exception-type change from the pre-lift enum on an
+  // out-of-scope Date error path. When one operand is a Date and the other is neither a Number nor
+  // a Date (e.g. a String), `toLong` returns null for the non-Date operand. The old Date branch
+  // called the typed apply(Long, Long) overload, which threw NullPointerException on the null
+  // unboxing; the lifted Date branch routes through the widening entry, whose null guard throws
+  // IllegalArgumentException instead. Normal Date +/- Long is unaffected (covered by
+  // testDateArithmetic). This pins the cleaner IAE so the NPE->IAE shift is not treated as
+  // accidental by a future reader.
+  @Test
+  public void testDateWithNonNumericThrowsIllegalArgument() {
+    var date = new Date(1_000L);
+    Assert.assertThrows(IllegalArgumentException.class, () -> Operator.PLUS.apply(date, "x"));
+    Assert.assertThrows(IllegalArgumentException.class, () -> Operator.MINUS.apply(date, "x"));
   }
 }
