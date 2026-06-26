@@ -2783,10 +2783,12 @@ public abstract class AbstractStorage
               final var ctxCfg = configuration.getContextConfiguration();
               final var cfgEncryptionKey =
                   ctxCfg.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-              var genenrateId = indexEngines.size();
+              // The public method appends at the live registry size; the commit
+              // window passes a commit-local-allocated id instead.
+              final var generatedId = indexEngines.size();
               final var engineData =
                   new IndexEngineData(
-                      genenrateId,
+                      generatedId,
                       indexMetadata,
                       true,
                       valueSerializerId,
@@ -2797,22 +2799,9 @@ public abstract class AbstractStorage
                       cfgEncryptionKey,
                       engineProperties);
 
-              final var engine = Indexes.createIndexEngine(this, engineData);
+              final var engine = doAddIndexEngine(atomicOperation, engineData);
 
-              engine.create(atomicOperation, engineData);
-
-              // Create and wire histogram manager for B-tree engines
-              if (engine instanceof BTreeIndexEngine btreeEngine) {
-                var mgr = createAndWireHistogramManager(
-                    btreeEngine, engineData, atomicOperation);
-                mgr.createStatsFile(atomicOperation);
-              }
-
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
-              indexEngines.add(engine);
-
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+              publishIndexEngine(engineData.getIndexId(), engine);
 
               return generateIndexId(engineData.getIndexId(), engine);
             });
@@ -2830,6 +2819,80 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  /**
+   * Creates the index engine, its files, and its storage-configuration entry inside the
+   * given atomic operation, without publishing the engine into the in-memory registries
+   * ({@code indexEngineNameMap} / {@code indexEngines}). Everything this method touches is
+   * buffered as WAL-reverted intent in {@code atomicOperation}, so a rolled-back or
+   * crashed-before-commit operation leaves no engine files behind. The caller publishes
+   * the returned engine into the registries separately via {@link #publishIndexEngine(int,
+   * BaseIndexEngine)} only after the atomic operation has committed, so a failed commit
+   * leaves no phantom in-memory registration. This mirrors the existing {@link
+   * #deleteIndexEngine(int)} discipline, which also defers its in-memory map mutation to
+   * after the atomic operation.
+   *
+   * <p>The caller is responsible for id allocation: {@code engineData.getIndexId()} is the
+   * caller-chosen internal id. The public {@link #addIndexEngine(IndexMetadata, Map)} uses
+   * {@code indexEngines.size()}; the commit window uses a commit-local allocator seeded
+   * inside the write lock.
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file creates.
+   * @param engineData      the engine metadata, carrying the caller-allocated internal id.
+   * @return the created engine, not yet published into the in-memory registries.
+   */
+  private BaseIndexEngine doAddIndexEngine(
+      final AtomicOperation atomicOperation, final IndexEngineData engineData)
+      throws IOException {
+    final var engine = Indexes.createIndexEngine(this, engineData);
+
+    engine.create(atomicOperation, engineData);
+
+    // Create and wire histogram manager for B-tree engines
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      var mgr = createAndWireHistogramManager(btreeEngine, engineData, atomicOperation);
+      mgr.createStatsFile(atomicOperation);
+    }
+
+    ((CollectionBasedStorageConfiguration) configuration)
+        .addIndexEngine(atomicOperation, engineData.getName(), engineData);
+
+    return engine;
+  }
+
+  /**
+   * Publishes a created engine into the in-memory registries ({@code indexEngineNameMap}
+   * and {@code indexEngines}). This is the registry-publication half of the create seam,
+   * split from {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)} so the commit
+   * window can defer it past {@code commitChanges}: a failed commit must leave no phantom
+   * in-memory registration. Grows the {@code indexEngines} list to the
+   * internal id and sets the slot, so it works for both an append at the live size (the
+   * public path) and a reused hole below the size (the commit-local allocator).
+   *
+   * @param internalId the engine's internal id (its slot in {@code indexEngines}).
+   * @param engine     the engine to publish.
+   */
+  private void publishIndexEngine(final int internalId, final BaseIndexEngine engine) {
+    indexEngineNameMap.put(engine.getName(), engine);
+    setIndexEngine(internalId, engine);
+  }
+
+  /**
+   * Sets {@code indexEngines.get(id) == engine}, growing the list with null padding when
+   * {@code id} is at or past the current size, mirroring {@link #setCollection(int,
+   * StorageCollection)}. The public append path uses {@code id == indexEngines.size()};
+   * the commit-local allocator may reuse a hole at {@code id < indexEngines.size()}.
+   */
+  private void setIndexEngine(final int id, final BaseIndexEngine engine) {
+    if (indexEngines.size() <= id) {
+      while (indexEngines.size() < id) {
+        indexEngines.add(null);
+      }
+      indexEngines.add(engine);
+    } else {
+      indexEngines.set(id, engine);
     }
   }
 
@@ -3044,11 +3107,7 @@ public abstract class AbstractStorage
         assert internalIndexId == engine.getId();
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            atomicOperation -> {
-              engine.delete(atomicOperation);
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .deleteIndexEngine(atomicOperation, engine.getName());
-            });
+            atomicOperation -> doDeleteIndexEngine(atomicOperation, engine));
 
         // Update in-memory maps only AFTER the atomic operation commits
         // successfully. If the atomic operation rolls back, the maps remain
@@ -3072,6 +3131,25 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
+  }
+
+  /**
+   * Deletes the engine's files and its storage-configuration entry inside the given atomic
+   * operation, without mutating the in-memory registries ({@code indexEngines} /
+   * {@code indexEngineNameMap}). This is the atomic-op half of the delete seam, split from
+   * {@link #deleteIndexEngine(int)} so the commit window can run the WAL-reverted delete
+   * under the held write lock and defer (or revert) the in-memory map mutation itself. The
+   * public {@code deleteIndexEngine} performs the map mutation after the atomic operation
+   * commits, as it always has.
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file deletes.
+   * @param engine          the already-resolved engine to delete.
+   */
+  private void doDeleteIndexEngine(
+      final AtomicOperation atomicOperation, final BaseIndexEngine engine) throws IOException {
+    engine.delete(atomicOperation);
+    ((CollectionBasedStorageConfiguration) configuration)
+        .deleteIndexEngine(atomicOperation, engine.getName());
   }
 
   private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
@@ -3218,9 +3296,7 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        final var engine = indexEngines.get(indexId);
-        assert indexId == engine.getId();
-        return engine;
+        return doGetIndexEngine(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3233,6 +3309,31 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /**
+   * Lock-free engine resolver for the commit window. Reads {@code indexEngines.get(id)}
+   * without taking {@code stateLock}, mirroring the lock-free {@link
+   * #doGetAndCheckCollection(int)} for collections. The schema-carrying commit already
+   * holds {@code stateLock.writeLock()} (the write-lock branch chosen at commit entry),
+   * so re-acquiring {@code stateLock.readLock()} through the public {@link
+   * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
+   * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
+   *
+   * <p>The caller must hold {@code stateLock.writeLock()} (commit window) or {@code
+   * stateLock.readLock()} (the public wrapper) so the read of the {@code indexEngines}
+   * registry is safe against a concurrent registrar.
+   *
+   * @param internalId the already-extracted internal index id (not the external,
+   *                   API-version-tagged id).
+   */
+  private BaseIndexEngine doGetIndexEngine(final int internalId)
+      throws InvalidIndexEngineIdException {
+    checkIndexId(internalId);
+
+    final var engine = indexEngines.get(internalId);
+    assert internalId == engine.getId();
+    return engine;
   }
 
   public <T> void callIndexEngine(
@@ -5002,36 +5103,65 @@ public abstract class AbstractStorage
   private int doAddCollection(
       final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
       throws IOException {
-    final PaginatedCollection collection;
-    if (collectionName != null) {
-      collectionName = collectionName.toLowerCase(Locale.ROOT);
+    final var collection = doCreateCollection(atomicOperation, collectionName, collectionPos);
 
-      collection =
-          StorageCollectionFactory.createCollection(
-              collectionName,
-              configuration.getVersion(atomicOperation),
-              configuration
-                  .getContextConfiguration()
-                  .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
-              this);
-      collection.configure(collectionPos, collectionName);
-    } else {
-      collection = null;
+    if (collection == null) {
+      return -1;
     }
 
-    var createdCollectionId = -1;
+    return registerCollection(collection);
+  }
 
-    if (collection != null) {
-      collection.create(atomicOperation);
-      createdCollectionId = registerCollection(collection);
-
-      ((CollectionBasedStorageConfiguration) configuration)
-          .updateCollection(atomicOperation, collection.generateCollectionConfig());
-
-      linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
+  /**
+   * Creates the collection's file, its storage-configuration entry, and its
+   * link-collections B-tree component inside the given atomic operation at the
+   * caller-allocated {@code collectionPos}, without publishing the collection into the
+   * in-memory collections list and the name-keyed collection map. Everything this
+   * method touches is buffered as WAL-reverted intent in {@code atomicOperation}, so a
+   * rolled-back or crashed-before-commit operation leaves no collection file behind. The
+   * caller publishes the returned collection separately via {@link
+   * #registerCollection(StorageCollection)} only after the atomic operation has committed,
+   * so a failed commit leaves no phantom in-memory registration. This is the
+   * collection-side analogue of {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
+   *
+   * <p>The caller owns id allocation: the public {@link #doAddCollection(AtomicOperation,
+   * String)} scans for the first null slot; the commit window uses a commit-local
+   * allocator seeded inside the write lock. Returns {@code null} for a null
+   * {@code collectionName} (the no-op case the legacy path returned id {@code -1} for).
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file creates.
+   * @param collectionName  the collection name, lower-cased here; {@code null} is a no-op.
+   * @param collectionPos   the caller-allocated collection id.
+   * @return the created collection, not yet published into the in-memory registries, or
+   * {@code null} when {@code collectionName} is null.
+   */
+  private StorageCollection doCreateCollection(
+      final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
+      throws IOException {
+    if (collectionName == null) {
+      return null;
     }
 
-    return createdCollectionId;
+    collectionName = collectionName.toLowerCase(Locale.ROOT);
+
+    final var collection =
+        StorageCollectionFactory.createCollection(
+            collectionName,
+            configuration.getVersion(atomicOperation),
+            configuration
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
+            this);
+    collection.configure(collectionPos, collectionName);
+
+    collection.create(atomicOperation);
+
+    ((CollectionBasedStorageConfiguration) configuration)
+        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+
+    linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+
+    return collection;
   }
 
   @Override
