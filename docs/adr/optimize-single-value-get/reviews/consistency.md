@@ -28,3 +28,24 @@ Track 1 scope should mention snapshot helper extraction. Merged with CR2 fix.
 
 ## Gate Verification: PASS
 All accepted findings verified. No new inconsistencies.
+
+---
+
+## Track 5 Review
+
+### CR8 [should-fix] — ACCEPTED, VERIFIED
+Track 5 said "Restore `preprocess()` + `serializeNativeAsWhole()`" but `preprocess()`
+is already present (restored in commit 1a6c8c4dff). Fixed: only `serializeNativeAsWhole()`
+needs re-adding.
+
+### CR9 [suggestion] — REJECTED
+D5 rationale overstates per-type serializer `compareInByteBuffer` coverage (ByteSerializer,
+BooleanSerializer, CompactedLinkSerializer lack overrides). No functional impact — Track 5
+correctly specifies inline comparison for all types.
+
+### CR10 [suggestion] — ACCEPTED, VERIFIED
+Track 5 didn't explicitly state dual-parameter requirement (`byte[] serializedKey` + `K searchKey`)
+for `getVisibleOptimistic`/`getVisiblePinned`. Added clarifying note.
+
+## Gate Verification (Track 5): PASS
+All accepted findings verified. No new inconsistencies.
