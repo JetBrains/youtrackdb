@@ -35,16 +35,21 @@ public class PrefilterMetricsDefinitionTest {
   // ---- GLOBAL_METRICS registration ----
 
   /**
-   * GLOBAL_METRICS must contain exactly the 2 originals plus
-   * PREFILTER_EFFECTIVENESS. This catches both accidental additions and
-   * accidental removals.
+   * GLOBAL_METRICS must contain exactly the 2 disk-cache originals, PREFILTER_EFFECTIVENESS, and the
+   * 5 tx-result-cache rate metrics. This catches both accidental additions and accidental removals.
    */
   @Test
   public void globalMetricsContainsExactlyExpectedMetrics() {
     assertThat(CoreMetrics.GLOBAL_METRICS).containsExactlyInAnyOrder(
         CoreMetrics.FILE_EVICTION_RATE,
         CoreMetrics.CACHE_HIT_RATIO,
-        CoreMetrics.PREFILTER_EFFECTIVENESS);
+        CoreMetrics.PREFILTER_EFFECTIVENESS,
+        CoreMetrics.QUERY_CACHE_HIT_RATE,
+        CoreMetrics.QUERY_CACHE_MISS_RATE,
+        CoreMetrics.QUERY_CACHE_SPLICE_FAILURE_RATE,
+        CoreMetrics.QUERY_CACHE_K0_INVALIDATION_RATE,
+        CoreMetrics.QUERY_CACHE_MULTI_INVALIDATION_RATE,
+        CoreMetrics.QUERY_CACHE_OVERFLOW_RATE);
   }
 
   // ---- Config entry assertions ----

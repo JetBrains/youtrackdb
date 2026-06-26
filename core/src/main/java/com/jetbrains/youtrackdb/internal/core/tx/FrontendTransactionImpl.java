@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.tx;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordNotFoundException;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
@@ -56,6 +57,8 @@ import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryCacheMetrics;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.RecordSerializationContext;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
@@ -113,6 +116,37 @@ public class FrontendTransactionImpl implements
 
   protected int txStartCounter;
   private final boolean readOnly;
+
+  // Monotonic mutation counter. Incremented on every addRecordOperation call (new record or
+  // collapse-update of an existing op), so it advances even when the collapse path leaves
+  // recordOperations.size() unchanged. The tx-result cache stamps an entry's populateMutationVersion
+  // from this value and filters operations by version > that stamp. Transient state with no on-disk
+  // footprint; it is never reset (unlike cacheCodeDepth), so a reused transaction object keeps
+  // incrementing. That is harmless because the cache is per-transaction (cleared at tx end) and every
+  // version comparison is relative to a stamp taken within the same transaction.
+  private long mutationVersion;
+
+  // Re-entrancy depth for the tx-result cache lookup-and-view scope. The session brackets the
+  // whole cache lookup-and-view path with enter/exit, so a query() issued from inside that scope
+  // (e.g. a user-defined function in a WHERE clause) observes depth > 0 and bypasses the cache,
+  // falling back to uncached execution. This is the sole re-entrancy guard: it brackets lookup,
+  // delta build, and view construction, so a nested query() rejects before lookup runs a second
+  // time. Transient per-tx owner-thread-only state with no on-disk footprint; resets to 0 with the
+  // transaction.
+  private int cacheCodeDepth;
+
+  // The per-transaction query-result cache. Lazily created on first access only when the
+  // youtrackdb.query.txResultCache.enabled flag is set; stays null for the whole transaction when the
+  // flag is off, which is the zero-behaviour-change compatibility floor. Transient per-tx state with
+  // no on-disk footprint; cleared on begin (fresh tx) and on every tx-end path (commit/rollback/close).
+  @Nullable private QueryResultCache queryResultCache;
+
+  // Latches the per-transaction "is the cache enabled?" decision so the disabled path costs a single
+  // boolean read after the first access instead of re-reading the global config flag on every query().
+  // false until getQueryResultCache() first resolves the flag; once true, queryResultCache is either the
+  // live cache (enabled) or stays null forever (disabled). Reset on fresh-tx begin so a config toggle
+  // between transactions on a reused object is observed. Transient owner-thread-only state.
+  private boolean cacheResolved;
 
   private final RecordSerializationContext recordSerializationContext =
       new RecordSerializationContext();
@@ -184,6 +218,19 @@ public class FrontendTransactionImpl implements
       var storage = session.getStorage();
       atomicOperation = storage.startStorageTx();
       storageTxThreadId = Thread.currentThread().threadId();
+
+      // Wipe any cache state carried over from a prior transaction on this reused transaction object.
+      // Placed inside the txStartCounter == 0 guard so a nested begin() (counter already positive)
+      // does not clear a cache populated by the live outer transaction. The re-entrancy depth counter
+      // is reset too: it is within-tx scope with no meaning across the tx boundary, and a view that was
+      // abandoned (GC'd before close) or stranded by a mid-iteration exception in a prior transaction
+      // could otherwise leave it above zero and silently disable the cache for this reused object. The
+      // resolved-flag latch is dropped so the enabled decision is re-made for the fresh transaction.
+      if (queryResultCache != null) {
+        queryResultCache.clear();
+      }
+      cacheCodeDepth = 0;
+      cacheResolved = false;
     } else {
       if (status == TXSTATUS.ROLLED_BACK || status == TXSTATUS.ROLLBACKING) {
         throw new RollbackException(
@@ -568,6 +615,11 @@ public class FrontendTransactionImpl implements
           recordOperations.put(record.getIdentity(), txEntry);
           recordsInTransaction.add(record.getIdentity());
 
+          // Stamp the new operation with the next mutation version. The increment lives inside the
+          // outer rollback try, so an increment preceding an early throw is benign: rollback ends
+          // the tx and the cache is cleared, discarding the stamp.
+          txEntry.version = ++mutationVersion;
+
           if (rid instanceof ChangeableIdentity changeableIdentity
               && changeableIdentity.canChangeIdentity()) {
             changeableIdentity.addIdentityChangeListener(this);
@@ -610,6 +662,12 @@ public class FrontendTransactionImpl implements
               }
             }
           }
+
+          // Re-stamp the collapsed operation so version always reflects the latest mutation for
+          // this RID, even when the collapse leaves recordOperations.size() unchanged (e.g.
+          // UPDATED -> DELETED). The cache's version > populateMutationVersion filter depends on
+          // this being the timestamp of the most recent change, not the first.
+          txEntry.version = ++mutationVersion;
         }
       } catch (final Exception e) {
         throw BaseException.wrapException(
@@ -972,6 +1030,15 @@ public class FrontendTransactionImpl implements
   private void clear() {
     session.closeActiveQueries();
 
+    // Tx-end cache sink: drop every cached entry and close its paused stream. Runs after
+    // closeActiveQueries() has already closed the consumer-facing views, so a view's stream may
+    // already be closed; the entry's stream is the shared IdempotentExecutionStream wrapper, whose
+    // second close is a no-op, so this closes each underlying stream exactly once. Idempotent: a
+    // second clear() (e.g. close after rollback) finds an empty cache.
+    if (queryResultCache != null) {
+      queryResultCache.clear();
+    }
+
     final var dbCache = session.getLocalCache();
     for (var txEntry : recordOperations.values()) {
       var record = txEntry.record;
@@ -1303,6 +1370,83 @@ public class FrontendTransactionImpl implements
   @Override
   public long getId() {
     return id;
+  }
+
+  /**
+   * Returns the current monotonic mutation version for this transaction. Advances on every {@link
+   * #addRecordOperation(RecordAbstract, byte)} call, including collapse-update paths that mutate an
+   * existing operation in place. The tx-result cache stamps a cached entry's populate version from
+   * this value so it can later filter out mutations the entry already observed.
+   */
+  public long getMutationVersion() {
+    return mutationVersion;
+  }
+
+  /**
+   * Enters the tx-result cache lookup-and-view scope, bumping the re-entrancy depth counter. The
+   * session calls this before consulting the cache and pairs it with {@link #exitCacheCode()} in a
+   * finally. A nested {@code query()} issued while inside this scope sees {@link #getCacheCodeDepth()}
+   * greater than zero and bypasses the cache. Owner-thread-only, like every other mutation-path
+   * method.
+   */
+  public void enterCacheCode() {
+    assertOnOwningThread();
+    cacheCodeDepth++;
+  }
+
+  /**
+   * Leaves the tx-result cache lookup-and-view scope, decrementing the re-entrancy depth counter. The
+   * decrement is floored at zero so an unbalanced exit cannot drive the counter negative and wrongly
+   * re-enable the cache for a still-nested caller. Paired with {@link #enterCacheCode()} in a finally.
+   */
+  public void exitCacheCode() {
+    assertOnOwningThread();
+    exitCacheCodeUnchecked();
+  }
+
+  /**
+   * Decrements the cache-code re-entrancy depth without asserting the owning thread, the floored-at-zero
+   * primitive that {@link #exitCacheCode()} delegates to after its owner-thread assert. Kept as a
+   * separate unchecked entry point for any future cross-thread cleanup that must lower a counter with no
+   * meaning past tx end; the decrement is floored at zero, so an off-thread call is harmless. The view's
+   * per-row guard ({@code CachedResultSetView.hasNext}) runs only on the owning thread, so it uses the
+   * checked {@link #exitCacheCode()}.
+   */
+  public void exitCacheCodeUnchecked() {
+    if (cacheCodeDepth > 0) {
+      cacheCodeDepth--;
+    }
+  }
+
+  /**
+   * The current re-entrancy depth of the tx-result cache lookup-and-view scope. Greater than zero
+   * means a cache code path is already on the stack, so a re-entrant {@code query()} must bypass the
+   * cache.
+   */
+  public int getCacheCodeDepth() {
+    return cacheCodeDepth;
+  }
+
+  /**
+   * Returns this transaction's query-result cache, lazily creating it on first access when the {@code
+   * youtrackdb.query.txResultCache.enabled} flag is set. Returns {@code null} when the flag is off, so
+   * the session's caller treats a null cache as "feature disabled" and runs the ordinary uncached
+   * query path: the cache field is never allocated and no behaviour changes. The flag is resolved once
+   * per transaction (latched on first access) for both the enabled and the disabled outcome, so a later
+   * call costs one boolean read; toggling the flag mid-transaction does not retroactively create or
+   * drop the cache.
+   */
+  @Nullable public QueryResultCache getQueryResultCache() {
+    if (cacheResolved) {
+      // The enabled/disabled decision was already made for this transaction: return the live cache
+      // (enabled) or null (disabled) on a single boolean read, with no repeat config lookup.
+      return queryResultCache;
+    }
+    cacheResolved = true;
+    if (GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean()) {
+      queryResultCache = new QueryResultCache(new QueryCacheMetrics());
+    }
+    return queryResultCache;
   }
 
   @Override

@@ -86,9 +86,20 @@ public class SqlScriptExecutor extends AbstractScriptExecutor {
     List<SQLStatement> lastRetryBlock = new ArrayList<>();
     var nestedTxLevel = 0;
 
+    // The single-statement command() path invalidates the tx-result cache for a mid-tx bulk-DML
+    // (TRUNCATE CLASS) before execution; a script reaches statement execution through its own chained
+    // plan instead, so without this the same TRUNCATE inside a script would leave a sibling query()'s
+    // cached entry stale and a later identical query would return rows for records the truncate
+    // removed. Run the same hook per statement so a script-embedded TRUNCATE drops the cache exactly as
+    // the direct path does. Non-bulk statements are a no-op in the hook.
+    var session = scriptContext.getDatabaseSession();
+
     for (var stm : statements) {
       if (stm.getOriginalStatement() == null) {
         stm.setOriginalStatement(stm.toString());
+      }
+      if (session != null) {
+        session.invalidateCacheForBulkDml(stm);
       }
       if (stm instanceof SQLBeginStatement) {
         nestedTxLevel++;

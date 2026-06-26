@@ -36,10 +36,82 @@ public class CoreMetrics {
               TimeInterval.of(1, TimeUnit.SECONDS),
               100.0));
 
+  // --- Query result cache rate metrics (global scope, fed by per-transaction counters) ---
+
+  public static final MetricDefinition<MetricScope.Global, TimeRate> QUERY_CACHE_HIT_RATE =
+      new MetricDefinition<>(
+          "QueryCacheHitRate",
+          "Query Result Cache Hit Rate",
+          "The rate of tx-result-cache hits (per second) for the last 60 seconds",
+          MetricType.rate(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global, TimeRate> QUERY_CACHE_MISS_RATE =
+      new MetricDefinition<>(
+          "QueryCacheMissRate",
+          "Query Result Cache Miss Rate",
+          "The rate of tx-result-cache misses (per second) for the last 60 seconds",
+          MetricType.rate(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global,
+      TimeRate> QUERY_CACHE_SPLICE_FAILURE_RATE =
+          new MetricDefinition<>(
+              "QueryCacheSpliceFailureRate",
+              "Query Result Cache Splice Failure Rate",
+              "The rate of tx-result-cache aggregate splice failures (per second) for the last 60"
+                  + " seconds",
+              MetricType.rate(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global,
+      TimeRate> QUERY_CACHE_K0_INVALIDATION_RATE =
+          new MetricDefinition<>(
+              "QueryCacheK0InvalidationRate",
+              "Query Result Cache K0 Invalidation Rate",
+              "The rate of tx-result-cache K0_NONE invalidations (per second) for the last 60 seconds",
+              MetricType.rate(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global,
+      TimeRate> QUERY_CACHE_MULTI_INVALIDATION_RATE =
+          new MetricDefinition<>(
+              "QueryCacheMultiInvalidationRate",
+              "Query Result Cache Multi Invalidation Rate",
+              "The rate of tx-result-cache multi alias match invalidations (per second) for the last 60 seconds",
+              MetricType.rate(
+                  TimeInterval.of(60, TimeUnit.SECONDS),
+                  TimeInterval.of(1, TimeUnit.SECONDS),
+                  TimeUnit.SECONDS));
+
+  public static final MetricDefinition<MetricScope.Global, TimeRate> QUERY_CACHE_OVERFLOW_RATE =
+      new MetricDefinition<>(
+          "QueryCacheOverflowRate",
+          "Query Result Cache Overflow Rate",
+          "The rate of tx-result-cache entry overflows (per second) for the last 60 seconds",
+          MetricType.rate(
+              TimeInterval.of(60, TimeUnit.SECONDS),
+              TimeInterval.of(1, TimeUnit.SECONDS),
+              TimeUnit.SECONDS));
+
   public static final Set<MetricDefinition<MetricScope.Global, ?>> GLOBAL_METRICS = Set.of(
       FILE_EVICTION_RATE,
       CACHE_HIT_RATIO,
-      PREFILTER_EFFECTIVENESS);
+      PREFILTER_EFFECTIVENESS,
+      QUERY_CACHE_HIT_RATE,
+      QUERY_CACHE_MISS_RATE,
+      QUERY_CACHE_SPLICE_FAILURE_RATE,
+      QUERY_CACHE_K0_INVALIDATION_RATE,
+      QUERY_CACHE_MULTI_INVALIDATION_RATE,
+      QUERY_CACHE_OVERFLOW_RATE);
 
   // ===================== DATABASE ===================== //
 

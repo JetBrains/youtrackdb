@@ -949,6 +949,56 @@ public enum GlobalConfiguration {
       Boolean.class,
       true),
 
+  QUERY_TX_RESULT_CACHE_ENABLED(
+      "youtrackdb.query.txResultCache.enabled",
+      "Enable the per-transaction query result cache. When true, repeated idempotent SELECT/MATCH"
+          + " queries within a transaction return cached results merged with in-transaction"
+          + " mutations, identical to a fresh uncached execution. Off by default; enabling it never"
+          + " changes result cardinality.",
+      Boolean.class,
+      false,
+      true),
+
+  QUERY_TX_RESULT_CACHE_MAX_ENTRIES(
+      "youtrackdb.query.txResultCache.maxEntries",
+      "Maximum number of cached query results retained per transaction (LRU eviction). Entries with"
+          + " live result-set views are exempt from eviction, so the map may grow transiently above"
+          + " this bound while a view iterates.",
+      Integer.class,
+      200,
+      true),
+
+  QUERY_TX_RESULT_CACHE_MAX_RECORDS_PER_ENTRY(
+      "youtrackdb.query.txResultCache.maxRecordsPerEntry",
+      "Per-entry cap on the number of records a cached query result may hold (and, for a cached"
+          + " aggregate, the size of its per-contributor collections). When populating crosses this"
+          + " cap the entry overflows: its key is marked non-cacheable for the rest of the"
+          + " transaction (and an already-stored entry is removed), while the consumer still"
+          + " receives every result from the live stream.",
+      Integer.class,
+      10000,
+      true),
+
+  QUERY_TX_RESULT_CACHE_K0_NONE_INVALIDATION_THRESHOLD(
+      "youtrackdb.query.txResultCache.deltaUnreconcilableInvalidationThreshold",
+      "Number of times a delta-unreconcilable cached entry may be invalidated by an"
+          + " intervening mutation before its key is routed to the per-transaction non-cacheable"
+          + " set, bypassing the cache for the remainder of the transaction. Bounds repopulate"
+          + " churn for write-heavy fragments without penalising pure-read repeats.",
+      Integer.class,
+      3,
+      true),
+
+  QUERY_TX_RESULT_CACHE_MULTI_INVALIDATION_THRESHOLD(
+      "youtrackdb.query.txResultCache.matchMultiInvalidationThreshold",
+      "Number of times a multi alias match cached entry may be invalidated by an"
+          + " intervening mutation before its key is routed to the per-transaction non-cacheable"
+          + " set, bypassing the cache for the remainder of the transaction. Bounds repopulate"
+          + " churn for write-heavy fragments without penalising pure-read repeats.",
+      Integer.class,
+      3,
+      true),
+
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",
       "Number of parsed SQL statements kept in cache. Zero means cache disabled",

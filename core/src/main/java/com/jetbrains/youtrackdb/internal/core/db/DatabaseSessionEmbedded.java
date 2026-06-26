@@ -37,6 +37,7 @@ import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
 import com.jetbrains.youtrackdb.internal.core.cache.LocalRecordCache;
 import com.jetbrains.youtrackdb.internal.core.cache.WeakValueHashMap;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.config.YouTrackDBConfig;
 import com.jetbrains.youtrackdb.internal.core.conflict.RecordConflictStrategy;
@@ -97,6 +98,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.auth.Authenticat
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryImpl;
 import com.jetbrains.youtrackdb.internal.core.metadata.sequence.SequenceLibraryProxy;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.query.ResultSet;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedList;
 import com.jetbrains.youtrackdb.internal.core.query.collection.embedded.EmbeddedMap;
@@ -119,11 +121,51 @@ import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.Re
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.binary.RecordSerializerBinary;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.string.JSONSerializerJackson;
 import com.jetbrains.youtrackdb.internal.core.sql.SQLEngine;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AbstractExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.AggregateProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.DistinctExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ExecutionStepInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalResultSet;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ProjectionCalculationStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.AggregateCacheTapStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.AggregateState;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheKey;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CacheableShape;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedEntry;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.CachedResultSetView;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.DeltaBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.NonDeterministicQueryDetector;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.QueryResultCache;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.ShapeClassifier;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.cache.TxDeltaCursor;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.IdempotentExecutionStream;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ResultMapper;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSet;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.LocalResultSetLifecycleDecorator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAlterClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAlterPropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreateClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreateIndexStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCreatePropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropIndexStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLDropPropertyStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMethodCall;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjection;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLProjectionItem;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLTruncateClassStatement;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.RawPageBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageReadResult;
@@ -634,8 +676,8 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
           throw new CommandExecutionException(getDatabaseName(),
               "Cannot execute query on non idempotent statement: " + query);
         }
-        var original = statement.execute(this, args, true);
-        return queryStartedLifecycle(original);
+        var served = serveThroughCache(statement, args);
+        return queryStartedLifecycle(served);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -675,8 +717,9 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
               "Cannot execute query on non idempotent statement: " + query);
         }
         @SuppressWarnings("unchecked")
-        var original = statement.execute(this, args, true);
-        return queryStartedLifecycle(original);
+        Map<Object, Object> typedArgs = args;
+        var served = serveThroughCache(statement, typedArgs);
+        return queryStartedLifecycle(served);
       } finally {
         getSharedContext().getYouTrackDB().endCommand();
       }
@@ -684,6 +727,982 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       rollback();
       throw e;
     }
+  }
+
+  /**
+   * Shared cache entry point for both {@code query()} overloads. Decides whether the parsed,
+   * already-confirmed-idempotent {@code statement} is eligible for the tx-result cache and, when it
+   * is, serves the result from the cache (hit) or populates a fresh entry (miss); otherwise it runs
+   * the ordinary uncached execution and returns its result unchanged.
+   *
+   * <p>The gate bypasses to uncached execution when any of the following holds: the feature flag is
+   * off (the transaction's cache is {@code null}); a cache code path is already on the stack ({@code
+   * cacheCodeDepth > 0}, the re-entrancy guard, so a {@code query()} issued from a UDF in a WHERE
+   * clause does not recurse into the cache); the statement is not a SELECT or MATCH; the statement
+   * references a non-deterministic function or per-row context variable; or the classified shape has no
+   * wired path. {@code RECORD}, {@code K0_NONE}, the {@code AGGREGATE_*} family, {@code
+   * DISTINCT_VALUES}, and {@code MATCH_TUPLE_MULTI} all route through the cache. The {@code AGGREGATE_*} miss takes its own
+   * eager-drive populate path with a side-tap splice and falls back uncached on an untappable plan
+   * shape. A {@code MATCH_TUPLE_MULTI} (multi-alias MATCH) entry replays verbatim under a class-scoped
+   * version gate: a hit whose pattern read-classes saw a post-populate mutation is invalidated and
+   * re-executed, and a pattern whose read-class closure is empty is not cached.
+   *
+   * @param statement the parsed, idempotent query statement
+   * @param args      the positional {@code Object[]} or named {@code Map<Object,Object>} parameters
+   *                  (or {@code null}); used to build the cache key and the view's command context
+   */
+  private ResultSet serveThroughCache(@Nonnull SQLStatement statement, @Nullable Object args) {
+    // The cache lives only on a real transaction; a no-tx command path (FrontendTransactionNoTx) has
+    // no cache, so route it straight to uncached execution. The query() overloads call
+    // beginReadOnly() first, so this is normally a FrontendTransactionImpl, but the guard keeps the
+    // path safe if a query ever runs outside an active transaction.
+    if (!(currentTx instanceof FrontendTransactionImpl tx)) {
+      return executeUncached(statement, args);
+    }
+    var cache = tx.getQueryResultCache();
+    // Feature off (null cache) or re-entrant call: run the plain uncached path. The tx-level
+    // re-entrancy depth brackets the whole lookup-and-view scope below (and, via the view, the lazy
+    // stream pull during iteration), so any query() launched while we are inside it sees depth > 0
+    // here and never touches the cache. The non-determinism and shape walks deliberately do NOT run
+    // here: they descend the full AST, so running them ahead of the lookup would re-pay the
+    // classification cost on every cache HIT — the exact work the cache exists to save. They run
+    // only on the miss/populate branch below, where the result is needed to build the entry; a hit
+    // trusts the stored entry's shape because the statement was already proven deterministic and
+    // assigned a cacheable shape when that entry was populated.
+    if (cache == null
+        || tx.getCacheCodeDepth() > 0
+        || !(statement instanceof SQLSelectStatement || statement instanceof SQLMatchStatement)) {
+      return executeUncached(statement, args);
+    }
+
+    // When the cache holds no entries and no non-cacheable keys, the isNonCacheable() and lookup()
+    // gates below can only report "nothing": a guaranteed miss, never a bypass. Skip them — and the
+    // key build they need — and go straight to the populate decision. Capture the predicate once: the
+    // cache is not mutated between here and the populate branch (enterCacheCode only bumps a depth
+    // counter), so every "is the cache empty" read below stays consistent.
+    var cacheEmpty = cache.isEmpty();
+
+    // Memoised cache key, built at most once on the first get(). It is forced eagerly just below only
+    // when the cache is non-empty (the isNonCacheable/lookup gates need it); on the empty-cache
+    // short-circuit it stays unbuilt until a populate path reaches its put (or the aggregate
+    // overflow-guard install), so a query that clears the cache gates but stores nothing never
+    // allocates a CacheKey.
+    var key = lazyCacheKey(statement, args);
+
+    // A key already routed out of the cache (entry overflowed its size cap, or a K0_NONE entry
+    // exceeded its re-population strike limit) stays uncached for the rest of the transaction; do
+    // not build a doomed entry. Only reachable on a non-empty cache — an empty cache has no
+    // non-cacheable keys — so this check and its key build are skipped on the short-circuit.
+    if (!cacheEmpty && cache.isNonCacheable(key.get())) {
+      return executeUncached(statement, args);
+    }
+
+    // Re-entrancy bracket: bump the tx-level cache-code depth around the synchronous lookup-and-build
+    // scope so a nested query() issued while we are inside it — a UDF in a WHERE evaluated during the
+    // delta build, or during the aggregate eager-drive below — bypasses the cache. The depth check at the
+    // top of this method sits ahead of this enter, so a re-entrant query() rejects before reaching
+    // lookup() and lookup never runs twice on the same thread. The guard is released unconditionally
+    // in the finally:
+    // the lazy stream pull that happens later, during view iteration, is bracketed separately by the
+    // CachedResultSetView around each row it produces (see CachedResultSetView.hasNext), so the depth
+    // is held exactly over the windows a re-entrant query could corrupt and not for the view's whole
+    // idle lifetime. A query() issued by user code between two next() calls therefore still uses the
+    // cache, and an abandoned view never silently disables it for the rest of the transaction.
+    tx.enterCacheCode();
+    try {
+      if (!cacheEmpty) {
+        // Non-empty cache: consult it. On the empty-cache short-circuit this whole block — lookup,
+        // the hit handling, and the post-lookup strike re-check — is skipped, and the key is not built
+        // here, because lookup() could only miss and isNonCacheable() could only return false.
+        var hit = cache.lookup(key.get(), tx.getMutationVersion());
+        if (hit != null) {
+          if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI
+              && DeltaBuilder.matchMultiStale(hit, tx)) {
+            // A multi-alias MATCH hit passes a class-scoped version gate. A post-populate mutation
+            // touched one of the pattern's read classes, so the frozen tuple set is stale and cannot be
+            // reconciled per-tuple (a projected RETURN row carries no bound records to rebuild tuples
+            // from); drop the entry and re-populate on the miss path below.
+            cache.invalidateMatchMulti(key.get());
+          } else {
+            // Hit: the stored entry was proven deterministic and a wired shape at populate, so neither
+            // the non-determinism walk nor the shape classifier runs again; the entry carries its shape.
+            // A multi-alias MATCH reaching here had no pattern-class mutation since populate. lookup()
+            // defers its hit count to here so a stale MATCH hit is not double-counted as hit+invalidation.
+            if (hit.getShape() == CacheableShape.MATCH_TUPLE_MULTI) {
+              cache.recordHit();
+            }
+            return buildView(hit, tx, args);
+          }
+        }
+        // A stale-entry invalidation that just ran can cross the repopulate-strike threshold and route
+        // this key into the non-cacheable set on this very call: a K0_NONE version-gate strike inside
+        // lookup() (the line above), or the multi-alias MATCH invalidateMatchMulti() on the stale branch.
+        // Both share the strike counter, and either can be the strike that tips the key over. When it
+        // does, populating now is unsafe: cache.put() refuses to store a non-cacheable key and closes the
+        // fresh entry's stream, so buildView() would replay an empty result instead of the rows a fresh
+        // run returns. Re-check and route to uncached execution before paying for populate. The pre-lookup
+        // isNonCacheable check at the top of this method cannot catch this, because the key became
+        // non-cacheable only just now, after that check ran.
+        if (cache.isNonCacheable(key.get())) {
+          return executeUncached(statement, args);
+        }
+      } else {
+        // Empty-cache short-circuit: lookup() did not run, but it would have found the key absent and
+        // counted a miss. Count it here so the hit/miss metric is identical whether or not the
+        // short-circuit fired. A later query in the same transaction sees a non-empty cache and goes
+        // through lookup(), which counts its own hits and misses.
+        cache.recordMiss();
+      }
+      // Miss (or empty-cache short-circuit): now (and only now) pay for the AST analysis needed to
+      // decide whether to populate an entry. A non-deterministic statement or an unwired shape
+      // bypasses the cache uncached.
+      if (NonDeterministicQueryDetector.containsNonDeterministicReference(statement)) {
+        return executeUncached(statement, args);
+      }
+      var shape = ShapeClassifier.classify(statement);
+      if (shape.isAggregate() && statement instanceof SQLSelectStatement select) {
+        // AGGREGATE_* shapes take a separate populate path: the side-tap must observe every
+        // contributing record, so the miss builds a per-execution plan copy, splices the tap upstream
+        // of the aggregation step, and eager-drives it (RECORD/K0_NONE lazy-pull cannot seed an
+        // aggregate). On any unexpected plan shape (e.g. a hardwired CountFromClassStep) it falls back
+        // to uncached execution and counts a splice failure. The eager-drive runs inside this guarded
+        // scope, so a UDF in the aggregate's WHERE that issues a nested query() is bypassed.
+        return populateAndBuildAggregateView(select, args, key, shape, tx, cache);
+      }
+      if (shape == CacheableShape.DISTINCT_VALUES
+          && statement instanceof SQLSelectStatement distinctSelect) {
+        // SELECT distinct(prop) / SELECT DISTINCT prop: the distinct value set, reconciled through the
+        // same per-value buckets as an aggregate but emitted as one row per distinct value. Its tap
+        // splices above the pre-distinct projection; unexpected plan shapes fall back uncached.
+        return populateAndBuildDistinctValuesView(distinctSelect, args, key, tx, cache);
+      }
+      if (shape == CacheableShape.MATCH_TUPLE_MULTI) {
+        // Multi-alias MATCH caches via a class-scoped version gate: replay verbatim while no pattern-
+        // class mutation has happened, re-execute once one has. The gate can fire only if the entry
+        // knows its read-class closure; an empty closure (no resolvable pattern class) would replay a
+        // stale tuple set forever after any mutation, so refuse to cache it and run uncached. Compute
+        // the closure once here and thread it into the populate so it is not re-walked when the entry
+        // is built.
+        var matchClasses = effectiveFromClasses(statement);
+        if (matchClasses.isEmpty()) {
+          return executeUncached(statement, args);
+        }
+        return populateAndBuildView(statement, args, key, shape, tx, cache, matchClasses);
+      }
+      if (shape != CacheableShape.RECORD && shape != CacheableShape.K0_NONE) {
+        // Any other not-yet-wired shape bypasses the cache uncached.
+        return executeUncached(statement, args);
+      }
+      return populateAndBuildView(statement, args, key, shape, tx, cache, null);
+    } finally {
+      // Always release the synchronous-scope guard. A returned view holds no guard of its own; it
+      // re-enters the bracket per row during iteration (CachedResultSetView.hasNext), so it cannot
+      // leak the depth and an abandoned view no longer disables the cache for the rest of the tx.
+      tx.exitCacheCode();
+    }
+  }
+
+  /** Runs the ordinary uncached execution path, dispatching on the parameter shape. */
+  private ResultSet executeUncached(@Nonnull SQLStatement statement, @Nullable Object args) {
+    if (args instanceof Map) {
+      return statement.execute(this, asParamMap(args), true);
+    }
+    return statement.execute(this, (Object[]) args, true);
+  }
+
+  @SuppressWarnings("unchecked")
+  private static Map<Object, Object> asParamMap(@Nonnull Object args) {
+    return (Map<Object, Object>) args;
+  }
+
+  /**
+   * A memoised supplier of the cache key for {@code statement} and its {@code args}. The key is built
+   * on the first {@link Supplier#get()} and the same instance is returned on every later call.
+   * {@link #serveThroughCache} forces it eagerly only when the cache is non-empty, for the {@code
+   * isNonCacheable}/{@code lookup} gates; on the empty-cache short-circuit it is left unbuilt and a
+   * populate path forces it at its {@code cache.put} (or, on the aggregate/distinct path, at the
+   * overflow-guard install that precedes the put), so a query that clears the cache gates but never
+   * stores an entry never allocates a {@link CacheKey}. Not synchronised: the cache and this supplier
+   * are touched only on the transaction's owning thread.
+   */
+  private static Supplier<CacheKey> lazyCacheKey(
+      @Nonnull SQLStatement statement, @Nullable Object args) {
+    return new Supplier<>() {
+      private CacheKey built;
+
+      @Override
+      public CacheKey get() {
+        if (built == null) {
+          built = (args instanceof Map)
+              ? CacheKey.forParams(statement, asParamMap(args))
+              : CacheKey.forArgs(statement, (Object[]) args);
+        }
+        return built;
+      }
+    };
+  }
+
+  /**
+   * Populates a fresh cache entry for a miss: stamps the populate mutation version before driving the
+   * executor (so the delta builder later admits only post-populate mutations), runs the real
+   * execution, lifts the live stream and plan off the resulting {@link LocalResultSet}, wraps the
+   * stream in an {@link IdempotentExecutionStream}, stores the entry, and returns a view over it. The
+   * entry is the sole owner of the paused stream and its plan, closing both on evict or tx-end; the
+   * view never closes the stream. The wrapper is also threaded back into the {@code LocalResultSet}'s
+   * stream slot, but that {@code LocalResultSet} is orphaned here (never returned, never registered in
+   * the active-query set), so its close never fires — the wrapper's idempotency is a defensive guard
+   * against a future second owner, not a live double-close path (see {@link IdempotentExecutionStream}
+   * and {@link CachedEntry#close()}).
+   */
+  private ResultSet populateAndBuildView(
+      @Nonnull SQLStatement statement,
+      @Nullable Object args,
+      @Nonnull Supplier<CacheKey> key,
+      @Nonnull CacheableShape shape,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull QueryResultCache cache,
+      @Nullable Set<String> precomputedEffectiveFromClasses) {
+    // Stamp before execution: the LocalResultSet constructor calls plan.start(), so the populate
+    // version must be captured first so the delta builder later filters in only post-populate ops.
+    var populateMutationVersion = tx.getMutationVersion();
+
+    var original = executeUncached(statement, args);
+    if (!(original instanceof LocalResultSet localResult)) {
+      // Invariant breach, not a routine fallback. The serveThroughCache gate routes only
+      // RECORD / K0_NONE / MATCH_TUPLE_MULTI SELECT/MATCH here, and these shapes classify from
+      // execution that yields a
+      // LocalResultSet, so reaching this branch means a query we classified cacheable produced an
+      // unexpected result type. The fallback stays correct — `original` carries the right rows, and the
+      // cache is left untouched (its only mutation, the cache.put below, runs after this gate, so there
+      // is no half-built entry and no dangling liveViewCount) — so production rides the WARN and returns
+      // the unwrapped result rather than throwing. The paired assert makes it fail fast under -ea (the
+      // test suite), where this should-never-happen branch must surface loudly rather than silently.
+      //
+      // REVISIT when a cacheable shape that legitimately returns a non-LocalResultSet is wired into the
+      // serveThroughCache gate (the anticipated aggregate-splice / future-shape work): this branch would
+      // then become a normal path and the WARN a noise trap. Gate such a shape out before here, or
+      // narrow the check to the shapes that must return a LocalResultSet.
+      LogManager.instance().warn(this,
+          "tx-result cache: cacheable %s (shape=%s) returned a result of type %s"
+              + ", not a LocalResultSet; the cache cannot lift its stream, running uncached. This"
+              + " should not happen today (every cacheable shape returns a LocalResultSet); if a shape"
+              + " that legitimately returns another type was just wired into the cache gate, revisit"
+              + " the gate rather than treating this WARN as an anomaly. Statement: %s",
+          statement.getClass().getSimpleName(),
+          shape,
+          original.getClass().getSimpleName(),
+          statement);
+
+      assert original instanceof LocalResultSet
+          : "cacheable " + shape + " statement returned " + original.getClass().getName()
+              + " instead of a LocalResultSet: " + statement;
+      return original;
+    }
+
+    var plan = localResult.getInternalExecutionPlan();
+    var ctx = plan.getContext();
+
+    // A single-alias MATCH folds onto the RECORD path: the executor stream yields projected
+    // RETURN tuples, but the cache must store raw, RID-identifiable records so the RECORD skip-set /
+    // sorted-merge stay RID-addressable. Map the projected stream back to raw single-record rows and
+    // carry the RETURN projector on the entry; the view re-derives the tuple at the emit boundary.
+    //
+    // Scope this fold strictly to the RECORD shape. A single-alias MATCH can still classify K0_NONE
+    // (statement SKIP/LIMIT, while:/maxDepth:/optional:), and the K0_NONE replay path
+    // (CachedResultSetView.computeNextK0None) never applies a returnProjector — it emits stored rows
+    // verbatim. Installing the raw-record mapper + projector on a K0_NONE entry would store raw
+    // entities and then emit them unprojected, so the view would return raw records instead of the
+    // RETURN tuple a fresh execution yields. Gating on shape==RECORD keeps a K0_NONE single-alias MATCH
+    // on the normal replay path, where it stores and emits the executor's real RETURN tuples.
+    var matchOrigin =
+        (shape == CacheableShape.RECORD && statement instanceof SQLMatchStatement match)
+            ? singleAliasOrigin(match) : null;
+    if (matchOrigin != null) {
+      var alias = matchOrigin.getAlias();
+      // A single-alias MATCH always names its bound alias; without one the projector/mapper cannot key
+      // the record, so this would be a classify/populate divergence rather than a recoverable shape.
+      assert alias != null : "single-alias MATCH origin has no alias";
+      // Rewrite the projected RETURN stream into raw RID-identifiable record rows before the entry is
+      // built. LocalResultSet owns its stream slot; the cache asks it to map rather than reaching in.
+      localResult.mapStream(rawAliasRecordMapper(alias));
+    }
+    // Wrap the backing stream idempotent (LocalResultSet performs the wrap-and-store) and lift the
+    // wrapper for the cached entry. That LocalResultSet is orphaned — not returned, not registered in
+    // activeQueries — so its own close never fires; the entry is the sole closer today. The wrapper's
+    // idempotency is the defensive guard for a future second owner, not a live double-close path.
+    var wrapped = localResult.makeStreamIdempotent();
+
+    // Reuse the closure the caller already computed (the multi-alias MATCH miss path), else compute it.
+    var entryEffectiveFromClasses = precomputedEffectiveFromClasses != null
+        ? precomputedEffectiveFromClasses
+        : effectiveFromClasses(statement);
+    var entry = new CachedEntry(
+        shape,
+        entryEffectiveFromClasses,
+        whereClauseOf(statement),
+        orderByOf(statement),
+        wrapped,
+        plan,
+        ctx,
+        populateMutationVersion);
+    if (matchOrigin != null && statement instanceof SQLMatchStatement match) {
+      assert shape == CacheableShape.RECORD : "Pojector installed on a non-RECORD entry";
+      entry.setReturnProjector(buildMatchReturnProjector(match, matchOrigin, args));
+    }
+    // Force the lazy key now (the populate has committed to storing an entry); on the empty-cache
+    // short-circuit this is the first and only build of the key.
+    cache.put(key.get(), entry);
+
+    return buildView(entry, tx, args);
+  }
+
+  /**
+   * Populates a fresh cache entry for an aggregate-shape miss and returns a view over it, or falls back
+   * to a plain uncached execution (counting a splice failure) on any unexpected plan shape.
+   *
+   * <p>Unlike the RECORD/K0_NONE populate, the aggregate path cannot reuse {@link
+   * #populateAndBuildView}: a collapsed aggregate result carries only the scalar, so the per-RID
+   * material a delta replay needs must be seeded by a side-tap that observes every contributing record
+   * before the aggregation collapses them. The path therefore builds its own per-execution plan copy
+   * ({@code select.createExecutionPlan} returns a private {@code copy(ctx)} or a fresh plan, never the
+   * shared cached instance, so rewiring its {@code prev} pointers cannot corrupt other callers), finds
+   * the aggregation step, splices an {@link AggregateCacheTapStep} upstream of it, and eager-drives the
+   * plan to full drain so the tap observes every contributor. The single resulting scalar is fully
+   * computed at populate, so the entry holds no live stream (its stream/plan/ctx are {@code null} on the
+   * {@link CachedEntry}).
+   *
+   * <p>It independently enforces the same three populate contracts as the record-shaped path: stamp the
+   * populate mutation version BEFORE driving so the delta builder admits only post-populate ops; release
+   * the cache-code guard on every exit (the caller's {@code serveThroughCache} finally always exits the
+   * guard, whether this method returns a cache view or an uncached fallback; the returned view re-enters
+   * the guard per row during iteration); and close the plan idempotently (the outer finally closes it,
+   * the entry holds no stream to close).
+   *
+   * @param select the parsed single-aggregate SELECT (already shape-gated by the caller)
+   */
+  private ResultSet populateAndBuildAggregateView(
+      @Nonnull SQLSelectStatement select,
+      @Nullable Object args,
+      @Nonnull Supplier<CacheKey> key,
+      @Nonnull CacheableShape shape,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull QueryResultCache cache) {
+    var metadata = ShapeClassifier.aggregateMetadata(select, shape);
+    if (metadata == null || metadata.kind() != shape) {
+      // The classifier accepted the shape but the metadata derivation found no clean single-aggregate
+      // (e.g. a computed-expression argument that classify routed elsewhere): there is nothing to seed,
+      // so run uncached and count a splice failure.
+      LogManager.instance().warn(this,
+          "tx-result cache: AGGREGATE-classified statement yielded no single-aggregate metadata"
+              + " (shape=%s); running uncached. Statement: %s",
+          shape, select);
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    // Build a command context mirroring SQLSelectStatement.execute's setup so :param bindings resolve
+    // identically when the side-tap drives the plan.
+    var ctx = freshContext(args);
+
+    // Stamp BEFORE building/driving the plan so the delta builder later admits only post-populate ops.
+    var populateMutationVersion = tx.getMutationVersion();
+
+    var plan = select.createExecutionPlan(ctx, false);
+    if (!(plan instanceof SelectExecutionPlan selectPlan)) {
+      LogManager.instance().warn(this,
+          "tx-result cache: aggregate plan is a %s"
+              + ", not a SelectExecutionPlan; cannot splice the cache tap, running uncached."
+              + " Statement: %s",
+          plan.getClass().getSimpleName(),
+          select);
+      plan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var aggregateStep = findAggregateStep(selectPlan);
+    if (aggregateStep == null) {
+      // No AggregateProjectionCalculationStep to splice above — e.g. a bare or single-field-indexed
+      // COUNT(*) the planner hardwired to a CountFromClassStep. Fall back uncached and count the splice
+      // failure (the global splice-failure rate picks it up through the metric bridge). Log the plan's
+      // step types so an unexpected planner shape (a planner-versioning drift) is diagnosable, not just
+      // counted.
+      var stepTypes = selectPlan.getSteps().stream()
+          .map(s -> s.getClass().getSimpleName()).toList();
+      LogManager.instance().warn(this,
+          "tx-result cache: no AggregateProjectionCalculationStep to splice the cache tap above;"
+              + " running uncached. Plan steps: %s. Statement: %s",
+          stepTypes,
+          select);
+      selectPlan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var state = new AggregateState(metadata.kind(), metadata.propertyName(), metadata.alias());
+    // The populate has committed to caching (plan shape validated above), so force the lazy key now
+    // and reuse the one instance for the overflow guard and the put. On the empty-cache short-circuit
+    // this is the first build of the key; earlier splice-failure fallbacks returned before reaching it.
+    var resolvedKey = key.get();
+    // Install the contributor cap BEFORE driving so an over-cap populate routes the key non-cacheable
+    // mid-drive; the put below is then a no-op (the cache's nonCacheableKeys guard closes the entry).
+    cache.installAggregateOverflowGuard(resolvedKey, state);
+    spliceTap(aggregateStep, new AggregateCacheTapStep(state, ctx));
+
+    try {
+      // Eager-drive: pull the plan's single-row stream to exhaustion. The aggregation is blocking, so
+      // draining it forces every upstream (tapped) record to be observed before the scalar is emitted.
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(ctx)) {
+          stream.next(ctx);
+        }
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      // The entry holds no live stream (the scalar is fully computed), so the plan is closed here and
+      // the entry is built with null stream/plan/ctx. Idempotent close mirrors the uncached path.
+      plan.close();
+    }
+
+    // The scalar is fully in the seeded state; the entry carries no stream/plan/ctx to lazy-pull.
+    var entry = new CachedEntry(
+        shape,
+        effectiveFromClasses(select),
+        select.getWhereClause(),
+        select.getOrderBy(),
+        null,
+        null,
+        null,
+        populateMutationVersion);
+    entry.setAggregateState(state);
+    // put is a no-op if the cap already routed the key non-cacheable during the drive; otherwise it
+    // stores the entry. Either way the view below is built directly over this entry's seeded state.
+    cache.put(resolvedKey, entry);
+
+    return buildView(entry, tx, args);
+  }
+
+  /**
+   * Populate path for {@link CacheableShape#DISTINCT_VALUES} (SELECT distinct(prop) / SELECT DISTINCT
+   * prop). Reuses the aggregate side-tap + bucket machinery: the plan is
+   * {@code Fetch -> [Filter] -> ProjectionCalculationStep -> DistinctExecutionStep}, so the tap splices
+   * ABOVE the pre-distinct projection to observe each raw, RID-bearing filtered record before dedup and
+   * bucket it by {@code (value -> RID)}. The plan is eager-driven to full population (the deduped output
+   * rows are discarded; the view emits the bucket keys). An unexpected plan shape falls back uncached and
+   * counts a splice failure, so a dedup-free RECORD-style result is never cached.
+   */
+  private ResultSet populateAndBuildDistinctValuesView(
+      @Nonnull SQLSelectStatement select,
+      @Nullable Object args,
+      @Nonnull Supplier<CacheKey> key,
+      @Nonnull FrontendTransactionImpl tx,
+      @Nonnull QueryResultCache cache) {
+    var metadata = ShapeClassifier.distinctValueMetadata(select, CacheableShape.DISTINCT_VALUES);
+    if (metadata == null || metadata.propertyName() == null) {
+      LogManager.instance().warn(this,
+          "tx-result cache: DISTINCT_VALUES select yielded no bare-property metadata; running"
+              + " uncached. Statement: %s",
+          select);
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var ctx = freshContext(args);
+    // Stamp BEFORE building/driving the plan so the delta builder later admits only post-populate ops.
+    var populateMutationVersion = tx.getMutationVersion();
+
+    var plan = select.createExecutionPlan(ctx, false);
+    if (!(plan instanceof SelectExecutionPlan selectPlan)) {
+      LogManager.instance().warn(this,
+          "tx-result cache: distinct plan is a %s, not a SelectExecutionPlan; running uncached. Statement: %s ",
+          plan.getClass().getSimpleName(), select);
+      plan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    var projection = findDistinctSourceProjection(selectPlan);
+    if (projection == null) {
+      // No DistinctExecutionStep with a pre-distinct ProjectionCalculationStep to tap above (observing
+      // raw, RID-bearing records). Fall back uncached and log the plan steps for planner-versioning
+      // diagnosis.
+      var stepTypes = selectPlan.getSteps().stream()
+          .map(s -> s.getClass().getSimpleName()).toList();
+      LogManager.instance().warn(this,
+          "tx-result cache: no Distinct+Projection step pair to splice the distinct tap above;"
+              + " running uncached. Plan steps: %s. Statement: %s",
+          stepTypes, select);
+      selectPlan.close();
+      cache.incrementSpliceFailures();
+      return executeUncached(select, args);
+    }
+
+    // The bucket machinery is kind AGGREGATE_COUNT_DISTINCT; the entry shape (DISTINCT_VALUES) is what
+    // makes the view emit the keys as rows rather than the scalar count.
+    var state = new AggregateState(
+        CacheableShape.AGGREGATE_COUNT_DISTINCT, metadata.propertyName(), metadata.alias());
+    // Committed to caching (plan shape validated above): force the lazy key once and reuse it for the
+    // overflow guard and the put. First build of the key on the empty-cache short-circuit.
+    var resolvedKey = key.get();
+    cache.installAggregateOverflowGuard(resolvedKey, state);
+    spliceTapAbove(projection, new AggregateCacheTapStep(state, ctx));
+
+    try {
+      var stream = plan.start();
+      try {
+        while (stream.hasNext(ctx)) {
+          stream.next(ctx);
+        }
+      } finally {
+        stream.close(ctx);
+      }
+    } finally {
+      plan.close();
+    }
+
+    var entry = new CachedEntry(
+        CacheableShape.DISTINCT_VALUES,
+        effectiveFromClasses(select),
+        select.getWhereClause(),
+        select.getOrderBy(),
+        null,
+        null,
+        null,
+        populateMutationVersion);
+    entry.setAggregateState(state);
+    cache.put(resolvedKey, entry);
+
+    return buildView(entry, tx, args);
+  }
+
+  /**
+   * Finds the pre-distinct {@link ProjectionCalculationStep} the distinct tap splices above. The tap
+   * observes the raw, RID-bearing filtered records that enter the projection (the projection computes
+   * the distinct value and strips identity; {@link AggregateState#observe} requires a non-null RID).
+   * Returns the (first plain) projection only when the plan also carries a {@link DistinctExecutionStep},
+   * which confirms the distinct shape; a {@code null} return (no DistinctExecutionStep, or no plain
+   * projection) drives the splice-failure fallback. The projection need not be adjacent to the
+   * DistinctExecutionStep — an ORDER BY inserts an {@code OrderByStep} between them — so the scan finds
+   * each independently. {@link AggregateProjectionCalculationStep} is excluded so the tap stays on raw
+   * records.
+   */
+  @Nullable private static ProjectionCalculationStep findDistinctSourceProjection(
+      @Nonnull SelectExecutionPlan plan) {
+    var hasDistinct = false;
+    ProjectionCalculationStep projection = null;
+    for (var step : plan.getSteps()) {
+      if (step instanceof DistinctExecutionStep) {
+        hasDistinct = true;
+      } else if (projection == null
+          && step instanceof ProjectionCalculationStep candidate
+          && !(step instanceof AggregateProjectionCalculationStep)) {
+        projection = candidate;
+      }
+    }
+    return hasDistinct ? projection : null;
+  }
+
+  /**
+   * Splices {@code tap} immediately upstream of {@code below}, so the tap observes the raw records that
+   * enter {@code below}. The shared splice primitive behind {@link #spliceTap}'s splice-above-projection
+   * arm and the distinct tap.
+   */
+  private static void spliceTapAbove(
+      @Nonnull AbstractExecutionStep below, @Nonnull AggregateCacheTapStep tap) {
+    var upstream = below.prev;
+    tap.setPrevious(upstream);
+    if (upstream != null) {
+      upstream.setNext(tap);
+    }
+    below.setPrevious(tap);
+    tap.setNext(below);
+  }
+
+  /**
+   * Finds the aggregation step the side-tap splices above. Returns the first {@link
+   * AggregateProjectionCalculationStep} in the plan's step chain, or {@code null} when the plan has none
+   * (the hardwired-COUNT fallback case). The plan is a SELECT plan, so a present aggregation step is the
+   * single one the planner emits for a single-aggregate query.
+   */
+  @Nullable private static AggregateProjectionCalculationStep findAggregateStep(
+      @Nonnull SelectExecutionPlan plan) {
+    for (var step : plan.getSteps()) {
+      if (step instanceof AggregateProjectionCalculationStep aggregateStep) {
+        return aggregateStep;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Splices {@code tap} into the plan chain immediately upstream of the aggregation step. When a
+   * pre-aggregate {@link ProjectionCalculationStep} sits directly above the aggregation (every value
+   * aggregate carries one, projecting the per-row field), the tap is spliced ABOVE that projection: the
+   * projection strips record identity, and {@link AggregateState#observe} requires a non-null RID, so the
+   * tap must see the raw filtered records. The projection still sits between the tap and the aggregation,
+   * leaving the collapsed scalar unchanged. Otherwise (e.g. COUNT(*) over a WHERE, no pre-aggregate
+   * projection) the tap is spliced directly upstream of the aggregation.
+   */
+  private static void spliceTap(
+      @Nonnull AggregateProjectionCalculationStep aggregateStep,
+      @Nonnull AggregateCacheTapStep tap) {
+    // AggregateProjectionCalculationStep extends ProjectionCalculationStep, so the instanceof must
+    // exclude the aggregation step itself; only a *plain* pre-aggregate projection is the splice-above
+    // case. Both step types expose prev through AbstractExecutionStep.
+    ExecutionStepInternal spliceBelow = aggregateStep;
+    var prev = aggregateStep.prev;
+    if (prev instanceof ProjectionCalculationStep
+        && !(prev instanceof AggregateProjectionCalculationStep)) {
+      spliceBelow = (AbstractExecutionStep) prev;
+    }
+    var below = (AbstractExecutionStep) spliceBelow;
+    var upstream = below.prev;
+    tap.setPrevious(upstream);
+    if (upstream != null) {
+      upstream.setNext(tap);
+    }
+    below.setPrevious(tap);
+    tap.setNext(below);
+  }
+
+  /**
+   * Builds the consumer-facing view over a cached entry. RECORD entries carry a {@link TxDeltaCursor}
+   * reconciling post-populate mutations; K0_NONE entries replay directly (the lookup-time version
+   * gate already proved no mutation happened since populate, so there is nothing to merge). The view's
+   * command context for the merge is the entry's populate-time context when still live, else a fresh
+   * context with the same parameter bindings. Rebuilding from params alone is sound for every shape
+   * that reaches the delta path: every shape that builds a delta here (RECORD plain SELECT /
+   * single-alias MATCH, the {@code AGGREGATE_*} family, and {@code DISTINCT_VALUES}) re-evaluates WHERE
+   * and compares ORDER BY against the rebuilt context, and a statement
+   * referencing any per-row context variable ({@code $current}, {@code $parent}, a {@code LET}
+   * binding, ...) is excluded upstream — the non-determinism detector bypasses {@code $}-prefixed
+   * identifiers, and the shape classifier routes {@code LET} to K0_NONE (which builds no delta). So
+   * the WHERE re-eval and ORDER BY {@code compare} that run against the rebuilt context never read any
+   * context state beyond the {@code :param} bindings, which the rebuild reproduces exactly. A future
+   * shape broadening that lets a context-variable query reach the delta path must revisit this (the
+   * populate context's variables would then need to be carried, not just its params).
+   */
+  private ResultSet buildView(
+      @Nonnull CachedEntry entry, @Nonnull FrontendTransactionImpl tx, @Nullable Object args) {
+    var ctx = entry.getCtx();
+    if (ctx == null) {
+      // The entry's stream has been exhausted and its context released, or this is a streamless
+      // aggregate / distinct entry that never carried one; rebuild an equivalent context so ORDER BY
+      // comparison and WHERE re-evaluation still resolve the same :param bindings. Sound because the
+      // wired delta-path shapes carry no non-param context state (see method Javadoc). Memoized on the
+      // entry so repeated replays (a hot aggregate re-queried thousands of times) reuse one context
+      // instead of allocating a fresh one plus a param-map copy on every replay.
+      ctx = entry.getOrCreateReplayCtx(() -> freshContext(args));
+    }
+
+    if (entry.getShape() == CacheableShape.DISTINCT_VALUES || entry.getShape().isAggregate()) {
+      var delta = DeltaBuilder.buildForAggregate(entry, tx, ctx);
+      return CachedResultSetView.forAggregateState(entry, delta, this, tx, entry.getPlan(), ctx);
+    }
+
+    TxDeltaCursor delta = entry.getShape() == CacheableShape.RECORD
+        ? DeltaBuilder.buildForRecord(entry, tx, ctx)
+        : null;
+    return new CachedResultSetView(entry, delta, this, tx, entry.getPlan(), ctx);
+  }
+
+  /** A command context carrying the query's parameter bindings, mirroring the executor's setup. */
+  private CommandContext freshContext(@Nullable Object args) {
+    var ctx = new BasicCommandContext();
+    ctx.setDatabaseSession(this);
+    Map<Object, Object> params = new HashMap<>();
+    if (args instanceof Map) {
+      params.putAll(asParamMap(args));
+    } else if (args instanceof Object[] positional) {
+      for (var i = 0; i < positional.length; i++) {
+        params.put(i, positional[i]);
+      }
+    }
+    ctx.setInputParameters(params);
+    return ctx;
+  }
+
+  /**
+   * The subclass closure of the statement's read classes for the entry's delta / version-gate class
+   * filter. A plain SELECT resolves its FROM target class; a single-alias MATCH resolves its one
+   * bound alias's class so the RECORD delta filter is non-empty and reconciles in-tx mutations; a
+   * multi-alias MATCH ({@code MATCH_TUPLE_MULTI}) returns the union of every alias-node and
+   * traversal-edge class (each with its subclass closure) for the class-scoped version gate; anything
+   * without a resolvable class target (a subquery or RID target) yields the empty set, so the filter
+   * matches nothing and the entry behaves as a pure replay.
+   */
+  private Set<String> effectiveFromClasses(@Nonnull SQLStatement statement) {
+    if (statement instanceof SQLSelectStatement select && select.getTarget() != null) {
+      var item = select.getTarget().getItem();
+      if (item != null) {
+        SchemaClass fromClass = item.getSchemaClass(this);
+        return CachedEntry.computeEffectiveFromClasses(fromClass);
+      }
+    }
+    if (statement instanceof SQLMatchStatement match) {
+      var origin = singleAliasOrigin(match);
+      if (origin != null) {
+        // Single-alias MATCH (RECORD): the one bound alias's class closure.
+        var className = origin.getClassName(null);
+        if (className != null) {
+          SchemaClass fromClass = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+          return CachedEntry.computeEffectiveFromClasses(fromClass);
+        }
+        return Set.of();
+      }
+      // Multi-alias MATCH (MATCH_TUPLE_MULTI): the union of every alias node class and every traversal-
+      // edge class, each with its subclass closure. The class-scoped version gate invalidates the entry
+      // when a post-populate mutation touches any class in this set.
+      return matchMultiEffectiveFromClasses(match);
+    }
+    return Set.of();
+  }
+
+  /**
+   * The multi-alias MATCH read-class closure for the class-scoped version gate: every alias node class
+   * (origin and each traversal target) plus every traversal-edge class named by a {@code .out/.in/.both}
+   * step, each expanded to its subclass closure. The shape classifier has already routed any pattern
+   * with a non-statically-resolvable class or edge label to {@code K0_NONE}, so every label reaching
+   * here is a literal the schema snapshot can resolve; an unresolvable name still resolves to {@code
+   * null} and is dropped (it names no live records). Edge classes fold in so an edge create or delete
+   * trips the gate rather than slipping past the alias-class filter.
+   */
+  private Set<String> matchMultiEffectiveFromClasses(@Nonnull SQLMatchStatement match) {
+    var aliasClasses = new ArrayList<SchemaClass>();
+    var edgeClasses = new ArrayList<SchemaClass>();
+    for (var expr : match.getMatchExpressions()) {
+      addMatchNodeClass(expr.getOrigin(), aliasClasses);
+      for (var item : expr.getItems()) {
+        addMatchNodeClass(item.getFilter(), aliasClasses);
+        addMatchEdgeClasses(item.getMethod(), edgeClasses);
+      }
+    }
+    return CachedEntry.computeMatchEffectiveFromClasses(aliasClasses, edgeClasses);
+  }
+
+  /** Resolves a pattern node's declared {@code class:} (context-free) and adds it to {@code out}. */
+  private void addMatchNodeClass(@Nullable SQLMatchFilter node, @Nonnull List<SchemaClass> out) {
+    if (node == null) {
+      return;
+    }
+    var className = node.getClassName(null);
+    if (className != null) {
+      var resolved = getMetadata().getImmutableSchemaSnapshot().getClass(className);
+      if (resolved != null) {
+        out.add(resolved);
+      }
+    }
+  }
+
+  /**
+   * Resolves the edge class(es) a traversal step names and adds them to {@code out}. The edge labels are
+   * the step method's parameters (the parser folds a bare {@code out()} to the literal {@code "E"}, so a
+   * traversal step always carries at least one label parameter); a multi-label step contributes each.
+   * A string-literal label is rendered with surrounding quotes, so they are stripped before resolution.
+   *
+   * <p>This reads the label from {@code param.toString()}, the same rendered form {@link
+   * ShapeClassifier} tests with its {@code STATIC_LABEL} pattern. The two are coupled by that rendering:
+   * the classifier runs first and routes any non-statically-resolvable label (parameterized, computed)
+   * to {@code K0_NONE}, so every label reaching this extraction is a bare identifier or a single
+   * string literal. A non-resolvable name still resolves to {@code null} here and is dropped.
+   */
+  private void addMatchEdgeClasses(@Nullable SQLMethodCall method, @Nonnull List<SchemaClass> out) {
+    if (method == null) {
+      return;
+    }
+    var params = method.getParams();
+    if (params == null) {
+      return;
+    }
+    for (var param : params) {
+      var label = stripLabelQuotes(param.toString());
+      var resolved = getMetadata().getImmutableSchemaSnapshot().getClass(label);
+      if (resolved != null) {
+        out.add(resolved);
+      }
+    }
+  }
+
+  /**
+   * Strips a single pair of surrounding single or double quotes from a rendered edge label. Edge and
+   * class names are bare identifiers, so the stripped content needs no further unescaping; a label that
+   * would require it is not a resolvable class name and resolves to {@code null} at the call site.
+   */
+  private static String stripLabelQuotes(@Nonnull String rendered) {
+    if (rendered.length() >= 2) {
+      var first = rendered.charAt(0);
+      if ((first == '\'' || first == '"') && rendered.charAt(rendered.length() - 1) == first) {
+        return rendered.substring(1, rendered.length() - 1);
+      }
+    }
+    return rendered;
+  }
+
+  @Nullable private SQLWhereClause whereClauseOf(@Nonnull SQLStatement statement) {
+    if (statement instanceof SQLSelectStatement select) {
+      return select.getWhereClause();
+    }
+    if (statement instanceof SQLMatchStatement match) {
+      var origin = singleAliasOrigin(match);
+      // The single bound alias's pattern WHERE re-evaluates against a mutated record at delta-build,
+      // exactly like a plain SELECT's WHERE; its properties are unqualified relative to the alias, so
+      // it reads the raw record directly. A null (no where:) matches every record.
+      return origin == null ? null : origin.getFilter();
+    }
+    return null;
+  }
+
+  @Nullable private SQLOrderBy orderByOf(@Nonnull SQLStatement statement) {
+    if (statement instanceof SQLSelectStatement select) {
+      return select.getOrderBy();
+    }
+    if (statement instanceof SQLMatchStatement match) {
+      // The statement ORDER BY ranks the projected RETURN tuples (e.g. ORDER BY u.name). The view and
+      // delta builder compare projected merge heads, so the entry carries it verbatim; the classifier
+      // already proved every ORDER BY item is record-local for the single-alias fold.
+      return singleAliasOrigin(match) == null ? null : match.getOrderBy();
+    }
+    return null;
+  }
+
+  /**
+   * The origin vertex node of a single-alias MATCH (one match expression, no traversal edge), or
+   * {@code null} when the statement is multi-alias or not a single-binding shape. Mirrors the
+   * single-alias test the shape classifier uses, evaluated here with the session available so the
+   * three populate helpers above resolve the alias's class / WHERE / ORDER BY consistently.
+   */
+  @Nullable private static SQLMatchFilter singleAliasOrigin(@Nonnull SQLMatchStatement match) {
+    var expressions = match.getMatchExpressions();
+    if (expressions.size() != 1) {
+      return null;
+    }
+    SQLMatchExpression expr = expressions.getFirst();
+    var origin = expr.getOrigin();
+    if (origin == null || !expr.getItems().isEmpty()) {
+      return null;
+    }
+    return origin;
+  }
+
+  /**
+   * Builds a RETURN projector for a single-alias MATCH: a transform that takes a raw cached
+   * or inject record row (an identifiable {@link Result} wrapping the single bound record), wraps it
+   * back into the {@code {alias -> record}} shape the MATCH executor's first step produces, and runs
+   * the RETURN projection over it so the emitted row is the RETURN tuple a fresh MATCH would yield
+   * (e.g. {@code RETURN u, u.name}). The projection is rebuilt from the statement's RETURN items the
+   * same way the MATCH planner builds it, then applied per row. The command context carries the
+   * query's parameter bindings so a parameterized RETURN/projection resolves identically.
+   */
+  private Function<Result, Result> buildMatchReturnProjector(
+      @Nonnull SQLMatchStatement match, @Nonnull SQLMatchFilter origin, @Nullable Object args) {
+    var alias = origin.getAlias();
+    var returnItems = match.getReturnItems();
+    var returnAliases = match.getReturnAliases();
+    var returnNested = match.getReturnNestedProjections();
+    var projectionItems = new ArrayList<SQLProjectionItem>(returnItems.size());
+    for (var i = 0; i < returnItems.size(); i++) {
+      SQLIdentifier itemAlias = i < returnAliases.size() ? returnAliases.get(i) : null;
+      SQLNestedProjection nested = i < returnNested.size() ? returnNested.get(i) : null;
+      projectionItems.add(new SQLProjectionItem(returnItems.get(i), itemAlias, nested));
+    }
+    var projection = new SQLProjection(projectionItems, false);
+    var projectorCtx = freshContext(args);
+    return rawRow -> {
+      // The raw row's own record is the single bound record (the cache stores raw ResultInternal rows
+      // wrapping it, and the delta builder injects new ResultInternal(session, record) rows the same
+      // way). Re-wrap it into the alias-keyed { alias -> record } row the MATCH executor's first step
+      // emits, then run the RETURN projection over it.
+      var entity = rawRow.asEntityOrNull();
+      // A well-formed single-alias MATCH binds exactly one class-constrained record per row, so the raw
+      // cached / injected row always carries that record. A null here means the binding vanished
+      // between stream production and projection (a deleted/unreadable record the RID skip-set should
+      // have suppressed) — an edge the design treats as not-reached. Fail loudly rather than emit a
+      // non-identifiable empty tuple (new ResultInternal(session, null) leaves identifiable null), which
+      // would be a silent wrong row; a future shape-broadening that lets a null binding through must
+      // surface here rather than corrupt the result.
+      if (entity == null) {
+        throw new IllegalStateException(
+            "single-alias MATCH RETURN projector found no bound record for alias " + alias);
+      }
+      var aliasRow = new ResultInternal(this);
+      aliasRow.setProperty(alias, entity);
+      return projection.calculateSingle(projectorCtx, aliasRow, false);
+    };
+  }
+
+  /**
+   * Maps a populated single-alias MATCH stream row (the executor's projected RETURN tuple, which
+   * still carries the bound record under the alias key) back to a raw, RID-identifiable single-record
+   * {@link Result}. Storing the raw record — not the projected tuple — keeps the RECORD skip-set /
+   * sorted-merge RID-addressable; the {@code returnProjector} re-derives the tuple at the view emit
+   * boundary. The stream is already ordered by the statement ORDER BY (the executor sorted the
+   * projected tuples), so the raw-record cache stream stays in the same projected order.
+   */
+  @Nonnull
+  private ResultMapper rawAliasRecordMapper(@Nonnull String alias) {
+    return (projectedRow, ctx) -> {
+      var entity = projectedRow.getEntity(alias);
+      // A single-alias MATCH binds exactly one record per row; the alias key always resolves to it. A
+      // null binding would make new ResultInternal(session, null) a non-identifiable empty row, which
+      // the RID skip-set cannot address and which emits as a silent wrong tuple. Fail loudly instead so
+      // a future shape-broadening that lets a null binding through surfaces here rather than corrupting
+      // the cached result.
+      if (entity == null) {
+        throw new IllegalStateException(
+            "single-alias MATCH row carries no record under alias " + alias);
+      }
+      return new ResultInternal(this, entity);
+    };
+  }
+
+  /**
+   * Bulk-DML cache invalidation hook. A {@code TRUNCATE CLASS} run mid-transaction removes stored
+   * records without flowing through {@code addRecordOperation}, so the cache cannot see the change via
+   * the delta build and must drop every entry. Called per statement from both the single-statement
+   * command path ({@code executeInternal}) and the script path ({@code SqlScriptExecutor}), so a
+   * TRUNCATE embedded in a script invalidates a sibling {@code query()}'s cached entry the same way the
+   * direct command does. Regular INSERT/UPDATE/DELETE need no hook here: they land in {@code
+   * recordOperations} and the next query's delta build picks them up.
+   * Schema DDL (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX) is unreachable mid-transaction (the schema is
+   * immutable for the life of a transaction), guarded by a {@code Java assert} canary so a future
+   * relaxation that lets schema DDL run mid-tx surfaces loudly in test builds rather than silently
+   * serving a stale cache.
+   */
+  public void invalidateCacheForBulkDml(@Nonnull SQLStatement statement) {
+    // executeInternal does not begin a transaction, so currentTx may be a no-tx placeholder
+    // (FrontendTransactionNoTx) with no cache to invalidate; only a real transaction carries one.
+    if (!(currentTx instanceof FrontendTransactionImpl tx)) {
+      return;
+    }
+    var cache = tx.getQueryResultCache();
+    if (cache == null) {
+      return;
+    }
+    if (statement instanceof SQLTruncateClassStatement) {
+      cache.invalidateAll();
+      return;
+    }
+    // Schema-immutability canary: schema DDL must not reach the cache hook while a transaction is
+    // active. TRUNCATE CLASS (handled above) is the only legitimately mid-tx-runnable DDL; every
+    // other schema-DDL statement throws before any cache effect would matter, so reaching here is a
+    // contract breach.
+    assert !isSchemaDdl(statement)
+        : "Schema DDL reached the tx-result cache hook while a transaction was active: "
+            + statement.getClass().getSimpleName();
+  }
+
+  /** Whether the statement is a schema-DDL statement (CREATE/DROP/ALTER CLASS|PROPERTY|INDEX). */
+  private static boolean isSchemaDdl(@Nonnull SQLStatement statement) {
+    return statement instanceof SQLCreateClassStatement
+        || statement instanceof SQLDropClassStatement
+        || statement instanceof SQLAlterClassStatement
+        || statement instanceof SQLCreatePropertyStatement
+        || statement instanceof SQLDropPropertyStatement
+        || statement instanceof SQLAlterPropertyStatement
+        || statement instanceof SQLCreateIndexStatement
+        || statement instanceof SQLDropIndexStatement;
   }
 
   public ResultSet execute(String query, Object... args) {
@@ -720,6 +1739,7 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       try {
         var statement =
             (parsedStatement != null) ? parsedStatement : SQLEngine.parse(stringStatement, this);
+        invalidateCacheForBulkDml(statement);
         ResultSet original;
         switch (args) {
           case Map<?, ?> map -> {
