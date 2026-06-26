@@ -387,7 +387,9 @@ public abstract class AbstractStorage
   // depth, not a flag, so nested enter/exit pairs compose. It is set only by the
   // commit window via enterCommitWindow()/exitCommitWindow(); a thread that does
   // not hold the write lock never enters the window, so the pure-data read-lock
-  // fast path is unchanged.
+  // fast path is unchanged. exitCommitWindow() remove()s this ThreadLocal once the
+  // depth returns to zero, so a reused pooled worker never observes leftover window
+  // state from an earlier task.
   private final ThreadLocal<int[]> commitWindowDepth =
       ThreadLocal.withInitial(() -> new int[1]);
 
@@ -3394,11 +3396,28 @@ public abstract class AbstractStorage
    * zero. MUST be called in a {@code finally} balancing each {@code
    * enterCommitWindow()}; a leaked open window would make later reads on the same
    * pooled thread skip the read lock unsafely.
+   *
+   * <p>Two defenses keep the per-thread state from poisoning a reused pooled
+   * worker. The decrement is clamped at zero so a stray exit without a matching
+   * enter cannot drive the depth negative — a negative depth would let a later
+   * legitimate window read as closed ({@link #isCommitWindowActive()} tests
+   * {@code > 0}), silently re-introducing the read-lock busy-spin the window
+   * exists to avoid. Java {@code assert}s are disabled in production, so the
+   * clamp, not the assert, is the production guard; the assert still surfaces the
+   * unbalanced call loudly under {@code -ea} in tests. When the depth returns to
+   * zero the {@link ThreadLocal} is {@code remove()}'d so the next unrelated read
+   * on the same pooled thread starts from a fresh zero-depth cell rather than
+   * observing leftover window state.
    */
   void exitCommitWindow() {
     final var depth = commitWindowDepth.get();
     assert depth[0] > 0 : "exitCommitWindow without a matching enterCommitWindow";
-    depth[0]--;
+    if (depth[0] > 0) {
+      depth[0]--;
+    }
+    if (depth[0] == 0) {
+      commitWindowDepth.remove();
+    }
   }
 
   /**
