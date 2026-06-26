@@ -34,6 +34,10 @@ public class SQLRid extends SimpleNode {
 
   @Override
   public String toString(String prefix) {
+    if (expression != null) {
+      // node has been promoted, safely render expression text
+      return "#" + expression.toString(prefix);
+    }
     return "#" + collection.getValue() + ":" + position.getValue();
   }
 
@@ -144,6 +148,9 @@ public class SQLRid extends SimpleNode {
 
   void setExpression(SQLExpression expression) {
     this.expression = expression;
+    // Transition this node to pure expression form matching what grammar produces for {"@rid": <expr>}
+    // (legacy=false, no literal pair) to prevent toString/equals/copy from triggering NullPointerExceptions
+    // or operating on contradictory hybrid state.
     this.legacy = false;
     this.collection = null;
     this.position = null;
