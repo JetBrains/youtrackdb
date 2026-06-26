@@ -175,8 +175,8 @@ unary); they are not the AST's `SQLMathExpression.Operator`.
 ```mermaid
 flowchart LR
     SQL["SQL text"] -->|parse| AST["SQLExpression AST"]
-    AST -->|"lower (T3)"| IR["AnalyzedExpr IR"]
-    IR -->|"evaluate (T4)"| V1["IR value"]
+    AST -->|"lower"| IR["AnalyzedExpr IR"]
+    IR -->|"evaluate"| V1["IR value"]
     AST -->|"execute (existing)"| V2["AST value"]
     V1 -.->|"I1: Objects.equals"| V2
 ```
@@ -226,7 +226,7 @@ fully, and an out-of-subset shape throws rather than mis-reading.
 The substrate is the sealed `AnalyzedExpr` IR plus the visitor/transform framework
 and the lowering-failure exception. It is greenfield (new package
 `core/.../query/analyzed/`, confirmed absent on develop) and has no dependency on the
-other tracks.
+lowering pass, evaluator, or verification work.
 
 ## Sealed IR and exhaustive dispatch
 
@@ -407,7 +407,7 @@ because the only alternative to a complete tree is a throw.
 # Part 2 — The lowering pass
 
 Lowering converts the covered AST subset to `AnalyzedExpr`. It depends on Part 1 (it
-produces IR types) and is the heaviest track because it owns three non-obvious
+produces IR types) and is the heaviest piece because it owns three non-obvious
 mechanisms: an exhaustive-or-throw field walk over a union-style AST, transparent
 recursion through parenthesis grouping, and a structural precedence fold over the AST's
 flat operator list.
@@ -486,7 +486,10 @@ is a pass-through to `lower(sub)`.
 - D-records: D6 (`Var` name path from the flattened identifier), D6-R (single-segment
   only; multi-segment paths throw, deferred to S1+), D7 (out-of-subset
   fields throw `UnsupportedAnalyzedNodeException`), D14 (field-walk is
-  exhaustive-or-throw; `value` flagged for Phase-A PSI)
+  exhaustive-or-throw; `value` flagged for Phase-A PSI), D18 (`levelZero`
+  identifiers — top-level `functionCall` incl. `any()`/`all()`, `@this`, inline
+  collections — are out of the S0 subset and throw; `FuncCall` comes only from
+  method-call modifiers)
 - Invariants: I2
 
 ## Parenthesis: recurse on grouping, throw on subquery
@@ -645,7 +648,7 @@ AST/IR split:
   shared widening into the all-static `NumericOps` and adds only a monomorphic `NumericOps`
   delegation around it — no new virtual indirection, and the added static call inlines. The
   typed `apply(...)` overloads either stay on the enum (with `NumericOps` calling back) or
-  move with it; **T2 must state that boundary**. S0's acceptance gate stays the existing
+  move with it; **the `NumericOps` extraction work must state that boundary**. S0's acceptance gate stays the existing
   math-test suite (e.g. `MathExpressionTest`, correctness) green after the delegation;
   runtime perf-neutrality is verified at S1's LDBC JMH gate (YTDB-916's CCX33-neutral
   acceptance and YTDB-901's umbrella JMH-neutrality requirement), the first slice with a
@@ -662,6 +665,9 @@ AST/IR split:
     D5-R supersedes only D5's scope half (whole-enum vs narrow extraction); the
     placement fork above remains live.
   - D5-R (`NumericOps` extraction moves the whole enum out unchanged)
+  - D17 (the extraction touches the live AST arithmetic hot path; perf-neutrality rests
+    on the two-hop `operator.apply` → typed `operation.apply` re-dispatch staying intact,
+    and runtime measurement is deferred to S1's LDBC JMH gate)
 - Invariants: I1
 
 ## Comparison: replicate the AST sequence
@@ -771,7 +777,11 @@ enum), so the short-circuit obligation lands when S1 extends lowering to `SQLWhe
 - D-records: D3 (single `evaluate(Result, CommandContext)` overload), D11 (IR
   comparison evaluator replicates `SQLBinaryCondition.evaluate` — collate transform
   plus the parser-operator instance, not bare statics), D6-R (collate fetch pinned to the
-  single-property resolution; multi-segment `Var` throws, deferred to S1+)
+  single-property resolution; multi-segment `Var` throws, deferred to S1+), D15 (the AST
+  `evaluate(Identifiable)` collation skip is a deliberate AST inconsistency the analyzed
+  layer unifies — collation applies uniformly via the single `Result` overload), D16
+  ("fast path need not mirror" is scoped to S0; the S1+ evaluator must reproduce the AST
+  evaluation fast paths on the hot path)
 - Invariants: I1
 
 ## Evaluator interface: single Result overload
@@ -807,13 +817,15 @@ path without breaking existing code.
 
 ### Decisions & invariants
 
-- D-records: D3 (single `evaluate(Result, CommandContext)` overload)
+- D-records: D3 (single `evaluate(Result, CommandContext)` overload), D15 (collation
+  applies uniformly through this single overload — the synthetic-`Result` wrap applies the
+  collate transform for the ~12 `evaluate(Identifiable)` callers incl. WHERE /
+  `SecurityEngine`, validated at S1/S7)
 
 # Part 4 — Verification and delivery
 
 The substrate ships with no live executor consumer, so its only S0 proof is round-trip
-parity against the AST. This Part covers the parity invariant and its test matrix, and
-the four-track decomposition that orders the work.
+parity against the AST. This Part covers the parity invariant and its test matrix.
 
 ## Round-trip parity and the test matrix
 
@@ -850,6 +862,16 @@ arithmetic rows pin both the structural fold (Part 2) and the shared promotion e
 (Part 3); the parenthesis rows pin D10; the two comparison rows pin the collation and
 the EQ/NE session difference of D11.
 
+Parity is a correctness oracle, not a performance one, so it is not the whole verification
+bar for the YTDB-901 umbrella that parents this slice. Performance is verified separately
+and per slice: under YTDB-901's umbrella JMH-neutrality requirement, every functional slice
+under YTDB-901 must extend benchmark coverage for the functionality it adds — a targeted
+JMH microbenchmark exercising the eval path(s) it touches, on top of the LDBC SF1 neutrality
+gate — so a new expression path is measured directly rather than left green-but-unmeasured.
+Each slice names which path its benchmark exercises (D17 records the S0 `NumericOps`
+hot-path basis; D19 generalizes the obligation across every slice under YTDB-901, blanket
+from S1 on — S0 itself stays on its correctness gate, having no live consumer to measure).
+
 ### Edge cases / Gotchas
 
 - The matrix is the minimum required set, not an exhaustive one. Any covered fragment may
@@ -861,52 +883,7 @@ the EQ/NE session difference of D11.
 ### Decisions & invariants
 
 - D-records: D11 (comparison parity via the replicated AST sequence), D12 (precedence
-  fold parity)
+  fold parity), D17 (S0 `NumericOps` hot-path perf-neutrality basis; runtime measurement
+  deferred to S1's LDBC JMH gate), D19 (every functional slice under YTDB-901 extends
+  per-functionality JMH benchmark coverage on top of LDBC neutrality, blanket across S1–S7)
 - Invariants: I1, I2, I3
-
-## Track decomposition
-
-**TL;DR.** S0 decomposes into four dependency-ordered tracks: T1 substrate + framework
-(no deps), T2 `NumericOps` whole-enum extraction (AST-side only, independent of T1), T3
-lowering pass (depends on T1), T4 evaluator + round-trip parity (depends on T1, T2, T3).
-The boundaries follow the natural artifact seams so each track is independently
-reviewable.
-
-The four tracks and their dependency edges:
-
-- **T1 — substrate + framework.** The sealed `AnalyzedExpr` IR (five variants), the
-  `AnalyzedExprVisitor<T>` plus static `dispatch`, `AnalyzedExprTransform` plus
-  `transformChildren`, and `UnsupportedAnalyzedNodeException`. New package
-  `core/.../query/analyzed/`. No dependencies.
-- **T2 — `NumericOps` whole-enum extraction.** New
-  `core/.../sql/util/NumericOps.java`; `SQLMathExpression.Operator.apply` becomes a thin
-  delegator. Acceptance gate: the existing math-test suite stays green. Independent of T1
-  (touches the AST side only).
-- **T3 — lowering pass.** `SQLExpression` / `SQLMathExpression` / `SQLBooleanExpression`
-  → `AnalyzedExpr`, including the parenthesis recursion (Part 2) and the structural
-  precedence fold (Part 2). Depends on T1 (needs the IR types).
-- **T4 — evaluator + round-trip parity.** The `AnalyzedExprVisitor`-based evaluator
-  (comparison reuse and `NumericOps` arithmetic, Part 3) and the round-trip test suite
-  (the matrix above). Depends on T1 and T2 (`NumericOps`) and T3 (lowering, to produce
-  trees to evaluate).
-
-The seams are types / shared util / lowering / evaluation-plus-tests. T2 stays separate
-from T3 because folding an AST-side refactor into the new IR lowering couples two
-separately-mergeable changes. T4's evaluator stays separate from T3 because lowering and
-evaluation are distinct visitor implementations with distinct review surfaces, and the
-round-trip suite is the T4 deliverable that needs both. Final step-level sizing is a
-Phase-A concern; the track shape and scope are fixed here.
-
-### Edge cases / Gotchas
-
-- T2 has no S0 IR consumer for its extra eight operators, yet it is its own track: the
-  full math-test regression surface it must keep green is what justifies a
-  separate review, not the IR's needs.
-- T3 is the heaviest track — it owns parenthesis recursion and the precedence fold — so
-  its scope indicator must reflect that weight.
-
-### Decisions & invariants
-
-- D-records: D13 (four-track decomposition T1–T4), D5-R (`NumericOps` whole-enum
-  extraction is its own AST-side track)
-- Invariants: I1

@@ -72,3 +72,42 @@ paragraph, and the Evaluator-interface TL;DR / body / edge case.
 adversarial gate (iter3 PASS; A11/A13 should-fix tightenings applied to the log, A12/A14
 suggestions folded) before this mutation applied them, per the create-plan Step 4 batch
 (gate → mutation → cold-read).
+
+## Mutation 3 — 2026-06-26 — section-remove (design.md)
+
+**Diff summary**: Apply the child-issues review-hold batch in one mutation (queue items
+1 + 2 plus the new D19; Phase 0→1 adversarial gate iter4 = PASS). (Item 1 — footer-citation
+gap) Added the D15–D18 codes to the four `### Decisions & invariants` footers whose prose
+Mutation 2 changed but whose footers it skipped: Comparison footer +D15/D16, NumericOps
+footer +D17, Field-walk footer +D18, Evaluator-interface footer +D15. (Item 2 — drop track
+decomposition) Removed the `## Track decomposition` section (the T1–T4 breakdown, its
+Edge-cases sub-section, and its D13/D5-R footer): track decomposition is a Step-4b planning
+artifact, not a design concern; D13 stays in the research log and seeds the plan, so nothing
+is lost. Trimmed the Part-4 intro's track-decomposition clause and scrubbed the now-orphaned
+T-references the removal left — the `lower (T3)` / `evaluate (T4)` workflow-diagram edge
+labels and the "T2 must state that boundary" phrasing in the NumericOps gotcha. (D19 — new)
+Added a per-child benchmark-coverage note to `## Round-trip parity and the test matrix` plus
+D17/D19 to its footer: round-trip parity is S0's correctness oracle, not a performance one,
+so under YTDB-901's umbrella every functional slice (S1–S7) must add targeted JMH coverage
+for the functionality it introduces on top of the LDBC SF1 neutrality gate, naming the eval
+path its benchmark exercises.
+
+**Mechanical checks** (target=design): PASS (0 blockers / 0 should-fix / 0 suggestions)
+**Cold-read** (scope: whole-doc): PASS — 1 suggestion, applied
+
+**Findings**:
+- suggestion (applied): residual generic "track" vocabulary — "the other tracks" (Part 1)
+  and "the heaviest track" (Part 2) referenced the partition the removed section drew.
+  Swapped to "the lowering pass, evaluator, or verification work" and "the heaviest piece"
+  so no surviving phrase points at a partition the document no longer draws.
+
+**Iterations**: 1 of 3 (PASS)
+
+**Gate note**: child-issues review-hold batch. Only the new decision D19 needed the gate
+(items 1 and 2 are documentation-structure changes the whole-doc cold-read covers). D19
+cleared the Phase 0→1 adversarial gate (iter4 PASS, verdict-producer variant): A11–A14 all
+VERIFIED, and the one new should-fix A15 — D19 recorded only the CCX33-cost half of the
+blanket-vs-conditional trade and omitted the measurement-quality risk a relevance-blind
+blanket rule accepts — was applied to the research log by strengthening D19's `**Why:**`
+with the risk plus the path-naming mitigation, before this mutation applied D19 to the
+design (gate → mutation → cold-read).

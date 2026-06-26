@@ -611,6 +611,52 @@ modifier → `FuncCall`; every `levelZero` payload is excluded.
 
 **Gate note:** DD-review batch; validated by gate iter3.
 
+### D19 — Every child issue extends performance-benchmark coverage for the functionality it adds, not just LDBC neutrality; blanket scope across S1–S7 (2026-06-26, child-issues discussion) [ctx=safe]
+
+Each child slice under the YTDB-901 umbrella must extend performance-benchmark coverage
+for the expression-evaluation functionality it introduces or changes. (YTDB-915 is S0 —
+itself one of those slices, but the substrate ships with no live consumer, so its gate
+stays correctness parity per D17; the obligation bites from S1 onward.) Concretely: the
+child issue adds a targeted JMH microbenchmark exercising the eval path(s) it touches —
+so the new behavior is measured directly — **and** continues to satisfy the existing
+LDBC SF1 JMH neutrality gate (no regression vs base) under YTDB-901's umbrella
+JMH-neutrality requirement and YTDB-916's "neutral on CCX33" acceptance (D17). Scope is
+**blanket**: the obligation applies to every functional slice S1–S7 under YTDB-901, not
+only the ones that touch the runtime hot path. The mechanism is a JMH microbenchmark plus the LDBC-neutrality
+net, not literal additions to the LDBC SNB query set — the standardized SNB workload
+(IC1–14, IS1–7, BI) stays fixed so run-to-run comparisons hold. Infrastructure already
+exists (`run-jmh-benchmarks-hetzner`, the PR benchmark-comparison comment,
+`profile-jmh-regressions`, `profile-query-bottleneck`), so this is incremental per-child
+work, not new plumbing. To keep the coverage meaningful rather than nominal, each child
+issue must **name which expression-evaluation path(s) its added benchmark exercises** —
+a benchmark that hits nothing the existing suite does not already cover is indistinguishable
+from a missing one, and no gate auto-judges benchmark relevance.
+
+**Why:** LDBC neutrality alone only proves no regression on paths the standard SNB queries
+already exercise. A child issue that introduces a new expression path the suite does not
+hit — a new collation-aware comparison, a numeric variant, a lowering shape — would pass
+the neutrality gate green while that path is never measured. Green-but-unmeasured is a real
+blind spot for a substrate sitting on the query-engine evaluation path; targeted JMH
+coverage closes it. Recorded as an umbrella requirement on YTDB-901 (the meta-issue
+parenting the slices) so every child slice inherits it rather than re-litigating per slice. The blanket rule trades a known measurement-quality
+risk for enforcement simplicity (gate A15, accepted): because no automated gate judges
+whether a per-child benchmark actually exercises new behavior, a nominal benchmark that
+measures nothing new passes review just like a real one. The path-naming obligation above is
+the mitigation — it puts the relevance claim on record where a reviewer can check it by eye.
+
+**Alternatives rejected:** scope the obligation to hot-path child issues only and let
+compile/parse-time-only slices ride the neutrality net alone (rejected at the user's call
+for rule simplicity — the blanket rule is easier to enforce, accepting that pure-refactor
+slices run a benchmark that measures nothing new and pay the CCX33 cost); literally extend
+the LDBC SNB query set per child (rejected — SNB is a standardized fixed workload, and
+arbitrary added queries break run-to-run comparability, so the targeted-JMH mechanism
+realizes the "measure each child's functionality" intent without that cost).
+
+**Refines:** D17 (generalizes the S1-specific deferred-JMH gate into a per-child
+benchmark-coverage obligation across the whole umbrella, with blanket scope).
+
+**Gate note:** child-issues discussion; validated by gate iter4 (verdict-producer re-run).
+
 ### Invariants to preserve (I1–I3)
 
 - **I1 — Round-trip parity.** For every SQL fragment in the S0 covered subset,
@@ -895,3 +941,16 @@ should-fix (D17 — perf basis must name the two-hop `operator.apply` → typed
 `operation.apply` re-dispatch seam and the T2 typed-`apply` boundary) applied; A12 / A14
 suggestions (D16 FALLBACK-seam clause, D18 D6-R symmetry cross-reference) applied. Gate
 clears.
+
+### Adversarial review of this log (2026-06-26) — PASS
+
+Iteration 4 (child-issues batch, verdict-producer variant). Review file:
+`_workflow/reviews/research-log-adversarial-iter4.md`. Lenses: Architecture /
+cross-component coordination, Performance hot path. Challenged the single new decision
+**D19** (per-child benchmark-coverage requirement, blanket scope). D19 is code-grounded
+(benchmark infra real — `ldbc-jmh-compare.yml`, the three named skills, ~15 standalone
+`@Benchmark` classes in `core/src/test`) and cleanly refines D17 without contradicting its
+S0-defers-to-S1 basis; D1–D18 / D5-R / D6-R confirmed not undermined (A11–A14 all VERIFIED).
+One new should-fix A15 (D19 recorded only the CCX33-cost half of the blanket-vs-conditional
+trade, omitting the measurement-quality risk a relevance-blind blanket rule accepts) applied
+by strengthening D19's `**Why:**` with the risk plus the path-naming mitigation. Gate clears.
