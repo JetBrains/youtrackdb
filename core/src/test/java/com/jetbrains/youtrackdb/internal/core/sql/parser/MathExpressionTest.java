@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMathExpression.Operator;
 import java.math.BigDecimal;
+import java.util.Date;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -218,5 +219,79 @@ public class MathExpressionTest {
     var result = exp.execute((Result) null, null);
     //    Assert.assertTrue(result instanceof Integer);
     Assert.assertEquals(expected, result);
+  }
+
+  // Characterization test for integer-divide widening (the promotion engine now lives in
+  // NumericOps). A division whose remainder is zero keeps the operand's integer type; a division
+  // with a non-zero remainder widens to Double. The existing testTypes only exercises 1/1 (exact),
+  // so this pins the widening branch the engine performs.
+  @Test
+  public void testIntegerDivideWidening() {
+    // Exact integer division keeps the integer type.
+    Assert.assertEquals(Integer.valueOf(3), Operator.SLASH.apply(6, 2));
+    Assert.assertEquals(Long.valueOf(3L), Operator.SLASH.apply(6L, 2L));
+
+    // Non-exact integer division widens to Double.
+    Object intResult = Operator.SLASH.apply(7, 2);
+    Assert.assertEquals(Double.class, intResult.getClass());
+    Assert.assertEquals(3.5, intResult);
+
+    Object longResult = Operator.SLASH.apply(7L, 2L);
+    Assert.assertEquals(Double.class, longResult.getClass());
+    Assert.assertEquals(3.5, longResult);
+  }
+
+  // Characterization test for + - * / null propagation through Operator.apply(Object, Object).
+  // PLUS and MINUS treat null as the additive identity (null + x = x, null - x = 0 - x); STAR and
+  // SLASH propagate null (null * x = null, null / x = null). The existing suite drives these only
+  // via DocValidationTest at the SQL level; this pins them directly on the engine's entry point.
+  @Test
+  public void testArithmeticNullPropagation() {
+    // PLUS: null behaves as additive identity. The (Object) casts route to apply(Object, Object);
+    // an untyped null would be ambiguous between the Double and BigDecimal typed overloads.
+    Assert.assertEquals(5, Operator.PLUS.apply((Object) null, (Object) 5));
+    Assert.assertEquals(5, Operator.PLUS.apply((Object) 5, (Object) null));
+    Assert.assertNull(Operator.PLUS.apply((Object) null, (Object) null));
+
+    // MINUS: x - null = x, null - x = 0 - x.
+    Assert.assertEquals(5, Operator.MINUS.apply((Object) 5, (Object) null));
+    Assert.assertEquals(-5, Operator.MINUS.apply((Object) null, (Object) 5));
+    Assert.assertNull(Operator.MINUS.apply((Object) null, (Object) null));
+
+    // STAR and SLASH propagate null (any null operand yields null).
+    Assert.assertNull(Operator.STAR.apply((Object) null, (Object) 5));
+    Assert.assertNull(Operator.STAR.apply((Object) 5, (Object) null));
+    Assert.assertNull(Operator.SLASH.apply((Object) null, (Object) 5));
+    Assert.assertNull(Operator.SLASH.apply((Object) 5, (Object) null));
+  }
+
+  // Characterization test for Date arithmetic. Date + Long and Long + Date both yield a Date whose
+  // epoch is the sum; Date - Long yields a Date whose epoch is the difference. Date arithmetic is
+  // driven elsewhere only through QueryOperatorPlus/Minus (a separate operator implementation that
+  // never touches SQLMathExpression.Operator), so this pins the lifted engine's Date branch.
+  @Test
+  public void testDateArithmetic() {
+    var base = new Date(1_000L);
+
+    Object plusRight = Operator.PLUS.apply(base, 500L);
+    Assert.assertEquals(Date.class, plusRight.getClass());
+    Assert.assertEquals(1_500L, ((Date) plusRight).getTime());
+
+    Object plusLeft = Operator.PLUS.apply(500L, base);
+    Assert.assertEquals(Date.class, plusLeft.getClass());
+    Assert.assertEquals(1_500L, ((Date) plusLeft).getTime());
+
+    Object minus = Operator.MINUS.apply(base, 250L);
+    Assert.assertEquals(Date.class, minus.getClass());
+    Assert.assertEquals(750L, ((Date) minus).getTime());
+  }
+
+  // Characterization test for String concatenation through PLUS. When either operand is a String,
+  // PLUS concatenates with the other operand toString()-ed rather than performing arithmetic.
+  @Test
+  public void testStringConcatenation() {
+    Assert.assertEquals("ab", Operator.PLUS.apply("a", "b"));
+    Assert.assertEquals("a1", Operator.PLUS.apply("a", 1));
+    Assert.assertEquals("1b", Operator.PLUS.apply(1, "b"));
   }
 }
