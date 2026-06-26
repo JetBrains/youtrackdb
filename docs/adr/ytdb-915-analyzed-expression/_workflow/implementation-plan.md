@@ -71,6 +71,9 @@ flowchart TD
   > see `plan/track-1.md` `## Episodes` § Track completion. (1 step, 0 failed)
   >
   > **Track file:** `plan/track-1.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 1 discoveries are IR-side (FuncCall.args()
+  > read-only convention recorded for Tracks 3/4); Track 2 is AST-side and unaffected.
 
 - [ ] Track 2: NumericOps whole-enum extraction
   > Track 2 extracts the whole numeric-promotion engine out of
