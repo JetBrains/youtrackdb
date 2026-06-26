@@ -352,6 +352,12 @@ without context, answer comprehension questions, and report
 structural findings. The mutation action invokes it once per
 auto-review cycle (skipped entirely for `mechanics-edit`).
 
+The per-round `readability-auditor` fan-out is **range-sliced** on the
+creation kinds; the canonical deterministic slice partition (the ~200-line
+window on `##` / `# Part` boundaries, the ~6-window cap, and the whole-doc
+floor) lives in `edit-design/SKILL.md` § Step 4 "Deterministic design-path
+slice partition" — this section does not restate it.
+
 ## Two-mode editing — working vs sync
 <!-- roles=planner,final-designer phases=1,4 summary="The working-draft mode versus the sync-to-final mode." -->
 

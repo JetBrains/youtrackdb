@@ -521,8 +521,10 @@ author's `target` / `research_log_path` / `output_path` / `design_path`
 `research_log_path` it grounds from), the absorption check's
 `research_log_path` and `draft_path`, the fidelity check's `episodes_path` /
 `draft_path` / `design_path` (and explicitly no `research_log_path`) — to a
-params file under `_workflow/plan/` (one file per spawn), and pass only that
-file's path in the spawn prompt. Each agent reads its params file as its first action (its agent
+params file under `_workflow/reviews/` (one file per spawn; this authoring-loop
+review scaffolding lives in the plan-scoped reviews home per
+`conventions-execution.md` `§2.5` Third-scope review-file home), and pass only
+that file's path in the spawn prompt. Each agent reads its params file as its first action (its agent
 definition mandates this). A varying spawn-prompt tail would bust the whole
 shared body, so never inline a per-agent value into the prompt.
 
@@ -621,7 +623,7 @@ a summary (`prompts/design-review.md` § Output format, the path-conditional
 branch; the review-file coverage rule in `conventions-execution.md` `§2.5`):
 
 ```
-- output_path: <abs path under _workflow/plan/ for the cold-read output>
+- output_path: <abs path under _workflow/reviews/ for the cold-read output>
 ```
 
 For every other kind — including `phase1-creation` — omit the `output_path` line.
@@ -646,7 +648,14 @@ following the same params-file-plus-byte-identical-prompt contract. The
 auditor's params file carries `target=design`, `target_path=<design_path>`, and
 a whole-document `range` (the sync re-distills the whole `design.md`, so it is
 not range-sliced like a creation-kind fan-out); it names **no**
-`research_log_path` (S1 — the auditor never reads the log). The auditor's
+`research_log_path` (S1 — the auditor never reads the log). It intentionally
+**omits** `slice_count` and `total_lines`: this single whole-document pass is not
+a fan-out, so the agent-side whole-doc guard must stay inert here (per
+`readability-auditor.md` § The whole-doc guard, the guard applies only when both
+params are present). Passing them would falsely trip the guard, since a
+whole-document `design.md` over 300 lines is exactly the collapse shape the guard
+catches on the design-creation path — but here it is the legitimate sync surface,
+not a bypassed partition. The auditor's
 findings merge into the same single-agent fix loop (Step 6) as the
 comprehension-gate findings; the loop's inline fixes re-distill the flagged
 prose, and the loop re-runs the auditor on the next iteration like any other
@@ -674,12 +683,57 @@ auditor runs on both creation kinds; the second check is the absorption check on
 the shared params-file-plus-byte-identical-prompt contract above.
 
 **The readability auditor** (`subagent_type: readability-auditor`,
-`description: "Readability audit (<mutation_kind> round <N>)"`) is range-sliced:
-each slice gets its own spawn whose params file carries `target=design`,
-`target_path=<design_path>`, and the slice `range`. The auditor reads only
-`house-style.md`, its slice, and the standing anchors (the `## Overview` and
-`## Core Concepts` of `design.md`); its params file names **no** research-log path
-(S1). It returns the enumerated readability findings for its slice.
+`description: "Readability audit (<mutation_kind> round <N>)"`) fans out one
+spawn per slice. Each slice's params file carries `target=design`,
+`target_path=<design_path>`, the slice `range`, and the two slicing-metadata
+params `slice_count` and `total_lines` (defined under "Deterministic
+design-path slice partition" below). The auditor reads only `house-style.md`,
+its slice, and the standing anchors (the `## Overview` and `## Core Concepts`
+of `design.md`); its params file names **no** research-log path (S1). It
+returns the enumerated readability findings for its slice.
+
+**Deterministic design-path slice partition (the mandatory fan-out rule).**
+The fan-out is a deterministic orchestrator obligation, not a free choice. It
+is the same partition `/readability-feedback` Procedure step 2 carries (the
+proven rule this ports). Compute the slice set as a pure function of inputs the
+orchestrator already holds — the design's total line count, a ~200-line window,
+and a ~6-window cap — so two runs on the same document produce the same slices:
+
+1. Capture `total_lines` (the `design.md` line count) and the `##` / `# Part`
+   heading boundaries (`grep -nE '^#{1,3} ' <design_path>`).
+2. Split `design.md` into ~200-line windows aligned on those `##` / `# Part`
+   boundaries. Cap at ~6 windows. Spawn exactly one auditor per window. This is
+   the `slice_count`.
+3. **Whole-doc floor (a hard invariant).** Never emit a single whole-doc slice
+   for a `design.md` over ~300 lines. The ~200-line window already forces this:
+   any doc over ~250 lines yields ≥2 windows. The floor is restated as an
+   invariant so the rule cannot be misread as permitting one whole-doc spawn.
+   A doc under ~300 lines legitimately produces one slice (see the agent guard
+   below — that single-slice short-doc case is not a collapse).
+
+**Verifiable spawn count (the orchestrator self-check).** Before the fan-out,
+compute `expected_slice_count` from step 2's rule (total line count, the
+~200-line window, the ~6 cap). Spawn exactly that many auditors and assert
+`slices_spawned == expected_slice_count`. On a mismatch, **stop and surface a
+wiring error** — report the bad slice count rather than proceeding with the
+wrong fan-out. This self-check is the orchestrator's own assertion; it is not
+visible to the auditor.
+
+The self-check and the agent-side guard (in `readability-auditor.md`) enforce
+the floor independently — a deliberate redundant double-check, not a redundancy
+bug. The two layers are **not coextensive**: the agent-side guard fires only on
+the *total* collapse (`slice_count == 1 AND total_lines > ~300`), so this
+orchestrator self-check is the sole catcher of a *partial* collapse (e.g. 2
+slices where the partition demands 5). The redundancy is full for the
+total-collapse case and self-check-only for a partial-count mismatch.
+
+`slice_count` and `total_lines` are constant across a round's fan-out —
+slicing metadata, not conclusions about the prose — so passing them does not
+nudge any auditor toward a finding and does not breach the cold-read guarantee
+(S1). Keep the partition decision separate from the cache warm-up framing
+above: the warm-up only sequences the N>1 spawns (it spaces the first cold
+prefix from the rest) and never reduces N to 1. "Disable the warm-up" means
+"pay N cold prefixes," never "run one whole-doc spawn."
 
 **The absorption check** (`phase1-creation` only —
 `subagent_type: absorption-check`,
@@ -822,7 +876,7 @@ dual-clean exit, S5). Run each round in this order:
 remaining budget, standing `flagged_passages`) lives in the orchestrator's
 working memory, not in a file; only the dual-clean draft itself is on disk. On a
 resume mid-loop, re-derive the round count from the latest per-round params
-files written under `_workflow/plan/` (each round writes one). If the round is
+files written under `_workflow/reviews/` (each round writes one). If the round is
 indeterminate, restart the budget at its default and re-spawn the author round 1:
 the loop is idempotent because the author re-grounds the whole document, so a
 budget restart re-checks an already-clean draft at worst and costs at most one
@@ -832,9 +886,87 @@ verdict lives in the research log (Step 4).
 The two checks converge because they re-open the loop for disjoint reasons:
 fixing a readability finding adds code-accurate prose (it never drops a decision),
 and adding a dropped decision is new prose the next round's auditor polishes like
-any other. Neither fix re-triggers the other in a cycle, so the loop moves
-monotonically toward dual-clean — typically one or two rounds. The budget plus
-escalation is the backstop for a pathological case, not the expected path.
+any other. Neither fix re-triggers the other in a cycle. On the **settled
+sections** (defined in the canonical convergence mechanism below) the loop moves
+monotonically toward dual-clean — typically one or two rounds — because the
+settled-state filter drops the re-flags a fresh cold auditor would otherwise
+raise on prose it already cleared. The one section that does not converge
+monotonically is a **never-clean dense-but-acceptable tail**: a section whose
+prose is irreducibly dense yet acceptable (floor vocabulary the audience already
+knows, glossed once in the doc's footers), which a cold auditor re-flags every
+round and which therefore never becomes settled. That tail is a **designed
+terminal exit, not a pathology**: the `iteration_budget` caps the rounds, and on
+budget exhaustion with only should-fix findings open the loop exits through the
+existing S5 user-is-the-gate path (apply the cheap unambiguous fixes, surface the
+residual for the user to accept or push back on; see §"Outcomes when either loop
+exits"). A never-clearing **blocker** at budget exhaustion (a persistent
+wiring-error the agent-side guard or absorption check raises every round, never
+resolved) is not the should-fix tail: it exits through the same generic S5
+budget-exhaustion path surfaced to the user as a non-self-correcting failure, not
+the apply-cheap-fixes-and-accept-residual should-fix path. The budget-plus-S5
+tail is the expected terminal path for a dense-but-acceptable doc; the early
+dual-clean exit is the expected path for a doc with no such tail.
+
+#### The canonical convergence mechanism (section-keyed settled-state)
+
+This is the single canonical statement of the cross-round convergence mechanism
+for both creation kinds and both paths. The track path
+(`create-plan/SKILL.md` § Step 4b item 9) cross-references it rather than
+restating it. It is parameterized by two values that differ between the paths —
+the **settled-state key** and the **standing-anchor set** — named per-path below.
+
+The mechanism keeps the auditor fully cold (D3): the auditor is never handed the
+settled-state and never told which sections are settled. It reads its slice plus
+the standing anchors cold every spawn. All cross-round state lives
+orchestrator-side; the orchestrator holds the settled-state, decides which
+sections to re-spawn, and filters the returned findings. No `do_not_reflag` /
+exclusion list is ever passed into a spawn — priming the reader and busting the
+per-round shared-prompt cache are both why that alternative is rejected.
+
+- **Settled-state key.** Track settled-state per **section identity plus a
+  content hash**, never per line range — line-keyed memory goes stale as the doc
+  grows and the D1 re-partitioning regroups slices, but a section is the same
+  section whether it lands in slice 2 this round or slice 3 next round. The key
+  is per `##` / `# Part` section on the design path; per `track-N.md` file on the
+  track path.
+- **Settled = returned-clean only.** A section is **settled** when it returned
+  clean (no open finding). There is no accept-as-held path: a section the auditor
+  never returns clean on never becomes settled and re-audits every round (the
+  never-clean tail above). This is the lightness call D1 already made — no hold
+  concept the reader must track, no per-finding verbatim-quote ritual, no
+  user-veto backstop beyond the S5 one that already exists.
+- **The per-section round decision.** Each round, per section, do one of two
+  things. A section that is **settled and unchanged** (its hash matches last
+  round) has all its findings dropped, and its slice may be skipped entirely as a
+  cost optimization. A section that is **changed** (hash differs, or never
+  settled) is re-audited fresh, its findings kept, then its settled-state
+  re-evaluated. A **wiring-error `blocker`** (the agent-side whole-doc guard, or
+  any non-prose structural blocker) is the exception: it is never section-scoped
+  and is never dropped by the settled-state filter — it surfaces regardless of the
+  section's settled state, because it reports a partition/wiring fault, not the
+  section's prose.
+- **The anchor-folded content hash.** The hash folds in not just the section's
+  own text but the standing anchors that exist, because the auditor reads those
+  anchors and resolves cross-references (e.g. "defined in Core Concepts") against
+  them — so an anchor edit changes what the cold auditor sees and must re-open
+  every dependent section. Fold in only the anchors that exist: on
+  `target=design`, `## Overview` plus `## Core Concepts` **when present** (an
+  absent `## Core Concepts` is normal on short single-Part designs — it is seeded
+  only conditionally, when the doc has Parts or introduces ≥3 new domain terms —
+  so a missing Core Concepts is not an error and does not force a re-audit by
+  itself). On `target=tracks`, the standing anchors are the plan Component Map
+  plus each track's `## Purpose / Big Picture`. Folding the anchors in means an
+  Overview (or Component Map) rewrite re-audits the whole document — intentional,
+  because the cold auditor's reading of every section can shift when the anchor it
+  resolves against changes.
+
+A literal passage-level do-not-re-flag list cannot suppress the clean→dirty
+swing: a clean slice leaves no quotes to carry forward. The section hash carries
+the "this section was clean and is unchanged" verdict instead, which is why it
+kills the oscillation a stateless cold spawn would otherwise produce on
+byte-identical prose. A decision-shaped finding is never a prose-density case — it
+re-opens the S3 freeze-order gate above — so only prose-density should-fix
+findings ride the budget-plus-S5 tail.
 
 After the inner loop reports dual-clean, run the **comprehension gate** (Step 4),
 S3-gated for `phase1-creation`. A decision-shaped comprehension-gate finding

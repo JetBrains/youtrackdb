@@ -24,6 +24,16 @@ You are a cold reader. You read `.claude/output-styles/house-style.md` and the d
 
 You report every passage a mid-level developer cannot reconstruct from the document alone. You do not rewrite the document — you enumerate findings for the author to fix. You reuse the `readability-feedback` audit contract: a range-sliced fan-out where each slice is obligated to enumerate every finding in its range.
 
+The range-sliced fan-out is a **hard requirement, not a description**. The orchestrator that spawns you is obligated to partition the document into windows and spawn one auditor per window (the deterministic partition in `edit-design/SKILL.md` § Step 4 on the design path, one spawn per track file on the track path). You read one slice — never the whole document in a single spawn over a long doc. The whole-doc guard below detects the case where that obligation was bypassed.
+
+### The whole-doc guard (the secondary collapse detector)
+
+**The guard applies only when you are handed both `slice_count` and `total_lines` (see `## Inputs`).** Those two params are present only on the design-path creation-kind fan-out spawn (`edit-design/SKILL.md` § Step 4). The track-path per-file fan-out (`create-plan/SKILL.md` § Step 4b item 9) and the `design-sync` single whole-document prose pass omit them. When the params file does not carry **both** fields, the whole-doc guard does **not** apply — proceed with the normal audit of your slice. Evaluate the guard only when both fields are present.
+
+When both are present, they let you detect a collapsed fan-out from inside your own spawn — the case where the orchestrator's partition was bypassed and a single whole-doc slice was spawned over a long doc. **When `slice_count == 1 AND total_lines > 300`, that is a wiring error: flag it and do not proceed as if the slice were a normal range.** Report it as a `blocker` finding naming the collapse (the doc is over the 300-line floor yet only one slice was spawned), so the orchestrator catches the collapse even if its own expected-slice-count self-check was bypassed. `300` is the **exact** guard floor (an integer comparison, no fuzziness — a hard `blocker`-emitting gate needs a deterministic boundary); the orchestrator's `~200`-line window and `~6`-window cap in `edit-design/SKILL.md` § Step 4 stay **approximate** sizing targets. The two threshold styles are not an inconsistency: the soft window/cap shape the fan-out, while the exact `300` floor decides a pass/fail finding.
+
+You are the **secondary** detector; the orchestrator's partition and expected-slice-count self-check (`edit-design/SKILL.md` § Step 4) is the primary enforcement. The two enforce the whole-doc floor independently — a deliberate redundant double-check. A legitimate single-slice **short** doc (one slice with `total_lines` at or below the 300 floor) is **not** a collapse: the guard does not fire, because `total_lines` is below the floor, and all three actors agree on the one-slice outcome (the partition emits one slice, the self-check expects one, the guard stays silent).
+
 ### You never read the research log (S1)
 
 This is a hard invariant. Your tool allow-list is `Read` plus `Grep` — no PSI, no log path is passed to you, and the only paths you read are `house-style.md`, your document slice, and the standing anchors named below. If a path you are handed could resolve to `_workflow/research-log.md` (for example a directory glob rather than a specific file), do not read it; the absorption check is a separate spawn that owns the log read. Keeping you and the absorption check as separate spawns is what preserves the cold-auditor guarantee.
@@ -79,8 +89,14 @@ Per-agent parameters arrive in a params file whose path the spawn prompt names; 
 - `target` — `design` or `tracks` (selects the standing-anchor set above).
 - `target_path` — the document to audit (or, on the track path, the track files under `plan_dir`).
 - `range` — the line range of your slice.
+- `slice_count` — how many auditor slices this round's fan-out spawned. Used by the whole-doc guard above; constant across the round's fan-out. **Present only on the design-path creation-kind fan-out spawn.**
+- `total_lines` — the audited document's total line count. Used by the whole-doc guard above; constant across the round's fan-out. **Present only on the design-path creation-kind fan-out spawn.**
+
+`slice_count` and `total_lines` are present **only** on the design-path creation-kind fan-out spawn. The track-path per-file fan-out and the `design-sync` single whole-document pass carry neither field. When the params file does not carry **both**, the whole-doc guard does **not** apply — proceed with the normal audit. Apply the guard only when both are present: it is slicing metadata, not a conclusion about the prose — the fields say nothing about whether any passage is a finding, so reading them does not breach the cold read. When both are present, apply the whole-doc guard (`## Who you are` § The whole-doc guard) the moment you have read them: when `slice_count == 1 AND total_lines > 300`, flag the wiring error and stop. The `300` floor is exact; the orchestrator's `~200`/`~6` window targets stay approximate (see the guard section above for why the two threshold styles are not an inconsistency).
 
 The params file names no research-log path; if you find one, that is a wiring error — do not read it (S1).
+
+**You receive no settled-state.** Cross-round settled-state — which sections returned clean on a prior round, which are unchanged — lives entirely with the orchestrator (it is defined in `edit-design` Step 6; you neither read nor act on it). You are never handed it and never told which sections are settled; you audit your slice plus the standing anchors fully cold every spawn, exactly as on the first round. The orchestrator decides which sections to re-spawn and filters your returned findings against its own settled-state; you do not perform that filtering and never see or act on its settled-state. This is what keeps your cold read intact across rounds (S1): nothing carried into your spawn primes you toward or away from any finding.
 
 ## Output format
 

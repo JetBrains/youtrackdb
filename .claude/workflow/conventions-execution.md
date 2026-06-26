@@ -14,7 +14,7 @@
 | §Manifest-plus-sections file | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | The MANIFEST comment block plus segregated body sections, and the mandatory-vs-downstream split of the six index fields. |
 | §Anchored addressing and count validation (S4/S6) | orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3B,3C,4 | Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback. |
 | §Verdict-producer manifest variant | orchestrator,planner,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 1,2,3A,3C | The variant a gate-verifying reviewer writes: per-prior-finding verdicts in a verdicts block, new findings separate. |
-| §Third-scope review-file home (Phase 0→1 gate) | planner,reviewer-adversarial | 1 | Where the Phase-0→1 gate's review files live before any track directory exists, and their commit/sweep lifecycle. |
+| §Third-scope review-file home (plan-scoped authoring-loop scaffolding) | planner,orchestrator,final-designer,reviewer-adversarial | 1,4 | Plan-scoped home for authoring-loop review files before any track directory exists, and its commit/sweep lifecycle. |
 | §Coverage (S5) | decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial | 2,3A,3C | The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection. |
 
 <!--Document index end-->
@@ -704,32 +704,52 @@ into the finding set. That is why the `planner`/`1` access this section
 grants covers both the gate writer (`reviewer-adversarial` at phase `1`)
 and the `create-plan` reader (`planner` at phase `1`) on the variant row.
 
-### Third-scope review-file home (Phase 0→1 gate)
-<!-- roles=planner,reviewer-adversarial phases=1 summary="Where the Phase-0→1 gate's review files live before any track directory exists, and their commit/sweep lifecycle." -->
+### Third-scope review-file home (plan-scoped authoring-loop scaffolding)
+<!-- roles=planner,orchestrator,final-designer,reviewer-adversarial phases=1,4 summary="Plan-scoped home for authoring-loop review files before any track directory exists, and its commit/sweep lifecycle." -->
 
-The research-log adversarial gate writes its review files **before Step
-4b**, so the canonical track-anchored home `plan/track-N/reviews/` (the
-`§2.1` *Review-file lifecycle* sub-section) does not exist yet — no track
-file has been authored. The gate's files therefore live in a
-plan-scoped review directory under `_workflow/` that does not depend on a
-track: `docs/adr/<dir-name>/_workflow/reviews/`. Naming follows
-`track-review.md`'s `<type>-iter<N>.md` practice — e.g.
-`research-log-adversarial-iter1.md` — so a multi-iteration gate loop keeps
-one file per iteration. `create-plan` `mkdir -p`s this directory before
-the first gate spawn (idempotent).
+The plan-scoped home `docs/adr/<dir-name>/_workflow/reviews/` holds the review
+scaffolding of the **authoring loop** — the review and params files written
+before, or independently of, any single `plan/track-N/` directory. Three
+families live here:
+
+- The **Phase-0→1 research-log adversarial gate**'s review files. The gate
+  writes them **before Step 4b**, so the canonical track-anchored home
+  `plan/track-N/reviews/` (the `§2.1` *Review-file lifecycle* sub-section) does
+  not exist yet — no track file has been authored.
+- The **Phase-1 design/track authoring loop**'s scaffolding (the dual-clean
+  loop `edit-design phase1-creation` and `create-plan` Step 4b item 9 run): the
+  per-spawn params files (author, readability-auditor, absorption check,
+  comprehension gate) and any cold-read output files. The design path runs in
+  Step 4a *before any `plan/track-N/` directory exists*, and the author and
+  comprehension spawns operate on the whole plan rather than one track, so a
+  track-anchored home cannot host them; the plan-scoped home can.
+- The **Phase-4 design-final authoring loop**'s scaffolding (the dual-clean
+  loop `edit-design phase4-creation` runs): its per-spawn params files and the
+  comprehension cold-read `output_path` output.
+
+Naming follows `track-review.md`'s `<type>-iter<N>.md` practice — e.g.
+`research-log-adversarial-iter1.md` — so a multi-iteration loop keeps one file
+per iteration. `create-plan` `mkdir -p`s this directory before the first gate
+spawn (idempotent); the authoring-loop callers (`edit-design`, `create-plan`
+Step 4b) write into the same directory.
+
+Execution-phase review files (the Phase 2/3 `track-review` dimensional reviews)
+are **not** authoring-loop scaffolding and keep their canonical track-anchored
+home `plan/track-N/reviews/`; this home covers the authoring loop only.
 
 Every other lifecycle rule is the `§2.1` *Review-file lifecycle*
 sub-section's, applied unchanged — this clause does not restate them:
-the file is written **and committed** at reviewer-return as a
+each file is written **and committed** at reviewer-return as a
 Workflow-update commit (the resume precondition), and the Phase 4 cleanup's
 blanket recursive `git rm -r _workflow/` sweeps `_workflow/reviews/` along
-with the rest, so no dedicated cleanup step is needed. The verdict carrier
-the Phase-4 consumers read is the research log's `## Adversarial gate record`
-section (the gate writes one verdict heading there per iteration; the heading
-shape and cadence are defined once in `research.md` §The research log under
-Gate-record cadence), not these review files; the review files die at cleanup
-without feeding either the `adr.md` fold or the `minimal` PR-description
-summary.
+with the rest, so no dedicated cleanup step is needed. The review files in
+every family here are ephemeral scaffolding: they die at cleanup without
+feeding either the `adr.md` fold or the `minimal` PR-description summary. For
+the research-log gate family specifically, the durable verdict the Phase-4
+consumers read is the research log's `## Adversarial gate record` section (the
+gate writes one verdict heading there per iteration; the heading shape and
+cadence are defined once in `research.md` §The research log under Gate-record
+cadence), not these review files.
 
 ### Coverage (S5)
 <!-- roles=decomposer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=2,3A,3C summary="The follow-or-exempt coverage rule: a documented contract the decomposer and reviewers check by inspection." -->
