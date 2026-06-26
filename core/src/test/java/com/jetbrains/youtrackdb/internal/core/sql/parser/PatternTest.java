@@ -638,6 +638,232 @@ public class PatternTest extends ParserTestAbstract {
         result.nonMatchedReferencing());
   }
 
+  // ====== splitByLetDependency tests ======
+
+  /**
+   * Mixed AND: age > 25 is independent of LET $scores, birthday filter is also
+   * independent → both go to independent half. name = $scores is dependent.
+   * Result: independent = "age > 25 AND birthday > '2000-01-01'",
+   *         dependent = "name = $scores".
+   */
+  @Test
+  public void testSplitByLetDependency_mixedAndBlock() throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND name = $scores AND birthday > '2000-01-01'");
+    var result = where.splitByLetDependency(Set.of("scores"));
+    assertNotNull("Should return split result for mixed dependencies", result);
+    assertNotNull("Should have independent part", result.independent());
+    assertNotNull("Should have dependent part", result.dependent());
+    // Verify independent part does not reference $scores
+    assertNull(
+        "Independent part should not reference LET vars",
+        result.independent().splitByLetDependency(Set.of("scores")));
+    // Verify dependent part still references $scores
+    assertNotNull(
+        "Dependent part should still reference LET vars",
+        result.dependent().splitByLetDependency(Set.of("scores")));
+    // Verify actual content of both halves
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'age' condition: " + indepStr,
+        indepStr.contains("age > 25"));
+    assertTrue("Independent part should contain 'birthday' condition: " + indepStr,
+        indepStr.contains("birthday") && indepStr.contains("2000-01-01"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$scores' condition: " + depStr,
+        depStr.contains("$scores"));
+  }
+
+  /**
+   * Fully independent: WHERE age > 25 AND name = 'Alice' with LET $x.
+   * No conjunct references $x → returns null (caller pushes the whole WHERE).
+   */
+  @Test
+  public void testSplitByLetDependency_fullyIndependent() throws ParseException {
+    var where = parseWhere("age > 25 AND name = 'Alice'");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNull("Should return null when no LET variable is referenced", result);
+  }
+
+  /**
+   * Fully dependent: WHERE name = $x AND age = $y with LET $x, $y.
+   * All conjuncts reference LET vars → independent = null, dependent = this.
+   */
+  @Test
+  public void testSplitByLetDependency_fullyDependent() throws ParseException {
+    var where = parseWhere("name = $x AND age = $y");
+    var result = where.splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Should return split result", result);
+    assertNull("Should have null independent part", result.independent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
+  }
+
+  /**
+   * Multi-OR all independent: WHERE (a > 5) OR (b < 10) with LET $x.
+   * No branch references $x → returns null (push entire WHERE).
+   */
+  @Test
+  public void testSplitByLetDependency_multiOrAllIndependent() throws ParseException {
+    var where = parseWhere("a > 5 OR b < 10");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNull("Should return null for multi-OR all independent", result);
+  }
+
+  /**
+   * Multi-OR mixed: WHERE (a > 5) OR (b = $x) with LET $x.
+   * One branch references $x → entire WHERE stays dependent (cannot split OR).
+   */
+  @Test
+  public void testSplitByLetDependency_multiOrMixed() throws ParseException {
+    var where = parseWhere("a > 5 OR b = $x");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result for mixed multi-OR", result);
+    assertNull(
+        "Should have null independent part (cannot split OR)",
+        result.independent());
+    assertSame("Dependent part should be the original WHERE (cannot split OR)",
+        where, result.dependent());
+  }
+
+  /**
+   * Single condition independent: WHERE age > 25 with LET $x.
+   * Does not reference $x → returns null (push entire WHERE).
+   */
+  @Test
+  public void testSplitByLetDependency_singleConditionIndependent()
+      throws ParseException {
+    var where = parseWhere("age > 25");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNull("Should return null for independent single condition", result);
+  }
+
+  /**
+   * Single condition dependent: WHERE name = $x with LET $x.
+   * References $x → independent = null, dependent = this.
+   */
+  @Test
+  public void testSplitByLetDependency_singleConditionDependent()
+      throws ParseException {
+    var where = parseWhere("name = $x");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result for dependent single condition", result);
+    assertNull("Should have null independent part", result.independent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
+  }
+
+  /**
+   * $parent reference in conjunct: WHERE age > 25 AND out('X').@rid = $parent.$current.@rid
+   * with LET $x. Neither conjunct references $x, but the $parent conjunct must
+   * be classified as dependent (safety constraint).
+   */
+  @Test
+  public void testSplitByLetDependency_parentRefClassifiedAsDependent()
+      throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result due to $parent reference", result);
+    assertNotNull("Should have independent part (age > 25)", result.independent());
+    assertNotNull(
+        "Should have dependent part ($parent conjunct)", result.dependent());
+    // Verify actual content: age > 25 is independent, $parent is dependent
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'age > 25': " + indepStr,
+        indepStr.contains("age > 25"));
+    assertFalse("Independent part should not contain '$parent': " + indepStr,
+        indepStr.contains("$parent"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$parent': " + depStr,
+        depStr.contains("$parent"));
+  }
+
+  /**
+   * Multiple LET variables: WHERE a = $x AND b > 5 AND c = $y with LET $x, $y.
+   * a=$x and c=$y are dependent, b>5 is independent.
+   */
+  @Test
+  public void testSplitByLetDependency_multipleLetVars() throws ParseException {
+    var where = parseWhere("a = $x AND b > 5 AND c = $y");
+    var result = where.splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (b > 5)", result.independent());
+    assertNotNull("Should have dependent part (a=$x, c=$y)", result.dependent());
+    // Independent part should not reference any LET vars
+    assertNull(
+        "Independent part should not reference LET vars",
+        result.independent().splitByLetDependency(Set.of("x", "y")));
+    // Verify dependent part still references LET vars
+    assertNotNull(
+        "Dependent part should still reference LET vars",
+        result.dependent().splitByLetDependency(Set.of("x", "y")));
+    // Verify actual content of both halves
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'b > 5': " + indepStr,
+        indepStr.contains("b > 5"));
+    assertFalse("Independent part should not contain '$x': " + indepStr,
+        indepStr.contains("$x"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$x': " + depStr,
+        depStr.contains("$x"));
+    assertTrue("Dependent part should contain '$y': " + depStr,
+        depStr.contains("$y"));
+  }
+
+  /** Null baseExpression: returns null without NPE. */
+  @Test
+  public void testSplitByLetDependency_nullBaseExpression() {
+    var where = new SQLWhereClause(-1);
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNull("Should return null for null baseExpression", result);
+  }
+
+  /**
+   * Empty letVarNames with $parent: the $parent reference alone should trigger
+   * splitting, classifying the $parent conjunct as dependent.
+   */
+  @Test
+  public void testSplitByLetDependency_emptyLetVarsWithParent()
+      throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull("Should return split result due to $parent", result);
+    assertNotNull("Should have independent part", result.independent());
+    assertNotNull("Should have dependent part", result.dependent());
+    // Verify actual content: age > 25 is independent, $parent is dependent
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'age > 25': " + indepStr,
+        indepStr.contains("age > 25"));
+    assertFalse("Independent part should not contain '$parent': " + indepStr,
+        indepStr.contains("$parent"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$parent': " + depStr,
+        depStr.contains("$parent"));
+  }
+
+  /**
+   * Nested OR inside AND: WHERE (a = $x OR b = $x) AND c > 5 with LET $x.
+   * The parenthesized OR conjunct references $x → dependent. c > 5 → independent.
+   */
+  @Test
+  public void testSplitByLetDependency_nestedOrInAnd() throws ParseException {
+    var where = parseWhere("(a = $x OR b = $x) AND c > 5");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (c > 5)", result.independent());
+    assertNotNull("Should have dependent part (OR sub-block)", result.dependent());
+    // Verify actual content: c > 5 is independent, OR block with $x is dependent
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'c > 5': " + indepStr,
+        indepStr.contains("c > 5"));
+    assertFalse("Independent part should not contain '$x': " + indepStr,
+        indepStr.contains("$x"));
+    var depStr = result.dependent().toString();
+    assertTrue("Dependent part should contain '$x': " + depStr,
+        depStr.contains("$x"));
+  }
+
   // ====== findRidEquality tests ======
 
   /**
