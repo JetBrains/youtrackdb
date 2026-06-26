@@ -61,19 +61,12 @@ consumer the shared home exists for.
   operators invoke the same widening); deferring the boundary to Phase A (the boundary is
   now understood, no reason to defer). Both were open options at re-validation; the user
   chose whole-enum.
-- **Rationale**: `SQLMathExpression.Operator` is an inner enum with 12 constants (`STAR`,
-  `SLASH`, `REM`, `PLUS`, `MINUS`, `LSHIFT`, `RSHIFT`, `RUNSIGNEDSHIFT`, `BIT_AND`, `XOR`,
-  `BIT_OR`, `NULL_COALESCING`; the numeric argument on each is its precedence priority,
-  confirmed via PSI). All 12 share one promotion engine with four parts:
-    1. the five abstract typed-pair `apply` overloads (`Integer`, `Long`, `Float`, `Double`,
-       `BigDecimal`);
-    2. the fallback `apply(Object, Object)`;
-    3. the shared widening entry `apply(Number, Operator, Number)`, which widens by the right
-       operand's runtime type;
-    4. the private static `toLong` helper.
-
-  The whole engine moves to `NumericOps`, and `SQLMathExpression.Operator.apply`
-  becomes a thin delegator. A clean single-home boundary beats a partial extraction whose
+- **Rationale**: `SQLMathExpression.Operator` is an inner enum with 12 constants (the
+  numeric argument on each is its precedence priority, confirmed via PSI). All 12 share one
+  promotion engine — the five typed-pair `apply` overloads, the `apply(Object, Object)`
+  fallback, the shared `apply(Number, Operator, Number)` widening entry, and the private
+  `toLong` helper (inventoried in `## Context and Orientation`). The whole engine moves to
+  `NumericOps`, and `SQLMathExpression.Operator.apply` becomes a thin delegator. A clean single-home boundary beats a partial extraction whose
   shared widening helper still straddles two classes — with all promotion logic in one
   place, AST/IR drift is structurally impossible and there is no ambiguous "who owns the
   shared helper" seam. The larger diff is acceptable because every existing AST math test
@@ -97,28 +90,17 @@ consumer the shared home exists for.
 - **Rationale**: the `NumericOps` extraction is the only S0 change that modifies live
   production code. `Operator.apply` is called by `iterateOnPriorities` — the per-evaluation
   precedence walk that folds the flat operator list — on every AST arithmetic evaluation
-  today, so it is a hot path. Perf-neutrality rests on leaving the
-  existing dispatch chain intact. Today that chain is (PSI-confirmed signatures):
-
-  ```text
-  operator.apply(left, right)                 // entry; left, right are Object
-    └─> apply(Object, Object)                 // [virtual #1] the per-constant body
-          └─> apply(Number, Operator, Number) // shared widening entry (plain call)
-                └─> operation.apply(t, t)      // [virtual #2] one of the five abstract
-                                               //   typed overloads, picked by operand type
-  ```
-
-  The "two-hop" label counts the two **virtual** dispatches on the enum constant — virtual
-  #1 (`apply(Object, Object)`) and virtual #2 (the typed `apply`) — both bound by the
-  runtime `Operator` constant. The widening entry between them is a plain (non-virtual)
-  call. The whole-enum lift-and-shift moves this entire chain into the all-static
-  `NumericOps` and adds only a monomorphic `NumericOps` delegation in front of it — no new
-  virtual indirection, and the added `invokestatic` inlines. S0's acceptance gate is the
-  existing math-test suite staying green after the delegation; that gate covers correctness.
-  Runtime perf-neutrality is verified at S1
-  against the LDBC JMH suite (YTDB-916's "neutral on CCX33" acceptance and YTDB-901's
-  umbrella JMH-neutrality requirement) — the first slice with a live consumer to measure,
-  not a standalone S0 Hetzner run.
+  today, so it is a hot path. Perf-neutrality rests on leaving the existing two-hop dispatch
+  chain intact: the chain (`operator.apply(Object,Object)` → shared widening entry
+  `apply(Number,Operator,Number)` → typed `apply` overload) has two virtual dispatches on the
+  enum constant with a plain widening call between them. The whole-enum lift-and-shift moves
+  the entire chain into the all-static `NumericOps` and adds only a monomorphic, inlinable
+  `NumericOps` delegation in front of it — no new virtual indirection. S0's acceptance gate is
+  the existing math-test suite staying green after the delegation (correctness); runtime
+  perf-neutrality is verified at S1 against the LDBC JMH suite (YTDB-916's "neutral on CCX33"
+  and YTDB-901's umbrella JMH-neutrality requirement) — the first slice with a live consumer
+  to measure, not a standalone S0 Hetzner run. The full PSI-confirmed dispatch-chain diagram
+  is in `design.md §"NumericOps: one shared promotion engine"`.
 - **Risks/Caveats**: this track **must state explicitly** whether the five typed `apply`
   overloads stay on the enum (with `NumericOps` calling back) or move with it into
   `NumericOps` — that boundary is the one open implementation choice the design hands to

@@ -143,26 +143,16 @@ It has no dependency on the rest of S0.
   change (wrapper allocations, and every visitor must remember to unwrap).
 - **Rationale**: `AnalyzedExprTransform extends AnalyzedExprVisitor<AnalyzedExpr>` is the
   rewrite-pass shape for S3+ optimizer slices. The static `transformChildren(expr, t)`
-  helper enforces a per-node rule. It recurses one level into a node's children. If every
-  child comes back as the same instance it received, it returns the input node unchanged;
-  it builds a new parent record only when at least one child changed. "Same instance" here
-  is reference identity (`==`), not value equality. Optimizer passes typically rewrite one
-  subtree and leave the rest untouched, so this rule shares the untouched part by reference.
-
-  Walk a fold that fires at depth 10 of a 50-node tree, one ancestor at a time. The
-  rewritten leaf at depth 10 is a new node. Its parent at depth 9 recurses into its
-  children, sees that one child (the depth-10 node) is a different instance, and so rebuilds
-  itself around the new child while returning its other children by reference. That rebuilt
-  depth-9 node is itself a new instance, so its parent at depth 8 sees one changed child and
-  rebuilds the same way — and so on up the chain to the root at depth 0. Every node *off*
-  that path sees all of its children come back unchanged and returns itself by reference. So
-  a single deep rewrite allocates exactly the ten new nodes on the path from the rewritten
-  leaf to the root, and shares all ~40 off-path subtrees untouched, instead of rebuilding
-  all 50. `FuncCall` lazily allocates its new argument list on the first changed element, so
-  an unchanged argument list is never copied. Centralizing the identity-comparison logic in
-  one helper keeps individual passes from re-implementing (and subtly mis-implementing) it.
-  The shared shape is a visitor that returns a rewritten node and shares unchanged subtrees
-  by reference.
+  helper enforces a per-node rule: recurse one level into a node's children; if every child
+  comes back as the same instance it received, return the input node unchanged; build a new
+  parent record only when at least one child changed. "Same instance" is reference identity
+  (`==`), not value equality. Optimizer passes typically rewrite one subtree and leave the
+  rest untouched, so a single deep rewrite allocates only the new nodes on the path from the
+  rewritten leaf to the root and shares every off-path subtree by reference, instead of
+  rebuilding the whole tree (`FuncCall` lazily copies its argument list only on the first
+  changed element). Centralizing the identity-comparison logic in one helper keeps individual
+  passes from re-implementing (and subtly mis-implementing) it. The full depth-10 worked
+  example is in `design.md §"Transform passes and structural sharing"`.
 - **Risks/Caveats**: equality is by reference identity, so a transform that reconstructs
   an `equals`-but-distinct copy of an unchanged node counts as "changed" and defeats the
   sharing. The rule for transform authors: return the input reference when no change

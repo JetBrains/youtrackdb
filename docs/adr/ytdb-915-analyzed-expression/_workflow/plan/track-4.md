@@ -66,34 +66,18 @@ the IR runs the same code the AST runs.
 - **Rationale**: the IR comparison evaluator reproduces `SQLBinaryCondition.evaluate(Result,
   ctx)`'s exact four-step sequence — evaluate both operands, fetch the collate
   left-then-right, apply the collate transform when non-null, delegate to the parser's own
-  `SQLBinaryCompareOperator` instance — rather than calling the bare static routines. The
-  Context diagram below draws those four steps; the point here is *why* the IR runs them
-  instead of a shortcut. Two AST nuances break parity otherwise.
-
-  **Collation.** `Collate` is a per-property comparison transform (a `ci` string property
-  compares `'Foo'` and `'foo'` as equal), applied before comparing. A raw static `equals`
-  skips it, so `name = 'Foo'` against a `ci`-collated `name` returns `true` in the AST but
-  `false` for the raw call.
-
-  **Session threading.** `SQLEqualsOperator.execute` (EQ) calls `QueryOperatorEquals.equals`
-  with the real session, while `SQLNeOperator.execute` (NE) calls it with a `null` session.
-  When the operands are different types, `equals` runs a cross-type coercion
-  (`PropertyTypeInternal.convert`) that consults the session. A `null` session therefore
-  changes how that coercion resolves. So on the same mixed-type operands, the EQ and NE
-  branches can produce different answers.
-
-  Delegating to the parser operator instance runs the AST's exact branch for each operator,
-  so both nuances are reproduced by construction. The ordering operators are reproduced the
-  same way: their shared comparator `doCompare` returns a sign, and each ordering operator
-  maps that sign against 0 (`<` is `doCompare < 0`, `>=` is `doCompare >= 0`, and so on), so
-  running the AST's own operator instance carries that mapping too.
-
-  The slow path is the parity reference. `SQLBinaryCondition.evaluate` also has an in-place
-  fast path (`tryInPlaceComparison`), but it is parity-equivalent: it returns
-  `FALLBACK` — the sentinel meaning "could not decide; defer to the slow path" — whenever
-  collation or coercion could change the result, and then falls
-  through to the slow path. So the IR evaluator and the I1 tests target the slow path, and
-  the IR *structure* need not encode the fast path.
+  `SQLBinaryCompareOperator` instance — rather than the bare static routines, because two AST
+  nuances break parity otherwise. **Collation** is a per-property transform (a `ci` property
+  compares `'Foo'` and `'foo'` as equal) that a raw static `equals` skips. **Session
+  threading**: EQ calls `QueryOperatorEquals.equals` with the real session while NE passes a
+  `null` session, changing how the cross-type coercion (`PropertyTypeInternal.convert`)
+  resolves, so EQ and NE can differ on mixed-type operands. Delegating to the parser operator
+  instance runs the AST's exact branch per operator, reproducing both nuances by construction
+  (ordering operators carry too: their shared `doCompare` returns a sign each maps against 0).
+  The slow path is the parity reference — the in-place fast path (`tryInPlaceComparison`)
+  returns the `FALLBACK` sentinel whenever collation or coercion could change the result and
+  defers to the slow path, so the IR need not encode it. Full worked passages are in
+  `design.md §"Comparison: replicate the AST sequence"`.
 - **Risks/Caveats**: because the IR holds a `Var` — a lexical name path in the IR, holding
   no parse-node reference — not an `SQLExpression`, it cannot call the parser's
   `getCollate`; it re-implements the single-property resolution
