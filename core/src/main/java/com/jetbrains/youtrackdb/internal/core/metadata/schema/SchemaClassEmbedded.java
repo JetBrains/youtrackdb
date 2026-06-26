@@ -559,9 +559,33 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
           return;
         }
 
+        // Inside a schema transaction the abstract->concrete switch must not allocate a real
+        // storage collection eagerly: the self-committing addCollection would leave a stray
+        // collection on disk if the transaction rolls back, the same metadata-first inversion the
+        // tx-local create path applies. The class carries a provisional id (<= -2) the commit
+        // resolves to a real id once it creates the real collection inside the commit's own atomic
+        // operation. The seeding guard mirrors the create and rename sites: copyForTx -> fromStream
+        // re-creates committed classes through other paths and never through setAbstract, but the
+        // guard keeps the recording uniform. Outside a transaction (or while seeding) the legacy
+        // eager allocation is kept: there is no user transaction to defer the create to.
         var collectionName = name.toLowerCase(Locale.ENGLISH) + "_"
             + ((SchemaEmbedded) owner).nextCollectionIndex();
-        var collectionId = database.addCollection(collectionName);
+        final boolean provisional = owner.txLocal && !database.isSeedingTxSchemaState();
+        final int collectionId;
+        if (provisional) {
+          var txState = database.getTxSchemaState();
+          if (txState == null) {
+            throw new IllegalStateException(
+                "a tx-local abstract-to-concrete alter must run with a seeded tx-local schema state");
+          }
+          collectionId = txState.allocateProvisionalCollectionId();
+          // Record the altered class so the commit writes its per-class record and reconciles the
+          // provisional id to a real collection. The create path records the same way after a
+          // tx-local createClass.
+          txState.markClassChanged(name);
+        } else {
+          collectionId = database.addCollection(collectionName);
+        }
 
         this.defaultCollectionId = collectionId;
         this.collectionIds[0] = this.defaultCollectionId;

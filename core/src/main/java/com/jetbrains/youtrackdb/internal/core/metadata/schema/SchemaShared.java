@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.common.types.ModifiableInteger;
 import com.jetbrains.youtrackdb.internal.common.util.ArrayUtils;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Entity;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaException;
 import com.jetbrains.youtrackdb.internal.core.exception.SchemaNotCreatedException;
@@ -34,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.GlobalPrope
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
+import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -59,17 +61,57 @@ import javax.annotation.Nullable;
  */
 public abstract class SchemaShared implements CloseableInStorage {
 
-  public static final int CURRENT_VERSION_NUMBER = 4;
+  // Version 6 introduces the per-class-record format: the root schema record links one standalone
+  // record per class instead of holding every class in a single embedded set. Versions 4 and 5 are
+  // the previous embedded-set formats; both are now reject-and-redirect-only at open time, since
+  // their bytes cannot be parsed by the link-set reader. Migration is operator-driven export/import.
+  public static final int CURRENT_VERSION_NUMBER = 6;
   public static final int VERSION_NUMBER_V4 = 4;
-  // this is needed for guarantee the compatibility to 2.0-M1 and 2.0-M2 no changed associated with
-  // it
+  // VERSION_NUMBER_V5 marked the 2.0-M1/2.0-M2 embedded-set form; retained for reference only.
   public static final int VERSION_NUMBER_V5 = 5;
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
+  /**
+   * Whether the current thread holds this schema's write lock. Used by the metadata-write mutex
+   * engage-order assertion to prove the mutex is engaged strictly above this shared metadata lock
+   * (never from inside its acquisition), which is what keeps the four-lock order acyclic.
+   */
+  public boolean isWriteLockHeldByCurrentThread() {
+    return lock.isWriteLockedByCurrentThread();
+  }
+
   protected final Map<String, SchemaClassImpl> classes = new HashMap<>();
   protected final Int2ObjectOpenHashMap<SchemaClassImpl> collectionsToClasses =
       new Int2ObjectOpenHashMap<>();
+
+  /**
+   * The single collection id an abstract class carries. An abstract class has no real storage
+   * collection, so it owns only this marker; it never appears in {@link #collectionsToClasses} or in
+   * the storage layer.
+   */
+  public static final int ABSTRACT_COLLECTION_ID = -1;
+
+  /**
+   * The highest (closest to zero) id a provisional collection can carry. A class created inside a
+   * schema transaction does not allocate a real storage collection during the transaction; it
+   * carries a provisional id drawn from the sub-range {@code <= -2}, resolved to a real id at commit
+   * (mirroring temp RIDs). The sub-range starts at {@code -2} rather than {@code -1} so it cannot
+   * collide with {@link #ABSTRACT_COLLECTION_ID}: the schema layer tests {@code collectionId < 0} to
+   * spot a special id, so a provisional id that fell on {@code -1} would be mistaken for the abstract
+   * marker. The in-memory maps treat a provisional id as a pending-real id (reverse map populated,
+   * uniqueness validated); the file/storage layer keeps skipping every negative id.
+   */
+  public static final int PROVISIONAL_COLLECTION_ID_CEILING = -2;
+
+  /**
+   * Whether {@code collectionId} is a provisional id allocated for a transaction-local create
+   * (drawn from the {@code <= -2} sub-range), as distinct from the abstract-class marker
+   * {@link #ABSTRACT_COLLECTION_ID} ({@code -1}) and from a real (non-negative) collection id.
+   */
+  public static boolean isProvisionalCollectionId(int collectionId) {
+    return collectionId <= PROVISIONAL_COLLECTION_ID_CEILING;
+  }
 
   /**
    * Monotonically increasing counter for generating unique collection names.
@@ -88,6 +130,16 @@ public abstract class SchemaShared implements CloseableInStorage {
   private volatile int version = 0;
   private volatile RecordIdInternal identity;
   protected volatile ImmutableSchema snapshot;
+
+  /**
+   * True only for a transaction-local copy built by {@link #copyForTx}. A tx-local copy is the
+   * private working schema a schema-changing transaction mutates in isolation; its mutations defer
+   * to the user transaction's commit instead of persisting eagerly. The de-guarded mutation entry
+   * points read this flag to decide whether to take the legacy top-level save path (committed
+   * instance, no active transaction) or the transaction-local path (record the change and let the
+   * commit promote it). The committed shared instance leaves this {@code false}.
+   */
+  protected boolean txLocal;
 
   private final ReentrantLock snapshotLock = new ReentrantLock();
 
@@ -115,6 +167,82 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   public SchemaShared() {
   }
+
+  /**
+   * Builds a private, transaction-scoped copy of this committed schema for a schema-changing
+   * transaction to mutate in isolation. The copy is seeded by a re-parse of the committed root
+   * record rather than a field-level clone: each {@link SchemaClassImpl} binds back to its
+   * {@link SchemaShared} through a final {@code owner} field and links to its relatives by direct
+   * object reference, so a clone would leave those references pointing at the shared instances. The
+   * re-parse constructs fresh class objects bound to the copy, and the cross-class derived state a
+   * schema write recomputes (inheritance, {@code polymorphicCollectionIds}, subclass sets, the
+   * global-property table) stays inside the copy with no extra code.
+   *
+   * <p>The seed reads the committed root record and re-parses it: {@code copy.fromStream(session,
+   * session.load(identity))}. The root record is loaded read-only: the seed does not serialize
+   * through {@link #toStream}, so it neither dirties the committed per-class records into the
+   * caller's transaction nor rebinds any committed class's record id. Every committed schema change
+   * persists the root record synchronously under this same write lock (the
+   * {@code releaseSchemaWriteLock} to {@code saveInternal} path), so the persisted root record the
+   * seed reads is the live committed state while the lock is held. The re-parse rebinds each class's
+   * committed per-class record RID from the {@code "classes"} link set (the per-class-record
+   * format) by loading each per-class record read-only, so a commit later writes the right record.
+   * The committed root {@code identity} is copied by value onto the new instance first (a shared
+   * mutable id reference must not link the committed instance and the copy), so the copy serializes
+   * back to the same root record at commit.
+   *
+   * <p>The read of the committed root record and per-class records runs under this instance's schema
+   * write lock, which makes the read of the committed class graph exclusive against concurrent
+   * committed-schema mutation. The copy's own {@code fromStream} takes the copy's (separate) write
+   * lock internally. The read-only record loads during the re-parse ride the caller's already-open
+   * user transaction; this method does not open or commit a transaction of its own, because the
+   * whole point of the tx-local view is that the change defers to the user transaction's commit.
+   *
+   * @param session the session whose open transaction the read-only record loads ride; a
+   *                transaction must already be open
+   * @return a fresh {@link SchemaShared} of this instance's concrete type, private to the caller
+   */
+  public SchemaShared copyForTx(DatabaseSessionEmbedded session) {
+    // The re-parse loads records and must ride an already-open user transaction; a seed run outside
+    // a transaction would auto-commit its loads instead of deferring to the user transaction.
+    assert session.getTransactionInternal().isActive()
+        : "copyForTx must run inside the caller's open user transaction";
+    lock.writeLock().lock();
+    try {
+      // Read the committed root record read-only: loading it and reading its properties does not
+      // enrol it (or the per-class records fromStream loads) as dirty in the caller's transaction,
+      // and nothing rebinds a committed class's record id. Under the write lock this persisted
+      // record equals the live committed state (saveInternal persists synchronously under the same
+      // lock on every committed schema change).
+      final EntityImpl committedRoot = session.load(identity);
+      // A bootstrapped committed schema always carries global properties in its root record; the
+      // fromStream re-parse only triggers a self-save (which throws inside the active user
+      // transaction) when global properties are absent, so a missing list means an unseedable
+      // schema.
+      assert committedRoot.getProperty("globalProperties") != null
+          : "copyForTx requires a bootstrapped committed schema carrying global properties";
+      final var copy = newInstanceForCopy();
+      // Mark the copy tx-local before re-parsing so the de-guarded mutation entry points reached
+      // during fromStream (and every later mutation against the copy) take the transaction-local
+      // path instead of the legacy eager-persist path.
+      copy.txLocal = true;
+      // Copy the committed root identity by value before the re-parse: the copy must serialize back
+      // to the same root record at commit, and value-copying avoids sharing a mutable record-id
+      // reference whose in-place promotion would otherwise be observed by both instances.
+      copy.identity = this.identity.copy();
+      copy.fromStream(session, committedRoot);
+      return copy;
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Creates a fresh, empty instance of this {@link SchemaShared}'s concrete type for {@link
+   * #copyForTx} to re-parse into. A subclass returns {@code new <ConcreteType>()}; the design's
+   * {@code new SchemaShared()} is spelled this way because {@link SchemaShared} is abstract.
+   */
+  protected abstract SchemaShared newInstanceForCopy();
 
   @Nullable public static Character checkClassNameIfValid(String name) throws SchemaException {
     if (name == null) {
@@ -314,7 +442,10 @@ public abstract class SchemaShared implements CloseableInStorage {
       SchemaClassImpl cls) {
     acquireSchemaReadLock();
     try {
-      if (collectionId < 0) {
+      // Skip only the abstract-class marker. A provisional id (<= -2) is validated like a real id:
+      // the in-memory maps treat it as pending-real, so a duplicate provisional id within the
+      // transaction is rejected here.
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         return;
       }
 
@@ -476,6 +607,21 @@ public abstract class SchemaShared implements CloseableInStorage {
         classes.put(newName, cls);
       }
 
+      if (txLocal && newName != null && !session.isSeedingTxSchemaState()) {
+        // Transaction-local rename: record the new name only. A renamed class keeps its committed
+        // per-class record RID, so the commit rewrites that record under the new name. The old name
+        // must not be recorded: a name in the changed-class set that is absent from the tx-local
+        // copy reads as a drop at commit, which would delete the renamed class's record. The seeding
+        // guard mirrors the create and drop sites; copyForTx re-parses committed classes through
+        // other paths and never through a rename, but the guard keeps the recording uniform.
+        var txState = session.getTxSchemaState();
+        if (txState == null) {
+          throw new IllegalStateException(
+              "a tx-local rename must run with a seeded tx-local schema state");
+        }
+        txState.markClassChanged(newName);
+      }
+
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -498,9 +644,10 @@ public abstract class SchemaShared implements CloseableInStorage {
                     + " the database but double check the integrity of the database",
                 null);
         return;
-      } else if (schemaVersion != CURRENT_VERSION_NUMBER && VERSION_NUMBER_V5 != schemaVersion) {
-        // VERSION_NUMBER_V5 is needed for guarantee the compatibility to 2.0-M1 and 2.0-M2 no
-        // changed associated with it
+      } else if (schemaVersion != CURRENT_VERSION_NUMBER) {
+        // Accept exactly the current format. Both a pre-bump version-4 database and the legacy
+        // version-5 (2.0-M1/M2) form now reject-and-redirect to export/import rather than falling
+        // through into the per-class link-set parser, which would mis-read their embedded classes.
         // HANDLE SCHEMA UPGRADE
         throw new ConfigurationException(
             session.getDatabaseName(),
@@ -527,7 +674,38 @@ public abstract class SchemaShared implements CloseableInStorage {
 
       final Map<String, SchemaClassImpl> newClasses = new HashMap<>();
 
-      Collection<EntityImpl> storedClasses = entity.getProperty("classes");
+      // The root record links one standalone record per class (the per-class-record format).
+      // Load each linked record and pair it with its RID so the class can bind its own record
+      // identity, exactly as IndexManagerAbstract.load binds each index. The record list also
+      // drives the inheritance-rebuild pass below.
+      final LinkSet classLinks = entity.getLinkSet("classes");
+      final List<EntityImpl> storedClasses = new ArrayList<>();
+      if (classLinks != null) {
+        for (var link : classLinks) {
+          var classRid = link.getIdentity();
+          if (classRid == null || !classRid.isPersistent()) {
+            throw new ConfigurationException(
+                session.getDatabaseName(),
+                "Schema root links a class record with a non-persistent identity (" + classRid
+                    + "). The schema link set is damaged. Please export your database with a"
+                    + " previous version of YouTrackDB and reimport it using the current one.");
+          }
+          EntityImpl classRecord;
+          try {
+            classRecord = session.load(classRid);
+          } catch (RuntimeException loadFailure) {
+            // Preserve the original load failure as the cause so the dangling link is diagnosable.
+            throw (ConfigurationException) new ConfigurationException(
+                session.getDatabaseName(),
+                "Schema root links a class record at " + classRid + " that cannot be loaded. The"
+                    + " schema link set is damaged. Please export your database with a previous"
+                    + " version of YouTrackDB and reimport it using the current one.")
+                .initCause(loadFailure);
+          }
+          storedClasses.add(classRecord);
+        }
+      }
+
       for (var c : storedClasses) {
         String name = c.getProperty("name");
 
@@ -539,6 +717,11 @@ public abstract class SchemaShared implements CloseableInStorage {
           cls = createClassInstance(name);
           cls.fromStream(c);
         }
+        var boundRid = c.getIdentity();
+        assert boundRid != null && boundRid.isPersistent()
+            : "schema class '" + name + "' loaded from the root link set must carry a persistent"
+                + " record id, got " + boundRid;
+        cls.setRecordId(boundRid);
 
         newClasses.put(cls.getName(), cls);
         addCollectionClassMap(cls);
@@ -642,35 +825,72 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Binds POJO to EntityImpl.
    */
   public EntityImpl toStream(@Nonnull DatabaseSessionEmbedded session) {
-    lock.readLock().lock();
-    try {
-      EntityImpl entity = session.load(identity);
-      entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
+    // The body mutates shared state (per-class recordId binds, link-set adds/removes) and writes
+    // records. The caller holds the schema write lock, and that write lock is the exclusivity
+    // guarantee for these mutations; no additional synchronization is taken here.
+    assert lock.isWriteLockedByCurrentThread()
+        : "toStream() mutates shared schema state and must be called under the schema write lock";
+    EntityImpl entity = session.load(identity);
+    entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
-      // This steps is needed because in classes there are duplicate due to aliases
-      Set<SchemaClassImpl> realClases = new HashSet<>(classes.values());
+    // The root record links one standalone record per class, mirroring the index manager's
+    // CONFIG_INDEXES link set. Aliases that share an impl are written once; the link set ends
+    // up holding exactly the live classes' record RIDs. Records that were linked before but no
+    // longer back a live class (a dropped class) are deleted and unlinked below.
+    Set<SchemaClassImpl> realClasses = new HashSet<>(classes.values());
 
-      Set<Entity> classesEntities = session.newEmbeddedSet();
-      for (var c : realClases) {
-        classesEntities.add(c.toStream(session));
-      }
-      entity.setProperty("classes", classesEntities, PropertyType.EMBEDDEDSET);
-
-      List<Entity> globalProperties = session.newEmbeddedList();
-      for (var globalProperty : properties) {
-        if (globalProperty != null) {
-          globalProperties.add(globalProperty.toEntity(session));
-        }
-      }
-      entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
-      entity.setProperty("collectionCounter", collectionCounter);
-
-      Object propertyValue = session.newEmbeddedSet(blobCollections);
-      entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
-      return entity;
-    } finally {
-      lock.readLock().unlock();
+    LinkSet classLinks = entity.getOrCreateLinkSet("classes");
+    // Snapshot the previously-linked records so drops can be detected as a set difference.
+    final Set<RID> previouslyLinked = new HashSet<>();
+    for (var link : classLinks) {
+      previouslyLinked.add(link.getIdentity());
     }
+
+    final Set<RID> liveRecords = new HashSet<>();
+    for (var c : realClasses) {
+      EntityImpl classRecord;
+      var boundRid = c.getRecordId();
+      if (boundRid == null || !boundRid.isPersistent()) {
+        // New class, or a class whose previous save rolled back before its temporary record id
+        // became persistent. In both cases allocate a fresh standalone record: its temporary RID
+        // becomes permanent at commit and the ChangeableRecordId mutates in place, so the bound
+        // field and the link both resolve to the persistent RID without a second write. Reusing a
+        // non-persistent id would load against a record that never persisted and wedge every
+        // future save, so the rollback case self-heals here rather than requiring a reload.
+        classRecord = session.newInternalInstance();
+        c.setRecordId(classRecord.getIdentity());
+        classLinks.add(classRecord.getIdentity());
+      } else {
+        classRecord = session.load(boundRid);
+      }
+      c.toStream(session, classRecord);
+      assert c.getRecordId() != null
+          : "schema class '" + c.getName() + "' must have a bound record id before it joins the"
+              + " live-record set written to the root link set";
+      liveRecords.add(c.getRecordId());
+    }
+
+    // Drop the records that backed classes removed since the last save, and unlink them.
+    for (var rid : previouslyLinked) {
+      if (!liveRecords.contains(rid)) {
+        classLinks.remove(rid);
+        EntityImpl droppedRecord = session.load(rid);
+        droppedRecord.delete();
+      }
+    }
+
+    List<Entity> globalProperties = session.newEmbeddedList();
+    for (var globalProperty : properties) {
+      if (globalProperty != null) {
+        globalProperties.add(globalProperty.toEntity(session));
+      }
+    }
+    entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
+    entity.setProperty("collectionCounter", collectionCounter);
+
+    Object propertyValue = session.newEmbeddedSet(blobCollections);
+    entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
+    return entity;
   }
 
   public Collection<SchemaClassImpl> getClasses(DatabaseSessionEmbedded session) {
@@ -816,6 +1036,14 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   private void saveInternal(DatabaseSessionEmbedded session) {
 
+    if (txLocal) {
+      // A mutation against the transaction-local copy must not persist eagerly: the change rides
+      // the user transaction and is promoted to the committed schema at commit (the commit-time
+      // reconciliation builds the matching per-class records and structure). Persisting here would
+      // both break isolation and reintroduce the active-transaction conflict the de-guard removes.
+      return;
+    }
+
     var tx = session.getTransactionInternal();
     if (tx.isActive()) {
       throw new SchemaException(session.getDatabaseName(),
@@ -868,7 +1096,10 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   protected void addCollectionClassMap(final SchemaClassImpl cls) {
     for (var collectionId : cls.getCollectionIds()) {
-      if (collectionId < 0) {
+      // Populate the reverse map for provisional ids too: a provisional id (<= -2) is pending-real,
+      // so getClassByCollectionId resolves a tx-created class during the transaction. Only the
+      // abstract-class marker is skipped (an abstract class owns no collection in this map).
+      if (collectionId == ABSTRACT_COLLECTION_ID) {
         continue;
       }
 

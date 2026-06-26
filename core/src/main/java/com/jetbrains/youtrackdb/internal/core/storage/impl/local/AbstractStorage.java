@@ -374,6 +374,25 @@ public abstract class AbstractStorage
   // Object.equals/hashCode.
   protected final Set<TsMinHolder> tsMins = newTsMinsSet();
 
+  // Commit-window re-entry counter, per thread. A schema-carrying commit takes
+  // stateLock.writeLock() from the start and then, while still holding it,
+  // reads records to serialize and re-parse the schema (txLocalSchema.toStream,
+  // committedSchema.fromStream reached through session.load). Those reads route
+  // back into this storage's stateLock.readLock()-taking methods. The
+  // ScalableRWLock is non-reentrant, so a read re-acquire from the write-lock
+  // holder busy-spins forever. While this counter is positive on the current
+  // thread, the readLock-taking record-read methods skip the readLock: the held
+  // write lock already excludes every concurrent registrar and supplies the
+  // happens-before edge, so the read is safe and lock-free. The counter is a
+  // depth, not a flag, so nested enter/exit pairs compose. It is set only by the
+  // commit window via enterCommitWindow()/exitCommitWindow(); a thread that does
+  // not hold the write lock never enters the window, so the pure-data read-lock
+  // fast path is unchanged. exitCommitWindow() remove()s this ThreadLocal once the
+  // depth returns to zero, so a reused pooled worker never observes leftover window
+  // state from an earlier task.
+  private final ThreadLocal<int[]> commitWindowDepth =
+      ThreadLocal.withInitial(() -> new int[1]);
+
   static Set<TsMinHolder> newTsMinsSet() {
     return Sets.newSetFromMap(new MapMaker().weakKeys().makeMap());
   }
@@ -2783,10 +2802,12 @@ public abstract class AbstractStorage
               final var ctxCfg = configuration.getContextConfiguration();
               final var cfgEncryptionKey =
                   ctxCfg.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-              var genenrateId = indexEngines.size();
+              // The public method appends at the live registry size; the commit
+              // window passes a commit-local-allocated id instead.
+              final var generatedId = indexEngines.size();
               final var engineData =
                   new IndexEngineData(
-                      genenrateId,
+                      generatedId,
                       indexMetadata,
                       true,
                       valueSerializerId,
@@ -2797,22 +2818,9 @@ public abstract class AbstractStorage
                       cfgEncryptionKey,
                       engineProperties);
 
-              final var engine = Indexes.createIndexEngine(this, engineData);
+              final var engine = doAddIndexEngine(atomicOperation, engineData);
 
-              engine.create(atomicOperation, engineData);
-
-              // Create and wire histogram manager for B-tree engines
-              if (engine instanceof BTreeIndexEngine btreeEngine) {
-                var mgr = createAndWireHistogramManager(
-                    btreeEngine, engineData, atomicOperation);
-                mgr.createStatsFile(atomicOperation);
-              }
-
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
-              indexEngines.add(engine);
-
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+              publishIndexEngine(engineData.getIndexId(), engine);
 
               return generateIndexId(engineData.getIndexId(), engine);
             });
@@ -2830,6 +2838,82 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  /**
+   * Creates the index engine, its files, and its storage-configuration entry inside the
+   * given atomic operation, without publishing the engine into the in-memory registries
+   * ({@code indexEngineNameMap} / {@code indexEngines}). Everything this method touches is
+   * buffered as WAL-reverted intent in {@code atomicOperation}, so a rolled-back or
+   * crashed-before-commit operation leaves no engine files behind. Splitting creation from
+   * registry publication ({@link #publishIndexEngine(int, BaseIndexEngine)}) lets a caller
+   * defer the in-memory publish past commit so a failed commit leaves no phantom
+   * registration; the public {@link #addIndexEngine(IndexMetadata, Map)} wrapper still
+   * publishes inside the same atomic operation (its existing crash-safe behavior is
+   * unchanged), and the commit window that defers the publish is wired separately. This
+   * mirrors the existing {@link #deleteIndexEngine(int)} discipline, which already defers
+   * its in-memory map mutation to after the atomic operation.
+   *
+   * <p>The caller is responsible for id allocation: {@code engineData.getIndexId()} is the
+   * caller-chosen internal id. The public {@link #addIndexEngine(IndexMetadata, Map)} uses
+   * {@code indexEngines.size()}; the commit window uses a commit-local allocator seeded
+   * inside the write lock.
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file creates.
+   * @param engineData      the engine metadata, carrying the caller-allocated internal id.
+   * @return the created engine, not yet published into the in-memory registries.
+   */
+  private BaseIndexEngine doAddIndexEngine(
+      final AtomicOperation atomicOperation, final IndexEngineData engineData)
+      throws IOException {
+    final var engine = Indexes.createIndexEngine(this, engineData);
+
+    engine.create(atomicOperation, engineData);
+
+    // Create and wire histogram manager for B-tree engines
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      var mgr = createAndWireHistogramManager(btreeEngine, engineData, atomicOperation);
+      mgr.createStatsFile(atomicOperation);
+    }
+
+    ((CollectionBasedStorageConfiguration) configuration)
+        .addIndexEngine(atomicOperation, engineData.getName(), engineData);
+
+    return engine;
+  }
+
+  /**
+   * Publishes a created engine into the in-memory registries ({@code indexEngineNameMap}
+   * and {@code indexEngines}). This is the registry-publication half of the create seam,
+   * split from {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)} so the commit
+   * window can defer it past {@code commitChanges}: a failed commit must leave no phantom
+   * in-memory registration. Grows the {@code indexEngines} list to the
+   * internal id and sets the slot, so it works for both an append at the live size (the
+   * public path) and a reused hole below the size (the commit-local allocator).
+   *
+   * @param internalId the engine's internal id (its slot in {@code indexEngines}).
+   * @param engine     the engine to publish.
+   */
+  private void publishIndexEngine(final int internalId, final BaseIndexEngine engine) {
+    indexEngineNameMap.put(engine.getName(), engine);
+    setIndexEngine(internalId, engine);
+  }
+
+  /**
+   * Sets {@code indexEngines.get(id) == engine}, growing the list with null padding when
+   * {@code id} is at or past the current size, mirroring {@link #setCollection(int,
+   * StorageCollection)}. The public append path uses {@code id == indexEngines.size()};
+   * the commit-local allocator may reuse a hole at {@code id < indexEngines.size()}.
+   */
+  private void setIndexEngine(final int id, final BaseIndexEngine engine) {
+    if (indexEngines.size() <= id) {
+      while (indexEngines.size() < id) {
+        indexEngines.add(null);
+      }
+      indexEngines.add(engine);
+    } else {
+      indexEngines.set(id, engine);
     }
   }
 
@@ -3044,11 +3128,7 @@ public abstract class AbstractStorage
         assert internalIndexId == engine.getId();
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            atomicOperation -> {
-              engine.delete(atomicOperation);
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .deleteIndexEngine(atomicOperation, engine.getName());
-            });
+            atomicOperation -> doDeleteIndexEngine(atomicOperation, engine));
 
         // Update in-memory maps only AFTER the atomic operation commits
         // successfully. If the atomic operation rolls back, the maps remain
@@ -3072,6 +3152,25 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
+  }
+
+  /**
+   * Deletes the engine's files and its storage-configuration entry inside the given atomic
+   * operation, without mutating the in-memory registries ({@code indexEngines} /
+   * {@code indexEngineNameMap}). This is the atomic-op half of the delete seam, split from
+   * {@link #deleteIndexEngine(int)} so the commit window can run the WAL-reverted delete
+   * under the held write lock and defer (or revert) the in-memory map mutation itself. The
+   * public {@code deleteIndexEngine} performs the map mutation after the atomic operation
+   * commits, as it always has.
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file deletes.
+   * @param engine          the already-resolved engine to delete.
+   */
+  private void doDeleteIndexEngine(
+      final AtomicOperation atomicOperation, final BaseIndexEngine engine) throws IOException {
+    engine.delete(atomicOperation);
+    ((CollectionBasedStorageConfiguration) configuration)
+        .deleteIndexEngine(atomicOperation, engine.getName());
   }
 
   private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
@@ -3218,9 +3317,7 @@ public abstract class AbstractStorage
 
         checkOpennessAndMigration();
 
-        final var engine = indexEngines.get(indexId);
-        assert indexId == engine.getId();
-        return engine;
+        return doGetIndexEngine(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3233,6 +3330,104 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /**
+   * Lock-free engine resolver for the commit window. Reads {@code indexEngines.get(id)}
+   * without taking {@code stateLock}, mirroring the lock-free {@link
+   * #doGetAndCheckCollection(int)} for collections. The schema-carrying commit already
+   * holds {@code stateLock.writeLock()} (the write-lock branch chosen at commit entry),
+   * so re-acquiring {@code stateLock.readLock()} through the public {@link
+   * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
+   * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
+   *
+   * <p><b>Precondition the caller MUST satisfy:</b> this method does no in-method
+   * synchronization and reads the plain (non-{@code volatile}, non-concurrent) {@code
+   * indexEngines} list directly, so the caller MUST hold {@code stateLock} across the call:
+   * {@code writeLock()} for the commit window, {@code readLock()} for the public wrapper.
+   * That held lock is the only thing that excludes a concurrent registrar and
+   * supplies the happens-before edge making the registry read visibility-safe; off-lock
+   * use (or use under only the metadata write locks, not {@code stateLock}) is a data race
+   * on a plain {@code ArrayList} and is unsupported.
+   *
+   * @param internalId the already-extracted internal index id (not the external,
+   *                   API-version-tagged id).
+   */
+  private BaseIndexEngine doGetIndexEngine(final int internalId)
+      throws InvalidIndexEngineIdException {
+    checkIndexId(internalId);
+
+    final var engine = indexEngines.get(internalId);
+    assert internalId == engine.getId();
+    return engine;
+  }
+
+  /**
+   * Opens the lock-free commit-window read path on the current thread. The
+   * schema-carrying commit calls this immediately after taking {@code
+   * stateLock.writeLock()} and before any record read it performs while still
+   * holding that write lock (schema serialization and promotion read records via
+   * {@code session.load}, which routes back into this storage's
+   * readLock-taking record-read methods). While the window is open, {@link
+   * #getPhysicalCollectionNameById(int)} and {@link #readRecordInternal} skip
+   * {@code stateLock.readLock()} so they do not deadlock re-acquiring the
+   * non-reentrant {@link ScalableRWLock} the commit already holds for writing.
+   *
+   * <p><b>Precondition the caller MUST satisfy:</b> the current thread holds
+   * {@code stateLock.writeLock()} for the duration of the window. That held
+   * write lock is the only thing that excludes a concurrent registrar and
+   * supplies the happens-before edge that makes the lock-free reads of {@code
+   * collections} / the collection stores visibility-safe. Opening the window
+   * without the write lock is a data race and is unsupported.
+   *
+   * <p>Re-entrant: nested enter/exit pairs compose via a depth counter, so the
+   * window stays open until the outermost {@link #exitCommitWindow()} runs. Every
+   * {@code enterCommitWindow()} MUST be balanced by an {@code exitCommitWindow()}
+   * in a {@code finally}, or later reads on the same (pooled) thread would wrongly
+   * skip the read lock.
+   */
+  void enterCommitWindow() {
+    commitWindowDepth.get()[0]++;
+  }
+
+  /**
+   * Closes one nesting level of the lock-free commit-window read path opened by
+   * {@link #enterCommitWindow()}. The window stays open until the depth returns to
+   * zero. MUST be called in a {@code finally} balancing each {@code
+   * enterCommitWindow()}; a leaked open window would make later reads on the same
+   * pooled thread skip the read lock unsafely.
+   *
+   * <p>Two defenses keep the per-thread state from poisoning a reused pooled
+   * worker. The decrement is clamped at zero so a stray exit without a matching
+   * enter cannot drive the depth negative — a negative depth would let a later
+   * legitimate window read as closed ({@link #isCommitWindowActive()} tests
+   * {@code > 0}), silently re-introducing the read-lock busy-spin the window
+   * exists to avoid. Java {@code assert}s are disabled in production, so the
+   * clamp, not the assert, is the production guard; the assert still surfaces the
+   * unbalanced call loudly under {@code -ea} in tests. When the depth returns to
+   * zero the {@link ThreadLocal} is {@code remove()}'d so the next unrelated read
+   * on the same pooled thread starts from a fresh zero-depth cell rather than
+   * observing leftover window state.
+   */
+  void exitCommitWindow() {
+    final var depth = commitWindowDepth.get();
+    assert depth[0] > 0 : "exitCommitWindow without a matching enterCommitWindow";
+    if (depth[0] > 0) {
+      depth[0]--;
+    }
+    if (depth[0] == 0) {
+      commitWindowDepth.remove();
+    }
+  }
+
+  /**
+   * True when the current thread is inside a commit window opened by {@link
+   * #enterCommitWindow()} and so holds {@code stateLock.writeLock()}. The
+   * readLock-taking record-read methods consult this to decide whether to take
+   * the read lock (normal callers) or run lock-free (commit-window callers).
+   */
+  private boolean isCommitWindowActive() {
+    return commitWindowDepth.get()[0] > 0;
   }
 
   public <T> void callIndexEngine(
@@ -3786,18 +3981,23 @@ public abstract class AbstractStorage
   @Nullable @Override
   public final String getPhysicalCollectionNameById(final int iCollectionId) {
     try {
-      stateLock.readLock().lock();
+      // The commit window (a schema-carrying commit holding stateLock.writeLock())
+      // reaches this method through the security check in session.executeReadRecord
+      // while serializing/promoting the schema. Re-acquiring the read lock there would
+      // deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+      // already excludes registrars and supplies the visibility edge.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
         checkOpennessAndMigration();
 
-        if (iCollectionId < 0 || iCollectionId >= collections.size()) {
-          return null;
-        }
-
-        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
-            : null;
+        return doGetPhysicalCollectionNameById(iCollectionId);
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -3806,6 +4006,22 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /**
+   * Lock-free body of {@link #getPhysicalCollectionNameById(int)}. Reads the plain
+   * {@code collections} list directly without taking {@code stateLock}. The public
+   * wrapper holds {@code stateLock.readLock()} for normal callers; the commit window
+   * holds {@code stateLock.writeLock()} and skips the read lock. Either held lock is
+   * the precondition: off-lock use is a data race on a plain {@code ArrayList}.
+   */
+  private String doGetPhysicalCollectionNameById(final int iCollectionId) {
+    if (iCollectionId < 0 || iCollectionId >= collections.size()) {
+      return null;
+    }
+
+    return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
+        : null;
   }
 
   @Override
@@ -4581,7 +4797,15 @@ public abstract class AbstractStorage
               + name
               + '\'');
     }
-    stateLock.readLock().lock();
+    // The commit window (a schema-carrying commit holding stateLock.writeLock())
+    // reaches this method through session.executeReadRecord on a genuine record-cache
+    // miss while serializing/promoting the schema. Re-acquiring the read lock there
+    // would deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+    // already excludes registrars and supplies the visibility edge.
+    final boolean lockFree = isCommitWindowActive();
+    if (!lockFree) {
+      stateLock.readLock().lock();
+    }
     try {
       checkOpennessAndMigration();
       final StorageCollection collection;
@@ -4592,7 +4816,9 @@ public abstract class AbstractStorage
       }
       return doReadRecord(collection, rid, atomicOperation);
     } finally {
-      stateLock.readLock().unlock();
+      if (!lockFree) {
+        stateLock.readLock().unlock();
+      }
     }
   }
 
@@ -5002,36 +5228,68 @@ public abstract class AbstractStorage
   private int doAddCollection(
       final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
       throws IOException {
-    final PaginatedCollection collection;
-    if (collectionName != null) {
-      collectionName = collectionName.toLowerCase(Locale.ROOT);
+    final var collection = doCreateCollection(atomicOperation, collectionName, collectionPos);
 
-      collection =
-          StorageCollectionFactory.createCollection(
-              collectionName,
-              configuration.getVersion(atomicOperation),
-              configuration
-                  .getContextConfiguration()
-                  .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
-              this);
-      collection.configure(collectionPos, collectionName);
-    } else {
-      collection = null;
+    if (collection == null) {
+      return -1;
     }
 
-    var createdCollectionId = -1;
+    return registerCollection(collection);
+  }
 
-    if (collection != null) {
-      collection.create(atomicOperation);
-      createdCollectionId = registerCollection(collection);
-
-      ((CollectionBasedStorageConfiguration) configuration)
-          .updateCollection(atomicOperation, collection.generateCollectionConfig());
-
-      linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
+  /**
+   * Creates the collection's file, its storage-configuration entry, and its
+   * link-collections B-tree component inside the given atomic operation at the
+   * caller-allocated {@code collectionPos}, without publishing the collection into the
+   * in-memory collections list and the name-keyed collection map. Everything this
+   * method touches is buffered as WAL-reverted intent in {@code atomicOperation}, so a
+   * rolled-back or crashed-before-commit operation leaves no collection file behind.
+   * Splitting creation from registry publication ({@link
+   * #registerCollection(StorageCollection)}) lets a caller defer the in-memory publish past
+   * commit so a failed commit leaves no phantom registration; the public {@link
+   * #doAddCollection(AtomicOperation, String)} wrapper still publishes inside the same
+   * atomic operation (its existing crash-safe behavior is unchanged), and the commit window
+   * that defers the publish is wired separately. This is the collection-side analogue of
+   * {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
+   *
+   * <p>The caller owns id allocation: the public {@link #doAddCollection(AtomicOperation,
+   * String)} scans for the first null slot; the commit window uses a commit-local
+   * allocator seeded inside the write lock. Returns {@code null} for a null
+   * {@code collectionName} (the no-op case the legacy path returned id {@code -1} for).
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file creates.
+   * @param collectionName  the collection name, lower-cased here; {@code null} is a no-op.
+   * @param collectionPos   the caller-allocated collection id.
+   * @return the created collection, not yet published into the in-memory registries, or
+   * {@code null} when {@code collectionName} is null.
+   */
+  private StorageCollection doCreateCollection(
+      final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
+      throws IOException {
+    if (collectionName == null) {
+      return null;
     }
 
-    return createdCollectionId;
+    collectionName = collectionName.toLowerCase(Locale.ROOT);
+
+    final var collection =
+        StorageCollectionFactory.createCollection(
+            collectionName,
+            configuration.getVersion(atomicOperation),
+            configuration
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
+            this);
+    collection.configure(collectionPos, collectionName);
+
+    collection.create(atomicOperation);
+
+    ((CollectionBasedStorageConfiguration) configuration)
+        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+
+    linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+
+    return collection;
   }
 
   @Override
@@ -5654,23 +5912,7 @@ public abstract class AbstractStorage
             continue;
           }
 
-          if (!writeCache.exists(fileId)) {
-            final var fileName = writeCache.restoreFileById(fileId);
-
-            if (fileName == null) {
-              throw new StorageException(name,
-                  "File with id "
-                      + fileId
-                      + " was deleted from storage, the rest of operations can not be restored");
-            } else {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Previously deleted file with name "
-                          + fileName
-                          + " was deleted but new empty file was added to continue restore process");
-            }
-          }
+          ensureFileForReplay(atomicUnit, fileId);
 
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -5728,25 +5970,7 @@ public abstract class AbstractStorage
             continue;
           }
 
-          if (!writeCache.exists(fileId)) {
-            final var fileName = writeCache.restoreFileById(fileId);
-
-            if (fileName == null) {
-              throw new StorageException(name,
-                  "File with id "
-                      + fileId
-                      + " was deleted from storage, the rest of operations"
-                      + " can not be restored");
-            } else {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Previously deleted file with name "
-                          + fileName
-                          + " was deleted but new empty file was added to continue"
-                          + " restore process");
-            }
-          }
+          ensureFileForReplay(atomicUnit, fileId);
 
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -5822,6 +6046,88 @@ public abstract class AbstractStorage
         }
       }
     }
+  }
+
+  /**
+   * Materializes a file a page-redo record references but the cache has not seen yet, so
+   * WAL replay can continue across atomic units. The open-time caller has already applied the
+   * {@code deletedNonDurableFileIds} skip, so this is only reached for a genuinely missing
+   * file on that path. The incremental-backup caller
+   * ({@code DiskStorage.restoreFromIncrementalBackup}, the other of the two {@code restoreFrom}
+   * callers) reaches this helper with {@code deletedNonDurableFileIds} as the empty no-op set
+   * left behind by open-time recovery — incremental-backup restore has no non-durable-file
+   * concept, so the skip is simply inert there rather than a universal precondition. The branch
+   * order is the lazy-consult sequence (see issue YTDB-1099):
+   *
+   * <ol>
+   *   <li><b>Pending-create consult.</b> A committed file-creating unit whose physical
+   *       {@code addFile} was lost (the crash landed between its durable end record and
+   *       the completion of its apply phase) leaves a later committed unit's page redo
+   *       pointing at a file the cache never created. Scan this unit forward for the
+   *       {@link FileCreatedWALRecord} that creates the file, matched on
+   *       {@code internalFileId} because backup/restore rewrites the external high bits,
+   *       and materialize the empty file through the same
+   *       {@code readCache.addFile(name, id, writeCache)} path the
+   *       {@code FileCreatedWALRecord} branch uses. The later {@code FileCreatedWALRecord}
+   *       then replays as an idempotent no-op. Without this, the redo would throw and
+   *       {@code restoreFrom}'s {@code catch (RuntimeException)} would discard every later
+   *       unit.</li>
+   *   <li><b>{@code restoreFileById} fallback.</b> A file deleted by a later, already-applied
+   *       unit is resurrected from its persisted negative name-id entry. Load-bearing -- kept
+   *       unchanged.</li>
+   *   <li><b>Throw.</b> Neither path recovered the file, so the unit is genuinely incomplete
+   *       (its create record was never made durable) and the rest of the restore is
+   *       abandoned, exactly as before the fix.</li>
+   * </ol>
+   */
+  private void ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId)
+      throws IOException {
+    if (writeCache.exists(fileId)) {
+      return;
+    }
+
+    final var internalId = writeCache.internalFileId(fileId);
+    for (final var record : atomicUnit) {
+      // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
+      // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
+      // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
+      // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
+      // entry but absent file) would slip past it and make addFile throw. That window is not
+      // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
+      // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
+      // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
+      // consistency, the same assumption the sibling branch makes.
+      //
+      // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
+      // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
+      // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
+      // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
+      //
+      // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
+      // so this forward scan finds nothing for it and correctly falls through to restoreFileById.
+      if (record instanceof FileCreatedWALRecord fileCreated
+          && writeCache.internalFileId(fileCreated.getFileId()) == internalId
+          && !writeCache.exists(fileCreated.getFileName())) {
+        readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
+        return;
+      }
+    }
+
+    final var fileName = writeCache.restoreFileById(fileId);
+    if (fileName != null) {
+      LogManager.instance()
+          .warn(
+              this,
+              "Previously deleted file with name "
+                  + fileName
+                  + " was deleted but new empty file was added to continue restore process");
+      return;
+    }
+
+    throw new StorageException(name,
+        "File with id "
+            + fileId
+            + " was deleted from storage, the rest of operations can not be restored");
   }
 
   @SuppressWarnings("unused")
