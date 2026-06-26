@@ -43,8 +43,9 @@ flowchart TD
   mid-authoring crash.
 - **Phase-1 artifact gates** (Track 1) — the design gate decides `design.md`
   existence at the Phase 0→1 boundary; plan presence is decided at the end of
-  Step 4b from track count; the consistency and structural reviews read
-  `design_gate` instead of the tier.
+  Step 4b from track count; the consistency and structural reviews — and the
+  `implementation-review.md` Phase-2 pass selector — read `design_gate` instead
+  of the tier.
 - **tag computation** (Track 2) — the per-track complexity tag is the seven
   `risk-tagging` HIGH triggers run over each track's planned work; the planner
   predicts it at Phase 1.
@@ -57,7 +58,8 @@ flowchart TD
 - **reviewer roster** (Track 2) — `review-bugs-concurrency` splits into
   `review-bugs` + `review-concurrency` by cognitive mode;
   `review-test-behavior` + `review-test-completeness` merge into
-  `review-test-quality`.
+  `review-test-quality`; the `review-iteration.md` finding-prefix owner table is
+  updated to match.
 - **Phase-4 adr predicate** (Track 2) — the `create-final-design` carrier table
   re-derives from the axes: `design-final` iff a design exists; `adr` iff a
   track reconciled to medium or higher.
@@ -68,10 +70,11 @@ flowchart TD
   > `tier=` field with the four fields the three axes need, route resume off
   > them, and decide `design.md` / plan existence from the design gate and the
   > track count. This is the foundation every tag consumer reads.
-  > **Scope:** ~12 files covering `workflow-startup-precheck.sh` + its two
+  > **Scope:** ~13 files covering `workflow-startup-precheck.sh` + its two
   > tests, `create-plan/SKILL.md`, `workflow.md`, `conventions.md`,
   > `planning.md`, `research.md`, `plan-slim-rendering.md`,
-  > `design-document-rules.md`, and the consistency / structural review prompts.
+  > `design-document-rules.md`, the consistency / structural review prompts, and
+  > `implementation-review.md` (the Phase-2 pass selector).
 
 - [ ] Track 2: Complexity-tag mechanics, reviewer selection, and roster
   > Compute the per-track complexity tag from planned work, reconcile it to
@@ -79,10 +82,10 @@ flowchart TD
   > from it, split the bugs/concurrency reviewer and merge the two test
   > reviewers, and re-derive the Phase-4 `adr.md` predicate from the reconciled
   > tag.
-  > **Scope:** ~19 files covering `risk-tagging.md`, `track-review.md`,
+  > **Scope:** ~20 files covering `risk-tagging.md`, `track-review.md`,
   > `review-agent-selection.md`, `code-review/SKILL.md`, `step-implementation.md`,
   > `track-code-review.md`, `fix-ci-failure/SKILL.md`, `finding-synthesis-recipe.md`,
   > `code-review-protocol.md`, `conventions-execution.md`, `inline-replanning.md`,
-  > the six reviewer agent files, and the `create-final-design` / `design-review`
-  > prompts.
+  > `review-iteration.md` (the finding-prefix owner table), the six reviewer agent
+  > files, and the `create-final-design` / `design-review` prompts.
   > **Depends on:** Track 1

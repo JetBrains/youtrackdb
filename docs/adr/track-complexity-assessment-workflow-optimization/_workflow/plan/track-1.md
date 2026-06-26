@@ -67,64 +67,51 @@ titles, ownership, and `**Full design**` pointers as given. -->
   files.
 - **Rationale**: four downstream needs each require a concrete persistence
   address, and all four are most naturally served by the ledger, so they are
-  co-resolved here as one schema delta. The Phase-C tag governance reads a
-  per-track-tag site from fresh sessions. The `adr.md` predicate reads the same
-  per-track-tag site from fresh sessions. The new design+single shape creates a
-  resume collision that file presence alone cannot resolve. And dropping the
-  `tier=minimal` resume trigger removes the only plan-less resume signal a
-  branch had, which must be replaced. The schema delta that serves all four:
-  drop `tier=` and add four fields —
-  - `design_gate=` — the change-level design decision, seeded at Phase 1.
-  - a plan-presence / track-count signal — decided at the end of Step 4b.
-  - a Phase-1-complete marker — so Step 1c tells the new design+single steady
-    state apart from a mid-authoring crash.
-  - a per-track reconciled-tag home — written at the A→C boundary, read by
-    Phase C for rigor and by Phase 4 for the `adr.md` predicate.
-- **Risks/Caveats**: an absent `design_gate` on an old ledger (a branch
-  predating this scheme) reads as the malformed / pre-scheme case the resume
-  router already handles for an absent `tier`. That existing handling does not
-  default a phase or guess: it routes the session to the normal both-files
-  resume and surfaces the missing-field inconsistency to the user, who decides.
-  The new `design_gate` field inherits that same posture — an old ledger with
-  no `design_gate` is reported, not silently re-derived. A torn append still leaves the prior ledger tail
-  intact (temp-file + rename), so a crash mid-write loses the new field's append
-  but never corrupts the existing fields the resume read depends on. The
-  per-track reconciled tag is read **track-scoped** (the same
-  last-value-wins-for-this-track read the existing `substate` key uses) so a
-  completed prior track's tag cannot leak into a later track's selection.
+  co-resolved here as one schema delta — drop `tier=` and add the four fields the
+  design Data model table specifies (`design_gate`, the plan-presence /
+  track-count signal, the Phase-1-complete marker, and the per-track
+  reconciled-tag home). Centralizing them in the ledger keeps the Phase-C tag
+  governance, the `adr.md` predicate, the resume-collision disambiguation, and
+  the replacement for the dropped `tier=minimal` plan-less resume signal all
+  reading one file.
+- **Risks/Caveats**: the load-bearing risk is the new design+single shape's
+  resume collision, which file presence alone cannot resolve — the
+  Phase-1-complete marker resolves it (D1, Part 5). An old ledger with no
+  `design_gate` inherits the existing absent-`tier` posture: routed to the normal
+  both-files resume with the missing field surfaced to the user, never silently
+  re-derived. Torn-append safety and the track-scoped per-track-tag read are
+  stated as invariants in `## Invariants & Constraints`.
 - **Implemented in**: this track (step references added during execution)
 - **Full design**: design.md §"Phase-ledger schema delta" (Data model), §"Resume routing" (Part 5)
 
 #### D8a: Phase-1 artifact existence derives from the design gate and the track count
 - **Alternatives considered**: the two artifact tables design.md D8 rejects for
-  the durable-ADR boundary — (a) a two-axis (design × track-count) table and (b)
-  an `adr ⟺ multi-track` rule. Both key the artifact off track count rather than
-  off whether the change actually needed a design, so they hand an ADR to a
-  trivial multi-track change and deny one to a complex single-track change. That
-  rejection does not apply to this DR, because this DR owns only the `design.md`
-  / plan half of D8: `design.md` presence maps directly onto the design gate and
-  plan presence maps directly onto the track count, with no track-count proxy
-  for design substance involved. The proxy problem belongs to the adr predicate
-  (Track 2's D8b), not here.
-- **Rationale**: `design.md` (and its Phase-4 `design-final.md`) exists iff the
-  design gate is yes — the change-level decision seeded at the Phase 0→1
-  boundary; `implementation-plan.md` exists iff track count > 1, because a
-  cross-track summary is vacuous for one track. Tying each artifact to the axis
-  that justifies it removes the tier's conflation: the design-need question and
-  the how-many-tracks question are independent, and the plan-presence decision
-  is read off the track files once they exist (D1) rather than picked up front.
-- **Risks/Caveats**: this unbundling makes the design+single cell representable
-  (`design.md` → `design-final.md`, no plan) — a shape the tier model could not
-  express. Its on-disk signature collides with a mid-authoring crash; the
-  collision is resolved by the resume router (Part 5 / D10's Phase-1-complete
-  marker), which this track also delivers. The consistency and structural review
-  prompts that gate on design presence must read `design_gate`, not the removed
-  tier.
+  the durable-ADR boundary (a design × track-count table and an `adr ⟺
+  multi-track` rule); see design §"Artifact derivation". Both key the artifact
+  off track count rather than off whether the change needed a design — but that
+  proxy problem belongs to the adr predicate (Track 2's D8b), not this DR, which
+  owns only the `design.md` / plan half: design presence maps onto the design
+  gate, plan presence onto the track count, no proxy involved.
+- **Rationale**: tie each artifact to the axis that justifies it — `design.md`
+  (and Phase-4 `design-final.md`) exists iff `design_gate=yes`;
+  `implementation-plan.md` exists iff track count > 1 (a cross-track summary is
+  vacuous for one track). This unbundles the tier's design-need / how-many-tracks
+  conflation; the plan-presence decision is read off the track files once they
+  exist (D1), not picked up front.
+- **Risks/Caveats**: the unbundling makes the design+single cell representable
+  (`design.md` → `design-final.md`, no plan), whose on-disk signature collides
+  with a mid-authoring crash; the resume router resolves it via D10's
+  Phase-1-complete marker. The consistency / structural review prompts that gate
+  on design presence read `design_gate`, not the removed tier.
 - **Implemented in**: this track (step references added during execution)
 - **Full design**: design.md §"Artifact derivation" (Part 4)
-<!-- Note: the Phase-4 adr-predicate half of design D8 (adr ⟺ ∃ track ≥ medium)
-is owned by Track 2, which reads the per-track reconciled-tag field this track
-defines in the ledger schema. -->
+<!-- Note: design D8's Phase-4 adr predicate (adr ⟺ ∃ track ≥ medium) is Track
+2's decision (D8b), computed from the per-track reconciled-tag field this track
+defines in the ledger schema. Track 1 *authors* that predicate into the carrier
+tables in the Track-1-owned files it edits — the `conventions.md` per-axis
+artifact set and `workflow.md` §"Final Artifacts (Phase 4)" — since it owns those
+files and lands first; Track 2 owns the predicate's computation and the
+create-final-design.md / design-review.md re-keys. -->
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
@@ -264,17 +251,26 @@ The plan-presence decision moves to the **end of Step 4b**, computed from the
 track count (> 1 ⇒ `implementation-plan.md` exists) once the track files are
 authored (D1). The consistency-review and structural-review prompts re-key their
 design-presence gate to read `design_gate` instead of the tier, and the
-structural review's per-tier artifact checks re-key onto the axes.
+structural review's per-tier artifact checks re-key onto the axes. The
+orchestrator-side Phase-2 pass selector in `implementation-review.md`
+§"Tier-driven pass selection" re-keys the same way: its design-half guard reads
+`design_gate` and its structural-pass skip reads the plan-presence / track-count
+signal (no plan ⇒ skip structural), replacing the removed tier.
 
 **(4) Prose re-keying.** Re-key `conventions.md` (the ledger schema / glossary:
-drop the `tier` enum, add the four fields; and the per-axis artifact set),
+drop the `tier` enum, add the four fields; and the per-axis artifact set, whose
+`adr.md` row encodes Track 2's D8b predicate `adr ⟺ ∃ track ≥ medium`),
 `planning.md` (the Phase 0→1 classification re-keyed to the design gate plus
 track-count→plan, and the new instruction that the planner predicts each track's
 complexity tag at Phase 1 referencing the `risk-tagging` HIGH triggers),
 `research.md` (the Phase 0→1 transition / classification references re-keyed to
 the design gate), `plan-slim-rendering.md` (plan-presence rendering for the
 single-track no-plan case), and `design-document-rules.md` (the design-gate
-references for when a `design.md` exists).
+references for when a `design.md` exists). The same artifact-derivation re-key
+applies to `workflow.md` §"Final Artifacts (Phase 4)": its per-tier
+durable-carrier table becomes the axis-derived form (`design-final` iff a design
+exists; `adr` iff a track reconciled ≥ medium), authored here since Track 1 owns
+`workflow.md`.
 
 Invariants to preserve throughout: last-value-wins-per-key read semantics, the
 loud-reject append grammar, the atomic temp-file+rename append, and the
@@ -342,10 +338,14 @@ steps are decomposed. -->
 - `.claude/skills/create-plan/SKILL.md` — Step-4 design-gate classification
   (was the tier classifier), Step-4b plan-presence decision (track count > 1),
   Step-1c resume router, and the ledger-seed call (drop `--tier`).
-- `.claude/workflow/workflow.md` — `determine_state`, single-track resume, and
-  the startup-protocol ledger reads.
+- `.claude/workflow/workflow.md` — `determine_state`, single-track resume, the
+  startup-protocol ledger reads, and §"Final Artifacts (Phase 4)": re-key its
+  per-tier durable-carrier table to the axis-derived form (`design-final` iff a
+  design exists; `adr` iff a track reconciled ≥ medium, per Track 2's D8b).
 - `.claude/workflow/conventions.md` — the ledger schema / glossary (drop the
-  `tier` enum, add the four fields) and the per-axis artifact set.
+  `tier` enum, add the four fields) and the per-axis artifact set (its `adr.md`
+  row encodes Track 2's D8b predicate `adr ⟺ ∃ track ≥ medium`; Track 1 authors
+  the row since it owns the file and lands first).
 - `.claude/workflow/planning.md` — the Phase-0→1 tier classification re-keyed
   to the design gate plus track-count→plan; the planner predicts each track's
   complexity tag at Phase 1 (referencing the existing `risk-tagging` triggers).
@@ -359,6 +359,10 @@ steps are decomposed. -->
   reads `design_gate` instead of the tier.
 - `.claude/workflow/prompts/structural-review.md` — the design-presence gate
   and the per-tier artifact checks re-keyed to the axes.
+- `.claude/workflow/implementation-review.md` — §"Tier-driven pass selection":
+  the Phase-2 pass selector reads `design_gate` (design-half guard) and the
+  plan-presence/track-count signal (structural-pass skip = no plan) instead of
+  the removed `tier`.
 
 **Out of scope (Track 2 owns these):** `risk-tagging.md` (tag computation
 mechanism), `track-review.md` (Phase-A panel + reconciliation),

@@ -157,70 +157,50 @@ the DR titles, ownership, and `**Full design**` pointers as given. -->
   **defect symptom** ("any leak goes to `review-bugs`"). Both rejected — they
   re-mix the modes (a leak reviewer ends up reasoning about races) and
   reintroduce the double-report the split exists to remove.
-- **Rationale**: the split's stated principle is "one reviewer = one cognitive
-  mode", and that holds only if the boundary is the reasoning **mode** itself.
-  `review-concurrency` owns every defect whose detection requires reasoning about
-  two or more threads interleaving (races, visibility / publication,
-  lock-ordering / deadlock, atomicity of compound ops); `review-bugs` owns every
-  defect findable by single-threaded sequential reasoning (logic, null safety,
-  resource leaks, RID handling, state-machine / lifecycle), **regardless** of
-  whether the code sits inside a lock or on a concurrent path. The three routing
-  sub-cases resolve consistently:
-  1. A logic bug inside a `synchronized` block → `review-bugs` — unless the
-     defect is in the synchronization *itself*, which goes to
-     `review-concurrency`.
-  2. A resource leak on a concurrent path → `review-bugs` — unless the leak
-     *only manifests under interleaving*, the narrow exception that goes to
-     `review-concurrency`.
-  3. A data race → `review-concurrency` only; `review-bugs` defers it, under
-     the non-overlap rule that prevents the double report.
-
-  This mirrors the template the test side already set when it split
-  `review-test-concurrency` (prefix `TX`) out as a distinct reasoning mode.
-- **Risks/Caveats**: the **symmetric tiebreak** — when one piece of code has
-  both a sequential flaw and an interleaving flaw, they are two distinct
-  findings, one per reviewer, never the same defect reported twice. The
-  **triage backstop** closes the trigger gap: `review-bugs` is always-on but
-  `review-concurrency` fires only on the `concurrency` category, so when
-  `review-bugs` meets concurrent-looking code that `review-concurrency` was not
-  triaged onto, it emits a **one-line** "concurrency triage gap here" note — not
-  an interleaving analysis — so the orchestrator can launch `review-concurrency`.
-  New finding prefixes for `review-bugs` and `review-concurrency` are decided
-  when the agent files are authored (`BC` is retired with the combined agent);
-  `review-test-quality` keeps both `TB` and `TC` verbatim so existing references
-  and the `finding-synthesis-recipe` prefix family resolve unchanged.
+- **Rationale**: "one reviewer = one cognitive mode" holds only if the boundary
+  is the reasoning **mode** itself. `review-concurrency` owns every defect whose
+  detection requires reasoning about two or more threads interleaving (races,
+  visibility / publication, lock-ordering / deadlock, compound-op atomicity);
+  `review-bugs` owns every defect findable by single-threaded sequential
+  reasoning (logic, null safety, resource leaks, RID handling, state-machine /
+  lifecycle), regardless of whether the code sits inside a lock. The three
+  routing sub-cases (a logic bug in a `synchronized` block, a leak on a
+  concurrent path, a data race) resolve from that principle; design §"Bugs /
+  concurrency ownership" (Part 6) carries the full walk-through. This mirrors the
+  test side's earlier `review-test-concurrency` (`TX`) split.
+- **Risks/Caveats**: the **symmetric tiebreak** — code with both a sequential and
+  an interleaving flaw produces two findings, one per reviewer, never the same
+  defect twice. The **triage backstop** closes the trigger gap: `review-bugs` is
+  always-on but `review-concurrency` fires only on the `concurrency` category, so
+  on un-triaged concurrent-looking code `review-bugs` emits a one-line
+  "concurrency triage gap" note (not an analysis) for the orchestrator to launch
+  `review-concurrency`. The two new prefixes are decided when the agent files are
+  authored (`BC` retired); `review-test-quality` keeps `TB` and `TC` verbatim.
 - **Implemented in**: this track (step references added during execution)
 - **Full design**: design.md §"Bugs / concurrency ownership" (Part 6), §"Reviewer-roster split and merge" (Data model)
 
 #### D8b: The adr.md predicate reads the reconciled per-track tag (adr ⟺ ∃ track ≥ medium)
-- **Alternatives considered**: (a) a two-axis (design × track-count) table with
-  `adr ⟺ design OR multi-track`; (b) `adr ⟺ multi-track only`. Both rejected —
-  they use proxies for decision substance: each gives a trivial all-low
-  multi-track change a durable ADR it does not earn, and denies one to a complex
-  single-track change that does; option (b) additionally strips the new
-  design+single cell of a decision record. This DR owns only the adr half of
-  design D8 (the `design.md` / plan half is Track 1's D8a).
-- **Rationale**: an ADR is a decision record, so it should track decision
-  *substance* — how complex the work was. So `adr.md` exists iff at least one
-  track reconciled to **medium or high**. The predicate reads the
-  **reconciled** per-track tags (the `max(step tags)` values Track 1's ledger
-  field carries, written at the A→C boundary and settled by Phase 4). The
-  refinements: an all-`low` multi-track change drops `adr.md` (the old `lite`
-  always wrote one — no decisions worth recording); a high-complexity
-  single-track change *gets* `adr.md` (the old `minimal` gave none); the
-  design+single cell gets `design.md` → `design-final.md` + `adr.md`, no plan.
-- **Risks/Caveats**: "design + all-low" is rare but coherent — the design gate
-  and complexity are highly correlated (a design is warranted when a HIGH
-  category is central, which also drives a track `high`), so if it occurs
-  `design-final.md` exists without `adr.md` and the decisions live in
-  `design-final`'s D-records. The verdict-fold runs in every change but its
-  **destination differs by predicate**: the adversarial-gate verdict lands in
-  `adr.md` when one exists and in the PR description otherwise. The Phase-4
-  carrier selection in `create-final-design.md` (today the tier table, the
-  load-bearing hub) re-derives from the axes:
-
-  - produce `design-final` iff a design exists;
-  - produce `adr` iff a track reached medium or above.
+- **Alternatives considered**: a design × track-count table (`adr ⟺ design OR
+  multi-track`) or `adr ⟺ multi-track only`; see design §"Artifact derivation".
+  Both rejected — they proxy decision substance, handing a trivial all-low
+  multi-track change a durable ADR it does not earn and denying one to a complex
+  single-track change; the second also strips the new design+single cell of a
+  record. This DR owns only the adr half of design D8 (the `design.md` / plan
+  half is Track 1's D8a).
+- **Rationale**: an ADR tracks decision *substance*, so `adr.md` exists iff at
+  least one track reconciled to **medium or high** — read from the reconciled
+  per-track tags (`max(step tags)`, carried in Track 1's ledger field, settled by
+  Phase 4). The refinements: an all-`low` multi-track change drops `adr.md` (the
+  old `lite` always wrote one); a high-complexity single-track change gets it
+  (the old `minimal` gave none); the design+single cell gets `design-final.md` +
+  `adr.md`, no plan.
+- **Risks/Caveats**: "design + all-low" is rare but coherent — design gate and
+  complexity correlate, so if it occurs `design-final.md` exists without `adr.md`
+  and the decisions live in its D-records. The verdict-fold runs in every change
+  but its destination differs by predicate (into `adr.md` when one exists, else
+  the PR description). The Phase-4 carrier selection in `create-final-design.md`
+  re-derives from the axes — `design-final` iff a design exists, `adr` iff a
+  track reached medium or above.
 - **Implemented in**: this track (step references added during execution)
 - **Full design**: design.md §"Artifact derivation" (Part 4)
 <!-- Note: the design.md / plan existence half of design D8 is owned by Track 1.
@@ -379,8 +359,9 @@ the same sites' rosters to the split/merge names. Adapt the live
 localized-versus-buried step-level rule to the new roster (the burial role
 passes to `review-bugs` always + `review-concurrency` when concurrency is
 present; the test baselines' deferred role passes to `review-test-quality`),
-unchanged in logic. In `finding-synthesis-recipe.md`, retire `BC`, add the two
-new prefixes, and keep `TB`/`TC`. Update `code-review-protocol.md`'s roster
+unchanged in logic. In `finding-synthesis-recipe.md` **and the canonical owner table
+`review-iteration.md` §"Finding ID prefixes"**, retire `BC`, add the two new
+prefixes, and keep `TB`/`TC`. Update `code-review-protocol.md`'s roster
 references. The implementer stays Opus (D2).
 
 **(5) Phase-4 carrier predicate (D8b).** In `create-final-design.md`, re-derive
@@ -392,7 +373,8 @@ description). The predicate reads Track 1's reconciled per-track tag.
 **(6) Remaining prose re-keying.** Re-key `conventions-execution.md` (review-file
 / roster references and any per-track-tag track-file references),
 `inline-replanning.md` (the tier-escalation path → complexity), and
-`design-review.md` (roster / tag / review references).
+`design-review.md` (roster / tag / review references, plus re-keying its
+`tier=full` fidelity gate — a design-presence proxy — to read `design_gate=yes`).
 
 The cross-site-synchronization constraint governs throughout: the five selection
 mirrors must stay consistent and carry no dangling reference to a removed agent.
@@ -468,6 +450,9 @@ test method names. Empty until Move 3 lands. -->
 - `.claude/skills/fix-ci-failure/SKILL.md` — the mirrored selection and roster.
 - `.claude/workflow/finding-synthesis-recipe.md` — finding prefixes (retire
   `BC`; add the two new prefixes; keep `TB`/`TC`).
+- `.claude/workflow/review-iteration.md` — §"Finding ID prefixes", the canonical
+  owner table: retire the `BC` row, add the two new `review-bugs` /
+  `review-concurrency` rows, keep `TB`/`TC`.
 - `.claude/workflow/code-review-protocol.md` — roster references.
 - `.claude/workflow/conventions-execution.md` — review-file / roster references
   and any per-track-tag track-file references.
@@ -484,7 +469,9 @@ test method names. Empty until Move 3 lands. -->
   sub-protocols and prefixes verbatim).
 - `.claude/workflow/prompts/create-final-design.md` — the Phase-4 carrier table
   and verdict-fold predicate re-derived from the axes (D8b).
-- `.claude/workflow/prompts/design-review.md` — roster / tag / review references.
+- `.claude/workflow/prompts/design-review.md` — roster / tag / review references,
+  and the design-presence re-key of its `tier=full` fidelity gate to
+  `design_gate=yes` (the gate's `tier` input is a design-presence proxy).
 
 **Out of scope (Track 1 owns these):** `workflow-startup-precheck.sh` + its two
 tests, `create-plan/SKILL.md`, `workflow.md`, `conventions.md`, `planning.md`,
