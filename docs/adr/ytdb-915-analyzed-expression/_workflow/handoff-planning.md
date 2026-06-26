@@ -1,96 +1,98 @@
-# Handoff: Phase 1 — continue design-document review, then draft PR + Step 4b
+# Handoff: Phase 1 — child-issues discussion, then apply held batch, then draft PR + Step 4b
 
-**Paused:** 2026-06-24
-**Phase:** 1 (design frozen + refined; mid DD-review, before draft PR and Step 4b)
-**Context level at pause:** warning (44%)
+**Paused:** 2026-06-26
+**Phase:** 1 (full tier; mid continued-DD-review, batch D15–D18 already applied + committed)
+**Context level at pause:** warning (42%)
 **Branch:** ytdb-915-analyzed-expression
-**HEAD:** bb79c8a439 (+ the pause commit this handoff lands in)
-**Unpushed:** none before the pause commit (pause commit pushed on write)
+**HEAD:** cb79479a06 (committed + pushed; tree clean, nothing unpushed)
 
 ## What I was doing
 
-`/create-plan` Phase 1 for the S0 analyzed-expression substrate (YTDB-915). Tier =
-**full**, adversarial lenses = Architecture / cross-component coordination + Performance
-hot path (user-confirmed). The design is **frozen** and has had one post-freeze
-refinement. The user has been reviewing `design.md` and chose to **continue the review
-in the next session** before the remaining Phase-1 steps run.
+Continued the Phase-1 DD review of the frozen `design.md`. This session surfaced four
+design findings, recorded them as research-log decisions **D15–D18**, cleared them
+through the Phase 0→1 adversarial gate (iter3 PASS), applied them to the design via an
+`edit-design` content-edit (Mutation 2), and committed (`cb79479a06`). The review then
+continued and produced **two more findings that are HELD, not applied** (see the queue
+below), and the user has **one more question about child issues** to raise before we
+batch-apply. We paused for context here.
 
-## Durable artifacts on disk (all committed + pushed)
+## Durable artifacts on disk (all committed + pushed at cb79479a06)
 
-- `_workflow/research-log.md` — frozen-ready Phase-0/1 seed. D1–D14 + D5-R + **D6-R**
-  (new this session). `## Adversarial gate record` latest = **PASS** (iter 2). Do NOT
-  re-run the adversarial gate.
-- `_workflow/design.md` — **858 lines, FROZEN**, stamped
-  `<!-- workflow-sha: 6b81c6b970b0c58300e4c053a5883c2482d3dd25 -->`. Commits:
-  `Add initial design` (`f46f42c93f`) + `Refine D6: single-segment Var, pin collate
-  fetch` (`bb79c8a439`). Mechanical PASS, absorption CLEAN, comprehension gate PASS.
-- `_workflow/design-mutations.md` — edit-design review log; Mutation 1 = the D6-R
-  content-edit.
-- `_workflow/reviews/research-log-adversarial-iter{1,2}.md` — the Phase 0→1 gate files
-  (iter1 NEEDS REVISION, iter2 PASS).
-- `_workflow/plan/*.md` — ephemeral sub-agent params (`auditor-sliced-s1..s5`,
-  `author-params-r1..r9`, `absorption-params-r1..r8`, `comprehension-params`). Safe to
-  overwrite/ignore.
+- `_workflow/research-log.md` — D1–D14 + D5-R + D6-R + **D15–D18** (DD-review batch).
+  `## Adversarial gate record` latest = **PASS (iter3)**. Do NOT re-run the gate.
+- `_workflow/design.md` — **912 lines, FROZEN**, stamped `6b81c6b970…`. Batch D15–D18
+  applied (collate convergence reframe, evaluator-interface blast radius, fast-path
+  S0-scoping, NumericOps two-hop basis, levelZero throw). Committed `cb79479a06`.
+- `_workflow/design-mutations.md` — Mutation 1 (D6-R) + Mutation 2 (D15–D18 batch, cold-read PASS).
+- `_workflow/reviews/research-log-adversarial-iter{1,2,3}.md` — gate files (iter3 = PASS).
+- **YTDB-916 (S1) has two comments I posted** — (1) the fast-path obligation
+  (in-place comparison + AND/OR short-circuit), (2) the collation-convergence obligation
+  (~12 callers incl. SecurityEngine; S7/YTDB-922 cross-ref). Do NOT re-post.
 
-## Done this session (do NOT redo)
+## Review-hold queue (D15) — TWO held items, apply together in ONE combined `edit-design` batch
 
-- Re-ran the in-loop `readability-auditor` **properly sliced** (5 windows) and drove the
-  dual-clean inner loop to its practical limit (author rounds r6–r9 + absorption check
-  each round). Finding counts 13 → 8 → 3 → 8: the loop hit the cold-spawn-variance tail
-  on dense Part 3 prose (a stateless judgment auditor re-samples it differently each
-  round). **The user accepted convergence.** Filed the statefulness finding as a comment
-  on **YTDB-1158**. Do NOT re-loop the auditor.
-- Comprehension gate: **PASS**. Froze the design (`Add initial design`).
-- Resolved one DD observation → **D6-R** (settled with the user): S0 lowers
-  **single-segment** `Var`s only; a multi-segment path (`p.name`) throws
-  `UnsupportedAnalyzedNodeException`, deferred to S1+; the IR comparison evaluator
-  re-implements the single-property collate resolution `result.asEntity()` →
-  `getImmutableSchemaClass(session)` → `getProperty(name)` → `getCollate()`. Applied via
-  `edit-design` content-edit (Mutation 1, comprehension gate PASS); committed
-  `bb79c8a439`; recorded as D6-R in the research log. Do NOT re-open D6-R.
+Apply only AFTER the child-issues discussion (it may add more items to this batch). The
+mechanical-checks script already PASSes on item 1.
 
-## NOT done — pending Phase-1 completion
+1. **[clarification] Footer-citation gap** — add D15–D18 to the four `### Decisions &
+   invariants` footers. (Prior run's Mutation 2 applied the prose but skipped the
+   footers.) Exact edits — were applied + validated PASS this session, then **reverted**
+   to keep `design.md` committed-clean:
+   - Comparison footer (D3/D11/D6-R) → add **D15** (Identifiable-skip is a deliberate
+     inconsistency the IR unifies) + **D16** (slow-path-only evaluator S0-scoped; S1
+     reproduces the AST fast paths).
+   - NumericOps footer (D5/D5-R) → add **D17** (live hot path; two-hop dispatch
+     preserved; perf measurement deferred to S1's JMH gate).
+   - Lowering field-walk footer (D6/D6-R/D7/D14) → add **D18** (levelZero out-of-subset
+     throw; FuncCall only from method-call modifiers).
+   - Evaluator-interface footer (D3) → add **D15** (synthetic-`Result` wrap applies
+     collation; ~12 callers incl. WHERE/SecurityEngine, validated S1/S7).
+2. **[decision] Drop `## Track decomposition` from `design.md`** — `section-remove` of
+   the Part-4 subsection at line 867 (the T1–T4 breakdown + its D13 footer). Rationale:
+   track decomposition is a planning artifact Step 4b owns, not the design. KEEP
+   `## Round-trip parity and the test matrix`. D13 (four-track decomposition) STAYS in the
+   research log and seeds Step 4b — nothing lost. Scan Part-4 intro for track-decomp
+   phrasing to trim. Route via `edit-design` section-remove (whole-doc cold-read).
 
-1. **Continue the DD review** with the user (research-shaped — they drive more
-   observations). Any design change routes through an `edit-design` content-edit **plus**
-   a research-log decision note, exactly as D6-R did. Do NOT back-fill a design change
-   silently.
-2. **Open the draft PR** — Step 5 full-tier FIRST-commit PR-open (sub-steps 4–7). The
-   design freeze commit exists and is pushed, but the draft PR was **held this session
-   and never opened** (`gh pr view` confirms none exists). On resume, open it: ask the
-   issue prefix once → suggest **YTDB-915** (branch encodes it); `gh pr create --draft
-   --base develop`. Upstream is already set, so no `-u` needed.
-3. **Step 4b — derive the plan + track files.** Thinned derived-mirror
-   `implementation-plan.md` (Checklist + thin cross-track Component Map) + **four track
-   files** `plan/track-1.md … track-4.md` per **D13**: T1 substrate+framework, T2
-   `NumericOps` whole-enum extraction, T3 lowering (owns D10 parenthesis + D12 precedence
-   fold; **single-segment `Var` per D6-R**, multi-segment throws), T4 evaluator +
-   round-trip (depends T1/T2/T3). Author via the Step-4b dual-clean loop (`design-author`
-   target=tracks, per-track `readability-auditor` slices, `absorption-check`, then the
-   S3-gated `comprehension-review`). Seed track Decision Logs from the frozen `design.md`
-   D-records (including D6-R). Then Step 5 SECOND commit `Add initial implementation plan`
-   + push (no `-u`, draft PR exists by then).
-4. **Seed the phase ledger** before the Step-4b commit:
+## Next action on resume (in order)
+
+1. **Take the user's child-issues question FIRST** (research-shaped — they drive it). It
+   may add findings to the held queue. Do NOT apply the batch until the user says the
+   review is done.
+2. **Apply the combined batch** (queue items 1 + 2 + any new ones) in ONE `edit-design`
+   mutation; `[decision]` items append to the research log and re-clear the adversarial
+   gate first (D15 batch: gate → mutation → cold-read), then commit.
+3. **Open the draft PR** — held all along, never opened (`gh pr view` confirms none).
+   Ask issue prefix once → suggest **YTDB-915**. `gh pr create --draft --base develop`.
+   Upstream already set, so no `-u`. (Step 5 full-tier first-commit PR-open, sub-steps 4–7.)
+4. **Step 4b — derive the plan + track files.** Thinned `implementation-plan.md`
+   (Checklist + thin cross-track Component Map) + four track files `plan/track-1..4.md`
+   per D13 (T1 substrate+framework, T2 NumericOps whole-enum, T3 lowering, T4
+   evaluator+round-trip). Author via the Step-4b dual-clean loop; seed track Decision Logs
+   from the frozen `design.md` D-records (incl. D15–D18). Then **seed the phase ledger**:
    `.claude/scripts/workflow-startup-precheck.sh --append-ledger --phase 0 --tier full
-   --categories "Architecture / cross-component coordination,Performance hot path"`.
+   --categories "Architecture / cross-component coordination,Performance hot path"`. Then
+   Step 5 SECOND commit `Add initial implementation plan` + push.
 
 ## Do NOT redo
 
-- The Phase 0→1 adversarial gate (research-log latest = PASS iter 2).
-- The tier classification (full; lenses Arch + Perf — user-confirmed).
-- The readability dual-clean loop (converged; user accepted) and the comprehension gate
-  (PASS). Do NOT chase the held dense-Part-3 traces (cold-spawn variance, not defects).
-- D6-R and the design's decision content / structure.
+- The D15–D18 batch (committed `cb79479a06`) — design prose + research-log decisions.
+- The Phase 0→1 adversarial gate (research-log latest = PASS iter3).
+- The tier classification (full; lenses Architecture + Performance hot path).
+- The two YTDB-916 comments (already posted).
+- D6-R and the rest of the design's decision content / structure.
+- **The concurrent-session scare is RESOLVED — do NOT re-alarm.** There is no concurrent
+  agent on this worktree: the two other live `claude` sessions are in the
+  `transactional-schema` and `harding-readability-audit` worktrees; the `cb79479a06` batch
+  commit was a prior run (committed 14h before this pause), not a live racer.
 
 ## Why this needs a handoff
 
-The design is frozen and the next Phase-1 steps (draft PR, Step 4b) have not run, so a
-naive `/create-plan` resume would route through Step 1c. Step 1c's crash-recovery branch
-would see `design.md` committed-and-clean with no `implementation-plan.md` and
-**auto-resume straight into Step 4b**, skipping the user's in-progress DD review. This
-handoff is the authoritative signal (Step 1a runs before Step 1c): on resume, **continue
-the DD review first** (item 1), and only open the draft PR (item 2) and run Step 4b
-(items 3–4) once the user declares the review done.
+The design is frozen-and-committed with no `implementation-plan.md`, so a naive resume
+routes through Step 1c → crash-recovery would auto-jump into Step 4b and skip both the
+user's pending child-issues question and the held review-hold queue. Step 1a loads this
+handoff before Step 1c: on resume, take the child-issues question first, apply the held
+batch, then open the draft PR and run Step 4b.
 
-This handoff supersedes the prior `handoff-planning.md` (whose sliced-auditor-before-
-freeze task is fully resolved — the design is frozen).
+This handoff supersedes the prior `handoff-planning.md` (whose continue-the-DD-review task
+is done — the batch is applied and committed).
