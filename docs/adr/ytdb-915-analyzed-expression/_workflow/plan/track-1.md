@@ -413,3 +413,6 @@ its own reviewable PR.
   fails to compile). This is the one guarantee D9 deliberately does not extend to
   `AnalyzedExprTransform`, whose recurse-into-children defaults make a new variant
   pass-through silently.
+
+## Base commit
+bfb97b2f7c07ebb7cf60d11ed2eb8252f15efde6
