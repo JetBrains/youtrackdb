@@ -366,3 +366,6 @@ PR.
 - **`NumericOps` clears the build gates** the parser zone exempted the engine from: it
   compiles clean under ErrorProne (no `Xep:*:ERROR`) and changed code meets the 85/70
   coverage gate (Phase A R1/R2) — verified at the build, not by the runtime math tests.
+
+## Base commit
+05dc78f658131f32ca5b3bcf5b824195600b9d5b
