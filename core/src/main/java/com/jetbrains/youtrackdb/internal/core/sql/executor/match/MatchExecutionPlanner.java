@@ -4483,7 +4483,7 @@ public class MatchExecutionPlanner {
       // unwraps the resulting Identifiable, which works for both literal
       // RIDs (`#25:7`) and parameters (`:rid`).
       var rid = new SQLRid(-1);
-      rid.setExpression(ridExpr);
+      SQLRid.internalPromoteExpression(rid, ridExpr);
       aliasRids.put(alias, rid);
       logger.debug(
           "MATCH planner: promoted @rid filter to aliasRids for alias '{}'",
