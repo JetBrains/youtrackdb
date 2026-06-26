@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.query.analyzed;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertSame;
-import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.BinaryOp;
 import com.jetbrains.youtrackdb.internal.core.query.analyzed.AnalyzedExpr.Const;
@@ -209,27 +208,6 @@ public class AnalyzedExprTest {
     assertSame(trailing, rebuilt.args().get(2));
   }
 
-  /// Negative case: a transform that rebuilds an `equals`-but-distinct copy of an unchanged
-  /// node is counted as "changed" and defeats the sharing, because the helper compares by
-  /// reference identity (`==`), not value equality. This pins the reference-identity rule
-  /// rather than the happy path: the rebuilt parent is a new instance even though it is
-  /// `equals` to the input.
-  @Test
-  public void equalButRebuiltCopyDefeatsSharing() {
-    ReplaceConstTransform t = new ReplaceConstTransform();
-
-    Const original = new Const(5);
-    BinaryOp binary = new BinaryOp(BinaryOperator.PLUS, original, new Const(6));
-
-    AnalyzedExpr result = AnalyzedExpr.transformChildren(binary, t);
-
-    // Both children are rebuilt to equal-but-distinct Consts, so the parent is rebuilt too:
-    // a new instance that is nonetheless value-equal to the input.
-    assertNotSame(binary, result);
-    assertEquals(binary, result);
-    assertTrue(result instanceof BinaryOp);
-  }
-
   /// (f) WHEN two arguments of a {@link FuncCall} change, THE helper allocates the new list on
   /// the first change and appends each subsequent changed argument to it — exercising the
   /// "argument changed after the list was already allocated" path that a single-change test
@@ -255,6 +233,70 @@ public class AnalyzedExprTest {
     assertEquals(second, rebuilt.args().get(1));
     assertSame(trailing, rebuilt.args().get(2));
   }
+
+  /// (g) WHEN a single-argument {@link FuncCall}'s only argument changes, THE helper returns a
+  /// new node whose rebuilt argument list holds exactly the one replaced argument. This is the
+  /// smallest list that still takes the rebuild path: the prefix copied on the first change is
+  /// the empty {@code subList(0, 0)} and the accumulator ends as a one-element list.
+  @Test
+  public void funcCallWithSingleArgumentChangedRebuildsSingletonList() {
+    ReplaceConstTransform t = new ReplaceConstTransform();
+
+    Const only = new Const(7);
+    FuncCall call = new FuncCall("f", List.of(only));
+
+    AnalyzedExpr result = AnalyzedExpr.transformChildren(call, t);
+
+    assertNotSame(call, result);
+    FuncCall rebuilt = (FuncCall) result;
+    assertNotSame(call.args(), rebuilt.args());
+    assertEquals(1, rebuilt.args().size());
+    assertNotSame(only, rebuilt.args().get(0));
+    assertEquals(only, rebuilt.args().get(0));
+  }
+
+  /// (h) WHEN a {@link FuncCall} has no arguments at all, THE helper returns the same node by
+  /// reference and the same (empty) argument-list instance — the lazy-copy loop never enters,
+  /// so it never allocates a replacement empty list. Empty-argument calls are real: niladic SQL
+  /// functions lower to a zero-argument {@code FuncCall}, so this boundary is exercised rather
+  /// than hypothetical.
+  @Test
+  public void funcCallWithEmptyArgListReturnsSameNodeByReference() {
+    IdentityTransform t = new IdentityTransform();
+
+    List<AnalyzedExpr> args = List.of();
+    FuncCall call = new FuncCall("now", args);
+
+    AnalyzedExpr result = AnalyzedExpr.transformChildren(call, t);
+
+    assertSame(call, result);
+    assertSame(args, ((FuncCall) result).args());
+  }
+
+  /// Negative case: a transform that rebuilds an `equals`-but-distinct copy of an unchanged
+  /// node is counted as "changed" and defeats the sharing, because the helper compares by
+  /// reference identity (`==`), not value equality. This pins the reference-identity rule
+  /// rather than the happy path: the rebuilt parent is a new instance even though it is
+  /// `equals` to the input.
+  @Test
+  public void equalButRebuiltCopyDefeatsSharing() {
+    ReplaceConstTransform t = new ReplaceConstTransform();
+
+    Const original = new Const(5);
+    BinaryOp binary = new BinaryOp(BinaryOperator.PLUS, original, new Const(6));
+
+    AnalyzedExpr result = AnalyzedExpr.transformChildren(binary, t);
+
+    // Both children are rebuilt to equal-but-distinct Consts, so the parent is rebuilt too:
+    // a new instance that is nonetheless value-equal to the input.
+    assertNotSame(binary, result);
+    assertEquals(binary, result);
+    // Assert the concrete variant rather than a bare instanceof, so a failure names the
+    // actual rebuilt type.
+    assertEquals(BinaryOp.class, result.getClass());
+  }
+
+  // ---- Transform defaults via dispatch (nested trees) ----
 
   /// Drives a transform through its real entry point {@link AnalyzedExpr#dispatch} over a tree
   /// nesting a {@link BinaryOp} and a {@link UnaryOp} inside an outer {@code BinaryOp}, so the
@@ -314,7 +356,10 @@ public class AnalyzedExprTest {
   @Test
   public void unsupportedNodeExceptionCarriesClassNameInMessage() {
     UnsupportedAnalyzedNodeException ex = new UnsupportedAnalyzedNodeException(String.class);
-    assertTrue(ex.getMessage().contains(String.class.getName()));
+    // The message is fully determined: the human-readable prefix plus the fully-qualified
+    // class name. Asserting the whole string (not just contains(getName())) pins both the
+    // prefix and the FQN — a dropped prefix or a getName()->getSimpleName() swap fails here.
+    assertEquals("unsupported analyzed node: " + String.class.getName(), ex.getMessage());
   }
 
   /// THE copy constructor (matching the `CoreException`-subclass convention) preserves the
@@ -324,6 +369,10 @@ public class AnalyzedExprTest {
     UnsupportedAnalyzedNodeException original =
         new UnsupportedAnalyzedNodeException(Integer.class);
     UnsupportedAnalyzedNodeException copy = new UnsupportedAnalyzedNodeException(original);
+    // The (Class) constructor never sets dbName, so CoreException.getMessage() appends no
+    // suffix and the copy round-trips its raw message exactly. A later slice that adds a
+    // dbName-carrying constructor must add a sibling test asserting the copy does not
+    // double-append the "DB Name=..." suffix on top of the already-decorated source message.
     assertEquals(original.getMessage(), copy.getMessage());
   }
 }

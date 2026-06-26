@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.query.analyzed;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /// The analyzed-expression intermediate representation (IR): a data-only expression tree the
@@ -109,6 +111,9 @@ public sealed interface AnalyzedExpr
       }
       case FuncCall f -> {
         List<AnalyzedExpr> args = f.args();
+        // newArgs stays null until the first changed argument and is non-null thereafter, so it
+        // doubles as the "have I started accumulating?" flag: a null value at the end means no
+        // argument changed and the call is returned unchanged.
         List<AnalyzedExpr> newArgs = null;
         for (int i = 0; i < args.size(); i++) {
           AnalyzedExpr arg = args.get(i);
@@ -117,7 +122,7 @@ public sealed interface AnalyzedExpr
             // First changed argument: copy the prefix that was unchanged so far, then
             // accumulate the rest. Leaving newArgs null until here keeps an all-unchanged
             // call from allocating a new list at all.
-            newArgs = new java.util.ArrayList<>(args.subList(0, i));
+            newArgs = new ArrayList<>(args.subList(0, i));
           }
           if (newArgs != null) {
             newArgs.add(transformed);
@@ -126,7 +131,10 @@ public sealed interface AnalyzedExpr
         if (newArgs == null) {
           yield f;
         }
-        yield new FuncCall(f.name(), List.copyOf(newArgs));
+        // Single allocation: the accumulator itself backs the new node's arg list, wrapped
+        // unmodifiable so the rebuilt list is read-only. The unchanged path above shares the
+        // caller's original list verbatim, so neither path makes a second copy.
+        yield new FuncCall(f.name(), Collections.unmodifiableList(newArgs));
       }
     };
   }
