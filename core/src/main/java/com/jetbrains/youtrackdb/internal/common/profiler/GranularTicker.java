@@ -27,8 +27,22 @@ import java.util.concurrent.TimeUnit;
 ///   [#approximateCurrentTimeMillis()].
 ///
 /// Because the refresh task is the only writer, `snapshot = nextSnapshot(...)` never races
-/// with itself and no further serialization is needed. Readers observe an atomic, monotonic
-/// `(nanoTime, nanoTimeDifference)` pair via the volatile store on `snapshot`.
+/// with itself and no further writer-vs-writer serialization is needed. Readers observe an
+/// atomic, monotonic `(nanoTime, nanoTimeDifference)` pair via the volatile store on
+/// `snapshot`.
+///
+/// ### Lifecycle freeze
+///
+/// [#stop()] must guarantee that no refresh publishes a newer snapshot after it returns —
+/// callers rely on the approximate time staying frozen once the ticker is stopped.
+/// Cancelling the [ScheduledFuture] with `cancel(false)` neither interrupts an
+/// already-running refresh nor waits for it, and an in-flight refresh can be descheduled by
+/// the OS between its early `stopped` check and the volatile publish. To close that window
+/// the publish and the `stopped` flag are serialized on [#lifecycleLock]: `stop()` sets the
+/// flag under the lock, and `refresh()` re-checks the flag and publishes under the same lock.
+/// Once `stop()` returns, every subsequent refresh either has already published (before
+/// `stop()` acquired the lock) or observes `stopped == true` under the lock and publishes
+/// nothing. Readers never take this lock.
 ///
 /// Callers such as `Stopwatch.timed()`, `YTDBQueryMetricsStep` and
 /// `FrontendTransactionImpl.notifyMetricsListener` compute deltas across two reader
@@ -50,6 +64,11 @@ public class GranularTicker implements Ticker, AutoCloseable {
   private final long recalibrationInterval;
   private volatile boolean started;
   private volatile boolean stopped;
+
+  /// Serializes the snapshot publish in [#refresh()] against the `stopped` write in
+  /// [#stop()] so the approximate time is guaranteed frozen once `stop()` returns. See the
+  /// "Lifecycle freeze" section of the class Javadoc. Readers never acquire this lock.
+  private final Object lifecycleLock = new Object();
 
   /// Combined `(nanoTime, nanoTimeDifference)` snapshot. `nanoTime` is the most recently
   /// sampled [System#nanoTime()]. `nanoTimeDifference` is the offset between
@@ -100,7 +119,17 @@ public class GranularTicker implements Ticker, AutoCloseable {
     // Sample currentTimeMillis only on recalibration fires. On non-recalibration fires the
     // previous snapshot's nanoTimeDifference is reused, so the syscall is skipped entirely.
     final long wallMillis = recalibrate ? System.currentTimeMillis() : 0L;
-    snapshot = nextSnapshot(snapshot, freshNano, wallMillis, recalibrate);
+    // Publish under the lifecycle lock and re-check stopped. stop() takes the same lock to
+    // set the flag, so this refresh either published before stop() acquired the lock or, if
+    // it was descheduled past stop() between the early check above and here, now sees
+    // stopped == true and publishes nothing. Either way the time is frozen once stop()
+    // returns. The top-of-method check stays as a fast path that skips nanoTime sampling.
+    synchronized (lifecycleLock) {
+      if (stopped) {
+        return;
+      }
+      snapshot = nextSnapshot(snapshot, freshNano, wallMillis, recalibrate);
+    }
   }
 
   /// Builds the next snapshot while enforcing monotonicity of both accessors. Package-private
@@ -158,7 +187,12 @@ public class GranularTicker implements Ticker, AutoCloseable {
 
   @Override
   public void stop() {
-    stopped = true;
+    // Set the flag under the lock so any refresh that has already entered its publish block
+    // completes first; after this returns every later refresh observes stopped == true under
+    // the lock and publishes nothing, freezing the approximate time.
+    synchronized (lifecycleLock) {
+      stopped = true;
+    }
     var f = refreshFuture;
     if (f != null) {
       f.cancel(false);

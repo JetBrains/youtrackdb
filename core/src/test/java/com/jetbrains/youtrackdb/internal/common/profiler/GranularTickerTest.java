@@ -125,6 +125,107 @@ public class GranularTickerTest {
     }
   }
 
+  /**
+   * Regression test for the stop()-vs-refresh publish race. A refresh task that has already
+   * passed the early {@code stopped} check (and sampled its fresh nanoTime) can be descheduled
+   * by the OS before it publishes its snapshot. If it then resumes after stop() has set the
+   * flag, it must observe the flag under the lifecycle lock and publish nothing, so
+   * approximateNanoTime() stays frozen. This is the race that flaked
+   * {@link #startThenStopFreezesTime()} on Windows CI (~15.6 ms timer quantum plus contention).
+   *
+   * <p>The race is reproduced deterministically rather than by timing: the test thread holds
+   * the lifecycle lock to pin an in-flight refresh at its publish point, sets {@code stopped}
+   * exactly as stop() does (under the lock), then releases the lock and lets the refresh
+   * resume. Without the under-lock re-check the refresh would publish a newer nanoTime and
+   * unfreeze the ticker.
+   */
+  @Test
+  public void inFlightRefreshAfterStopDoesNotUnfreezeTime() throws Exception {
+    List<Runnable> capturedTasks = new ArrayList<>();
+    // Fake scheduler that only captures the refresh runnable so the test can drive it on its
+    // own thread instead of relying on real fixed-rate scheduling.
+    ScheduledExecutorService fakeScheduler = new DelegatingScheduledExecutorService(
+        Executors.newSingleThreadScheduledExecutor()) {
+      @Override
+      public ScheduledFuture<?> scheduleAtFixedRate(
+          Runnable command, long initialDelay, long period, TimeUnit unit) {
+        capturedTasks.add(command);
+        return NO_OP_FUTURE;
+      }
+    };
+    try {
+      // One-hour granularity so the only fire is the one the test drives manually.
+      var ticker = new GranularTicker(
+          TimeUnit.HOURS.toNanos(1), TimeUnit.HOURS.toNanos(1), fakeScheduler);
+      ticker.start();
+      assertThat(capturedTasks).hasSize(1);
+      var refresh = capturedTasks.get(0);
+
+      // This single driven fire is a recalibration fire: recalibrationInterval ==
+      // max(1, 1h / 1h) == 1, so a leaked publish would recompute nanoTimeDifference and move
+      // BOTH accessors. Capture the frozen value of each, plus the snapshot reference itself,
+      // so the assertions below prove no publish occurred rather than inferring it from a
+      // value that the nextSnapshot clamp could coincidentally preserve.
+      var frozenNano = ticker.approximateNanoTime();
+      var frozenMillis = ticker.approximateCurrentTimeMillis();
+
+      Field lockField = GranularTicker.class.getDeclaredField("lifecycleLock");
+      lockField.setAccessible(true);
+      var lifecycleLock = lockField.get(ticker);
+      Field stoppedField = GranularTicker.class.getDeclaredField("stopped");
+      stoppedField.setAccessible(true);
+      Field snapshotField = GranularTicker.class.getDeclaredField("snapshot");
+      snapshotField.setAccessible(true);
+      var frozenSnapshot = snapshotField.get(ticker);
+
+      var refreshThread = new Thread(refresh, "in-flight-refresh");
+      // Daemon so a leaked thread (if the fix ever regresses and the refresh never unblocks)
+      // cannot outlive the suite and wedge the forked JVM.
+      refreshThread.setDaemon(true);
+      synchronized (lifecycleLock) {
+        // Pin the in-flight refresh at its publish point: it passes the early stopped check
+        // (stopped is still false) and samples a fresh nanoTime, then blocks acquiring the
+        // lifecycle lock the test thread holds. BLOCKED is unambiguous here because
+        // lifecycleLock is the only monitor on refresh()'s pre-publish path — if the refresh
+        // ever terminated or blocked elsewhere instead, the bailouts below fail the test
+        // loudly rather than letting it hang or pass vacuously.
+        refreshThread.start();
+        final var deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        Thread.State state;
+        while ((state = refreshThread.getState()) != Thread.State.BLOCKED) {
+          assertThat(state)
+              .as("refresh must block on lifecycleLock, not terminate before publishing")
+              .isNotEqualTo(Thread.State.TERMINATED);
+          assertThat(System.nanoTime())
+              .as("refresh did not reach the publish lock within the deadline; state=" + state)
+              .isLessThan(deadlineNanos);
+          Thread.onSpinWait();
+        }
+        // Set stopped under the lock, exactly as stop() does, while the refresh is pinned.
+        stoppedField.setBoolean(ticker, true);
+      }
+      // Release the lock; the pinned refresh resumes, re-checks stopped under the lock, and
+      // must publish nothing.
+      refreshThread.join(TimeUnit.SECONDS.toMillis(5));
+      assertThat(refreshThread.isAlive())
+          .as("the pinned refresh must finish after the lock is released")
+          .isFalse();
+
+      // Object identity: a refresh that published would store a new Snapshot instance.
+      assertThat(snapshotField.get(ticker))
+          .as("an in-flight refresh resuming after stop must publish no new snapshot")
+          .isSameAs(frozenSnapshot);
+      assertThat(ticker.approximateNanoTime())
+          .as("an in-flight refresh resuming after stop must not unfreeze approximateNanoTime")
+          .isEqualTo(frozenNano);
+      assertThat(ticker.approximateCurrentTimeMillis())
+          .as("a recalibration refresh resuming after stop must not unfreeze wall-clock millis")
+          .isEqualTo(frozenMillis);
+    } finally {
+      fakeScheduler.shutdownNow();
+    }
+  }
+
   /** close() delegates to stop(), behaving identically. */
   @Test
   public void closeAfterStartCancelsFutures() throws Exception {
