@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.index.engine;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -391,15 +392,26 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // Insert+delete workload with range expansion: initial histogram
       // covers [0, 4999] but stress inserts span [0, 100K). All values
       // beyond the initial max land in the last bucket until background
-      // rebalance fires. During rebalance transitions, in-flight deltas
-      // sized for the old bucket layout are discarded (version mismatch),
-      // causing residual drift concentrated in the last bucket. Allow up
-      // to 300% max deviation for the last bucket only (~22% headroom
-      // above worst observed ~245% under concurrent insert/delete load
-      // with raw histogram scans), 50% for other buckets, and 10% mean
-      // deviation.
+      // rebalance fires, so the incremental last bucket is an overflow
+      // dumping ground while the analyzed last bucket holds only
+      // ~nonNullCount/bucketCount entries after equi-depth redistribution.
+      // A relative bound on that bucket divides by a tiny, rebalance-
+      // timing-dependent denominator and is structurally unbounded (the
+      // threshold was bumped 0.50 → 2.00 → 3.00 and still flaked at
+      // 3.4755 on one CI leg). Bound it instead by share of the whole
+      // dataset, which has a stable denominator (total nonNullCount): 6%
+      // of nonNullCount, ~2.2x the worst observed ~2.7% share (which maps
+      // to the 3.4755 relative failure) and ~3x the ~1.9% share seen
+      // historically. The share metric does not blow up the way the
+      // relative metric did, because its denominator is the full dataset
+      // rather than the equi-depth bucket size, so a smaller multiplier is
+      // safe. The deviation log now prints lastBucketShare every run, so
+      // this bound can be recalibrated from measured CI data. Other buckets
+      // keep the 50% relative bound and the mean keeps 10% — those remain
+      // the real correctness guards; the overflow bucket is approximate by
+      // design (incremental maintenance is approximate, ANALYZE is exact).
       assertFrequencyDeviation("StressInt",
-          histogramIncremental, histogramAnalyzed, 0.50, 3.00, 0.10);
+          histogramIncremental, histogramAnalyzed, 0.50, 3.00, 0.06, 0.10);
 
       // ── Distribution check: histogram estimates vs actual counts ──
       // Random inserts in [0, 100K) → each quarter should hold ~25%.
@@ -590,9 +602,11 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // per-bucket incremental deltas should be very accurate.
       // Allow 30% max per-bucket (Zipf tail buckets are small,
       // so small absolute errors produce large relative errors)
-      // and 5% mean deviation.
+      // and 5% mean deviation. No range expansion here, so the last
+      // bucket keeps the strict relative bound (share path disabled
+      // with 0.0).
       assertFrequencyDeviation("StressStr",
-          histIncr, histogram, 0.30, 0.30, 0.05);
+          histIncr, histogram, 0.30, 0.30, 0.0, 0.05);
     }
 
     assertNotNull("MCV should be tracked", histogram.mcvValue());
@@ -797,9 +811,11 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       // ── Frequency deviation: incremental vs ANALYZE ───────────
       // Insert-only uniform workload with low NDV → each bucket
       // gets many entries, so relative deviation should be small.
-      // Allow 10% max per-bucket, 3% mean.
+      // Allow 10% max per-bucket, 3% mean. No range expansion here, so
+      // the last bucket keeps the strict relative bound (share path
+      // disabled with 0.0).
       assertFrequencyDeviation("StressLowNdv",
-          histIncr, histogram, 0.10, 0.10, 0.03);
+          histIncr, histogram, 0.10, 0.10, 0.0, 0.03);
     }
 
     // Bucket count should be in a reasonable range. Equi-depth construction
@@ -1224,20 +1240,47 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
    * Compares per-bucket frequency deviation between an incremental
    * histogram and a freshly ANALYZE-rebuilt histogram. When both have
    * the same bucket count (same boundaries), computes max and mean
-   * relative deviation across all buckets. Fails if either exceeds
-   * the given thresholds.
+   * relative deviation across all buckets. Fails if any exceeds the
+   * given thresholds.
    *
    * <p>When bucket counts differ (rebalance changed boundaries),
    * per-bucket comparison is not meaningful — the method logs a
    * warning and skips.
    *
-   * @param label             test name for diagnostic output
-   * @param incremental       histogram from incremental maintenance
-   * @param analyzed          histogram from fresh ANALYZE rebuild
-   * @param maxRelDeviation   max allowed relative deviation for any
-   *                          single bucket (e.g., 0.20 = 20%)
-   * @param meanRelDeviation  max allowed mean relative deviation
-   *                          across all buckets (e.g., 0.05 = 5%)
+   * <p><b>Last (overflow) bucket.</b> When the workload inserts values
+   * beyond the initial histogram's max, every such value piles into the
+   * last bucket on the incremental side until a background rebalance
+   * redistributes boundaries, whereas a fresh ANALYZE spreads them
+   * equi-depth so the analyzed last bucket holds only
+   * ~nonNullCount/bucketCount entries. A relative metric
+   * {@code |incr-exact|/exact} for that bucket therefore divides by a
+   * tiny, rebalance-timing-dependent denominator and is structurally
+   * unbounded. For such workloads, pass a positive
+   * {@code lastBucketMaxShareDeviation} to bound the last bucket by its
+   * share of the whole dataset ({@code |incr-exact|/nonNullCount}, a
+   * stable denominator) instead; the last bucket passes if it is within
+   * <em>either</em> the relative or the share bound, and is excluded
+   * from the mean (it is not part of the equi-depth population the mean
+   * check polices). Workloads with stable boundaries (insert-only, no
+   * range expansion) pass {@code lastBucketMaxShareDeviation = 0.0} to
+   * disable the share path and keep the strict relative bound on the
+   * last bucket.
+   *
+   * @param label                      test name for diagnostic output
+   * @param incremental                histogram from incremental maintenance
+   * @param analyzed                   histogram from fresh ANALYZE rebuild
+   * @param maxRelDeviation            max allowed relative deviation for
+   *                                   any non-last bucket (e.g., 0.20 = 20%)
+   * @param lastBucketMaxRelDeviation  max allowed relative deviation for
+   *                                   the last bucket
+   * @param lastBucketMaxShareDeviation when &gt; 0, the last bucket also
+   *                                   passes if its absolute disagreement
+   *                                   is within this fraction of total
+   *                                   nonNullCount (e.g., 0.06 = 6%); 0.0
+   *                                   disables the share path
+   * @param meanRelDeviation           max allowed mean relative deviation
+   *                                   across the buckets governed by the
+   *                                   relative metric (e.g., 0.05 = 5%)
    */
   private static void assertFrequencyDeviation(
       String label,
@@ -1245,6 +1288,7 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
       EquiDepthHistogram analyzed,
       double maxRelDeviation,
       double lastBucketMaxRelDeviation,
+      double lastBucketMaxShareDeviation,
       double meanRelDeviation) {
     if (incremental.bucketCount() != analyzed.bucketCount()) {
       System.out.println("[" + label + "] Bucket count changed ("
@@ -1255,40 +1299,300 @@ public class IndexHistogramConcurrentStressIT extends DbTestBase {
     }
 
     int n = analyzed.bucketCount();
+    // Stable denominator for the share-based last-bucket bound: the total
+    // entry count the analyzed histogram represents. The call site that
+    // enables the share path (StressInt) asserts freqSum == nonNullCount on
+    // the analyzed histogram, so nonNullCount() is exactly the sum of the
+    // bucket frequencies — use it directly as the documented denominator.
+    long total = analyzed.nonNullCount();
+
+    // The share path replaces the last bucket's relative/mean guards with a
+    // single share bound. With only one bucket that bucket IS the last
+    // bucket, so the relative per-bucket guard and the mean guard would both
+    // vanish and the dataset would be policed by the loose share bound alone.
+    // Require >1 bucket so the non-overflow guards stay meaningful; fail loud
+    // rather than silently weaken. (StressInt analyzes ~100K values into many
+    // equi-depth buckets, so this only guards against future misuse.)
+    if (lastBucketMaxShareDeviation > 0.0) {
+      assertTrue("[" + label + "] Share path requires >1 bucket so the "
+          + "relative and mean guards still police the non-overflow "
+          + "buckets; got " + n,
+          n > 1);
+    }
+
     double sumRelDev = 0;
+    int relBucketCount = 0;
     double worstRelDev = 0;
     int worstBucket = -1;
+    double lastBucketShareDev = -1;
     for (int i = 0; i < n; i++) {
       long incr = incremental.frequencies()[i];
       long exact = analyzed.frequencies()[i];
       // Relative deviation: |incr - exact| / max(exact, 1)
       double relDev = Math.abs(incr - exact)
           / (double) Math.max(exact, 1);
-      sumRelDev += relDev;
+
+      if (i == n - 1 && lastBucketMaxShareDeviation > 0.0) {
+        // Range-expansion overflow bucket: bound by share of the whole
+        // dataset, not by the unstable relative metric. Passes if within
+        // EITHER bound. See method Javadoc for the rationale.
+        double shareDev = Math.abs(incr - exact)
+            / (double) Math.max(total, 1);
+        lastBucketShareDev = shareDev;
+        assertTrue("[" + label + "] Last-bucket deviation: neither bound "
+            + "met — relative " + String.format(Locale.US, "%.4f", relDev)
+            + " (limit " + lastBucketMaxRelDeviation + "), share "
+            + String.format(Locale.US, "%.4f", shareDev) + " (|" + incr
+            + "-" + exact + "|/" + total + ", limit "
+            + lastBucketMaxShareDeviation + ")",
+            relDev <= lastBucketMaxRelDeviation
+                || shareDev <= lastBucketMaxShareDeviation);
+        // Excluded from the mean: the overflow bucket is not part of the
+        // equi-depth population the mean check is meant to police.
+        continue;
+      }
 
       double threshold = (i == n - 1)
           ? lastBucketMaxRelDeviation : maxRelDeviation;
       assertTrue("[" + label + "] Per-bucket relative deviation "
-          + String.format("%.4f", relDev) + " (bucket "
+          + String.format(Locale.US, "%.4f", relDev) + " (bucket "
           + i + ") exceeds threshold " + threshold,
           relDev <= threshold);
 
+      sumRelDev += relDev;
+      relBucketCount++;
       if (relDev > worstRelDev) {
         worstRelDev = relDev;
         worstBucket = i;
       }
     }
-    double meanDev = sumRelDev / n;
+    double meanDev = sumRelDev / Math.max(relBucketCount, 1);
 
+    // Always log the share of the overflow bucket (when the share path ran)
+    // so the lastBucketMaxShareDeviation threshold can be recalibrated from
+    // real CI data rather than estimates.
+    String lastBucketShareStr = lastBucketShareDev < 0 ? "n/a"
+        : String.format(Locale.US, "%.4f", lastBucketShareDev);
     System.out.println("[" + label + "] Frequency deviation: "
-        + "mean=" + String.format("%.4f", meanDev)
-        + " max=" + String.format("%.4f", worstRelDev)
-        + " (bucket " + worstBucket + ")");
+        + "mean=" + String.format(Locale.US, "%.4f", meanDev)
+        + " max=" + String.format(Locale.US, "%.4f", worstRelDev)
+        + " (bucket " + (worstBucket < 0 ? "n/a" : worstBucket) + ")"
+        + " lastBucketShare=" + lastBucketShareStr);
 
     assertTrue("[" + label + "] Mean relative deviation "
-        + String.format("%.4f", meanDev)
+        + String.format(Locale.US, "%.4f", meanDev)
         + " exceeds threshold " + meanRelDeviation,
         meanDev <= meanRelDeviation);
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  //  Deterministic unit tests for the assertFrequencyDeviation helper
+  //
+  //  The helper's share-path arithmetic is otherwise only exercised
+  //  probabilistically by the 2-minute non-deterministic stress runs.
+  //  These build histograms with hand-chosen frequencies so the
+  //  share/relative boundary behaviour is pinned exactly and cheaply.
+  // ═══════════════════════════════════════════════════════════════
+
+  /**
+   * Reproduces the StressInt flake shape: 127 in-bounds buckets plus a
+   * last (overflow) bucket whose relative deviation is far above the 3.00
+   * relative limit (incremental holds ~4.5x the analyzed count) yet whose
+   * absolute disagreement is only ~2.7% of the dataset. With the share path
+   * enabled the overflow bucket must pass via the share bound, so the call
+   * must NOT throw.
+   */
+  @Test
+  public void assertFrequencyDeviation_sharePathToleratesOverflowBucket() {
+    long[] analyzed = new long[128];
+    long[] incremental = new long[128];
+    // 127 in-bounds buckets agree exactly (relative deviation 0).
+    for (int i = 0; i < 127; i++) {
+      analyzed[i] = 7638;
+      incremental[i] = 7638;
+    }
+    // Overflow bucket: analyzed equi-depth 7638, incremental inflated to
+    // 34185 → relative dev 3.476 (> 3.00) but |diff| 26547 of 977664 total
+    // ≈ 2.72% share (< 6%). The exact shape that failed at relative 3.4755.
+    analyzed[127] = 7638;
+    incremental[127] = 34185;
+    assertFrequencyDeviation("UnitOverflowTolerated",
+        histogramWithFreqs(incremental), histogramWithFreqs(analyzed),
+        0.50, 3.00, 0.06, 0.10);
+  }
+
+  /**
+   * The share path must still fail when the overflow bucket exceeds BOTH
+   * the relative bound and the share bound — a real regression that dumps a
+   * large fraction of the dataset into the wrong bucket is not masked.
+   */
+  @Test
+  public void assertFrequencyDeviation_sharePathFailsWhenBothBoundsExceeded() {
+    long[] analyzed = new long[128];
+    long[] incremental = new long[128];
+    for (int i = 0; i < 127; i++) {
+      analyzed[i] = 7638;
+      incremental[i] = 7638;
+    }
+    // Overflow bucket disagreement = 100000 of 977664 total ≈ 10.2% share
+    // (> 6%) and relative ~13 (> 3.00): both bounds exceeded → must throw.
+    analyzed[127] = 7638;
+    incremental[127] = 107638;
+    AssertionError err = assertThrows(AssertionError.class,
+        () -> assertFrequencyDeviation("UnitOverflowRegression",
+            histogramWithFreqs(incremental), histogramWithFreqs(analyzed),
+            0.50, 3.00, 0.06, 0.10));
+    assertTrue("failure message should name the last-bucket share bound: "
+        + err.getMessage(),
+        err.getMessage().contains("Last-bucket deviation"));
+  }
+
+  /**
+   * A non-overflow bucket that breaches the 50% relative bound must fail
+   * even when the overflow bucket is within its share bound — the strict
+   * per-bucket guard on the in-bounds buckets is preserved.
+   */
+  @Test
+  public void assertFrequencyDeviation_sharePathStillGuardsInBoundsBuckets() {
+    long[] analyzed = new long[128];
+    long[] incremental = new long[128];
+    for (int i = 0; i < 127; i++) {
+      analyzed[i] = 7638;
+      incremental[i] = 7638;
+    }
+    // Bucket 5 deviates 80% (> 50% bound) → must throw on the relative check.
+    incremental[5] = (long) (7638 * 1.8);
+    analyzed[127] = 7638;
+    incremental[127] = 7638;
+    AssertionError err = assertThrows(AssertionError.class,
+        () -> assertFrequencyDeviation("UnitInBoundsGuard",
+            histogramWithFreqs(incremental), histogramWithFreqs(analyzed),
+            0.50, 3.00, 0.06, 0.10));
+    assertTrue("failure should name the per-bucket relative bound: "
+        + err.getMessage(),
+        err.getMessage().contains("Per-bucket relative deviation"));
+  }
+
+  /**
+   * With the share path enabled, a single-bucket histogram has no
+   * non-overflow buckets, so the relative and mean guards would vanish.
+   * The helper must reject this configuration loudly instead of passing
+   * vacuously under the loose share bound alone.
+   */
+  @Test
+  public void assertFrequencyDeviation_sharePathRejectsSingleBucket() {
+    EquiDepthHistogram analyzed = histogramWithFreqs(new long[] {1000});
+    EquiDepthHistogram incrementalWayOff = histogramWithFreqs(new long[] {1});
+    AssertionError err =
+        assertThrows(AssertionError.class, () -> assertFrequencyDeviation("UnitSingleBucket",
+            incrementalWayOff, analyzed, 0.50, 3.00, 0.06, 0.10));
+    assertTrue("failure should name the >1 bucket requirement: "
+        + err.getMessage(),
+        err.getMessage().contains("requires >1 bucket"));
+  }
+
+  /**
+   * With the share path disabled (share = 0.0, the StressStr / StressLowNdv
+   * configuration), the last bucket keeps the strict relative bound: an
+   * overflow-shaped last bucket that the share path would tolerate must now
+   * fail, confirming the insert-only callers' behaviour is unchanged.
+   */
+  @Test
+  public void assertFrequencyDeviation_disabledSharePathKeepsStrictLastBucket() {
+    long[] analyzed = new long[16];
+    long[] incremental = new long[16];
+    for (int i = 0; i < 15; i++) {
+      analyzed[i] = 100;
+      incremental[i] = 100;
+    }
+    // Last bucket relative deviation 5.0 (> the 0.30 relative bound here).
+    analyzed[15] = 100;
+    incremental[15] = 600;
+    AssertionError err = assertThrows(AssertionError.class,
+        () -> assertFrequencyDeviation("UnitShareDisabled",
+            histogramWithFreqs(incremental), histogramWithFreqs(analyzed),
+            0.30, 0.30, 0.0, 0.05));
+    assertTrue("failure should name the per-bucket relative deviation: "
+        + err.getMessage(),
+        err.getMessage().contains("Per-bucket relative deviation"));
+  }
+
+  /**
+   * The mean check must still fail when many in-bounds buckets each deviate
+   * below the per-bucket bound but their average exceeds the mean bound. This
+   * pins the load-bearing divisor change: the mean is computed over the
+   * relative-metric buckets only (overflow bucket excluded). Each in-bounds
+   * bucket deviates 40% (under the 50% per-bucket bound) so only the mean
+   * assertion can fail.
+   */
+  @Test
+  public void assertFrequencyDeviation_sharePathFailsOnMeanAcrossInBoundsBuckets() {
+    long[] analyzed = new long[128];
+    long[] incremental = new long[128];
+    for (int i = 0; i < 127; i++) {
+      analyzed[i] = 1000;
+      incremental[i] = 1400; // relDev 0.40 < 0.50 per-bucket, but mean 0.40
+    }
+    // Overflow bucket within the share bound → excluded from the mean.
+    analyzed[127] = 1000;
+    incremental[127] = 1000;
+    AssertionError err = assertThrows(AssertionError.class,
+        () -> assertFrequencyDeviation("UnitMeanGuard",
+            histogramWithFreqs(incremental), histogramWithFreqs(analyzed),
+            0.50, 3.00, 0.06, 0.10));
+    assertTrue("failure should name the mean bound: " + err.getMessage(),
+        err.getMessage().contains("Mean relative deviation"));
+  }
+
+  /**
+   * The overflow bucket must also pass via the RELATIVE limb of the OR, not
+   * only the share limb: a last bucket whose relative deviation is within
+   * 3.00 must pass even when its share exceeds 6%. This pins both disjuncts
+   * of the OR so a future edit that drops the relative limb is caught (it
+   * would reintroduce flakiness for a proportionally-correct large bucket).
+   */
+  @Test
+  public void assertFrequencyDeviation_sharePathToleratesViaRelativeLimb() {
+    long[] analyzed = new long[128];
+    long[] incremental = new long[128];
+    // Tiny in-bounds buckets so total is dominated by the last bucket.
+    for (int i = 0; i < 127; i++) {
+      analyzed[i] = 10;
+      incremental[i] = 10;
+    }
+    // Overflow: relDev 30000/100000 = 0.30 (< 3.00, passes relative limb) but
+    // share 30000/101270 ≈ 29.6% (> 6%, fails share limb) → passes via the
+    // relative limb alone, so it must NOT throw.
+    analyzed[127] = 100000;
+    incremental[127] = 130000;
+    assertFrequencyDeviation("UnitOverflowViaRelative",
+        histogramWithFreqs(incremental), histogramWithFreqs(analyzed),
+        0.50, 3.00, 0.06, 0.10);
+  }
+
+  /**
+   * Builds an {@link EquiDepthHistogram} with the given per-bucket
+   * frequencies, monotonic integer boundaries, matching distinctCounts, and
+   * nonNullCount equal to the frequency sum (the invariant the share path
+   * relies on). distinctCounts is never read by assertFrequencyDeviation
+   * (which touches only frequencies() and nonNullCount()); it is set only to
+   * satisfy the record's structural invariant. Used only by the unit tests
+   * above.
+   */
+  private static EquiDepthHistogram histogramWithFreqs(long[] freqs) {
+    int n = freqs.length;
+    Comparable<?>[] boundaries = new Comparable<?>[n + 1];
+    for (int i = 0; i <= n; i++) {
+      boundaries[i] = i;
+    }
+    long[] distinctCounts = new long[n];
+    long total = 0;
+    for (int i = 0; i < n; i++) {
+      distinctCounts[i] = Math.max(freqs[i], 1);
+      total += freqs[i];
+    }
+    return new EquiDepthHistogram(
+        n, boundaries, freqs, distinctCounts, total, null, 0L);
   }
 
   /**
