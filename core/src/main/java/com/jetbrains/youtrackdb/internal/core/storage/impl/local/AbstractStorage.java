@@ -2755,16 +2755,22 @@ public abstract class AbstractStorage
           final var collection =
               committedId < collections.size() ? collections.get(committedId) : null;
           if (!dropCollectionInternal(atomicOperation, committedId)) {
-            // A real drop happened (the collection existed). Mirror the public dropCollection(int):
-            // dropCollectionInternal deletes only the data files and the in-memory entry, so also
-            // drop the storage-configuration entry and the link-bag B-tree component on the same
-            // atomic operation. All three structural deletions then revert together on a rollback and
-            // become durable together on commit, keeping the drop symmetric with doCreateCollection
-            // (which writes the data file, the config entry, and the component together).
+            // A real drop happened (the collection existed). Record the dropped collection for the
+            // failure-path undo BEFORE the two structural drops below: dropCollectionInternal has
+            // already nulled the registry slot and deleted the data file, so if dropCollection or
+            // deleteComponentByCollectionId throws, the failure-path undo still needs the captured
+            // collection to re-register it. The captured `collection` is the pre-null live object, so
+            // the record is complete even when a later structural drop throws.
+            dropped.add(new DroppedCollection(committedId, collection));
+            // Mirror the public dropCollection(int): dropCollectionInternal deletes only the data
+            // files and the in-memory entry, so also drop the storage-configuration entry and the
+            // link-bag B-tree component on the same atomic operation. All three structural deletions
+            // then revert together on a rollback and become durable together on commit, keeping the
+            // drop symmetric with doCreateCollection (which writes the data file, the config entry,
+            // and the component together).
             ((CollectionBasedStorageConfiguration) configuration)
                 .dropCollection(atomicOperation, committedId);
             linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, committedId);
-            dropped.add(new DroppedCollection(committedId, collection));
           }
         }
       }
@@ -2835,6 +2841,20 @@ public abstract class AbstractStorage
    * re-registers the collections the commit dropped. Runs under the held write lock. Idempotent
    * against a never-published id (the map lookup misses).
    *
+   * <p>The create side also reverts the created collection's <em>structure</em>, not just its
+   * in-memory registry entry. The disk engine's {@code readCache.addFile} buffers the file create as
+   * WAL-reverted intent, so on a rollback the created collection's data file, config entry, and
+   * link-bag B-tree component vanish with the atomic operation and only the in-memory registry needs
+   * undoing. The in-memory engine eagerly installs every new file into its cache and does <em>not</em>
+   * revert that install on rollback (see {@code AtomicOperationBinaryTracking.addFile}), so the
+   * created collection's data file and its id-named {@code global_collection_<id>.grb} component
+   * survive the rollback as orphans; the surviving component then blocks the next id-reusing create
+   * with a "file already exists" error. This arm drops that orphaned structure in a fresh atomic
+   * operation (the failed commit's operation is already closed by {@code rollback}), guarded on the
+   * orphaned component still being present so it is a no-op on the disk engine (where rollback already
+   * removed it) and the real cleanup on the in-memory engine. The fresh atomic operation commits
+   * normally, so the orphan removal is itself durable.
+   *
    * @param dropped the collections reconciliation dropped, in drop order; restored in memory here.
    */
   private void undoReconciledCollections(
@@ -2852,6 +2872,10 @@ public abstract class AbstractStorage
       if (collection != null) {
         collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
         collections.set(realId, null);
+        // Drop the created collection's surviving structure (in-memory engine only — see the method
+        // Javadoc). The collection was just removed from the registry above, so pass the captured
+        // object to the structural cleanup rather than re-reading the now-null slot.
+        revertCreatedCollectionStructure(realId, collection);
       }
     }
     // Re-register each dropped collection: rollback restored its files, so the captured object is
@@ -2865,6 +2889,61 @@ public abstract class AbstractStorage
           && collections.get(entry.id()) == null) {
         registerCollection(collection);
       }
+    }
+  }
+
+  /**
+   * Drops the surviving structure of a collection that a failed schema-carry commit created: the
+   * link-bag B-tree component, the storage-config entry, and the collection's own data file. The
+   * mirror of {@link #doCreateCollection}, which writes exactly those three structures. Runs in a
+   * fresh atomic operation because the failed commit's operation is already closed by {@code
+   * rollback}. Guarded on the orphaned component still being present so it is a no-op on the disk
+   * engine (where rollback reverted every structure already) and the real cleanup on the in-memory
+   * engine (where the eager cache install survived the rollback). See {@link
+   * #undoReconciledCollections} for why only the in-memory engine leaves an orphan.
+   *
+   * <p>Best-effort and self-contained: this runs from the failure-path {@code finally} while the
+   * original commit exception is propagating, so any failure here is logged and swallowed rather than
+   * thrown, exactly as the success-path snapshot cleanup is. A leaked orphan is a bounded
+   * single-collection leak, not a correctness break; masking the real commit failure would be worse.
+   *
+   * @param realId     the created collection's resolved real id (its slot, already nulled by the
+   *                   caller).
+   * @param collection the captured collection object removed from the registry, used to delete its
+   *                   data file.
+   */
+  private void revertCreatedCollectionStructure(final int realId,
+      final StorageCollection collection) {
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> {
+            // The component file (global_collection_<id>.grb) is the only structure keyed by id and
+            // the one that blocks an id-reusing create, so its presence is the in-memory-vs-disk
+            // discriminator: present means the rollback did not revert the eager cache install, so
+            // this collection's structure is orphaned and must be dropped; absent means the disk
+            // engine already reverted everything and there is nothing to do.
+            if (!LinkCollectionsBTreeManagerShared.isComponentPresent(atomicOperation, realId)) {
+              return;
+            }
+            // Delete the data file, the config entry, and the component on this fresh atomic
+            // operation, mirroring doCreateCollection in reverse. The collection was already removed
+            // from the in-memory registry by the caller, so this only reclaims on-disk/in-cache
+            // structure.
+            collection.delete(atomicOperation);
+            ((CollectionBasedStorageConfiguration) configuration)
+                .dropCollection(atomicOperation, realId);
+            linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, realId);
+          });
+    } catch (final IOException | RuntimeException | AssertionError e) {
+      // Best-effort: never let a cleanup failure mask the original commit exception that is
+      // propagating through the failure-path finally. AssertionError is caught for symmetry with the
+      // success-path snapshot cleanup, so a -ea-only assert along the cleanup path cannot escape and
+      // replace the real error.
+      LogManager.instance()
+          .warn(this,
+              "Failed to revert orphaned structure of collection id " + realId
+                  + " after a failed schema commit; a bounded single-collection leak may remain",
+              e);
     }
   }
 
