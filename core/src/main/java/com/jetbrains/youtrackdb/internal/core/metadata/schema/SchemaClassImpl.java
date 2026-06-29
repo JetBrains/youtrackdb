@@ -590,6 +590,15 @@ public abstract class SchemaClassImpl {
    * the class fields into it. Properties stay embedded within the class record.
    */
   public Entity toStream(DatabaseSessionEmbedded session, EntityImpl entity) {
+    // No provisional collection id (<= -2) may reach durable bytes: the commit resolves every
+    // provisional id to its real id before serializing, so a provisional id here means a
+    // reconciliation/resolution regression (a missed patch site, or serialization ordered before
+    // resolution). Caught at the serialization boundary during testing rather than as a "class lost
+    // its collections" symptom at the next database open. Zero production cost (asserts disabled).
+    assert noProvisionalCollectionId()
+        : "a provisional collection id reached toStream for class " + name
+            + " (defaultCollectionId=" + defaultCollectionId
+            + ", collectionIds=" + Arrays.toString(collectionIds) + ")";
     entity.setProperty("name", name);
     entity.setProperty("description", description);
     entity.setProperty("defaultCollectionId", defaultCollectionId);
@@ -626,6 +635,29 @@ public abstract class SchemaClassImpl {
         PropertyType.EMBEDDEDMAP);
 
     return entity;
+  }
+
+  /**
+   * Whether no collection id this class carries is provisional ({@code <= -2}) — the precondition
+   * {@link #toStream} asserts before writing the ids to durable bytes. Extracted to a helper so the
+   * multi-id scan does not report phantom JaCoCo branches inside the asserted expression (per the
+   * project's JaCoCo+assert guidance). Test-time guard only; never consulted in production.
+   */
+  private boolean noProvisionalCollectionId() {
+    if (SchemaShared.isProvisionalCollectionId(defaultCollectionId)) {
+      return false;
+    }
+    for (final var id : collectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(id)) {
+        return false;
+      }
+    }
+    for (final var id : polymorphicCollectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(id)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public int[] getCollectionIds() {
