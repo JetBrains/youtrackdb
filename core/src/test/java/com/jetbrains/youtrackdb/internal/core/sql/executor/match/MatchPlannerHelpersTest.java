@@ -274,7 +274,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 100);
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx);
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
     assertThat(estimate).isEqualTo(Math.round(101 * TEST_FAN_OUT));
   }
 
@@ -289,7 +289,7 @@ public class MatchPlannerHelpersTest {
 
     // Empty maps — origin alias not found
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
-        exp, Map.of(), Map.of(), Map.of(), Map.of(), ctx);
+        exp, Map.of(), Map.of(), Map.of(), ctx);
     assertThat(estimate).isEqualTo(Long.MAX_VALUE);
   }
 
@@ -321,7 +321,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 100);
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx);
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
     // (100+1) * TEST_FAN_OUT * TEST_FAN_OUT * TEST_SELECTIVITY
     long expected = Math.round(101 * TEST_FAN_OUT * TEST_FAN_OUT * TEST_SELECTIVITY);
     assertThat(estimate).isEqualTo(expected);
@@ -337,7 +337,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 50);
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx);
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
     assertThat(estimate).isEqualTo(Math.round(51 * TEST_FAN_OUT));
   }
 
@@ -352,7 +352,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 999);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isTrue();
   }
 
@@ -367,7 +367,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 1000);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
@@ -405,7 +405,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Huge", Long.MAX_VALUE / 5);
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
-        exp, Map.of("big", "Huge"), Map.of(), Map.of(), Map.of(), ctx);
+        exp, Map.of("big", "Huge"), Map.of(), Map.of(), ctx);
     assertThat(estimate).isEqualTo(Long.MAX_VALUE);
   }
 
@@ -424,7 +424,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 200);
 
     var estimate = MatchExecutionPlanner.estimateNotPatternCardinality(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx);
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx);
     // 200 + 1 (unfiltered bias) = 201, no fan-out
     assertThat(estimate).isEqualTo(201);
   }
@@ -441,7 +441,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 100);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isTrue();
   }
 
@@ -455,7 +455,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 100);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
@@ -469,7 +469,7 @@ public class MatchPlannerHelpersTest {
 
     // Empty aliasClasses — origin has no class
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of(), Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of(), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
@@ -483,7 +483,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 1_000_000);
 
     assertThat(MatchExecutionPlanner.canUseHashJoin(
-        exp, Map.of("person", "Person"), Map.of(), Map.of(), Map.of(), ctx))
+        exp, Map.of("person", "Person"), Map.of(), Map.of(), ctx))
         .isFalse();
   }
 
@@ -751,7 +751,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
 
     assertThat(result).hasSize(1);
     var branch = result.get(0);
@@ -810,7 +810,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
 
     assertThat(result).hasSize(1);
     var branch = result.get(0);
@@ -863,7 +863,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of("c", cFilter), Map.of(), Map.of(), ctx);
+        Map.of("c", cFilter), Map.of(), ctx);
 
     assertThat(result).isEmpty();
   }
@@ -886,7 +886,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, Set.of("a", "b"),
         Map.of("a", "Person", "b", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
 
     assertThat(result).isEmpty();
   }
@@ -933,7 +933,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, downstream,
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
 
     assertThat(result).isEmpty();
   }
@@ -964,7 +964,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         schedule, Set.of("a", "c"),
         Map.of("a", "Person", "b", "Person", "c", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
 
     assertThat(result).isEmpty();
   }
@@ -977,7 +977,7 @@ public class MatchPlannerHelpersTest {
     var ctx = buildMockContext("Person", 50);
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         List.of(), Set.of("a"),
-        Map.of("a", "Person"), Map.of(), Map.of(), Map.of(), ctx);
+        Map.of("a", "Person"), Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
@@ -995,7 +995,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
@@ -1041,7 +1041,7 @@ public class MatchPlannerHelpersTest {
         schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person",
             "$YOUTRACKDB_DEFAULT_ALIAS_0", "Person", "d", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
@@ -1058,7 +1058,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
     assertThat(result).hasSize(1);
     assertThat(result.get(0).scanAlias()).isEqualTo("a");
     assertThat(result.get(0).joinMode()).isEqualTo(JoinMode.SEMI_JOIN);
@@ -1076,7 +1076,7 @@ public class MatchPlannerHelpersTest {
     // No alias has a class → findScanAlias returns null → branch rejected
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
-        Map.of(), Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
@@ -1093,7 +1093,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of("c", cFilter), Map.of(), Map.of(), ctx);
+        Map.of("c", cFilter), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
@@ -1113,7 +1113,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of("d", dFilter), Map.of(), Map.of(), ctx);
+        Map.of("d", dFilter), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 
@@ -1129,7 +1129,7 @@ public class MatchPlannerHelpersTest {
     var result = MatchExecutionPlanner.identifyHashJoinBranches(
         diamond.schedule, Set.of("a", "d"),
         Map.of("a", "Person", "b", "Person", "c", "Person", "d", "Person"),
-        Map.of(), Map.of(), Map.of(), ctx);
+        Map.of(), Map.of(), ctx);
     assertThat(result).isEmpty();
   }
 

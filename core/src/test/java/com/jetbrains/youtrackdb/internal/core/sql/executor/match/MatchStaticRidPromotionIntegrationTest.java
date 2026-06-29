@@ -16,7 +16,7 @@ import org.junit.Test;
  * (YTDB-629). When a MATCH node carries a literal or parameter {@code @rid}
  * equality or static {@code @rid IN [...]} in its WHERE clause,
  * {@link MatchExecutionPlanner#promoteStaticRidsFromFilters} lifts it into
- * {@code aliasRids} or {@code aliasRidLists}. That has two observable effects
+ * {@code aliasPinnedRids}. That has two observable effects
  * in the plan:
  *
  * <ol>
@@ -244,7 +244,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
    * literal. This is the only end-to-end exercise of the parameter path through
    * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid#setExpression}
    * and {@code SQLRid.toRecordId}, which resolves the bound value at execution
-   * time; the unit tests only verify that the alias reaches {@code aliasRids}.
+   * time; the unit tests only verify that the alias reaches {@code aliasPinnedRids}.
    * Asserts both correct results (one path) and that {@code c} is fetched by RID.
    */
   @Test
@@ -607,7 +607,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   /**
    * Pre-existing RID slot wins (the YTDB-629 promoter guard). A node may carry
    * both an explicit {@code rid:} slot and a WHERE {@code @rid} equality. The
-   * parser slot populates {@code aliasRids} first, so the promoter skips the
+   * parser slot populates {@code aliasPinnedRids} first, so the promoter skips the
    * alias and never overwrites it; the WHERE term then applies as a post-fetch
    * filter. With slot {@code #c1} and a conflicting filter {@code #c2}
    * (c1 != c2), the record fetched by the slot fails the filter, so the query
