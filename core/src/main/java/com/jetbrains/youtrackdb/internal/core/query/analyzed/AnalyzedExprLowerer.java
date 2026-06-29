@@ -22,7 +22,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNumber;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLParenthesisExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSuffixIdentifier;
-import java.util.ArrayList;
 import java.util.List;
 
 /// Lowers the covered subset of the SQL parse tree (AST) into the analyzed-expression IR
@@ -33,24 +32,25 @@ import java.util.List;
 /// comparisons (`= != < <= > >=`), boolean `NOT`, parenthesized grouping, single-segment column
 /// references, numeric / string literals, and method-call coercions. Everything outside that subset
 /// throws [UnsupportedAnalyzedNodeException] rather than returning a partial tree — a successful
-/// `lower(...)` therefore means the whole input was covered. That no-silent-fallback contract is what
-/// later slices that consume the IR rely on.
+/// `lower(...)` therefore means the whole input was covered. That no-silent-fallback contract is
+/// what later slices that consume the IR rely on.
 ///
 /// The pass owns three mechanisms a naive field-by-field copy would get wrong:
 ///
-/// - **Exhaustive-or-throw field walk** over the union-style [SQLExpression]. [SQLExpression] holds a
-///   fixed bag of fields with exactly one non-null per parsed expression; the walk dispatches on the
-///   recognized in-subset fields and throws on everything else as its default, so an out-of-subset
-///   field (`rid`, `arrayConcatExpression`, `json`) or a future parser field throws rather than
-///   silently mis-reading.
+/// - **Exhaustive-or-throw field walk** over the union-style [SQLExpression]. [SQLExpression] holds
+///   a fixed bag of fields with exactly one non-null per parsed expression; the walk dispatches on
+///   the recognized in-subset fields and throws on everything else as its default, so an
+///   out-of-subset field (`rid`, `arrayConcatExpression`, `json`) or a future parser field throws
+///   rather than silently mis-reading.
 /// - **Parenthesis recursion.** A grouping parenthesis is transparent at evaluate time, so the pass
-///   recurses into the grouped expression and lets the IR tree's own nesting express the grouping; no
-///   IR paren node exists. A parenthesis wrapping a subquery statement throws.
-/// - **Precedence-climbing fold.** [SQLMathExpression] stores arithmetic as one flat list of operands
-///   and operators and resolves precedence at evaluate time. The pass reproduces the AST's
-///   precedence-and-associativity nesting structurally to build a correctly-nested [AnalyzedExpr.BinaryOp]
-///   tree. The fold determines nesting only — it computes no value — so all numeric-promotion
-///   semantics stay with the evaluator and cannot drift between the AST and the IR.
+///   recurses into the grouped expression and lets the IR tree's own nesting express the grouping;
+///   no IR paren node exists. A parenthesis wrapping a subquery statement throws.
+/// - **Precedence-climbing fold.** [SQLMathExpression] stores arithmetic as one flat list of
+///   operands and operators and resolves precedence at evaluate time. The pass reproduces the AST's
+///   precedence-and-associativity nesting structurally to build a correctly-nested
+///   [AnalyzedExpr.BinaryOp] tree. The fold determines nesting only — it computes no value — so
+///   all numeric-promotion semantics stay with the evaluator and cannot drift between the AST and
+///   the IR.
 public final class AnalyzedExprLowerer {
 
   private AnalyzedExprLowerer() {
@@ -60,10 +60,10 @@ public final class AnalyzedExprLowerer {
   /// [UnsupportedAnalyzedNodeException] for any out-of-subset shape.
   ///
   /// This is the field walk: it dispatches on the one recognized in-subset field that is set and
-  /// throws on everything else. The inherited `SimpleNode.value` field is not a dispatch key — the
-  /// generated parser mirrors the chosen typed field into `value`, but a recognized typed field is
-  /// always co-present, so the walk keys on the typed field and a non-null `value` is never treated
-  /// as out-of-subset.
+  /// throws on everything else. The inherited `SimpleNode.value` field is not a dispatch key —
+  /// the generated parser mirrors the chosen typed field into `value`, but a recognized typed field
+  /// is always co-present, so the walk keys on the typed field and a non-null `value` is never
+  /// treated as out-of-subset.
   public static AnalyzedExpr lower(SQLExpression expression) {
     if (AnalyzedAstAccess.isNull(expression)) {
       return new AnalyzedExpr.Const(null);
@@ -88,11 +88,12 @@ public final class AnalyzedExprLowerer {
 
   /// Lowers a [SQLMathExpression] node.
   ///
-  /// The math node is one of three shapes: a [SQLBaseExpression] leaf (number / identifier / string /
-  /// bind parameter, optionally with a modifier), a [SQLParenthesisExpression] grouping, or a generic
-  /// [SQLMathExpression] carrying the flat operand/operator lists for an arithmetic expression. A
-  /// single-operand arithmetic node is unwrapped by the parser to its sole child, so a generic
-  /// [SQLMathExpression] reaching here always carries at least two operands and one operator.
+  /// The math node is one of three shapes: a [SQLBaseExpression] leaf (number / identifier / string
+  /// / bind parameter, optionally with a modifier), a [SQLParenthesisExpression] grouping, or a
+  /// generic [SQLMathExpression] carrying the flat operand/operator lists for an arithmetic
+  /// expression. A single-operand arithmetic node is unwrapped by the parser to its sole child, so
+  /// a generic [SQLMathExpression] reaching here always carries at least two operands and one
+  /// operator.
   private static AnalyzedExpr lowerMath(SQLMathExpression mathExpression) {
     if (mathExpression instanceof SQLBaseExpression baseExpression) {
       return lowerBase(baseExpression);
@@ -112,19 +113,24 @@ public final class AnalyzedExprLowerer {
     return foldArithmetic(children, operators);
   }
 
-  /// Folds the flat operand/operator lists into a nested [AnalyzedExpr.BinaryOp] tree that matches the
-  /// AST's precedence-and-associativity nesting.
+  /// Folds the flat operand/operator lists into a nested [AnalyzedExpr.BinaryOp] tree that matches
+  /// the AST's precedence-and-associativity nesting.
   ///
   /// The AST resolves precedence at evaluate time by a precedence-climbing reduction keyed on
-  /// [Operator#getPriority] (a lower priority number binds tighter) with left-associative reduction.
-  /// This reproduces that nesting structurally: `a + b * c` (STAR binds tighter than PLUS) becomes
-  /// `PLUS(a, STAR(b, c))`, and `a - b - c` (equal precedence, left-associative) becomes
-  /// `MINUS(MINUS(a, b), c)`. The fold determines nesting only and computes no value.
+  /// [Operator#getPriority] (a lower priority number binds tighter) with left-associative
+  /// reduction. This reproduces that nesting structurally: `a + b * c` (STAR binds tighter than
+  /// PLUS) becomes `PLUS(a, STAR(b, c))`, and `a - b - c` (equal precedence, left-associative)
+  /// becomes `MINUS(MINUS(a, b), c)`. The fold determines nesting only and computes no value.
   private static AnalyzedExpr foldArithmetic(
       List<SQLMathExpression> children, List<Operator> operators) {
-    // Precedence climbing over the flat list. The cursor walks operand/operator pairs left to right;
-    // climb(minPriority) consumes every run of operators that bind at least as tight as minPriority,
-    // building the subtree for that run before returning to a looser-binding caller.
+    // Precedence climbing over the flat list. The cursor walks operand/operator pairs left to
+    // right; climb(minPriority) consumes every run of operators that bind at least as tight as
+    // minPriority, building the subtree for that run before returning to a looser-binding caller.
+    // The single caller (lowerMath) has already rejected any list shorter than two operands or with
+    // a mismatched operator count; co-locate that invariant here so the get(0) below is provably
+    // safe even if a future caller is added. Assert lines are excluded from the coverage gate, so
+    // this is free.
+    assert children != null && children.size() >= 2 && operators.size() == children.size() - 1;
     int[] cursor = {0};
     AnalyzedExpr first = lowerMath(children.get(cursor[0]));
     return climb(children, operators, cursor, first, Integer.MAX_VALUE);
@@ -134,9 +140,9 @@ public final class AnalyzedExprLowerer {
   /// left-associatively into {@code left}.
   ///
   /// `cursor[0]` is the index of the last operand already folded into `left`; `operators.get(i)`
-  /// joins `children.get(i)` and `children.get(i + 1)`. A lower priority number binds tighter, so an
-  /// operator participates at this level when its priority is `<= minPriority`. The right operand of a
-  /// tighter-binding operator is built by a nested climb bounded one step tighter
+  /// joins `children.get(i)` and `children.get(i + 1)`. A lower priority number binds tighter, so
+  /// an operator participates at this level when its priority is `<= minPriority`. The right
+  /// operand of a tighter-binding operator is built by a nested climb bounded one step tighter
   /// (`priority - 1`), which makes equal-priority operators left-associative — the AST's `<=`
   /// reduction.
   private static AnalyzedExpr climb(
@@ -153,22 +159,22 @@ public final class AnalyzedExprLowerer {
       }
       cursor[0]++;
       AnalyzedExpr right = lowerMath(children.get(cursor[0]));
-      // Left-associative: bind the right operand only as tightly as operators strictly tighter than
-      // this one, so a following equal-priority operator reduces with this result on its left.
+      // Left-associative: bind the right operand only as tightly as operators strictly tighter
+      // than this one, so a following equal-priority operator reduces with this result on its left.
       right = climb(children, operators, cursor, right, priority - 1);
       left = new AnalyzedExpr.BinaryOp(toArithmeticOperator(operator), left, right);
     }
     return left;
   }
 
-  /// Maps an AST arithmetic [Operator] to its IR [BinaryOperator], or throws for the operators the IR
-  /// does not model.
+  /// Maps an AST arithmetic [Operator] to its IR [BinaryOperator], or throws for the operators the
+  /// IR does not model.
   ///
-  /// The IR carries only the four arithmetic operators; the AST's `Operator` enum also has remainder,
-  /// the three shifts, the three bitwise operators, and null-coalescing. Those eight arrive on the
-  /// in-subset `mathExpression` field, so the field walk's throw-default never sees them — this
-  /// operator-level throw is what keeps them out, the operator-level analog of the field-level
-  /// exhaustive-or-throw.
+  /// The IR carries only the four arithmetic operators; the AST's `Operator` enum also has
+  /// remainder, the three shifts, the three bitwise operators, and null-coalescing. Those eight
+  /// arrive on the in-subset `mathExpression` field, so the field walk's throw-default never sees
+  /// them — this operator-level throw is what keeps them out, the operator-level analog of the
+  /// field-level exhaustive-or-throw.
   private static BinaryOperator toArithmeticOperator(Operator operator) {
     return switch (operator) {
       case PLUS -> BinaryOperator.PLUS;
@@ -179,11 +185,11 @@ public final class AnalyzedExprLowerer {
     };
   }
 
-  /// Lowers a [SQLParenthesisExpression]. A grouping parenthesis recurses into its inner expression;
-  /// a parenthesis wrapping a subquery statement throws.
+  /// Lowers a [SQLParenthesisExpression]. A grouping parenthesis recurses into its inner
+  /// expression; a parenthesis wrapping a subquery statement throws.
   ///
-  /// The `statement != null` check comes first: the two payloads are mutually exclusive, and reading
-  /// them in the wrong order would mis-handle a subquery as grouping.
+  /// The `statement != null` check comes first: the two payloads are mutually exclusive, and
+  /// reading them in the wrong order would mis-handle a subquery as grouping.
   private static AnalyzedExpr lowerParenthesis(SQLParenthesisExpression parenthesis) {
     if (AnalyzedAstAccess.parenStatement(parenthesis) != null) {
       throw new UnsupportedAnalyzedNodeException(parenthesis.getClass());
@@ -198,8 +204,8 @@ public final class AnalyzedExprLowerer {
   /// Lowers a [SQLBaseExpression] leaf.
   ///
   /// The leaf is one of: a numeric literal ([SQLNumber]), a single-segment column reference or a
-  /// method call (an identifier, optionally with a method-call modifier), a string literal (optionally
-  /// with a method-call modifier), or a bind parameter. Everything else throws.
+  /// method call (an identifier, optionally with a method-call modifier), a string literal
+  /// (optionally with a method-call modifier), or a bind parameter. Everything else throws.
   private static AnalyzedExpr lowerBase(SQLBaseExpression baseExpression) {
     SQLNumber number = AnalyzedAstAccess.number(baseExpression);
     if (number != null) {
@@ -209,8 +215,8 @@ public final class AnalyzedExprLowerer {
       return new AnalyzedExpr.Const(number.getValue());
     }
     if (AnalyzedAstAccess.inputParam(baseExpression) != null) {
-      // Bind parameters are not lowered in this subset; their IR representation is settled in a later
-      // slice and no current consumer depends on it.
+      // Bind parameters are not lowered in this subset; their IR representation is settled in a
+      // later slice and no current consumer depends on it.
       throw new UnsupportedAnalyzedNodeException(baseExpression.getClass());
     }
     String stringLiteral = baseExpression.getStringLiteralValue();
@@ -225,13 +231,13 @@ public final class AnalyzedExprLowerer {
     throw new UnsupportedAnalyzedNodeException(baseExpression.getClass());
   }
 
-  /// Lowers an identifier-bearing base expression to a single-segment [AnalyzedExpr.Var], or — when a
-  /// method-call modifier is present — to a [AnalyzedExpr.FuncCall].
+  /// Lowers an identifier-bearing base expression to a single-segment [AnalyzedExpr.Var], or —
+  /// when a method-call modifier is present — to a [AnalyzedExpr.FuncCall].
   ///
   /// Only the single-segment `suffix` column shape lowers to a `Var`. The `levelZero` form (a
   /// top-level function call including `any()` / `all()`, the `@this` self reference, or an inline
-  /// collection) is out of subset and throws: those carry semantics the IR does not reproduce, and a
-  /// `levelZero` matches no recognized leaf shape.
+  /// collection) is out of subset and throws: those carry semantics the IR does not reproduce, and
+  /// a `levelZero` matches no recognized leaf shape.
   private static AnalyzedExpr lowerIdentifier(
       SQLBaseExpression baseExpression, SQLBaseIdentifier identifier) {
     if (identifier.getLevelZero() != null) {
@@ -251,9 +257,10 @@ public final class AnalyzedExprLowerer {
   /// method-call modifier, or returns {@code base} unchanged when there is no modifier.
   ///
   /// A method-call modifier (`name.asInteger()`) is structurally a function call on the base value:
-  /// the method name becomes the call name and the base value its first argument. Any other modifier
-  /// shape (a multi-segment suffix chain `p.name`, an array selector, a chained modifier) is out of
-  /// subset and throws — only the single-segment `Var` and a single method-call modifier are covered.
+  /// the method name becomes the call name and the base value its first argument. Any other
+  /// modifier shape (a multi-segment suffix chain `p.name`, an array selector, a chained modifier)
+  /// is out of subset and throws — only the single-segment `Var` and a single method-call
+  /// modifier are covered.
   private static AnalyzedExpr lowerWithOptionalModifier(
       SQLBaseExpression baseExpression, AnalyzedExpr base) {
     SQLModifier modifier = baseExpression.getModifier();
@@ -270,39 +277,53 @@ public final class AnalyzedExprLowerer {
     if (methodName == null) {
       throw new UnsupportedAnalyzedNodeException(methodCall.getClass());
     }
-    List<AnalyzedExpr> args = new ArrayList<>();
-    args.add(base);
-    for (SQLExpression param : methodCall.getParams()) {
-      args.add(lower(param));
+    // Build the argument array once and wrap it in an immutable List via List.of: the base value is
+    // the first argument, each lowered method parameter follows. This avoids the second defensive
+    // copy a separate accumulator-plus-List.copyOf would cost while keeping the FuncCall's backing
+    // list read-only (FuncCall.args() is read-only by convention).
+    List<SQLExpression> params = methodCall.getParams();
+    AnalyzedExpr[] args = new AnalyzedExpr[params.size() + 1];
+    args[0] = base;
+    for (int i = 0; i < params.size(); i++) {
+      args[i + 1] = lower(params.get(i));
     }
-    return new AnalyzedExpr.FuncCall(methodName, List.copyOf(args));
+    return new AnalyzedExpr.FuncCall(methodName, List.of(args));
   }
 
   /// Lowers a [SQLBooleanExpression]: a comparison ([SQLBinaryCondition]) becomes a comparison
-  /// [AnalyzedExpr.BinaryOp], a [SQLNotBlock] becomes a [AnalyzedExpr.UnaryOp] (or a pass-through when
-  /// not negated), and every other boolean shape throws.
+  /// [AnalyzedExpr.BinaryOp], a [SQLNotBlock] becomes a [AnalyzedExpr.UnaryOp] (or a pass-through
+  /// when not negated), and every other boolean shape throws.
   ///
-  /// `AND` / `OR` blocks, `IN`, `BETWEEN`, `LIKE`, `IS NULL`, and the other boolean subtypes are out
-  /// of subset: the IR models no boolean connective, so these throw. The pass builds comparison
-  /// structure only — collation and the equality session-threading the AST applies at evaluate time
-  /// are the evaluator's job, not this pass's.
+  /// `AND` / `OR` blocks, `IN`, `BETWEEN`, `LIKE`, `IS NULL`, and the other boolean subtypes are
+  /// out of subset: the IR models no boolean connective, so these throw. The pass builds comparison
+  /// structure only — collation and the equality session-threading the AST applies at evaluate
+  /// time are the evaluator's job, not this pass's.
   ///
   /// Package-visible: a [SQLBooleanExpression] reaches the [#lower] field walk only through a
-  /// [SQLExpression] whose `booleanExpression` field is set, and the AST exposes no public setter for
-  /// that field. A same-package caller (such as the lowering test) that has parsed a comparison or
-  /// `NOT` block directly enters the boolean path here.
+  /// [SQLExpression] whose `booleanExpression` field is set, and the AST exposes no public setter
+  /// for that field. A same-package caller (such as the lowering test) that has parsed a comparison
+  /// or `NOT` block directly enters the boolean path here.
   static AnalyzedExpr lowerBoolean(SQLBooleanExpression booleanExpression) {
     if (booleanExpression instanceof SQLBinaryCondition condition) {
       return lowerComparison(condition);
     }
     if (booleanExpression instanceof SQLNotBlock notBlock) {
-      // The sub of a NOT block is itself a boolean expression, so it lowers through this same boolean
-      // entry rather than the value-expression field walk.
-      AnalyzedExpr sub = lowerBoolean(notBlock.getSub());
+      // The sub of a NOT block is itself a boolean expression, so it lowers through this same
+      // boolean entry rather than the value-expression field walk. SQLNotBlock.sub is a nullable
+      // field (the AST class treats a null sub as a real state in its own evaluate guard), so a
+      // same-package caller holding a hand-built NOT block with sub unset would NPE in the
+      // recursion. Throw the contract's typed failure instead, keeping the boolean entry's "throw,
+      // never anything else" promise total.
+      SQLBooleanExpression notSub = notBlock.getSub();
+      if (notSub == null) {
+        throw new UnsupportedAnalyzedNodeException(notBlock.getClass());
+      }
+      AnalyzedExpr sub = lowerBoolean(notSub);
       if (notBlock.isNegate()) {
         return new AnalyzedExpr.UnaryOp(UnaryOperator.NOT, sub);
       }
-      // A non-negated NOT block is a transparent wrapper: pass through to the lowered sub-expression.
+      // A non-negated NOT block is a transparent wrapper: pass through to the lowered
+      // sub-expression.
       return sub;
     }
     throw new UnsupportedAnalyzedNodeException(booleanExpression.getClass());
@@ -317,14 +338,14 @@ public final class AnalyzedExprLowerer {
     return new AnalyzedExpr.BinaryOp(operator, left, right);
   }
 
-  /// Maps an AST [SQLBinaryCompareOperator] to its IR comparison [BinaryOperator], or throws for the
-  /// operators the IR does not model.
+  /// Maps an AST [SQLBinaryCompareOperator] to its IR comparison [BinaryOperator], or throws for
+  /// the operators the IR does not model.
   ///
   /// Seven in-subset operator classes map to six IR constants — both `!=` spellings
   /// ([SQLNeqOperator] for `<>` and [SQLNeOperator] for `!=`) collapse to [BinaryOperator#NE]. The
-  /// other eight comparison operators (`CONTAINSKEY`, `CONTAINSVALUE`, `IN`, `LIKE`, `LUCENE`, `NEAR`,
-  /// `&&`, `WITHIN`) are out of subset and throw. The mapping is by concrete type because the
-  /// operators are distinct classes, not enum constants.
+  /// other eight comparison operators (`CONTAINSKEY`, `CONTAINSVALUE`, `IN`, `LIKE`, `LUCENE`,
+  /// `NEAR`, `&&`, `WITHIN`) are out of subset and throw. The mapping is by concrete type because
+  /// the operators are distinct classes, not enum constants.
   private static BinaryOperator toComparisonOperator(SQLBinaryCompareOperator operator) {
     if (operator instanceof SQLEqualsOperator) {
       return BinaryOperator.EQ;

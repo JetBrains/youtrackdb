@@ -7,24 +7,24 @@ import javax.annotation.Nullable;
 ///
 /// The lowering pass lives in {@code com.jetbrains.youtrackdb.internal.core.query.analyzed} and
 /// reads the AST to build the analyzed-expression IR. Most of the fields it needs already have
-/// public getters ({@code SQLExpression.getMathExpression()}, {@code SQLBaseExpression.getIdentifier()},
-/// and so on); the lowering pass uses those directly. A handful of fields are {@code protected} or
-/// package-private and have no getter, so a same-package accessor is the only forward-dependency way
-/// to read them without editing the generated parse-node classes. This class supplies exactly those
-/// reads.
+/// public getters ({@code SQLExpression.getMathExpression()},
+/// {@code SQLBaseExpression.getIdentifier()}, and so on); the lowering pass uses those directly. A
+/// handful of fields are {@code protected} or package-private and have no getter, so a same-package
+/// accessor is the only forward-dependency way to read them without editing the generated
+/// parse-node classes. This class supplies exactly those reads.
 ///
 /// The class is deliberately one-directional: it takes {@code sql.parser} AST nodes and returns
 /// {@code sql.parser} / {@code java} types only, naming no {@code query.analyzed} type. So the
-/// dependency edge stays {@code query.analyzed → sql.parser} (the lowering pass depends on the AST),
-/// never the reverse. It is final, has a private constructor, and exposes only static read methods —
-/// it adds no behavior to the AST and holds no state.
+/// dependency edge stays {@code query.analyzed → sql.parser} (the lowering pass depends on the
+/// AST), never the reverse. It is final, has a private constructor, and exposes only static read
+/// methods — it adds no behavior to the AST and holds no state.
 ///
 /// `SQLExpression.literalValue` is intentionally NOT exposed. It is `private` (unreadable even from
-/// this same-package accessor) and is never assigned on the SQL `Expression()` parse path — only the
-/// GQL lowering, deserialize, and copy paths write it. The lowering pass dispatches on the recognized
-/// typed fields and throws on everything else as its default, so a hypothetically-set `literalValue`
-/// (deserialized / GQL-originated) is covered by that throw-default. Exposing it here is deferred to
-/// the GQL-lowering slice.
+/// this same-package accessor) and is never assigned on the SQL `Expression()` parse path — only
+/// the GQL lowering, deserialize, and copy paths write it. The lowering pass dispatches on the
+/// recognized typed fields and throws on everything else as its default, so a hypothetically-set
+/// `literalValue` (deserialized / GQL-originated) is covered by that throw-default. Exposing it
+/// here is deferred to the GQL-lowering slice.
 public final class AnalyzedAstAccess {
 
   private AnalyzedAstAccess() {
@@ -42,8 +42,8 @@ public final class AnalyzedAstAccess {
     return expression.isNull;
   }
 
-  /// The boolean-expression payload (a comparison, `NOT`, `AND`/`OR`, …), or {@code null} when the
-  /// expression carries no boolean expression.
+  /// The boolean-expression payload (a comparison, `NOT`, `AND`/`OR`, …), or {@code null} when
+  /// the expression carries no boolean expression.
   @Nullable
   public static SQLBooleanExpression booleanExpression(SQLExpression expression) {
     return expression.booleanExpression;
@@ -56,8 +56,8 @@ public final class AnalyzedAstAccess {
     return baseExpression.number;
   }
 
-  /// The bind-parameter node of a base expression, or {@code null} when the base expression is not a
-  /// bind parameter.
+  /// The bind-parameter node of a base expression, or {@code null} when the base expression is not
+  /// a bind parameter.
   @Nullable
   public static SQLInputParameter inputParam(SQLBaseExpression baseExpression) {
     return baseExpression.inputParam;

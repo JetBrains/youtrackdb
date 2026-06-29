@@ -19,24 +19,26 @@ import org.junit.Test;
 
 /// Lowering unit test for {@link AnalyzedExprLowerer}.
 ///
-/// Two property families are checked. First, each in-subset AST shape lowers to the exact expected IR
-/// tree — the IR variants are records with structural `equals`, so the produced {@link AnalyzedExpr}
-/// tree is asserted directly in-track, no evaluator needed. The mixed-precedence and same-precedence
-/// cases are the load-bearing ones: a mis-nesting bug in the precedence fold would surface here rather
-/// than two tracks later in the round-trip parity suite. Second, every out-of-subset shape throws
-/// {@link UnsupportedAnalyzedNodeException} rather than returning a partial tree — the no-silent-
-/// fallback contract a successful `lower(...)` promises. The throw cases are exhaustive over the kinds
-/// of out-of-subset shape: out-of-subset {@link SQLExpression} fields, out-of-subset arithmetic
-/// operators that reach the in-subset `mathExpression` field, out-of-subset comparison operators and
-/// non-comparison boolean shapes, subqueries and CASE, top-level function / `@this` / inline-collection
-/// identifiers, multi-segment column paths, and bind parameters.
+/// Two property families are checked. First, each in-subset AST shape lowers to the exact expected
+/// IR tree — the IR variants are records with structural `equals`, so the produced {@link
+/// AnalyzedExpr} tree is asserted directly in-track, no evaluator needed. The mixed-precedence and
+/// same-precedence cases are the load-bearing ones: a mis-nesting bug in the precedence fold would
+/// surface here rather than two tracks later in the round-trip parity suite. Second, every
+/// out-of-subset shape throws {@link UnsupportedAnalyzedNodeException} rather than returning a
+/// partial tree — the no-silent-fallback contract a successful `lower(...)` promises. The throw
+/// cases are exhaustive over the kinds of out-of-subset shape: out-of-subset {@link SQLExpression}
+/// fields, out-of-subset arithmetic operators that reach the in-subset `mathExpression` field,
+/// out-of-subset comparison operators and non-comparison boolean shapes, subqueries and CASE,
+/// top-level function / `@this` / inline-collection identifiers, multi-segment column paths, and
+/// bind parameters.
 ///
-/// AST inputs are produced by parsing real SQL through {@link YouTrackDBSql}, so the test exercises the
-/// genuine parse shapes the lowering pass meets in production rather than hand-built nodes. Comparison
-/// and `NOT` inputs are parsed directly into {@link SQLBinaryCondition} / {@link SQLNotBlock} and lowered
-/// through {@link AnalyzedExprLowerer#lowerBoolean}: a boolean expression reaches the public field walk
-/// only inside a {@link SQLExpression} whose `booleanExpression` field is set, and the AST exposes no
-/// public setter for that field, so the same-package boolean entry is the in-test route.
+/// AST inputs are produced by parsing real SQL through {@link YouTrackDBSql}, so the test exercises
+/// the genuine parse shapes the lowering pass meets in production rather than hand-built nodes.
+/// Comparison and `NOT` inputs are parsed directly into {@link SQLBinaryCondition} / {@link
+/// SQLNotBlock} and lowered through {@link AnalyzedExprLowerer#lowerBoolean}: a boolean expression
+/// reaches the public field walk only inside a {@link SQLExpression} whose `booleanExpression`
+/// field is set, and the AST exposes no public setter for that field, so the same-package boolean
+/// entry is the in-test route.
 public class AnalyzedExprLowererTest {
 
   /// Parses a value expression (e.g. `a + b * c`, `5`, `name.asInteger()`) into an
@@ -91,10 +93,10 @@ public class AnalyzedExprLowererTest {
 
   // ---- Arithmetic precedence fold ----
 
-  /// WHEN `a + b * c` is lowered, THE precedence fold nests the tighter-binding `*` under the `+`, so
-  /// the IR is `PLUS(a, STAR(b, c))` rather than the naive left-to-right `STAR(PLUS(a, b), c)`. This is
-  /// the mixed-precedence case the round-trip parity suite ultimately backs; a mis-nesting here would
-  /// change the computed value.
+  /// WHEN `a + b * c` is lowered, THE precedence fold nests the tighter-binding `*` under the `+`,
+  /// so the IR is `PLUS(a, STAR(b, c))` rather than the naive left-to-right `STAR(PLUS(a, b), c)`.
+  /// This is the mixed-precedence case the round-trip parity suite ultimately backs; a mis-nesting
+  /// here would change the computed value.
   @Test
   public void mixedPrecedenceNestsTighterOperatorDeeper() {
     AnalyzedExpr expected =
@@ -114,9 +116,25 @@ public class AnalyzedExprLowererTest {
     assertEquals(expected, lower("a - b - c"));
   }
 
+  /// WHEN same-priority tight-binding operators chain (`a * b / c`), THE fold is left-associative
+  /// at the tight priority band (STAR and SLASH share priority 10), producing `SLASH(STAR(a, b),
+  /// c)` rather than the right-associative `STAR(a, SLASH(b, c))`. Division is the value-sensitive
+  /// case (`a / b / c` left-assoc differs from right-assoc), and left-associativity was previously
+  /// pinned only at the looser priority-20 band; this exercises the `priority - 1` bound at
+  /// priority 10.
+  @Test
+  public void samePriorityTightGroupFoldsLeftAssociative() {
+    AnalyzedExpr expected =
+        new BinaryOp(
+            BinaryOperator.SLASH,
+            new BinaryOp(BinaryOperator.STAR, var("a"), var("b")),
+            var("c"));
+    assertEquals(expected, lower("a * b / c"));
+  }
+
   /// WHEN a longer mixed expression `a * b + c * d` is lowered, THE two multiplications each bind
-  /// tighter than the addition, so the IR is `PLUS(STAR(a, b), STAR(c, d))`. This pins the fold across
-  /// two independent tighter-binding runs around a looser operator.
+  /// tighter than the addition, so the IR is `PLUS(STAR(a, b), STAR(c, d))`. This pins the fold
+  /// across two independent tighter-binding runs around a looser operator.
   @Test
   public void mixedPrecedenceAcrossTwoTighterRuns() {
     AnalyzedExpr expected =
@@ -127,8 +145,8 @@ public class AnalyzedExprLowererTest {
     assertEquals(expected, lower("a * b + c * d"));
   }
 
-  /// WHEN each of the four arithmetic operators appears, THE fold maps it to the matching IR operator.
-  /// A flat two-operand expression has one operator, so each case isolates one mapping.
+  /// WHEN each of the four arithmetic operators appears, THE fold maps it to the matching IR
+  /// operator. A flat two-operand expression has one operator, so each case isolates one mapping.
   @Test
   public void eachArithmeticOperatorMapsToItsIrOperator() {
     assertEquals(new BinaryOp(BinaryOperator.PLUS, var("a"), var("b")), lower("a + b"));
@@ -139,8 +157,8 @@ public class AnalyzedExprLowererTest {
 
   // ---- Parenthesized grouping ----
 
-  /// WHEN `(a + b) * c` is lowered, THE grouping parenthesis is transparent — the lowerer recurses into
-  /// the grouped expression and the IR tree's own nesting expresses the grouping, producing
+  /// WHEN `(a + b) * c` is lowered, THE grouping parenthesis is transparent — the lowerer recurses
+  /// into the grouped expression and the IR tree's own nesting expresses the grouping, producing
   /// `STAR(PLUS(a, b), c)`. There is no paren IR node.
   @Test
   public void parenthesizedGroupingRecursesAndNestsByTreeShape() {
@@ -166,8 +184,8 @@ public class AnalyzedExprLowererTest {
     assertEquals(new Const(null), lower("null"));
   }
 
-  /// WHEN the boolean literals `true` and `false` are lowered, THE IR is a {@link Const} carrying the
-  /// boxed boolean — the `booleanValue` field of the union expression.
+  /// WHEN the boolean literals `true` and `false` are lowered, THE IR is a {@link Const} carrying
+  /// the boxed boolean — the `booleanValue` field of the union expression.
   @Test
   public void booleanLiteralsLowerToConst() {
     assertEquals(new Const(true), lower("true"));
@@ -181,11 +199,37 @@ public class AnalyzedExprLowererTest {
     assertEquals(new Const(42), lower("42"));
   }
 
-  /// WHEN a negative integer literal `-5` is lowered, THE sign is already folded into the literal value
-  /// by the parser, so the IR is one {@link Const} carrying `-5` — not a unary-minus wrapper.
+  /// WHEN a negative integer literal `-5` is lowered, THE sign is already folded into the literal
+  /// value by the parser, so the IR is one {@link Const} carrying `-5` — not a unary-minus wrapper.
   @Test
   public void negativeIntegerLiteralLowersToOneNegativeConst() {
     assertEquals(new Const(-5), lower("-5"));
+  }
+
+  /// WHEN integer literals across the Integer / Long boxing boundary are lowered, THE Const carries
+  /// the exact boxed numeric type the parser produced: an in-int-range literal as Integer, an
+  /// L-suffixed literal as Long, and a literal whose magnitude overflows int as Long. The boxed
+  /// type is load-bearing because {@link Const} uses structural equals — Integer(9) does not equal
+  /// Long(9L) — so a value-type regression in the IR's numeric lane is pinned here rather than only
+  /// surfacing in the later round-trip parity suite.
+  @Test
+  public void integerLiteralsLowerToConstWithParserNumericType() {
+    assertEquals(new Const(42), lower("42")); // in int range, no suffix -> Integer
+    assertEquals(new Const(9L), lower("9L")); // L suffix -> Long
+    assertEquals(new Const(9999999999L), lower("9999999999")); // overflows int -> Long
+  }
+
+  /// WHEN floating-point literals across the three {@link
+  /// com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFloatingPoint} type-selection branches
+  /// are lowered, THE Const carries the exact boxed numeric the parser produced — a small no-suffix
+  /// literal downcast to Float, an explicit D-suffix as Double, an F-suffix as Float. Same
+  /// rationale as the integer case: the boxed type is load-bearing under {@link Const}'s structural
+  /// equals, so a type-selection regression in the float lane surfaces in-track.
+  @Test
+  public void floatingPointLiteralsLowerToConstWithParserNumericType() {
+    assertEquals(new Const(1.5f), lower("1.5")); // no suffix, |v| < Float.MAX_VALUE -> Float
+    assertEquals(new Const(2.0d), lower("2.0d")); // D suffix -> Double
+    assertEquals(new Const(3.5f), lower("3.5f")); // F suffix -> Float
   }
 
   /// WHEN a string literal `'hello'` is lowered, THE IR is a {@link Const} carrying the unquoted,
@@ -195,18 +239,28 @@ public class AnalyzedExprLowererTest {
     assertEquals(new Const("hello"), lower("'hello'"));
   }
 
-  /// WHEN a method-call coercion `name.asInteger()` is lowered, THE IR is a {@link FuncCall} named for
-  /// the method, with the lowered base column as its first argument. Method-call syntax is structurally
-  /// a function call on the base value.
+  /// WHEN a string literal carries an escape sequence (`'a\tb'`) or uses the double-quote delimiter
+  /// (`"hi"`), THE Const carries the unquoted, escape-decoded value. This pins that lowering reads
+  /// the decoded string value (both quote styles route through the same decode path), not the raw
+  /// quoted field — the escape-free `'hello'` case above leaves that decode behavior unexercised.
+  @Test
+  public void stringLiteralLowersDecodedValueForEscapesAndDoubleQuotes() {
+    assertEquals(new Const("a\tb"), lower("'a\\tb'")); // escape decoded
+    assertEquals(new Const("hi"), lower("\"hi\"")); // double-quoted, same decode path
+  }
+
+  /// WHEN a method-call coercion `name.asInteger()` is lowered, THE IR is a {@link FuncCall} named
+  /// for the method, with the lowered base column as its first argument. Method-call syntax is
+  /// structurally a function call on the base value.
   @Test
   public void methodCallLowersToFuncCallOverBase() {
     assertEquals(
         new FuncCall("asInteger", List.of(var("name"))), lower("name.asInteger()"));
   }
 
-  /// WHEN a method call carries an argument `name.append('x')` is lowered, THE IR is a {@link FuncCall}
-  /// whose argument list is the lowered base followed by each lowered method argument. This exercises
-  /// the argument-lowering loop a zero-argument method call leaves uncovered.
+  /// WHEN a method call carries an argument `name.append('x')` is lowered, THE IR is a {@link
+  /// FuncCall} whose argument list is the lowered base followed by each lowered method argument.
+  /// This exercises the argument-lowering loop a zero-argument method call leaves uncovered.
   @Test
   public void methodCallWithArgumentLowersArgumentsAfterBase() {
     assertEquals(
@@ -214,46 +268,64 @@ public class AnalyzedExprLowererTest {
         lower("name.append('x')"));
   }
 
+  /// WHEN a method-call argument is itself a compound expression `name.f(a + c)`, THE FuncCall
+  /// carries the fully-lowered argument subtree after the base. This pins that the argument loop
+  /// recurses through `lower(param)` to build a nested IR tree rather than only handling leaf
+  /// arguments — the leaf-argument case above bottoms out the recursion immediately and would not
+  /// catch a one-level-only recursion bug.
+  @Test
+  public void methodCallWithCompoundArgumentLowersArgumentSubtree() {
+    assertEquals(
+        new FuncCall(
+            "f",
+            List.of(var("name"), new BinaryOp(BinaryOperator.PLUS, var("a"), var("c")))),
+        lower("name.f(a + c)"));
+  }
+
   // ---- Comparison ----
 
-  /// WHEN each of the six comparison operators is lowered, THE concrete operator class maps to its IR
-  /// comparison operator and the operands lower to their leaf IR. Both `!=` spellings (`!=` and `<>`)
-  /// collapse to {@link BinaryOperator#NE}.
+  /// WHEN each of the six comparison operators is lowered, THE concrete operator class maps to its
+  /// IR comparison operator and the operands lower to their leaf IR. Both `!=` spellings (`!=` and
+  /// `<>`) collapse to {@link BinaryOperator#NE}.
   @Test
   public void eachComparisonOperatorMapsToItsIrOperator() {
-    assertEquals(comparison(BinaryOperator.EQ), lowerComparison("a = b"));
-    assertEquals(comparison(BinaryOperator.NE), lowerComparison("a != b"));
-    assertEquals(comparison(BinaryOperator.NE), lowerComparison("a <> b"));
-    assertEquals(comparison(BinaryOperator.LT), lowerComparison("a < b"));
-    assertEquals(comparison(BinaryOperator.LE), lowerComparison("a <= b"));
-    assertEquals(comparison(BinaryOperator.GT), lowerComparison("a > b"));
-    assertEquals(comparison(BinaryOperator.GE), lowerComparison("a >= b"));
+    assertEquals(comparison(BinaryOperator.EQ), lowerComparisonSql("a = b"));
+    assertEquals(comparison(BinaryOperator.NE), lowerComparisonSql("a != b"));
+    assertEquals(comparison(BinaryOperator.NE), lowerComparisonSql("a <> b"));
+    assertEquals(comparison(BinaryOperator.LT), lowerComparisonSql("a < b"));
+    assertEquals(comparison(BinaryOperator.LE), lowerComparisonSql("a <= b"));
+    assertEquals(comparison(BinaryOperator.GT), lowerComparisonSql("a > b"));
+    assertEquals(comparison(BinaryOperator.GE), lowerComparisonSql("a >= b"));
   }
 
   private static BinaryOp comparison(BinaryOperator operator) {
     return new BinaryOp(operator, var("a"), var("b"));
   }
 
-  private static AnalyzedExpr lowerComparison(String sql) {
+  /// Parses an SQL comparison string into an {@link SQLBinaryCondition} and lowers it through the
+  /// package-visible {@link AnalyzedExprLowerer#lowerBoolean} entry. Named for the entry it
+  /// exercises (the boolean walk) rather than the production private {@code lowerComparison}, which
+  /// it does not call directly.
+  private static AnalyzedExpr lowerComparisonSql(String sql) {
     return AnalyzedExprLowerer.lowerBoolean(parseComparison(sql));
   }
 
   // ---- NOT (UnaryOp) ----
 
-  /// WHEN `NOT a = b` is lowered, THE negated block becomes a {@link UnaryOp} carrying `NOT` over the
-  /// lowered comparison. The condition is left unparenthesized on purpose: a parenthesized boolean
-  /// `(a = b)` parses as a `SQLParenthesisBlock`, an out-of-subset boolean wrapper that throws, so the
-  /// bare form is what exercises a `NOT` directly over a {@link SQLBinaryCondition}.
+  /// WHEN `NOT a = b` is lowered, THE negated block becomes a {@link UnaryOp} carrying `NOT` over
+  /// the lowered comparison. The condition is left unparenthesized on purpose: a parenthesized
+  /// boolean `(a = b)` parses as a `SQLParenthesisBlock`, an out-of-subset boolean wrapper that
+  /// throws, so the bare form is what exercises a `NOT` directly over a {@link SQLBinaryCondition}.
   @Test
   public void negatedNotBlockLowersToUnaryNot() {
     AnalyzedExpr expected = new UnaryOp(UnaryOperator.NOT, comparison(BinaryOperator.EQ));
     assertEquals(expected, AnalyzedExprLowerer.lowerBoolean(parseNotBlock("NOT a = b")));
   }
 
-  /// WHEN a parenthesized boolean `NOT (a = b)` is lowered, THE pass throws: the parenthesis around the
-  /// comparison parses as a `SQLParenthesisBlock`, a boolean wrapper outside the comparison-or-`NOT`
-  /// subset, so it hits the boolean throw-default. This pins that the in-subset boolean shapes are a
-  /// bare comparison and a bare `NOT`, not a parenthesized boolean.
+  /// WHEN a parenthesized boolean `NOT (a = b)` is lowered, THE pass throws: the parenthesis around
+  /// the comparison parses as a `SQLParenthesisBlock`, a boolean wrapper outside the
+  /// comparison-or-`NOT` subset, so it hits the boolean throw-default. This pins that the in-subset
+  /// boolean shapes are a bare comparison and a bare `NOT`, not a parenthesized boolean.
   @Test
   public void parenthesizedBooleanBlockThrows() {
     assertThrows(
@@ -261,9 +333,9 @@ public class AnalyzedExprLowererTest {
         () -> AnalyzedExprLowerer.lowerBoolean(parseNotBlock("NOT (a = b)")));
   }
 
-  /// WHEN a non-negated boolean block (a bare comparison parsed through the NOT-block production with
-  /// `negate` false) is lowered, THE wrapper is transparent: the result is the lowered sub-expression
-  /// with no `UnaryOp`. This pins the pass-through branch of the `NOT` handling.
+  /// WHEN a non-negated boolean block (a bare comparison parsed through the NOT-block production
+  /// with `negate` false) is lowered, THE wrapper is transparent: the result is the lowered
+  /// sub-expression with no `UnaryOp`. This pins the pass-through branch of the `NOT` handling.
   @Test
   public void nonNegatedNotBlockPassesThroughToSub() {
     SQLNotBlock block = parseNotBlock("a = b");
@@ -272,17 +344,31 @@ public class AnalyzedExprLowererTest {
     assertEquals(comparison(BinaryOperator.EQ), AnalyzedExprLowerer.lowerBoolean(block));
   }
 
+  /// WHEN a hand-built {@link SQLNotBlock} with its `sub` left unset (null) is lowered, THE pass
+  /// throws {@link UnsupportedAnalyzedNodeException}, not a NullPointerException. The parser never
+  /// produces a null-sub NOT block, but {@code lowerBoolean} is package-visible so a same-package
+  /// caller could hold a partially-built node; the null guard keeps the boolean entry's "throw,
+  /// never anything else" contract total rather than NPEing in the recursion.
+  @Test
+  public void notBlockWithNullSubThrowsTypedExceptionNotNpe() {
+    SQLNotBlock block = new SQLNotBlock(-1);
+    // sub is left unset (null); negate defaults to false. Reaching the sub recursion would NPE
+    // without the guard, so this pins the typed-failure contract on the package-visible entry.
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class, () -> AnalyzedExprLowerer.lowerBoolean(block));
+  }
+
   // ---- Throw cases: out-of-subset SQLExpression fields ----
 
-  /// WHEN an `@rid` literal (the `rid` field) is lowered, THE pass throws — `rid` is an out-of-subset
-  /// field caught by the field walk's throw-default.
+  /// WHEN an `@rid` literal (the `rid` field) is lowered, THE pass throws — `rid` is an
+  /// out-of-subset field caught by the field walk's throw-default.
   @Test
   public void ridFieldThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("#12:0"));
   }
 
-  /// WHEN an array-concat expression (`a || b`, the `arrayConcatExpression` field) is lowered, THE pass
-  /// throws as an out-of-subset field.
+  /// WHEN an array-concat expression (`a || b`, the `arrayConcatExpression` field) is lowered, THE
+  /// pass throws as an out-of-subset field.
   @Test
   public void arrayConcatFieldThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("a || b"));
@@ -304,26 +390,37 @@ public class AnalyzedExprLowererTest {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("a % b"));
   }
 
-  /// WHEN a left-shift `a << b` is lowered, THE pass throws as an out-of-subset arithmetic operator,
-  /// covering a shift operator distinct from the remainder case above.
+  /// WHEN a left-shift `a << b` is lowered, THE pass throws as an out-of-subset arithmetic
+  /// operator, covering a shift operator distinct from the remainder case above.
   @Test
   public void leftShiftOperatorThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("a << b"));
   }
 
-  /// WHEN a bitwise-and `a & b` is lowered, THE pass throws as an out-of-subset arithmetic operator,
-  /// covering a bitwise operator.
+  /// WHEN a bitwise-and `a & b` is lowered, THE pass throws as an out-of-subset arithmetic
+  /// operator, covering a bitwise operator.
   @Test
   public void bitwiseAndOperatorThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("a & b"));
+  }
+
+  /// WHEN a null-coalescing operator sits at a precedence interleaved with an in-subset operator
+  /// (`a + b ?? c`: `??` has priority 25, between PLUS at 20 and the shifts at 30), THE pass
+  /// throws. This is the one out-of-subset arithmetic operator whose throw is reached AFTER the
+  /// fold has already built a partial sub-tree (`a + b`), a different control-flow position than
+  /// the first-and-only-operator throws above — the position where a partial-tree leak would hide
+  /// if the operator-level throw were ever weakened to a skip.
+  @Test
+  public void nullCoalescingOperatorThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("a + b ?? c"));
   }
 
   // ---- Throw cases: out-of-subset comparison and non-comparison boolean shapes ----
 
   /// WHEN a `LIKE` comparison is lowered, THE operator mapping throws: `LIKE` is one of the eight
   /// out-of-subset comparison operators that may sit inside a {@link SQLBinaryCondition}. Parsing
-  /// through the comparison production (rather than an `OR` block) exercises the operator-to-IR mapping
-  /// throw rather than the boolean throw-default.
+  /// through the comparison production (rather than an `OR` block) exercises the operator-to-IR
+  /// mapping throw rather than the boolean throw-default.
   @Test
   public void likeComparisonOperatorThrows() {
     assertThrows(
@@ -341,10 +438,20 @@ public class AnalyzedExprLowererTest {
         () -> AnalyzedExprLowerer.lowerBoolean(parseComparison("a containskey 'k'")));
   }
 
-  /// WHEN an `IN` condition is lowered, THE pass throws: `IN` parses as a dedicated `SQLInCondition`
-  /// boolean subtype (not a {@link SQLBinaryCondition}), so it hits the boolean throw-default rather
-  /// than the operator mapping. This complements the operator-mapping throws above by covering an
-  /// out-of-subset boolean subtype.
+  /// WHEN a `&&` comparison (`SQLScAndOperator`) is lowered, THE operator mapping throws, covering
+  /// the out-of-subset comparison operator whose token most resembles the bitwise `&` arithmetic
+  /// operator — the one a future refactor could most plausibly mis-map by confusing the two paths.
+  @Test
+  public void scAndComparisonOperatorThrows() {
+    assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprLowerer.lowerBoolean(parseComparison("a && b")));
+  }
+
+  /// WHEN an `IN` condition is lowered, THE pass throws: `IN` parses as a dedicated
+  /// `SQLInCondition` boolean subtype (not a {@link SQLBinaryCondition}), so it hits the boolean
+  /// throw-default rather than the operator mapping. This complements the operator-mapping throws
+  /// above by covering an out-of-subset boolean subtype.
   @Test
   public void inConditionThrows() {
     assertThrows(
@@ -352,9 +459,9 @@ public class AnalyzedExprLowererTest {
         () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a in [1, 2]")));
   }
 
-  /// WHEN a non-comparison boolean shape `a = 1 AND b = 2` (an `AND` block) is lowered, THE pass throws:
-  /// the IR models no `AND` / `OR` connective, so every boolean shape other than a comparison or `NOT`
-  /// hits the boolean throw-default.
+  /// WHEN a non-comparison boolean shape `a = 1 AND b = 2` (an `AND` block) is lowered, THE pass
+  /// throws: the IR models no `AND` / `OR` connective, so every boolean shape other than a
+  /// comparison or `NOT` hits the boolean throw-default.
   @Test
   public void andBooleanShapeThrows() {
     assertThrows(
@@ -362,20 +469,43 @@ public class AnalyzedExprLowererTest {
         () -> AnalyzedExprLowerer.lowerBoolean(parseOrBlock("a = 1 AND b = 2")));
   }
 
-  /// WHEN a method call carries an argument the subset does not lower `name.f(a = b)`, THE pass throws.
-  /// The argument `a = b` parses as a boolean inside the method-call modifier, an out-of-subset modifier
-  /// shape, so the whole expression is rejected. This pins that a method call is lowered only when its
-  /// modifier and arguments are themselves in subset.
+  /// WHEN a method call carries an out-of-subset argument `name.f(p.q)`, THE pass throws from
+  /// inside the argument loop: `name.f(...)` is a valid terminal method-call modifier (methodCall
+  /// non-null, no chained next), so the loop is entered and recurses `lower(p.q)`, which rejects
+  /// the multi-segment path; the rejection propagates out of the method call. This pins that a
+  /// method call is lowered only when each of its arguments is itself in subset — the recursive
+  /// arg-throw path, distinct from the modifier-shape gate exercised by {@link
+  /// #methodCallWithNonMethodModifierThrowsAtModifierShapeGate}.
   @Test
   public void methodCallWithOutOfSubsetArgumentThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("name.f(p.q)"));
+  }
+
+  /// WHEN a base expression carries a non-method modifier `name.f(a = b)`, THE pass throws at the
+  /// modifier-shape gate, NOT in the argument loop. The `a = b` argument makes the parser produce a
+  /// modifier whose `methodCall` is null, so the gate (methodCall == null) rejects the whole shape
+  /// before any argument is lowered. This pins the modifier-shape gate as a cause distinct from the
+  /// argument-recursion throw above.
+  @Test
+  public void methodCallWithNonMethodModifierThrowsAtModifierShapeGate() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("name.f(a = b)"));
+  }
+
+  /// WHEN a method-then-method chain `name.m().n()` is lowered, THE pass throws: the first modifier
+  /// carries a method call but a non-null `next` (the `.n()` segment), so the chain gate
+  /// (getNext() != null) rejects it. This pins the gate against the method-then-method shape,
+  /// complementing the method-then-suffix chain (`p.name`) already covered — both are chains, but
+  /// they nest the second segment differently and only one was previously exercised.
+  @Test
+  public void methodThenMethodChainThrows() {
+    assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("name.m().n()"));
   }
 
   // ---- Throw cases: parenthesis subquery and CASE ----
 
   /// WHEN a parenthesized subquery `(SELECT FROM Foo)` is lowered, THE pass throws: the parenthesis
-  /// carries a statement, not a grouped expression, so the `statement != null` guard fires before any
-  /// grouping recursion.
+  /// carries a statement, not a grouped expression, so the `statement != null` guard fires before
+  /// any grouping recursion.
   @Test
   public void parenthesizedSubqueryThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("(SELECT FROM Foo)"));
@@ -392,29 +522,32 @@ public class AnalyzedExprLowererTest {
 
   // ---- Throw cases: top-level (levelZero) identifiers ----
 
-  /// WHEN a top-level function call `count()` is lowered, THE pass throws: a `levelZero` function-call
-  /// identifier carries no recognized leaf shape and is out of subset.
+  /// WHEN a top-level function call `count()` is lowered, THE pass throws: a `levelZero`
+  /// function-call identifier carries no recognized leaf shape and is out of subset.
   @Test
   public void topLevelFunctionCallThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("count()"));
   }
 
-  /// WHEN the iteration function `any()` is lowered, THE pass throws specifically — `any()` carries
-  /// property-iteration comparison semantics the IR comparison evaluator does not reproduce, so it must
-  /// not slip through as a `FuncCall`.
+  /// WHEN the iteration function `any()` is lowered, THE pass throws as an out-of-subset
+  /// `levelZero` shape — `any()` carries property-iteration semantics the IR does not reproduce, so
+  /// it must not slip through as a `FuncCall`. It throws via the same `levelZero` gate as
+  /// `count()`; the exception type is what is pinned, not an `any()`-specific code path (the
+  /// lowerer has none).
   @Test
   public void anyFunctionThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("any()"));
   }
 
-  /// WHEN the `@this` self reference is lowered, THE pass throws as an out-of-subset `levelZero` shape.
+  /// WHEN the `@this` self reference is lowered, THE pass throws as an out-of-subset `levelZero`
+  /// shape.
   @Test
   public void thisSelfReferenceThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("@this"));
   }
 
-  /// WHEN an inline collection `[1, 2, 3]` is lowered, THE pass throws as an out-of-subset `levelZero`
-  /// shape.
+  /// WHEN an inline collection `[1, 2, 3]` is lowered, THE pass throws as an out-of-subset
+  /// `levelZero` shape.
   @Test
   public void inlineCollectionThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("[1, 2, 3]"));
@@ -422,15 +555,15 @@ public class AnalyzedExprLowererTest {
 
   // ---- Throw cases: multi-segment column path and bind parameter ----
 
-  /// WHEN a multi-segment column path `p.name` is lowered, THE pass throws: only a single-segment `Var`
-  /// is in subset, and the trailing `.name` surfaces as a suffix modifier that is rejected.
+  /// WHEN a multi-segment column path `p.name` is lowered, THE pass throws: only a single-segment
+  /// `Var` is in subset, and the trailing `.name` surfaces as a suffix modifier that is rejected.
   @Test
   public void multiSegmentColumnPathThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower("p.name"));
   }
 
-  /// WHEN a bind parameter `:p` is lowered, THE pass throws: bind parameters are not lowered in this
-  /// subset.
+  /// WHEN a bind parameter `:p` is lowered, THE pass throws: bind parameters are not lowered in
+  /// this subset.
   @Test
   public void bindParameterThrows() {
     assertThrows(UnsupportedAnalyzedNodeException.class, () -> lower(":p"));
