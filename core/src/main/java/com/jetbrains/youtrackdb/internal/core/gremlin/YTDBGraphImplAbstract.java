@@ -120,10 +120,17 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
 
   private YTDBVertex createVertexWithClass(DatabaseSessionEmbedded sessionEmbedded, String label) {
     executeSchemaCode(session -> {
-      var schema = session.getSharedContext().getSchema();
-      var vertexClass = schema.getClass(label);
+      // Read the class existence and vertex-type check off the lock-free immutable schema
+      // snapshot rather than the lock-based shared schema, so this per-vertex-create hot path
+      // never stalls behind a schema-carrying commit that holds the schema write lock for its
+      // whole duration. The write path below is taken only when the snapshot reports the label
+      // absent; getOrCreateClass re-checks under the write lock and is idempotent, so a snapshot
+      // momentarily stale against a concurrent create still resolves correctly.
+      var snapshot = session.getMetadata().getImmutableSchemaSnapshot();
+      var vertexClass = snapshot.getClass(label);
 
       if (vertexClass == null) {
+        var schema = session.getSharedContext().getSchema();
         var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
         schema.getOrCreateClass(session, label, vClass);
       } else if (!vertexClass.isVertexType()) {

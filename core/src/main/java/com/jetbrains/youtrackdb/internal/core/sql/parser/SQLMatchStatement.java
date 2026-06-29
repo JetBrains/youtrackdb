@@ -365,7 +365,10 @@ public final class SQLMatchStatement extends SQLStatement {
   static String getLowerSubclass(DatabaseSessionEmbedded session, String className1,
       String className2) {
     assert SQLMatchAssertions.classNamesNotNull(className1, className2);
-    Schema schema = session.getMetadata().getSchema();
+    // Resolve the two classes through the lock-free immutable schema snapshot rather than the
+    // lock-based schema proxy, so this per-MATCH-alias-step hot read never stalls behind a
+    // schema-carrying commit that holds the schema write lock for its whole duration.
+    Schema schema = session.getMetadata().getImmutableSchemaSnapshot();
     var class1 = schema.getClass(className1);
     var class2 = schema.getClass(className2);
     if (class1 == null) {
