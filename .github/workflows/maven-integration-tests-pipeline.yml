@@ -99,12 +99,20 @@ jobs:
         arch: [ 'x86', 'arm' ]
         include:
           - arch: x86
+            # Powerful self-hosted Hetzner runner: full job — integration tests
+            # (clean verify) plus the multi-arch Docker image build.
             runs_on: [ self-hosted, type-cpx42, image-x86-system-ubuntu-24.04, in-nbg1-fsn1-hel1 ]
+            maven_goals: 'clean verify'
             mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/amd64'
             java_arch: x64
           - arch: arm
-            # GitHub-hosted runner — Hetzner ARM capacity is scarce.
+            # GitHub-hosted runner — Hetzner ARM capacity is scarce. This runner
+            # is weak, like windows-latest, so it runs the light test build: clean
+            # package with unit tests only, no failsafe integration-test/verify
+            # phase. The Docker image build is bound to the package phase, so it
+            # still produces the arm64 image without running integration tests.
             runs_on: ubuntu-24.04-arm
+            maven_goals: 'clean package'
             mvn_opts: '-Dmaven.test.failure.ignore=true -P ci-integration-tests -P docker-images -Ddocker.platforms=linux/arm64/v8'
             java_arch: aarch64
     steps:
@@ -124,7 +132,7 @@ jobs:
 
       - name: Run Maven Test
         id: tests
-        run: ./mvnw -s .github/workflows/settings.xml clean verify -B ${{ matrix.mvn_opts }}
+        run: ./mvnw -s .github/workflows/settings.xml ${{ matrix.maven_goals }} -B ${{ matrix.mvn_opts }}
         env:
           MAVEN_MIRROR_USERNAME: ${{ secrets.MAVEN_MIRROR_USERNAME }}
           MAVEN_MIRROR_PASSWORD: ${{ secrets.MAVEN_MIRROR_PASSWORD }}
