@@ -23,13 +23,42 @@ Second, the comparison path replicates the AST's exact sequence, so parity is st
 the IR runs the same code the AST runs.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
+- [x] 2026-06-29T17:08Z [ctx=info] Review + decomposition complete
+
 ## Surprises & Discoveries
-<!-- Continuous-log. Empty at Phase 1. -->
+- **Phase A review (2026-06-29): the evaluator's three reuse seams need integration-shape detail
+  the original Plan of Work left implicit.** All three reviewers (technical, risk, adversarial)
+  converged, PSI-grounded, on the same gaps — 0 blockers, all should-fix/suggestion, folded into
+  the Plan of Work, the Validation matrix, and the live Decision Log:
+  - **Arithmetic** reaches `NumericOps` through the AST `SQLMathExpression.Operator.apply(Object,
+    Object)` after an IR→AST enum map the track authors; calling `NumericOps.apply(Number,
+    Operator, Number)` directly throws on null and skips `Date ± Long` / `String` concat.
+  - **Comparison** reconstructs a fresh `SQLBinaryCompareOperator` per IR enum constant via
+    `new SQLXxxOperator(-1)` (the IR carries only the enum; `INSTANCE` is absent on
+    `SQLNeOperator`/`SQLNeqOperator`/`SQLGeOperator`). Parity holds by class identity since the
+    operators are stateless.
+  - **Collate** mirrors the guarded `SQLSuffixIdentifier.getCollate` — `isEntity()` guard,
+    `EntityImpl` downcast, collate off `SchemaClass.getProperty(name)`, null on any miss.
+  - **`visitFuncCall`** is in-subset (the Track 3 lowerer emits `FuncCall`) but had no matrix
+    row; added one plus the `SQLEngine.getMethod`→`SQLMethod.execute` sequence.
+- **Phase-4 `design-final` reconciliation items (frozen `design.md`, not edited now).** The live
+  track Decision Log was corrected; the same passages in the frozen `design.md` carry the
+  superseded shapes and join the Track-3 reconciliation backlog (D14 `literalValue` wording,
+  design.md:469 method names):
+  - `design.md` class diagram (≈138-141) names `NumericOps.apply(Number, BinaryOperator, Number)`
+    — that signature does not exist; the parity-faithful entry is the AST `Operator.apply(Object,
+    Object)`.
+  - `design.md` (≈679/712/714) says the comparison evaluator delegates to "the same operator
+    object the AST holds" — false by construction; it builds a fresh instance of the same class.
+  - `design.md` (≈717/732) gives the collate chain off the `Entity` interface
+    (`getImmutableSchemaClass`/`getProperty`) — those live on `EntityImpl` / `SchemaClass`.
+  - D15's "~12 callers of `evaluate(Identifiable)`" attaches the count to the base
+    `SQLBooleanExpression` dispatch surface, not the concrete override (0 direct callers).
 
 ## Decision Log
 <!-- Full inline Decision Records this track owns (four-bullet form). One block per decision: -->
@@ -65,15 +94,21 @@ the IR runs the same code the AST runs.
   expression level).
 - **Rationale**: the IR comparison evaluator reproduces `SQLBinaryCondition.evaluate(Result,
   ctx)`'s exact four-step sequence — evaluate both operands, fetch the collate
-  left-then-right, apply the collate transform when non-null, delegate to the parser's own
-  `SQLBinaryCompareOperator` instance — rather than the bare static routines, because two AST
-  nuances break parity otherwise. **Collation** is a per-property transform (a `ci` property
+  left-then-right, apply the collate transform when non-null, delegate to a freshly built
+  `SQLBinaryCompareOperator` of the same concrete class the AST uses for the operator (the IR
+  `BinaryOp` carries only the enum constant — the lowerer discarded the AST operator instance —
+  so the evaluator reconstructs one per enum constant) — rather than the bare static routines,
+  because two AST nuances break parity otherwise. **Collation** is a per-property transform (a `ci` property
   compares `'Foo'` and `'foo'` as equal) that a raw static `equals` skips. **Session
   threading**: EQ calls `QueryOperatorEquals.equals` with the real session while NE passes a
   `null` session, changing how the cross-type coercion (`PropertyTypeInternal.convert`)
-  resolves, so EQ and NE can differ on mixed-type operands. Delegating to the parser operator
-  instance runs the AST's exact branch per operator, reproducing both nuances by construction
-  (ordering operators carry too: their shared `doCompare` returns a sign each maps against 0).
+  resolves, so EQ and NE can differ on mixed-type operands. Delegating to a reconstructed
+  operator instance of the right concrete class runs the AST's exact branch per operator,
+  reproducing both nuances by construction — the operators are stateless, so a fresh instance is
+  behaviorally identical to the AST's, and `INSTANCE` is absent on `SQLNeOperator` /
+  `SQLNeqOperator` / `SQLGeOperator`, so the evaluator uses the `new SQLXxxOperator(-1)`
+  constructor (ordering operators carry too: their shared `doCompare` returns a sign each maps
+  against 0).
   The slow path is the parity reference — the in-place fast path (`tryInPlaceComparison`)
   returns the `FALLBACK` sentinel whenever collation or coercion could change the result and
   defers to the slow path, so the IR need not encode it. Full worked passages are in
@@ -104,8 +139,11 @@ the IR runs the same code the AST runs.
   caller in a synthetic entity-backed `Result`, collation is applied on that path too. This
   is a recorded correctness convergence, not a defect fix.
 - **Risks/Caveats**: `evaluate(Identifiable)` is not a rare caller. PSI find-usages returns
-  ~12 production callers, including `SQLWhereClause` and `SecurityEngine` (the component that
-  evaluates access-control predicates). So the S1+ convergence is an observable behavior
+  ~12 production callers on the base `SQLBooleanExpression.evaluate(Identifiable, ctx)` dispatch
+  surface (the concrete `SQLBinaryCondition` override has 0 direct callers — the count belongs to
+  the polymorphic base method, so the S1/S7 re-verification must search the base method, not the
+  override, where it would find zero and wrongly conclude the convergence is dead), including
+  `SQLWhereClause` and `SecurityEngine` (the component that evaluates access-control predicates). So the S1+ convergence is an observable behavior
   change: a `ci`-collated comparison begins matching case-insensitively where the AST
   `Identifiable` path did not. Concretely, a previously case-sensitive `name = 'admin'`
   security check against a `ci`-collated `name` would begin matching `'Admin'` once
@@ -160,10 +198,14 @@ the IR runs the same code the AST runs.
   evaluator's collate fetch is the AST's single-property resolution chain:
 
   ```text
-  result.asEntity()
-    .getImmutableSchemaClass(session)
-    .getProperty(name)
-    .getCollate()
+  // mirror SQLSuffixIdentifier.getCollate — guarded at every hop
+  if (!result.isEntity()) return null;
+  var entity = (EntityImpl) result.asEntity();        // getImmutableSchemaClass is on EntityImpl, not the Entity interface
+  var schemaClass = entity.getImmutableSchemaClass(session);
+  if (schemaClass == null) return null;
+  var property = schemaClass.getProperty(name);       // SchemaProperty off the schema class, not Entity.getProperty (the value)
+  if (property == null) return null;
+  return property.getCollate();
   ```
 
   Two rules govern that fetch. It returns `null` for any non-`Var` operand — a literal or
@@ -209,7 +251,9 @@ the IR runs the same code the AST runs.
 <!-- **Full design**: design.md §"Round-trip parity and the test matrix" -->
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 2 (3 findings — 1 should-fix, 2 suggestions; 3 accepted, all VERIFIED)
+- [x] Risk: PASS at iteration 2 (6 findings — 3 should-fix, 3 suggestions; 6 accepted, all VERIFIED)
+- [x] Adversarial: PASS at iteration 2 (6 findings — 3 should-fix, 3 suggestions; 6 accepted, all VERIFIED)
 
 ## Context and Orientation
 `AnalyzedExprEvaluator` is a new class in `core/.../query/analyzed/` (greenfield package,
@@ -241,7 +285,7 @@ sequenceDiagram
     Note over E,R: result.asEntity() → schemaClass.getProperty(name) → property.getCollate()<br/>fall back to right Var; null for any non-Var operand (D6-R)
     E->>E: if collate != null, collate.transform(both operands)
     E->>Op: operator.execute(session, leftVal, rightVal)
-    Note over Op: EQ passes real session, NE passes null (D11) — same operator object as the AST
+    Note over Op: EQ passes real session, NE passes null (D11) — a fresh instance of the same operator class the AST uses
     Op->>Q: equals(session, l, r) / doCompare(l, r) vs 0
     Q-->>Op: result
     Op-->>E: boolean
@@ -254,43 +298,77 @@ adapter, and the round-trip parity suite. A natural build order:
 1. **Evaluator skeleton.** Implement `AnalyzedExprVisitor<Object>` directly with all five
    `visitX` methods (the compiler forces exhaustiveness, I3); expose one `evaluate(expr,
    Result, CommandContext)` overload (D3). `visitVar` resolves the name path against the
-   `Result`; `visitConst` returns the literal; `visitFuncCall` evaluates the wrapped method
-   call (the `FuncCall` carries the method name and its arguments), coercing the result to
-   the column type.
-2. **Arithmetic.** `visitBinaryOp` for `+ - * /` delegates to the shared `NumericOps` (Track
-   2). The IR fold (Track 3) already nested the tree correctly, so the evaluator only walks
-   it and applies promotion at each node.
+   `Result`; `visitConst` returns the literal. `visitFuncCall` reproduces the AST method-call
+   path — evaluate `args[0]` as the target, resolve the method by name via
+   `SQLEngine.getMethod(name)`, evaluate the remaining args as parameters, and call
+   `SQLMethod.execute(target, params, ctx, …)`. The method call performs its own coercion;
+   there is no separate column-type coercion step (the `FuncCall.args()` list is read-only by
+   the Track 1 convention — evaluate without mutating it).
+2. **Arithmetic.** `visitBinaryOp` for `+ - * /` reaches `NumericOps` through the AST
+   `SQLMathExpression.Operator.apply(Object, Object)` entry: map the IR `BinaryOperator`
+   arithmetic constant to its `SQLMathExpression.Operator` counterpart, then call that
+   constant's `apply(Object, Object)`, which routes through
+   `NumericOps.plusObject`/`minusObject`/`applyObject` and carries null-propagation,
+   `Date ± Long`, and `String` concat. Do **not** call `NumericOps.apply(Number, Operator,
+   Number)` directly — it throws on a null operand and skips those object-level semantics, so
+   the null-propagation and `Date + Long` matrix rows would go red. No reusable IR→AST inverse
+   map exists (`AnalyzedExprLowerer.toArithmeticOperator` is AST→IR and private), so this track
+   authors the four-constant map. The IR fold (Track 3) already nested the tree, so the
+   evaluator only walks it and applies promotion at each node.
 3. **Comparison.** `visitBinaryOp` for the six comparison operators replicates
    `SQLBinaryCondition.evaluate(Result, ctx)`'s slow-path sequence (D11): evaluate both
    operands; fetch the collate via the single-property resolution (D6-R), left-then-right;
-   apply `collate.transform` to both when non-null; delegate to the parser's
-   `SQLBinaryCompareOperator` instance — the same operator object the AST holds — so the
-   EQ/NE session difference and the ordering `doCompare`-vs-0 mapping are reproduced by
-   construction. The S0 evaluator targets the slow path only (D16).
+   apply `collate.transform` to both when non-null; delegate to a freshly constructed
+   `SQLBinaryCompareOperator` of the same concrete class the AST uses for this operator
+   (`EQ → SQLEqualsOperator`, `NE → SQLNeOperator`, `LT → SQLLtOperator`, …) via the public
+   `new SQLXxxOperator(-1)` constructor — `INSTANCE` is absent on `SQLNeOperator` /
+   `SQLNeqOperator` / `SQLGeOperator`, so a uniform `INSTANCE` accessor will not compile. The
+   operators are stateless, so a reconstructed instance runs the identical `execute` body and
+   reproduces the EQ/NE session difference and the ordering `doCompare`-vs-0 mapping by class
+   identity. The IR `BinaryOp` carries only the enum constant (the lowerer discarded the AST
+   operator instance), so the reconstruction is this track's work, not reuse of an AST object.
+   The S0 evaluator targets the slow path only (D16).
 4. **Boolean `NOT`.** `visitUnaryOp` for `NOT` negates the boolean operand.
-5. **Collate-resolution helper.** Re-implement the single-property resolution directly
-   (`result.asEntity()` → `getImmutableSchemaClass(session)` → `getProperty(name)` →
-   `property.getCollate()`), returning `null` for any non-`Var` operand (D6-R).
+5. **Collate-resolution helper.** Mirror `SQLSuffixIdentifier.getCollate` exactly: guard on
+   `result.isEntity()`, cast `asEntity()` to `EntityImpl` (the type that exposes
+   `getImmutableSchemaClass(session)` — the public `Entity` interface does not), null-guard
+   the schema class, read the collate off `SchemaClass.getProperty(name).getCollate()` (not
+   `Entity.getProperty(name)`, which returns the column value), and return `null` on any miss
+   and for any non-`Var` operand (D6-R). The guard-free happy path would throw on a schemaless
+   row or an absent column where the AST returns `null` collate, breaking parity.
 6. **`Identifiable` adapter (S1+ seam).** A small helper wrapping an `Identifiable` in a
-   synthetic entity-backed `Result` (D3/D15) — recorded for the S1+ path; S0 itself
-   exercises only the `Result` overload.
-7. **Round-trip parity suite.** Assert the Part 4 matrix (see Validation and Acceptance).
+   synthetic entity-backed `Result` (D3/D15) — recorded for the S1+ path. S0 drives only the
+   `Result` overload, so the adapter carries its own focused unit test (wrap an `Identifiable`,
+   evaluate a `ci`-collated comparison, assert the convergence) so the coverage gate covers it
+   and the D15 behavior change is exercised rather than shipping unverified.
+7. **Round-trip parity suite.** Assert the matrix in § Validation and Acceptance. The suite
+   lives in `core/.../query/analyzed/` so it can call the package-visible
+   `AnalyzedExprLowerer.lowerBoolean` for the comparison and `NOT` rows (`lower` is public,
+   `lowerComparison` private). The oracle is shape-dependent — `SQLExpression.execute(Result,
+   ctx)` for arithmetic, `SQLBinaryCondition.evaluate(Result, ctx)` for comparison and boolean
+   — so the harness dispatches the oracle by parsed shape; `Objects.equals` compares boxed
+   `Boolean` on the comparison rows.
 
 Invariants to preserve: I1 (round-trip parity — the AST is the oracle); I3 (the evaluator
 enumerates every variant). Comparison parity is structural — never re-derive the AST's
-collate/session logic; run the AST's own operator instance.
+collate/session logic; run a fresh instance of the AST's own operator class.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the numbered roster here. -->
+
+1. Implement `AnalyzedExprEvaluator` — the `AnalyzedExprVisitor<Object>` runtime over the IR (the single `evaluate(AnalyzedExpr, Result, CommandContext)` overload; `visitVar`/`visitConst`/`visitFuncCall`; arithmetic via the AST `SQLMathExpression.Operator.apply(Object, Object)` after an authored IR→AST enum map; comparison via freshly constructed `SQLBinaryCompareOperator` instances plus the guarded collate-resolution helper; `visitUnaryOp(NOT)`), the S1+ `Identifiable`→synthetic-`Result` adapter with its own focused test, and the round-trip parity suite asserting the § Validation matrix (in `core/.../query/analyzed/` so it can call package-visible `lowerBoolean`) — risk: high (architecture: introduces the IR-runtime abstraction layer, the capstone of the S0 substrate, and its comparison-parity mechanism — collation plus the EQ/NE session difference — is S0's whole acceptance surface)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
 
 ## Validation and Acceptance
 The round-trip parity suite is S0's whole acceptance bar: for every covered SQL fragment,
-`lower(parse(sql)).evaluate(row, ctx)` must be `Objects.equals` to `parse(sql).execute(row,
-ctx)`, including null and type-coercion outcomes. The AST is the reference; a divergence is
-a real evaluator or `NumericOps` bug, never a reason to relax the test.
+`lower(parse(sql)).evaluate(row, ctx)` must be `Objects.equals` to the AST's own result on the
+same row, including null and type-coercion outcomes. The oracle method is shape-dependent —
+`SQLExpression.execute(Result, ctx)` for arithmetic and `SQLBinaryCondition.evaluate(Result,
+ctx)` for comparison and boolean fragments — so the harness dispatches the oracle by parsed
+shape and lowers comparison/`NOT` fragments through the package-visible `lowerBoolean`. The AST
+is the reference; a divergence is a real evaluator or `NumericOps` bug, never a reason to relax
+the test.
 
 The minimum matrix (each row pins a mechanism a naive implementation would get wrong):
 
@@ -305,6 +383,10 @@ The minimum matrix (each row pins a mechanism a naive implementation would get w
 | `a * (b + c)` | Parenthesis recursion, grouping on the right |
 | `ci-column = 'Foo'` (mixed case) | Collation transform in comparison (D11) |
 | type-coercing `!=` | NE passes a null session to coercion, EQ the live one (D11) |
+| `longCol != 1` (Long column vs Integer literal) | Operand cross-type coercion: `visitVar`/`visitConst` value-type fidelity vs the AST's `left.execute`/`right.execute` (A4) |
+| `ci-column = 'foo'` on a schemaless row / absent column | Collate helper returns `null` (guarded) instead of NPE/CCE — parity on the non-entity path (T1/A3) |
+| `NOT a = b` (unparenthesized) | `visitUnaryOp(NOT)` over a lowered `SQLNotBlock`; round-tripped via the package-visible `lowerBoolean` (Track 3 contract) |
+| a covered method-call fragment (e.g. `name.asInteger()`) | `visitFuncCall` method-call parity via `SQLEngine.getMethod`/`SQLMethod.execute` (R2/A6); if no such fragment is in the S0 subset, `visitFuncCall` becomes a recorded throw |
 
 The matrix is the minimum required set, not exhaustive. Null-propagation outcomes and a
 `Date + Long` row are part of parity (`Objects.equals` over the produced values), so they
@@ -329,10 +411,12 @@ belong in the suite too even though they pin promotion rather than precedence/co
   `Result` adapter helper (D3/D15).
 - The round-trip parity test suite asserting the matrix in § Validation and Acceptance (I1).
 
-**Reuses (existing, not modified):** the AST's `SQLBinaryCompareOperator` instance for
-comparison (the same operator object the AST holds); the six comparison operator classes in
-`core/.../sql/parser/`; `QueryOperatorEquals` / `doCompare` reached through the operator
-instance.
+**Reuses (existing, not modified):** the six comparison operator classes in
+`core/.../sql/parser/` (`SQLEqualsOperator`, `SQLNeOperator`, `SQLNeqOperator`, `SQLLtOperator`,
+`SQLLeOperator`, `SQLGtOperator`, `SQLGeOperator`) — the evaluator constructs a fresh instance
+of the matching class per IR enum constant (the operators are stateless, so a reconstructed
+instance is behaviorally identical to the AST's); `QueryOperatorEquals` / `doCompare` reached
+through that operator's `execute`.
 
 **Out of scope:** the IR types (Track 1); the `NumericOps` engine itself (Track 2 — this
 track delegates to it but does not author it); the lowering pass (Track 3 — this track
