@@ -668,3 +668,6 @@ flowchart TD
   surface), and no promoted file reads the dropped `tier` ledger field or runs
   `--append-ledger --tier` — verified by the consistency review and repo-wide
   greps.
+
+## Base commit
+5f34eeda25a8a9d7566679af2941c76a59b2a38c
