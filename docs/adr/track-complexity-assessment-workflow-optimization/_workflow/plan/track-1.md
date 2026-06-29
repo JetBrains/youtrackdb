@@ -20,7 +20,7 @@ foundation every complexity-tag consumer in Track 2 reads.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-29T08:25Z [ctx=info] Review + decomposition complete
