@@ -78,6 +78,12 @@ flowchart TD
   > `plan/track-1.md` `## Episodes` § Track completion. (4 steps, 0 failed)
   >
   > **Track file:** `plan/track-1.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 1 froze the ledger flag→key map and
+  > the Phase-4 carrier predicates Track 2 consumes; the four live tier-readers
+  > the `tier=` removal stranded (`inline-replanning.md`, `track-review.md`,
+  > `create-final-design.md`, `design-review.md`) all sit in Track 2's scope and
+  > promote with it at Phase 4. No downstream impact on Track 2's plan.
 
 - [ ] Track 2: Complexity-tag mechanics, reviewer selection, and roster
   > Compute the per-track complexity tag from planned work, reconcile it to
