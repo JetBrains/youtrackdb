@@ -2497,8 +2497,17 @@ public abstract class AbstractStorage
           // non-existent back-reference on the class record and throw LinksConsistencyException. The
           // tracker is meant for user vertex/edge links only; schema records are exempt.
           session.disableLinkConsistencyCheck();
+          // The selective write keys on the transaction's changed-class set so only changed classes'
+          // per-class records enter the working set (the write-amplification win), and on whether the
+          // root non-link payload differs from the committed schema's so the root record is rewritten
+          // exactly when a property-create, counter advance, or blob-collection change touched it.
+          // The committed schema still carries its pre-commit payload here; promotion runs later on
+          // the success path, so the comparison sees the true before-state.
+          final var changedClasses = schemaContext.txSchemaState().getChangedClasses();
+          final var writeRootPayload =
+              schemaContext.txLocalSchema().rootPayloadDiffersFrom(schemaContext.committedSchema());
           try {
-            schemaContext.txLocalSchema().toStream(session);
+            schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
           } finally {
             session.enableLinkConsistencyCheck();
             // Release without the save side effect: the records are enrolled in the user
