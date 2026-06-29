@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
@@ -51,7 +52,7 @@ public class EstimateRootEntriesTest {
       Map<String, SQLRid> aliasRids,
       Map<String, SQLWhereClause> aliasFilters) {
     return MatchExecutionPlanner.estimateRootEntries(
-        aliasClasses, aliasRids, aliasFilters, ctx);
+        aliasClasses, aliasRids, Map.of(), aliasFilters, ctx);
   }
 
   private SchemaClassInternal mockClass(String name, long count) {
@@ -184,6 +185,34 @@ public class EstimateRootEntriesTest {
     var result = invoke(aliasClasses, aliasRids, Map.of());
 
     assertEquals(1L, (long) result.get("a"));
+  }
+
+  @Test
+  public void ridListUsesListSize() {
+    mockClass("Comment", 5000L);
+    var aliasRidLists = Map.of(
+        "c",
+        List.of(mock(SQLRid.class), mock(SQLRid.class), mock(SQLRid.class)));
+    var result = MatchExecutionPlanner.estimateRootEntries(
+        Map.of("c", "Comment"), Map.of(), aliasRidLists, Map.of(), ctx);
+
+    assertEquals(3L, (long) result.get("c"));
+  }
+
+  /**
+   * When both a singleton and a list are present for the same alias, the list
+   * estimate wins because {@code aliasRidLists} is checked first.
+   */
+  @Test
+  public void ridListPreferredOverSingleton() {
+    mockClass("Comment", 5000L);
+    var aliasRidLists = Map.of(
+        "c", List.of(mock(SQLRid.class), mock(SQLRid.class)));
+    var aliasRids = Map.of("c", mock(SQLRid.class));
+    var result = MatchExecutionPlanner.estimateRootEntries(
+        Map.of("c", "Comment"), aliasRids, aliasRidLists, Map.of(), ctx);
+
+    assertEquals(2L, (long) result.get("c"));
   }
 
   @Test

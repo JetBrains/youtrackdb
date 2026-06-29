@@ -7,29 +7,36 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
 /**
  * End-to-end integration tests for the static-RID-in-WHERE promotion
  * (YTDB-629). When a MATCH node carries a literal or parameter {@code @rid}
- * equality in its WHERE clause,
+ * equality or static {@code @rid IN [...]} in its WHERE clause,
  * {@link MatchExecutionPlanner#promoteStaticRidsFromFilters} lifts it into
- * {@code aliasRids}. That has two observable effects in the plan:
+ * {@code aliasRids} or {@code aliasRidLists}. That has two observable effects
+ * in the plan:
  *
  * <ol>
  *   <li>the pinned alias is fetched by {@code FETCH FROM RIDs} instead of a
  *       class scan with an {@code @rid} post-filter;
  *   <li>{@link MatchExecutionPlanner#estimateRootEntries} collapses the pinned
- *       alias's estimate to 1, which can flip root selection toward it.
+ *       alias's estimate to the list size (or 1 for equality), which can flip
+ *       root selection toward it.
  * </ol>
  *
  * <p>The two effects do not always coincide. In a small graph where the pinned
  * alias already sits on the smallest class, root selection picks it with or
  * without promotion (its class count alone wins), so only effect (1) is
- * observable; {@link #multiHopStaticRidInWhere_pinnedAliasFetchedByRid} pins
- * that case. Effect (2) needs a pinned alias on a larger class competing with a
- * smaller one; {@link #staticRid_winsRootSelectionOverSmallerClass} pins that.
+ * observable; {@link #multiHopStaticRidInWhere_pinnedAliasFetchedByRid} and
+ * {@link #multiHopStaticRidListInWhere_pinnedAliasFetchedByRid},
+ * {@link #multiHopStaticRidListInWhere_returnsMatchingPath}, and
+ * {@link #multiHopStaticRidListInWhere_parameterRidList_returnsMatchingPathAndFetchesByRid}
+ * pin that case. Effect (2) needs a pinned alias on a larger class competing with a smaller
+ * one; {@link #staticRid_winsRootSelectionOverSmallerClass} and
+ * {@link #staticRidList_winsRootSelectionOverSmallerClass} pin that.
  *
  * <p>Graph built in {@link #beforeTest}:
  * <pre>
@@ -264,6 +271,230 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   }
 
   /**
+   * Production-style {@code @rid IN [#a, #b]} on a MATCH node promotes to a
+   * multi-RID fetch instead of scanning the class and filtering in memory.
+   */
+  @Test
+  public void staticRidList_inWhere_fetchesByRid() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var c2 = ridOf("Comment", "c2");
+    var query =
+        "MATCH {class: Comment, as: c, where: (@rid in [" + c1 + ", " + c2 + "])}"
+            + " RETURN c.name as name ORDER BY name";
+
+    var result = session.query(query).toList();
+    assertEquals(2, result.size());
+    assertEquals("c1", result.get(0).getProperty("name"));
+    assertEquals("c2", result.get(1).getProperty("name"));
+
+    var explain = session.query("EXPLAIN " + query).toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("@rid IN list should prefetch via FETCH FROM RIDs, got:\n" + plan,
+        prefetchBlock(plan, "c").contains("FETCH FROM RIDs"));
+    assertFalse("@rid IN list should not class-scan Comment, got:\n" + plan,
+        prefetchBlock(plan, "c").contains("FETCH FROM CLASS"));
+    session.commit();
+  }
+
+  /**
+   * Multi-hop chain with {@code @rid IN [c1]} returns the single matching path.
+   */
+  @Test
+  public void multiHopStaticRidListInWhere_returnsMatchingPath() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var result = session.query(
+        "MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
+            + ".out('Likes'){class: Comment, as: c, where: (@rid in [" + c1 + "])}"
+            + " RETURN p.name as pName, m.name as mName")
+        .toList();
+    assertEquals(1, result.size());
+    assertEquals("alice", result.getFirst().getProperty("pName"));
+    assertEquals("bob", result.getFirst().getProperty("mName"));
+    session.commit();
+  }
+
+  /**
+   * Multi-hop chain with a non-existent RID in the IN list returns no rows and
+   * still fetches the Comment alias by RID rather than class scan.
+   */
+  @Test
+  public void multiHopStaticRidListInWhere_nonExistentRid_returnsEmpty() {
+    session.begin();
+    var missingRid = "-1:0";
+
+    var query =
+        "MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
+            + ".out('Likes'){class: Comment, as: c, where: (@rid in [" + missingRid + "])}"
+            + " RETURN p.name";
+
+    var result = session.query(query).toList();
+    assertTrue("non-existent RID in IN list must match no paths", result.isEmpty());
+
+    var explain = session.query("EXPLAIN " + query).toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    var cBlock = prefetchBlock(plan, "c");
+    assertTrue("'c' prefetch should fetch by RID, got:\n" + plan,
+        cBlock.contains("FETCH FROM RIDs"));
+    assertFalse("'c' prefetch should not class-scan Comment, got:\n" + plan,
+        cBlock.contains("FETCH FROM CLASS"));
+    session.commit();
+  }
+
+  /**
+   * Parameter-bound RID list ({@code @rid IN :rids}) drives the same promotion
+   * as literals through the multi-hop chain.
+   */
+  @Test
+  public void multiHopStaticRidListInWhere_parameterRidList_returnsMatchingPathAndFetchesByRid() {
+    session.begin();
+    Map<Object, Object> params = new HashMap<>();
+    params.put("rids", List.of(ridObjectOf("Comment", "c1")));
+    var query =
+        "MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
+            + ".out('Likes'){class: Comment, as: c, where: (@rid in :rids)}"
+            + " RETURN p.name as pName, m.name as mName";
+
+    var result = session.query(query, params).toList();
+    assertEquals(1, result.size());
+    assertEquals("alice", result.getFirst().getProperty("pName"));
+    assertEquals("bob", result.getFirst().getProperty("mName"));
+
+    var explain = session.query("EXPLAIN " + query, params).toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertTrue("parameter @rid IN list should prefetch by RID, got:\n" + plan,
+        prefetchBlock(plan, "c").contains("FETCH FROM RIDs"));
+    session.commit();
+  }
+
+  /**
+   * Multi-hop chain with {@code @rid IN [#c1]} on the Comment alias. The pinned
+   * Comment must be prefetched via {@code FETCH FROM RIDs}, not a class scan.
+   */
+  @Test
+  public void multiHopStaticRidListInWhere_pinnedAliasFetchedByRid() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var result = session.query(
+        "EXPLAIN MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
+            + ".out('Likes'){class: Comment, as: c, where: (@rid in [" + c1 + "])}"
+            + " RETURN p.name")
+        .toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    var cBlock = prefetchBlock(plan, "c");
+    assertFalse("pinned Comment 'c' should be prefetched, got:\n" + plan,
+        cBlock.isEmpty());
+    assertTrue("'c' prefetch should fetch by RID, got:\n" + plan,
+        cBlock.contains("FETCH FROM RIDs"));
+    assertFalse("'c' prefetch should not fall back to a class scan, got:\n" + plan,
+        cBlock.contains("FETCH FROM CLASS"));
+    session.commit();
+  }
+
+  /**
+   * Root-selection flip with a singleton {@code @rid IN [rid]} list — same
+   * estimate collapse (1) as {@link #staticRid_winsRootSelectionOverSmallerClass}.
+   */
+  @Test
+  public void staticRidList_winsRootSelectionOverSmallerClass() {
+    session.execute("CREATE class Big extends V").close();
+    session.execute("CREATE property Big.name STRING").close();
+    session.execute("CREATE class Small extends V").close();
+    session.execute("CREATE property Small.name STRING").close();
+    session.execute("CREATE class Rel extends E").close();
+
+    session.begin();
+    for (var i = 0; i < 40; i++) {
+      session.execute("CREATE VERTEX Big set name = 'b" + i + "'").close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX Small set name = 's" + i + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE Rel FROM (SELECT FROM Big WHERE name = 'b0')"
+            + " TO (SELECT FROM Small WHERE name = 's0')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var b0 = ridOf("Big", "b0");
+    var explain = session.query(
+        "EXPLAIN MATCH {class: Big, as: b, where: (@rid in [" + b0 + "])}"
+            + ".out('Rel'){class: Small, as: s} RETURN b.name")
+        .toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertEquals(
+        "IN-list promotion must flip the root to pinned Big alias 'b', got:\n" + plan,
+        "b", rootAlias(plan));
+    assertTrue("pinned Big alias should be fetched by RID, got:\n" + plan,
+        prefetchBlock(plan, "b").contains("FETCH FROM RIDs"));
+
+    var result = session.query(
+        "MATCH {class: Big, as: b, where: (@rid in [" + b0 + "])}"
+            + ".out('Rel'){class: Small, as: s} RETURN s.name as sName")
+        .toList();
+    assertEquals(1, result.size());
+    assertEquals("s0", result.getFirst().getProperty("sName"));
+    session.commit();
+  }
+
+  /**
+   * Root-selection flip with a two-RID {@code @rid IN [rid0, rid1]} list: estimate
+   * collapses to 2, still below Small's biased estimate of 4.
+   */
+  @Test
+  public void staticRidListTwoRids_winsRootSelectionOverSmallerClass() {
+    session.execute("CREATE class Big extends V").close();
+    session.execute("CREATE property Big.name STRING").close();
+    session.execute("CREATE class Small extends V").close();
+    session.execute("CREATE property Small.name STRING").close();
+    session.execute("CREATE class Rel extends E").close();
+
+    session.begin();
+    for (var i = 0; i < 40; i++) {
+      session.execute("CREATE VERTEX Big set name = 'b" + i + "'").close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX Small set name = 's" + i + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE Rel FROM (SELECT FROM Big WHERE name = 'b0')"
+            + " TO (SELECT FROM Small WHERE name = 's0')")
+        .close();
+    session.commit();
+
+    session.begin();
+    var b0 = ridOf("Big", "b0");
+    var b1 = ridOf("Big", "b1");
+    var explain = session.query(
+        "EXPLAIN MATCH {class: Big, as: b, where: (@rid in [" + b0 + ", " + b1 + "])}"
+            + ".out('Rel'){class: Small, as: s} RETURN b.name")
+        .toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertEquals(
+        "two-RID IN list (estimate=2) must flip root to Big alias 'b', got:\n" + plan,
+        "b", rootAlias(plan));
+    assertTrue("pinned Big alias should be fetched by RID, got:\n" + plan,
+        prefetchBlock(plan, "b").contains("FETCH FROM RIDs"));
+
+    var result = session.query(
+        "MATCH {class: Big, as: b, where: (@rid in [" + b0 + ", " + b1 + "])}"
+            + ".out('Rel'){class: Small, as: s} RETURN s.name as sName ORDER BY sName")
+        .toList();
+    assertEquals(1, result.size());
+    assertEquals("s0", result.getFirst().getProperty("sName"));
+    session.commit();
+  }
+
+  /**
    * Root-selection flip, the optimization's stated purpose. The cost model in
    * {@link MatchExecutionPlanner#estimateRootEntries} gives an unpinned class
    * under the prefetch threshold an estimate of {@code count / 2} and a pinned
@@ -349,6 +580,31 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   }
 
   /**
+   * Negative case: {@code @rid IN $matched.p.@rid} is a runtime correlation, not a
+   * static list, so the promoter must skip it and the plan must contain no
+   * {@code FETCH FROM RIDs}. Mirrors {@link #backRefRidEquality_isNotPromoted_noRidFetchInPlan}.
+   */
+  @Test
+  public void backRefRidInList_isNotPromoted_noRidFetchInPlan() {
+    session.begin();
+    var query =
+        "MATCH {class: Person, as: p}.out('Knows')"
+            + "{class: Person, as: m, where: (@rid in $matched.p.@rid)} RETURN p.name as pName";
+
+    var explain = session.query("EXPLAIN " + query).toList();
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+    assertFalse("back-ref @rid IN must not be promoted to a RID fetch, got:\n" + plan,
+        plan.contains("FETCH FROM RIDs"));
+
+    var result = session.query(query).toList();
+    assertTrue("no Person Knows itself, so the back-ref IN matches nothing, got: "
+        + result.size(),
+        result.isEmpty());
+    session.commit();
+  }
+
+  /**
    * Pre-existing RID slot wins (the YTDB-629 promoter guard). A node may carry
    * both an explicit {@code rid:} slot and a WHERE {@code @rid} equality. The
    * parser slot populates {@code aliasRids} first, so the promoter skips the
@@ -416,6 +672,27 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   }
 
   /**
+   * OR correctness for IN lists: {@code where: (@rid in [#c1] OR name = 'c2')}
+   * must return both the pinned record (c1) and the name-matched record (c2).
+   * If the promoter wrongly pinned the root to the IN list alone, c2 would be lost.
+   */
+  @Test
+  public void singleNodeRidListOrName_returnsBothBranches() {
+    session.begin();
+    var c1 = ridOf("Comment", "c1");
+    var result = session.query(
+        "MATCH {class: Comment, as: c, where: (@rid in [" + c1 + "] OR name = 'c2')}"
+            + " RETURN c.name as cName")
+        .toList();
+    var names = result.stream()
+        .map(r -> (String) r.getProperty("cName"))
+        .collect(java.util.stream.Collectors.toSet());
+    assertEquals("OR must match both the pinned RID list and the named record, got: " + names,
+        java.util.Set.of("c1", "c2"), names);
+    session.commit();
+  }
+
+  /**
    * Exercises the scenario where two different aliases both carry a static {@code @rid}
    * in their WHERE clauses. The promoter must successfully process both aliases,
    * dropping both estimates to 1, letting the planner's stable sort tie-break
@@ -450,6 +727,49 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     assertEquals("Planner stable sort tie-break must select 'p' as the root node, got:\n" + plan,
         "p", rootAlias(plan));
 
+    session.commit();
+  }
+
+  /**
+   * Two aliases with singleton {@code @rid IN [rid]} lists — same estimate collapse
+   * (1 per alias) as {@link #dualStaticRidInWhere_bothPromoted_plannerTieBreakDecidesRoot}.
+   */
+  @Test
+  public void dualStaticRidListInWhere_bothPromoted_plannerTieBreakDecidesRoot() {
+    session.begin();
+    var alice = ridOf("Person", "alice");
+    var bob = ridOf("Person", "bob");
+
+    var query = "EXPLAIN MATCH {class: Person, as: p, where: (@rid in [" + alice + "])}"
+        + ".out('Knows'){class: Person, as: m, where: (@rid in [" + bob + "])}"
+        + " RETURN p.name";
+
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    var pBlock = prefetchBlock(plan, "p");
+    var mBlock = prefetchBlock(plan, "m");
+
+    assertTrue("Alias 'p' must prefetch via FETCH FROM RIDs, got:\n" + plan,
+        pBlock.contains("FETCH FROM RIDs"));
+    assertTrue("Alias 'm' must prefetch via FETCH FROM RIDs, got:\n" + plan,
+        mBlock.contains("FETCH FROM RIDs"));
+    assertFalse("Alias 'p' must not class-scan Person", pBlock.contains("FETCH FROM CLASS"));
+    assertFalse("Alias 'm' must not class-scan Person", mBlock.contains("FETCH FROM CLASS"));
+    assertEquals(
+        "Planner stable sort tie-break must select 'p' as root for IN lists too, got:\n" + plan,
+        "p", rootAlias(plan));
+
+    var rows = session.query(
+        "MATCH {class: Person, as: p, where: (@rid in [" + alice + "])}"
+            + ".out('Knows'){class: Person, as: m, where: (@rid in [" + bob + "])}"
+            + " RETURN p.name as pName, m.name as mName")
+        .toList();
+    assertEquals(1, rows.size());
+    assertEquals("alice", rows.getFirst().getProperty("pName"));
+    assertEquals("bob", rows.getFirst().getProperty("mName"));
     session.commit();
   }
 }

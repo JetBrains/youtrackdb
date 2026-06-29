@@ -134,7 +134,7 @@ public class CostModelEndToEndTest {
         null, 0);
 
     estimateRootEntries = MatchExecutionPlanner.class.getDeclaredMethod(
-        "estimateRootEntries", Map.class, Map.class, Map.class,
+        "estimateRootEntries", Map.class, Map.class, Map.class, Map.class,
         CommandContext.class);
     estimateRootEntries.setAccessible(true);
   }
@@ -727,7 +727,7 @@ public class CostModelEndToEndTest {
       Map<String, SQLWhereClause> aliasFilters) throws Exception {
     try {
       return (Map<String, Long>) estimateRootEntries.invoke(
-          null, aliasClasses, aliasRids, aliasFilters, ctx);
+          null, aliasClasses, aliasRids, Map.of(), aliasFilters, ctx);
     } catch (InvocationTargetException e) {
       if (e.getCause() instanceof RuntimeException re) {
         throw re;
