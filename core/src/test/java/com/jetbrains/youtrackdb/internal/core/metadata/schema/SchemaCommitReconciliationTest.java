@@ -826,4 +826,91 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
           return null;
         });
   }
+
+  /**
+   * Regression: an attribute-only alter on an existing committed class inside a transaction (one that
+   * does not create, drop, rename, or switch the class abstract) must survive commit. The selective
+   * per-class write rewrites only the classes the transaction recorded as changed; the change is
+   * recorded at the tx-local write choke point that every class mutation routes through, so an
+   * attribute setter like {@code setStrictMode} — which carries no dedicated mark of its own — is
+   * still recorded and its per-class record is rewritten. Without recording at the choke point, the
+   * altered class would be absent from the changed set, the selective write would skip its record,
+   * and the commit would report success while the change was lost in memory (promotion re-parses the
+   * stale record) and on disk. The test alters strict mode inside a transaction, forces a durable
+   * reload, and asserts the altered value persisted.
+   */
+  @Test
+  public void attributeAlterOutsideCreateDropRenameSurvivesCommit() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("StrictTarget"));
+
+    assertFalse("a freshly created class must start with strict mode off",
+        schemaShared().getClass("StrictTarget").isStrictMode());
+
+    var classRid = schemaShared().getClass("StrictTarget").getRecordId();
+    assertNotNull("the altered class must have a bound per-class record", classRid);
+    var classVersionBefore = recordVersion(classRid);
+
+    // setStrictMode is an attribute setter with no dedicated markClassChanged call and no
+    // active-transaction throw-guard, so it routes through the tx-local write choke point and is the
+    // exact silent-loss surface the selective write would otherwise drop.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("StrictTarget").setStrictMode(true));
+
+    assertTrue(
+        "an attribute alter inside a transaction must rewrite the altered class's per-class record",
+        recordVersion(classRid) > classVersionBefore);
+    assertTrue("the altered attribute must be visible in the committed in-memory schema",
+        schemaShared().getClass("StrictTarget").isStrictMode());
+
+    // The altered attribute survives a durable round trip: promotion re-parses the per-class record,
+    // so a skipped record write would revert strict mode here.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertTrue("the altered attribute must persist across a durable reload",
+        schemaShared().getClass("StrictTarget").isStrictMode());
+  }
+
+  /**
+   * The rename arm of the write-amplification win — the false branch of the selective root-write
+   * guard. A class rename is structurally inert: it changes neither the class link set (the renamed
+   * class keeps its bound record id, so no link is added or removed) nor the root non-link payload
+   * (the collection counter, global-property table, and blob set are all unchanged). So the rename
+   * rewrites only the renamed class's per-class record (under its new name) and must leave the root
+   * record entirely untouched. This is the only path through the selective root-write conditional
+   * that takes the false branch, and the positive create/drop tests cannot catch a regression that
+   * over-wrote the root on every commit. The test renames a committed class and asserts the class
+   * record version advanced while the root record version is unchanged, then confirms the rename
+   * survives a durable reload with its collection ids unchanged.
+   */
+  @Test
+  public void classRenameRewritesOnlyTheClassRecordAndLeavesTheRootUnwritten() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("RenameFrom"));
+
+    var classRid = schemaShared().getClass("RenameFrom").getRecordId();
+    assertNotNull("the class to rename must have a bound per-class record", classRid);
+    var rootRid = schemaShared().getIdentity();
+    var idsBefore = schemaShared().getClass("RenameFrom").getCollectionIds();
+    var classVersionBefore = recordVersion(classRid);
+    var rootVersionBefore = recordVersion(rootRid);
+
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("RenameFrom").setName("RenameTo"));
+
+    assertTrue("the renamed class's per-class record must be rewritten",
+        recordVersion(classRid) > classVersionBefore);
+    assertEquals(
+        "a structurally-inert rename must NOT rewrite the root record (the write-amplification win)",
+        rootVersionBefore, recordVersion(rootRid));
+
+    // The rename survives a durable round trip with its collection ids unchanged.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertNotNull("the renamed class must resolve under its new name after reload",
+        schemaShared().getClass("RenameTo"));
+    assertFalse("the old class name must not resolve after a rename",
+        schemaShared().existsClass("RenameFrom"));
+    assertEquals("a rename keeps its collection ids (structurally inert)",
+        java.util.Arrays.toString(idsBefore),
+        java.util.Arrays.toString(schemaShared().getClass("RenameTo").getCollectionIds()));
+  }
 }
