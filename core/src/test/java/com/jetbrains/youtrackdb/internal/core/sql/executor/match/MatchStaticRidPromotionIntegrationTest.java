@@ -90,14 +90,14 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   private String ridOf(String clazz, String name) {
     return session.query(
         "SELECT @rid as rid FROM " + clazz + " WHERE name = '" + name + "'")
-        .toList().get(0).getProperty("rid").toString();
+        .toList().getFirst().getProperty("rid").toString();
   }
 
   /** Returns the RID value object (not its string form) of a named record. */
   private Object ridObjectOf(String clazz, String name) {
     return session.query(
         "SELECT @rid as rid FROM " + clazz + " WHERE name = '" + name + "'")
-        .toList().get(0).getProperty("rid");
+        .toList().getFirst().getProperty("rid");
   }
 
   /**
@@ -161,8 +161,8 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
             + " RETURN p.name as pName, m.name as mName")
         .toList();
     assertEquals(1, result.size());
-    assertEquals("alice", result.get(0).getProperty("pName"));
-    assertEquals("bob", result.get(0).getProperty("mName"));
+    assertEquals("alice", result.getFirst().getProperty("pName"));
+    assertEquals("bob", result.getFirst().getProperty("mName"));
     session.commit();
   }
 
@@ -175,16 +175,25 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
   @Test
   public void multiHopStaticRidInWhere_nonExistentRid_returnsEmpty() {
     session.begin();
-    var c1 = ridOf("Comment", "c1");
-    var cluster = c1.substring(0, c1.indexOf(':'));
-    var missingRid = cluster + ":999999";
+    var missingRid = "-1:0";
+
     var result = session.query(
-        "MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
-            + ".out('Likes'){class: Comment, as: c, where: (@rid = " + missingRid + ")}"
-            + " RETURN p.name as pName")
-        .toList();
-    assertTrue("expected no rows for a non-existent RID, got: " + result.size(),
-        result.isEmpty());
+                    "EXPLAIN MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
+                            + ".out('Likes'){class: Comment, as: c, where: (@rid = " + missingRid + ")}"
+                            + " RETURN p.name")
+            .toList();
+
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    var cBlock = prefetchBlock(plan, "c");
+    assertFalse("pinned Comment 'c' should be prefetched, got:\n" + plan,
+            cBlock.isEmpty());
+    assertTrue("'c' prefetch should fetch by RID, got:\n" + plan,
+            cBlock.contains("FETCH FROM RIDs"));
+    assertFalse("'c' prefetch should not fall back to a class scan, got:\n" + plan,
+            cBlock.contains("FETCH FROM CLASS"));
     session.commit();
   }
 
@@ -211,7 +220,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
             + " RETURN p.name")
         .toList();
     assertEquals(1, result.size());
-    String plan = result.get(0).getProperty("executionPlanAsString");
+    String plan = result.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     var cBlock = prefetchBlock(plan, "c");
     assertFalse("pinned Comment 'c' should be prefetched, got:\n" + plan,
@@ -243,11 +252,11 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
 
     var result = session.query(query, params).toList();
     assertEquals(1, result.size());
-    assertEquals("alice", result.get(0).getProperty("pName"));
-    assertEquals("bob", result.get(0).getProperty("mName"));
+    assertEquals("alice", result.getFirst().getProperty("pName"));
+    assertEquals("bob", result.getFirst().getProperty("mName"));
 
     var explain = session.query("EXPLAIN " + query, params).toList();
-    String plan = explain.get(0).getProperty("executionPlanAsString");
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertTrue("parameter @rid should be promoted to a RID fetch, got:\n" + plan,
         prefetchBlock(plan, "c").contains("FETCH FROM RIDs"));
@@ -293,7 +302,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
         "EXPLAIN MATCH {class: Big, as: b, where: (@rid = " + b0 + ")}"
             + ".out('Rel'){class: Small, as: s} RETURN b.name")
         .toList();
-    String plan = explain.get(0).getProperty("executionPlanAsString");
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertEquals(
         "promotion must flip the root to the pinned Big alias 'b', got:\n" + plan,
@@ -307,7 +316,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
             + ".out('Rel'){class: Small, as: s} RETURN s.name as sName")
         .toList();
     assertEquals(1, result.size());
-    assertEquals("s0", result.get(0).getProperty("sName"));
+    assertEquals("s0", result.getFirst().getProperty("sName"));
     session.commit();
   }
 
@@ -327,7 +336,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
             + "{class: Person, as: m, where: (@rid = $matched.p.@rid)} RETURN p.name as pName";
 
     var explain = session.query("EXPLAIN " + query).toList();
-    String plan = explain.get(0).getProperty("executionPlanAsString");
+    String plan = explain.getFirst().getProperty("executionPlanAsString");
     assertNotNull(plan);
     assertFalse("back-ref @rid must not be promoted to a RID fetch, got:\n" + plan,
         plan.contains("FETCH FROM RIDs"));
