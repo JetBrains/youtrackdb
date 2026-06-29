@@ -19,10 +19,11 @@ plan existence from the design gate and the track count. This track is the
 foundation every complexity-tag consumer in Track 2 reads.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-06-29T08:25Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -116,6 +117,25 @@ create-final-design.md / design-review.md re-keys. -->
 ## Outcomes & Retrospective
 <!-- Continuous-log. Review iteration outcomes and the track-completion
 summary at Phase C. -->
+
+- [x] Technical: PASS at iteration 2 (5 findings, 5 accepted). T1/T2 (should-fix)
+  + T3/T4/T5 (suggestion); all applied as track-file scope refinements (no design
+  change). Reviewed against the live develop-state machinery (Markdown/shell/Python,
+  no Java/PSI).
+- [x] Risk: PASS at iteration 2 (3 findings, 3 accepted). R1/R2 (should-fix) +
+  R3 (suggestion); all applied. 0 blockers.
+- [x] Adversarial: PASS at iteration 2 (4 findings, 4 accepted). A1/A2 (should-fix)
+  + A3/A4 (suggestion); narrowed track-realization pass (cross-track-episode
+  challenge dropped — Track 1 is first). Spawned with the D14 `full`→Fable 5 model
+  pin, which degraded to the session default (opus) because Fable 5 is unavailable
+  in this environment — a documented D14 degradation, not a decision change.
+- Review themes that converged across reviewers: (a) the `design_gate`-before-
+  `categories` emit-order rationale was mechanically wrong (T4/R2/A2) — corrected
+  to first-match-and-stop + same-named-decoy; (b) the `tier=` removal's reverse
+  coupling onto Track-2-owned live readers was undocumented (T1/R1/A3) — added a
+  forward-obligation note; (c) the consistency/structural re-key understated its
+  scope (A1) and the `workflow.md` §Final Artifacts re-key would self-contradict if
+  table-only (T2) — both widened.
 
 ## Context and Orientation
 
@@ -215,16 +235,35 @@ The per-field mechanics: each new bare field gets a `reject_bad_ledger_value`
 call in `append_ledger` and one builder line that appends it only when set
 (the `[ -n "$LEDGER_X" ] && line="$line X=..."` pattern the existing fields
 use). The reconciled tag is read with the existing track-scoped
-`ledger_tail_value_for_track` so a prior track's value cannot leak. The
-`design_gate` field is emitted in the pre-`categories` block (it is
-reader-consumed and bare). This ordering matters because the precheck reads
-the ledger by scanning bare `key=value` tokens: a bare field must precede the
-quoted `categories` field so the quoted value's embedded spaces do not end the
-bare-token scan early. Update both precheck test files
-(`test_workflow_startup_precheck.py` and the `_stub.py` variant) to cover the
-new fields' append + round-trip, the loud-reject on a malformed value, the
-last-value-wins read, the track-scoped read with no cross-track leak, and the
-torn-append-leaves-prior-tail behavior.
+`ledger_tail_value_for_track` so a prior track's value cannot leak. Every new
+bare reader-consumed field (`design_gate`, the plan-presence / track-count
+signal, the Phase-1-complete marker) is emitted in the pre-`categories` block.
+This ordering is load-bearing for the reader, but not for the reason a
+"scan stops at the first space" model would suggest: `ledger_tail_value` (and
+its track-scoped variant) takes the **first** ` key=` token on a line and stops
+— it runs no left-to-right scan that an embedded space could truncate, and the
+quoted-value branch already reads a `categories="a,b c"` value through to its
+closing quote regardless of field order. The real hazard the emit order guards
+against is a **same-named decoy** `key=` substring sitting inside the quoted
+`categories="…"` value: a reader-consumed key emitted *after* `categories` would
+let that decoy win the first-match scan. So every bare reader-consumed field must
+precede `categories`, exactly as the script's own emit-order comment states
+(`workflow-startup-precheck.sh` `ledger_tail_value` / `ledger_tail_value_for_track`
+header comments). Carry this corrected rationale into the file-header grammar
+comment the step rewrites — do not restate the embedded-spaces framing.
+
+Update both precheck test files (`test_workflow_startup_precheck.py` and the
+`_stub.py` variant) to cover the new fields' append + round-trip, the
+loud-reject on a malformed value, the last-value-wins read, the track-scoped
+read with no cross-track leak, and the torn-append-leaves-prior-tail behavior.
+Beyond that additive coverage, the existing `tier=minimal` ledger fixtures in
+the stub file (and any main-file fixtures that seed `tier=`) must be
+**migrated** to the new fields (`design_gate=no` + the single/no-plan
+plan-presence signal) so the resume-routing tests exercise the live signal, not
+a dead `tier=` token the reader no longer consumes. Add a first-match-wins test
+asserting that a `design_gate` placed after a `categories` value carrying a
+`design_gate=`-shaped decoy still reads the real bare token (the emit-order
+invariant above).
 
 **(2) Resume readers.** Re-point `determine_state_from_ledger` and the Step-1c
 router onto the new fields. The Step-1c router replaces its `LEDGER_TIER` parse
@@ -240,18 +279,37 @@ done" from "Phase 1 is not done". The branch structure (collapse the old
 single-track resume branch and the new design+single branch into one
 `design_gate`-keyed branch, or keep them separate) is a rendering choice this
 step makes; both satisfy the D10 contract that the three fields disambiguate
-every case. `determine_state`'s `minimal`-default-track-to-1 logic re-keys onto
-the plan-presence / track-count signal instead of the removed tier.
+every case. `determine_state_from_ledger` reads only `phase` and `track` — it has **no
+`tier` read** to re-key. Its `minimal`-default-track-to-1 behavior already keys
+off an empty `track=` (`[ -n "$track" ] || track="1"`), which is tier-agnostic
+and stays correct under the new schema. The work here is therefore to delete the
+append-side `--tier` / `LEDGER_TIER` plumbing (arg case, validation, builder,
+usage text) and remove the now-stale `tier`/`minimal` comments in the resume
+functions, then confirm the empty-`track`→1 default still behaves — not to hunt
+for a tier read that does not exist.
 
 **(3) Phase-1 artifact gates.** In `create-plan/SKILL.md`, the Step-4 part-1
 classifier becomes a **design-gate classifier** (Gate 1, change-level, reused
 unchanged in logic from `risk-tagging.md` §"Gate 1 reuse") writing
-`design_gate=yes/no` rather than a tier; the ledger-seed call drops `--tier`.
+`design_gate=yes/no` rather than a tier. Both live `--append-ledger --tier`
+write sites drop `--tier`: the Step-4 seed call (≈`create-plan/SKILL.md:1239`)
+and the Step-1c `minimal`-resume re-seed (≈`:250`, today `--phase 0 --tier
+minimal`), the latter re-keyed to seed `design_gate=no` + the single/no-plan
+plan-presence signal. A `--tier` invocation left behind after the flag drops
+would hit the precheck's `*) Unknown argument` arm and `exit 2`.
 The plan-presence decision moves to the **end of Step 4b**, computed from the
 track count (> 1 ⇒ `implementation-plan.md` exists) once the track files are
-authored (D1). The consistency-review and structural-review prompts re-key their
-design-presence gate to read `design_gate` instead of the tier, and the
-structural review's per-tier artifact checks re-key onto the axes. The
+authored (D1). The consistency-review and structural-review prompts re-key **every** tier read,
+not just the design-presence gate. In `consistency-review.md` that is three
+coupled sub-blocks: the design-presence guard (its `full`/`lite`/`minimal`
+tier-named branches become `design_gate`-keyed), the **tier-presence check**
+(`consistency-review.md` §"Tier-presence check", which emits a finding when no
+`tier` resolves — after the field is removed that check would fire on every
+plan, so it must read `design_gate` presence or be retired), and the degenerate
+"tier unreadable" fallback. In `structural-review.md` the per-tier artifact
+checks, the design-half skip guard, and the `full`-tier-only seed↔track fidelity
+gate all re-key onto the axes (the `minimal` pass-skip itself is driven by the
+`implementation-review.md` selector below, not by an in-prompt tier read). The
 orchestrator-side Phase-2 pass selector in `implementation-review.md`
 §"Tier-driven pass selection" re-keys the same way: its design-half guard reads
 `design_gate` and its structural-pass skip reads the plan-presence / track-count
@@ -266,20 +324,93 @@ complexity tag at Phase 1 referencing the `risk-tagging` HIGH triggers),
 `research.md` (the Phase 0→1 transition / classification references re-keyed to
 the design gate), `plan-slim-rendering.md` (plan-presence rendering for the
 single-track no-plan case), and `design-document-rules.md` (the design-gate
-references for when a `design.md` exists). The same artifact-derivation re-key
-applies to `workflow.md` §"Final Artifacts (Phase 4)": its per-tier
-durable-carrier table becomes the axis-derived form (`design-final` iff a design
-exists; `adr` iff a track reconciled ≥ medium), authored here since Track 1 owns
-`workflow.md`.
+references for when a `design.md` exists). The same artifact-derivation re-key applies to `workflow.md` §"Final Artifacts
+(Phase 4)", authored here since Track 1 owns `workflow.md`. Re-key the **whole
+section coherently**, not the table row alone: the per-tier durable-carrier
+table becomes the axis-derived form (`design-final` iff a design exists; `adr`
+iff a track reconciled ≥ medium), and the surrounding tier-keyed prose that would
+otherwise contradict the re-keyed table re-keys onto the same axes — the "Gate 2
+(multi-track) is the durable-ADR boundary" framing, the verdict-fold "in
+`full`/`lite` … in `minimal`" lines, and the per-tier-and-modification-class
+commit-shape list. The predicate's `adr ⟺ ∃ track ≥ medium` reads the
+**reconciled** per-track tag, which Track 2 writes at the Phase-A→C boundary;
+Track 1 authors only the predicate text, and the Phase-4 executor that actually
+reads the tag (`prompts/create-final-design.md`) stays tier-keyed until Track 2
+re-keys it. Both files' staged edits promote together in the single Phase-4
+commit (§1.7 I6), so the staged workflow is internally consistent at promotion
+even though Track 1 lands first.
 
 Invariants to preserve throughout: last-value-wins-per-key read semantics, the
 loud-reject append grammar, the atomic temp-file+rename append, and the
 never-a-dead-end resume property (every artifact combination routes to a defined
-path). A per-step sequencing summary will be appended here once Phase A writes
-the `## Concrete Steps` roster.
+path). Phase A decomposed this into four steps (see `## Concrete Steps`): Step 1
+the executable schema + in-script reader + tests (high), Step 2 the create-plan
+resume router + design-gate classifier + plan-presence decision (high), Step 3 the
+schema/glossary + protocol/carrier docs (high), Step 4 the review prompts +
+Phase-2 pass selector + remaining tier-prose + the planner instruction (medium).
+Steps 2–4 depend on Step 1's schema.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes a thin numbered roster here. -->
+<!-- Phase A decomposition: 4 steps. Every `.claude/**` edit routes to the staged
+subtree per §1.7 (this branch is workflow-modifying); the live workflow stays at
+develop state until Phase-4 promotion, and the `_workflow/` planning artifacts are
+not staged. Steps 2–4 each depend on Step 1's schema; they touch disjoint files and
+are sequenced (not parallel) so the prose tracks the committed schema/classifier
+wording. No production Java class is named in this track — every symbol (shell
+function, ledger field/flag, prompt §-anchor, file path) was reference-verified by
+grep + Read against the live develop-state files during Phase A review, so the
+§Pre-write PSI rule resolves nothing here. -->
+
+1. Ledger schema delta + in-script resume reader + precheck tests — in
+   `workflow-startup-precheck.sh` drop the `tier=` key (arg case, `reject_bad_ledger_value`
+   call, builder line, file-header grammar) and add the four fields (`design_gate`,
+   the plan-presence/track-count signal, the Phase-1-complete marker, the per-track
+   reconciled tag), each a `bare` field emitted in the pre-`categories` block per the
+   first-match-wins / same-named-decoy invariant, with the reconciled tag read via
+   `ledger_tail_value_for_track`; delete the `--tier`/`LEDGER_TIER` plumbing and the
+   stale `tier`/`minimal` comments in `determine_state_from_ledger`, confirming its
+   empty-`track`→1 default stays tier-agnostic; cover the new fields in
+   `test_workflow_startup_precheck.py` and `_stub.py` (append+round-trip, loud-reject,
+   last-value-wins, track-scoped no-leak, torn-append, the first-match-wins decoy
+   test) and migrate the existing `tier=minimal` fixtures. — risk: high (workflow
+   machinery: a script that runs automatically + the auto-resume state-machine schema)  [ ]
+
+2. create-plan resume router + design-gate classifier + plan-presence decision — in
+   `create-plan/SKILL.md` replace the Step-1c `LEDGER_TIER` parse with reads of
+   `design_gate`, the Phase-1-complete marker, and the plan-presence/track-count
+   signal, routing every resume case including the design+single-vs-mid-authoring-crash
+   collision (the marker disambiguates: set ⇒ steady state, unset ⇒ re-enter Step 4a);
+   turn the Step-4 part-1 tier classifier into a design-gate classifier writing
+   `design_gate=yes/no`; move the plan-presence decision to the end of Step 4b (track
+   count > 1 ⇒ `implementation-plan.md` exists); drop `--tier` from both
+   `--append-ledger` seed sites (the Step-4 seed and the Step-1c `minimal` re-seed). —
+   risk: high (workflow machinery: the auto-resume control-flow protocol)  [ ]  *(depends on Step 1)*
+
+3. Schema/glossary + protocol/carrier documentation re-key — in `conventions.md` drop
+   the `tier` enum/glossary term and document the four new ledger fields, and re-key the
+   per-axis artifact set (its `adr.md` row encoding Track 2's `adr ⟺ ∃ track ≥ medium`
+   predicate, authored here since Track 1 owns the file); in `workflow.md` re-key the
+   §Startup-Protocol resume references and the whole §"Final Artifacts (Phase 4)" section
+   coherently onto the axes — the carrier table plus the surrounding tier-keyed prose
+   (the "Gate 2 (multi-track) is the durable-ADR boundary" framing, the verdict-fold
+   `full`/`lite`/`minimal` lines, and the per-tier-and-modification-class commit-shape
+   list) — noting the Phase-4 executor `prompts/create-final-design.md` stays tier-keyed
+   until Track 2 re-keys it (both promote together at Phase 4). — risk: high (workflow
+   machinery: a closed glossary/schema edit + the auto-resume / Phase-4 protocol doc)  [ ]  *(depends on Step 1)*
+
+4. Review-prompt + Phase-2 pass-selector re-keys, remaining tier-prose, and the planner
+   complexity-tag instruction — re-key every tier read in `consistency-review.md` (the
+   design-presence guard's tier-named branches, the tier-presence-check finding-emitter,
+   and the degenerate "tier unreadable" fallback) and `structural-review.md` (per-tier
+   artifact checks, design-half skip, the `full`-only seed↔track fidelity gate) onto
+   `design_gate`/plan-presence; re-key the `implementation-review.md` §"Tier-driven pass
+   selection" Phase-2 selector (design-half guard → `design_gate`, structural-pass skip →
+   plan-presence/track-count); re-key the tier-naming prose in `planning.md` (plus the
+   new instruction that the planner predicts each track's complexity tag at Phase 1 from
+   the `risk-tagging` HIGH triggers), `research.md`, `plan-slim-rendering.md`, and
+   `design-document-rules.md`. — risk: medium (workflow machinery, behavioral-but-bounded:
+   review-agent specs + Phase-2 pass-selector dispatch + a new planner instruction) —
+   size: ~7 files; no mergeable low/medium work fits (the rest of the track is high)  [ ]  *(depends on Step 1)*
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -301,12 +432,19 @@ Track-level behavioral acceptance — what must hold once every step lands:
   track's value when the two appear on different ledger lines.
 - **Resume routes every combination.** `determine_state` / Step 1c route every
   on-disk artifact combination (design.md ± plan ± track files, with or without
-  the marker) to a defined resume path — never a dead end.
+  the marker) to a defined resume path — never a dead end. The script-decided
+  half (`determine_state_from_ledger`'s re-keyed arms) is covered by the precheck
+  unit suite; the Step-1c router half is LLM-instruction prose, so it is verified
+  by the consistency / structural plan reviews, not by a unit test.
 - **The collision is resolved.** A `design.md` present with no plan and one
   track file routes to the design+single-track steady state when the
   Phase-1-complete marker is **set** and to the mid-authoring-crash recovery
   (re-enter Step 4a) when it is **unset**; the two are told apart by the marker
-  alone, since their on-disk signatures are identical.
+  alone, since their on-disk signatures are identical. This resolution lives in
+  the Step-1c router prose, so its acceptance is a prose-review item (the precheck
+  suite cannot host it); the unit suite covers only what the script decides
+  (schema round-trip, loud-reject, last-value-wins, track-scoped no-leak,
+  torn-append, and `determine_state_from_ledger`'s re-key).
 - **Torn-append safety.** A simulated crash mid-append leaves the prior ledger
   tail intact, so the resume read resolves the prior state rather than a
   corrupted one.
@@ -318,8 +456,17 @@ Track-level behavioral acceptance — what must hold once every step lands:
 test method names. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths once
-steps are decomposed. -->
+Each step is a staged-subtree edit (`.claude/**` → `_workflow/staged-workflow/`)
+plus one commit; the live workflow stays at develop state until the Phase-4
+promotion, so a failed or partial step never destabilizes the running machinery.
+Within-step recovery: `git reset --hard HEAD` discards the uncommitted edit and the
+step re-runs from its description — the edits are deterministic re-keys (drop `tier`,
+add the four fields, swap the vocabulary), not stateful migrations, so re-running over
+a partially-edited file is safe. Step 1's acceptance gate is the precheck Python suite
+(`test_workflow_startup_precheck.py` + `_stub.py`), which must pass before its commit;
+Steps 2–4 are authored and reviewed against the committed Step-1 schema, so re-running
+any of them only re-reads the same committed schema. The ledger append is append-only
+and last-value-wins, so a re-run never corrupts a prior ledger line.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
@@ -377,6 +524,20 @@ adr predicate).
 Track 2 depends on this track — it reads the `design_gate` and per-track
 reconciled-tag fields this track adds to the ledger schema, and writes the
 reconciled tag through the schema this track defines.
+
+**Forward obligation on Track 2 (reverse coupling).** Dropping `tier=` from the
+ledger schema and the `--append-ledger` flag surface here is internally
+consistent only because every remaining **live** `tier` reader or writer sits in
+Track 2's scope and both tracks' staged `.claude/**` edits promote together in
+the single Phase-4 commit (§1.7 I6 — the live tree never holds a `tier`-less
+script beside a `tier`-using consumer). Those sites are: `inline-replanning.md`
+(the ESCALATE `--append-ledger --tier` write — would hit `exit 2` after the flag
+drop), `track-review.md` §"Tier-driven review selection",
+`prompts/create-final-design.md` (the Phase-4 carrier), and
+`prompts/design-review.md` (the `tier=full` fidelity gate). Track 2 must re-key
+all four in the staged subtree before promotion; this is the named discharge
+condition that makes Track 1's schema removal safe, mirroring the adr-predicate
+cross-track note in `## Decision Log` above.
 
 **§1.7 staging (mandatory).** This plan is workflow-modifying: every
 `.claude/**` edit in this track stages under
