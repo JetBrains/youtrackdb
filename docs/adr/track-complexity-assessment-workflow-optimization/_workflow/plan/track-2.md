@@ -27,6 +27,7 @@ home.
 - [ ] Track completion
 - [x] 2026-06-29T14:44Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-29T15:14Z [ctx=safe] Step 1 complete (commit c505e176bd)
+- [x] 2026-06-29T15:33Z [ctx=safe] Step 2 complete (commit b9641e1ef2)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -43,6 +44,22 @@ home.
   `review-test-completeness.md`) in the live tree. The Phase 4 hand-edit must
   delete them right after the promotion commit, or the live tree carries both
   the old and new rosters. See Episodes §Step 1.
+- 2026-06-29T15:33Z Step 4 forward-dependency: `track-review.md` must keep the
+  `### Tier-driven review selection and which reviews to run` heading
+  byte-stable, or update every referrer in the same edit. The referrer set is
+  wider than the roster's Step 4 line claims ("two referrers"): staged
+  `risk-tagging.md` references the full heading three times, and
+  `conventions-execution.md` plus the track-2 `## Context and Orientation`
+  pointer reference it in abbreviated form. Step 4 must re-count before
+  deciding keep-stable versus update-all. See Episodes §Step 2.
+- 2026-06-29T15:33Z Phase C consistency-review items the no-dangling grep must
+  adjudicate over the cumulative diff: (a) surviving `tier`-model and
+  `planning.md §Tier classification` references in the Step-2 files — decide
+  legitimately-surviving (the design gate is still decided in `planning.md`)
+  versus dangling; (b) a Track-1-owned residual in staged `create-plan/SKILL.md`
+  (~line 946) still using `full`/`full-tier` wording for the Step-4b cold-read
+  fidelity criterion, which Step 2 renamed to a `design_gate=yes`-keyed
+  criterion in `design-review.md`. See Episodes §Step 2.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -476,7 +493,7 @@ transient dangling reference that a later step's sweep resolves, so the repo-wid
 no-dangling acceptance is a track-completion property, not a per-step one. -->
 
 1. Reviewer roster split/merge + finding-prefix schema (D7) — add staged `review-bugs.md` (always-on, single-threaded sequential reasoning, the D7 ownership clauses + the one-line triage backstop verbatim) and `review-concurrency.md` (fires on the `concurrency` category, multi-thread interleaving reasoning, the D7 ownership clauses); decide their two new finding prefixes; merge `review-test-behavior.md` + `review-test-completeness.md` → `review-test-quality.md` (both sub-protocols and **both** the `TB` and `TC` prefixes verbatim); remove the three split/merge sources; retire `BC` and register the two new prefixes in the canonical owner table `review-iteration.md` §"Finding ID prefixes" (keep `TB`/`TC`/`TX`) and update `finding-synthesis-recipe.md`'s prefix family. — risk: high (workflow machinery: edits the shared finding-prefix schema every reviewer and the synthesis recipe key off, and creates behavioral review-agent specs carrying the D7 cognitive-mode ownership + triage backstop)  [x] commit: c505e176bd
-2. Tag computation (D9) + Phase-4 carrier (D8b) + bounded re-keys — in `risk-tagging.md` add the track-granularity complexity-tag rule (the seven HIGH triggers over `## Plan of Work` + `## Interfaces`, the change/track/step three-granularity distinction, the prediction reconciled to `max(step tags)`) and re-key the risk-level table's `high` step-level-review cell onto the split roster; in `create-final-design.md` re-derive the carrier table, the verdict-fold predicate, and the ledger-read mechanism from the axes (`design-final` iff `design_gate=yes`; `adr` iff ∃ track ≥ medium); in `design-review.md` re-key the `tier` input param + spawn-site + roster/tag refs and the `tier=full` fidelity gate → `design_gate=yes`; in `conventions-execution.md` re-key the §2.4 `Tier-driven review selection` pointer, the roster references, and the §2.5 `BC` schema examples. — risk: medium (workflow machinery, behavioral but bounded: one decision rule + one phase prompt's carrier logic + a fidelity-gate re-key + reference re-keying; no shared schema, control-flow gate, or auto-running artifact) — size: ~4 files; no mergeable low/medium work fits (every other step is high)  [ ] *(depends on Step 1 for the new roster names + prefixes)*
+2. Tag computation (D9) + Phase-4 carrier (D8b) + bounded re-keys — in `risk-tagging.md` add the track-granularity complexity-tag rule (the seven HIGH triggers over `## Plan of Work` + `## Interfaces`, the change/track/step three-granularity distinction, the prediction reconciled to `max(step tags)`) and re-key the risk-level table's `high` step-level-review cell onto the split roster; in `create-final-design.md` re-derive the carrier table, the verdict-fold predicate, and the ledger-read mechanism from the axes (`design-final` iff `design_gate=yes`; `adr` iff ∃ track ≥ medium); in `design-review.md` re-key the `tier` input param + spawn-site + roster/tag refs and the `tier=full` fidelity gate → `design_gate=yes`; in `conventions-execution.md` re-key the §2.4 `Tier-driven review selection` pointer, the roster references, and the §2.5 `BC` schema examples. — risk: medium (workflow machinery, behavioral but bounded: one decision rule + one phase prompt's carrier logic + a fidelity-gate re-key + reference re-keying; no shared schema, control-flow gate, or auto-running artifact) — size: ~4 files; no mergeable low/medium work fits (every other step is high)  [x] commit: b9641e1ef2 *(depends on Step 1 for the new roster names + prefixes)*
 3. Domain×complexity selection + step-level adaptation + roster sweep (D3, D6) — thread complexity into the category-driven selection across the five mirror sites (`code-review/SKILL.md` Step 5, `review-agent-selection.md`, `track-code-review.md`, `step-implementation.md`, `fix-ci-failure/SKILL.md`): domain selects the set identically at every level, complexity moves only the Phase-C rigor dial, the floor + domain-matched set is never suppressed; update the same sites' rosters to the split/merge names; adapt the live localized-versus-buried step-level rule (burial role → `review-bugs` always + `review-concurrency` when concurrency is present; the test baselines' deferred role → `review-test-quality`), unchanged in logic; update `code-review-protocol.md`'s roster references; and sweep the out-of-scope removed-agent / retired-`BC` references in `execute-tracks/SKILL.md` (load-bearing step-level-baseline prose), `review-workflow-consistency.md` (worked example), `review-workflow-instruction-completeness.md` (self-analogy), and `prompts/dimensional-review-gate-check.md` (`BC3` example). — risk: high (workflow machinery: edits the load-bearing reviewer-selection control-flow protocol mirrored across five sites plus the step-level burial routing; a defect mis-selects reviewers for every future code review)  [ ] *(depends on Steps 1 and 2; parallel with Steps 4, 5)*
 4. Phase-A panel re-key + reconciliation-on-upward-divergence (D5, D6) — in `track-review.md`, re-key the Phase-A panel from the whole-change tier onto the per-track tag (`low` → Technical only; `medium` → + Adversarial narrowed; `high` → + Risk + Adversarial narrowed); add the reconciliation that compares `max(step tags)` against the predicted tag after decomposition, runs the missed strategic reviewers on any upward miss, fires **at most once**, and appends `--reconciled-tag <max(step tags)>` onto the **existing** A→C `--append-ledger` line carrying `--track <N>` (recomputed deterministically on resume so the write is idempotent); a downward divergence runs no missed reviewers and floors Phase C at `max(step tags)`. Keep the live `### Tier-driven review selection and which reviews to run` heading byte-stable, or update its two referrers in the same edit. — risk: high (workflow machinery: edits the load-bearing Phase-A review-selection gate, adds a new divergence-reconciliation control-flow mechanism, and writes the phase ledger)  [ ] *(depends on Step 2; parallel with Steps 3, 5)*
 5. inline-replanning tier-escalation re-key (R1 blocker) — in `inline-replanning.md`, replace the D11/D12 `workflow-startup-precheck.sh --append-ledger --tier <new-tier>` write (line ~169 — a flag Track 1 removed, so it `exit 2`s on the first post-promotion mid-flight escalation) with the complexity-axis equivalent, and re-express the whole "tier upgrade rides ESCALATE" escalation model (materialize-then-write ordering, the ledger append, the "every selector reads the `tier` field ledger-first" prose) in axis terms — a `design_gate` flip and/or a per-track tag raise written through Track 1's flags — not a mechanical `tier`→`complexity` search-replace. — risk: high (workflow machinery: edits the ESCALATE control-flow protocol and a phase-ledger write that hard-fails post-promotion if mis-keyed)  [ ] *(depends on Track 1's ledger axis fields; parallel with Steps 3, 4)*
@@ -533,6 +550,61 @@ agents after the additive `cp -r`: `.claude/agents/review-bugs-concurrency.md`,
 `.claude/agents/review-test-completeness.md`. Frozen for Steps 2–5: prefix `BG`
 = `review-bugs`, `CN` = `review-concurrency` (`BC` retired), `TB`/`TC` kept on
 `review-test-quality`.
+
+### Step 2 — commit b9641e1ef2, 2026-06-29T15:33Z [ctx=safe]
+**What was done:** Re-keyed four files off the dropped whole-change `tier` axis
+onto the complexity axes (Track 1's `design_gate` + per-track `reconciled_tag`
+ledger fields) and the Step-1 split/merge roster. In `risk-tagging.md`: added a
+§"Track-level complexity tag" section — the seven HIGH triggers run at track
+granularity over `## Plan of Work` + `## Interfaces` as content predicates (D9),
+the change/track/step three-granularity distinction, the prediction reconciled
+to `max(step tags)` — with its TOC row, and re-keyed the risk-level table's
+`high` step-level-review cell onto `review-bugs` always + `review-concurrency`
+when concurrency is present. In `create-final-design.md`: re-derived the Phase-4
+carrier as a 2×2 axis table (`design-final` iff `design_gate=yes`; `adr` iff ∃
+track reconciled ≥ medium), re-keyed the verdict-fold destination (`adr.md` when
+one exists, else the PR description), and re-keyed the prompt's own ledger-read
+mechanism (the dropped `tier` reads plus the `implementation-plan.md` fallback)
+onto `design_gate` + the reconciled-tag scan. In `design-review.md`: re-keyed
+the `tier` input param → `design_gate`, the `tier=full` fidelity gate →
+`design_gate=yes` (a design-presence proxy), and the roster/tag refs. In
+`conventions-execution.md`: re-keyed the §2.4 `Tier-driven review selection`
+pointer description, the step-level baseline-subset roster note, and the §2.5
+`BC` schema examples by cognitive mode (TOCTOU → `CN`, null-check → `BG`). All
+edits stage under `_workflow/staged-workflow/.claude/`.
+
+**What was discovered:** Surviving `tier`-word references in the four files
+split into two classes. Legitimately-unrelated ones stay correct: the
+`length-tier` severity thresholds in `design-review.md` and the "Two-tier
+dimensional code review" phrase in `conventions-execution.md`. References to the
+cross-file tier *model* and to the `planning.md §Tier classification` /
+`track-review.md §"Tier-driven review selection"` headings remain and need the
+Phase C consistency review to adjudicate holistically over the cumulative Track
+1 + Track 2 diff — legitimately-surviving (the design gate is still decided in
+`planning.md`) versus dangling. The §2.5 `BC1`/`BC2` re-key cascaded through
+every recurrence (manifest index, body anchors, field illustrations, the
+dimensional-prefix prose list), kept internally consistent as `CN1` (race) /
+`BG1` (null).
+
+**What changed from the plan:** None. The `design-review.md` `tier`-param
+spawn-site lives in Track-1-scoped `create-plan/SKILL.md`, whose staged copy
+already passes `design_gate` rather than a named `tier=` arg, so renaming this
+file's input param leaves no dangling spawn arg. The §2.4
+`§Tier-driven review selection` heading-anchor link was kept byte-stable
+because Step 4 owns the `track-review.md` heading.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/risk-tagging.md` (new — staged copy, edited)
+- `…/staged-workflow/.claude/workflow/prompts/create-final-design.md` (new — staged copy, edited)
+- `…/staged-workflow/.claude/workflow/prompts/design-review.md` (new — staged copy, edited)
+- `…/staged-workflow/.claude/workflow/conventions-execution.md` (new — staged copy, edited)
+
+**Critical context:** Step 4 (`track-review.md`) must keep the
+`### Tier-driven review selection and which reviews to run` heading byte-stable
+or update every referrer in the same edit. Staged `risk-tagging.md` carries
+that full-heading reference three times, and `conventions-execution.md` plus the
+track-2 Context pointer reference it in abbreviated form — more than the "two
+referrers" the roster's Step 4 line names, so Step 4 must re-count.
 
 ## Validation and Acceptance
 
