@@ -30,6 +30,7 @@ home.
 - [x] 2026-06-29T15:33Z [ctx=safe] Step 2 complete (commit b9641e1ef2)
 - [x] 2026-06-29T15:55Z [ctx=info] Step 3 complete (commit 1befef572c)
 - [x] 2026-06-29T16:10Z [ctx=info] Step 4 complete (commit 7f753886f5)
+- [x] 2026-06-29T16:28Z [ctx=info] Step 5 complete (commit 2b3178ebf5)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -546,7 +547,7 @@ no-dangling acceptance is a track-completion property, not a per-step one. -->
 2. Tag computation (D9) + Phase-4 carrier (D8b) + bounded re-keys — in `risk-tagging.md` add the track-granularity complexity-tag rule (the seven HIGH triggers over `## Plan of Work` + `## Interfaces`, the change/track/step three-granularity distinction, the prediction reconciled to `max(step tags)`) and re-key the risk-level table's `high` step-level-review cell onto the split roster; in `create-final-design.md` re-derive the carrier table, the verdict-fold predicate, and the ledger-read mechanism from the axes (`design-final` iff `design_gate=yes`; `adr` iff ∃ track ≥ medium); in `design-review.md` re-key the `tier` input param + spawn-site + roster/tag refs and the `tier=full` fidelity gate → `design_gate=yes`; in `conventions-execution.md` re-key the §2.4 `Tier-driven review selection` pointer, the roster references, and the §2.5 `BC` schema examples. — risk: medium (workflow machinery, behavioral but bounded: one decision rule + one phase prompt's carrier logic + a fidelity-gate re-key + reference re-keying; no shared schema, control-flow gate, or auto-running artifact) — size: ~4 files; no mergeable low/medium work fits (every other step is high)  [x] commit: b9641e1ef2 *(depends on Step 1 for the new roster names + prefixes)*
 3. Domain×complexity selection + step-level adaptation + roster sweep (D3, D6) — thread complexity into the category-driven selection across the five mirror sites (`code-review/SKILL.md` Step 5, `review-agent-selection.md`, `track-code-review.md`, `step-implementation.md`, `fix-ci-failure/SKILL.md`): domain selects the set identically at every level, complexity moves only the Phase-C rigor dial, the floor + domain-matched set is never suppressed; update the same sites' rosters to the split/merge names; adapt the live localized-versus-buried step-level rule (burial role → `review-bugs` always + `review-concurrency` when concurrency is present; the test baselines' deferred role → `review-test-quality`), unchanged in logic; update `code-review-protocol.md`'s roster references; and sweep the out-of-scope removed-agent / retired-`BC` references in `execute-tracks/SKILL.md` (load-bearing step-level-baseline prose), `review-workflow-consistency.md` (worked example), `review-workflow-instruction-completeness.md` (self-analogy), and `prompts/dimensional-review-gate-check.md` (`BC3` example). — risk: high (workflow machinery: edits the load-bearing reviewer-selection control-flow protocol mirrored across five sites plus the step-level burial routing; a defect mis-selects reviewers for every future code review)  [x] commit: 1befef572c *(depends on Steps 1 and 2; parallel with Steps 4, 5)*
 4. Phase-A panel re-key + reconciliation-on-upward-divergence (D5, D6) — in `track-review.md`, re-key the Phase-A panel from the whole-change tier onto the per-track tag (`low` → Technical only; `medium` → + Adversarial narrowed; `high` → + Risk + Adversarial narrowed); add the reconciliation that compares `max(step tags)` against the predicted tag after decomposition, runs the missed strategic reviewers on any upward miss, fires **at most once**, and appends `--reconciled-tag <max(step tags)>` onto the **existing** A→C `--append-ledger` line carrying `--track <N>` (recomputed deterministically on resume so the write is idempotent); a downward divergence runs no missed reviewers and floors Phase C at `max(step tags)`. Keep the live `### Tier-driven review selection and which reviews to run` heading byte-stable, or update its two referrers in the same edit. — risk: high (workflow machinery: edits the load-bearing Phase-A review-selection gate, adds a new divergence-reconciliation control-flow mechanism, and writes the phase ledger)  [x] commit: 7f753886f5 *(depends on Step 2; parallel with Steps 3, 5)*
-5. inline-replanning tier-escalation re-key (R1 blocker) — in `inline-replanning.md`, replace the D11/D12 `workflow-startup-precheck.sh --append-ledger --tier <new-tier>` write (line ~169 — a flag Track 1 removed, so it `exit 2`s on the first post-promotion mid-flight escalation) with the complexity-axis equivalent, and re-express the whole "tier upgrade rides ESCALATE" escalation model (materialize-then-write ordering, the ledger append, the "every selector reads the `tier` field ledger-first" prose) in axis terms — a `design_gate` flip and/or a per-track tag raise written through Track 1's flags — not a mechanical `tier`→`complexity` search-replace. — risk: high (workflow machinery: edits the ESCALATE control-flow protocol and a phase-ledger write that hard-fails post-promotion if mis-keyed)  [ ] *(depends on Track 1's ledger axis fields; parallel with Steps 3, 4)*
+5. inline-replanning tier-escalation re-key (R1 blocker) — in `inline-replanning.md`, replace the D11/D12 `workflow-startup-precheck.sh --append-ledger --tier <new-tier>` write (line ~169 — a flag Track 1 removed, so it `exit 2`s on the first post-promotion mid-flight escalation) with the complexity-axis equivalent, and re-express the whole "tier upgrade rides ESCALATE" escalation model (materialize-then-write ordering, the ledger append, the "every selector reads the `tier` field ledger-first" prose) in axis terms — a `design_gate` flip and/or a per-track tag raise written through Track 1's flags — not a mechanical `tier`→`complexity` search-replace. — risk: high (workflow machinery: edits the ESCALATE control-flow protocol and a phase-ledger write that hard-fails post-promotion if mis-keyed)  [x] commit: 2b3178ebf5 *(depends on Track 1's ledger axis fields; parallel with Steps 3, 4)*
 6. Reindex staged-skill scope fix (inline-replan after Step 4, user-approved) — in `workflow-reindex.py`, stop the broad staged-skills glob (`staged-workflow/.claude/skills/**/SKILL.md`) from over-firing rules 2/4 on a staged copy of a non-anchor skill (one not in the live seven-anchor SKILL.md set, e.g. `fix-ci-failure/SKILL.md`, which §1.7 copy-then-edit staged as a TOC-less verbatim copy). Mirror the existing `_is_staged_agent` partition: a staged non-anchor skill validates exactly as its live namesake would — out of the TOC-presence / annotation rules (2/4), citing-scope rules (6/7) retained — or narrow the staged-skills glob to the live anchor set. Update the script's intentional-asymmetry comment, and add a `test_workflow_reindex.py` case pinning the new behavior (a staged non-anchor skill passes; a staged anchor skill stays fully validated). Acceptance: whole-repo `workflow-reindex.py --check` exits 0. — risk: high (workflow machinery: edits the reindex validation-scope logic the maven-pipeline CI Status gate runs; a defect would let real TOC drift through or keep over-firing)  [ ] *(inline-replan; depends on Step 3 having staged `fix-ci-failure/SKILL.md`)*
 
 ## Episodes
@@ -761,6 +762,39 @@ update — a single-file `track-review.md` edit, as the spec preferred.
 `--append-ledger` line as `--track <N>`, recomputed deterministically from the
 roster on resume so a re-run is idempotent. The toc-check blocker above is
 tracked for resolution before track completion.
+
+### Step 5 — commit 2b3178ebf5, 2026-06-29T16:28Z [ctx=info]
+**What was done:** Re-expressed the D11/D12 mid-flight tier-upgrade escalation
+model in staged `inline-replanning.md` onto Track 1's three unbundled ledger
+axes. Replaced the dead `workflow-startup-precheck.sh --append-ledger --tier
+<new-tier>` write — the R1 blocker, since Track 1 removed `--tier` so the
+invocation `exit 2`s post-promotion — with the surviving axis flags: a
+`design_gate` no→yes flip appends `--design-gate yes` (materializing the
+`design.md` seed); a track-count growth appends `--tracks <N>` (materializing
+the thinned `implementation-plan.md`); a per-track complexity-tag raise appends
+`--reconciled-tag <tag>` on that track's `--track <N>` ledger line. Carried over
+the materialize-then-write ordering (D11), last-value-wins reads, the
+recoverability reasoning, and the "selectors read the ledger field first" prose
+(re-keyed to `design_gate` / per-track `reconciled_tag`). Re-keyed the §6
+staging-commit prose onto axis terms; left the §6 Review-PASS `--phase 0
+--substate steps-partial` reset intact (not tier-keyed).
+
+**What was discovered:** The `--reconciled-tag` write idiom matches Step 4's
+staged `track-review.md` — the flag rides the same `--append-ledger` line as
+`--track <N>` because the tag is read track-scoped. The re-expression keeps
+historical anchors to the old `*→full` / `minimal→lite` materializations to
+orient the reader on what each axis raise replaces; these are labels, not live
+`tier` reads. After this step the staged file carries zero `--tier` writes and
+zero live `tier`-field reads — the surviving `tier`/`full` tokens are the English
+word, the house-style "tier mapping" anchor, and the deliberate old-model
+historical anchors, all legitimate for the Phase C no-dangling grep.
+
+**What changed from the plan:** None.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/inline-replanning.md` (D11/D12 escalation model re-keyed to the complexity axes)
+
+**Critical context:** None.
 
 ## Validation and Acceptance
 
