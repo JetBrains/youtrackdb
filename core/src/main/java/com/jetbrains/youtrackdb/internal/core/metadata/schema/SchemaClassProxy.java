@@ -49,6 +49,16 @@ public final class SchemaClassProxy extends SchemaProxedResource<SchemaClassImpl
   }
 
   @Override
+  protected void recordWriteTarget(@Nonnull TxSchemaState txState,
+      @Nonnull SchemaClassImpl resolved) {
+    // A class-level write mutates this class's serialized per-class record, so the commit must
+    // rewrite it: record the class under its tx-local name. markClassChanged is idempotent, so the
+    // mutators that already record (create / drop / rename / abstract->concrete alter) are harmless
+    // duplicates here.
+    txState.markClassChanged(resolved.getName());
+  }
+
+  @Override
   public CollectionSelectionStrategy getCollectionSelection() {
     assert this.session.assertIfNotActive();
     return resolve().getCollectionSelection();
