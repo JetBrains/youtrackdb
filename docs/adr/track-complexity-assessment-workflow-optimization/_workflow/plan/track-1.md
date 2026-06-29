@@ -25,6 +25,7 @@ foundation every complexity-tag consumer in Track 2 reads.
 - [ ] Track completion
 - [x] 2026-06-29T08:25Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-29T09:13Z [ctx=safe] Step 1 complete (commit 55a7e3ec4b)
+- [x] 2026-06-29T09:29Z [ctx=safe] Step 2 complete (commit bdec6c1922)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -393,7 +394,7 @@ grep + Read against the live develop-state files during Phase A review, so the
    `design_gate=yes/no`; move the plan-presence decision to the end of Step 4b (track
    count > 1 ⇒ `implementation-plan.md` exists); drop `--tier` from both
    `--append-ledger` seed sites (the Step-4 seed and the Step-1c `minimal` re-seed). —
-   risk: high (workflow machinery: the auto-resume control-flow protocol)  [ ]  *(depends on Step 1)*
+   risk: high (workflow machinery: the auto-resume control-flow protocol)  [x]  commit: bdec6c1922  *(depends on Step 1)*
 
 3. Schema/glossary + protocol/carrier documentation re-key — in `conventions.md` drop
    the `tier` enum/glossary term and document the four new ledger fields, and re-key the
@@ -468,6 +469,47 @@ write.
 `--phase1-complete`→`phase1_complete`, `--reconciled-tag`→`reconciled_tag`. The
 reconciled tag is emitted on the same ledger line as its `track=` token (the
 track-scoped read requirement).
+
+### Step 2 — commit bdec6c1922, 2026-06-29T09:29Z [ctx=safe]
+**What was done:** Re-keyed the create-plan resume router and the Phase-0→1
+classifier off the four ledger fields Step 1 froze, in the staged
+`create-plan/SKILL.md`. (1) Step 1c now reads `design_gate` / `tracks` /
+`phase1_complete` (last-value-wins `sed` reads) instead of `LEDGER_TIER`, and
+routes every resume case including the new design+single-track shape; the
+Phase-1-complete marker disambiguates that shape from a mid-authoring crash
+(set ⇒ steady state, no re-author; unset ⇒ crash, then the existing
+committed-and-clean check routes Step 4b vs Step 4a). (2) Step 4 part 1 became
+a design-gate classifier writing `design_gate=yes/no`; the multi-vs-single
+answer is no longer decided up front. (3) A plan-presence decision was added at
+the end of Step 4b: `implementation-plan.md` exists iff the authored track
+count > 1. (4) Both `--append-ledger` seed sites dropped `--tier` — the Step-4
+seed emits `--design-gate` / `--tracks` / `--phase1-complete yes`, the Step-1c
+plan-less re-seed emits `--design-gate no --tracks 1`. Also re-keyed the
+schema-removal-forced ledger-field references in the same file (the D14
+model-pin, the "no tier line" prose, the key-set citation, the Step-4 part-3
+auto-resume summary). The step-level prompt-design review surfaced one
+suggestion (WP1: tie the Step-4b seed placeholders to their value sources),
+fixed in `Review fix:` commit `bdec6c1922`; the dimension passed at iteration 2.
+
+**What was discovered:** The Step-4 seed runs after the track files are
+authored, so the track count is known and `phase1_complete=yes` can be set
+there — this is what makes the marker a reliable steady-state-vs-crash
+disambiguator: a clean Phase-1 completion always seeds the marker, a crash
+before the seed never does. The broad `full`/`lite`/`minimal` tier vocabulary
+elsewhere in the file (Step-4 part-3 design-first framing, Step-4a/4b headers,
+thinned-plan template comments) is conceptual planning vocabulary that neither
+reads nor writes the ledger, so it stays correct under the schema removal and
+is the explicit re-keying scope of Steps 3 and 4 — left untouched per the step
+boundaries.
+
+**What changed from the plan:** None. The plan left the resume-branch shape
+open; kept the design.md-present case as one branch that fans out on the marker
+internally, and the plan-less / fresh-start branches separate, satisfying the
+D10 contract that the three fields disambiguate every case. The seed-site field
+names and the router reads use the Step-1 flag→key map exactly.
+
+**Key files:**
+- `…/_workflow/staged-workflow/.claude/skills/create-plan/SKILL.md` (new — staged copy with the resume-router re-key, design-gate classifier, plan-presence decision, and seed-site `--tier` drop)
 
 ## Validation and Acceptance
 
