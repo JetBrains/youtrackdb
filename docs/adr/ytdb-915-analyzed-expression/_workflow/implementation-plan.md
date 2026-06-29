@@ -108,6 +108,12 @@ flowchart TD
   > § Track completion. (1 step, 0 failed)
   >
   > **Track file:** `plan/track-3.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 3 delivered the lowering contracts Track 4 needs
+  > (`lowerBoolean` package-visible for boolean round-trips, `NOT a = b` unparenthesized,
+  > structure-only output leaving collation/session/promotion to the evaluator); no Track 4
+  > assumption is contradicted. The added `AnalyzedAstAccess` parser seam is additive — Track 4
+  > reaches the AST only via `SQLBinaryCompareOperator` instances and `Result`.
 
 - [ ] Track 4: Evaluator + round-trip parity
   > Track 4 adds the `AnalyzedExprVisitor`-based evaluator — arithmetic via the shared
