@@ -27,6 +27,7 @@ foundation every complexity-tag consumer in Track 2 reads.
 - [x] 2026-06-29T09:13Z [ctx=safe] Step 1 complete (commit 55a7e3ec4b)
 - [x] 2026-06-29T09:29Z [ctx=safe] Step 2 complete (commit bdec6c1922)
 - [x] 2026-06-29T09:50Z [ctx=safe] Step 3 complete (commit f763417b11)
+- [x] 2026-06-29T10:09Z [ctx=safe] Step 4 complete (commit 3846e7ec3c)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -47,6 +48,13 @@ at Phase 1. -->
   when EITHER carrier exists. Handle the design+all-low edge case
   (`design-final.md` present with no `adr.md`), which the old `tier`-coupled
   table could not express. See Episodes §Step 3.
+- 2026-06-29T10:09Z Step 4 renamed `implementation-review.md` §"Tier-driven pass
+  selection" → §"Axis-driven pass selection" in the staged subtree. Track 2's
+  re-key of the live tier-readers (`create-final-design.md`, `design-review.md`,
+  `track-review.md`, `inline-replanning.md`) must use the new heading if it
+  references that section — a grep of the live + staged trees found no current
+  reference, so this is a forward caution, not an existing break. See Episodes
+  §Step 4.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -428,7 +436,7 @@ grep + Read against the live develop-state files during Phase A review, so the
    the `risk-tagging` HIGH triggers), `research.md`, `plan-slim-rendering.md`, and
    `design-document-rules.md`. — risk: medium (workflow machinery, behavioral-but-bounded:
    review-agent specs + Phase-2 pass-selector dispatch + a new planner instruction) —
-   size: ~7 files; no mergeable low/medium work fits (the rest of the track is high)  [ ]  *(depends on Step 1)*
+   size: ~7 files; no mergeable low/medium work fits (the rest of the track is high)  [x]  commit: 3846e7ec3c  *(depends on Step 1)*
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
@@ -565,6 +573,50 @@ scope); both promote together with these files in the single Phase-4 commit, so
 the staged workflow is internally consistent only at promotion — the named
 cross-track discharge condition, now documented in `workflow.md` §Final
 Artifacts.
+
+### Step 4 — commit 3846e7ec3c, 2026-06-29T10:09Z [ctx=safe]
+**What was done:** Re-keyed the remaining tier readers across seven workflow
+files off the removed whole-change tier onto the three complexity axes.
+`consistency-review.md`: the design-presence guard reads `design_gate`, the
+tier-presence check became a design-gate-presence check, the degenerate
+fallback re-keyed, and the plan-absent narrowing keys on the track-count axis.
+`structural-review.md`: re-keyed the pass-skip (plan-presence guard), the
+within-pass design-presence guard (`design_gate=no`), the seed-fidelity /
+destination prose, the severity guide, and a stale §"Per-tier artifact set"
+cross-ref → §"Per-axis artifact set". `implementation-review.md`: renamed
+§"Tier-driven pass selection" → §"Axis-driven pass selection" with its table
+and all five internal / cross refs re-keyed (design-half ⟵ `design_gate`,
+structural skip ⟵ plan presence). `planning.md` / `research.md` /
+`plan-slim-rendering.md` / `design-document-rules.md` dropped the
+`full`/`lite`/`minimal` vocabulary for design-gate / track-count framing, and
+`planning.md` gained the Phase-1 complexity-tag prediction instruction citing
+the `risk-tagging` HIGH triggers. `workflow-reindex.py --check` passes on all
+seven (re-verified by the orchestrator).
+
+**What was discovered:** The §"Tier-driven pass selection" heading was
+referenced only from `structural-review.md` plus four sites internal to
+`implementation-review.md` — no staged conventions / workflow file and no other
+live file hardcodes it — so the rename is self-contained within the
+implementation-review / structural-review pair that promote together at Phase 4.
+The `planning.md` §"Tier classification" heading was kept verbatim (Step 3's
+staged `conventions.md` cites it as the "Full rule" home), with only its body
+re-keyed — mirroring Step 3's anchor preservation.
+
+**What changed from the plan:** None to scope. One rendering choice the plan
+left open: the `implementation-review.md` selector section was renamed to
+"Axis-driven pass selection" (the word "Tier-driven" was the stale label) rather
+than re-keyed in place; this required updating its TOC row + 4 internal refs +
+1 `structural-review.md` cross-ref, all done and reindex-verified. No future
+step affected.
+
+**Key files:**
+- `…/_workflow/staged-workflow/.claude/workflow/prompts/consistency-review.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/prompts/structural-review.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/implementation-review.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/planning.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/research.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/plan-slim-rendering.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/design-document-rules.md` (new)
 
 ## Validation and Acceptance
 
