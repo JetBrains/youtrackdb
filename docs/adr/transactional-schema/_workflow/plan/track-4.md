@@ -28,6 +28,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] 2026-06-26T12:52Z [ctx=info] Step 2 complete (commit 346e87ae9d)
 - [x] 2026-06-26T16:40Z [ctx=info] Step 3 complete (commit 9d71010531)
 - [x] 2026-06-29T11:21Z [ctx=info] Step 4 complete (commit 53207446ff)
+- [x] 2026-06-29T15:49Z [ctx=info] Step 5 complete (commit 1f431495a8)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -146,6 +147,41 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
   - **Review burden.** The cumulative track diff is ~4,500 changed lines, over the ~4,000
     estimate, with Steps 5 and 6 still ahead; Phase C should weigh splitting the review.
   See Episodes §Step 4.
+- 2026-06-29T15:49Z Step 5 made the schema serializer selective and surfaced facts the
+  later step and downstream tracks need:
+  - **Changed-class completeness is centralized (Track 5/6/8).** The selective write
+    rewrites only the classes in `getChangedClasses()`, so a tx-reachable class mutation
+    that never calls `markClassChanged` is silently dropped at commit. The Step-5 review
+    found the attribute setters (`setStrictMode` / `setDescription` / `setCustom` /
+    `addSuperClass` / `setSuperClasses` / `setOverSize`) and property `setName` / `setType`
+    are tx-reachable with no throw-guard yet did not mark. The fix marks the resolved class
+    at the single tx-local write choke point (`SchemaProxedResource.resolveForWrite` →
+    `recordWriteTarget`), so any later track that de-guards a class or property mutation
+    inherits complete tracking as long as it routes through the proxy resolution; a path
+    that bypasses the proxy must mark explicitly.
+  - **Unchanged-record cache warming (Track 5/6).** Promotion re-parses the committed
+    schema from every linked per-class record inside the commit window. An unchanged
+    class's record is no longer rewritten, so `toStream` now loads it read-only to keep
+    promotion serving from the cache; a genuine cache miss inside the window fails with
+    "atomic operation is not active" on a disk engine (the YTDB-1175 profile shape). Later
+    commit-window work that stops writing a record promotion still reads must warm it the
+    same way.
+  - **Pre-existing concurrency failure (Track 3 / Track 7).**
+    `MetadataWriteMutexTest.twoConcurrentSchemaTransactionsSerializeWithoutAbort` fails
+    identically before and after this step (confirmed by running the single test at
+    `bf44e6f749` and at the Step-5 tip). The second concurrent schema transaction seeds its
+    tx-local schema at a stale record version and conflicts at its own commit; Step 5 only
+    changes which record id surfaces the conflict (root versus class). The fix is
+    tx-local-seed isolation (Track 3) or the mutex permit handshake (Track 7), not this
+    track. The test is red and not `@Ignore`d, so it must be resolved before merge.
+  - **Environmental test-fork crash.** The host's parallel-surefire `default-test` run
+    intermittently crashes at fork startup ("forked VM terminated without saying goodbye"),
+    reproduced on the clean base, so it is environmental. A single-fork targeted run
+    completes and lets the JaCoCo report bind; Phase C's cumulative coverage build should
+    expect this.
+  - **Review burden.** The code-only cumulative track diff is ~3,750 changed lines across
+    16 files with Step 6 still ahead; Phase C should weigh splitting the review.
+  See Episodes §Step 5.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -212,6 +248,32 @@ design.md D-records this track owns. -->
   through the workflow's mechanical full-step revert, because none of the alternatives changed
   the core approach. No Decision Record changed; D10 already mandates that a failed commit
   leave no phantom structure. See Episodes §Step 4 and Surprises 2026-06-29T11:21Z.
+- 2026-06-29T15:49Z (scope-up / review-driven) Step 5's step-level review (BC1/CS1, two
+  dimensions independently, PSI-backed) expanded the step from the selective write alone to
+  also completing the changed-class signal it keys on. The selective write rewrites only the
+  classes in `getChangedClasses()`, but several tx-reachable class mutations — the
+  `setStrictMode` / `setDescription` / `setCustom` / `addSuperClass` / `setSuperClasses` /
+  `setOverSize` attribute setters and property `setName` / `setType` — are reachable inside a
+  transaction with no throw-guard and never called `markClassChanged`, so committing one
+  would drop that class's per-class record (lost in memory through the promotion re-parse and
+  on disk). Step 4's full write had masked the gap. Resolution (in scope, fixed forward): mark
+  the resolved class at the single tx-local write choke point rather than at each mutator.
+
+```mermaid
+flowchart LR
+  M["setStrictMode / setCustom /<br/>addSuperClass / property setName ..."] --> RW[SchemaProxedResource.resolveForWrite]
+  RW --> RWT[recordWriteTarget]
+  RWT --> MC[markClassChanged]
+  MC --> GC[getChangedClasses]
+  GC --> TS["selective toStream<br/>rewrites the changed class record"]
+```
+
+  The centralized hook was chosen over per-setter marking because over-recording is
+  correctness-safe (it only rewrites an unchanged record, a write-amplification cost) while
+  under-recording is the data-loss bug, and it closes the whole class of future omissions.
+  No Decision Record changed; D6 already mandates the selective write keyed on
+  `getChangedClasses()`, and this completes the signal it keys on. See Episodes §Step 5 and
+  Surprises 2026-06-29T15:49Z.
 
 #### D1 (commit facet): Storage reconciles structure at commit
 - **Alternatives considered**: keep storage-leading (the enablement facet's rejected alternative).
@@ -340,7 +402,7 @@ promotion under `SchemaShared.lock` before `stateLock`.
 2. Produce D2 provisional collection ids in the tx-local create path: replace the eager, self-committing `session.addCollection` in `SchemaEmbedded.createCollections` (and any sibling tx-local create path) with provisional `<= -2` sentinel allocation, so an in-tx `createClass` carries a provisional id instead of a durable real collection; split the `collectionId < 0` predicate into abstract `-1` vs provisional `<= -2` across the in-memory map sites (`SchemaShared.checkCollectionCanBeAdded`, `addCollectionClassMap`, `getClassByCollectionId`, and the other ~11 `< 0` sites), keeping file/storage sites skipping all negatives; populate `collectionsToClasses` with provisional ids as pending-real (reverse map populated, uniqueness validated); carry the provisional→real id mapping on `TxSchemaState`. Closes the Track 3 CS1 stray-collection-on-rollback defect — a rolled-back in-tx create now leaves no collection on disk. This is the D2 production substrate the reconciliation core consumes. (Depends on Step 1.) — risk: high (architecture: inverts the eager structural collection allocation, the storage-leads dependency inversion's tx-local half; crash-safety/durability: a rolled-back or crashed-before-commit in-tx create must leave no stray collection; concurrency: the tx-local predicate-split sites)  [x] commit: 346e87ae9d
 3. Build the lock-free commit-window record-read substrate so commit-time schema serialization and promotion can read records while holding `stateLock.writeLock()`. `txLocalSchema.toStream` and `committedSchema.fromStream` read records via `session.load` → `executeReadRecord` → the security `getCollectionNameById` → `getPhysicalCollectionNameById` → `stateLock.readLock()`, which busy-spins forever because the non-reentrant `ScalableRWLock` never grants a read to the thread already holding the write lock. Add lock-free read variants (mirroring the existing `doGetIndexEngine` / `doGetAndCheckCollection` pattern) for every `stateLock.readLock()`-taking method the commit body reaches under the write lock: at minimum a lock-free `getPhysicalCollectionNameById` / `getCollectionNameById` for the security check and a lock-free `storage.readRecord` for genuine cache misses, exposed through a commit-window read path the schema `toStream` / `fromStream` and the position-allocation / `commitEntry` loop can call. Enumerate the full reachable readLock set with PSI find-usages (the D3/T1 enumeration extended from the index path to the record/schema read path) and confirm each is replaced or already lock-free; leave the non-reentrant lock and the pure-data read-lock path unchanged. White-box tests prove a lock-free read resolves while a write lock is held. Covers the D3/T1 readLock-re-entry hazard for the record-read surface the reconciliation core (Step 4) rests on. (Depends on Steps 1 and 2.) — risk: high (concurrency: lock-free reads of shared mutable state under the held write lock, across the session / security / storage read path; crash-safety/durability: the commit-window record-read correctness the reconciliation core rests on)  [x] commit: 9d71010531
 4. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`, reading records through the Step 3 lock-free commit-window read substrate. Also apply the two prerequisites the first attempt validated (see Surprises 2026-06-26T15:39Z): the `isWriteTransaction()` schema-signal fix so a schema-only tx reaches `storage.commit`, and the `TxSchemaState` provisional→name carrier so the real collection is created under its generated name. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Steps 1, 2, and 3.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [x] commit: 53207446ff
-5. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 4.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [ ]
+5. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 4.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [x] commit: 1f431495a8
 6. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 4; *(parallel with Step 5)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
 
 ## Episodes
@@ -574,6 +636,70 @@ link-consistency suppression is scoped to `toStream`, so later work that deletes
 schema or index records during commit must extend the same suppression. The dim review reached
 PASS across all five dimensions (bugs-concurrency, crash-safety, test-crash-safety, performance,
 test-concurrency) after one design escalation and three fix iterations.
+
+### Step 5 — commit 1f431495a8, 2026-06-29T15:49Z [ctx=info]
+**What was done:** Made the commit-time schema serializer selective. `SchemaShared.toStream`
+gained a three-argument overload taking the transaction's changed-class set and a
+root-payload-changed flag; the legacy no-arg `toStream` delegates with `(null, true)`, so the
+committed non-transactional save still rewrites every class. On the selective path the
+serializer rewrites only the changed classes' per-class records, maintains the root `classes`
+link set for created and dropped classes, and rewrites the root non-link payload only when the
+link set changed or the new `rootPayloadDiffersFrom` reports a difference from the committed
+schema (collection counter, blob set, or the append-only global-property table).
+`AbstractStorage.applyCommitOperations` computes the changed-class set and the payload-diff flag
+before promotion and passes them in. Tests cover the reachable F59 guard (a class create
+advances the collection counter, which must persist across a restart so a later create cannot
+regenerate a colliding collection name), the write-amplification win (a one-class change leaves
+an unrelated class's record version unchanged), root-written-on-create and root-written-on-drop,
+a white-box `rootPayloadDiffersFrom` per-component test, and the two review-driven tests below.
+
+**What was discovered:** The selective write keys on `getChangedClasses()`, so a tx-reachable
+class mutation that never calls `markClassChanged` is dropped at commit. The original change
+covered create, drop, rename, and abstract-alter (which mark) but missed the attribute setters
+(`setStrictMode`, `setDescription`, `setCustom`, `addSuperClass`, `setSuperClasses`,
+`setOverSize`) and property `setName` / `setType`, all tx-reachable with no throw-guard. Step 4's
+full write masked the gap; the selective write turned it into a silent lost update of committed
+schema state. Two review dimensions (BC1, CS1) caught it; the fix marks the resolved class at the
+single tx-local write choke point (`SchemaProxedResource.resolveForWrite`), so every current and
+future tx-local class write is tracked. Separately, skipping an unchanged class's record write
+removed an implicit cache-warming side effect promotion depended on: the old full write loaded
+every class record while the atomic operation was active, so post-commit `fromStream` read from
+the cache; the selective write turned an untouched record into a genuine cache miss that failed
+with "atomic operation is not active" on a disk engine (green on the in-memory default, red on
+disk — the YTDB-1175 profile shape). The serializer now warms unchanged records read-only inside
+the active window. The pre-existing
+`MetadataWriteMutexTest.twoConcurrentSchemaTransactionsSerializeWithoutAbort` failure is unrelated
+to this step (see Surprises 2026-06-29T15:49Z).
+
+**What changed from the plan:** The plan's F59 example, an in-transaction property-create growing
+the global-property table, is not reachable yet because property create and drop are still
+throw-guarded against an active transaction. The F59 guard is tested through its reachable half
+(the collection counter, end to end across a restart) plus the white-box `rootPayloadDiffersFrom`
+test for the global-table and blob arms; the production guard covers all three and is ready for
+when property and blob operations become transactional. The step-level review expanded the step
+from the selective write alone to also completing the changed-class signal; the centralized
+`resolveForWrite` hook was chosen over per-setter marking because it closes future omissions (see
+Decision Log 2026-06-29T15:49Z). Deferred as minor suggestions, recorded not fixed: PF1 (the
+per-slot string-signature allocation in `rootPayloadDiffersFrom` on the low-frequency
+schema-commit path) and TY3 (a pre-restart baseline assertion in the counter test).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaProxedResource.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaClassProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaPropertyProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaCommitReconciliationTest.java` (modified)
+
+**Critical context:** The changed-class signal is now complete for every tx-local class write
+that routes through `SchemaProxedResource.resolveForWrite` → `recordWriteTarget`; a later track
+that adds a tx-local class mutation gets tracking for free as long as it routes through the proxy
+resolution, and a path that bypasses it must mark explicitly. The promotion re-parse requires
+every linked class record to be readable inside the commit window (atomic op active); `toStream`
+warms unchanged records read-only for that reason — do not remove that load.
+`rootPayloadDiffersFrom` assumes the global-property table is append-only (asserted at
+`findOrCreateGlobalProperty`); a future in-place mutation or compaction must update the comparator.
 
 ## Validation and Acceptance
 - One transaction creates two classes (16 collections, 2+ engines) plus records,
