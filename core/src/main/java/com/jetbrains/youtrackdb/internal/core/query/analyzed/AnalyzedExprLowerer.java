@@ -347,24 +347,19 @@ public final class AnalyzedExprLowerer {
   /// `NEAR`, `&&`, `WITHIN`) are out of subset and throw. The mapping is by concrete type because
   /// the operators are distinct classes, not enum constants.
   private static BinaryOperator toComparisonOperator(SQLBinaryCompareOperator operator) {
-    if (operator instanceof SQLEqualsOperator) {
-      return BinaryOperator.EQ;
-    }
-    if (operator instanceof SQLNeqOperator || operator instanceof SQLNeOperator) {
-      return BinaryOperator.NE;
-    }
-    if (operator instanceof SQLLtOperator) {
-      return BinaryOperator.LT;
-    }
-    if (operator instanceof SQLLeOperator) {
-      return BinaryOperator.LE;
-    }
-    if (operator instanceof SQLGtOperator) {
-      return BinaryOperator.GT;
-    }
-    if (operator instanceof SQLGeOperator) {
-      return BinaryOperator.GE;
-    }
-    throw new UnsupportedAnalyzedNodeException(operator.getClass());
+    return switch (operator) {
+      case SQLEqualsOperator ignored -> BinaryOperator.EQ;
+      // Both `!=` spellings collapse to NE: `<>` (SQLNeqOperator) and `!=` (SQLNeOperator). A single
+      // case label cannot carry two type patterns in Java 21, so they stay two adjacent cases.
+      case SQLNeqOperator ignored -> BinaryOperator.NE;
+      case SQLNeOperator ignored -> BinaryOperator.NE;
+      case SQLLtOperator ignored -> BinaryOperator.LT;
+      case SQLLeOperator ignored -> BinaryOperator.LE;
+      case SQLGtOperator ignored -> BinaryOperator.GT;
+      case SQLGeOperator ignored -> BinaryOperator.GE;
+      // SQLBinaryCompareOperator is not sealed (15 concrete subtypes), so the default arm is required
+      // for exhaustiveness and keeps every out-of-subset operator on the throw path.
+      default -> throw new UnsupportedAnalyzedNodeException(operator.getClass());
+    };
   }
 }
