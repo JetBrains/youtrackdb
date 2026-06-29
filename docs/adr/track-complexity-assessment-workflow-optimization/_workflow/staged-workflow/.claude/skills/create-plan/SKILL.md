@@ -1282,8 +1282,8 @@ CTX_LEVEL="$(sed -n 's/.*level=\([a-z]*\).*/\1/p' \
 .claude/scripts/workflow-startup-precheck.sh --append-ledger \
     --ctx "$CTX_LEVEL" \
     --phase 0 \
-    --design-gate "<yes | no>" \
-    --tracks "<number of track files authored>" \
+    --design-gate "<the design_gate value confirmed in Step 4 part 1>" \
+    --tracks "<count of plan/track-*.md files just authored>" \
     --phase1-complete yes \
     --categories "<comma-separated centrally-matched HIGH-risk categories, or empty>"
     # add --s17 with the staging-mode token only when the plan declares
