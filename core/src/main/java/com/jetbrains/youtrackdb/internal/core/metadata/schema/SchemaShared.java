@@ -990,6 +990,12 @@ public abstract class SchemaShared implements CloseableInStorage {
     }
     LinkSet classLinks = null;
 
+    // The lowercased names of the live classes whose per-class record this loop rewrote (a create or
+    // a changed-class match). Accumulated only on the selective path; used by the post-loop assert
+    // to verify every still-live changed-class name was actually consumed. A future
+    // name-normalization or live-class-iteration regression that left a changed live class unmatched
+    // would silently drop its record, surfacing only as a missing per-class record after a restart.
+    final Set<String> writtenChangedLower = changedLower == null ? null : new HashSet<>();
     final Set<RID> liveRecords = new HashSet<>();
     for (var c : realClasses) {
       EntityImpl classRecord;
@@ -1010,12 +1016,18 @@ public abstract class SchemaShared implements CloseableInStorage {
         }
         classLinks.add(classRecord.getIdentity());
         c.toStream(session, classRecord);
+        if (writtenChangedLower != null) {
+          writtenChangedLower.add(c.getName().toLowerCase(Locale.ENGLISH));
+        }
       } else if (changedLower == null
           || changedLower.contains(c.getName().toLowerCase(Locale.ENGLISH))) {
         // An existing class that changed (or every class on the full-write path): rewrite its
         // per-class record in place. The bound RID is unchanged, so its link is already in the set.
         classRecord = session.load(boundRid);
         c.toStream(session, classRecord);
+        if (writtenChangedLower != null) {
+          writtenChangedLower.add(c.getName().toLowerCase(Locale.ENGLISH));
+        }
       } else {
         // An unchanged class on the selective path: do not rewrite its per-class record, so it stays
         // out of the commit working set. That is the write-amplification win (no WAL units, no page
@@ -1033,6 +1045,16 @@ public abstract class SchemaShared implements CloseableInStorage {
               + " live-record set written to the root link set";
       liveRecords.add(c.getRecordId());
     }
+
+    // Every still-live changed class must have had its per-class record rewritten by the loop above.
+    // A changed name that is not in writtenChangedLower and is still a live class would be a silent
+    // skip (the case/normalization hazard the lowercasing exists to prevent); a changed name that is
+    // not a live class is a drop, handled by the drop loop below, so it is exempt. The helper folds
+    // the drop exemption in so the assert does not false-trip on a dropped class.
+    assert allChangedLiveClassesWereWritten(changedLower, realClasses, writtenChangedLower)
+        : "a changed class that is still live was not rewritten by the selective per-class write; a"
+            + " changed-class name failed to match a live class (the case/normalization silent-skip"
+            + " hazard the lowercasing exists to prevent)";
 
     // Drop the records that backed classes removed since the last save, and unlink them. A drop
     // mutates the link set, so acquire the mutable handle on the first removal.
@@ -1069,6 +1091,44 @@ public abstract class SchemaShared implements CloseableInStorage {
       entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
     }
     return entity;
+  }
+
+  /**
+   * Whether every still-live changed-class name was consumed (rewritten) by the selective per-class
+   * write loop. Used only as an assert condition (zero production cost), extracted to a helper
+   * because the drop exemption makes the per-name test non-trivial — the JaCoCo+{@code assert}
+   * guidance keeps such conditions out of inline asserts so phantom uncovered branches are not
+   * reported.
+   *
+   * <p>A name in {@code changedLower} is satisfied when it is either in {@code writtenChangedLower}
+   * (the loop rewrote that class's record) or absent from the live class set (the class was dropped
+   * in this transaction; {@code markClassChanged} records a dropped class's name too, and the drop
+   * loop deletes and unlinks its record rather than rewriting it). On the full-write path
+   * ({@code changedLower == null}) there is no changed set to verify, so the invariant holds
+   * vacuously.
+   *
+   * @param changedLower the lowercased changed-class names, or {@code null} on the full-write path.
+   * @param realClasses the live tx-local classes the loop iterated.
+   * @param writtenChangedLower the lowercased names of live classes the loop actually rewrote.
+   */
+  private static boolean allChangedLiveClassesWereWritten(@Nullable Set<String> changedLower,
+      @Nonnull Set<SchemaClassImpl> realClasses, @Nullable Set<String> writtenChangedLower) {
+    if (changedLower == null) {
+      // Full-write path: no changed set to reconcile.
+      return true;
+    }
+    final Set<String> liveLower = new HashSet<>(realClasses.size());
+    for (var c : realClasses) {
+      liveLower.add(c.getName().toLowerCase(Locale.ENGLISH));
+    }
+    for (var name : changedLower) {
+      final boolean rewritten = writtenChangedLower != null && writtenChangedLower.contains(name);
+      final boolean dropped = !liveLower.contains(name);
+      if (!rewritten && !dropped) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**
@@ -1255,6 +1315,15 @@ public abstract class SchemaShared implements CloseableInStorage {
     if (global == null) {
       var id = properties.size();
       global = new GlobalPropertyImpl(name, type, id);
+      // Append-only: a new slot always lands at id == properties.size() and an existing slot is
+      // never rewritten or removed. rootPayloadDiffersFrom relies on this — it compares the two
+      // tables slot by slot by name+type and short-circuits on a size difference, which only detects
+      // a real change while the table grows monotonically. Any future change that mutated an existing
+      // slot in place (same id, changed attribute) or compacted the table must update
+      // rootPayloadDiffersFrom too, or a genuine root-payload change could be missed and the
+      // selective commit write would omit the root record.
+      assert id == properties.size()
+          : "global-property table must be append-only: a new slot must land at the end (id == size)";
       properties.add(id, global);
       propertiesByNameType.put(global.getName() + "|" + global.getType().name(), global);
     }

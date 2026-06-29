@@ -88,6 +88,20 @@ public abstract class SchemaProxedResource<T> extends ProxedResource<T> {
    * kept (the captured delegate is returned unchanged). Inside a transaction the tx-local copy is
    * seeded on the first such call ({@link DatabaseSessionEmbedded#ensureTxSchemaState()}) and the
    * delegate is re-resolved by name against it, so the mutation lands on the private copy.
+   *
+   * <p>The in-transaction branch is the single choke point through which every tx-local per-class
+   * write passes (a write method on any of the three proxies routes here before mutating the
+   * tx-local copy). Recording the affected class into the changed-class set here — through the
+   * subclass {@link #recordWriteTarget} hook — keeps the commit's selective per-class write complete
+   * for every current and future class mutation, rather than relying on each individual mutator to
+   * remember to call {@link TxSchemaState#markClassChanged}. The commit writes only the per-class
+   * records of classes in that set, so an unrecorded class mutation would be silently dropped from
+   * the write set and lost in memory and on disk. Over-recording is correctness-safe — it only
+   * rewrites an unchanged class's record (a write-amplification cost), never data loss — so the
+   * record fires unconditionally on every routed write, including the read-free predicates that
+   * happen to share a write resolution; under-recording is the durability bug. Marking happens only
+   * on this write path, never through {@link #resolve()}, so a read never spuriously records a
+   * change.
    */
   protected final T resolveForWrite() {
     if (!session.getTransactionInternal().isActive()) {
@@ -95,8 +109,32 @@ public abstract class SchemaProxedResource<T> extends ProxedResource<T> {
       // tx-local copy here would have no transaction to defer its commit to.
       return delegate;
     }
-    return rebindToTxLocal(session.ensureTxSchemaState().getTxLocalSchema());
+    var txState = session.ensureTxSchemaState();
+    var resolved = rebindToTxLocal(txState.getTxLocalSchema());
+    recordWriteTarget(txState, resolved);
+    return resolved;
   }
+
+  /**
+   * Records the class (or classes) a routed write touches into {@code txState}'s changed-class set,
+   * so the commit's selective per-class write rewrites the affected per-class record(s). Called from
+   * {@link #resolveForWrite()} after the delegate is re-resolved to the tx-local copy, on the
+   * in-transaction branch only.
+   *
+   * <p>Each subclass records the class its write affects: a {@link SchemaClassProxy} records the
+   * resolved class itself; a {@link SchemaPropertyProxy} records the resolved property's owner class
+   * (a property mutation changes the owner class's serialized per-class record); a
+   * {@link SchemaProxy} records nothing here, because a whole-schema write either already records the
+   * specific classes it touches (create / drop / rename) or mutates only the root non-link payload
+   * (global-property table, blob set), which the commit's root-payload diff detects on its own —
+   * blanket-recording every class on a schema-level write would defeat the selective write's
+   * write-amplification win.
+   *
+   * @param txState the transaction's schema state, whose changed-class set the target is recorded in.
+   * @param resolved the tx-local delegate the write will mutate (the return value of
+   *     {@link #rebindToTxLocal}).
+   */
+  protected abstract void recordWriteTarget(@Nonnull TxSchemaState txState, @Nonnull T resolved);
 
   /**
    * Re-resolves this proxy's captured delegate by name against the given tx-local schema copy. Each

@@ -61,6 +61,18 @@ public final class SchemaProxy extends SchemaProxedResource<SchemaShared>
   }
 
   @Override
+  protected void recordWriteTarget(@Nonnull TxSchemaState txState,
+      @Nonnull SchemaShared resolved) {
+    // A schema-level write records nothing here. Class create / drop / rename already record the
+    // specific class(es) they touch through their own markClassChanged calls (recording the precise
+    // name a create/drop/rename needs, which a whole-schema hook could not derive). Global-property
+    // and blob-collection writes mutate only the root non-link payload, which the commit's
+    // root-payload diff detects on its own. Blanket-recording every class on any schema-level write
+    // would force the commit to rewrite every class's per-class record, defeating the selective
+    // write's write-amplification win.
+  }
+
+  @Override
   public ImmutableSchema makeSnapshot() {
     assert session.assertIfNotActive();
     // Tier 1: the immutable snapshot is taken from the committed instance, not the tx-local copy.

@@ -59,6 +59,20 @@ public final class SchemaPropertyProxy extends SchemaProxedResource<SchemaProper
   }
 
   @Override
+  protected void recordWriteTarget(@Nonnull TxSchemaState txState,
+      @Nonnull SchemaPropertyImpl resolved) {
+    // A property-level write (rename, retype, attribute change) is serialized inside the owner
+    // class's per-class record, so the commit must rewrite that class's record: record the owner
+    // class under its tx-local name. The resolved property is bound to its tx-local owner class
+    // (rebindToTxLocal resolved the owner against the tx-local copy), so its owner name is the live
+    // class name. markClassChanged is idempotent.
+    var ownerClass = resolved.getOwnerClass();
+    assert ownerClass != null
+        : "a tx-local property resolved for a write must have an owner class to record changed";
+    txState.markClassChanged(ownerClass.getName());
+  }
+
+  @Override
   public Collection<String> getAllIndexes() {
     assert session.assertIfNotActive();
     return resolve().getAllIndexes(session);
