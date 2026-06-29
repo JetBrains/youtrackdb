@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -609,5 +610,220 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     if (error.get() != null) {
       throw new AssertionError("a concurrent racer failed", error.get());
     }
+  }
+
+  /**
+   * Reads the persisted version of a record by loading it fresh inside a transaction. A record's
+   * version increments each time the storage writes it, so comparing the version across a commit
+   * tells whether that commit actually wrote the record. This is the observable the selective-write
+   * tests rely on: a record left out of the commit working set keeps its version unchanged.
+   */
+  private long recordVersion(RID rid) {
+    return session.computeInTx(tx -> session.<EntityImpl>load(rid).getVersion());
+  }
+
+  /**
+   * The root-omission guard, reachable half: the collection counter. A class create advances the
+   * collection counter, which lives only on the root record. If the root were left out of the commit
+   * write set, the advanced counter would not persist; at the next open the counter would revert to
+   * its old value and hand out a suffix it had already used, so the next class's generated collection
+   * name would collide with an existing one. This test creates a class, forces a durable reload, then
+   * creates a second class and asserts no two collections share a generated name. A regression that
+   * omitted the root after the first create would revert the counter and produce the collision.
+   *
+   * <p>The other root-omission half — the global-property table, exercised by an in-transaction
+   * property-create — is not reachable yet: property-create is still throw-guarded against an active
+   * transaction (it rides the legacy non-transactional save, which always rewrites the whole schema
+   * including the root). The selective write's root-payload guard covers the global-table case in
+   * production through {@code rootPayloadDiffersFrom}; an end-to-end test of it waits for the
+   * property-operation de-guarding in a later track.
+   */
+  @Test
+  public void classCreateAdvancesCounterPersistedThroughRestartSoNamesDoNotCollide() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("CounterFirst"));
+
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+
+    // Create a second class after the restart: it draws the next counter values for its collection
+    // names. If the counter had reverted (the root-omission regression), these names would collide
+    // with the first class's persisted collection names.
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("CounterSecond"));
+
+    var collectionNames = new ArrayList<>(session.getCollectionNames());
+    assertEquals(
+        "no two collections may share a generated name after a restart; a reverted counter (the "
+            + "root-omission regression) would hand out an already-used suffix",
+        collectionNames.size(), new HashSet<>(collectionNames).size());
+    assertNotNull("the first class must survive the restart",
+        schemaShared().getClass("CounterFirst"));
+    assertNotNull("the second class created after the restart must be promoted",
+        schemaShared().getClass("CounterSecond"));
+  }
+
+  /**
+   * The write-amplification win: a commit that changes one class does not rewrite an unrelated live
+   * class's per-class record. Two classes are created and committed; then the first is dropped in a
+   * later transaction. The drop deletes the dropped class's record and rewrites the root (the class
+   * link set shrank), but the unrelated second class's per-class record must stay out of the commit
+   * write set — its version is unchanged. This is the per-class-record format killing the
+   * monolithic-schema write amplification: an unchanged class record is never rewritten.
+   */
+  @Test
+  public void changingOneClassDoesNotRewriteAnUnrelatedClassRecord() {
+    session.executeInTx(
+        tx -> {
+          session.getMetadata().getSchema().createClass("DropMe");
+          session.getMetadata().getSchema().createClass("KeepMe");
+        });
+
+    var keepRid = schemaShared().getClass("KeepMe").getRecordId();
+    assertNotNull("the kept class must have a bound per-class record", keepRid);
+    var keepVersionBefore = recordVersion(keepRid);
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().dropClass("DropMe"));
+
+    assertFalse("the dropped class must be gone after commit",
+        schemaShared().existsClass("DropMe"));
+    assertEquals(
+        "an unrelated live class's per-class record must NOT be rewritten by a commit that changed "
+            + "only another class (version must be unchanged)",
+        keepVersionBefore, recordVersion(keepRid));
+  }
+
+  /**
+   * The root record is written on a class drop because the class link set shrank: a drop removes the
+   * dropped class's record from the root's {@code "classes"} link set and deletes that record, so the
+   * root must be rewritten for the removed link to persist — even though a drop changes none of the
+   * root's non-link payload (the counter is monotonic and is not decremented, the global-property
+   * table and blob set are untouched). This guards the link-set arm of the selective root write
+   * (writing the root when the link set changes, independent of a payload diff): without it the drop
+   * would not persist, and the dropped class would reappear at the next open. A baseline class keeps
+   * the schema non-empty so the root record exists before the drop.
+   */
+  @Test
+  public void classDropWritesRootForTheRemovedClassLink() {
+    session.executeInTx(
+        tx -> {
+          session.getMetadata().getSchema().createClass("DropBaseline");
+          session.getMetadata().getSchema().createClass("DropTarget");
+        });
+
+    var rootRid = schemaShared().getIdentity();
+    var droppedRid = schemaShared().getClass("DropTarget").getRecordId();
+    assertNotNull("the drop target must have a bound per-class record", droppedRid);
+    var rootVersionBefore = recordVersion(rootRid);
+    assertTrue("the drop target must be linked from the root before the drop",
+        rootClassLinks().contains(droppedRid));
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().dropClass("DropTarget"));
+
+    assertTrue("dropping a class must rewrite the root so the removed class link persists",
+        recordVersion(rootRid) > rootVersionBefore);
+    assertFalse("the dropped class record must be unlinked from the root after commit",
+        rootClassLinks().contains(droppedRid));
+
+    // The removed link survives a durable round trip, confirming the root write reached disk.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertFalse("the dropped class must not reappear after a reload",
+        schemaShared().existsClass("DropTarget"));
+    assertTrue("the baseline class must survive the reload",
+        schemaShared().existsClass("DropBaseline"));
+  }
+
+  /**
+   * The root record is written when a class is created even if the per-class change alone would not
+   * touch the root payload: a class create adds the new class's record to the root's {@code "classes"}
+   * link set, which dirties the root, and it advances the collection counter (also on the root). This
+   * guards against an over-aggressive selective write that keys only on a payload diff and forgets the
+   * link-set change: a created class whose link never reached the persisted root would vanish at the
+   * next open. The first create establishes a baseline root version; a second create in a later
+   * transaction must increment it.
+   */
+  @Test
+  public void classCreateWritesRootForTheNewClassLink() {
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("LinkBaseline"));
+
+    var rootRid = schemaShared().getIdentity();
+    var rootVersionBefore = recordVersion(rootRid);
+    var linksBefore = new HashSet<>(rootClassLinks());
+
+    session.executeInTx(tx -> session.getMetadata().getSchema().createClass("LinkAdded"));
+
+    assertTrue("creating a class must rewrite the root record so the new class link persists",
+        recordVersion(rootRid) > rootVersionBefore);
+    var newRid = schemaShared().getClass("LinkAdded").getRecordId();
+    var linksAfter = rootClassLinks();
+    assertTrue("the new class's record must be linked from the root", linksAfter.contains(newRid));
+    assertTrue("the previously linked class records must remain linked",
+        linksAfter.containsAll(linksBefore));
+
+    // The new class link survives a durable round trip, confirming the root write reached disk.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertTrue("the new class must survive a reload (its root link persisted)",
+        schemaShared().existsClass("LinkAdded"));
+    assertTrue("the baseline class must survive the reload too",
+        schemaShared().existsClass("LinkBaseline"));
+  }
+
+  /**
+   * White-box coverage of the root-payload-change detector the commit uses to decide whether the
+   * selective write must rewrite the root record. The detector compares a tx-local schema copy
+   * against the committed schema across the three non-link payload components that live on the root:
+   * the collection counter, the blob-collection set, and the global-property table. A copy that
+   * changed none of them reports no difference (the root stays out of the write set); a copy that
+   * advanced the counter, grew the blob set, or grew the global-property table reports a difference
+   * (the root must be rewritten). The counter and global-table arms back the commit-time decision for
+   * the operations reachable today (a class create advances the counter); the blob and global-table
+   * arms also cover the operations reachable once property and blob operations become transactional.
+   */
+  @Test
+  public void rootPayloadDiffersFromDetectsEachPayloadComponent() {
+    var committed = schemaShared();
+
+    session.computeInTx(
+        tx -> {
+          // An unmodified copy of the committed schema differs in no payload component.
+          var identical = committed.copyForTx(session);
+          assertFalse("an unmodified tx-local copy must report no root-payload difference",
+              identical.rootPayloadDiffersFrom(committed));
+
+          // Advancing the collection counter on the copy is a root-payload change.
+          // nextCollectionIndex requires the schema write lock; release without the save side effect
+          // (the way the commit path does), since the tx-local copy must not persist eagerly.
+          var counterChanged = committed.copyForTx(session);
+          counterChanged.acquireSchemaWriteLock(session);
+          try {
+            counterChanged.nextCollectionIndex();
+          } finally {
+            counterChanged.releaseSchemaWriteLock(session, false);
+          }
+          assertTrue(
+              "a copy whose collection counter advanced must report a root-payload difference",
+              counterChanged.rootPayloadDiffersFrom(committed));
+
+          // Growing the blob-collection set on the copy is a root-payload change. The abstract-class
+          // marker (-1) is accepted by the blob-add validation without needing a real collection, so
+          // it drives the blob arm in isolation.
+          var blobChanged = committed.copyForTx(session);
+          blobChanged.addBlobCollection(session, SchemaShared.ABSTRACT_COLLECTION_ID);
+          assertTrue("a copy whose blob-collection set grew must report a root-payload difference",
+              blobChanged.rootPayloadDiffersFrom(committed));
+
+          // Growing the global-property table on the copy is a root-payload change (the
+          // property-create case, here driven directly through the table since in-transaction
+          // property-create is still throw-guarded). The new id is placed past the current table size
+          // so the table both grows and gains a higher-id slot.
+          var tableChanged = committed.copyForTx(session);
+          var newId = committed.getGlobalProperties().size();
+          tableChanged.createGlobalProperty(
+              session, "whiteBoxGlobalProp", PropertyTypeInternal.STRING, newId);
+          assertTrue(
+              "a copy whose global-property table grew must report a root-payload difference",
+              tableChanged.rootPayloadDiffersFrom(committed));
+          return null;
+        });
   }
 }

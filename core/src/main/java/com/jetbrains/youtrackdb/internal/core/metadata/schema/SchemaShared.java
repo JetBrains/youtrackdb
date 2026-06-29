@@ -51,6 +51,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -915,16 +916,60 @@ public abstract class SchemaShared implements CloseableInStorage {
   protected abstract SchemaClassImpl createClassInstance(String name);
 
   /**
-   * Binds POJO to EntityImpl.
+   * Binds POJO to EntityImpl. Serializes every live class plus the root non-link payload; the
+   * committed (non-transaction-local) save path uses this full write, where rewriting the whole
+   * schema is correct because there is no per-transaction changed-class signal to narrow it.
    */
   public EntityImpl toStream(@Nonnull DatabaseSessionEmbedded session) {
+    // changedClassNames == null selects the full write (every class record); writeRootPayload ==
+    // true always writes the root payload. This is the legacy behavior the committed save relies on.
+    return toStream(session, null, true);
+  }
+
+  /**
+   * Serializes the schema selectively for the commit-time write (the per-class-record write
+   * amplification win): writes only the changed classes' per-class records, the link-set deltas for
+   * created and dropped classes, and the root non-link payload only when it actually changed. A
+   * class rename rewrites that class's record but leaves the root link set and payload untouched, so
+   * the root is not rewritten; a property-create grows the global-property table on the root, so the
+   * root must be rewritten (the root-omission regression this method's payload guard prevents:
+   * omitting the root after a property-create restarts into a dangling global reference and a
+   * collection-counter that reverts and regenerates a colliding collection name).
+   *
+   * @param changedClassNames the names of the classes the transaction touched (creates, alters,
+   *     drops, renames), matched case-insensitively against the live class names; when {@code null}
+   *     every live class is written (the full-write legacy path used by the committed save).
+   * @param writeRootPayload whether the root's non-link payload (global-property table, collection
+   *     counter, blob-collections set, schema version) changed and so must be persisted. Ignored —
+   *     the payload is always written — when {@code changedClassNames} is {@code null}; on the
+   *     selective path a {@code false} value keeps the root record out of the write set unless the
+   *     class link set also changed.
+   */
+  public EntityImpl toStream(
+      @Nonnull DatabaseSessionEmbedded session,
+      @Nullable Set<String> changedClassNames,
+      boolean writeRootPayload) {
     // The body mutates shared state (per-class recordId binds, link-set adds/removes) and writes
     // records. The caller holds the schema write lock, and that write lock is the exclusivity
     // guarantee for these mutations; no additional synchronization is taken here.
     assert lock.isWriteLockedByCurrentThread()
         : "toStream() mutates shared schema state and must be called under the schema write lock";
+
+    // Case-insensitive lookup of the changed-class set: markClassChanged records the name as the
+    // mutation saw it (a create records its created name, a rename records the new name), and class
+    // lookup is case-insensitive throughout the schema layer, so match on the lowercased name rather
+    // than risk a case mismatch silently skipping a changed class's record write.
+    final Set<String> changedLower;
+    if (changedClassNames == null) {
+      changedLower = null;
+    } else {
+      changedLower = new HashSet<>(changedClassNames.size());
+      for (var name : changedClassNames) {
+        changedLower.add(name.toLowerCase(Locale.ENGLISH));
+      }
+    }
+
     EntityImpl entity = session.load(identity);
-    entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
 
     // The root record links one standalone record per class, mirroring the index manager's
     // CONFIG_INDEXES link set. Aliases that share an impl are written once; the link set ends
@@ -932,12 +977,18 @@ public abstract class SchemaShared implements CloseableInStorage {
     // longer back a live class (a dropped class) are deleted and unlinked below.
     Set<SchemaClassImpl> realClasses = new HashSet<>(classes.values());
 
-    LinkSet classLinks = entity.getOrCreateLinkSet("classes");
-    // Snapshot the previously-linked records so drops can be detected as a set difference.
+    // Read the existing link set read-only first (getLinkSet, not getOrCreateLinkSet) so merely
+    // inspecting membership does not dirty the root record: on the selective path a commit that
+    // changed neither the link set nor the root payload must leave the root untouched. The mutable
+    // handle is acquired lazily, only once a link add or remove is actually required.
+    final LinkSet existingLinks = entity.getLinkSet("classes");
     final Set<RID> previouslyLinked = new HashSet<>();
-    for (var link : classLinks) {
-      previouslyLinked.add(link.getIdentity());
+    if (existingLinks != null) {
+      for (var link : existingLinks) {
+        previouslyLinked.add(link.getIdentity());
+      }
     }
+    LinkSet classLinks = null;
 
     final Set<RID> liveRecords = new HashSet<>();
     for (var c : realClasses) {
@@ -949,41 +1000,124 @@ public abstract class SchemaShared implements CloseableInStorage {
         // becomes permanent at commit and the ChangeableRecordId mutates in place, so the bound
         // field and the link both resolve to the persistent RID without a second write. Reusing a
         // non-persistent id would load against a record that never persisted and wedge every
-        // future save, so the rollback case self-heals here rather than requiring a reload.
+        // future save, so the rollback case self-heals here rather than requiring a reload. A new
+        // class is always written regardless of the changed-class filter (it has no record yet),
+        // and its link must join the set, so acquire the mutable link handle now.
         classRecord = session.newInternalInstance();
         c.setRecordId(classRecord.getIdentity());
+        if (classLinks == null) {
+          classLinks = entity.getOrCreateLinkSet("classes");
+        }
         classLinks.add(classRecord.getIdentity());
-      } else {
+        c.toStream(session, classRecord);
+      } else if (changedLower == null
+          || changedLower.contains(c.getName().toLowerCase(Locale.ENGLISH))) {
+        // An existing class that changed (or every class on the full-write path): rewrite its
+        // per-class record in place. The bound RID is unchanged, so its link is already in the set.
         classRecord = session.load(boundRid);
+        c.toStream(session, classRecord);
+      } else {
+        // An unchanged class on the selective path: do not rewrite its per-class record, so it stays
+        // out of the commit working set. That is the write-amplification win (no WAL units, no page
+        // write for an unchanged class). The record is still loaded read-only, which warms it into
+        // the session cache without dirtying it (a read enrols no record operation). The commit-time
+        // promotion re-parses the committed schema from every linked per-class record after the
+        // atomic operation ends, where a genuine cache-miss read of an untouched record would fail
+        // ("atomic operation is not active") on a disk-backed engine; loading it here, inside the
+        // active atomic operation, keeps the promotion read serving from the cache on every storage
+        // profile. The write-amplification win is about writes, not reads, so the read is free of it.
+        session.load(boundRid);
       }
-      c.toStream(session, classRecord);
       assert c.getRecordId() != null
           : "schema class '" + c.getName() + "' must have a bound record id before it joins the"
               + " live-record set written to the root link set";
       liveRecords.add(c.getRecordId());
     }
 
-    // Drop the records that backed classes removed since the last save, and unlink them.
+    // Drop the records that backed classes removed since the last save, and unlink them. A drop
+    // mutates the link set, so acquire the mutable handle on the first removal.
     for (var rid : previouslyLinked) {
       if (!liveRecords.contains(rid)) {
+        if (classLinks == null) {
+          classLinks = entity.getOrCreateLinkSet("classes");
+        }
         classLinks.remove(rid);
         EntityImpl droppedRecord = session.load(rid);
         droppedRecord.delete();
       }
     }
 
-    List<Entity> globalProperties = session.newEmbeddedList();
-    for (var globalProperty : properties) {
-      if (globalProperty != null) {
-        globalProperties.add(globalProperty.toEntity(session));
+    // Write the root non-link payload when the caller signals it changed, or whenever the class
+    // link set changed (a create or drop already dirtied the root, so writing the current payload
+    // keeps the record self-consistent at no extra record cost). On the selective path with no
+    // payload change and no link change, the root record is left entirely untouched: it was never
+    // dirtied above, so it stays out of the commit working set (the write-amplification win for a
+    // rename or an alter that reuses an existing global-property slot).
+    final boolean linkSetChanged = classLinks != null;
+    if (changedLower == null || writeRootPayload || linkSetChanged) {
+      entity.setProperty("schemaVersion", CURRENT_VERSION_NUMBER);
+      List<Entity> globalProperties = session.newEmbeddedList();
+      for (var globalProperty : properties) {
+        if (globalProperty != null) {
+          globalProperties.add(globalProperty.toEntity(session));
+        }
+      }
+      entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
+      entity.setProperty("collectionCounter", collectionCounter);
+
+      Object propertyValue = session.newEmbeddedSet(blobCollections);
+      entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
+    }
+    return entity;
+  }
+
+  /**
+   * Whether this schema's root non-link payload (the global-property table, the collection counter,
+   * and the blob-collections set) differs from {@code committed}'s. The commit consults this on a
+   * tx-local schema against the committed schema to decide whether the selective
+   * {@link #toStream(DatabaseSessionEmbedded, Set, boolean)} must rewrite the root record: a
+   * property-create grows the global-property table, an alter-add-collection advances the counter,
+   * and a blob-collection registration grows the blob set, each of which lives only on the root
+   * record, so leaving the root out of the write set after one of them would lose the payload at the
+   * next open. A rename or an alter that reuses an existing global-property slot changes none of
+   * this, so the root stays out of the write set.
+   *
+   * <p>The global-property table is append-only ({@link #findOrCreateGlobalProperty} only adds, never
+   * removes or rewrites a slot), so comparing the slot count plus each slot's name and type catches
+   * every table change. The comparison reads both schemas' fields directly; the caller holds the
+   * relevant write locks during commit, so no read lock is taken here.
+   *
+   * @param committed the committed schema instance to compare against; must not be {@code null}.
+   */
+  public boolean rootPayloadDiffersFrom(@Nonnull SchemaShared committed) {
+    if (collectionCounter != committed.collectionCounter) {
+      return true;
+    }
+    if (!blobCollections.equals(committed.blobCollections)) {
+      return true;
+    }
+    if (properties.size() != committed.properties.size()) {
+      return true;
+    }
+    // Compare slot by slot through a string signature so a null padding slot (the global-property
+    // table can be sparse) yields a null signature on both sides and compares equal, without a
+    // separate null-branch cascade. A real entry's signature changes when its name or type changes.
+    for (var id = 0; id < properties.size(); id++) {
+      if (!Objects.equals(
+          globalPropertySignature(properties.get(id)),
+          globalPropertySignature(committed.properties.get(id)))) {
+        return true;
       }
     }
-    entity.setProperty("globalProperties", globalProperties, PropertyType.EMBEDDEDLIST);
-    entity.setProperty("collectionCounter", collectionCounter);
+    return false;
+  }
 
-    Object propertyValue = session.newEmbeddedSet(blobCollections);
-    entity.setProperty("blobCollections", propertyValue, PropertyType.EMBEDDEDSET);
-    return entity;
+  /**
+   * The name-and-type signature of a global-property slot, or {@code null} for an empty (padding)
+   * slot. Used by {@link #rootPayloadDiffersFrom} to compare two tables slot by slot.
+   */
+  @Nullable private static String globalPropertySignature(@Nullable GlobalPropertyImpl slot) {
+    return slot == null ? null : slot.getName() + "|" + slot.getTypeInternal();
   }
 
   public Collection<SchemaClassImpl> getClasses(DatabaseSessionEmbedded session) {
