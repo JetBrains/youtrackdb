@@ -26,9 +26,23 @@ home.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-29T14:44Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-29T15:14Z [ctx=safe] Step 1 complete (commit c505e176bd)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-06-29T15:14Z Step 1 froze the reviewer-roster finding-prefix schema the
+  rest of Track 2 builds against: `review-bugs` takes prefix `BG`,
+  `review-concurrency` takes `CN`, `BC` is retired, and `review-test-quality`
+  keeps `TB`/`TC` verbatim. Steps 2–5 (selection mirrors, Phase-A panel, the
+  `risk-tagging` table cell, the `dimensional-review-gate-check` `BC3` example)
+  must use these exact prefixes and the new agent names. See Episodes §Step 1.
+- 2026-06-29T15:14Z Phase 4 carries a mandatory live-tree deletion that staging
+  cannot express. §1.7(e) promotion is additive only, so the `cp -r` adds the
+  three new agents but leaves the three split/merge sources
+  (`review-bugs-concurrency.md`, `review-test-behavior.md`,
+  `review-test-completeness.md`) in the live tree. The Phase 4 hand-edit must
+  delete them right after the promotion commit, or the live tree carries both
+  the old and new rosters. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -461,7 +475,7 @@ consistent only at track completion (the Track 1 precedent): a step may leave a
 transient dangling reference that a later step's sweep resolves, so the repo-wide
 no-dangling acceptance is a track-completion property, not a per-step one. -->
 
-1. Reviewer roster split/merge + finding-prefix schema (D7) — add staged `review-bugs.md` (always-on, single-threaded sequential reasoning, the D7 ownership clauses + the one-line triage backstop verbatim) and `review-concurrency.md` (fires on the `concurrency` category, multi-thread interleaving reasoning, the D7 ownership clauses); decide their two new finding prefixes; merge `review-test-behavior.md` + `review-test-completeness.md` → `review-test-quality.md` (both sub-protocols and **both** the `TB` and `TC` prefixes verbatim); remove the three split/merge sources; retire `BC` and register the two new prefixes in the canonical owner table `review-iteration.md` §"Finding ID prefixes" (keep `TB`/`TC`/`TX`) and update `finding-synthesis-recipe.md`'s prefix family. — risk: high (workflow machinery: edits the shared finding-prefix schema every reviewer and the synthesis recipe key off, and creates behavioral review-agent specs carrying the D7 cognitive-mode ownership + triage backstop)  [ ]
+1. Reviewer roster split/merge + finding-prefix schema (D7) — add staged `review-bugs.md` (always-on, single-threaded sequential reasoning, the D7 ownership clauses + the one-line triage backstop verbatim) and `review-concurrency.md` (fires on the `concurrency` category, multi-thread interleaving reasoning, the D7 ownership clauses); decide their two new finding prefixes; merge `review-test-behavior.md` + `review-test-completeness.md` → `review-test-quality.md` (both sub-protocols and **both** the `TB` and `TC` prefixes verbatim); remove the three split/merge sources; retire `BC` and register the two new prefixes in the canonical owner table `review-iteration.md` §"Finding ID prefixes" (keep `TB`/`TC`/`TX`) and update `finding-synthesis-recipe.md`'s prefix family. — risk: high (workflow machinery: edits the shared finding-prefix schema every reviewer and the synthesis recipe key off, and creates behavioral review-agent specs carrying the D7 cognitive-mode ownership + triage backstop)  [x] commit: c505e176bd
 2. Tag computation (D9) + Phase-4 carrier (D8b) + bounded re-keys — in `risk-tagging.md` add the track-granularity complexity-tag rule (the seven HIGH triggers over `## Plan of Work` + `## Interfaces`, the change/track/step three-granularity distinction, the prediction reconciled to `max(step tags)`) and re-key the risk-level table's `high` step-level-review cell onto the split roster; in `create-final-design.md` re-derive the carrier table, the verdict-fold predicate, and the ledger-read mechanism from the axes (`design-final` iff `design_gate=yes`; `adr` iff ∃ track ≥ medium); in `design-review.md` re-key the `tier` input param + spawn-site + roster/tag refs and the `tier=full` fidelity gate → `design_gate=yes`; in `conventions-execution.md` re-key the §2.4 `Tier-driven review selection` pointer, the roster references, and the §2.5 `BC` schema examples. — risk: medium (workflow machinery, behavioral but bounded: one decision rule + one phase prompt's carrier logic + a fidelity-gate re-key + reference re-keying; no shared schema, control-flow gate, or auto-running artifact) — size: ~4 files; no mergeable low/medium work fits (every other step is high)  [ ] *(depends on Step 1 for the new roster names + prefixes)*
 3. Domain×complexity selection + step-level adaptation + roster sweep (D3, D6) — thread complexity into the category-driven selection across the five mirror sites (`code-review/SKILL.md` Step 5, `review-agent-selection.md`, `track-code-review.md`, `step-implementation.md`, `fix-ci-failure/SKILL.md`): domain selects the set identically at every level, complexity moves only the Phase-C rigor dial, the floor + domain-matched set is never suppressed; update the same sites' rosters to the split/merge names; adapt the live localized-versus-buried step-level rule (burial role → `review-bugs` always + `review-concurrency` when concurrency is present; the test baselines' deferred role → `review-test-quality`), unchanged in logic; update `code-review-protocol.md`'s roster references; and sweep the out-of-scope removed-agent / retired-`BC` references in `execute-tracks/SKILL.md` (load-bearing step-level-baseline prose), `review-workflow-consistency.md` (worked example), `review-workflow-instruction-completeness.md` (self-analogy), and `prompts/dimensional-review-gate-check.md` (`BC3` example). — risk: high (workflow machinery: edits the load-bearing reviewer-selection control-flow protocol mirrored across five sites plus the step-level burial routing; a defect mis-selects reviewers for every future code review)  [ ] *(depends on Steps 1 and 2; parallel with Steps 4, 5)*
 4. Phase-A panel re-key + reconciliation-on-upward-divergence (D5, D6) — in `track-review.md`, re-key the Phase-A panel from the whole-change tier onto the per-track tag (`low` → Technical only; `medium` → + Adversarial narrowed; `high` → + Risk + Adversarial narrowed); add the reconciliation that compares `max(step tags)` against the predicted tag after decomposition, runs the missed strategic reviewers on any upward miss, fires **at most once**, and appends `--reconciled-tag <max(step tags)>` onto the **existing** A→C `--append-ledger` line carrying `--track <N>` (recomputed deterministically on resume so the write is idempotent); a downward divergence runs no missed reviewers and floors Phase C at `max(step tags)`. Keep the live `### Tier-driven review selection and which reviews to run` heading byte-stable, or update its two referrers in the same edit. — risk: high (workflow machinery: edits the load-bearing Phase-A review-selection gate, adds a new divergence-reconciliation control-flow mechanism, and writes the phase ledger)  [ ] *(depends on Step 2; parallel with Steps 3, 5)*
@@ -469,6 +483,56 @@ no-dangling acceptance is a track-completion property, not a per-step one. -->
 
 ## Episodes
 <!-- Continuous-log. -->
+
+### Step 1 — commit c505e176bd, 2026-06-29T15:14Z [ctx=safe]
+**What was done:** Split `review-bugs-concurrency` into two staged agents along
+the D7 cognitive-mode boundary. `review-bugs.md` is always-on, single-threaded
+sequential reasoning (logic, null safety, resource leaks, RID handling,
+state-machine/lifecycle; prefix `BG`); `review-concurrency.md` fires on the
+`concurrency` category, multi-thread interleaving reasoning (races,
+visibility/publication, lock-ordering/deadlock, compound-op atomicity; prefix
+`CN`). `review-bugs` carries the one-line concurrency-triage-gap backstop
+verbatim; both carry the D7 ownership clauses and the symmetric tiebreak.
+Merged `review-test-behavior` + `review-test-completeness` into staged
+`review-test-quality.md`, keeping both sub-protocols and both the `TB` and `TC`
+prefixes verbatim. Retired `BC` and registered `BG`/`CN` in the canonical owner
+table (`review-iteration.md` §"Finding ID prefixes"; `TB`/`TC`/`TX` kept), and
+re-keyed `finding-synthesis-recipe.md`'s concurrency-mode worked example onto
+`CN`. All edits stage under `_workflow/staged-workflow/.claude/`.
+
+**What was discovered:** The two new prefixes `BG` (BuGs) and `CN`
+(CoNcurrency) are distinct from every prefix in the owner table and have zero
+prior usage under `.claude/` or the staged tree. `finding-synthesis-recipe.md`
+holds no canonical prefix table — the owner table is the sole canonical home —
+so the recipe edit re-keyed only its one illustrative `BC3`-anchored example,
+whose defect ("fixed-sleep polling can mask a race") is concurrency-mode and so
+maps to `CN`; `BG` legitimately does not appear in the illustrative recipe. The
+three new agent files carry no real TOC region (§1.8(d): only the bootstrap
+block), matching their source agents, so they fall outside `workflow-reindex`
+scope. The step-level prompt-design review passed at iteration 1 with zero
+findings.
+
+**What changed from the plan:** The plan said "remove the three split/merge
+sources," but §1.7(e) ("Promotion is additive only") makes a staged delete
+unrepresentable — the Phase 4 `cp -r` propagates additions and modifications,
+never deletions. Resolved deterministically, not escalated: the three source
+agents are never copied into the staged tree, and their live-tree deletion
+defers to a Phase 4 hand-edit. Steps 2–5 reference the new agent names, which
+now exist in the staged tree.
+
+**Key files:**
+- `…/_workflow/staged-workflow/.claude/agents/review-bugs.md` (new)
+- `…/_workflow/staged-workflow/.claude/agents/review-concurrency.md` (new)
+- `…/_workflow/staged-workflow/.claude/agents/review-test-quality.md` (new)
+- `…/_workflow/staged-workflow/.claude/workflow/review-iteration.md` (new — staged copy, owner table re-keyed)
+- `…/_workflow/staged-workflow/.claude/workflow/finding-synthesis-recipe.md` (new — staged copy, `BC` example re-keyed)
+
+**Critical context:** Phase 4 promotion MUST hand-delete the three live source
+agents after the additive `cp -r`: `.claude/agents/review-bugs-concurrency.md`,
+`.claude/agents/review-test-behavior.md`,
+`.claude/agents/review-test-completeness.md`. Frozen for Steps 2–5: prefix `BG`
+= `review-bugs`, `CN` = `review-concurrency` (`BC` retired), `TB`/`TC` kept on
+`review-test-quality`.
 
 ## Validation and Acceptance
 
