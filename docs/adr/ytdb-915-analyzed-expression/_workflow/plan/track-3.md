@@ -22,11 +22,12 @@ Track 4's round-trip parity matrix.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 
 - [x] 2026-06-29T09:23Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-29T15:15Z [ctx=info] Step 1 complete (commit bbc638cece)
+- [x] 2026-06-29T16:20Z [ctx=safe] Track complete (completion-time review-mode switch refactor, commit fc1dd9c59e)
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-29): the IR models only 4 of the AST's 12 arithmetic operators,
@@ -445,6 +446,38 @@ section-order map comment).
 is a Phase-4 `design-final` reconciliation item. `AnalyzedAstAccess` is a new shared seam in
 `sql/parser/` that Track 4 and future S1+ slices read the AST through; because it sits in the
 JaCoCo-excluded parser package, code added to it is not coverage-gated.
+
+### Track completion — 2026-06-29T16:20Z [ctx=safe]
+Track 3 landed `AnalyzedExprLowerer`, the full AST→IR lowering pass: an exhaustive-or-throw
+field walk over `SQLExpression` (D14), parenthesis recursion (D10), a precedence-climbing fold
+(D12), and a boolean dispatch for comparison and `NOT`. A covered parse tree now lowers to an
+`AnalyzedExpr`; any out-of-subset shape throws `UnsupportedAnalyzedNodeException` (I2). The sole
+step was tagged `risk: high`, so its Phase B step-level review ran the full track-pass selection
+(six dimensions) against the identical diff, and the Phase C code review was skipped on that
+basis.
+
+Two mid-step design decisions reshaped the track's footprint. A new read-accessor
+`AnalyzedAstAccess` in `sql/parser/` exposes seven in-subset fields the JJTree-generated
+parse-node classes keep package-private — Track 4 and future S1+ slices read the AST through this
+seam, and it sits in the JaCoCo-excluded parser package, so code added to it is not
+coverage-gated. `SQLExpression.literalValue` was dropped from the in-subset walk: it is private
+and never set on the SQL `Expression()` parse path, so it is dead on the lowerer's only input.
+That drop diverges from design.md §"Field-walk" D14 (which names it in-subset) and is a Phase-4
+`design-final` reconciliation item, joining the D14 wording and the design.md:469 CR1 method-name
+deferrals the track already carries.
+
+Cross-track contracts for Track 4: a `NOT` over a bare comparison parses as `NOT a = b`
+(`SQLNotBlock.sub = SQLBinaryCondition`), while a parenthesized boolean `(a = b)` is out of
+subset, so round-trip inputs exercising `NOT` must use the unparenthesized form; `lowerBoolean`
+is package-visible so Track 4 can lower a parsed `SQLBinaryCondition` / `SQLNotBlock` directly; a
+`Const` from the SQL path originates only from a number/string leaf. The lowerer builds structure
+only — collation, EQ/NE session-threading, and numeric promotion stay Track 4's evaluator job.
+
+A completion-time review-mode pass refactored `toComparisonOperator` from an `instanceof`
+if-chain to a Java 21 pattern-matching `switch` expression (`Review fix: switch-ify comparison
+operator dispatch`) — behavior-preserving, 46/46 tests green, the changed method fully covered.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 - **Coverage cases.** Each in-subset shape lowers to the expected IR tree: arithmetic

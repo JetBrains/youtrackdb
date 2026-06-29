@@ -93,15 +93,21 @@ flowchart TD
   > evaluator), not Track 3; lowering does no arithmetic and is unaffected. Track 3's only
   > dependency, Track 1, is complete.
 
-- [ ] Track 3: Lowering pass
+- [x] Track 3: Lowering pass
   > Track 3 adds the lowering pass that converts the covered `SQLExpression` AST subset to
   > `AnalyzedExpr`, owning the three non-obvious mechanisms: an exhaustive-or-throw field
   > walk, transparent recursion through parenthesis grouping, and a structural
   > precedence-climbing fold that reproduces the AST's nesting. It depends on Track 1 for
   > the IR types.
-  > **Scope:** ~4 files covering `AnalyzedExprLowerer` (field walk, parenthesis recursion,
-  > precedence fold) and a lowering unit test.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:** `AnalyzedExprLowerer` lowers the covered AST subset to the IR — field
+  > walk (D14), parenthesis recursion (D10), precedence fold (D12), comparison/`NOT` dispatch —
+  > plus a new `AnalyzedAstAccess` read-seam for seven package-private parse-node fields; the
+  > comparison dispatch was later switch-ified in review mode. `literalValue` dropped from the
+  > walk is a Phase-4 `design-final` reconciliation item — see `plan/track-3.md` `## Episodes`
+  > § Track completion. (1 step, 0 failed)
+  >
+  > **Track file:** `plan/track-3.md`
 
 - [ ] Track 4: Evaluator + round-trip parity
   > Track 4 adds the `AnalyzedExprVisitor`-based evaluator — arithmetic via the shared
