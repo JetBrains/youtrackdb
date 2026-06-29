@@ -24,11 +24,20 @@ foundation every complexity-tag consumer in Track 2 reads.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-29T08:25Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-29T09:13Z [ctx=safe] Step 1 complete (commit 55a7e3ec4b)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+- 2026-06-29T09:13Z Step 1 froze the ledger schema Track 2 consumes: flags
+  `--design-gate` / `--tracks` / `--phase1-complete` / `--reconciled-tag` map to
+  keys `design_gate` / `tracks` / `phase1_complete` / `reconciled_tag`, and the
+  per-track `reconciled_tag` is track-scoped (emitted on its `track=` line).
+  Track 2 reads `design_gate` + `reconciled_tag` and writes `reconciled_tag`,
+  and must re-key every remaining live `tier` reader/writer in its scope before
+  the Phase-4 promotion (the forward obligation in §Interfaces and
+  Dependencies). See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -373,7 +382,7 @@ grep + Read against the live develop-state files during Phase A review, so the
    `test_workflow_startup_precheck.py` and `_stub.py` (append+round-trip, loud-reject,
    last-value-wins, track-scoped no-leak, torn-append, the first-match-wins decoy
    test) and migrate the existing `tier=minimal` fixtures. — risk: high (workflow
-   machinery: a script that runs automatically + the auto-resume state-machine schema)  [ ]
+   machinery: a script that runs automatically + the auto-resume state-machine schema)  [x]  commit: 55a7e3ec4b
 
 2. create-plan resume router + design-gate classifier + plan-presence decision — in
    `create-plan/SKILL.md` replace the Step-1c `LEDGER_TIER` parse with reads of
@@ -414,6 +423,51 @@ grep + Read against the live develop-state files during Phase A review, so the
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step. -->
+
+### Step 1 — commit 55a7e3ec4b, 2026-06-29T09:13Z [ctx=safe]
+**What was done:** Replaced the phase ledger's `tier=` field with four bare
+complexity-axis fields in the staged `workflow-startup-precheck.sh`:
+`design_gate` (yes/no), `tracks` (the track-count / plan-presence signal),
+`phase1_complete` (the mid-authoring-crash disambiguator), and a per-track
+`reconciled_tag` (low/medium/high) read track-scoped via
+`ledger_tail_value_for_track`. Dropped the `--tier` flag, the `LEDGER_TIER`
+accumulator, the `tier` validation call, and the `tier=` builder line. Added
+the four flags with `bare` validation and builder lines emitted in the
+pre-`categories` block (the first-match-wins / same-named-decoy invariant).
+Scrubbed the stale `tier`/`minimal` comments in `determine_state_from_ledger`,
+re-documenting the empty-`track`→1 default as tier-agnostic. Migrated the
+`tier=` / `tier=minimal` fixtures in both test files and added nine tests
+(round-trip, last-value-wins, track-scoped no-leak, two decoy variants,
+space/newline reject, torn-append). Staged suites pass 124/124 and 5/5;
+`bash -n` and `py_compile` are clean.
+
+**What was discovered:** The new fields have no consumer yet —
+`determine_state` reads only `phase`/`track`, and Track 2 wires the resume
+router and the Phase-C / Phase-4 readers. The read-side tests therefore pin
+the schema contract through a Python replica of the script's
+`ledger_tail_value` / `ledger_tail_value_for_track` first-`key=`-token scan
+rather than a non-existent consumer; this freezes the schema so Track 2 builds
+against it. The decoy test is doubled — a hand-authored line plus an end-to-end
+check against the script's own emit — to prove the emit order satisfies the
+first-match invariant. The hook-safety step review passed at iteration 1 with
+zero findings.
+
+**What changed from the plan:** None. The plan left two renderings open; both
+resolved within its stated latitude — `tracks=N` (carries strictly more than
+`plan=yes/no`) and `phase1_complete=yes` (presence is the signal). These become
+the schema Step 2's resume router and the create-plan seed sites must read and
+write.
+
+**Key files:**
+- `…/_workflow/staged-workflow/.claude/scripts/workflow-startup-precheck.sh` (new — staged copy with the schema delta)
+- `…/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck.py` (new — staged copy, migrated fixtures + new-field coverage)
+- `…/_workflow/staged-workflow/.claude/scripts/tests/test_workflow_startup_precheck_stub.py` (new — staged copy, migrated fixtures)
+
+**Critical context:** Flag→key map the rest of the track depends on:
+`--design-gate`→`design_gate`, `--tracks`→`tracks`,
+`--phase1-complete`→`phase1_complete`, `--reconciled-tag`→`reconciled_tag`. The
+reconciled tag is emitted on the same ledger line as its `track=` token (the
+track-scoped read requirement).
 
 ## Validation and Acceptance
 
