@@ -3443,8 +3443,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * The transaction-scoped key under which the tx-local schema state is stashed in the active
    * transaction's custom data. The state lives only as long as the transaction object, so it is
    * dropped automatically when the outermost transaction frame closes.
+   *
+   * <p>Public so {@link com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl} can
+   * treat the presence of a tx-local schema state as a write signal: a schema-only transaction (a
+   * class create with no records) enrols no record or index operations, so without this signal the
+   * commit would be skipped and the schema change silently dropped.
    */
-  private static final String TX_SCHEMA_STATE_KEY = "txSchemaState";
+  public static final String TX_SCHEMA_STATE_KEY = "txSchemaState";
 
   /**
    * Returns the tx-local schema write-view seeded for the current transaction, or {@code null}

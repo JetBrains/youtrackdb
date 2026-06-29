@@ -22,6 +22,9 @@ package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntMaps;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectMaps;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -92,6 +95,15 @@ public final class TxSchemaState {
   private final Int2IntOpenHashMap provisionalToReal = new Int2IntOpenHashMap();
 
   /**
+   * Maps each provisional collection id this transaction allocated to the {@code <class>_<counter>}
+   * name computed at allocation time. The commit creates the real collection under this name, so the
+   * name must be carried from the producer to the commit: the tx-local collection counter has already
+   * advanced past it by commit time, so the commit cannot regenerate it. Empty until a class create
+   * (or an abstract&rarr;concrete alter) allocates its first provisional id.
+   */
+  private final Int2ObjectOpenHashMap<String> provisionalToName = new Int2ObjectOpenHashMap<>();
+
+  /**
    * @param txLocalSchema the tx-local {@link SchemaShared} copy, seeded by
    *     {@link SchemaShared#copyForTx}. Must be a fresh copy private to the owning transaction, never
    *     the committed shared instance.
@@ -132,13 +144,21 @@ public final class TxSchemaState {
   }
 
   /**
-   * Allocates the next provisional collection id for a class created inside this transaction. The
+   * Allocates the next provisional collection id for a class created inside this transaction,
+   * carrying the {@code <class>_<counter>} name the commit creates the real collection under. The
    * ids run {@code -2, -3, -4, ...}: each is unique within the transaction (the counter never
    * repeats) and is disjoint from the abstract-class marker {@code -1}. The id is a placeholder a
-   * record can carry through the transaction; the commit creates the real collection and resolves
-   * the provisional id to its real id before any record serializes.
+   * record can carry through the transaction; the commit creates the real collection (under
+   * {@code collectionName}) and resolves the provisional id to its real id before any record
+   * serializes.
+   *
+   * <p>The name must be carried here because the producer computes it from the tx-local collection
+   * counter, which has already advanced by commit time, so the commit cannot regenerate it.
+   *
+   * @param collectionName the {@code <class>_<counter>} name the commit creates the real collection
+   *     under; must be non-null.
    */
-  public int allocateProvisionalCollectionId() {
+  public int allocateProvisionalCollectionId(@Nonnull String collectionName) {
     var allocated = nextProvisionalCollectionId--;
     // Guard the (practically unreachable) wrap past Integer.MIN_VALUE: a wrapped counter would
     // hand out a non-negative id that the downstream sign-class predicate reclassifies as a real
@@ -146,7 +166,37 @@ public final class TxSchemaState {
     // mirrors the invariant recordResolvedCollectionId asserts on the resolution side.
     assert SchemaShared.isProvisionalCollectionId(allocated)
         : "provisional collection id space exhausted, allocator produced " + allocated;
+    provisionalToName.put(allocated, collectionName);
     return allocated;
+  }
+
+  /**
+   * The {@code <class>_<counter>} name recorded for {@code provisionalCollectionId} when it was
+   * allocated, or {@code null} when no name was recorded for it. The commit creates the real
+   * collection under this name.
+   *
+   * @param provisionalCollectionId a provisional id this transaction previously allocated (must be
+   *     {@code <= -2}).
+   */
+  @Nonnull
+  public String getProvisionalCollectionName(int provisionalCollectionId) {
+    assert SchemaShared.isProvisionalCollectionId(provisionalCollectionId)
+        : "only a provisional id (<= -2) carries a provisional name, got "
+            + provisionalCollectionId;
+    final var name = provisionalToName.get(provisionalCollectionId);
+    assert name != null
+        : "no provisional collection name recorded for id " + provisionalCollectionId;
+    return name;
+  }
+
+  /**
+   * A read-only view of the provisional&rarr;name map, for the commit-time reconciliation to read
+   * the name each provisional collection must be created under. The view is unmodifiable: names are
+   * recorded only through {@link #allocateProvisionalCollectionId(String)}.
+   */
+  @Nonnull
+  public Int2ObjectMap<String> getProvisionalCollectionNames() {
+    return Int2ObjectMaps.unmodifiable(provisionalToName);
   }
 
   /**
