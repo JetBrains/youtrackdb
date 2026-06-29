@@ -158,11 +158,12 @@ public class FrequencySketchTest {
   // ---- reset (aging) triggered by sampleSize ----
 
   /**
-   * After exactly {@code sampleSize = 10 * capacity} distinct increments the sketch halves all
-   * counters (the {@code reset()} aging step). We verify that a key incremented to frequency 15
-   * drops to approximately 7–8 after a reset. The exact post-reset value is
-   * {@code (15 >> 1) = 7} for a fully-saturated counter. This exercises the {@code reset()}
-   * private method that {@code increment()} calls when {@code ++size == sampleSize}.
+   * After roughly {@code sampleSize = 10 * capacity} distinct increments the sketch halves all
+   * counters (the {@code reset()} aging step). We saturate one key to frequency 15, drive the
+   * sketch to the reset, and stop the instant the reset fires. Its counter must then read exactly
+   * {@code (15 >> 1) = 7}: the read happens before any later increment can collide with the
+   * halved counter and inflate it. This exercises the {@code reset()} private method that
+   * {@code increment()} calls when {@code ++size == sampleSize}.
    */
   @Test
   public void testResetHalvesCountersAfterSampleWindow() {
@@ -183,23 +184,36 @@ public class FrequencySketchTest {
     }
     Assert.assertEquals("frequency must be 15 before reset", 15, sketch.frequency(targetHash));
 
-    // Now drive 'size' up to sampleSize (40) by incrementing a high-entropy set of distinct
-    // keys. We need size to reach 40 from 15, so 25 more increments of sufficiently-distinct
-    // keys (each adds 1 to size if at least one counter was not already at 15).
-    for (int i = 0; i < 30; i++) {
-      // Use large spread keys unlikely to hash to the same slot as targetHash.
-      sketch.increment(i * 100_003 + 37);
+    // Drive 'size' toward sampleSize (40) with high-entropy distinct keys until the aging reset()
+    // fires, then stop the instant it does. The saturated key's four counters are pinned at the
+    // maximum of 15, so any filler key that collides in one of those slots hits an
+    // already-saturated counter where incrementAt is a no-op; frequency(targetHash) therefore
+    // stays exactly 15 until reset() halves every counter in one pass.
+    //
+    // Reading at the exact reset boundary is what keeps this deterministic. The table has only a
+    // handful of slots, so a filler key incremented AFTER the reset can collide with targetHash's
+    // now-halved counters and push them back up. An earlier version of this test kept incrementing
+    // past the reset and so observed post-reset values of 8-9 instead of 7 under unlucky
+    // per-instance hash seeds. 'safetyBound' only guards against a pathological seed in which
+    // filler keys never advance 'size'; about 25 increments are needed in practice.
+    final int safetyBound = 10_000;
+    int filler = 0;
+    while (sketch.frequency(targetHash) == 15 && filler < safetyBound) {
+      // Large, well-spread keys so each one advances 'size' toward the reset threshold.
+      sketch.increment(filler * 100_003 + 37);
+      filler++;
     }
+    Assert.assertTrue(
+        "aging reset() did not fire within " + safetyBound + " filler increments",
+        filler < safetyBound);
 
-    // After reset(), the targetHash counter was halved: floor(15/2) = 7.
+    // reset() halves each counter, so the saturated key drops from 15 to floor(15/2) = 7. Because
+    // we stopped reading at the moment of the reset, no later collision could inflate it, so the
+    // post-reset frequency is deterministically 7.
     final int freqAfterReset = sketch.frequency(targetHash);
-    Assert.assertTrue(
-        "After reset(), frequency of the saturated key must be ≤ 8 (halved from 15), was "
-            + freqAfterReset,
-        freqAfterReset <= 8);
-    Assert.assertTrue(
-        "After reset(), frequency of the saturated key must be ≥ 1 (not zeroed), was "
-            + freqAfterReset,
-        freqAfterReset >= 1);
+    Assert.assertEquals(
+        "After reset(), the saturated key's frequency must be exactly floor(15/2) = 7",
+        7,
+        freqAfterReset);
   }
 }
