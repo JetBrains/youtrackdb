@@ -5195,9 +5195,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                   + " has missing opposite link bag " + oppositeLinkBagPropertyName
                   + " on " + oppositeEntity.getIdentity();
           throw new LinksConsistencyException(this,
-              "Cannot remove link " + propertyName + " for " + entity
-                  + " from opposite entity " + oppositeEntity
-                  + " because required property does not exist");
+              describeMissingBackReference(
+                  "Cannot remove link " + propertyName + " for " + entity.getIdentity()
+                      + " from opposite entity " + oppositeEntity.getIdentity()
+                      + " because required opposite link bag property "
+                      + oppositeLinkBagPropertyName + " does not exist",
+                  entity, propertyName, oppositeEntity, oppositeLinkBagPropertyName,
+                  null, diff));
         }
         linkBag = new LinkBag(this);
         oppositeEntity.setPropertyInternal(oppositeLinkBagPropertyName, linkBag);
@@ -5219,9 +5223,18 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                 : "New entity " + entity.getIdentity()
                     + " not found in opposite link bag " + oppositeLinkBagPropertyName
                     + " on " + oppositeEntity.getIdentity();
-            throw new LinksConsistencyException(this, "Cannot remove link " + rid
-                + " from opposite entity because it does not exist in opposite link bag : "
-                + oppositeLinkBagPropertyName);
+            // This violation is rare and so far reproduces only under heavy concurrency on
+            // weak-memory-model (ARM) hardware (LocalPaginatedStorageRestoreFromWALIT). The
+            // base phrase is preserved verbatim for log-grep continuity; the appended
+            // diagnostics capture the exact state so the next occurrence can be root-caused
+            // straight from CI logs without a reproduction.
+            throw new LinksConsistencyException(this,
+                describeMissingBackReference(
+                    "Cannot remove link " + rid
+                        + " from opposite entity because it does not exist in opposite link"
+                        + " bag : " + oppositeLinkBagPropertyName,
+                    entity, propertyName, oppositeEntity, oppositeLinkBagPropertyName,
+                    linkBag, diff));
           }
         }
       }
@@ -5229,6 +5242,104 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
       if (linkBag.isEmpty()) {
         oppositeEntity.removePropertyInternal(oppositeLinkBagPropertyName);
       }
+    }
+  }
+
+  /**
+   * Builds a diagnostic message for a back-reference consistency violation detected in
+   * {@link #updateOppositeLinks}. The violation means the opposite entity is missing the
+   * back-reference for the source link we are removing — either the back-reference bag
+   * exists but does not hold that entry, or the bag property is absent entirely
+   * ({@code oppositeLinkBag == null}). Either case should never happen, because each
+   * back-reference bag has a single writer. It has so far reproduced only rarely and only
+   * under heavy concurrency on weak-memory-model (ARM) hardware, so this method records the
+   * exact state at the point of failure: the source and opposite record identities and
+   * versions, the source's forward links, and the back-reference bag's type, size, pointer,
+   * and contents. With that state in the CI log the loss can be classified (whole bag lost
+   * vs. one entry lost vs. wrong bag type) without a local reproduction.
+   *
+   * <p>Every field is read inside {@link #appendDiagnosticField} so a failure while
+   * gathering diagnostics can never throw and mask the original consistency error. Reading
+   * {@code sourceForwardLinks} can force lazy deserialization of the source record, which is
+   * benign and idempotent on this already-failing path.
+   *
+   * @param baseMessage the human-readable violation summary, kept verbatim at the start so
+   *     existing log searches still match
+   * @param oppositeLinkBag the opposite entity's back-reference bag, or {@code null} when
+   *     the bag property is absent entirely
+   */
+  static String describeMissingBackReference(
+      String baseMessage,
+      EntityImpl sourceEntity,
+      String sourcePropertyName,
+      EntityImpl oppositeEntity,
+      String oppositeLinkBagPropertyName,
+      @Nullable LinkBag oppositeLinkBag,
+      int diff) {
+    var sb = new StringBuilder(256);
+    sb.append(baseMessage).append(" [diag");
+    appendDiagnosticField(sb, "sourceProperty", () -> sourcePropertyName);
+    appendDiagnosticField(sb, "source", () -> describeEntityState(sourceEntity));
+    appendDiagnosticField(
+        sb, "sourceForwardLinks",
+        () -> String.valueOf(sourceEntity.getPropertyInternal(sourcePropertyName, false)));
+    appendDiagnosticField(sb, "oppositeBagProperty", () -> oppositeLinkBagPropertyName);
+    appendDiagnosticField(sb, "opposite", () -> describeEntityState(oppositeEntity));
+    if (oppositeLinkBag == null) {
+      sb.append(" bag=absent");
+    } else {
+      appendDiagnosticField(sb, "bagType",
+          () -> oppositeLinkBag.isEmbedded() ? "embedded" : "btree");
+      appendDiagnosticField(sb, "bagSize", () -> Integer.toString(oppositeLinkBag.size()));
+      appendDiagnosticField(sb, "bagPointer", () -> String.valueOf(oppositeLinkBag.getPointer()));
+      appendDiagnosticField(sb, "bagContents", () -> dumpLinkBagContents(oppositeLinkBag));
+    }
+    appendDiagnosticField(sb, "diff", () -> Integer.toString(diff));
+    return sb.append(']').toString();
+  }
+
+  /** Renders identity, version, new-ness, and dirty state of a record for diagnostics. */
+  private static String describeEntityState(EntityImpl entity) {
+    var identity = entity.getIdentity();
+    return identity + " v" + entity.getVersion() + (identity.isNew() ? " NEW" : "")
+        + " dirty=" + entity.isDirty();
+  }
+
+  /**
+   * Lists the primary RIDs held by a back-reference bag, capped so a pathologically large
+   * bag cannot produce an unbounded log line. The dropped count is reported when the cap is
+   * hit so the reader still knows the true size.
+   */
+  private static String dumpLinkBagContents(LinkBag bag) {
+    final var max = 64;
+    var sb = new StringBuilder().append('[');
+    var i = 0;
+    for (var pair : bag) {
+      if (i >= max) {
+        sb.append(",...(").append(bag.size() - max).append(" more)");
+        break;
+      }
+      if (i > 0) {
+        sb.append(',');
+      }
+      sb.append(pair.primaryRid());
+      i++;
+    }
+    return sb.append(']').toString();
+  }
+
+  /**
+   * Appends {@code name=value} to the diagnostic buffer, substituting an error marker if
+   * the value supplier throws. This keeps diagnostic gathering total: a corrupt bag or an
+   * unloadable record degrades one field rather than masking the original error.
+   */
+  private static void appendDiagnosticField(
+      StringBuilder sb, String name, Supplier<Object> valueSupplier) {
+    sb.append(' ').append(name).append('=');
+    try {
+      sb.append(valueSupplier.get());
+    } catch (Throwable t) {
+      sb.append("<error:").append(t.getClass().getSimpleName()).append('>');
     }
   }
 
