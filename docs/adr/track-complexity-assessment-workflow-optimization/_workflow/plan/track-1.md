@@ -26,6 +26,7 @@ foundation every complexity-tag consumer in Track 2 reads.
 - [x] 2026-06-29T08:25Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-29T09:13Z [ctx=safe] Step 1 complete (commit 55a7e3ec4b)
 - [x] 2026-06-29T09:29Z [ctx=safe] Step 2 complete (commit bdec6c1922)
+- [x] 2026-06-29T09:50Z [ctx=safe] Step 3 complete (commit f763417b11)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -39,6 +40,13 @@ at Phase 1. -->
   and must re-key every remaining live `tier` reader/writer in its scope before
   the Phase-4 promotion (the forward obligation in §Interfaces and
   Dependencies). See Episodes §Step 1.
+- 2026-06-29T09:50Z Step 3 froze the Phase-4 carrier contract Track 2's
+  `create-final-design.md` / `design-review.md` re-key must match:
+  `design-final.md` iff `design_gate=yes` and `adr.md` iff ∃ track reconciled ≥
+  medium are **independent** predicates, and the final-artifacts commit fires
+  when EITHER carrier exists. Handle the design+all-low edge case
+  (`design-final.md` present with no `adr.md`), which the old `tier`-coupled
+  table could not express. See Episodes §Step 3.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -406,7 +414,7 @@ grep + Read against the live develop-state files during Phase A review, so the
    `full`/`lite`/`minimal` lines, and the per-tier-and-modification-class commit-shape
    list) — noting the Phase-4 executor `prompts/create-final-design.md` stays tier-keyed
    until Track 2 re-keys it (both promote together at Phase 4). — risk: high (workflow
-   machinery: a closed glossary/schema edit + the auto-resume / Phase-4 protocol doc)  [ ]  *(depends on Step 1)*
+   machinery: a closed glossary/schema edit + the auto-resume / Phase-4 protocol doc)  [x]  commit: f763417b11  *(depends on Step 1)*
 
 4. Review-prompt + Phase-2 pass-selector re-keys, remaining tier-prose, and the planner
    complexity-tag instruction — re-key every tier read in `consistency-review.md` (the
@@ -510,6 +518,53 @@ names and the router reads use the Step-1 flag→key map exactly.
 
 **Key files:**
 - `…/_workflow/staged-workflow/.claude/skills/create-plan/SKILL.md` (new — staged copy with the resume-router re-key, design-gate classifier, plan-presence decision, and seed-site `--tier` drop)
+
+### Step 3 — commit f763417b11, 2026-06-29T09:50Z [ctx=safe]
+**What was done:** Copied `conventions.md` and `workflow.md` from develop state
+into the staged subtree (copy-then-edit), then re-keyed both off the change tier
+onto the three complexity axes. In `conventions.md`: replaced the
+Change-tier / Tier-gates glossary rows with a Complexity-axes + Design-gate
+pair, documented the four ledger fields (`design_gate`, `tracks`,
+`phase1_complete`, per-track `reconciled_tag`) on the Phase-ledger glossary row
+and the layout ASCII, and rewrote §"Per-tier artifact set" → §"Per-axis
+artifact set" with an artifact-to-axis table whose `adr.md` row encodes the D8b
+predicate (`adr ⟺ ∃ track ≥ medium`). In `workflow.md`: re-keyed the
+Startup-Protocol auto-resume references off the track-count signal and rewrote
+the whole §"Final Artifacts (Phase 4)" section — carrier table to independent
+axis-derived predicates, the durable-ADR boundary from multi-track to
+∃-track-≥-medium, the verdict-fold prose, and the per-modification-class
+commit-shape list. `workflow-reindex.py --check` passes on both staged files
+(re-verified by the orchestrator).
+
+**What was discovered:** The original Final-Artifacts table coupled
+`design-final.md` with `adr.md` as one "full" cell, which mis-renders the
+design+all-low edge case (`design_gate=yes` but every track reconciled `low` →
+`design-final.md` exists with no `adr.md`). Re-derived the carrier rows as
+independent predicates and fixed the commit-shape list to fire the
+final-artifacts commit when EITHER carrier exists, matching design.md Part 4's
+edge-case note. The reindex check caught three real heading-rename issues (an
+annotation summary over 120 chars, a bare `adr.md` token read as an unsuffixed
+cross-ref, and a bare `§1.7` in-file ref that does not resolve in `workflow.md`);
+all fixed.
+
+**What changed from the plan:** None to the step's scope. Two boundary calls
+recorded: the `conventions.md` §"Plan file content" template and §1.6(f) /
+§1.7(b) prose still carry `lite`/`full`/`minimal` vocabulary (outside Step 3's
+named scope — the broader prose re-key and staging-mode semantics, owned by
+Step 4 and the staging convention); and the "Step" glossary row's "coherence
+boundary by tier" cross-reference into `track-review.md` was left untouched
+(owned by the out-of-scope `track-review.md` re-key, Track 2).
+
+**Key files:**
+- `…/_workflow/staged-workflow/.claude/workflow/conventions.md` (new — staged copy, glossary/schema + per-axis artifact-set re-key)
+- `…/_workflow/staged-workflow/.claude/workflow/workflow.md` (new — staged copy, Startup-Protocol resume refs + §Final Artifacts re-key)
+
+**Critical context:** The Phase-4 executor `prompts/create-final-design.md` and
+`prompts/design-review.md` still read the tier and stay tier-keyed (Track 2
+scope); both promote together with these files in the single Phase-4 commit, so
+the staged workflow is internally consistent only at promotion — the named
+cross-track discharge condition, now documented in `workflow.md` §Final
+Artifacts.
 
 ## Validation and Acceptance
 
