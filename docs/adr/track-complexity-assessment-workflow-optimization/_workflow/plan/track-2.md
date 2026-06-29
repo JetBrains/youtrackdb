@@ -29,6 +29,7 @@ home.
 - [x] 2026-06-29T15:14Z [ctx=safe] Step 1 complete (commit c505e176bd)
 - [x] 2026-06-29T15:33Z [ctx=safe] Step 2 complete (commit b9641e1ef2)
 - [x] 2026-06-29T15:55Z [ctx=info] Step 3 complete (commit 1befef572c)
+- [x] 2026-06-29T16:10Z [ctx=info] Step 4 complete (commit 7f753886f5)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -67,6 +68,19 @@ home.
   change does not trigger `review-security`). Step 3's split/merge left the
   count at 10 (split +1 / merge −1 cancel), so the step neither introduced nor
   fixed it. See Episodes §Step 3.
+- 2026-06-29T16:10Z **Toc-check CI gate blocker** (surfaced during Step 4,
+  rooted in Step 3 + a reindex glob asymmetry): the whole-repo
+  `workflow-reindex.py --check` fails on the staged `fix-ci-failure/SKILL.md`
+  (`rule_2` no-TOC + `rule_4` annotation cascade). The reindex live glob
+  excludes `fix-ci-failure` from the seven SKILL.md anchors, but the staged glob
+  matches any staged skill, so staging it — required for the Step-3 roster
+  re-key — forces TOC conformance the live file never had. Resolution options:
+  (A) add a TOC + heading annotations to the staged copy (conforms it, but
+  promotes orphan TOC infrastructure into a live file the live glob still will
+  not check); (B) narrow the reindex staged skills glob to the live anchor set
+  (a `workflow-reindex.py` change, out of the current plan scope, contradicting
+  the script's documented intentional-asymmetry comment); (C) defer or suppress.
+  Escalated to the user before track completion. See Episodes §Step 4.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -502,7 +516,7 @@ no-dangling acceptance is a track-completion property, not a per-step one. -->
 1. Reviewer roster split/merge + finding-prefix schema (D7) — add staged `review-bugs.md` (always-on, single-threaded sequential reasoning, the D7 ownership clauses + the one-line triage backstop verbatim) and `review-concurrency.md` (fires on the `concurrency` category, multi-thread interleaving reasoning, the D7 ownership clauses); decide their two new finding prefixes; merge `review-test-behavior.md` + `review-test-completeness.md` → `review-test-quality.md` (both sub-protocols and **both** the `TB` and `TC` prefixes verbatim); remove the three split/merge sources; retire `BC` and register the two new prefixes in the canonical owner table `review-iteration.md` §"Finding ID prefixes" (keep `TB`/`TC`/`TX`) and update `finding-synthesis-recipe.md`'s prefix family. — risk: high (workflow machinery: edits the shared finding-prefix schema every reviewer and the synthesis recipe key off, and creates behavioral review-agent specs carrying the D7 cognitive-mode ownership + triage backstop)  [x] commit: c505e176bd
 2. Tag computation (D9) + Phase-4 carrier (D8b) + bounded re-keys — in `risk-tagging.md` add the track-granularity complexity-tag rule (the seven HIGH triggers over `## Plan of Work` + `## Interfaces`, the change/track/step three-granularity distinction, the prediction reconciled to `max(step tags)`) and re-key the risk-level table's `high` step-level-review cell onto the split roster; in `create-final-design.md` re-derive the carrier table, the verdict-fold predicate, and the ledger-read mechanism from the axes (`design-final` iff `design_gate=yes`; `adr` iff ∃ track ≥ medium); in `design-review.md` re-key the `tier` input param + spawn-site + roster/tag refs and the `tier=full` fidelity gate → `design_gate=yes`; in `conventions-execution.md` re-key the §2.4 `Tier-driven review selection` pointer, the roster references, and the §2.5 `BC` schema examples. — risk: medium (workflow machinery, behavioral but bounded: one decision rule + one phase prompt's carrier logic + a fidelity-gate re-key + reference re-keying; no shared schema, control-flow gate, or auto-running artifact) — size: ~4 files; no mergeable low/medium work fits (every other step is high)  [x] commit: b9641e1ef2 *(depends on Step 1 for the new roster names + prefixes)*
 3. Domain×complexity selection + step-level adaptation + roster sweep (D3, D6) — thread complexity into the category-driven selection across the five mirror sites (`code-review/SKILL.md` Step 5, `review-agent-selection.md`, `track-code-review.md`, `step-implementation.md`, `fix-ci-failure/SKILL.md`): domain selects the set identically at every level, complexity moves only the Phase-C rigor dial, the floor + domain-matched set is never suppressed; update the same sites' rosters to the split/merge names; adapt the live localized-versus-buried step-level rule (burial role → `review-bugs` always + `review-concurrency` when concurrency is present; the test baselines' deferred role → `review-test-quality`), unchanged in logic; update `code-review-protocol.md`'s roster references; and sweep the out-of-scope removed-agent / retired-`BC` references in `execute-tracks/SKILL.md` (load-bearing step-level-baseline prose), `review-workflow-consistency.md` (worked example), `review-workflow-instruction-completeness.md` (self-analogy), and `prompts/dimensional-review-gate-check.md` (`BC3` example). — risk: high (workflow machinery: edits the load-bearing reviewer-selection control-flow protocol mirrored across five sites plus the step-level burial routing; a defect mis-selects reviewers for every future code review)  [x] commit: 1befef572c *(depends on Steps 1 and 2; parallel with Steps 4, 5)*
-4. Phase-A panel re-key + reconciliation-on-upward-divergence (D5, D6) — in `track-review.md`, re-key the Phase-A panel from the whole-change tier onto the per-track tag (`low` → Technical only; `medium` → + Adversarial narrowed; `high` → + Risk + Adversarial narrowed); add the reconciliation that compares `max(step tags)` against the predicted tag after decomposition, runs the missed strategic reviewers on any upward miss, fires **at most once**, and appends `--reconciled-tag <max(step tags)>` onto the **existing** A→C `--append-ledger` line carrying `--track <N>` (recomputed deterministically on resume so the write is idempotent); a downward divergence runs no missed reviewers and floors Phase C at `max(step tags)`. Keep the live `### Tier-driven review selection and which reviews to run` heading byte-stable, or update its two referrers in the same edit. — risk: high (workflow machinery: edits the load-bearing Phase-A review-selection gate, adds a new divergence-reconciliation control-flow mechanism, and writes the phase ledger)  [ ] *(depends on Step 2; parallel with Steps 3, 5)*
+4. Phase-A panel re-key + reconciliation-on-upward-divergence (D5, D6) — in `track-review.md`, re-key the Phase-A panel from the whole-change tier onto the per-track tag (`low` → Technical only; `medium` → + Adversarial narrowed; `high` → + Risk + Adversarial narrowed); add the reconciliation that compares `max(step tags)` against the predicted tag after decomposition, runs the missed strategic reviewers on any upward miss, fires **at most once**, and appends `--reconciled-tag <max(step tags)>` onto the **existing** A→C `--append-ledger` line carrying `--track <N>` (recomputed deterministically on resume so the write is idempotent); a downward divergence runs no missed reviewers and floors Phase C at `max(step tags)`. Keep the live `### Tier-driven review selection and which reviews to run` heading byte-stable, or update its two referrers in the same edit. — risk: high (workflow machinery: edits the load-bearing Phase-A review-selection gate, adds a new divergence-reconciliation control-flow mechanism, and writes the phase ledger)  [x] commit: 7f753886f5 *(depends on Step 2; parallel with Steps 3, 5)*
 5. inline-replanning tier-escalation re-key (R1 blocker) — in `inline-replanning.md`, replace the D11/D12 `workflow-startup-precheck.sh --append-ledger --tier <new-tier>` write (line ~169 — a flag Track 1 removed, so it `exit 2`s on the first post-promotion mid-flight escalation) with the complexity-axis equivalent, and re-express the whole "tier upgrade rides ESCALATE" escalation model (materialize-then-write ordering, the ledger append, the "every selector reads the `tier` field ledger-first" prose) in axis terms — a `design_gate` flip and/or a per-track tag raise written through Track 1's flags — not a mechanical `tier`→`complexity` search-replace. — risk: high (workflow machinery: edits the ESCALATE control-flow protocol and a phase-ledger write that hard-fails post-promotion if mis-keyed)  [ ] *(depends on Track 1's ledger axis fields; parallel with Steps 3, 4)*
 
 ## Episodes
@@ -672,6 +686,51 @@ Step 5a/5b/5d/6 — the split/merge touched the Code-review and Test-review agen
 tables, which are not in the mirrored set, so no sync-date bump was needed. The
 repo-wide no-dangling sweep over all `.claude/**` is a track-completion property
 still owed by Steps 4 and 5.
+
+### Step 4 — commit 7f753886f5, 2026-06-29T16:10Z [ctx=info]
+**What was done:** Re-keyed the Phase-A strategic panel in staged
+`track-review.md` off the dropped whole-change tier onto the per-track
+complexity tag (D6): `low` → Technical only; `medium` → + Adversarial
+(narrowed); `high` → + Risk + Adversarial (narrowed). Added a §"Reconciliation
+on upward divergence (D5)" sub-section: after decomposition, compute `max(step
+tags)` and compare it to the prediction; an upward miss runs the missed
+higher-intensity strategic reviewers and fires at most once, a downward
+divergence floors Phase C at `max(step tags)` with a light re-check flag and no
+re-review. Appended `--reconciled-tag <max(step tags)>` onto both A→C
+`--append-ledger` invocations (the §What You Do sub-step-6 path and the §Phase A
+Completion recovery re-append) alongside the existing `--track <N>`, recomputed
+from the roster on resume for idempotence. Re-keyed sub-step 2 (read the
+predicted complexity tag, not the tier), the adversarial run-condition
+(medium/high, not lite/full), and the D14 model/effort pin to `design_gate`
+(`design_gate=yes` → Fable 5, `design_gate=no` → Opus). Kept the
+`### Tier-driven review selection and which reviews to run` heading
+byte-identical to the live file, so no referrer update was needed.
+
+**What was discovered:** A whole-repo `workflow-reindex.py --check` — the
+toc-check CI gate's command — fails on exactly one file: the staged
+`fix-ci-failure/SKILL.md` (`rule_2`: H2 headings but no TOC region, plus a
+`rule_4` annotation cascade). The root cause is a glob asymmetry, not a content
+defect in any step. The reindex live glob restricts SKILL.md validation to seven
+workflow-referencing anchors and excludes `fix-ci-failure`, so the live copy is
+never checked; the staged glob `staged-workflow/.claude/skills/**/SKILL.md`
+deliberately matches any staged skill. Step 3 had to stage `fix-ci-failure`
+(copy-then-edit) to re-key its roster references — a required modification, not a
+deletable — so §1.7's verbatim-plus-delta copy (no TOC, because the live file
+has none) collides with the staged glob's demand for TOC conformance. The branch
+has failed the toc-check gate since Step 3 pushed. The resolution needs a
+decision outside the current step plan; escalated to the user (see Surprises).
+
+**What changed from the plan:** None for Step 4's deliverable. The heading was
+kept byte-stable, so the wider-than-claimed referrer set Step 2 flagged needed no
+update — a single-file `track-review.md` edit, as the spec preferred.
+
+**Key files:**
+- `…/staged-workflow/.claude/workflow/track-review.md` (Phase-A panel + reconciliation + ledger write)
+
+**Critical context:** The reconciled-tag ledger append rides on the same
+`--append-ledger` line as `--track <N>`, recomputed deterministically from the
+roster on resume so a re-run is idempotent. The toc-check blocker above is
+tracked for resolution before track completion.
 
 ## Validation and Acceptance
 
