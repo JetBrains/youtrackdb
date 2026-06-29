@@ -445,3 +445,6 @@ precedence fold (D12) — so it warrants its own review surface even at ~4 files
   `(a - b) - c`, not `a - (b - c)` (D12). The two differ in value, so this is ultimately
   backed by Track 4's round-trip parity matrix; this track's lowering test asserts the
   produced tree shape.
+
+## Base commit
+729b3e4807b4cd3d8b0da8c0aecc4d7d4e163250
