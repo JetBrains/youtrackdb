@@ -532,9 +532,43 @@ public abstract class SchemaShared implements CloseableInStorage {
       for (final var cls : classes.values()) {
         addCollectionClassMap(cls);
       }
+      // After resolution every class's id arrays must be provisional-free. replaceProvisionalCollectionIds
+      // patches only ids that are both provisional and present in the resolution map, so a provisional
+      // id allocated by a producer but never recorded into the map (a missed recordResolvedCollectionId)
+      // would survive silently and then reach toStream as durable corruption. This catches the
+      // producer/consumer mismatch at the resolution site, one step before the matching no-provisional-id
+      // precondition assert in SchemaClassImpl.toStream guards the actual durable-write boundary.
+      assert allCollectionIdsResolved()
+          : "a provisional collection id survived resolveProvisionalCollectionIds; a producer "
+              + "allocated an id never recorded into the resolution map";
     } finally {
       lock.writeLock().unlock();
     }
+  }
+
+  /**
+   * Whether every class in this (tx-local) schema carries only real or abstract collection ids after
+   * resolution — the postcondition {@link #resolveProvisionalCollectionIds} asserts. Reads the
+   * per-class id fields directly (the caller holds this schema's write lock) so the scan does not
+   * re-enter the schema read lock. Test-time guard only; never consulted in production.
+   */
+  private boolean allCollectionIdsResolved() {
+    for (final var cls : classes.values()) {
+      if (isProvisionalCollectionId(cls.defaultCollectionId)) {
+        return false;
+      }
+      for (final var id : cls.collectionIds) {
+        if (isProvisionalCollectionId(id)) {
+          return false;
+        }
+      }
+      for (final var id : cls.polymorphicCollectionIds) {
+        if (isProvisionalCollectionId(id)) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   public abstract void dropClass(DatabaseSessionEmbedded session, final String className);
