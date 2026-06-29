@@ -31,6 +31,7 @@ home.
 - [x] 2026-06-29T15:55Z [ctx=info] Step 3 complete (commit 1befef572c)
 - [x] 2026-06-29T16:10Z [ctx=info] Step 4 complete (commit 7f753886f5)
 - [x] 2026-06-29T16:28Z [ctx=info] Step 5 complete (commit 2b3178ebf5)
+- [x] 2026-06-29T16:45Z [ctx=info] Step 6 complete (commit 13c63c4335)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -548,7 +549,7 @@ no-dangling acceptance is a track-completion property, not a per-step one. -->
 3. Domain×complexity selection + step-level adaptation + roster sweep (D3, D6) — thread complexity into the category-driven selection across the five mirror sites (`code-review/SKILL.md` Step 5, `review-agent-selection.md`, `track-code-review.md`, `step-implementation.md`, `fix-ci-failure/SKILL.md`): domain selects the set identically at every level, complexity moves only the Phase-C rigor dial, the floor + domain-matched set is never suppressed; update the same sites' rosters to the split/merge names; adapt the live localized-versus-buried step-level rule (burial role → `review-bugs` always + `review-concurrency` when concurrency is present; the test baselines' deferred role → `review-test-quality`), unchanged in logic; update `code-review-protocol.md`'s roster references; and sweep the out-of-scope removed-agent / retired-`BC` references in `execute-tracks/SKILL.md` (load-bearing step-level-baseline prose), `review-workflow-consistency.md` (worked example), `review-workflow-instruction-completeness.md` (self-analogy), and `prompts/dimensional-review-gate-check.md` (`BC3` example). — risk: high (workflow machinery: edits the load-bearing reviewer-selection control-flow protocol mirrored across five sites plus the step-level burial routing; a defect mis-selects reviewers for every future code review)  [x] commit: 1befef572c *(depends on Steps 1 and 2; parallel with Steps 4, 5)*
 4. Phase-A panel re-key + reconciliation-on-upward-divergence (D5, D6) — in `track-review.md`, re-key the Phase-A panel from the whole-change tier onto the per-track tag (`low` → Technical only; `medium` → + Adversarial narrowed; `high` → + Risk + Adversarial narrowed); add the reconciliation that compares `max(step tags)` against the predicted tag after decomposition, runs the missed strategic reviewers on any upward miss, fires **at most once**, and appends `--reconciled-tag <max(step tags)>` onto the **existing** A→C `--append-ledger` line carrying `--track <N>` (recomputed deterministically on resume so the write is idempotent); a downward divergence runs no missed reviewers and floors Phase C at `max(step tags)`. Keep the live `### Tier-driven review selection and which reviews to run` heading byte-stable, or update its two referrers in the same edit. — risk: high (workflow machinery: edits the load-bearing Phase-A review-selection gate, adds a new divergence-reconciliation control-flow mechanism, and writes the phase ledger)  [x] commit: 7f753886f5 *(depends on Step 2; parallel with Steps 3, 5)*
 5. inline-replanning tier-escalation re-key (R1 blocker) — in `inline-replanning.md`, replace the D11/D12 `workflow-startup-precheck.sh --append-ledger --tier <new-tier>` write (line ~169 — a flag Track 1 removed, so it `exit 2`s on the first post-promotion mid-flight escalation) with the complexity-axis equivalent, and re-express the whole "tier upgrade rides ESCALATE" escalation model (materialize-then-write ordering, the ledger append, the "every selector reads the `tier` field ledger-first" prose) in axis terms — a `design_gate` flip and/or a per-track tag raise written through Track 1's flags — not a mechanical `tier`→`complexity` search-replace. — risk: high (workflow machinery: edits the ESCALATE control-flow protocol and a phase-ledger write that hard-fails post-promotion if mis-keyed)  [x] commit: 2b3178ebf5 *(depends on Track 1's ledger axis fields; parallel with Steps 3, 4)*
-6. Reindex staged-skill scope fix (inline-replan after Step 4, user-approved) — in `workflow-reindex.py`, stop the broad staged-skills glob (`staged-workflow/.claude/skills/**/SKILL.md`) from over-firing rules 2/4 on a staged copy of a non-anchor skill (one not in the live seven-anchor SKILL.md set, e.g. `fix-ci-failure/SKILL.md`, which §1.7 copy-then-edit staged as a TOC-less verbatim copy). Mirror the existing `_is_staged_agent` partition: a staged non-anchor skill validates exactly as its live namesake would — out of the TOC-presence / annotation rules (2/4), citing-scope rules (6/7) retained — or narrow the staged-skills glob to the live anchor set. Update the script's intentional-asymmetry comment, and add a `test_workflow_reindex.py` case pinning the new behavior (a staged non-anchor skill passes; a staged anchor skill stays fully validated). Acceptance: whole-repo `workflow-reindex.py --check` exits 0. — risk: high (workflow machinery: edits the reindex validation-scope logic the maven-pipeline CI Status gate runs; a defect would let real TOC drift through or keep over-firing)  [ ] *(inline-replan; depends on Step 3 having staged `fix-ci-failure/SKILL.md`)*
+6. Reindex staged-skill scope fix (inline-replan after Step 4, user-approved) — in `workflow-reindex.py`, stop the broad staged-skills glob (`staged-workflow/.claude/skills/**/SKILL.md`) from over-firing rules 2/4 on a staged copy of a non-anchor skill (one not in the live seven-anchor SKILL.md set, e.g. `fix-ci-failure/SKILL.md`, which §1.7 copy-then-edit staged as a TOC-less verbatim copy). Mirror the existing `_is_staged_agent` partition: a staged non-anchor skill validates exactly as its live namesake would — out of the TOC-presence / annotation rules (2/4), citing-scope rules (6/7) retained — or narrow the staged-skills glob to the live anchor set. Update the script's intentional-asymmetry comment, and add a `test_workflow_reindex.py` case pinning the new behavior (a staged non-anchor skill passes; a staged anchor skill stays fully validated). Acceptance: whole-repo `workflow-reindex.py --check` exits 0. — risk: high (workflow machinery: edits the reindex validation-scope logic the maven-pipeline CI Status gate runs; a defect would let real TOC drift through or keep over-firing)  [x] commit: 13c63c4335 *(inline-replan; depends on Step 3 having staged `fix-ci-failure/SKILL.md`)*
 
 ## Episodes
 <!-- Continuous-log. -->
@@ -795,6 +796,55 @@ historical anchors, all legitimate for the Phase C no-dangling grep.
 - `…/staged-workflow/.claude/workflow/inline-replanning.md` (D11/D12 escalation model re-keyed to the complexity axes)
 
 **Critical context:** None.
+
+### Step 6 — commit 13c63c4335, 2026-06-29T16:45Z [ctx=info]
+**What was done:** Fixed the reindex glob over-firing on staged non-anchor skills
+(D10, inline-replan). Added a `_is_staged_nonanchor_skill` partition to staged
+`workflow-reindex.py`, mirroring the existing `_is_staged_agent` one: a staged
+copy of a skill not in the seven live anchor skills (`BOOTSTRAP_SCOPE_SKILLS`) is
+pulled out of the eight-rule loop (so rules 2/4/8 cannot over-fire) and routed
+into the rules-6/7 citing scope — validated exactly as its out-of-scope live
+namesake. Wired into `validate` (the partition plus the `parsed_agent_files` /
+`bootstrap_paths` builders) and `compute_write_plan`. Rewrote the `IN_SCOPE_GLOBS`
+"Skills asymmetry is intentional" comment to document the partition, and added
+four `test_workflow_reindex.py` cases.
+
+**What was discovered:** Two findings shaped the fix beyond the literal
+instruction. (1) `fix-ci-failure/SKILL.md` carries no bootstrap block, so naively
+mirroring the agent partition — which adds the staged path to `bootstrap_paths` —
+would make `rule_7` over-fire, the same bug in a different rule; the
+non-anchor-skill partition therefore deliberately does not add the path to
+`bootstrap_paths`, matching the live namesake. (2) The staged script cannot
+self-validate in place: `REPO_ROOT` derives from `Path(__file__).parents[2]`, so
+running the staged copy from the staged subtree yields bogus `rule_6` findings
+against a truncated repo root. Acceptance was verified by temporarily swapping the
+edited content onto the live path, running `--check` (exit 0), and restoring the
+live file byte-identical to HEAD — confirmed: live `.claude/scripts/` is untouched
+across the whole branch. Non-vacuity holds: the unmodified script emits three
+`rule_2`/`rule_4` findings on the over-fire fixture. The step-level hook-safety
+review flagged WH1 (suggestion, accepted): two of the four new tests
+(`rule_7`-silent, `rule_6`-fires) pass even with the partition disabled, so they
+are routing-invariant regression guards rather than fix-discriminators — only
+`no_toc_no_over_fire` discriminates the fix, and the anchor-still-fails case
+establishes non-vacuity. The two guard tests are harmless and add coverage;
+recorded here per the reviewer's "leave as-is" option rather than respawning for
+a one-line comment.
+
+**What changed from the plan:** None. The recommended
+`_is_staged_agent`-mirroring partition was chosen over narrowing the glob — it
+preserves citing-scope validation — and the `bootstrap_paths` exclusion follows
+directly from "validate like the live namesake," so no design decision was
+needed.
+
+**Key files:**
+- `…/staged-workflow/.claude/scripts/workflow-reindex.py` (the `_is_staged_nonanchor_skill` partition + comment)
+- `…/staged-workflow/.claude/scripts/tests/test_workflow_reindex.py` (4 new cases)
+
+**Critical context:** The live `workflow-reindex.py` stays at develop state (I6),
+so the current whole-repo `--check` still emits the 18 staged `fix-ci-failure`
+findings — expected per D10 (forward fix; it takes effect on develop at Phase 4
+promotion, and the toc-check gate skips on draft PRs and runs the live script).
+Phase 4 promotion `cp -r` carries the fixed script + test to the live tree.
 
 ## Validation and Acceptance
 
