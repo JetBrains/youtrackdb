@@ -414,4 +414,42 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
         java.util.Set.of("c1", "c2"), names);
     session.commit();
   }
+
+  /**
+   * Exercises the scenario where two different aliases both carry a static {@code @rid}
+   * in their WHERE clauses. The promoter must successfully process both aliases,
+   * dropping both estimates to 1, letting the planner's stable sort tie-break
+   * determine the root choice and traversal direction.
+   */
+  @Test
+  public void dualStaticRidInWhere_bothPromoted_plannerTieBreakDecidesRoot() {
+    session.begin();
+    var alice = ridOf("Person", "alice");
+    var bob = ridOf("Person", "bob");
+
+    var query = "EXPLAIN MATCH {class: Person, as: p, where: (@rid = " + alice + ")}"
+        + ".out('Knows'){class: Person, as: m, where: (@rid = " + bob + ")}"
+        + " RETURN p.name";
+
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    var pBlock = prefetchBlock(plan, "p");
+    var mBlock = prefetchBlock(plan, "m");
+
+    assertTrue("Alias 'p' must be optimized to FETCH FROM RIDs, got:\n" + plan,
+        pBlock.contains("FETCH FROM RIDs"));
+    assertTrue("Alias 'm' must be optimized to FETCH FROM RIDs, got:\n" + plan,
+        mBlock.contains("FETCH FROM RIDs"));
+
+    assertFalse("Alias 'p' must not fallback to class scan", pBlock.contains("FETCH FROM CLASS"));
+    assertFalse("Alias 'm' must not fallback to class scan", mBlock.contains("FETCH FROM CLASS"));
+
+    assertEquals("Planner stable sort tie-break must select 'p' as the root node, got:\n" + plan,
+        "p", rootAlias(plan));
+
+    session.commit();
+  }
 }
