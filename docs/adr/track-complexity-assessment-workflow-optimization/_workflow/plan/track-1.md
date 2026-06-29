@@ -600,3 +600,6 @@ flowchart TD
   a resume-routing test.
 - `design.md` exists iff `design_gate=yes`; `implementation-plan.md` exists iff
   track count > 1 — verified by the create-plan derivation behavior.
+
+## Base commit
+08995c85cf8e98cc1db5029f9dd12e94b0ecc639
