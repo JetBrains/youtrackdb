@@ -178,10 +178,10 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     var missingRid = "-1:0";
 
     var result = session.query(
-                    "EXPLAIN MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
-                            + ".out('Likes'){class: Comment, as: c, where: (@rid = " + missingRid + ")}"
-                            + " RETURN p.name")
-            .toList();
+        "EXPLAIN MATCH {class: Person, as: p}.out('Knows'){class: Person, as: m}"
+            + ".out('Likes'){class: Comment, as: c, where: (@rid = " + missingRid + ")}"
+            + " RETURN p.name")
+        .toList();
 
     assertEquals(1, result.size());
     String plan = result.getFirst().getProperty("executionPlanAsString");
@@ -189,11 +189,11 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
 
     var cBlock = prefetchBlock(plan, "c");
     assertFalse("pinned Comment 'c' should be prefetched, got:\n" + plan,
-            cBlock.isEmpty());
+        cBlock.isEmpty());
     assertTrue("'c' prefetch should fetch by RID, got:\n" + plan,
-            cBlock.contains("FETCH FROM RIDs"));
+        cBlock.contains("FETCH FROM RIDs"));
     assertFalse("'c' prefetch should not fall back to a class scan, got:\n" + plan,
-            cBlock.contains("FETCH FROM CLASS"));
+        cBlock.contains("FETCH FROM CLASS"));
     session.commit();
   }
 

@@ -21,10 +21,16 @@ import org.junit.Test;
  * Unit tests for {@link MatchExecutionPlanner#promoteStaticRidsFromFilters}.
  *
  * <p>The promoter scans per-alias WHERE clauses for {@code @rid = <expr>}
- * equalities and, when the value-side is a literal or parameter (never a
+ * * equalities and, when the value-side is a literal or parameter (never a
  * {@code $matched.X.@rid} back-ref), copies it into {@code aliasRids} so that
  * {@link MatchExecutionPlanner#estimateRootEntries} collapses the alias's
  * estimate to 1 and root selection picks the fast path.
+ *
+ * <p><strong>Note on Test Structure:</strong> The concrete RID literals used across these tests
+ * (e.g., {@code #25:7}, {@code #26:8}, {@code #12:0}) are purely structural and illustrative. The
+ * promoter and underlying AST nodes operate entirely in-memory against mocked contexts and are
+ * never resolved against active storage clusters. Any syntactically valid RID payload can be used
+ * interchangeably without shifting test outcomes.
  */
 public class PromoteStaticRidsFromFiltersTest {
 
