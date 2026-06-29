@@ -88,6 +88,10 @@ flowchart TD
   > code) — see `plan/track-2.md` `## Episodes` § Track completion. (1 step, 0 failed)
   >
   > **Track file:** `plan/track-2.md`
+  >
+  > **Strategy refresh:** CONTINUE — Track 2's `NumericOps` contract flows to Track 4 (the
+  > evaluator), not Track 3; lowering does no arithmetic and is unaffected. Track 3's only
+  > dependency, Track 1, is complete.
 
 - [ ] Track 3: Lowering pass
   > Track 3 adds the lowering pass that converts the covered `SQLExpression` AST subset to
