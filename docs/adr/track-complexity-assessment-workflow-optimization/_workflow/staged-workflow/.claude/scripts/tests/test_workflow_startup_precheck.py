@@ -115,6 +115,11 @@ def run_precheck(*args: str, cwd: Optional[Path] = None) -> subprocess.Completed
         text=True,
         check=False,
         cwd=str(cwd) if cwd is not None else None,
+        # The script shells out to git / mkdir / cat / mv; bound every
+        # invocation so a wedged child fails the suite loudly instead of
+        # hanging the runner indefinitely. The script is fast and local, so
+        # 30s is generous headroom.
+        timeout=30,
     )
 
 
@@ -4567,19 +4572,28 @@ def test_append_substate_written_before_categories() -> None:
 
 def _ledger_tail_value(ledger_text: str, key: str) -> Optional[str]:
     """Replicate the script's `ledger_tail_value` last-value-wins read: scan
-    every line, take the FIRST ` <key>=` token on each line (anchored at a token
-    boundary so `tracks=` never matches inside `xtracks=`), strip a surrounding
-    pair of double quotes, and keep the most recent line's value. Returns None
-    when the key never appears. This mirrors the bash reader's semantics exactly
-    so the test pins the same contract Track 2's readers will consume."""
+    every line, take the FIRST ` <key>=` token on each line (anchored on a
+    leading space so `tracks=` never matches inside `xtracks=`), strip a
+    surrounding pair of double quotes, and keep the most recent line's value.
+    Returns None when the key never appears. This mirrors the bash reader's
+    semantics exactly so the test pins the same contract Track 2's readers will
+    consume — including the bash reader's requirement of a *leading space*: the
+    bash strip `${line#*" $key="}` operates on the bare line, so a key at column
+    0 (no preceding space) is not matched. Every reachable ledger line begins
+    with `[<ISO>] [ctx=...] `, so the first real ` key=` token is always
+    space-preceded; the leading-space anchor below matches the bash reader on
+    every reachable input and diverges only on the unreachable column-0 line."""
     import re
 
     found: Optional[str] = None
     for line in ledger_text.splitlines():
-        # Anchor at line start or after a space, matching the bash `" $line"` /
-        # `*" $key="*` token-boundary scan, and take the FIRST match (the bash
-        # `${line#*" $key="}` strips up to the first occurrence).
-        m = re.search(rf"(?:^|\s){re.escape(key)}=(.*)$", line)
+        # Anchor on a leading space, matching the bash `${line#*" $key="}` strip
+        # (which requires a literal space before the key on the bare line), and
+        # take the FIRST match (the bash strip removes up to the first space-
+        # preceded occurrence). A column-0 key is not matched, mirroring the
+        # bash reader, which cannot strip a key it never sees a leading space
+        # before.
+        m = re.search(rf" {re.escape(key)}=(.*)$", line)
         if not m:
             continue
         rest = m.group(1)
@@ -4600,15 +4614,19 @@ def _ledger_tail_value_for_track(
     last-value-wins read. Only lines whose first ` track=` token equals `track`
     contribute; among those, the most recent `key` value wins. A line carrying
     `key` but no matching `track=` is skipped (strict track-scoping), so a prior
-    track's value cannot leak into the active track's resolution."""
+    track's value cannot leak into the active track's resolution. Both the
+    `track=` and `<key>=` matches anchor on a leading space, mirroring the bash
+    reader's `${line#*" track="}` / `${line#*" $key="}` strips (which require a
+    literal preceding space); every reachable ledger line is `[<ISO>] [ctx=...] `
+    prefixed, so the first real token is always space-preceded."""
     import re
 
     found: Optional[str] = None
     for line in ledger_text.splitlines():
-        tm = re.search(r"(?:^|\s)track=(\S*)", line)
+        tm = re.search(r" track=(\S*)", line)
         if not tm or tm.group(1) != track:
             continue
-        km = re.search(rf"(?:^|\s){re.escape(key)}=(.*)$", line)
+        km = re.search(rf" {re.escape(key)}=(.*)$", line)
         if not km:
             continue
         rest = km.group(1)

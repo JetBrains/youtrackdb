@@ -28,8 +28,8 @@ Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 Read these in order before doing anything else (do NOT ask the user anything yet):
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary (including the **change tier** and **tier gates** terms),
-   plan file structure, the `§1.2` *Per-tier artifact set*, scope
+   glossary (including the **complexity axes** and **design gate** terms),
+   plan file structure, the `§1.2` *Per-axis artifact set*, scope
    indicators, review iteration protocol
 2. `.claude/workflow/research.md` — Phase 0 instructions:
    interactive research, code exploration, internet research, the
@@ -202,7 +202,13 @@ matched.
     vacuous for one track). This is a **normal resume**, not a Step-4 entry:
     the drift / handoff / state routing above already handled it; **do not
     re-author** the design or re-derive a plan. Proceed to Step 2 only if the
-    user explicitly asks to start a new aim against the same dir (rare).
+    user explicitly asks to start a new aim against the same dir (rare). The
+    marker alone is **sufficient by construction** here: a clean Phase-1 seed
+    co-writes `phase1_complete=yes` and `design_gate=yes` on the same line, so
+    a set marker implies the gate and no cross-check of `LEDGER_DESIGN_GATE` is
+    needed on this arm. The `LEDGER_DESIGN_GATE` / `LEDGER_TRACKS` locals
+    parsed at the top of the step are read only by the lower no-design
+    branches — they are intentionally unused here, not a missing check.
   - **Marker unset (`LEDGER_PHASE1_COMPLETE` blank)** — Phase 1 did **not**
     finish: the prior `/create-plan` invocation authored (and possibly
     committed) `design.md` but ended — crash, context-full `/clear`, or the
@@ -545,28 +551,29 @@ multi-session handoff queue block) live in this SKILL's review-hold
 batching section and `mid-phase-handoff.md`. Step 4 here owns the first,
 pre-presentation gate run; the batch loop is the consumer of the same gate.
 
-**Step 4 part 3 — Per-tier transition to Phase 1.**
+**Step 4 part 3 — Transition to Phase 1.**
 
-After the gate clears, branch on the confirmed tier:
+After the gate clears, branch on the confirmed design gate (part 1's only
+confirmed output — the multi-vs-single track count is **not** decided here;
+it is settled at the end of Step 4b, where the plan-presence decision lives):
 
-- **`full`** — design-first, Step 4a then Step 4b within one `/create-plan`
-  invocation (the freeze-and-commit between them stays the logical gate and
-  crash checkpoint, but is no longer a session boundary), exactly as the rest
-  of this Step describes.
-- **`lite`** — no `design.md`. Author the thinned derived-mirror plan and
-  the multi-track files directly from the research log in a **single Phase-1
-  session** (Step 4b only); the track files carry the full inline Decision
-  Records, with no design seed to derive from.
-- **`minimal`** — no `design.md` and **no plan** (D2). Author **one**
-  self-contained track file from the research log in a **single Phase-1
-  session** (Step 4b only). Resume state lives in the phase ledger
-  (`conventions.md` `§1.2` *Per-tier artifact set*), so `minimal` produces
-  no `implementation-plan.md`.
+- **`design_gate=yes`** — design-first: Step 4a (author + review + freeze
+  `design.md`) then Step 4b, within one `/create-plan` invocation (the
+  freeze-and-commit between them stays the logical gate and crash checkpoint,
+  but is no longer a session boundary), exactly as the rest of this Step
+  describes.
+- **`design_gate=no`** — no `design.md`. Skip Step 4a; go straight to
+  Step 4b and author the track files directly from the research log in a
+  **single Phase-1 session**, with the full inline Decision Records and no
+  design seed to derive from. The thinned derived-mirror plan is authored at
+  the end of Step 4b iff the planner decomposed into more than one track (the
+  plan-presence decision, D1); resume state otherwise lives in the phase
+  ledger (`conventions.md` `§1.2` *Per-axis artifact set*).
 
-The `full`-tier design-first split keeps the design-authoring and
+The `design_gate=yes` design-first split keeps the design-authoring and
 plan-derivation work in order, but both run in one `/create-plan` invocation:
 
-- **Step 4a (design authoring, `full` only)** — author `design.md` via
+- **Step 4a (design authoring, `design_gate=yes` only)** — author `design.md` via
   `edit-design`, run its review, and freeze it. The design's review passing
   (or the user accepting open risks) is the gate that releases Step 4b; the
   freeze-and-commit is the crash checkpoint but no longer ends the session.
@@ -616,8 +623,8 @@ the marker fan-out, the exact `git log` / `git status` check, the branch
 order, the never-a-dead-end fallback, and the resume-Step-4a arm for a dirty
 or uncommitted design; this block does not re-derive that routing.
 
-The `lite` and `minimal` tiers have **no `design.md`** and so no Step 4a at
-all: their Step-4b plan derivation runs in the same Phase-1 session that
+A `design_gate=no` change has **no `design.md`** and so no Step 4a at
+all: its Step-4b plan derivation runs in the same Phase-1 session that
 Step 4 part 1/2 ran in, with no design freeze in between. After the collapse
 `full` also runs Step 4a and Step 4b in one invocation, so the difference is
 no longer single-session vs two-session — it is whether a `design.md` is
@@ -626,11 +633,11 @@ tier-aware branch keeps an interrupted no-design tier (plan on disk, no
 `design.md` by design) routing to a normal resume rather than back into
 design authoring.
 
-**Step 4a — Author the design first (`full` tier only).**
+**Step 4a — Author the design first (`design_gate=yes` only).**
 
-This sub-step runs in `full` only. In `lite`/`minimal` there is no
-`design.md`; skip directly to Step 4b. When the user asks to create the
-plan in `full` (and `design.md` does not yet exist):
+This sub-step runs when `design_gate=yes` only. When `design_gate=no` there
+is no `design.md`; skip directly to Step 4b. When the user asks to create the
+plan with `design_gate=yes` (and `design.md` does not yet exist):
 
 First, read the design workflow document (deferred from Step 1):
 - `.claude/workflow/design-document-rules.md` — design document rules,
@@ -1049,7 +1056,7 @@ library/function signatures) — plus the full inline Decision Records in
 `## Invariants & Constraints` (D9). Keeping per-track detail out of the plan
 keeps `/execute-tracks` startup context small (see
 `.claude/workflow/conventions.md` `§1.2` for the directory layout under
-`_workflow/`, the `§1.2` *Per-tier artifact set*, and the `§1.2` thinned
+`_workflow/`, the `§1.2` *Per-axis artifact set*, and the `§1.2` thinned
 `lite`/`full` plan content, and `conventions-execution.md` `§2.1` for the
 track-file shape and section lifecycle).
 

@@ -119,7 +119,7 @@ point in Phase 1:
 |---|---|---|---|
 | Design gate | Does the change need a `design.md`? | Phase 0 → 1 boundary, from the research log | ledger `design_gate` (yes/no) |
 | Track count | How many track files did the planner author? (> 1 ⇒ an `implementation-plan.md` exists) | end of Step 4b, once decomposed | ledger `tracks` (N) |
-| Per-track complexity tag | How hard is each track? | predicted per track at Phase 1, reconciled to `max(step tags)` at the Phase A → C boundary | ledger per-track `reconciled_tag` (low/medium/high) |
+| Per-track complexity tag | How hard is each track? | predicted per track at Phase 1, reconciled to `max(step tags)` at the Phase A → C boundary | track file at Phase 1 (the prediction), then ledger per-track `reconciled_tag` (low/medium/high) written only at the Phase A → C reconciliation |
 
 `create-plan` Step 4 proposes the **design gate** at the Phase 0 → 1
 boundary, from the research log, before any Phase-1 artifact is authored,
@@ -170,10 +170,10 @@ whose planned work is central to any HIGH category is predicted `high`. The
 prediction is an estimate the planner makes from the scope sketch; Phase A
 recomputes the tag from the decomposed steps and reconciles it to
 `max(step tags)`, writing the reconciled value to the ledger at the Phase A
-→ C boundary. The prediction seeds the ledger's per-track `reconciled_tag`
-field at Phase 1 (the reconciliation overwrites it). The computation
-mechanism is owned by `risk-tagging.md`; this section only requests the
-prediction at authoring time.
+→ C boundary. The Phase-1 prediction is recorded in the track file only; the
+ledger's per-track `reconciled_tag` field is written solely by that Phase A →
+C reconciliation. The computation mechanism is owned by `risk-tagging.md`;
+this section only requests the prediction at authoring time.
 
 **Per-axis Phase-1 flow.**
 
