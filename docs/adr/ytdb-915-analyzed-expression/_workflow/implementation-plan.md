@@ -75,14 +75,19 @@ flowchart TD
   > **Strategy refresh:** CONTINUE — Track 1 discoveries are IR-side (FuncCall.args()
   > read-only convention recorded for Tracks 3/4); Track 2 is AST-side and unaffected.
 
-- [ ] Track 2: NumericOps whole-enum extraction
+- [x] Track 2: NumericOps whole-enum extraction
   > Track 2 extracts the whole numeric-promotion engine out of
   > `SQLMathExpression.Operator` into a neutral `final class NumericOps` under
   > `core/.../sql/util/`, leaving `Operator.apply` a thin delegator so the AST and the new
   > IR evaluator share one promotion home. It touches the live AST arithmetic path; its
   > acceptance gate is the existing math-test suite staying green.
-  > **Scope:** ~3 files covering the new `NumericOps` class, the
-  > `SQLMathExpression.Operator` delegation, and math-test verification.
+  >
+  > **Track episode:** Whole numeric-promotion engine lifted into a new all-static
+  > `NumericOps`, `Operator.apply` reduced to delegators; cross-track contract for Track 4
+  > fixed and pinned by `NumericOpsTest` (24 tests, 100% line / 93.6% branch on changed
+  > code) — see `plan/track-2.md` `## Episodes` § Track completion. (1 step, 0 failed)
+  >
+  > **Track file:** `plan/track-2.md`
 
 - [ ] Track 3: Lowering pass
   > Track 3 adds the lowering pass that converts the covered `SQLExpression` AST subset to

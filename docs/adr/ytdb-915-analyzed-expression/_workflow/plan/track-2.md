@@ -27,11 +27,12 @@ consumer the shared home exists for.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 
 - [x] 2026-06-26T16:39Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-26T19:06Z [ctx=info] Step 1 complete (commit 9dc97c2c4c)
+- [x] 2026-06-29T08:27Z [ctx=safe] Track-level code review skipped (single-step high), track complete
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-26): `SQLMathExpression` is in the build-excluded `sql/parser/`
@@ -372,6 +373,43 @@ falsifiability.
 - `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/util/NumericOpsTest.java` (new)
 
 **Critical context:** none — the coverage gate is closed and no open decision remains.
+
+### Track completion — 2026-06-29T08:27Z [ctx=safe]
+Track 2 moved the whole numeric-promotion engine out of `SQLMathExpression.Operator` into a
+neutral all-static `final class NumericOps` (`core/.../sql/util/`, new), leaving the enum's five
+typed-pair `apply` overloads and per-constant `apply(Object,Object)` declared on `Operator` (the
+`MathExpressionTest` acceptance gate binds to them) but rewritten as thin delegators; the nine
+former `super.apply` callbacks now call `NumericOps.applyObject`. No user-visible behavior
+changed on any `+ - * /` success path. Code review was skipped per the single-step-high rule —
+the Phase B step-level review already ran the full track-pass-equivalent selection (code-quality,
+bugs-concurrency, test-behavior, test-completeness, performance, test-structure, all PASS) against
+the identical diff, so a track pass would select the same reviewers and add nothing.
+
+The cross-track contract Track 4's IR evaluator will delegate into is now fixed and pinned by the
+24-test `NumericOpsTest`: `applyObject(Operator, Object, Object)` (base entry),
+`apply(Number, Operator, Number)` (widening entry), the five typed-pair `apply(Operator, T, T)`
+methods, and the per-operator Object helpers (`plusObject`/`minusObject`/…). Track 4 delegates
+`+ - * /` through `apply`/`applyObject` and reuses `plusObject`/`minusObject` for `Date` coercion,
+not the package-private `toLong`; any drift the IR path introduces surfaces in `NumericOpsTest`.
+The whole-enum lift also surfaced latent coverage debt: the lifted arms lived in the
+JaCoCo-excluded `sql/parser/` zone and were never measured, but in `sql/util/` they are, which
+forced the full arm-by-arm `NumericOpsTest` to clear the 85/70 gate — final state 100% line /
+93.6% branch on changed code.
+
+Plan deviations, both recorded and pinned, neither with cross-track risk: two deliberate
+behavioral divergences from the pre-lift enum (D-E1) are kept and tested rather than restored —
+`Short` op `BigDecimal` now computes a value where the pre-lift cast threw `ClassCastException`
+(a latent-bug fix), and `Date ± non-numeric` now throws `IllegalArgumentException` where the
+typed-overload path threw `NullPointerException` (a cleaner error on an out-of-scope path). D17
+perf-neutrality holds by construction (the delegation adds only static monomorphic calls, no new
+virtual indirection); runtime measurement is deferred to S1's LDBC JMH gate. Two design-doc
+wording corrections are carried to the Phase 4 `design-final` reconciliation (design frozen): the
+D17 dispatch chain is three hops for 9 of 12 constants, not the two D17 stated, and the D5-R
+inventory undercounts the per-constant `apply(Object,Object)` (it is not one shared fallback).
+The track files already carry the accurate versions. No findings were deferred to other tracks
+and no plan corrections were needed.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 The acceptance gate is behavioral plus two build gates the runtime tests cannot see. Phase A
