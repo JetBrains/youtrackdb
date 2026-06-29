@@ -20,7 +20,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-26T08:43Z [ctx=info] Review + decomposition complete
@@ -29,6 +29,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] 2026-06-26T16:40Z [ctx=info] Step 3 complete (commit 9d71010531)
 - [x] 2026-06-29T11:21Z [ctx=info] Step 4 complete (commit 53207446ff)
 - [x] 2026-06-29T15:49Z [ctx=info] Step 5 complete (commit 1f431495a8)
+- [x] 2026-06-29T16:47Z [ctx=safe] Step 6 complete (commit 2bf7d95305)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -182,6 +183,34 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
   - **Review burden.** The code-only cumulative track diff is ~3,750 changed lines across
     16 files with Step 6 still ahead; Phase C should weigh splitting the review.
   See Episodes §Step 5.
+- 2026-06-29T16:47Z Step 6 converted the two hot lock-based schema reads to snapshot-first and
+  discharged the I-U5 read-site enumeration. Facts the track close-out and downstream tracks need:
+  - **I-U5 enumeration discharged (PSI-backed).** The two converted sites
+    (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) are the
+    complete set of hot lock-based reads that would stall behind the commit write lock. Every other
+    production reader of `SchemaShared.acquireSchemaReadLock()` is a schema-write path, tx-local
+    resolution on the reader's own tx (not commit-contended), commit/lifecycle machinery, or one
+    off-hot-path introspection traversal (`YTDBGraphStep.createClassIterator`, fired only for
+    `g.V().hasLabel(SchemaClass.LABEL)`). The hot per-record reads already route through
+    `getImmutableSchemaSnapshot()`.
+  - **One by-design lock-based reader remains (Track 5/6).** `EntityImpl.getSchemaClass()`
+    (EntityImpl.java:3863) stays lock-based and tx-aware on purpose — it returns the tx-local class,
+    which a snapshot conversion would break, and its three callers are cold (a copy helper, the edge
+    delegate, JSON deserialization). It is exempt from I-U5, not a missed conversion; do not re-flag
+    it when auditing the claim.
+  - **Second branch-red test, undocumented, needs a Phase C decision (Track 3 / Track 6).**
+    `SchemaDeguardTest.renameClassInsideTransactionRecordsNewNameOnly` ("the rename must NOT record
+    the old name") is red on the branch. The Step 6 implementer confirmed it is NOT introduced by
+    Step 6 (red at the Step-5 tip 9a622c0eb3, verified by stashing Step 6's edits and re-running),
+    but its origin within Track 4 is unresolved: it was not in the documented known-red list, which
+    carried only `MetadataWriteMutexTest`. `SchemaDeguardTest` is in the Track 4 cumulative diff
+    (changed-class create/rename recording area), so Phase C / track completion must reconcile whether
+    it is genuinely pre-track or a mid-track regression before merge. Like `MetadataWriteMutexTest`,
+    it is red and not `@Ignore`d.
+  - **Review burden.** The code-only cumulative track diff is ~3,765 changed lines across 18 files
+    (~7,150 including the `_workflow/` episode and review markdown), over the ~3,750/4,000 estimate
+    flagged at Steps 4 and 5. Step 6 added 13 code lines. Phase C should weigh splitting the review.
+  See Episodes §Step 6.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -403,7 +432,7 @@ promotion under `SchemaShared.lock` before `stateLock`.
 3. Build the lock-free commit-window record-read substrate so commit-time schema serialization and promotion can read records while holding `stateLock.writeLock()`. `txLocalSchema.toStream` and `committedSchema.fromStream` read records via `session.load` → `executeReadRecord` → the security `getCollectionNameById` → `getPhysicalCollectionNameById` → `stateLock.readLock()`, which busy-spins forever because the non-reentrant `ScalableRWLock` never grants a read to the thread already holding the write lock. Add lock-free read variants (mirroring the existing `doGetIndexEngine` / `doGetAndCheckCollection` pattern) for every `stateLock.readLock()`-taking method the commit body reaches under the write lock: at minimum a lock-free `getPhysicalCollectionNameById` / `getCollectionNameById` for the security check and a lock-free `storage.readRecord` for genuine cache misses, exposed through a commit-window read path the schema `toStream` / `fromStream` and the position-allocation / `commitEntry` loop can call. Enumerate the full reachable readLock set with PSI find-usages (the D3/T1 enumeration extended from the index path to the record/schema read path) and confirm each is replaced or already lock-free; leave the non-reentrant lock and the pure-data read-lock path unchanged. White-box tests prove a lock-free read resolves while a write lock is held. Covers the D3/T1 readLock-re-entry hazard for the record-read surface the reconciliation core (Step 4) rests on. (Depends on Steps 1 and 2.) — risk: high (concurrency: lock-free reads of shared mutable state under the held write lock, across the session / security / storage read path; crash-safety/durability: the commit-window record-read correctness the reconciliation core rests on)  [x] commit: 9d71010531
 4. Implement the commit-time reconciliation core in `AbstractStorage.commit`: branch at entry on the unified schema-or-index signal to take `stateLock.writeLock()` from the start under the four-lock order (mutex → `SchemaShared.lock` → index-manager lock → `stateLock.writeLock`); compute the D9 set-difference structural delta over committed versus tx-local collection-id sets; route `lockIndexes` and the index-apply path through the lock-free `doGetIndexEngine`; reconcile engines before `lockIndexes` and collections before the record-position-allocation loop via the lock-free primitives, drawing collection and engine ids from a commit-local allocator seeded inside the write lock; resolve provisional ids through the patch list with the multi-class resolve-then-re-key ordering; defer in-memory registry publication to the post-`commitChanges` success path (undo on the failure path); promote the tx-local schema by re-parsing the committed per-class records into the shared instances with one trailing `forceSnapshot`, reading records through the Step 3 lock-free commit-window read substrate. Also apply the two prerequisites the first attempt validated (see Surprises 2026-06-26T15:39Z): the `isWriteTransaction()` schema-signal fix so a schema-only tx reaches `storage.commit`, and the `TxSchemaState` provisional→name carrier so the real collection is created under its generated name. Covers I-A1, I-A2, I-A3, I-A4, I-P1, I-C1. (Depends on Steps 1, 2, and 3.) — risk: high (concurrency: four-lock order and lock-free reconciliation under the held write lock; crash-safety/durability: commit reconciliation, WAL revertibility, recovery; architecture: completes the storage-leads dependency inversion)  [x] commit: 53207446ff
 5. Add the selective per-class write keyed on `getChangedClasses()` so a schema commit writes only the changed per-class records plus the root record when its non-link payload changed (the D6 write-amplification win), and add the F59 root-omission guard. Covers I-U1 (one-record-per-changed-class plus the F59 property-create-then-restart regression). (Depends on Step 4.) — risk: high (crash-safety/durability: schema-record write path; F59 is a silent cross-restart corruption)  [x] commit: 1f431495a8
-6. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 4; *(parallel with Step 5)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [ ]
+6. Convert the two lock-based hot read sites to snapshot-first (`YTDBGraphImplAbstract.createVertexWithClass`, `SQLMatchStatement.getLowerSubclass`) and enumerate the remaining `SchemaShared.lock`-based hot reads to confirm only these two would stall behind the commit write lock. Covers I-U5 (schema commit holds the write lock for its whole duration; a data commit runs concurrently on the read-lock path; an index-only tx serializes as schema-carrying). (Depends on Step 4; *(parallel with Step 5)* — disjoint files.) — risk: high (performance hot path: the per-vertex-create and per-MATCH-step read paths)  [x] commit: 2bf7d95305
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -700,6 +729,56 @@ every linked class record to be readable inside the commit window (atomic op act
 warms unchanged records read-only for that reason — do not remove that load.
 `rootPayloadDiffersFrom` assumes the global-property table is append-only (asserted at
 `findOrCreateGlobalProperty`); a future in-place mutation or compaction must update the comparator.
+
+### Step 6 — commit 2bf7d95305, 2026-06-29T16:47Z [ctx=safe]
+**What was done:** Converted the two remaining lock-based hot schema reads to snapshot-first so
+neither stalls behind a schema-carrying commit that holds the schema write lock for its whole
+duration (I-U5). `YTDBGraphImplAbstract.createVertexWithClass` reads the class existence and
+vertex-type check off `getImmutableSchemaSnapshot()` (lock-free); only the class-create
+fallthrough still takes the lock-based shared schema, where `getOrCreateClass` rechecks under the
+write lock and is idempotent, so a momentarily stale snapshot still resolves. `SQLMatchStatement.getLowerSubclass`
+resolves both classes through `getImmutableSchemaSnapshot()` instead of the lock-based
+`getMetadata().getSchema()` proxy. Both are minimal read-source swaps; 68 existing tests pass and
+every changed line is JaCoCo-confirmed hit.
+
+**What was discovered:** The read-site enumeration claim (D19, T3/R3) holds, PSI-backed. The read-lock
+chokepoint is `SchemaShared.acquireSchemaReadLock()`; its production readers reached on lock-based
+paths are the two converted hot sites, schema-write paths, tx-local resolution (the reader's own tx,
+not commit-contended), commit and lifecycle machinery, and one off-hot-path introspection traversal
+(`YTDBGraphStep.createClassIterator`, fired only for `g.V().hasLabel(SchemaClass.LABEL)`). The
+genuinely hot per-record reads already route through `getImmutableSchemaSnapshot()`. The
+bugs-concurrency review surfaced one more lock-based tx-aware reader, `EntityImpl.getSchemaClass()`
+(EntityImpl.java:3863); it is exempt by design — its three callers are cold (a copy helper, the edge
+delegate, JSON deserialization), and it returns the tx-local class on purpose, which a snapshot
+conversion would break. The step-level review (bugs-concurrency, performance) returned no blocker and
+no should-fix. A second branch-red test surfaced during the run, owned by another track (see Surprises
+2026-06-29T16:47Z).
+
+**What changed from the plan:** No change to the production conversion. A planned step-level
+regression test (`matchLowerSubclassResolvesWhileSchemaWriteLockIsHeld`, exercising held-write-lock
+liveness through `setCommitWindowTestHook`) was dropped: `getLowerSubclass` is package-private in
+`sql.parser` by design, the test needed the commit-hook and `DbTestBase` infrastructure that lives
+only in `metadata.schema`, and widening `getLowerSubclass` to public solely for a test was a poor
+trade. Behavior is covered by `PatternTest`'s five same-package `getLowerSubclass` cases plus the
+Gremlin `addVertex` cases; the held-write-lock liveness is structurally guaranteed by reading the
+lock-free snapshot and already validated on the commit side by
+`SchemaCommitReconciliationTest.dataCommitSerializesBehindHeldSchemaWriteLock`. Deferred as
+suggestions, recorded not fixed: BC1 (a defensive null check on the snapshot deref, unreachable on an
+open session and matching the existing snapshot-consumer idiom) and BC2 (the documentation breadcrumb
+for `EntityImpl.getSchemaClass()`, folded into this episode and the Surprises log).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/gremlin/YTDBGraphImplAbstract.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/SQLMatchStatement.java` (modified)
+
+**Critical context:** A snapshot-first read does not see a class created in the same uncommitted
+tx-local schema transaction — the snapshot comes from the committed instance. For both converted
+sites this is benign: `createVertexWithClass`'s create branch self-resolves via `getOrCreateClass`
+under the write lock, and `getLowerSubclass` operates on already-committed class hierarchies in MATCH
+planning, where an in-tx-only class would already fail at `loadClassFromSchema`. Any future read site
+converted to snapshot-first must confirm it does not need to observe same-tx uncommitted schema.
+`EntityImpl.getSchemaClass()` stays lock-based and tx-aware on purpose; do not re-flag it when
+auditing the I-U5 claim.
 
 ## Validation and Acceptance
 - One transaction creates two classes (16 collections, 2+ engines) plus records,
