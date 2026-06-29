@@ -381,7 +381,10 @@ public class SchemaEmbedded extends SchemaShared {
       // step with the eager branch.
       var collectionName = lowerName + "_" + nextCollectionIndex();
       if (provisional) {
-        collectionIds[i] = txState.allocateProvisionalCollectionId();
+        // Carry the generated name with the provisional id: the commit creates the real collection
+        // under this name, and the tx-local counter has advanced past it by commit time, so the
+        // commit cannot regenerate it.
+        collectionIds[i] = txState.allocateProvisionalCollectionId(collectionName);
       } else {
         collectionIds[i] = session.addCollection(collectionName);
       }

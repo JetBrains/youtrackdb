@@ -91,6 +91,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueInd
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
@@ -1391,11 +1393,22 @@ public abstract class AbstractStorage
   @Override
   public final boolean isClosed(DatabaseSessionEmbedded database) {
     try {
-      stateLock.readLock().lock();
+      // The schema-carry commit reaches this through the tx-local schema serialization: deleting a
+      // dropped class's record runs the link-consistency pre-update path, which logs via
+      // EntityImpl.toString() -> session.isClosed(). That runs while the commit holds
+      // stateLock.writeLock(), so re-acquiring the read lock busy-spins forever on the non-reentrant
+      // ScalableRWLock. The commit window self-routes to the plain status read; the held write lock
+      // already proves the storage is open and supplies the visibility edge.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
         return isClosedInternal();
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2047,14 +2060,23 @@ public abstract class AbstractStorage
   @Override
   public final Set<String> getCollectionNames() {
     try {
-      stateLock.readLock().lock();
+      // The schema-carry commit can reach this through the tx-local schema fromStream promotion
+      // (the collection-counter init fallback enumerates existing collection names) while holding
+      // stateLock.writeLock(). The commit window self-routes to the lock-free read; the held write
+      // lock supplies the exclusion and the visibility edge for collectionMap.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
 
         checkOpennessAndMigration();
 
         return Collections.unmodifiableSet(collectionMap.keySet());
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2076,7 +2098,15 @@ public abstract class AbstractStorage
         throw new IllegalArgumentException("Collection name is empty");
       }
 
-      stateLock.readLock().lock();
+      // The schema-carry commit reaches this through session.newInternalInstance() while
+      // serializing the tx-local schema (toStream allocates a fresh per-class record), still
+      // holding stateLock.writeLock(). Re-acquiring the read lock there busy-spins forever on the
+      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free read. The
+      // held write lock supplies the exclusion and the visibility edge for collectionMap.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
 
         checkOpennessAndMigration();
@@ -2090,7 +2120,9 @@ public abstract class AbstractStorage
 
         return -1;
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2248,207 +2280,32 @@ public abstract class AbstractStorage
     //
     try {
       final var session = frontendTransaction.getDatabaseSession();
-      final var indexOperations =
-          getSortedIndexOperations(frontendTransaction);
+
+      // The unified schema-or-index signal: a tx-local schema state means the transaction
+      // changed the schema (or, once the index work lands, an index), so the commit takes the write
+      // lock from the start and reconciles structure inside it. A pure-data commit keeps today's
+      // read-lock fast path and its concurrency. Both branches share the inner apply body; only the
+      // lock taken, the pre-apply reconciliation, and the post-apply promotion differ.
+      final var txSchemaState = session.getTxSchemaState();
+      final boolean schemaCarry = txSchemaState != null;
 
       session.getMetadata().makeThreadLocalSchemaSnapshot();
 
-      final var recordOperations = frontendTransaction.getRecordOperationsInternal();
-      final var collectionsToLock = new TreeMap<Integer, StorageCollection>();
-      final Map<RecordOperation, Integer> collectionOverrides = new IdentityHashMap<>(8);
-
-      final Set<RecordOperation> newRecords = new TreeSet<>(COMMIT_RECORD_OPERATION_COMPARATOR);
-      for (final var recordOperation : recordOperations) {
-        var record = recordOperation.record;
-        if (recordOperation.type == RecordOperation.CREATED
-            || recordOperation.type == RecordOperation.UPDATED) {
-
-          if (record.isUnloaded()) {
-            throw new IllegalStateException(
-                "Unloaded record " + record.getIdentity() + " cannot be committed");
-          }
-
-          if (record instanceof EntityImpl entity) {
-            entity.validate();
-          }
-        }
-
-        if (recordOperation.type == RecordOperation.UPDATED
-            || recordOperation.type == RecordOperation.DELETED) {
-          final var collectionId = recordOperation.record.getIdentity().getCollectionId();
-          collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
-        } else if (recordOperation.type == RecordOperation.CREATED) {
-          newRecords.add(recordOperation);
-
-          final RID rid = record.getIdentity();
-
-          var collectionId = rid.getCollectionId();
-
-          if (record.isDirty()
-              && collectionId == RID.COLLECTION_ID_INVALID
-              && record instanceof EntityImpl entity) {
-            // TRY TO FIX COLLECTION ID TO THE DEFAULT COLLECTION ID DEFINED IN SCHEMA CLASS
-
-            var cls = entity.getImmutableSchemaClass(session);
-            if (cls != null) {
-              collectionId = cls.getCollectionForNewInstance(entity);
-              collectionOverrides.put(recordOperation, collectionId);
-            }
-          }
-          collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
-        }
-      }
-
-      final List<RecordOperation> result = new ArrayList<>(8);
+      final var indexOperations = getSortedIndexOperations(frontendTransaction);
       final var atomicOperation = frontendTransaction.getAtomicOperation();
-      stateLock.readLock().lock();
-      try {
+      final List<RecordOperation> result = new ArrayList<>(8);
+
+      if (schemaCarry) {
+        commitSchemaCarry(frontendTransaction, session, txSchemaState, indexOperations,
+            atomicOperation, allocated, result);
+      } else {
+        stateLock.readLock().lock();
         try {
-          checkOpennessAndMigration();
-
-          makeStorageDirty();
-
-          Throwable error = null;
-          startTxCommit(atomicOperation);
-          try {
-            lockCollections(collectionsToLock, atomicOperation);
-            lockLinkBags(collectionsToLock, atomicOperation);
-            lockIndexes(indexOperations, atomicOperation);
-
-            final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
-            for (final var recordOperation : newRecords) {
-              final var rec = recordOperation.record;
-
-              if (allocated) {
-                if (rec.getIdentity().isPersistent()) {
-                  positions.put(
-                      recordOperation,
-                      new PhysicalPosition(rec.getIdentity().getCollectionPosition()));
-                } else {
-                  throw new StorageException(name,
-                      "Impossible to commit a transaction with not valid rid in pre-allocated"
-                          + " commit");
-                }
-              } else if (rec.isDirty() && !rec.getIdentity().isPersistent()) {
-                final var rid = rec.getIdentity();
-                final var oldRID = rid.copy();
-
-                final var collectionOverride = collectionOverrides.get(recordOperation);
-                final int collectionId =
-                    Optional.ofNullable(collectionOverride).orElseGet(rid::getCollectionId);
-
-                final var collection = doGetAndCheckCollection(collectionId);
-
-                var physicalPosition =
-                    collection.allocatePosition(
-                        rec.getRecordType(),
-                        atomicOperation);
-
-                if (rid.getCollectionPosition() > -1) {
-                  // CREATE EMPTY RECORDS UNTIL THE POSITION IS REACHED. THIS IS THE CASE WHEN A
-                  // SERVER IS OUT OF SYNC
-                  // BECAUSE A TRANSACTION HAS BEEN ROLLED BACK BEFORE TO SEND THE REMOTE CREATES.
-                  // SO THE OWNER NODE DELETED
-                  // RECORD HAVING A HIGHER COLLECTION POSITION
-                  while (rid.getCollectionPosition() > physicalPosition.collectionPosition) {
-                    physicalPosition =
-                        collection.allocatePosition(
-                            rec.getRecordType(),
-                            atomicOperation);
-                  }
-
-                  if (rid.getCollectionPosition() != physicalPosition.collectionPosition) {
-                    throw new ConcurrentCreateException(name,
-                        rid, new RecordId(collection.getId(),
-                            physicalPosition.collectionPosition));
-                  }
-                }
-                positions.put(recordOperation, physicalPosition);
-
-                if (rid instanceof ChangeableRecordId changeableRecordId) {
-                  changeableRecordId.setCollectionAndPosition(collection.getId(),
-
-                      physicalPosition.collectionPosition);
-                } else {
-                  throw new DatabaseException(name,
-                      "Provided record is not new and its identity cannot be changed");
-                }
-                assert frontendTransaction.assertIdentityChangedAfterCommit(oldRID, rid);
-              }
-            }
-
-            for (final var recordOperation : recordOperations) {
-              commitEntry(
-                  frontendTransaction,
-                  atomicOperation,
-                  recordOperation,
-                  positions.get(recordOperation),
-                  session.getSerializer());
-              result.add(recordOperation);
-            }
-
-            //update of b-tree based link bags
-            var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
-            recordSerializationContext.executeOperations(atomicOperation, this);
-
-            commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
-                indexOperations);
-          } catch (final IOException | RuntimeException | AssertionError e) {
-            // AssertionError is caught so a persisted-side underflow from
-            // BTree.addToApproximateEntriesCount (raised inside commitIndexes
-            // or the lifecycle persist hook later in endAtomicOperation)
-            // routes through the rollback path. Without this, the assert
-            // would escape the outer catch (Error), call setInError, and
-            // put the storage in permanent error state. Persisted-side
-            // underflow signals a structural inconsistency on the
-            // entry-point page; rolling back the WAL atomic operation
-            // reverts the offending writes and leaves the storage usable
-            // for subsequent commits.
-            error = e;
-            if (e instanceof RuntimeException runtimeException) {
-              throw runtimeException;
-            }
-            // IOException or AssertionError — wrap as StorageException so
-            // the API caller's contract stays uniform (no Error escapes).
-            throw BaseException.wrapException(
-                new StorageException(name, "Error during transaction commit"), e, name);
-          } finally {
-            if (error != null) {
-              rollback(error, atomicOperation);
-            } else {
-              // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
-              // the single lifecycle gate that now owns persist (before
-              // commitChanges) and apply (after commitChanges, before the
-              // inner-finally releaseLocks). The pre-endTxCommit catch above
-              // still owns commitIndexes failures plus any failure that
-              // escapes the lifecycle persist hook; the lifecycle apply hook
-              // logs-and-swallows its own failures, so no catch is needed
-              // around endTxCommit here. Removing the prior post-endTxCommit
-              // applyIndexCountDeltas / applyHistogramDeltas calls and their
-              // log-and-swallow catches closes the lock-window race the old
-              // apply path had: today's apply runs while the per-index lock
-              // acquired at lockIndexes is still held.
-              endTxCommit(atomicOperation);
-              try {
-                cleanupSnapshotIndex();
-              } catch (final RuntimeException | AssertionError e) {
-                // Cleanup is best-effort — its failure must never mask a successful commit.
-                // The commit is already durable (WAL flushed, pages applied). If cleanup
-                // throws, stale snapshot entries simply accumulate until the next successful
-                // cleanup pass. AssertionError caught here for symmetry with the
-                // pre-endTxCommit catch above: an `assert` regression along the cleanup
-                // path must not escape and re-open the cascade.
-                LogManager.instance()
-                    .warn(this, "Snapshot index cleanup failed after successful commit", e);
-              }
-            }
-          }
+          applyCommitOperations(frontendTransaction, session, indexOperations, atomicOperation,
+              allocated, null, result);
         } finally {
-          atomicOperationsManager.ensureThatComponentsUnlocked(atomicOperation);
-          session.getMetadata().clearThreadLocalSchemaSnapshot();
+          stateLock.readLock().unlock();
         }
-      } finally {
-        stateLock.readLock().unlock();
       }
 
       if (logger.isDebugEnabled()) {
@@ -2468,6 +2325,474 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  /**
+   * The per-commit record working set computed up front: the record operations to apply, the
+   * collections each touched record lives in (so they are locked before any write), the new-record
+   * subset, and the per-operation collection-id overrides the default-collection fix produced. Both
+   * the pure-data and the schema-carry commit branches gather this the same way; the schema-carry
+   * branch gathers it only after the tx-local schema serializes its new per-class records, so they
+   * join the working set.
+   *
+   * @param recordOperations all record operations in commit order.
+   * @param collectionsToLock collection id to its storage collection, for every touched collection.
+   * @param newRecords the created-record subset, in the commit comparator's order.
+   * @param collectionOverrides per-operation collection-id override from the default-collection fix.
+   */
+  private record CommitWorkingSet(
+      Iterable<RecordOperation> recordOperations,
+      TreeMap<Integer, StorageCollection> collectionsToLock,
+      Set<RecordOperation> newRecords,
+      Map<RecordOperation, Integer> collectionOverrides) {
+
+  }
+
+  /**
+   * The schema-carry inputs threaded into {@link #applyCommitOperations}. Non-null only for a
+   * schema-carrying commit; the pure-data commit passes {@code null} and the apply body runs exactly
+   * its legacy sequence. Carries the committed shared schema (the promotion target), the tx-local
+   * schema (the serialization source), and the tx-schema state (the provisional-id carrier).
+   */
+  private record SchemaCommitContext(
+      SchemaShared committedSchema, SchemaShared txLocalSchema, TxSchemaState txSchemaState) {
+
+  }
+
+  /**
+   * Gathers the record working set the commit applies: validates created/updated records, resolves
+   * each touched collection (so {@link #lockCollections} can lock them), and applies the
+   * default-collection fix for a new record that arrived without a collection id. Must run under a
+   * held {@code stateLock} (read lock for a pure-data commit, write lock for a schema-carry commit
+   * with the commit window open), because it calls the lock-free {@link #doGetAndCheckCollection}.
+   */
+  @SuppressWarnings("IdentityHashMapUsage")
+  private CommitWorkingSet computeCommitWorkingSet(
+      final FrontendTransactionImpl frontendTransaction,
+      final DatabaseSessionEmbedded session) {
+    final var recordOperations = frontendTransaction.getRecordOperationsInternal();
+    final var collectionsToLock = new TreeMap<Integer, StorageCollection>();
+    final Map<RecordOperation, Integer> collectionOverrides = new IdentityHashMap<>(8);
+    final Set<RecordOperation> newRecords = new TreeSet<>(COMMIT_RECORD_OPERATION_COMPARATOR);
+
+    for (final var recordOperation : recordOperations) {
+      var record = recordOperation.record;
+      if (recordOperation.type == RecordOperation.CREATED
+          || recordOperation.type == RecordOperation.UPDATED) {
+
+        if (record.isUnloaded()) {
+          throw new IllegalStateException(
+              "Unloaded record " + record.getIdentity() + " cannot be committed");
+        }
+
+        if (record instanceof EntityImpl entity) {
+          entity.validate();
+        }
+      }
+
+      if (recordOperation.type == RecordOperation.UPDATED
+          || recordOperation.type == RecordOperation.DELETED) {
+        final var collectionId = recordOperation.record.getIdentity().getCollectionId();
+        collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
+      } else if (recordOperation.type == RecordOperation.CREATED) {
+        newRecords.add(recordOperation);
+
+        final RID rid = record.getIdentity();
+
+        var collectionId = rid.getCollectionId();
+
+        if (record.isDirty()
+            && collectionId == RID.COLLECTION_ID_INVALID
+            && record instanceof EntityImpl entity) {
+          // TRY TO FIX COLLECTION ID TO THE DEFAULT COLLECTION ID DEFINED IN SCHEMA CLASS
+
+          var cls = entity.getImmutableSchemaClass(session);
+          if (cls != null) {
+            collectionId = cls.getCollectionForNewInstance(entity);
+            collectionOverrides.put(recordOperation, collectionId);
+          }
+        }
+        collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
+      }
+    }
+
+    return new CommitWorkingSet(recordOperations, collectionsToLock, newRecords,
+        collectionOverrides);
+  }
+
+  /**
+   * Applies a commit inside the held {@code stateLock}, shared by the pure-data and schema-carry
+   * branches. The schema-carry steps fire only when {@code schemaContext} is non-null and run inside
+   * the atomic-operation window so their structural file writes are buffered as WAL-reverted intent:
+   * after {@code startTxCommit} opens the apply window it reconciles collections (set difference over
+   * committed versus tx-local real ids), resolves every provisional id, and serializes the tx-local
+   * schema, so the changed per-class records join the working set gathered next. It then locks
+   * collections, link bags, and indexes; allocates positions for new records and rewrites their temp
+   * RIDs in place; writes every record; runs the link-bag B-tree operations; and commits the index
+   * changes. On error it rolls back the atomic operation (and, for a schema-carry commit, undoes the
+   * in-memory registry publication so no phantom registration survives); on success it ends the
+   * atomic operation, cleans the snapshot index, and (for a schema-carry commit) promotes the
+   * tx-local schema into the committed shared instances with one trailing {@code forceSnapshot}. The
+   * {@code stateLock} (read lock for pure-data, write lock plus the open commit window for
+   * schema-carry) is acquired and released by the caller, not here.
+   */
+  @SuppressWarnings("IdentityHashMapUsage")
+  private void applyCommitOperations(
+      final FrontendTransactionImpl frontendTransaction,
+      final DatabaseSessionEmbedded session,
+      final SortedMap<String, FrontendTransactionIndexChanges> indexOperations,
+      final AtomicOperation atomicOperation,
+      final boolean allocated,
+      final SchemaCommitContext schemaContext,
+      final List<RecordOperation> result) throws IOException {
+    try {
+      checkOpennessAndMigration();
+
+      makeStorageDirty();
+
+      Throwable error = null;
+      boolean structurePublished = false;
+      startTxCommit(atomicOperation);
+      try {
+        if (schemaContext != null) {
+          // Reconcile structure inside the atomic-operation window, before any record serializes:
+          // create the tx-local-only collections and drop the committed-only ones, recording each
+          // provisional->real id. The structural file writes are WAL-reverted on a rollback.
+          reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
+              schemaContext.txSchemaState(), atomicOperation);
+          structurePublished = true;
+
+          // Patch every provisional id in the tx-local schema to its real id, then serialize the
+          // tx-local schema so its changed per-class records and root enrol into the transaction.
+          schemaContext.txLocalSchema()
+              .resolveProvisionalCollectionIds(
+                  schemaContext.txSchemaState().getResolvedCollectionIds());
+          schemaContext.txLocalSchema().acquireSchemaWriteLock(session);
+          // Suppress the bidirectional-link-consistency tracker around schema serialization. The
+          // root's "classes" LINKSET is a structural internal link, not a user graph link: the
+          // per-class records carry no reverse "#classes" link-bag property, so when a drop removes
+          // a class record from the root the tracker would (incorrectly) try to decrement a
+          // non-existent back-reference on the class record and throw LinksConsistencyException. The
+          // tracker is meant for user vertex/edge links only; schema records are exempt.
+          session.disableLinkConsistencyCheck();
+          try {
+            schemaContext.txLocalSchema().toStream(session);
+          } finally {
+            session.enableLinkConsistencyCheck();
+            // Release without the save side effect: the records are enrolled in the user
+            // transaction and persist through the apply below, not through saveInternal.
+            schemaContext.txLocalSchema().releaseSchemaWriteLock(session, false);
+          }
+        }
+
+        // Gather the working set after any schema serialization so the new schema records join it.
+        final var workingSet = computeCommitWorkingSet(frontendTransaction, session);
+
+        lockCollections(workingSet.collectionsToLock(), atomicOperation);
+        lockLinkBags(workingSet.collectionsToLock(), atomicOperation);
+        lockIndexes(indexOperations, atomicOperation);
+
+        final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
+        for (final var recordOperation : workingSet.newRecords()) {
+          final var rec = recordOperation.record;
+
+          if (allocated) {
+            if (rec.getIdentity().isPersistent()) {
+              positions.put(
+                  recordOperation,
+                  new PhysicalPosition(rec.getIdentity().getCollectionPosition()));
+            } else {
+              throw new StorageException(name,
+                  "Impossible to commit a transaction with not valid rid in pre-allocated"
+                      + " commit");
+            }
+          } else if (rec.isDirty() && !rec.getIdentity().isPersistent()) {
+            final var rid = rec.getIdentity();
+            final var oldRID = rid.copy();
+
+            final var collectionOverride = workingSet.collectionOverrides().get(recordOperation);
+            final int collectionId =
+                Optional.ofNullable(collectionOverride).orElseGet(rid::getCollectionId);
+
+            final var collection = doGetAndCheckCollection(collectionId);
+
+            var physicalPosition =
+                collection.allocatePosition(
+                    rec.getRecordType(),
+                    atomicOperation);
+
+            if (rid.getCollectionPosition() > -1) {
+              // CREATE EMPTY RECORDS UNTIL THE POSITION IS REACHED. THIS IS THE CASE WHEN A
+              // SERVER IS OUT OF SYNC
+              // BECAUSE A TRANSACTION HAS BEEN ROLLED BACK BEFORE TO SEND THE REMOTE CREATES.
+              // SO THE OWNER NODE DELETED
+              // RECORD HAVING A HIGHER COLLECTION POSITION
+              while (rid.getCollectionPosition() > physicalPosition.collectionPosition) {
+                physicalPosition =
+                    collection.allocatePosition(
+                        rec.getRecordType(),
+                        atomicOperation);
+              }
+
+              if (rid.getCollectionPosition() != physicalPosition.collectionPosition) {
+                throw new ConcurrentCreateException(name,
+                    rid, new RecordId(collection.getId(),
+                        physicalPosition.collectionPosition));
+              }
+            }
+            positions.put(recordOperation, physicalPosition);
+
+            if (rid instanceof ChangeableRecordId changeableRecordId) {
+              changeableRecordId.setCollectionAndPosition(collection.getId(),
+
+                  physicalPosition.collectionPosition);
+            } else {
+              throw new DatabaseException(name,
+                  "Provided record is not new and its identity cannot be changed");
+            }
+            assert frontendTransaction.assertIdentityChangedAfterCommit(oldRID, rid);
+          }
+        }
+
+        for (final var recordOperation : workingSet.recordOperations()) {
+          commitEntry(
+              frontendTransaction,
+              atomicOperation,
+              recordOperation,
+              positions.get(recordOperation),
+              session.getSerializer());
+          result.add(recordOperation);
+        }
+
+        //update of b-tree based link bags
+        var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
+        recordSerializationContext.executeOperations(atomicOperation, this);
+
+        commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
+            indexOperations);
+      } catch (final IOException | RuntimeException | AssertionError e) {
+        // AssertionError is caught so a persisted-side underflow from
+        // BTree.addToApproximateEntriesCount (raised inside commitIndexes
+        // or the lifecycle persist hook later in endAtomicOperation)
+        // routes through the rollback path. Without this, the assert
+        // would escape the outer catch (Error), call setInError, and
+        // put the storage in permanent error state. Persisted-side
+        // underflow signals a structural inconsistency on the
+        // entry-point page; rolling back the WAL atomic operation
+        // reverts the offending writes and leaves the storage usable
+        // for subsequent commits.
+        error = e;
+        if (e instanceof RuntimeException runtimeException) {
+          throw runtimeException;
+        }
+        // IOException or AssertionError — wrap as StorageException so
+        // the API caller's contract stays uniform (no Error escapes).
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during transaction commit"), e, name);
+      } finally {
+        if (error != null) {
+          rollback(error, atomicOperation);
+          if (schemaContext != null && structurePublished) {
+            // A failed commit must leave no phantom in-memory registration. The created
+            // collections' files are WAL-reverted by the rolled-back atomic operation, but their
+            // in-memory registry entries were published synchronously by reconcileCollections, so
+            // undo them here.
+            undoReconciledCollections(schemaContext.committedSchema(),
+                schemaContext.txSchemaState());
+          }
+        } else {
+          // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
+          // the single lifecycle gate that now owns persist (before
+          // commitChanges) and apply (after commitChanges, before the
+          // inner-finally releaseLocks). The pre-endTxCommit catch above
+          // still owns commitIndexes failures plus any failure that
+          // escapes the lifecycle persist hook; the lifecycle apply hook
+          // logs-and-swallows its own failures, so no catch is needed
+          // around endTxCommit here. Removing the prior post-endTxCommit
+          // applyIndexCountDeltas / applyHistogramDeltas calls and their
+          // log-and-swallow catches closes the lock-window race the old
+          // apply path had: today's apply runs while the per-index lock
+          // acquired at lockIndexes is still held.
+          endTxCommit(atomicOperation);
+          try {
+            cleanupSnapshotIndex();
+          } catch (final RuntimeException | AssertionError e) {
+            // Cleanup is best-effort — its failure must never mask a successful commit.
+            // The commit is already durable (WAL flushed, pages applied). If cleanup
+            // throws, stale snapshot entries simply accumulate until the next successful
+            // cleanup pass. AssertionError caught here for symmetry with the
+            // pre-endTxCommit catch above: an `assert` regression along the cleanup
+            // path must not escape and re-open the cascade.
+            LogManager.instance()
+                .warn(this, "Snapshot index cleanup failed after successful commit", e);
+          }
+
+          if (schemaContext != null) {
+            // Promote: the records are now durable, so re-parse the just-committed root and
+            // per-class records into the committed shared instances and invalidate the shared
+            // snapshot exactly once. fromStream binds new classes to the committed owner; a dropped
+            // class drops out. Promotion runs after a successful apply only, still under the held
+            // write lock and the open commit window.
+            final EntityImpl committedRoot =
+                session.load(schemaContext.committedSchema().getIdentity());
+            schemaContext.committedSchema().fromStream(session, committedRoot);
+            schemaContext.committedSchema().forceSnapshot();
+          }
+        }
+      }
+    } finally {
+      atomicOperationsManager.ensureThatComponentsUnlocked(atomicOperation);
+      session.getMetadata().clearThreadLocalSchemaSnapshot();
+    }
+  }
+
+  /**
+   * Commits a schema-carrying transaction: the dependency inversion's commit half. Takes the four
+   * locks in the acyclic order (the metadata-write mutex is already engaged from the first schema
+   * write; here the order is {@code SchemaShared.lock} &rarr; index-manager lock &rarr;
+   * {@code stateLock.writeLock}), opens the lock-free commit window, and delegates the apply body to
+   * {@link #applyCommitOperations} with a non-null {@link SchemaCommitContext}. That method, inside
+   * the atomic-operation window, reconciles collections, resolves provisional ids, serializes the
+   * tx-local schema, applies the working set, and on success promotes the committed schema (on
+   * failure it undoes the in-memory registry publication so no phantom registration survives).
+   * Splitting the structural reconciliation into the apply body keeps the structural file writes
+   * inside the {@code startTxCommit}/{@code endTxCommit} window, so they are buffered as WAL-reverted
+   * intent and revert atomically with the record writes on a rollback.
+   */
+  private void commitSchemaCarry(
+      final FrontendTransactionImpl frontendTransaction,
+      final DatabaseSessionEmbedded session,
+      final TxSchemaState txSchemaState,
+      final SortedMap<String, FrontendTransactionIndexChanges> indexOperations,
+      final AtomicOperation atomicOperation,
+      final boolean allocated,
+      final List<RecordOperation> result) throws IOException {
+    final var committedSchema = session.getSharedContext().getSchema();
+    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schemaContext =
+        new SchemaCommitContext(committedSchema, txSchemaState.getTxLocalSchema(), txSchemaState);
+
+    // Four-lock order: the mutex is already engaged (first schema write). Take the two shared
+    // metadata write locks before stateLock so the order stays acyclic, then the storage write lock.
+    committedSchema.acquireSchemaWriteLock(session);
+    try {
+      indexManager.acquireExclusiveLockForCommit();
+      try {
+        stateLock.writeLock().lock();
+        try {
+          // Open the lock-free commit window: schema toStream/fromStream and the record-read path
+          // re-enter stateLock.readLock() through session.load, which would busy-spin forever on the
+          // non-reentrant lock the commit already holds for writing. The window makes those reads
+          // skip the read lock; the held write lock supplies the exclusion and the visibility edge.
+          enterCommitWindow();
+          try {
+            applyCommitOperations(frontendTransaction, session, indexOperations, atomicOperation,
+                allocated, schemaContext, result);
+          } finally {
+            exitCommitWindow();
+          }
+        } finally {
+          stateLock.writeLock().unlock();
+        }
+      } finally {
+        indexManager.releaseExclusiveLockForCommit();
+      }
+    } finally {
+      committedSchema.releaseSchemaWriteLock(session, false);
+    }
+  }
+
+  /**
+   * Reconciles collections as the set difference over committed versus tx-local real collection
+   * ids, inside the held {@code stateLock.writeLock()} with the commit window open. A collection id
+   * present in the tx-local schema but absent from the committed schema is a create; the reverse is
+   * a drop. Creates use the lock-free {@link #doCreateCollection} at a commit-local first-null-slot
+   * id (so a failed commit's ids free for reuse), publish into the registries, and record the
+   * provisional&rarr;real resolution on {@code txSchemaState}. Drops use {@link
+   * #dropCollectionInternal}. Diffing by collection id rather than class name keeps a rename
+   * structurally inert.
+   */
+  private void reconcileCollections(
+      final SchemaShared committedSchema,
+      final SchemaShared txLocalSchema,
+      final TxSchemaState txSchemaState,
+      final AtomicOperation atomicOperation) {
+    try {
+      final var committedIds = committedSchema.getRealCollectionIds();
+      final var txProvisionalNames = txSchemaState.getProvisionalCollectionNames();
+
+      // Drops: a real collection id in the committed schema absent from the tx-local schema. The
+      // tx-local schema's real-id set is the committed reals minus any dropped class's ids; a
+      // provisional id (<= -2) is excluded from getRealCollectionIds, so it never reads as a drop.
+      final var txRealIds = txLocalSchema.getRealCollectionIds();
+      for (final var committedId : committedIds) {
+        if (!txRealIds.contains(committedId)) {
+          dropCollectionInternal(atomicOperation, committedId);
+        }
+      }
+
+      // Creates: each provisional id the transaction allocated becomes a real collection created
+      // under the carried <class>_<counter> name at a commit-local first-null-slot id. Record the
+      // resolution so the patch list can rewrite every provisional reference before serialization.
+      for (final var entry : txProvisionalNames.int2ObjectEntrySet()) {
+        final int provisionalId = entry.getIntKey();
+        final String collectionName = entry.getValue();
+        final int realId = nextFreeCollectionId();
+        final var collection = doCreateCollection(atomicOperation, collectionName, realId);
+        registerCollection(collection);
+        txSchemaState.recordResolvedCollectionId(provisionalId, realId);
+      }
+    } catch (final IOException e) {
+      // Wrap as an unchecked StorageException so the schema-carry commit's RuntimeException/Error
+      // catch reaches the registry-undo path, mirroring how the public structural methods wrap
+      // their atomic-operation IOExceptions.
+      throw BaseException.wrapException(
+          new StorageException(name, "Error reconciling collections during schema commit"), e,
+          name);
+    }
+  }
+
+  /**
+   * The first null slot in {@code collections}, or the list size when none is free — the
+   * commit-local collection-id allocator's next id. Seeded by a direct read of the shared
+   * {@code collections} list, which is safe because the caller holds {@code stateLock.writeLock()}
+   * (the seed read sits inside the write-lock window so it excludes the non-commit
+   * engine registrars that run under {@code stateLock.write} alone). Reused between successive
+   * creates within one reconciliation because each create publishes its collection into the slot
+   * before the next call scans.
+   */
+  private int nextFreeCollectionId() {
+    for (var i = 0; i < collections.size(); i++) {
+      if (collections.get(i) == null) {
+        return i;
+      }
+    }
+    return collections.size();
+  }
+
+  /**
+   * Undoes the in-memory registry publication of the collections {@link #reconcileCollections}
+   * created, on a failed schema-carry commit. The rolled-back atomic operation already reverts the
+   * collections' on-disk files, but the in-memory registry entries were published synchronously, so
+   * a failed commit would otherwise leave a phantom registration. Runs under the held
+   * write lock. Idempotent against a never-published id (the map lookup misses).
+   */
+  private void undoReconciledCollections(
+      final SchemaShared committedSchema, final TxSchemaState txSchemaState) {
+    final var committedIds = committedSchema.getRealCollectionIds();
+    for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
+      // Only drop ids the commit created (resolved from a provisional), never a pre-existing
+      // committed id. A resolved real id that coincides with a committed id cannot happen: the
+      // commit-local allocator draws from free slots, and a committed id's slot is occupied.
+      if (committedIds.contains(realId)) {
+        continue;
+      }
+      final var collection = realId < collections.size() ? collections.get(realId) : null;
+      if (collection != null) {
+        collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
+        collections.set(realId, null);
+      }
     }
   }
 
@@ -3311,6 +3636,17 @@ public abstract class AbstractStorage
 
     try {
       checkIndexId(indexId);
+
+      // A schema-carrying commit reaches this resolver through the index-apply path
+      // (lockIndexes -> IndexAbstract.acquireAtomicExclusiveLock) while already holding
+      // stateLock.writeLock(). Re-acquiring the read lock there would busy-spin forever on the
+      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free body, the
+      // same seam getPhysicalCollectionNameById and readRecordInternal use. The held write lock
+      // supplies the exclusion and the happens-before edge; the pure-read fast path keeps the lock.
+      if (isCommitWindowActive()) {
+        checkOpennessAndMigration();
+        return doGetIndexEngine(indexId);
+      }
 
       stateLock.readLock().lock();
       try {

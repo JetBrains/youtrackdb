@@ -759,8 +759,8 @@ public class SchemaDeguardTest extends DbTestBase {
           var state = session.getTxSchemaState();
           assertNotNull("a routed schema write must have seeded the tx-local state", state);
 
-          var firstProvisional = state.allocateProvisionalCollectionId();
-          var secondProvisional = state.allocateProvisionalCollectionId();
+          var firstProvisional = state.allocateProvisionalCollectionId("carrierseed_1");
+          var secondProvisional = state.allocateProvisionalCollectionId("carrierseed_2");
           assertTrue("an allocated provisional id must be in the <= -2 sub-range",
               SchemaShared.isProvisionalCollectionId(firstProvisional));
           assertTrue("an allocated provisional id must be in the <= -2 sub-range",
@@ -769,6 +769,16 @@ public class SchemaDeguardTest extends DbTestBase {
               secondProvisional < firstProvisional);
           assertNotEquals("a provisional id must never equal the abstract marker",
               SchemaShared.ABSTRACT_COLLECTION_ID, firstProvisional);
+          assertEquals("the allocated provisional id must carry the name it was created with",
+              "carrierseed_1", state.getProvisionalCollectionName(firstProvisional));
+          assertEquals("the second allocated provisional id must carry its own name",
+              "carrierseed_2", state.getProvisionalCollectionName(secondProvisional));
+          // The CarrierSeed createClass above also allocated provisional ids (a vertex class gets
+          // several collections), each carrying its name, so the map holds those plus the two
+          // explicit allocations here — it must at least contain both explicit names.
+          assertTrue("the provisional-name map must carry both explicitly allocated names",
+              state.getProvisionalCollectionNames().containsValue("carrierseed_1")
+                  && state.getProvisionalCollectionNames().containsValue("carrierseed_2"));
 
           assertEquals(
               "an unrecorded provisional id must read the not-resolved sentinel (NO_RESOLUTION)",

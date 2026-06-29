@@ -67,6 +67,29 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     return lock.isWriteLockedByCurrentThread();
   }
 
+  /**
+   * Takes the index-manager write lock for a schema-carrying commit's four-lock acquisition, with
+   * none of the schema-mutation side effects {@link #acquireExclusiveLock(FrontendTransaction)}
+   * carries. The commit acquires this lock as the third of the four locks (mutex &rarr;
+   * {@code SchemaShared.lock} &rarr; this lock &rarr; {@code stateLock.writeLock}) so the order is
+   * acyclic and the index-apply path runs under exclusion. It does not touch
+   * {@code writeLockNesting} (that counter drives the schema-mutation release's
+   * forceSnapshot-and-notify, which the commit owns separately through promotion), so it must be
+   * paired with {@link #releaseExclusiveLockForCommit()}, never the public release.
+   */
+  public void acquireExclusiveLockForCommit() {
+    lock.writeLock().lock();
+  }
+
+  /**
+   * Releases the lock {@link #acquireExclusiveLockForCommit()} took, with no snapshot or listener
+   * side effects. The commit promotes the schema and fires its single {@code forceSnapshot}
+   * separately, so this release only drops the lock.
+   */
+  public void releaseExclusiveLockForCommit() {
+    lock.writeLock().unlock();
+  }
+
   public IndexManagerEmbedded(AbstractStorage storage) {
     super(storage);
   }

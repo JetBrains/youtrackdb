@@ -44,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
 import java.util.ArrayList;
@@ -59,6 +60,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -1649,6 +1651,39 @@ public abstract class SchemaClassImpl {
   protected void setCollectionIds(final int[] iCollectionIds) {
     collectionIds = iCollectionIds;
     Arrays.sort(collectionIds);
+  }
+
+  /**
+   * Replaces every provisional collection id this class carries ({@code collectionIds},
+   * {@code defaultCollectionId}, {@code polymorphicCollectionIds}) with the real id the commit
+   * resolved it to. A provisional id this class does not carry, or an id already real, is left
+   * untouched. The caller (the tx-local schema's commit-time resolution) holds the schema write
+   * lock and rebuilds the reverse map after patching every class, so this method touches only the
+   * per-class arrays. Called only on a tx-local copy at commit, before any record serializes.
+   *
+   * @param resolution maps each provisional id ({@code <= -2}) to its real id ({@code >= 0}).
+   */
+  protected void replaceProvisionalCollectionIds(@Nonnull Int2IntMap resolution) {
+    if (SchemaShared.isProvisionalCollectionId(defaultCollectionId)
+        && resolution.containsKey(defaultCollectionId)) {
+      defaultCollectionId = resolution.get(defaultCollectionId);
+    }
+    for (var i = 0; i < collectionIds.length; i++) {
+      if (SchemaShared.isProvisionalCollectionId(collectionIds[i])
+          && resolution.containsKey(collectionIds[i])) {
+        collectionIds[i] = resolution.get(collectionIds[i]);
+      }
+    }
+    Arrays.sort(collectionIds);
+    final var resolvedPolymorphic = new int[polymorphicCollectionIds.length];
+    for (var i = 0; i < polymorphicCollectionIds.length; i++) {
+      final var id = polymorphicCollectionIds[i];
+      resolvedPolymorphic[i] =
+          SchemaShared.isProvisionalCollectionId(id) && resolution.containsKey(id)
+              ? resolution.get(id)
+              : id;
+    }
+    setPolymorphicCollectionIds(resolvedPolymorphic);
   }
 
   @Nullable public static String decodeClassName(String s) {
