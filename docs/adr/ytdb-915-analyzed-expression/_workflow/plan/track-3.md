@@ -21,11 +21,12 @@ Track 4's round-trip parity matrix.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-29T09:23Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-29T15:15Z [ctx=info] Step 1 complete (commit bbc638cece)
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-29): the IR models only 4 of the AST's 12 arithmetic operators,
@@ -64,6 +65,24 @@ Track 4's round-trip parity matrix.
   `evaluateAny`/`evaluateAllFunction` — the known Phase-2 CR1 deferral (R3); the track files
   already carry the correct names, and the lowerer never calls these (no Track-3 impact). Both
   are `design-final` reconciliation items, mirroring Track 2's D17 handling.
+- 2026-06-29T15:15Z Step 1 added `AnalyzedAstAccess`, a new read-accessor in `sql/parser/`,
+  because the JJTree-generated parse-node classes expose no public getter for seven in-subset
+  fields the lowerer must read (`SQLExpression.booleanExpression`/`booleanValue`/`isNull`,
+  `SQLBaseExpression.number`/`inputParam`, `SQLParenthesisExpression.expression`/`statement`).
+  Track 4 and future S1+ slices read the AST through this seam; it sits in the JaCoCo-excluded
+  parser package, so code added to it is not coverage-gated. See Episodes §Step 1.
+- 2026-06-29T15:15Z Step 1 dropped `SQLExpression.literalValue` from the in-subset field-walk:
+  it is private and never set on the SQL `Expression()` parse path (only the GQL pipeline /
+  `deserialize` / `copy` write it, PSI-confirmed), so it is dead on the lowerer's only input.
+  This diverges from design.md §"Field-walk" D14 (which names it in-subset) — a Phase-4
+  `design-final` reconciliation item. The D14 throw-default still covers a hypothetically-set
+  value, so I2 holds. See Episodes §Step 1.
+- 2026-06-29T15:15Z Step 1 fixed two Track-4 contracts: a `NOT` over a bare comparison parses
+  as `NOT a = b` (`SQLNotBlock.sub = SQLBinaryCondition`) — a parenthesized boolean `(a = b)` is
+  a `SQLParenthesisBlock` and out of subset, so Track 4 round-trip inputs exercising `NOT` must
+  use the unparenthesized form; `lowerBoolean` is package-visible so Track 4 can lower a parsed
+  `SQLBinaryCondition`/`SQLNotBlock` directly; and a `Const` from the SQL path originates only
+  from a number/string leaf, never `literalValue`. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Full inline Decision Records this track owns (four-bullet form). One block per decision: -->
@@ -206,6 +225,19 @@ Track 4's round-trip parity matrix.
   execution). Also carried in Track 4 (the collate-resolution constraint).
 <!-- **Full design**: design.md §"Field-walk" and §"Comparison: replicate the AST sequence" -->
 
+#### Step-time decisions (escalated to the user during Phase B execution)
+- 2026-06-29T15:15Z (scope-add) Step 1 added `AnalyzedAstAccess`, a read-accessor in
+  `sql/parser/`, to read the seven in-subset AST fields the generated parse-node classes expose
+  no getter for. The lowerer stays in `query/analyzed/` per the frozen design; the accessor
+  names no `query.analyzed` type, keeping the dependency forward (the "Where NumericOps lives"
+  rule). User chose this over moving the lowerer into `sql/parser/` or editing the grammar. See
+  Episodes §Step 1.
+- 2026-06-29T15:15Z (scope-down / design-divergence) Step 1 dropped `SQLExpression.literalValue`
+  from the in-subset field-walk: it is private and never set on the SQL parse path, so it is
+  dead on the lowerer's only input. Diverges from design.md §"Field-walk" D14 — a Phase-4
+  `design-final` reconciliation item. The D14 throw-default still covers it, so I2 holds. See
+  Episodes §Step 1.
+
 ## Outcomes & Retrospective
 - [x] Technical: PASS at iteration 2 (3 findings — 0 blocker, 2 should-fix, 1 suggestion; 3 drove track-file edits: T1 operator-subset gate, T2 D14 `value` verdict, T3 `getValue()` number lowering).
 - [x] Risk: PASS at iteration 2 (4 findings — 0 blocker, 2 should-fix, 2 suggestion; 3 drove edits: R1 in-track tree-shape assertion, R2 D14 coverage, R4 per-shape throw checklist; R3 = known Phase-2 CR1 design-doc deferral, no Track-3 edit).
@@ -344,10 +376,75 @@ precedence fold reproduces *only* nesting (D12); the field-walk's default is thr
    (`SQLBinaryCondition` → `BinaryOp`, the seven-to-six `SQLBinaryCompareOperator` mapping,
    throw on the other eight subtypes), `NOT`, and throw-on-other-boolean-shapes (A2); and the
    tests — in-track tree-shape assertions (R1) plus the exhaustive per-shape throw-case
-   checklist (R4) that pins I2. — risk: high (architecture)  [ ]
+   checklist (R4) that pins I2. — risk: high (architecture)  [x] commit: bbc638cece
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit bbc638cece, 2026-06-29T15:15Z [ctx=info]
+**What was done:** Added `AnalyzedExprLowerer` (the full AST→IR lowering pass, in
+`query/analyzed/`), `AnalyzedAstAccess` (a new read-accessor in `sql/parser/`), and
+`AnalyzedExprLowererTest` (46 tests). The pass realizes all six Plan-of-Work mechanisms: the
+exhaustive-or-throw field walk over `SQLExpression` (D14), leaf descent (single-segment `Var`
+D6-R, `Const` via the polymorphic `SQLNumber.getValue()` T3, method-call `FuncCall`),
+parenthesis recursion (D10), the precedence-climbing fold with the four-operator arithmetic
+subset gate (D12 + T1/A1), and the boolean dispatch (`SQLBinaryCondition` → `BinaryOp` with the
+seven-to-six comparison mapping, `SQLNotBlock` → `UnaryOp(NOT)`, throw on every other shape A2).
+Two design decisions were escalated mid-step and resolved by the user (see Decision Log). The
+step-level dimensional review ran the **full track-pass-equivalent selection** (code-quality,
+bugs-concurrency, test-behavior, test-completeness, performance, test-structure) because this is
+the track's sole high step, so the Phase C review portion will skip. Iteration 1 returned 0
+blocker / 5 should-fix / 14 suggestion; every in-scope finding was fixed across review-fix
+commits `dd9989803c` and `bbc638cece` and gate-verified PASS on all six dimensions (CQ1 took a
+third iteration — the first reflow missed the test file's comment lines). Final state:
+`AnalyzedExprLowerer` 94.9% line / 86.2% branch (above the 85/70 gate), `AnalyzedAstAccess` in
+the JaCoCo-excluded `sql/parser/` package, 46/46 tests green, Spotless clean. Commit chain:
+`772dd697c6` (implementation) + `dd9989803c` + `bbc638cece` (review fixes).
+
+**What was discovered:** The generated SQL parse-node classes expose no public getter for
+several in-subset fields the lowerer must read — `SQLExpression.booleanExpression` /
+`booleanValue` / `isNull`, `SQLBaseExpression.number` / `inputParam`, and
+`SQLParenthesisExpression.expression` / `statement` — and the classes are JJTree-generated, so
+no getter can be added to them. `AnalyzedAstAccess` (Decision 1) closes that gap.
+`SQLExpression.literalValue` is private and is never assigned on the SQL `Expression()` parse
+path (only the GQL pipeline, `deserialize`, and `copy` write it, PSI-confirmed), so it is dead
+on the lowerer's only input and was dropped from the walk (Decision 2); the D14 throw-default
+still throws on a hypothetically-set value, so I2 holds. The `booleanExpression` dispatch branch
+is unreachable from a top-level `Expression()` parse but live via recursion — `lowerComparison`
+calls `lower(left)` / `lower(right)` and the method-call path calls `lower(arg)`, either of
+which can carry a `booleanExpression`; `lowerBoolean` is package-visible so the test can lower a
+parsed `SQLBinaryCondition` / `SQLNotBlock` directly. Cross-track for **Track 4**: the lowerer
+builds structure only — collation, EQ/NE session-threading, and numeric promotion stay the
+evaluator's job; a `NOT` over a bare comparison parses as `NOT a = b`
+(`SQLNotBlock.sub = SQLBinaryCondition`), while a parenthesized boolean `(a = b)` is a
+`SQLParenthesisBlock` and out of subset, so round-trip inputs exercising `NOT` must use the
+unparenthesized form; a `Const` from the SQL path originates only from a number/string leaf,
+never `SQLExpression.literalValue`; `FuncCall.args()` is read-only by convention, not
+record-enforced.
+
+**What changed from the plan:** Two user-resolved design decisions added scope the track's
+In-scope list (which named only `AnalyzedExprLowerer` + its test) did not anticipate. (1)
+Scope-add: the new `AnalyzedAstAccess` read-accessor in `sql/parser/` exposing the seven
+blocked fields; the lowerer stays in `query/analyzed/` per the frozen design, and the accessor
+names no `query.analyzed` type, so the dependency stays forward (the rule the design's
+"Where NumericOps lives" section set). (2) Scope-down / design-divergence: `literalValue`
+dropped from the in-subset walk, which diverges from design.md §"Field-walk" D14 (it names
+`literalValue` in-subset) — a Phase-4 `design-final` reconciliation item, joining the two D14 /
+CR1 wording deferrals the track already carries. Also `lowerBoolean` was made package-visible
+(not private) for same-package test access. Four review suggestions were deferred as accepted
+on working, verified code and not applied: CQ2 (the `int[] cursor` fold idiom), CQ3
+(`lowerParenthesis` adjacent double-throw), TS1 (comparison-helper placement), TS3 (a
+section-order map comment).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/query/analyzed/AnalyzedExprLowerer.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/AnalyzedAstAccess.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/query/analyzed/AnalyzedExprLowererTest.java` (new)
+
+**Critical context:** The two decisions create downstream obligations. The `literalValue` drop
+is a Phase-4 `design-final` reconciliation item. `AnalyzedAstAccess` is a new shared seam in
+`sql/parser/` that Track 4 and future S1+ slices read the AST through; because it sits in the
+JaCoCo-excluded parser package, code added to it is not coverage-gated.
 
 ## Validation and Acceptance
 - **Coverage cases.** Each in-subset shape lowers to the expected IR tree: arithmetic
