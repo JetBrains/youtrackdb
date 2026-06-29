@@ -2453,15 +2453,36 @@ public abstract class AbstractStorage
 
       Throwable error = null;
       boolean structurePublished = false;
+      // Collections dropped by reconciliation, captured for the failure-path restore arm. A drop
+      // removes the collection from the in-memory registries eagerly inside reconcileCollections, so
+      // a failed commit must re-register them (rollback reverts only the on-disk files). Stays empty
+      // on a pure-data commit and on a schema-carry commit that drops nothing.
+      List<DroppedCollection> droppedCollections = List.of();
       startTxCommit(atomicOperation);
       try {
         if (schemaContext != null) {
+          // The reconciliation publishes created collections into the live registries inside its own
+          // loop and removes dropped ones eagerly. Set the published flag before the call (not after)
+          // so a throw partway through reconciliation still routes the failure finally to the undo:
+          // any collection already created/dropped in that loop must be reverted in memory.
+          structurePublished = true;
           // Reconcile structure inside the atomic-operation window, before any record serializes:
           // create the tx-local-only collections and drop the committed-only ones, recording each
           // provisional->real id. The structural file writes are WAL-reverted on a rollback.
-          reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
-              schemaContext.txSchemaState(), atomicOperation);
-          structurePublished = true;
+          droppedCollections =
+              reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
+                  schemaContext.txSchemaState(), atomicOperation);
+
+          // Test-only seam: fire any installed in-window hook now that structure is published but
+          // before the record apply. Tests use it to inject a fault (verifying the failure-path undo
+          // leaves no phantom/lost registration) or to latch the commit thread inside the held write
+          // lock (verifying a concurrent data commit proceeds on the read-lock path). Null and free in
+          // production. Fired inside the open commit window so a hook that reads records routes through
+          // the lock-free substrate rather than re-entering the read lock.
+          final var hook = commitWindowTestHook;
+          if (hook != null) {
+            hook.run();
+          }
 
           // Patch every provisional id in the tx-local schema to its real id, then serialize the
           // tx-local schema so its changed per-class records and root enrol into the transaction.
@@ -2594,12 +2615,13 @@ public abstract class AbstractStorage
         if (error != null) {
           rollback(error, atomicOperation);
           if (schemaContext != null && structurePublished) {
-            // A failed commit must leave no phantom in-memory registration. The created
-            // collections' files are WAL-reverted by the rolled-back atomic operation, but their
-            // in-memory registry entries were published synchronously by reconcileCollections, so
-            // undo them here.
+            // A failed commit must leave the in-memory registry exactly as it was before the
+            // commit. The created collections' and dropped collections' files are WAL-reverted by the
+            // rolled-back atomic operation, but reconcileCollections mutated the in-memory registries
+            // synchronously (created collections published, dropped collections removed), so undo both
+            // sides here: drop the phantom creates and restore the dropped registrations.
             undoReconciledCollections(schemaContext.committedSchema(),
-                schemaContext.txSchemaState());
+                schemaContext.txSchemaState(), droppedCollections);
           }
         } else {
           // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
@@ -2713,7 +2735,7 @@ public abstract class AbstractStorage
    * #dropCollectionInternal}. Diffing by collection id rather than class name keeps a rename
    * structurally inert.
    */
-  private void reconcileCollections(
+  private List<DroppedCollection> reconcileCollections(
       final SchemaShared committedSchema,
       final SchemaShared txLocalSchema,
       final TxSchemaState txSchemaState,
@@ -2726,9 +2748,24 @@ public abstract class AbstractStorage
       // tx-local schema's real-id set is the committed reals minus any dropped class's ids; a
       // provisional id (<= -2) is excluded from getRealCollectionIds, so it never reads as a drop.
       final var txRealIds = txLocalSchema.getRealCollectionIds();
+      final List<DroppedCollection> dropped = new ArrayList<>();
       for (final var committedId : committedIds) {
         if (!txRealIds.contains(committedId)) {
-          dropCollectionInternal(atomicOperation, committedId);
+          // Capture the collection before it is nulled, so the failure path can re-register it.
+          final var collection =
+              committedId < collections.size() ? collections.get(committedId) : null;
+          if (!dropCollectionInternal(atomicOperation, committedId)) {
+            // A real drop happened (the collection existed). Mirror the public dropCollection(int):
+            // dropCollectionInternal deletes only the data files and the in-memory entry, so also
+            // drop the storage-configuration entry and the link-bag B-tree component on the same
+            // atomic operation. All three structural deletions then revert together on a rollback and
+            // become durable together on commit, keeping the drop symmetric with doCreateCollection
+            // (which writes the data file, the config entry, and the component together).
+            ((CollectionBasedStorageConfiguration) configuration)
+                .dropCollection(atomicOperation, committedId);
+            linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, committedId);
+            dropped.add(new DroppedCollection(committedId, collection));
+          }
         }
       }
 
@@ -2739,10 +2776,18 @@ public abstract class AbstractStorage
         final int provisionalId = entry.getIntKey();
         final String collectionName = entry.getValue();
         final int realId = nextFreeCollectionId();
+        // The allocator must hand back a genuinely free slot (an append at the list end or a null
+        // slot). undoReconciledCollections relies on this: a resolved id that collided with a
+        // committed live slot would make the undo skip a real cleanup and doCreateCollection would
+        // overwrite a live collection. Zero production cost; catches a slot-bookkeeping regression at
+        // create time during testing.
+        assert realId >= collections.size() || collections.get(realId) == null
+            : "commit-local allocator returned an occupied collection slot " + realId;
         final var collection = doCreateCollection(atomicOperation, collectionName, realId);
         registerCollection(collection);
         txSchemaState.recordResolvedCollectionId(provisionalId, realId);
       }
+      return dropped;
     } catch (final IOException e) {
       // Wrap as an unchecked StorageException so the schema-carry commit's RuntimeException/Error
       // catch reaches the registry-undo path, mirroring how the public structural methods wrap
@@ -2772,14 +2817,29 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Undoes the in-memory registry publication of the collections {@link #reconcileCollections}
-   * created, on a failed schema-carry commit. The rolled-back atomic operation already reverts the
-   * collections' on-disk files, but the in-memory registry entries were published synchronously, so
-   * a failed commit would otherwise leave a phantom registration. Runs under the held
-   * write lock. Idempotent against a never-published id (the map lookup misses).
+   * A collection {@link #reconcileCollections} dropped, captured so a failed schema-carry commit can
+   * restore its in-memory registration. The id is the dropped collection's slot; the collection is
+   * the {@link StorageCollection} object removed from the registries (its on-disk files are reverted
+   * by the rolled-back atomic operation, so re-registering the same object restores a consistent
+   * view).
+   */
+  private record DroppedCollection(int id, StorageCollection collection) {
+
+  }
+
+  /**
+   * Restores the in-memory registry to its pre-commit state on a failed schema-carry commit. The
+   * rolled-back atomic operation already reverts every structural file (created and dropped), but
+   * {@link #reconcileCollections} mutated the in-memory registries synchronously, so this undoes both
+   * sides: it removes the phantom registration of the collections the commit created, and
+   * re-registers the collections the commit dropped. Runs under the held write lock. Idempotent
+   * against a never-published id (the map lookup misses).
+   *
+   * @param dropped the collections reconciliation dropped, in drop order; restored in memory here.
    */
   private void undoReconciledCollections(
-      final SchemaShared committedSchema, final TxSchemaState txSchemaState) {
+      final SchemaShared committedSchema, final TxSchemaState txSchemaState,
+      final List<DroppedCollection> dropped) {
     final var committedIds = committedSchema.getRealCollectionIds();
     for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
       // Only drop ids the commit created (resolved from a provisional), never a pre-existing
@@ -2794,6 +2854,38 @@ public abstract class AbstractStorage
         collections.set(realId, null);
       }
     }
+    // Re-register each dropped collection: rollback restored its files, so the captured object is
+    // consistent again. This is the mirror image of the create-undo arm above; without it a failed
+    // commit that dropped a collection would leave the registry reporting it absent while it is
+    // fully present on disk and in the storage configuration. The slot guard keeps the restore
+    // idempotent if a later create somehow reused the freed slot.
+    for (final var entry : dropped) {
+      final var collection = entry.collection();
+      if (collection != null && entry.id() < collections.size()
+          && collections.get(entry.id()) == null) {
+        registerCollection(collection);
+      }
+    }
+  }
+
+  /**
+   * A test-only hook fired inside the schema-carry commit window, after structure is published and
+   * before the record apply, while {@code stateLock.writeLock()} is held and the commit window is
+   * open. Null in production (no production caller sets it). Tests install a hook to inject a fault
+   * at the published-but-not-applied point (so the failure-path undo runs and its registry
+   * cleanliness can be asserted) or to latch the commit thread inside the held write lock (so a
+   * concurrent pure-data commit can be observed proceeding on the read-lock path). {@code volatile}
+   * because the installing thread and the committing thread may differ in a concurrent test.
+   */
+  private volatile Runnable commitWindowTestHook;
+
+  /**
+   * Installs (or clears, with {@code null}) the test-only in-window commit hook. Test-only seam — no
+   * production code sets a hook, so production behaviour is unchanged. See {@link
+   * #commitWindowTestHook}.
+   */
+  public void setCommitWindowTestHook(final Runnable hook) {
+    this.commitWindowTestHook = hook;
   }
 
   private void commitIndexes(DatabaseSessionEmbedded db, AtomicOperation atomicOperation,
