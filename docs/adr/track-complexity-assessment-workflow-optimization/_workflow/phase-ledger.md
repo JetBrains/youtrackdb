@@ -2,3 +2,4 @@
 [2026-06-26T17:10Z] [ctx=safe] phase=A
 [2026-06-29T08:26Z] [ctx=info] phase=C track=1 substate=steps-partial
 [2026-06-29T10:12Z] [ctx=info] phase=C track=1 substate=steps-done-review-pending
+[2026-06-29T11:19Z] [ctx=info] phase=C track=1 substate=review-done-track-open

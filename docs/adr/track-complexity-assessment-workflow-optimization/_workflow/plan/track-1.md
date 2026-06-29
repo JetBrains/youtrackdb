@@ -21,7 +21,7 @@ foundation every complexity-tag consumer in Track 2 reads.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-29T08:25Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-29T09:13Z [ctx=safe] Step 1 complete (commit 55a7e3ec4b)
@@ -29,6 +29,7 @@ foundation every complexity-tag consumer in Track 2 reads.
 - [x] 2026-06-29T09:50Z [ctx=safe] Step 3 complete (commit f763417b11)
 - [x] 2026-06-29T10:09Z [ctx=safe] Step 4 complete (commit 3846e7ec3c)
 - [x] 2026-06-29T11:16Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations)
+- [x] 2026-06-29T11:18Z [ctx=info] Track complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
@@ -163,6 +164,30 @@ summary at Phase C. -->
   forward-obligation note; (c) the consistency/structural re-key understated its
   scope (A1) and the `workflow.md` §Final Artifacts re-key would self-contradict if
   table-only (T2) — both widened.
+- Track-level code review iteration 1 PASS (1/3 iterations): six workflow-dimension
+  reviewers against the cumulative track diff returned 0 blockers, 3 should-fix, 4
+  suggestions; writing-style PASS. All six actionable findings fixed in one
+  `Review fix:` commit and the four affected dimensions gate-checked clean.
+  - Cross-step consistency catch (WC1): the Step-3 rename of `conventions.md`
+    §Per-tier→Per-axis artifact set + the `change tier`/`tier gates`→`complexity
+    axes`/`design gate` glossary rows left three stale cross-refs in the Step-2-edited
+    `create-plan/SKILL.md` — an intra-track dangling reference only the cumulative
+    diff surfaces. Re-keyed.
+  - Classifier→transition coherence (WP1): `create-plan` Step-4 part-3 still branched
+    on a "confirmed tier" that the re-keyed part-1 design-gate classifier no longer
+    produces; re-keyed the routing onto `design_gate` and aligned the Step-4a entry gate.
+  - Phase-output→input orphan (WI1): `planning.md` promised a Phase-1 ledger write of
+    `reconciled_tag` that no producer performs (sole writer is Phase A per the design);
+    dropped the false promise — no code change, the create-plan seed already omits it.
+  - WP2/WH1/WH2 (suggestions) applied: marker-sufficient-by-construction note;
+    test-replica leading-space fidelity to the shell reader (the contract Track 2
+    builds against); subprocess timeout. WB1 (context-budget) accepted with no
+    change — measured growth under the budget floor.
+  - The instruction-completeness reviewer independently re-verified the cross-track
+    discharge: a live-tree grep found exactly the four named tier-readers
+    (`inline-replanning.md`, `track-review.md`, `create-final-design.md`,
+    `design-review.md`), no fifth — Track 1's `tier=` removal is safe under the
+    atomic Phase-4 promotion (§1.7 I6).
 
 ## Context and Orientation
 
