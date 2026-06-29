@@ -38,6 +38,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.collection.links.LinkSet;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.ints.IntSet;
@@ -475,6 +476,64 @@ public abstract class SchemaShared implements CloseableInStorage {
       return collectionsToClasses.get(collectionId);
     } finally {
       releaseSchemaReadLock();
+    }
+  }
+
+  /**
+   * The set of real (non-negative) storage collection ids this schema's classes own. Provisional
+   * ids ({@code <= -2}) a tx-local copy may carry are excluded, because they back no real storage
+   * collection yet. The commit diffs the committed schema's set against the tx-local schema's set
+   * (a set difference) to find collections to create (tx-local minus committed) and to drop
+   * (committed minus tx-local); diffing by collection id rather than class name keeps a rename
+   * structurally inert.
+   */
+  @Nonnull
+  public IntSet getRealCollectionIds() {
+    acquireSchemaReadLock();
+    try {
+      final var ids = new IntOpenHashSet(collectionsToClasses.size());
+      for (final var collectionId : collectionsToClasses.keySet()) {
+        if (collectionId >= 0) {
+          ids.add(collectionId);
+        }
+      }
+      return ids;
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
+  /**
+   * Patches every provisional collection id in this (tx-local) schema to the real id the commit
+   * created for it, then rebuilds the {@code collectionsToClasses} reverse map wholesale so the
+   * resolved real ids index their classes and the provisional ids are gone. Run inside the commit
+   * under this copy's write lock, after the real collections are created and before any per-class
+   * record serializes through {@link #toStream}: a record that serialized a provisional id would
+   * lose its class's collections at the next open. The two-pass order (patch all classes' arrays,
+   * then rebuild the reverse map once) settles cross-class references before the map is rebuilt, so
+   * a multi-class commit resolves correctly.
+   *
+   * @param resolution maps each provisional id ({@code <= -2}) this transaction allocated to its
+   *     real id ({@code >= 0}); empty when the transaction created no class.
+   */
+  public void resolveProvisionalCollectionIds(@Nonnull Int2IntMap resolution) {
+    lock.writeLock().lock();
+    try {
+      if (resolution.isEmpty()) {
+        return;
+      }
+      for (final var cls : classes.values()) {
+        cls.replaceProvisionalCollectionIds(resolution);
+      }
+      // Rebuild the reverse map wholesale after every class is patched, so cross-class references
+      // settle before the map indexes them. A provisional key is never re-added: addCollectionClassMap
+      // re-reads each class's now-real collection ids.
+      collectionsToClasses.clear();
+      for (final var cls : classes.values()) {
+        addCollectionClassMap(cls);
+      }
+    } finally {
+      lock.writeLock().unlock();
     }
   }
 

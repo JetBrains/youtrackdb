@@ -578,7 +578,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
             throw new IllegalStateException(
                 "a tx-local abstract-to-concrete alter must run with a seeded tx-local schema state");
           }
-          collectionId = txState.allocateProvisionalCollectionId();
+          // Carry the generated name with the provisional id: the commit creates the real
+          // collection under this name (the tx-local counter has advanced past it by commit time).
+          collectionId = txState.allocateProvisionalCollectionId(collectionName);
           // Record the altered class so the commit writes its per-class record and reconciles the
           // provisional id to a real collection. The create path records the same way after a
           // tx-local createClass.

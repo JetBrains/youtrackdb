@@ -2002,7 +2002,13 @@ public class FrontendTransactionImpl implements
   }
 
   private boolean isWriteTransaction() {
-    return !recordOperations.isEmpty() || !indexEntries.isEmpty();
+    // A schema-only transaction (for example a class create with no record writes) enrols no
+    // record or index operations, because the tx-local schema mutation defers its persistence to
+    // commit-time reconciliation. The presence of a tx-local schema state is the write signal for
+    // that case, so the commit reaches storage.commit and the schema change is not dropped.
+    return !recordOperations.isEmpty()
+        || !indexEntries.isEmpty()
+        || getCustomData(DatabaseSessionEmbedded.TX_SCHEMA_STATE_KEY) != null;
   }
 
   public static long generateTxId() {
