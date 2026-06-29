@@ -864,6 +864,20 @@ public class BTreeTestIT {
       Random random,
       boolean keyInclusive,
       boolean ascSortOrder, AtomicOperation atomicOperation) {
+    // Deterministic boundary probe for the out-of-range fromKey case that originally crashed this
+    // test (a perturbed fromKey sorting past keyValues.lastKey()). Appending '\uffff' yields a key
+    // that sorts after every stored key, so "major" iteration from it must be empty in either
+    // order and the oracle must agree. Pinning it here keeps the regression from slipping back
+    // under an unlucky random seed.
+    final var pastLastKey = keyValues.lastKey() + "\uffff";
+    try (var stream =
+        singleValueTree.iterateEntriesMajor(
+            pastLastKey, keyInclusive, ascSortOrder, atomicOperation)) {
+      Assert.assertFalse(stream.iterator().hasNext());
+    }
+    Assert.assertFalse(
+        keyValues.tailMap(pastLastKey, keyInclusive).entrySet().iterator().hasNext());
+
     var keys = new String[keyValues.size()];
     var index = 0;
 
@@ -890,12 +904,17 @@ public class BTreeTestIT {
         if (ascSortOrder) {
           iterator = keyValues.tailMap(fromKey, keyInclusive).entrySet().iterator();
         } else {
+          // "Major" iteration returns every key >= fromKey, here in descending order. Build the
+          // oracle from tailMap(fromKey).descendingMap() rather than
+          // descendingMap().subMap(lastKey, ..., fromKey, ...): perturbKey can nudge fromKey
+          // lexicographically ABOVE keyValues.lastKey(). It drops the second-to-last char and
+          // shifts the last, so a longer key becomes a shorter one that can outrank the max — e.g.
+          // perturbKey("9949", -1) yields "998", which sorts after a last key of "995". A two-bound
+          // subMap throws IllegalArgumentException("fromKey > toKey") for such an out-of-range
+          // fromKey; tailMap clamps to the empty result instead — exactly what the B-tree itself
+          // returns for a fromKey past the last entry — and mirrors the ascending branch above.
           iterator =
-              keyValues
-                  .descendingMap()
-                  .subMap(keyValues.lastKey(), true, fromKey, keyInclusive)
-                  .entrySet()
-                  .iterator();
+              keyValues.tailMap(fromKey, keyInclusive).descendingMap().entrySet().iterator();
         }
 
         while (iterator.hasNext()) {
