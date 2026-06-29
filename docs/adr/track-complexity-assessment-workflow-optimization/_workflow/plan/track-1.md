@@ -644,6 +644,55 @@ step affected.
 - `…/_workflow/staged-workflow/.claude/workflow/plan-slim-rendering.md` (new)
 - `…/_workflow/staged-workflow/.claude/workflow/design-document-rules.md` (new)
 
+### Track completion — 2026-06-29T13:38Z [ctx=info]
+Unbundled the workflow's whole-change `tier` enum into the three complexity axes
+the feature needs. The phase-ledger `tier=` field is replaced in
+`workflow-startup-precheck.sh` by four bare fields — `design_gate`, `tracks`
+(track-count / plan-presence), `phase1_complete` (mid-authoring-crash
+disambiguator), and a per-track, track-scoped `reconciled_tag` — with the
+existing loud-reject append validation, atomic temp-file+rename publish, and a
+track-scoped reader for the per-track tag. The `create-plan` resume router and
+Phase-0→1 classifier route off those fields instead of `LEDGER_TIER`; the
+plan-presence decision moved to the end of Step 4b (plan exists iff > 1 track).
+The consistency / structural review prompts, the `implementation-review.md`
+Phase-2 pass selector, and six prose docs re-key off the tier onto the axes;
+`planning.md` gains the planner's Phase-1 complexity-tag prediction instruction.
+All edits land in the §1.7 staged subtree; the live workflow stays at develop
+state until the single Phase-4 promotion.
+
+Cross-track impact carried to Track 2:
+- The schema froze the flag→key map Track 2 consumes
+  (`design_gate`/`tracks`/`phase1_complete`/`reconciled_tag`). Track 2 reads
+  `design_gate` + `reconciled_tag` and is the sole writer of `reconciled_tag`
+  (at the Phase A→C boundary).
+- Forward obligation, re-verified complete during this review: dropping `tier=`
+  is safe only because the four remaining live `tier` readers
+  (`inline-replanning.md`, `track-review.md` §Tier-driven review selection,
+  `create-final-design.md`, `design-review.md`) all sit in Track 2's scope and
+  promote together in the single Phase-4 commit (§1.7 I6). A live-tree grep
+  during code review found exactly those four — no fifth reader/writer the
+  removal breaks.
+- Phase-4 carrier contract frozen as independent predicates (`design-final.md`
+  iff `design_gate=yes`; `adr.md` iff ∃ track reconciled ≥ medium), so the
+  final-artifacts commit fires when either carrier exists — handling the
+  design+all-low edge case the old tier-coupled table could not express.
+- Latent comment defect flagged for Track 2 / Phase 4 (out of this track's
+  finding scope): the staged shell reader's own comment advertises a line-start
+  `key=` match it does not deliver (a column-0 key yields the wrong value). The
+  review fixed the Python test *replica* to match the real ` key=` (leading-space)
+  semantics — the contract Track 2 builds against — but the script comment itself
+  is still inaccurate.
+
+Track-level code review: 1 iteration, 0 blockers; 6 findings fixed
+(3 should-fix WC1/WP1/WI1 + 3 suggestion WP2/WH1/WH2), WB1 accepted with no
+change (measured growth under the budget floor), writing-style PASS. The two
+cross-step catches the cumulative diff surfaced — a stale intra-track cross-ref
+left by the Step-3 rename (WC1) and a classifier→transition routing rule keyed on
+the tier the re-key removed (WP1) — are exactly the systematic issues step-level
+review cannot see.
+
+4 steps, 0 failed.
+
 ## Validation and Acceptance
 
 Track-level behavioral acceptance — what must hold once every step lands:

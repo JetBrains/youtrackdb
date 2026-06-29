@@ -65,16 +65,19 @@ flowchart TD
   track reconciled to medium or higher.
 
 ## Checklist
-- [ ] Track 1: Ledger schema, resume routing, and Phase-1 artifact existence
+- [x] Track 1: Ledger schema, resume routing, and Phase-1 artifact existence
   > Unbundle the persistence and routing substrate: replace the ledger's
   > `tier=` field with the four fields the three axes need, route resume off
   > them, and decide `design.md` / plan existence from the design gate and the
   > track count. This is the foundation every tag consumer reads.
-  > **Scope:** ~13 files covering `workflow-startup-precheck.sh` + its two
-  > tests, `create-plan/SKILL.md`, `workflow.md`, `conventions.md`,
-  > `planning.md`, `research.md`, `plan-slim-rendering.md`,
-  > `design-document-rules.md`, the consistency / structural review prompts, and
-  > `implementation-review.md` (the Phase-2 pass selector).
+  >
+  > **Track episode:** Replaced the ledger `tier=` with four complexity-axis
+  > fields (`design_gate`/`tracks`/`phase1_complete`/per-track `reconciled_tag`),
+  > re-pointed the resume routers and Phase-1 artifact gates off them, and froze
+  > the flag→key map + Phase-4 carrier predicates Track 2 consumes — see
+  > `plan/track-1.md` `## Episodes` § Track completion. (4 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-1.md`
 
 - [ ] Track 2: Complexity-tag mechanics, reviewer selection, and roster
   > Compute the per-track complexity tag from planned work, reconcile it to
