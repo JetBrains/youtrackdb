@@ -157,9 +157,9 @@ public class AnalyzedExprLowererTest {
 
   // ---- Parenthesized grouping ----
 
-  /// WHEN `(a + b) * c` is lowered, THE grouping parenthesis is transparent — the lowerer recurses
-  /// into the grouped expression and the IR tree's own nesting expresses the grouping, producing
-  /// `STAR(PLUS(a, b), c)`. There is no paren IR node.
+  /// WHEN `(a + b) * c` is lowered, THE grouping parenthesis is transparent — the lowerer
+  /// recurses into the grouped expression and the IR tree's own nesting expresses the grouping,
+  /// producing `STAR(PLUS(a, b), c)`. There is no paren IR node.
   @Test
   public void parenthesizedGroupingRecursesAndNestsByTreeShape() {
     AnalyzedExpr expected =
@@ -200,7 +200,8 @@ public class AnalyzedExprLowererTest {
   }
 
   /// WHEN a negative integer literal `-5` is lowered, THE sign is already folded into the literal
-  /// value by the parser, so the IR is one {@link Const} carrying `-5` — not a unary-minus wrapper.
+  /// value by the parser, so the IR is one {@link Const} carrying `-5` — not a unary-minus
+  /// wrapper.
   @Test
   public void negativeIntegerLiteralLowersToOneNegativeConst() {
     assertEquals(new Const(-5), lower("-5"));
@@ -209,9 +210,9 @@ public class AnalyzedExprLowererTest {
   /// WHEN integer literals across the Integer / Long boxing boundary are lowered, THE Const carries
   /// the exact boxed numeric type the parser produced: an in-int-range literal as Integer, an
   /// L-suffixed literal as Long, and a literal whose magnitude overflows int as Long. The boxed
-  /// type is load-bearing because {@link Const} uses structural equals — Integer(9) does not equal
-  /// Long(9L) — so a value-type regression in the IR's numeric lane is pinned here rather than only
-  /// surfacing in the later round-trip parity suite.
+  /// type is load-bearing because {@link Const} uses structural equals — Integer(9) does not
+  /// equal Long(9L) — so a value-type regression in the IR's numeric lane is pinned here rather
+  /// than only surfacing in the later round-trip parity suite.
   @Test
   public void integerLiteralsLowerToConstWithParserNumericType() {
     assertEquals(new Const(42), lower("42")); // in int range, no suffix -> Integer
@@ -221,10 +222,10 @@ public class AnalyzedExprLowererTest {
 
   /// WHEN floating-point literals across the three {@link
   /// com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFloatingPoint} type-selection branches
-  /// are lowered, THE Const carries the exact boxed numeric the parser produced — a small no-suffix
-  /// literal downcast to Float, an explicit D-suffix as Double, an F-suffix as Float. Same
-  /// rationale as the integer case: the boxed type is load-bearing under {@link Const}'s structural
-  /// equals, so a type-selection regression in the float lane surfaces in-track.
+  /// are lowered, THE Const carries the exact boxed numeric the parser produced — a small
+  /// no-suffix literal downcast to Float, an explicit D-suffix as Double, an F-suffix as Float.
+  /// Same rationale as the integer case: the boxed type is load-bearing under {@link Const}'s
+  /// structural equals, so a type-selection regression in the float lane surfaces in-track.
   @Test
   public void floatingPointLiteralsLowerToConstWithParserNumericType() {
     assertEquals(new Const(1.5f), lower("1.5")); // no suffix, |v| < Float.MAX_VALUE -> Float
@@ -440,7 +441,8 @@ public class AnalyzedExprLowererTest {
 
   /// WHEN a `&&` comparison (`SQLScAndOperator`) is lowered, THE operator mapping throws, covering
   /// the out-of-subset comparison operator whose token most resembles the bitwise `&` arithmetic
-  /// operator — the one a future refactor could most plausibly mis-map by confusing the two paths.
+  /// operator — the one a future refactor could most plausibly mis-map by confusing the two
+  /// paths.
   @Test
   public void scAndComparisonOperatorThrows() {
     assertThrows(
@@ -530,8 +532,8 @@ public class AnalyzedExprLowererTest {
   }
 
   /// WHEN the iteration function `any()` is lowered, THE pass throws as an out-of-subset
-  /// `levelZero` shape — `any()` carries property-iteration semantics the IR does not reproduce, so
-  /// it must not slip through as a `FuncCall`. It throws via the same `levelZero` gate as
+  /// `levelZero` shape — `any()` carries property-iteration semantics the IR does not reproduce,
+  /// so it must not slip through as a `FuncCall`. It throws via the same `levelZero` gate as
   /// `count()`; the exception type is what is pinned, not an `any()`-specific code path (the
   /// lowerer has none).
   @Test
