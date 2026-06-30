@@ -246,6 +246,13 @@ strategic view; each links to its long-form seed in `design.md`.
 - **Implemented in**: Track 8
 - **Full design**: design.md §"Schema-format migration"
 
+#### D21: Tx-aware immutable snapshot makes same-tx schema changes visible to validation and serialization (added after Track 4)
+- **Alternatives considered**: (B) route `EntityImpl` validation and serialization through the tx-aware `SchemaProxy` — rejected: per-field proxy resolution is too slow on the data-write hot path. (A) accept the limitation and document the semantic — rejected: same-tx DDL plus DML is a real usage pattern and the silent constraint-skip is a significant DevX degradation.
+- **Rationale**: Track 4 completion review found that `EntityImpl.validate()` (`EntityImpl.java:3932`) resolves the class through the committed-only snapshot and guards every check behind `if (immutableSchemaClass != null)`, so a class, property type, or constraint rule created in the open transaction resolves to null — strict-mode, mandatory, notnull, type, min/max, and regex are silently skipped and serialization falls back to schemaless. Read-your-writes holds for schema structure (the tx-aware `SchemaProxy`) and breaks for the schema contract (the committed-only snapshot). The snapshot is the single read tier the whole read/query/serialize/security stack consumes (174 call sites), so making it tx-aware gives consistent read-your-writes at per-operation build cost: `SchemaProxy.makeSnapshot()` resolves the tx-local `SchemaShared` during a schema or index transaction, and the snapshot is refcount-pinned per operation (`MetadataDefault.makeThreadLocalSchemaSnapshot`), not resolved per field. This reuses D15's lazy force-rebuild rather than adding a mechanism, and makes the snapshot's class and property view consistent with the index-list view D15 already makes tx-aware. Supersedes the committed-only-snapshot behavior (`SchemaProxy.makeSnapshot` reads the committed `delegate`, `SchemaProxy.java:78`): `design.md` §"The tx-local schema view" states that during a schema tx reads route to the tx-local structure "not only the snapshot" (design.md:270), yet leaves the snapshot itself committed-only; the Phase 4 `design-final.md` reconciles the as-built tx-aware snapshot.
+- **Risks/Caveats**: (1) commit-path read before promotion — `computeCommitWorkingSet` (`AbstractStorage.java:2410`, reached at line 2528, after `reconcileCollections` at 2473 and before `forceSnapshot` at 2691) calls `getImmutableSchemaClass` then `getCollectionForNewInstance`; a tx-aware snapshot must hand back the reconciled real collection id, never a provisional id (`<= -2`), or `doGetAndCheckCollection` fails. Verify reconciliation re-keys the tx-local class before the working-set build, or guard the commit-path read. (2) query or MATCH against a tx-created class in the same transaction — the class now appears in the snapshot, but its physical collection (provisional id, D2) and indexes and engines (built at commit, D12) do not exist yet; the planner extends D13's skip-unbuilt treatment to provisional-collection classes so the WHERE block falls through to the merged tx scan. (3) the D15 force-rebuild trigger widens from mid-tx index changes to mid-tx class and property changes.
+- **Implemented in**: Track 5 (with D15's index overlay — shared snapshot force-rebuild)
+- **Full design**: captured in this record and Track 5's `## Context and Orientation` and `## Plan of Work`; `design.md` is frozen, so the as-built design reconciles in Phase 4.
+
 #### Invariants
 
 Each invariant below maps to a testable assertion in the named track; the full
@@ -453,7 +460,7 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > **Scope:** ~15 files covering `AbstractStorage.commit`, the engine-primitive extraction, the provisional-id sites, promotion, the two read-site conversions, and commit/rollback/crash tests.
   > **Depends on:** Track 1, Track 2, Track 3
 
-- [ ] Track 5: Tx-local index overlay, commit-time engine build, and query-usability (D12, D13, D15)
+- [ ] Track 5: Tx-local index overlay, commit-time engine build, query-usability, and the tx-aware snapshot (D12, D13, D15, D21)
   > Give indexes a tx-local definition overlay (committed + tx-created − tx-dropped)
   > with the four categories and the per-session index-manager routing seam,
   > force-rebuild the tx-local snapshot on every mid-tx index change, build a
@@ -463,7 +470,8 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > Also cover the index-engine half of the failed-commit registry-cleanliness criterion (I-A4): assert `indexEngines` / `indexEngineNameMap` carry no entry after a failed engine-creating commit and the ids are reused on the next commit. Track 4 tested the collection arm only — engine reconciliation at commit lands in this track (Track 4 review finding TB2).
   > Also resolve the create-time provisional-collection gap: indexing a class created in the same transaction throws `IndexException("Collection with id -2 does not exist")` because `IndexManagerEmbedded.createIndex`'s deferred path resolves collection ids through `DatabaseSessionEmbedded.getCollectionNameById`, which returns null for any id `< 0`. Resolve provisional ids (`<= -2`) via `TxSchemaState` (it carries the generated collection name) so the deferred handle stores the right name and the commit-time engine build re-resolves it. Track 4 left this untested; surfaced in Track 4 completion review.
   > Also realize the drop-side commit half: a tx-local `dropIndex` currently only calls `markClassChanged` (`IndexManagerEmbedded.java:590-600`), so the index stays in the shared registry, keeps indexing new records, and survives the commit — the planner still uses it mid-tx and after commit. Beyond the tx-dropped overlay above, the commit must remove the registry entry and delete the engine for a tx-dropped index, with a test asserting the planner stops using it after commit. Tighten the `IndexManagerEmbedded` drop comment, which reads as if the Track 4 commit already drops the index. Track 4 left this untested; surfaced in Track 4 completion review.
-  > **Scope:** ~15 files covering `IndexManagerEmbedded`, `ClassIndexManager`, the routing seam, the snapshot rebuild, the planner guard, the commit build, and overlay/build tests.
+  > Also make the immutable snapshot tx-aware so same-tx schema changes reach validation and serialization (D21, escalated from Track 4 completion review). `SchemaProxy.makeSnapshot()` resolves the tx-local `SchemaShared` during a schema or index tx, widen D15's force-rebuild to fire on mid-tx class and property changes (not only index changes), guard the commit-path snapshot read in `computeCommitWorkingSet` against a provisional collection id, and extend D13's planner skip-unbuilt treatment to a query against a tx-created (provisional-collection) class. Closes the silent same-tx constraint-skip in `EntityImpl.validate()`.
+  > **Scope:** ~18 files covering `IndexManagerEmbedded`, `ClassIndexManager`, the routing seam, the snapshot rebuild, the planner guard, the commit build, `SchemaProxy.makeSnapshot` / the snapshot tx-awareness, the `AbstractStorage.computeCommitWorkingSet` commit-path guard, and overlay / build / same-tx-validation tests.
   > **Depends on:** Track 3, Track 4
 
 - [ ] Track 6: Base-keyed engine files and metadata-only rename (D11, D16, D17)
@@ -497,7 +505,11 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > **Depends on:** Track 2, Track 4, Track 5
 
 ## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1
+- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+
+<!-- Reset by the inline replan after Track 4 (D21, the tx-aware snapshot). The next
+/execute-tracks session re-runs Phase 2 (consistency + structural) against the revised
+plan; the structural-review preview run during the replan was advisory, not the gate. -->
 
 **Auto-fixed (mechanical)**: none.
 
