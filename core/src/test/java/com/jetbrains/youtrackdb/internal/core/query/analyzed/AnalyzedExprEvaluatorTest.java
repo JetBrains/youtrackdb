@@ -109,6 +109,47 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
     assertEquals("NOT parity for: " + sql, oracle, irResult);
   }
 
+  /// Asserts boolean-block parity for a hand-built {@link SQLNotBlock}: the IR lowered through {@link
+  /// AnalyzedExprLowerer#lowerBoolean} evaluates to the same value the block's own {@link
+  /// SQLNotBlock#evaluate(Result, CommandContext)} oracle produces. The block is passed in directly
+  /// (not parsed) because the {@code NotBlock()} grammar produces only a single negation level and a
+  /// non-negated block, so nested and non-negated shapes are constructed via the AST's public setters.
+  private void assertNotBlockParity(SQLNotBlock block, Result row) {
+    var ctx = context();
+    boolean oracle = block.evaluate(row, ctx);
+    AnalyzedExpr ir = AnalyzedExprLowerer.lowerBoolean(block);
+    Object irResult = AnalyzedExprEvaluator.evaluate(ir, row, ctx);
+    assertEquals("NOT block parity", oracle, irResult);
+  }
+
+  /// Asserts value parity allowing the divergent operation to throw: the AST oracle and the IR
+  /// evaluation of {@code sql} must agree on the same row by either producing equal values or
+  /// throwing the same exception class. A divide-by-zero through integer operands throws in both, so
+  /// a plain {@link #assertValueParity} (which evaluates the oracle eagerly) would error before it
+  /// could assert; this captures each side's outcome and compares the outcomes.
+  private void assertValueParityOrSameThrow(String sql, Result row) {
+    var ctx = context();
+    Object oracle = null;
+    Class<? extends Throwable> oracleThrow = null;
+    try {
+      oracle = parseExpression(sql).execute(row, ctx);
+    } catch (RuntimeException e) {
+      oracleThrow = e.getClass();
+    }
+    Object ir = null;
+    Class<? extends Throwable> irThrow = null;
+    try {
+      ir = AnalyzedExprEvaluator.evaluate(AnalyzedExprLowerer.lower(parseExpression(sql)), row,
+          ctx);
+    } catch (RuntimeException e) {
+      irThrow = e.getClass();
+    }
+    assertEquals("throw-class parity for: " + sql, oracleThrow, irThrow);
+    if (oracleThrow == null) {
+      assertEquals("value parity for: " + sql, oracle, ir);
+    }
+  }
+
   /// Builds a schema-free {@link ResultInternal} row carrying the given properties. Numeric arithmetic
   /// needs no schema (no collation, no property type), so a plain projection-style row is the parity
   /// reference for the arithmetic and function-call fragments.
@@ -178,6 +219,47 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
   @Test
   public void arithmeticNullPropagation() {
     assertValueParity("a + b", row("b", 3));
+  }
+
+  /// WHEN a null operand reaches each of `* / -` (and a null left vs. null right under `-`), THE IR
+  /// matches the AST per operator — the four operators do NOT share a null contract: `STAR`/`SLASH`
+  /// null-guard to null before promotion, `MINUS` returns the other operand and negates on a null
+  /// left, while `PLUS` (covered above) returns the other operand. Each row routes its operator to a
+  /// different `Operator.apply(Object, Object)` body, so a mis-mapped IR->AST operator constant that a
+  /// PLUS-only null row would hide surfaces here.
+  @Test
+  public void arithmeticNullPropagationPerOperator() {
+    assertValueParity("a * b", row("b", 3)); // null * 3 -> null (STAR null-guard)
+    assertValueParity("a / b", row("b", 3)); // null / 3 -> null (SLASH null-guard)
+    assertValueParity("a - b", row("b", 3)); // null - 3 -> -3 (minusObject negates null left)
+    assertValueParity("a - b", row("a", 3)); // 3 - null -> 3 (minusObject keeps left)
+    assertValueParity("a * b", row("a", 3)); // 3 * null -> null (STAR null-guard, right null)
+  }
+
+  /// WHEN `+` joins non-numeric operands (`'foo' + 'bar'`) or a mixed String/Number pair, THE
+  /// `plusObject` `String.valueOf(left) + right` concatenation fallback runs and the IR matches the
+  /// AST; the contrasting `-` over the same non-numeric pair returns null (`minusObject` final else).
+  /// String literals are in the lowering subset, so these fragments lower; this pins the object-level
+  /// promotion fallback a direct numeric `apply(Number, ...)` call would throw `ClassCastException`
+  /// on, and the `+`-concatenates-while-`-`-returns-null asymmetry.
+  @Test
+  public void arithmeticStringConcatAndMixed() {
+    assertValueParity("a + b", row("a", "foo", "b", "bar")); // "foobar"
+    assertValueParity("a + b", row("a", "foo", "b", 1)); // "foo1" (mixed String/Number)
+    assertValueParity("a + b", row("a", 1, "b", "foo")); // "1foo" (mixed Number/String)
+    assertValueParity("a - b", row("a", "foo", "b", "bar")); // null (minusObject final else)
+  }
+
+  /// WHEN an integer divide does not divide evenly (`7 / 2`), THE result widens to double through the
+  /// shared promotion engine and matches the AST — the arm the even-divisor `100 / 5 / 2` row never
+  /// reaches. AND WHEN an integer divide-by-zero (`7 / 0`) is evaluated, THE AST and the IR must agree
+  /// on the outcome (both throw `ArithmeticException` through the same `left % right` boundary), pinned
+  /// by the throw-class parity assertion so a divergence in the value-sensitive zero-divisor boundary
+  /// is caught.
+  @Test
+  public void arithmeticDivideWideningAndByZero() {
+    assertValueParity("a / b", row("a", 7, "b", 2)); // 3.5 (double-widening arm)
+    assertValueParityOrSameThrow("a / b", row("a", 7, "b", 0)); // AST vs IR must agree on by-zero
   }
 
   /// WHEN a date column is shifted by a Long (`d + n` with a {@link Date} and a Long), THE
@@ -295,6 +377,35 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
     assertNotParity("NOT a = b", row("a", 5, "b", 5)); // a = b true, NOT -> false
   }
 
+  /// WHEN a `NOT` wraps another `NOT` (double negation), THE lowerer recurses NOT-over-NOT through the
+  /// same boolean entry, producing `UnaryOp(NOT, UnaryOp(NOT, EQ))`, and the evaluator composes two
+  /// `visitUnaryOp(NOT)` negations to match the block's own oracle. The `NotBlock()` grammar yields
+  /// only one negation level, so the nested block is built via the AST's public setters with an
+  /// inner parsed `NOT a = b`. Both true and false comparison rows are checked so the double negation
+  /// is pinned in both directions (it must collapse to the un-negated truth value).
+  @Test
+  public void notDoubleNegationComposes() {
+    SQLNotBlock outer = new SQLNotBlock(-1);
+    outer.setNegate(true);
+    outer.setSub(parseNotBlock("NOT a = b")); // inner NOT(a = b)
+    assertNotBlockParity(outer, row("a", 5, "b", 5)); // NOT NOT (true) -> true
+    assertNotBlockParity(outer, row("a", 3, "b", 5)); // NOT NOT (false) -> false
+  }
+
+  /// WHEN a `SQLNotBlock` is not negated, THE lowerer collapses it to a transparent pass-through (the
+  /// `isNegate() == false` arm) — the lowered sub with no wrapping `UnaryOp` — and the IR matches the
+  /// block's own oracle, which likewise returns the sub's value unchanged. The grammar admits a
+  /// non-negated block, but parsing one is ambiguous, so it is built via the public setters wrapping a
+  /// parsed comparison.
+  @Test
+  public void notBlockNonNegatedPassesThrough() {
+    SQLNotBlock passThrough = new SQLNotBlock(-1);
+    passThrough.setNegate(false);
+    passThrough.setSub(parseComparison("a = b"));
+    assertNotBlockParity(passThrough, row("a", 5, "b", 5)); // pass-through of true
+    assertNotBlockParity(passThrough, row("a", 3, "b", 5)); // pass-through of false
+  }
+
   // ---- Function call (method-call coercion) ----
 
   /// WHEN a method-call coercion `name.asInteger()` is evaluated against a string column, THE IR's
@@ -303,6 +414,17 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
   @Test
   public void funcCallMethodCoercionParity() {
     assertValueParity("name.asInteger()", row("name", "42"));
+  }
+
+  /// WHEN a method-call coercion carries a parameter (`name.indexof('cd')` on a string column), THE
+  /// IR's `visitFuncCall` evaluates the parameter into `params[]` (the `args[1..n]` loop body that a
+  /// zero-arg method leaves unrun) and the result matches the AST. `indexof` takes one argument, the
+  /// argument is a string literal that lowers to a `Const`, so the parameterized method-call modifier
+  /// is in the S0 subset; this pins the param-index arithmetic and the parameter sub-expression
+  /// recursion `name.asInteger()` cannot reach.
+  @Test
+  public void funcCallWithParameterParity() {
+    assertValueParity("name.indexof('cd')", row("name", "abcdef")); // index of "cd" -> 2
   }
 
   // ---- Identifiable adapter (future-caller seam) ----
