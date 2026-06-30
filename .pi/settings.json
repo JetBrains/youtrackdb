@@ -1,3 +1,5 @@
 {
-  "defaultThinkingLevel": "xhigh"
+  "defaultModel": "claude-opus-4-8",
+  "defaultThinkingLevel": "xhigh",
+  "hideThinkingBlock": true
 }
