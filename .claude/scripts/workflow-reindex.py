@@ -133,12 +133,19 @@ IN_SCOPE_GLOBS: Tuple[str, ...] = (
     # directly.
     #
     # Skills asymmetry is intentional: the staged glob accepts any
-    # SKILL.md so a workflow-modifying plan that stages a non-workflow
-    # skill (rare) still gets validated, while the live glob above
-    # restricts to the 7 workflow-referencing anchors. Live `.claude/
-    # skills/**` carries ~20 skills today and only the 7 enumerated
-    # above interact with the workflow tree; the staged subtree is
-    # plan-scoped and only contains files the author chose to stage.
+    # SKILL.md, while the live glob above restricts to the 7 workflow-
+    # referencing anchors. Live `.claude/skills/**` carries ~20 skills today
+    # and only the 7 enumerated above interact with the workflow tree; the
+    # staged subtree is plan-scoped and only contains files the author chose to
+    # stage. The broad staged glob does NOT mean every staged skill gets the
+    # full eight-rule treatment, though. A staged copy of a non-anchor skill —
+    # a SKILL.md not in the 7 anchors, which a §1.7 copy-then-edit stages as a
+    # verbatim-plus-delta of a TOC-less live file — is partitioned OUT of rules
+    # 2/4/8 by `validate` (via `_is_staged_nonanchor_skill`) and into the
+    # rules-6/7-only citing scope, so it validates exactly like its (unchecked,
+    # out-of-`IN_SCOPE_GLOBS`) live namesake instead of being forced into TOC
+    # conformance the live file never had. A staged copy of an ANCHOR skill
+    # stays in the full loop — anchor skills carry TOCs and must stay in sync.
     "docs/adr/*/_workflow/staged-workflow/.claude/workflow/**/*.md",
     "docs/adr/*/_workflow/staged-workflow/.claude/skills/**/SKILL.md",
     # Staged agents are the third stageable prefix (`conventions.md §1.7(e)`):
@@ -1370,6 +1377,45 @@ def _is_staged_agent(pf: ParsedFile) -> bool:
     return logical.startswith(".claude/agents/")
 
 
+def _is_staged_nonanchor_skill(pf: ParsedFile) -> bool:
+    """Return True iff `pf` is a staged copy of a NON-anchor `.claude/skills/` SKILL.md.
+
+    The live globs in `IN_SCOPE_GLOBS` restrict SKILL.md validation to the
+    seven workflow-anchor skills (`BOOTSTRAP_SCOPE_SKILLS`); a live skill
+    outside that set (e.g. `.claude/skills/fix-ci-failure/SKILL.md`) is never
+    discovered and so is never checked. The staged-skills glob, by contrast,
+    matches ANY staged SKILL.md, so once a workflow-modifying branch
+    copy-then-edits a non-anchor skill into the staged tree (a required
+    modification — re-keying its roster references, say), the staged copy is a
+    verbatim-plus-delta of a live file that has no TOC region, and the eight-
+    rule loop over-fires rules 2/4/8 on it (H2 headings but no TOC region,
+    un-annotated `##`/`###` headings, bare `§X.Y` in-file refs).
+
+    A staged non-anchor skill must therefore validate exactly as its live
+    namesake would — which is to say, out of the TOC-presence / annotation
+    rules. `validate` and the `--write` planner use this predicate to pull such
+    a copy out of the eight-rule / TOC-rewrite treatment and into the
+    rules-6/7-only citing scope (so its outgoing cross-file refs are still
+    checked); rule 7 stays a silent no-op for it because the staged copy's path
+    is deliberately NOT added to `bootstrap_paths` — its live namesake is not
+    in `BOOTSTRAP_SCOPE_SKILLS` either. The logical path (staged prefix
+    stripped) collapses the staged copy onto its live `.claude/skills/<dir>/
+    SKILL.md` namesake, so the test is `staged AND a SKILL.md under
+    .claude/skills/ AND that logical path is NOT one of the seven anchors`.
+
+    A staged copy of an ANCHOR skill (e.g. a staged `code-review/SKILL.md`)
+    fails this predicate and stays in the eight-rule loop: anchor skills carry
+    TOCs and per-section annotations, and a staged anchor copy must stay in
+    sync with the rest of the workflow surface, so it gets full validation.
+    """
+    if not _is_staged(pf):
+        return False
+    logical = _logical_workflow_path(pf)
+    if _skill_dir_key(logical) is None:
+        return False
+    return logical not in BOOTSTRAP_SCOPE_SKILLS
+
+
 def _is_workflow_root_doc(logical: str) -> bool:
     """Return True iff `logical` is a `.claude/workflow/` root doc (not a prompt).
 
@@ -2386,39 +2432,67 @@ def validate(
     """
     enums = load_bootstrap_enums(repo_root)
     in_scope_files = parse_in_scope_files(repo_root)
-    # Partition the in-scope set: a staged agent (matched by the
-    # `IN_SCOPE_GLOBS` staged-agents glob once §1.7(e) stages agents) must
-    # validate like a live agent — rules 6/7 only — not through the eight-rule
-    # loop below, which would over-fire rules 2/4/8 on it (un-annotated
-    # `##`/`###` headings, no TOC region, bare `§X.Y` in-file refs); rules
-    # 1/3/5 are already structurally unreachable on a staged agent (rule 1's
-    # staged-mirror exemption, no TOC region for rule 3, no well-formed
-    # annotation for rule 5 to validate), so the partition suppresses 2/4/8 and
-    # future-proofs the rest. Pull staged agents out
-    # of `parsed_files` and into the agent citing scope alongside the live
-    # agents. On a non-workflow-modifying tree (no staged subtree) this
-    # partition is a no-op and `parsed_files` is the full in-scope set.
-    parsed_files = [pf for pf in in_scope_files if not _is_staged_agent(pf)]
+    # Partition the in-scope set. Two staged shapes must validate like their
+    # live namesakes — rules 6/7 only — rather than through the eight-rule loop
+    # below:
+    #
+    # 1. A staged AGENT (matched by the `IN_SCOPE_GLOBS` staged-agents glob once
+    #    §1.7(e) stages agents). The eight-rule loop would over-fire rules 2/4/8
+    #    on it (un-annotated `##`/`###` headings, no TOC region, bare `§X.Y`
+    #    in-file refs); rules 1/3/5 are already structurally unreachable (rule
+    #    1's staged-mirror exemption, no TOC region for rule 3, no well-formed
+    #    annotation for rule 5 to validate). Its live namesake validates under
+    #    rules 6/7 only, so the staged copy does too.
+    # 2. A staged copy of a NON-ANCHOR skill (a SKILL.md not in the seven
+    #    `BOOTSTRAP_SCOPE_SKILLS` anchors — e.g. a staged `fix-ci-failure/
+    #    SKILL.md` a branch copy-then-edited to re-key roster references). The
+    #    staged-skills glob matches ANY staged SKILL.md, but a non-anchor live
+    #    skill is out of `IN_SCOPE_GLOBS` and so never checked; the staged copy
+    #    (a verbatim-plus-delta of a TOC-less live file) would otherwise trip
+    #    rules 2/4 in the loop. Its live namesake is unchecked, so the staged
+    #    copy validates under rules 6/7 only (and rule 7 is a silent no-op
+    #    because it is not a bootstrap-scope skill — see below).
+    #
+    # Both shapes are pulled out of `parsed_files` and into the citing scope
+    # alongside the live agents. A staged copy of an ANCHOR skill stays in the
+    # eight-rule loop (anchor skills carry TOCs and must stay in sync). On a
+    # non-workflow-modifying tree (no staged subtree) the partition is a no-op
+    # and `parsed_files` is the full in-scope set.
+    parsed_files = [
+        pf
+        for pf in in_scope_files
+        if not _is_staged_agent(pf) and not _is_staged_nonanchor_skill(pf)
+    ]
     staged_agent_files = [pf for pf in in_scope_files if _is_staged_agent(pf)]
+    staged_nonanchor_skill_files = [
+        pf for pf in in_scope_files if _is_staged_nonanchor_skill(pf)
+    ]
     parsed_by_path = {pf.path: pf for pf in parsed_files}
-    # Live + staged agent files form a separate citing scope (rules 6/7 only).
-    # They are parsed for cross-file ref scanning and bootstrap presence but
-    # are NOT added to the file_lookup keyspace: an agent file is never a
-    # valid cross-file ref TARGET (an agent-file-as-target is backtick-
-    # wrapped, not suffixed), so building the lookup from the in-scope set
-    # alone keeps agent basenames out of the target keyspace. The lookup
-    # the agents' rule-6 scan consults is the in-scope workflow lookup, which
-    # is exactly the set of valid suffix targets.
-    parsed_agent_files = [
-        parse_file(p, repo_root) for p in discover_agent_citing_files(repo_root)
-    ] + staged_agent_files
+    # Live agents + staged agents + staged non-anchor skills form a separate
+    # citing scope (rules 6/7 only). They are parsed for cross-file ref scanning
+    # and bootstrap presence but are NOT added to the file_lookup keyspace: an
+    # agent file is never a valid cross-file ref TARGET (an agent-file-as-target
+    # is backtick-wrapped, not suffixed), and a non-anchor skill is not a valid
+    # target either (its live namesake is out of scope, so no in-scope file may
+    # resolve a ref to it). Building the lookup from `parsed_files` alone keeps
+    # both out of the target keyspace. The lookup the citing scope's rule-6 scan
+    # consults is the in-scope workflow lookup, which is exactly the set of
+    # valid suffix targets.
+    parsed_agent_files = (
+        [parse_file(p, repo_root) for p in discover_agent_citing_files(repo_root)]
+        + staged_agent_files
+        + staged_nonanchor_skill_files
+    )
     parsed_agent_by_path = {pf.path: pf for pf in parsed_agent_files}
     file_lookup = build_file_lookup(parsed_files)
     # A staged agent's own path joins the bootstrap-presence scope so rule 7
     # (`## Reading workflow files (TOC protocol)` presence) fires on it exactly
     # as it does on its live namesake. `discover_bootstrap_scope` walks only the
     # live `.claude/agents/` directory, so the staged copy's path would
-    # otherwise be absent and rule 7 would silently skip it.
+    # otherwise be absent and rule 7 would silently skip it. A staged
+    # non-anchor skill is deliberately NOT added here: its live namesake is not
+    # in `BOOTSTRAP_SCOPE_SKILLS`, so rule 7 must stay a silent no-op for it
+    # (the gate `parsed.path not in bootstrap_paths` returns no finding).
     bootstrap_paths = frozenset(
         p.resolve().relative_to(repo_root.resolve()).as_posix()
         for p in discover_bootstrap_scope(repo_root)
@@ -2726,14 +2800,17 @@ def compute_write_plan(
     `changed` flag (True iff the new content differs from the file's
     current content). The caller filters by `changed` before writing.
     """
-    # Exclude staged agents from the write plan exactly as `validate`
-    # excludes them from the eight-rule loop: agents are refs-only (no TOC,
-    # no in-file refs to auto-stamp), so a staged agent must stay TOC-inert
-    # under `--write` like its live namesake. Without this filter the
-    # staged-agents glob (live once §1.7(e) stages agents) would route the
-    # staged agent through the TOC rebuild + rule-8 stamp passes below.
+    # Exclude staged agents AND staged non-anchor skills from the write plan
+    # exactly as `validate` excludes them from the eight-rule loop: both are
+    # TOC-inert under `--write` like their live namesakes (an agent is refs-only
+    # with no TOC; a non-anchor skill's live namesake is out of scope and never
+    # written). Without this filter the staged-agents glob (live once §1.7(e)
+    # stages agents) and the staged-skills glob would route either file through
+    # the TOC rebuild + rule-8 stamp passes below.
     parsed_files = [
-        pf for pf in parse_in_scope_files(repo_root) if not _is_staged_agent(pf)
+        pf
+        for pf in parse_in_scope_files(repo_root)
+        if not _is_staged_agent(pf) and not _is_staged_nonanchor_skill(pf)
     ]
     parsed_by_path = {pf.path: pf for pf in parsed_files}
     if files_filter is not None:

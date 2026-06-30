@@ -16,7 +16,9 @@
 #   workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} \
 #       [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
 #   workflow-startup-precheck.sh --append-ledger \
-#       [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] \
+#       [--ctx <level>] [--phase <token>] [--track <n>] \
+#       [--design-gate <yes|no>] [--tracks <n>] [--phase1-complete <yes>] \
+#       [--reconciled-tag <low|medium|high>] \
 #       [--categories <text>] [--s17 <token>] [--paused <event>] \
 #       [--substate <slug>]
 #
@@ -49,22 +51,38 @@
 # boundaries it flips plan checkboxes today. The grammar is fixed and is the
 # contract `determine_state` greps and Track 2's runtime consumers read:
 #
-#   [<ISO>] [ctx=<level>] phase=<v> track=<v> tier=<v> substate=<v> categories="<v>" s17=<v> paused=<v>
+#   [<ISO>] [ctx=<level>] phase=<v> track=<v> design_gate=<v> tracks=<v> phase1_complete=<v> reconciled_tag=<v> substate=<v> categories="<v>" s17=<v> paused=<v>
 #
 #   * One entry per line; the leading `[<ISO>]` timestamp and `[ctx=<level>]`
 #     marker are always present, then the `key=value` fields that the append
 #     was given (an unsupplied key is simply omitted from that line).
 #   * The key set is exactly
-#     { phase, track, tier, substate, categories, s17, paused }.
+#     { phase, track, design_gate, tracks, phase1_complete, reconciled_tag,
+#       substate, categories, s17, paused }.
 #     `categories` is the one quoted value (it may carry spaces and commas, e.g.
 #     `categories="Workflow machinery,Architecture"`); every other value is a
-#     bare metacharacter-free token. `substate` is the within-track resume signal
-#     (one of the four committed slugs); it is emitted in the pre-`categories`
-#     block so the first-match token reader cannot lose it to a decoy inside the
-#     one quoted field.
+#     bare metacharacter-free token. The four complexity-axis fields replaced the
+#     dropped `tier`:
+#       - `design_gate` — a bare `yes`/`no`: does the change need a `design.md`.
+#       - `tracks` — a bare integer: how many track files the planner authored
+#         (the plan-presence / track-count signal; > 1 means an
+#         implementation-plan.md exists, the resume router's plan-presence read).
+#       - `phase1_complete` — a bare `yes`: Phase 1 finished cleanly. Its presence
+#         is the signal; an absent key means Phase 1 has not completed (the resume
+#         router uses it to tell the design+single-track steady state apart from a
+#         mid-authoring crash, whose on-disk file sets are identical).
+#       - `reconciled_tag` — a bare `low`/`medium`/`high`: a track's `max(step
+#         tags)` complexity, written PER TRACK (paired with a `track=` token on the
+#         same line) and read track-scoped via `ledger_tail_value_for_track` so a
+#         prior track's value cannot leak.
+#     `substate` is the within-track resume signal (one of the four committed
+#     slugs); it, like every bare reader-consumed field above, is emitted in the
+#     pre-`categories` block so the first-match token reader cannot lose it to a
+#     decoy inside the one quoted field.
 #   * Values are VALIDATED on append, mirroring the read path's loud-reject
 #     posture: a newline in any field, a space in a bare-token field
-#     (phase/track/tier/substate/s17/paused/ctx), or a double quote in
+#     (phase/track/design_gate/tracks/phase1_complete/reconciled_tag/substate/
+#     s17/paused/ctx), or a double quote in
 #     `categories` is rejected with a stderr diagnostic and exit 3, because each
 #     would split or truncate the line and silently corrupt last-value-wins
 #     resolution. The
@@ -73,7 +91,7 @@
 #     loudly rather than corrupting the tail.
 #   * Read semantics are LAST-VALUE-WINS PER KEY across the whole file: a reader
 #     scans every line and keeps the most recent value seen for each key, so a
-#     mid-flight tier or phase change is recorded by APPENDING a new line rather
+#     mid-flight phase change is recorded by APPENDING a new line rather
 #     than rewriting an old one. `phase` and `track` feed determine_state's
 #     two-level resume (the ledger owns the top-level phase and the active
 #     track; the within-track sub-state is read ledger-first from the
@@ -116,7 +134,15 @@ APPEND_LEDGER="0"
 LEDGER_CTX=""
 LEDGER_PHASE=""
 LEDGER_TRACK=""
-LEDGER_TIER=""
+# The four complexity-axis fields that replaced `tier`. design_gate / tracks /
+# phase1_complete are change-level; reconciled_tag is per-track (paired with the
+# track= token on its line). All four are bare metacharacter-free tokens emitted
+# in the pre-`categories` block per the first-match-wins / same-named-decoy
+# invariant.
+LEDGER_DESIGN_GATE=""
+LEDGER_TRACKS=""
+LEDGER_PHASE1_COMPLETE=""
+LEDGER_RECONCILED_TAG=""
 LEDGER_CATEGORIES=""
 LEDGER_S17=""
 LEDGER_PAUSED=""
@@ -131,7 +157,7 @@ usage() {
   # Usage text goes to stderr so it never contaminates the JSON on stdout.
   cat >&2 <<'USAGE'
 Usage: workflow-startup-precheck.sh --mode {full,divergence-only,migrate-range} [--bootstrap-sha <40-char-sha>] [--exclude-sha <sha> ...]
-       workflow-startup-precheck.sh --append-ledger [--ctx <level>] [--phase <token>] [--track <n>] [--tier <token>] [--categories <text>] [--s17 <token>] [--paused <event>] [--substate <slug>]
+       workflow-startup-precheck.sh --append-ledger [--ctx <level>] [--phase <token>] [--track <n>] [--design-gate <yes|no>] [--tracks <n>] [--phase1-complete <yes>] [--reconciled-tag <low|medium|high>] [--categories <text>] [--s17 <token>] [--paused <event>] [--substate <slug>]
 USAGE
 }
 
@@ -168,8 +194,20 @@ while [ "$#" -gt 0 ]; do
       LEDGER_TRACK="$2"
       shift 2
       ;;
-    --tier)
-      LEDGER_TIER="$2"
+    --design-gate)
+      LEDGER_DESIGN_GATE="$2"
+      shift 2
+      ;;
+    --tracks)
+      LEDGER_TRACKS="$2"
+      shift 2
+      ;;
+    --phase1-complete)
+      LEDGER_PHASE1_COMPLETE="$2"
+      shift 2
+      ;;
+    --reconciled-tag)
+      LEDGER_RECONCILED_TAG="$2"
       shift 2
       ;;
     --categories)
@@ -1642,7 +1680,8 @@ ledger_path() {
 #     last-value-wins reader would treat the smuggled `phase=Done` tail of that
 #     line as the resolved phase, routing resume to the wrong state;
 #   * a SPACE in any BARE-token field
-#     (phase/track/tier/substate/s17/paused/ctx) — the
+#     (phase/track/design_gate/tracks/phase1_complete/reconciled_tag/substate/
+#     s17/paused/ctx) — the
 #     reader splits a bare value at the first space, so a space would truncate
 #     the value or spawn a spurious key=value token. `categories` is the one
 #     field that may carry spaces, so it is exempt from the space check;
@@ -1690,14 +1729,17 @@ append_ledger() {
   # ctx and the bare-token fields reject spaces and newlines; categories rejects
   # a newline and an embedded double quote.
   ctx="${LEDGER_CTX:-safe}"
-  reject_bad_ledger_value "ctx"        "$ctx"               bare
-  reject_bad_ledger_value "phase"      "$LEDGER_PHASE"      bare
-  reject_bad_ledger_value "track"      "$LEDGER_TRACK"      bare
-  reject_bad_ledger_value "tier"       "$LEDGER_TIER"       bare
-  reject_bad_ledger_value "substate"   "$LEDGER_SUBSTATE"   bare
-  reject_bad_ledger_value "s17"        "$LEDGER_S17"        bare
-  reject_bad_ledger_value "paused"     "$LEDGER_PAUSED"     bare
-  reject_bad_ledger_value "categories" "$LEDGER_CATEGORIES" quoted
+  reject_bad_ledger_value "ctx"             "$ctx"                    bare
+  reject_bad_ledger_value "phase"           "$LEDGER_PHASE"           bare
+  reject_bad_ledger_value "track"           "$LEDGER_TRACK"           bare
+  reject_bad_ledger_value "design_gate"     "$LEDGER_DESIGN_GATE"     bare
+  reject_bad_ledger_value "tracks"          "$LEDGER_TRACKS"          bare
+  reject_bad_ledger_value "phase1_complete" "$LEDGER_PHASE1_COMPLETE" bare
+  reject_bad_ledger_value "reconciled_tag"  "$LEDGER_RECONCILED_TAG"  bare
+  reject_bad_ledger_value "substate"        "$LEDGER_SUBSTATE"        bare
+  reject_bad_ledger_value "s17"             "$LEDGER_S17"             bare
+  reject_bad_ledger_value "paused"          "$LEDGER_PAUSED"          bare
+  reject_bad_ledger_value "categories"      "$LEDGER_CATEGORIES"      quoted
 
   # The plan `_workflow/` dir is created by /create-plan before the first
   # append; mkdir -p makes the append self-sufficient and idempotent. WH2: a
@@ -1713,17 +1755,25 @@ append_ledger() {
   ts="$(date -u +%Y-%m-%dT%H:%MZ)"
 
   line="[$ts] [ctx=$ctx]"
-  [ -n "$LEDGER_PHASE" ]      && line="$line phase=$LEDGER_PHASE"
-  [ -n "$LEDGER_TRACK" ]      && line="$line track=$LEDGER_TRACK"
-  [ -n "$LEDGER_TIER" ]       && line="$line tier=$LEDGER_TIER"
+  [ -n "$LEDGER_PHASE" ]           && line="$line phase=$LEDGER_PHASE"
+  [ -n "$LEDGER_TRACK" ]           && line="$line track=$LEDGER_TRACK"
+  # The four complexity-axis fields, all bare and emitted in the pre-`categories`
+  # block per the first-match-wins / same-named-decoy invariant (the token reader
+  # takes the first ` key=` match and stops; a key emitted AFTER the one quoted
+  # field could lose to a same-named decoy inside it). reconciled_tag rides on the
+  # same line as its `track=` token so the track-scoped reader resolves it.
+  [ -n "$LEDGER_DESIGN_GATE" ]     && line="$line design_gate=$LEDGER_DESIGN_GATE"
+  [ -n "$LEDGER_TRACKS" ]          && line="$line tracks=$LEDGER_TRACKS"
+  [ -n "$LEDGER_PHASE1_COMPLETE" ] && line="$line phase1_complete=$LEDGER_PHASE1_COMPLETE"
+  [ -n "$LEDGER_RECONCILED_TAG" ]  && line="$line reconciled_tag=$LEDGER_RECONCILED_TAG"
   # substate is bare and goes BEFORE the quoted categories field: the token
   # reader takes the first ` substate=` match and stops, so a bare substate
   # written ahead of the one quoted field can never lose to a decoy `substate=`
   # embedded inside a quoted `categories="…"` span.
-  [ -n "$LEDGER_SUBSTATE" ]   && line="$line substate=$LEDGER_SUBSTATE"
-  [ -n "$LEDGER_CATEGORIES" ] && line="$line categories=\"$LEDGER_CATEGORIES\""
-  [ -n "$LEDGER_S17" ]        && line="$line s17=$LEDGER_S17"
-  [ -n "$LEDGER_PAUSED" ]     && line="$line paused=$LEDGER_PAUSED"
+  [ -n "$LEDGER_SUBSTATE" ]        && line="$line substate=$LEDGER_SUBSTATE"
+  [ -n "$LEDGER_CATEGORIES" ]      && line="$line categories=\"$LEDGER_CATEGORIES\""
+  [ -n "$LEDGER_S17" ]             && line="$line s17=$LEDGER_S17"
+  [ -n "$LEDGER_PAUSED" ]          && line="$line paused=$LEDGER_PAUSED"
 
   # Build the new contents in a temp file in the SAME directory (so the final mv
   # is a same-filesystem rename, not a cross-device copy that would not be
@@ -1928,9 +1978,11 @@ determine_c_substate() {
 # sub-state. Sets STATE_JSON and returns 0 when the ledger resolves the state;
 # returns 1 (without touching STATE_JSON) when there is no ledger, so the caller
 # falls back to the legacy plan-checkbox walk. This is the D3/D10 path: a
-# plan-less `minimal` branch resumes from its ledger instead of restarting, and
-# the active track is `track-1` by construction (single-track tier, D10's
-# `plan/track-1.md` secondary signal) when the ledger names no track.
+# plan-less branch resumes from its ledger instead of restarting, and the active
+# track is `track-1` by construction (a single-track change has no plan to walk,
+# D10's `plan/track-1.md` secondary signal) when the ledger names no track. The
+# empty-`track`→1 default below keys on an empty `track=` token, not on any tier,
+# so it stays correct under the tier-free schema.
 determine_state_from_ledger() {
   local branch plan_dir ledger phase track track_file substate
   branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
@@ -1960,8 +2012,9 @@ determine_state_from_ledger() {
     C)
       # Execution resume: the ledger owns the active track and, ledger-first,
       # the within-track sub-state, with the track file as the fallback source.
-      # Default the active track to 1 for the
-      # single-track `minimal` tier whose ledger names no track (D10).
+      # Default the active track to 1 for a single-track change whose ledger names
+      # no track (D10). The default keys on an empty `track=` token — tier-agnostic
+      # — so it is unaffected by the `tier=` removal.
       ledger_tail_value "track"
       track="$LEDGER_VALUE"
       [ -n "$track" ] || track="1"
@@ -2011,8 +2064,8 @@ determine_state_from_ledger() {
 
 determine_state() {
   # Two-level resume: prefer the phase ledger (D3) when present, which is the
-  # only resume signal a plan-less `minimal` branch has. When no ledger exists —
-  # an existing in-flight `lite`/`full` plan created before the ledger, or a
+  # only resume signal a plan-less branch has. When no ledger exists —
+  # an existing in-flight plan created before the ledger, or a
   # fresh checkout — fall back to the legacy plan-checkbox walk below so those
   # plans resume without regression (the two-level lookup keeps the track-file
   # sub-state walk unchanged).

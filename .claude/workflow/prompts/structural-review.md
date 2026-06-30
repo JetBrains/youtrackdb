@@ -94,8 +94,8 @@ descriptions, oversized tracks, contradictions — directly impair execution.
 - **Decision Records**: Design choices recorded in each track's
   `## Decision Log` (track-canonical under D7; the plan no longer carries
   them). Each must include: alternatives considered, rationale, risks/
-  caveats, and the implementing track. In `full`, the frozen `design.md`
-  keeps a seed copy as provenance.
+  caveats, and the implementing track. When the design gate is yes, the
+  frozen `design.md` keeps a seed copy as provenance.
 - **Component Map**: Mermaid diagram + annotated bullet list showing which
   system components the plan touches and what changes in each.
 - **Invariants**: Conditions that must remain true. Can be ENFORCED (code
@@ -142,17 +142,18 @@ individual criterion bullets below (tagged `*(cross-file: …)*` or
 `*(track file for pending, plan-file for completed/skipped)*`) route
 each check to the right source.
 
-**Tier guard — this pass does not run under `minimal`.** The structural
-pass is dropped entirely in `minimal`: under D2 the `minimal` tier has no
-`implementation-plan.md` at all, so there is no Component Map, no track
+**Plan-presence guard — this pass does not run when no plan exists.** The
+structural pass is dropped entirely for a single-track change: it has no
+`implementation-plan.md` at all (the track-count axis — a cross-track
+summary is vacuous for one track), so there is no Component Map, no track
 ordering, and no plan-file section shape for a structural pass to validate
 (the single track's detail lives in `plan/track-1.md`, which Phase-A review
-covers). The orchestrator does not spawn this review under `minimal` — see
-implementation-review.md:orchestrator,reviewer-plan:2 §"Tier-driven pass
-selection". This prompt therefore only ever runs under `full` and `lite`,
-both of which carry a thinned `implementation-plan.md`. The DESIGN DOCUMENT
-block below adds a second, within-pass guard for the no-design case (`lite`),
-which is independent of this `minimal` pass-skip.
+covers). The orchestrator does not spawn this review when no plan exists —
+see implementation-review.md:orchestrator,reviewer-plan:2 §"Axis-driven pass
+selection". This prompt therefore only ever runs on a multi-track change,
+which carries a thinned `implementation-plan.md`. The DESIGN DOCUMENT
+block below adds a second, within-pass guard for the no-design case
+(`design_gate=no`), which is independent of this plan-presence pass-skip.
 
 Review the plan against these criteria:
 
@@ -254,7 +255,7 @@ ARCHITECTURE NOTES *(mixed source under the thinned plan — the plan keeps
 only the thin cross-track Component Map; Decision Records, Invariants, and
 Integration Points are track-canonical under D7/D9 and live in the track
 files; Goals/Non-Goals are dropped from the plan under D5. See
-`conventions.md` §"Plan file content" and §"Per-tier artifact set".)*
+`conventions.md` §"Plan file content" and §"Per-axis artifact set".)*
 - Is there a top-level Component Map in the plan? *(plan-file — the thin
   cross-track Component Map for impact assessment)*
 - Does it include only touched components plus immediate neighbors?
@@ -281,11 +282,13 @@ pending tracks, from the plan-file entry for completed/skipped
 tracks.)*
 
 **Design-presence guard — skip this entire check block when `design.md`
-is absent (`lite` / `minimal`).** This block reads the design file; with
+is absent (`design_gate=no`).** This block reads the design file; with
 no design there is nothing to check, so emit no DESIGN DOCUMENT findings.
-The structural review still runs under `lite` (only `minimal` drops the
-structural pass altogether), so this guard is a within-pass conditional,
-not the `minimal` pass-skip. Run the whole block unchanged under `full`.
+The structural review still runs on a `design_gate=no` multi-track change
+(only a single-track change with no plan drops the structural pass
+altogether), so this guard is a within-pass conditional, not the
+plan-presence pass-skip. Run the whole block unchanged when the design
+gate is yes.
 
 - Does the design document exist at `docs/adr/<dir-name>/_workflow/design.md`?
 - Does it include an Overview section summarizing the design approach?
@@ -331,7 +334,7 @@ CONSISTENCY
 
 BLOAT *(mixed source under the thinned plan — see the per-check tags
 below)* — these checks are mechanical line-count and pattern-match. Under
-the thinned `lite`/`full` plan (D5/D9), the plan file no longer carries the
+the thinned multi-track plan (D5/D9), the plan file no longer carries the
 full Decision Records, Invariants, or Integration Points: those moved to
 each track file's `## Decision Log`, combined `## Invariants & Constraints`,
 and `## Interfaces and Dependencies` respectively, and the plan keeps only
@@ -340,21 +343,22 @@ length checks split by source: the **component-intent** and **plan-file
 total** checks read the plan file; the **DR / invariant / integration-point
 / superseded-DR** checks read each pending track's track file; the
 **seed↔track fidelity** check is cross-file between `design.md` and the
-track files (`full`-tier only). The plan file is loaded at every
+track files (only when the design gate is yes). The plan file is loaded at every
 `/execute-tracks` session startup and every pending track file is read on
 demand at Phase A/B/C, so each budget-exceedance is paid for the rest of the
 plan's life. Bloat is a first-class structural defect, not a stylistic
 concern.
 
-**Bloat-fix destination — track sections in every tier (D10).** The four
-length-bloat fixes below move long-form material **to the matching track
-section**, not into `design.md`, in every tier including `full`. Under the
-carrier flip (D7) the track is the live decision carrier and `design.md`
-is a frozen, non-canonical provenance seed that cannot be edited after the
-Step-4a freeze; routing live material into it is wrong-direction and
-unmaintainable after the first replan. In `full`, a trimmed DR's
-`**Full design**` line still points at the frozen seed's mechanism section
-as on-demand provenance, but the live record stays in the track.
+**Bloat-fix destination — track sections for every change (D10).** The
+four length-bloat fixes below move long-form material **to the matching
+track section**, not into `design.md`, for every change including when a
+design exists. Under the carrier flip (D7) the track is the live decision
+carrier and `design.md` is a frozen, non-canonical provenance seed that
+cannot be edited after the Step-4a freeze; routing live material into it is
+wrong-direction and unmaintainable after the first replan. When a design
+exists, a trimmed DR's `**Full design**` line still points at the frozen
+seed's mechanism section as on-demand provenance, but the live record stays
+in the track.
 
 - **DR length** *(track-file: each pending track's `## Decision Log` — the
   plan no longer carries Decision Records under D7)*: does any Decision
@@ -369,9 +373,9 @@ as on-demand provenance, but the live record stays in the track.
   material (worked examples, audit findings, layered diagrams,
   edit-by-edit guidance, crash-scenario walk-throughs) into the same
   track's `## Decision Log` record as a separate prose passage, or out of
-  the record entirely when it duplicates committed code. In `full`, link
-  the frozen seed's mechanism section from the DR's `**Full design**` line
-  as on-demand provenance.
+  the record entirely when it duplicates committed code. When a design
+  exists, link the frozen seed's mechanism section from the DR's
+  `**Full design**` line as on-demand provenance.
 - **Invariant length** *(track-file: each pending track's combined
   `## Invariants & Constraints` section — invariants moved off the plan
   under D9)*: does any invariant entry exceed ~5 lines?
@@ -402,8 +406,9 @@ as on-demand provenance, but the live record stays in the track.
   *current* decision set, not the history. **Fix:** delete the superseded
   DR entirely; document the supersession in the replacing DR's rationale
   ("This replaces an earlier approach where...").
-- **Seed↔track fidelity** *(`full`-tier only, authoring-time only —
-  replaces the former plan/design duplication check)*: at Step 4b
+- **Seed↔track fidelity** *(only when the design gate is yes,
+  authoring-time only — replaces the former plan/design duplication
+  check)*: at Step 4b
   authoring, iterate the **`design.md` seed D-records only**; for each,
   does it have a matching track `## Decision Log` DR (fuzzy title match:
   2+ significant words shared after lowercasing and dropping stop-words)
@@ -420,9 +425,10 @@ as on-demand provenance, but the live record stays in the track.
   Borderline title matches are flagged for human review, not auto-resolved.
 - **Plan-file total length** *(plan-file)*: does the plan file exceed
   ~1,500 lines or ~30K tokens? **Severity: should-fix.** Under the thinned
-  `lite`/`full` plan the file holds only the `## Design Document` link
-  (`full`), the thin cross-track `## Component Map`, and the `## Checklist`,
-  so this budget is rarely the binding constraint — a thinned plan that
+  multi-track plan the file holds only the `## Design Document` link (when
+  the design gate is yes), the thin cross-track `## Component Map`, and the
+  `## Checklist`, so this budget is rarely the binding constraint — a
+  thinned plan that
   approaches it usually has an oversized Component Map or completed-track
   entries that were never collapsed. **Fix:** if the Component Map is the
   cause, apply the component-intent fix above; if uncollapsed completed-track
@@ -470,7 +476,7 @@ Severity guide:
   superseded Decision Record)
 - should-fix: Plan can be executed but quality/clarity suffers (implausible
   scope indicator, missing decision record for a key choice, **section
-  exceeds its per-section budget, seed↔track fidelity gap (`full`-tier,
+  exceeds its per-section budget, seed↔track fidelity gap (design gate yes,
   authoring-time), plan file exceeds the overall budget**)
 - suggestion: Improvement that isn't strictly necessary (better wording,
   optional diagram that would help)
@@ -498,7 +504,7 @@ Specifically:
 - DR length, invariant length, integration-point length,
   component-intent length — `mechanical` (long-form material moves to the
   matching track section).
-- Seed↔track fidelity (`full`-tier, authoring-time) — `mechanical`
+- Seed↔track fidelity (design gate yes, authoring-time) — `mechanical`
   (restore the track DR to substantive equivalence with its seed).
 - Superseded DR retained — `mechanical` (delete).
 - Plan-file budget exceeded — `mechanical` (apply per-section trims).
@@ -544,7 +550,7 @@ ANY of these triggers `design-decision`:
   is ambiguous. Under the thinned plan the plan keeps only the Component
   Map; the invariant/integration content is track-canonical (D9), so the
   gap is checked per track. Filling these requires the user's rationale.
-- **Design document gaps** (`full`-tier only — skipped when `design.md`
+- **Design document gaps** (design gate yes only — skipped when `design.md`
   is absent per the DESIGN DOCUMENT block's design-presence guard) —
   missing Overview, missing class diagram when 2+ new classes are
   introduced, missing workflow diagram when a new flow is introduced,

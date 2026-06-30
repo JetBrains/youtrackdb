@@ -5279,6 +5279,219 @@ def test_staged_agent_left_toc_inert_by_write() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Staged non-anchor-skill validation routing.
+#
+# The staged-skills glob in `IN_SCOPE_GLOBS` matches ANY staged SKILL.md, but
+# the live globs restrict SKILL.md validation to the seven `BOOTSTRAP_SCOPE_SKILLS`
+# anchors. A live skill outside that set (e.g. `fix-ci-failure/SKILL.md`) is
+# never discovered and so never checked. The hazard: when a workflow-modifying
+# branch copy-then-edits such a non-anchor skill into the staged tree (a
+# required modification — re-keying its roster references, say), the §1.7
+# verbatim-plus-delta copy carries no TOC (its live namesake has none), and the
+# eight-rule loop over-fires rules 2/4 on it. The fix (`_is_staged_nonanchor_skill`)
+# routes a staged non-anchor skill into the same rules-6/7-only scope an agent
+# uses, so it validates exactly like its (unchecked, out-of-scope) live
+# namesake. A staged copy of an ANCHOR skill stays in the eight-rule loop.
+#
+# The current tree stages no skill into these fixtures, so each test builds its
+# own staged-skill fixture under the §1.7(a) subtree.
+# ---------------------------------------------------------------------------
+
+
+# Repo-relative path of a staged NON-anchor skill under the §1.7(a) subtree.
+# `fix-ci-failure` is not one of the seven `BOOTSTRAP_SCOPE_SKILLS` anchors, so
+# its live namesake is out of `IN_SCOPE_GLOBS` and its staged copy must validate
+# under rules 6/7 only.
+_STAGED_NONANCHOR_SKILL_REL = (
+    "docs/adr/some-plan/_workflow/staged-workflow/"
+    ".claude/skills/fix-ci-failure/SKILL.md"
+)
+
+# Repo-relative path of a staged ANCHOR skill under the §1.7(a) subtree.
+# `code-review` IS one of the seven anchors, so its staged copy stays in the
+# full eight-rule loop and a malformed TOC must still be reported.
+_STAGED_ANCHOR_SKILL_REL = (
+    "docs/adr/some-plan/_workflow/staged-workflow/"
+    ".claude/skills/code-review/SKILL.md"
+)
+
+
+def test_staged_nonanchor_skill_no_toc_no_over_fire() -> None:
+    """A staged non-anchor skill with H2 headings and no TOC passes --check.
+
+    Scenario: a workflow-modifying branch copy-then-edits a non-anchor skill
+    (`fix-ci-failure/SKILL.md`) into the staged tree. Like the live file, the
+    staged copy has un-annotated `##`/`###` step headings and no TOC region.
+    Expected: the staged non-anchor skill is partitioned out of the eight-rule
+    loop into the rules-6/7-only scope, so rules 2 and 4 (the over-fire the fix
+    prevents) do NOT fire on it. This is the exact shape that tripped
+    `rule_2`/`rule_4` on the live tree before the fix.
+
+    Non-vacuity: if the `_is_staged_nonanchor_skill` partition were removed from
+    `validate`, the un-annotated `## Step 1` heading with no TOC region would
+    trip rule 2 ("H2 headings but no TOC region") and rule 4 ("heading has no
+    annotation comment"), and this assertion would fail.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # A step-list skill body: YAML frontmatter, H2/H3 headings, no TOC
+        # region, no per-section annotations — the live `fix-ci-failure`
+        # SKILL.md shape verbatim.
+        skill = textwrap.dedent(
+            """\
+            ---
+            name: fix-ci-failure
+            description: Diagnose and fix a CI test failure.
+            ---
+
+            ## Step 1: Identify the failure
+
+            Read the CI logs and find the failing test.
+
+            ### Sub-step
+
+            Drill into the stack trace.
+
+            ## Step 2: Apply the fix
+
+            Make the change and re-run.
+            """
+        )
+        _write_in_scope_file(root, _STAGED_NONANCHOR_SKILL_REL, skill)
+        findings = MODULE.validate(root)
+        staged_findings = _findings_for_path(
+            findings, _STAGED_NONANCHOR_SKILL_REL
+        )
+        over_fire = [
+            f
+            for f in staged_findings
+            if f.rule in {"rule_1", "rule_2", "rule_3", "rule_4", "rule_8"}
+            or f.rule.startswith("rule_5")
+        ]
+        assert not over_fire, (
+            "a staged non-anchor skill must route to the rules-6/7-only scope; "
+            f"rules 1/2/3/4/5/8 must not fire, but got {over_fire}"
+        )
+
+
+def test_staged_nonanchor_skill_rule_7_silent_when_no_bootstrap() -> None:
+    """A staged non-anchor skill without the bootstrap block emits no rule_7.
+
+    Its live namesake is NOT in `BOOTSTRAP_SCOPE_SKILLS`, so rule 7 must stay a
+    silent no-op for the staged copy — unlike a staged agent, whose path is
+    added to `bootstrap_paths` so rule 7 fires. This pins the deliberate
+    difference: the non-anchor-skill partition keeps the staged path OUT of
+    `bootstrap_paths`, so a missing bootstrap heading is not a finding.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        skill = textwrap.dedent(
+            """\
+            ---
+            name: fix-ci-failure
+            description: Diagnose and fix a CI test failure.
+            ---
+
+            ## Step 1: Identify the failure
+
+            No bootstrap block here, exactly like the live namesake.
+            """
+        )
+        _write_in_scope_file(root, _STAGED_NONANCHOR_SKILL_REL, skill)
+        findings = MODULE.validate(root)
+        staged_findings = _findings_for_path(
+            findings, _STAGED_NONANCHOR_SKILL_REL
+        )
+        rule7 = [f for f in staged_findings if f.rule == "rule_7"]
+        assert not rule7, (
+            "rule_7 must stay silent on a staged non-anchor skill (its live "
+            f"namesake is not in BOOTSTRAP_SCOPE_SKILLS); got {rule7}"
+        )
+
+
+def test_staged_nonanchor_skill_rule_6_still_fires_on_bare_ref() -> None:
+    """Citing-scope rule 6 is retained: a bare cross-file ref still fails.
+
+    The partition routes a staged non-anchor skill into the rules-6/7-only
+    scope (not out of validation entirely), so a bare un-suffixed `target.md`
+    cross-file ref must still be reported — the citing-scope check survives.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        _write_in_scope_file(
+            root, ".claude/workflow/target.md", _annotated_target_body()
+        )
+        skill = textwrap.dedent(
+            """\
+            ---
+            name: fix-ci-failure
+            description: Diagnose and fix a CI test failure.
+            ---
+
+            ## Step 1: Identify the failure
+
+            See target.md for the cross-file convention.
+            """
+        )
+        _write_in_scope_file(root, _STAGED_NONANCHOR_SKILL_REL, skill)
+        findings = MODULE.validate(root)
+        staged_findings = _findings_for_path(
+            findings, _STAGED_NONANCHOR_SKILL_REL
+        )
+        rule6 = [f for f in staged_findings if f.rule == "rule_6"]
+        assert any(
+            "target.md" in f.explanation and "missing" in f.explanation
+            for f in rule6
+        ), (
+            "rule_6 (missing-suffix ref) must still fire on a staged non-anchor "
+            f"skill — citing-scope validation is retained; got {staged_findings}"
+        )
+
+
+def test_staged_anchor_skill_malformed_toc_still_fails() -> None:
+    """A staged copy of an ANCHOR skill stays fully validated.
+
+    The partition keys on NON-anchor membership only. A staged copy of an
+    anchor skill (`code-review/SKILL.md`, one of the seven
+    `BOOTSTRAP_SCOPE_SKILLS`) must stay in the eight-rule loop, so H2 headings
+    with no TOC region still trip rule 2 — exactly as they would on the live
+    anchor. This is the load-bearing discriminator: it proves the fix does NOT
+    blanket-exempt every staged skill.
+    """
+    with _make_fixture_root() as tmp:
+        root = Path(tmp)
+        _write_conventions(root)
+        # An anchor-skill body with an H2 heading but no TOC region → rule 2
+        # must fire under the full eight-rule loop.
+        skill = textwrap.dedent(
+            """\
+            ---
+            name: code-review
+            description: Review code changes across dimensions.
+            ---
+
+            ## Step 1: Select reviewers
+
+            Body with no TOC region, so rule 2 must fire on this anchor skill.
+            """
+        )
+        _write_in_scope_file(root, _STAGED_ANCHOR_SKILL_REL, skill)
+        findings = MODULE.validate(root)
+        staged_findings = _findings_for_path(
+            findings, _STAGED_ANCHOR_SKILL_REL
+        )
+        rule2 = [f for f in staged_findings if f.rule == "rule_2"]
+        assert rule2, (
+            "a staged ANCHOR skill must stay fully validated; rule_2 "
+            "(H2 headings but no TOC) must fire as it would on the live "
+            f"anchor, but got {staged_findings}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Driver.
 # ---------------------------------------------------------------------------
 
@@ -5744,6 +5957,22 @@ def main() -> int:
         (
             "staged-agent: --write leaves staged agent TOC-inert",
             test_staged_agent_left_toc_inert_by_write,
+        ),
+        (
+            "staged non-anchor skill: no TOC, no rule-2/4 over-fire",
+            test_staged_nonanchor_skill_no_toc_no_over_fire,
+        ),
+        (
+            "staged non-anchor skill: rule_7 silent when no bootstrap",
+            test_staged_nonanchor_skill_rule_7_silent_when_no_bootstrap,
+        ),
+        (
+            "staged non-anchor skill: rule_6 still fires on bare ref",
+            test_staged_nonanchor_skill_rule_6_still_fires_on_bare_ref,
+        ),
+        (
+            "staged anchor skill: malformed TOC still fails (full validation)",
+            test_staged_anchor_skill_malformed_toc_still_fails,
         ),
     ]
     for name, fn in tests:

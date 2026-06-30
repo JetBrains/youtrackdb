@@ -6,7 +6,7 @@
 |---|---|---|---|
 | §1.1 Glossary | any | any | Closed-term definitions every phase shares: enums, annotations, TOC region, staging, stamps. |
 | §1.2 Plan File Structure | planner,orchestrator,decomposer | 1,2,3A | Layout of the plan file and track files: sections, status markers, scope indicators. |
-| §Per-tier artifact set | planner,orchestrator | 1,2 | Which artifacts each tier produces; log, ledger, and plan-review are universal; plan is lite/full, design is full only. |
+| §Per-axis artifact set | planner,orchestrator | 1,2 | Which artifacts each change produces, derived from the complexity axes; the plan, design, and adr each tie to one axis. |
 | §Plan file content (`implementation-plan.md`) — thinned `lite`/`full` plan | planner | 1 | The thinned derived-mirror plan: Checklist plus a thin cross-track Component Map; minimal has no plan. |
 | §Section budgets | planner,final-designer | 1,4 | Soft length caps per plan and design section. |
 | §Track file content (`plan/track-N.md`) | planner,orchestrator,decomposer,implementer | 1,3A,3B,3C | The 15-section track-file shape and what each section holds. |
@@ -79,17 +79,17 @@ during Phase 3 execution.
 | **Sub-agent** | A spawned agent for self-contained tasks — review (technical/risk/adversarial, dimensional code review, test quality review) where fresh perspective matters, or implementation (Phase B per-step implementer) where context absorption matters. The orchestrator retains session-level state. |
 | **Orchestrator** | The session-level agent driving `/execute-tracks`. In Phase B owns sub-steps 4–7 of step implementation and all session-level decisions (cross-track impact, escalation, episode synthesis, context-level session-end gate). Distinct from the implementer. |
 | **Implementer** | A fresh sub-agent spawned per step in Phase B that performs sub-steps 1–3 of step implementation (implement, test, commit) and returns a structured handoff to the orchestrator. See implementer-rules.md:implementer:3B,3C. |
-| **Track file** | `plan/track-N.md` — the per-track ExecPlan working file. Created during Phase 1 (in `lite`/`full` alongside `implementation-plan.md`; in `minimal` the only Phase-1 plan artifact) with the four Phase 1 track-level sections populated (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) plus any track-level Mermaid diagram; the remaining sections are filled by Phase A → C. See `conventions-execution.md §2.1` *Track file content* for the full 15-section ExecPlan shape (the 12 ExecPlan sections plus the combined `## Invariants & Constraints` section per D9) and the workflow-specific `## Episodes` and `## Base commit` siblings. Lives under `_workflow/plan/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
+| **Track file** | `plan/track-N.md` — the per-track ExecPlan working file. Created during Phase 1 (alongside `implementation-plan.md` when the track count exceeds one; the only Phase-1 plan artifact for a single-track change) with the four Phase 1 track-level sections populated (`## Purpose / Big Picture`, `## Context and Orientation`, `## Plan of Work`, `## Interfaces and Dependencies`) plus any track-level Mermaid diagram; the remaining sections are filled by Phase A → C. See `conventions-execution.md §2.1` *Track file content* for the full 15-section ExecPlan shape (the 12 ExecPlan sections plus the combined `## Invariants & Constraints` section per D9) and the workflow-specific `## Episodes` and `## Base commit` siblings. Lives under `_workflow/plan/` (tracked on the branch for backup and team visibility, removed in Phase 4 cleanup before merge). |
 | **Mid-phase handoff** | An on-disk file `_workflow/handoff-*.md` written when a session pauses with un-derivable mid-phase state (research notes, verbatim re-present text, partial reviews). Distinct from the implementer-return "handoff" — see mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 for the protocol. Resolved and deleted on resume; otherwise removed by the Phase 4 cleanup commit. |
-| **Change tier** | The change-level ceremony level — `full`, `lite`, or `minimal` — proposed by `/create-plan` Step 4 from the research log at the Phase 0 → 1 boundary and confirmed by the user. It selects which Phase-1 artifacts the change produces (a `design.md` in `full` only; a thinned **derived-mirror plan** in `lite`/`full` and none in `minimal`; self-contained track files in every tier) and which Phase-2/3A review passes run. Distinct from the per-step **risk tag** (`low`/`medium`/`high`) and the Phase-3A step-count axis (Simple/Moderate/Complex) — the three vocabularies never collide. Persisted as a field in the **phase ledger** so every fresh `/execute-tracks` session reads it (D4) — the ledger, not a plan line, is the resume-state and tier home. Full rule in `planning.md` §Tier classification. |
-| **Tier gates** | The two orthogonal yes/no questions the tier factors into: Gate 1 — does the change need a `design.md`? — and Gate 2 — does the change span multiple tracks? Gate 1 reuses the HIGH-risk category list in `risk-tagging.md` read at the change level (a category is *central* to the change's purpose, not merely touched). `design = yes` implies multi-track, so the two gates collapse to three reachable tiers: `full` (design + multi-track), `lite` (no design + multi-track), `minimal` (no design + single track). |
-| **Research log** | `_workflow/research-log.md` — the single durable Phase-0/1 decision ledger, produced in every tier. Five sections: `## Initial request` (the verbatim aim), `## Decision Log`, `## Surprises & Discoveries`, `## Open Questions` (the three append-only continuous logs), and `## Baseline and re-validation` (filled only on workflow-modifying branches). The adversarial review runs on it as a gate at the Phase 0 → 1 boundary. Consumed by the later artifacts (seeding the carriers) at the two sanctioned read points only and never cross-linked from them; removed in the Phase 4 cleanup. Unstamped (D19) — see §1.6(f):orchestrator,planner,migrator:1,3A,3B,3C,4. |
-| **Aggregator plan** | Superseded by the **Derived-mirror plan** (D1). `implementation-plan.md` no longer carries the resume state the machinery reads — that moved to the **phase ledger** (D3) — so the plan is no longer an always-present aggregator. It is now a thinned cross-track summary present in `lite`/`full` only and dropped in `minimal` (D2). See the *Derived-mirror plan* and *Phase ledger* rows above. |
-| **Track-canonical live decision** | The rule (D7) that the per-track `## Decision Log` carries the full inline Decision Record in every tier and is the *authoritative* live carrier through Phase 3. In `full`, the frozen `design.md` keeps a seed D-record for derivation, navigation, and `**Full design**` references — historical provenance, never authority. After a track absorbs a decision, the track is the source of truth; a cross-track propagation duty keeps duplicated records one logical decision through replans. |
-| **Phase ledger** | `_workflow/phase-ledger.md` — an append-only, unstamped event log, one line per phase boundary, that owns the branch-level state the machinery reads: the resume phase, the active track, the within-track sub-state, the change tier and its matched categories, the §1.7:orchestrator,implementer,planner,final-designer:1,3A,3B,3C,4 staging mode, and pause events. Replaces the plan checkboxes and the plan tier line `determine_state` parsed today; present in every tier. A reader keeps the latest value of each key (last-value-wins), so a mid-flight tier or phase change appends a new line rather than rewriting one. Written by the orchestrator's `workflow-startup-precheck.sh --append-ledger` subcommand (D6). Authoritative for resume phase state (D3). The within-track sub-state is carried by the track-scoped `substate` key — the precheck reads it ledger-first and falls back to the track file's `## Progress` and `## Concrete Steps` roster only when the ledger carries no `substate` for the active track (the pre-ledger and fresh-checkout cases). Unstamped (D13) — see §1.6(f):orchestrator,planner,migrator:1,3A,3B,3C,4. |
-| **Derived-mirror plan** | `implementation-plan.md` reduced (D1) to a cross-track summary — the `## Checklist` plus a thin cross-track Component Map — that mirrors content the track files own and holds no fact a track does not already own. Present in `lite` and `full` only; `minimal` drops the plan outright (D2), because a one-track plan mirrors a single track and its cross-track view is vacuous. Replaces the plan as an owner of Goals, Constraints, and Architecture Notes (those move to the track files or the research log per D5). Full rule in `planning.md` §Plan file structure. |
-| **Plan-review document** | `_workflow/plan-review.md` — a separate cold-record document holding the Phase-2 consistency and structural audit summary, present in every tier (D7). Replaces the audit text that overwrote the plan's `## Plan Review` section. The review *state* lives in the phase ledger (the resume hot path); the multi-line review *summary* lives here (rarely read during development), so the ledger tail stays terse for `determine_state` to grep. `/review-plan` re-runs append their verdict here; Phase 4 folds the verdict into `adr.md` or the `minimal` PR-description summary. |
-| **Combined Invariants & Constraints section** | The track-file section `## Invariants & Constraints` (D9, the 15th track-file section) that holds both per-track constraints and the testable invariants the plan's Architecture Notes carried — they share the same shape (a property that must hold, backed by a test). A process-only, non-testable constraint goes to `## Context and Orientation` or the `## Decision Log` instead. Integration Points fold into the existing `## Interfaces and Dependencies`; Non-Goals move to the research log and the PR `## Motivation` (and `design.md` in `full`). Template and lifecycle in `conventions-execution.md §2.1`. |
+| **Complexity axes** | The three independent inputs that replace the old whole-change tier: the **design gate** (does the change need a `design.md`?), the **track count** (how many track files the planner authored — > 1 means an `implementation-plan.md` exists), and the **per-track complexity tag** (`low`/`medium`/`high`, how hard each track is). Each is decided at its natural point in Phase 1 and persisted in the **phase ledger** so every fresh `/execute-tracks` session reads it (D4). The design gate is proposed by `/create-plan` Step 4 from the research log at the Phase 0 → 1 boundary and confirmed by the user; the track count is settled at the end of Step 4b once the planner has decomposed; the complexity tag is predicted per track at Phase 1 and reconciled to `max(step tags)` at the Phase A → C boundary. The design gate and track count select which Phase-1 artifacts the change produces and which Phase-2/3A review passes run; the complexity tag drives Phase-A panel breadth and Phase-C review rigor and the Phase-4 `adr.md` predicate. Distinct from the per-step **risk tag** (`low`/`medium`/`high`) and the Phase-3A step-count axis (Simple/Moderate/Complex) — the vocabularies never collide. Full rule in `planning.md` §Tier classification. |
+| **Design gate** | The change-level yes/no question — does the change need a `design.md`? — read at the Phase 0 → 1 boundary, the first of the three **complexity axes**. It reuses the HIGH-risk category list in `risk-tagging.md` read at the change level (a category is *central* to the change's purpose, not merely touched). `design_gate=yes` warrants a `design.md` (and its Phase-4 `design-final.md`) and implies multi-track; `design_gate=no` does not. The track-count axis decides plan presence separately (it is not knowable until decomposition), so the only single-track shape the track count adds beyond the design gate is the no-design single-track change. Persisted as the ledger `design_gate` field. |
+| **Research log** | `_workflow/research-log.md` — the single durable Phase-0/1 decision ledger, produced for every change. Five sections: `## Initial request` (the verbatim aim), `## Decision Log`, `## Surprises & Discoveries`, `## Open Questions` (the three append-only continuous logs), and `## Baseline and re-validation` (filled only on workflow-modifying branches). The adversarial review runs on it as a gate at the Phase 0 → 1 boundary. Consumed by the later artifacts (seeding the carriers) at the two sanctioned read points only and never cross-linked from them; removed in the Phase 4 cleanup. Unstamped (D19) — see §1.6(f):orchestrator,planner,migrator:1,3A,3B,3C,4. |
+| **Aggregator plan** | Superseded by the **Derived-mirror plan** (D1). `implementation-plan.md` no longer carries the resume state the machinery reads — that moved to the **phase ledger** (D3) — so the plan is no longer an always-present aggregator. It is now a thinned cross-track summary present only when the track count exceeds one and dropped for a single-track change (D2). See the *Derived-mirror plan* and *Phase ledger* rows above. |
+| **Track-canonical live decision** | The rule (D7) that the per-track `## Decision Log` carries the full inline Decision Record for every change and is the *authoritative* live carrier through Phase 3. When a `design.md` exists (`design_gate=yes`), the frozen `design.md` keeps a seed D-record for derivation, navigation, and `**Full design**` references — historical provenance, never authority. After a track absorbs a decision, the track is the source of truth; a cross-track propagation duty keeps duplicated records one logical decision through replans. |
+| **Phase ledger** | `_workflow/phase-ledger.md` — an append-only, unstamped event log, one line per phase boundary, that owns the branch-level state the machinery reads: the resume phase, the active track, the within-track sub-state, the four **complexity-axis** fields (`design_gate`, `tracks`, `phase1_complete`, the per-track `reconciled_tag`) and the matched categories, the §1.7:orchestrator,implementer,planner,final-designer:1,3A,3B,3C,4 staging mode, and pause events. Replaces the plan checkboxes and the plan tier line `determine_state` parsed today; produced for every change. A reader keeps the latest value of each key (last-value-wins), so a mid-flight phase change appends a new line rather than rewriting one. Written by the orchestrator's `workflow-startup-precheck.sh --append-ledger` subcommand (D6). Authoritative for resume phase state (D3). The within-track sub-state is carried by the track-scoped `substate` key, and the per-track `reconciled_tag` is likewise track-scoped (read via `ledger_tail_value_for_track`) so a prior track's tag cannot leak — the precheck reads `substate` ledger-first and falls back to the track file's `## Progress` and `## Concrete Steps` roster only when the ledger carries no `substate` for the active track (the pre-ledger and fresh-checkout cases). The key set, append-time validation, and last-value-wins read semantics are documented in `workflow-startup-precheck.sh`'s header grammar (the contract other tracks consume). Unstamped (D13) — see §1.6(f):orchestrator,planner,migrator:1,3A,3B,3C,4. |
+| **Derived-mirror plan** | `implementation-plan.md` reduced (D1) to a cross-track summary — the `## Checklist` plus a thin cross-track Component Map — that mirrors content the track files own and holds no fact a track does not already own. Present only when the track count exceeds one; a single-track change drops the plan outright (D2), because a one-track plan mirrors a single track and its cross-track view is vacuous. Replaces the plan as an owner of Goals, Constraints, and Architecture Notes (those move to the track files or the research log per D5). Full rule in `planning.md` §Plan file structure. |
+| **Plan-review document** | `_workflow/plan-review.md` — a separate cold-record document holding the Phase-2 consistency and structural audit summary, produced for every change (D7). Replaces the audit text that overwrote the plan's `## Plan Review` section. The review *state* lives in the phase ledger (the resume hot path); the multi-line review *summary* lives here (rarely read during development), so the ledger tail stays terse for `determine_state` to grep. `/review-plan` re-runs append their verdict here; Phase 4 folds the verdict into `adr.md` when one exists, or into the PR-description summary otherwise. |
+| **Combined Invariants & Constraints section** | The track-file section `## Invariants & Constraints` (D9, the 15th track-file section) that holds both per-track constraints and the testable invariants the plan's Architecture Notes carried — they share the same shape (a property that must hold, backed by a test). A process-only, non-testable constraint goes to `## Context and Orientation` or the `## Decision Log` instead. Integration Points fold into the existing `## Interfaces and Dependencies`; Non-Goals move to the research log and the PR `## Motivation` (and `design.md` when the design gate is yes). Template and lifecycle in `conventions-execution.md §2.1`. |
 | **Workflow-SHA stamp** | The HTML comment `<!-- workflow-sha: <40-char SHA> -->` written on line 1 of each `_workflow/**` artifact, recording the workflow-format commit reachable from HEAD at the moment of artifact creation. Drift detection and migration replay both read it; the H1 title starts on line 2. Full rule, canonical parser idioms, range definition, and unstamped-artifact protocol live in §1.6:orchestrator,planner,migrator,final-designer:1,2,3A,3B,3C,4. |
 | **Workflow drift** | A mismatch between the branch's `_workflow/**` artifact shape and the workflow format encoded in commits reachable from HEAD (section names, mandatory artifacts, step-file schema). Surfaces when workflow-format commits land on `develop` while a branch runs. Detected at session-start of `/create-plan` (D9) and in turn 1 of `/execute-tracks` by the gate at workflow-drift-check.md:orchestrator,planner:2,3A; the migration itself is owned by the `/migrate-workflow` skill. |
 | **Role enum** | The closed 15-value set of agent-role tokens (`any`, `orchestrator`, `planner`, `implementer`, `decomposer`, `final-designer`, `migrator`, `pr-reviewer`, `reviewer-technical`, `reviewer-risk`, `reviewer-adversarial`, `reviewer-plan`, `reviewer-design`, `reviewer-dim-step`, `reviewer-dim-track`) used in per-section annotations and cross-reference suffixes. Closed at rollout; new roles require a workflow-format commit. Full list with per-value descriptions in §1.8:any:any. |
@@ -114,26 +114,30 @@ docs/adr/<dir-name>/
   ## lifetime; removed in Phase 4 cleanup before merge)
   _workflow/
     phase-ledger.md               <- append-only, unstamped event log (every
-                                     tier): one line per phase boundary owning
+                                     change): one line per phase boundary owning
                                      the branch-level state the machinery reads
-                                     (resume phase, active track, tier + matched
-                                     categories, §1.7 mode, pause events).
+                                     (resume phase, active track, the four
+                                     complexity-axis fields — design_gate,
+                                     tracks, phase1_complete, per-track
+                                     reconciled_tag — + matched categories, §1.7
+                                     mode, pause events).
                                      Last-value-wins per key on read. Written by
                                      `workflow-startup-precheck.sh
                                      --append-ledger`; read by determine_state
                                      and create-plan Step 1c. Unstamped — see
                                      §1.6(f).
-    implementation-plan.md        <- derived-mirror plan (lite/full only):
+    implementation-plan.md        <- derived-mirror plan (track count > 1 only):
                                      cross-track summary — the Checklist plus a
                                      thin cross-track Component Map — mirroring
                                      content the track files own. Holds no fact
                                      a track does not own; per-track detailed
                                      content lives in plan/track-N.md, sectioned
                                      per conventions-execution.md §2.1. Dropped
-                                     in `minimal` (one track, no cross-track
-                                     view — see §Per-tier artifact set).
+                                     for a single-track change (one track, no
+                                     cross-track view — see §Per-axis
+                                     artifact set).
     plan-review.md                <- Phase-2 consistency + structural audit
-                                     summary (every tier). The review state
+                                     summary (every change). The review state
                                      lives in the ledger; this cold record
                                      holds the multi-line summary. /review-plan
                                      re-runs append their verdict here.
@@ -164,7 +168,7 @@ docs/adr/<dir-name>/
                                      `design-sync` step to find the last
                                      sync point.
     research-log.md               <- single durable Phase-0/1 decision
-                                     ledger, produced in every tier: the
+                                     ledger, produced for every change: the
                                      verbatim aim, the append-only Decision
                                      Log / Surprises / Open Questions, and a
                                      Baseline section on workflow-modifying
@@ -223,41 +227,49 @@ detects such drift at every `/create-plan` (D9) and `/execute-tracks`
 startup and routes the user through the `/migrate-workflow` skill to
 realign.
 
-### Per-tier artifact set
-<!-- roles=planner,orchestrator phases=1,2 summary="Which artifacts each tier produces; log, ledger, and plan-review are universal; plan is lite/full, design is full only." -->
+### Per-axis artifact set
+<!-- roles=planner,orchestrator phases=1,2 summary="Which artifacts each change produces, derived from the complexity axes; the plan, design, and adr each tie to one axis." -->
 
-Not every change produces every artifact in the layout above. The
-**change tier** (§1.1:any:any glossary; full rule in `planning.md` §Tier
-classification) selects the Phase-1 artifact set:
+Not every change produces every artifact in the layout above. Each artifact
+ties to the **complexity axis** (§1.1:any:any glossary; full rule in
+`planning.md` §Tier classification) that justifies it, rather than to a single
+whole-change enum:
 
-| Artifact | `full` | `lite` | `minimal` |
-|---|---|---|---|
-| `research-log.md` | yes | yes | yes |
-| `phase-ledger.md` (append-only resume-state log) | yes | yes | yes |
-| `plan-review.md` (Phase-2 audit summary) | yes | yes | yes |
-| `implementation-plan.md` (derived-mirror plan) | yes (thinned) | yes (thinned) | — (dropped) |
-| `plan/track-N.md` (self-contained, inline Decision Records) | yes (N tracks) | yes (N tracks) | yes (one track) |
-| `design.md` (+ optional `design-mechanics.md`) | yes | — | — |
-| Phase 4 durable carrier | `design-final.md` + `adr.md` | `adr.md` | PR-description verdict summary |
+| Artifact | Axis that justifies it |
+|---|---|
+| `research-log.md` | universal (every change) |
+| `phase-ledger.md` (append-only resume-state log) | universal (every change) |
+| `plan-review.md` (Phase-2 audit summary) | universal (every change) |
+| `plan/track-N.md` (self-contained, inline Decision Records) | universal (every change) |
+| `implementation-plan.md` (derived-mirror plan) | track count > 1 (a cross-track summary is vacuous for one track) |
+| `design.md` / `design-final.md` (+ optional `design-mechanics.md`) | design gate = yes |
+| `adr.md` | ∃ track with reconciled complexity ≥ medium (D8b) |
+| PR-description verdict summary | the floor — carries the adversarial-gate verdict whenever no `adr.md` exists |
 
-The research log, the phase ledger, and the plan-review document are
-universal. The log is the one adversarially-gated decision ledger every
-tier produces; the ledger is the append-only event log the resume state
+The research log, the phase ledger, the plan-review document, and the track
+files are universal. The log is the one adversarially-gated decision ledger
+every change produces; the ledger is the append-only event log the resume state
 machine reads to derive state (D3, §1.1:any:any *Phase ledger*), so resume
 state has a home that does not depend on a plan; the plan-review document
-holds the Phase-2 audit summary in every tier (D7). The
+holds the Phase-2 audit summary for every change (D7). The
 `implementation-plan.md` is now a **derived-mirror plan** (D1): a
-cross-track summary of the track files, present only in `lite` and `full`
-and thinned to the `## Checklist` plus a thin cross-track Component Map.
-`minimal` drops it (D2) — a one-track plan would mirror a single track and
-its cross-track view is vacuous, and the ledger now owns the resume state
-the stub plan used to carry. `design.md` exists only when Gate 1 says the
-change needs one (`full`). The track files are self-contained in every
-tier — the per-track `## Decision Log` carries the full inline Decision
-Record (the **track-canonical live decision**, §1.1:any:any), and in `full` the
-frozen `design.md` keeps a seed copy as historical provenance. A
-`minimal`→`lite`/`full` escalation materializes the dropped plan (and
-`design.md` for `full`) through the inline-replan ESCALATE path (D11).
+cross-track summary of the track files, present only when the track count
+exceeds one and thinned to the `## Checklist` plus a thin cross-track Component
+Map. A single-track change drops it (D2) — a one-track plan would mirror a
+single track and its cross-track view is vacuous, and the ledger now owns the
+resume state the stub plan used to carry. `design.md` exists only when the
+**design gate** is yes. The track files are self-contained for every
+change — the per-track `## Decision Log` carries the full inline Decision
+Record (the **track-canonical live decision**, §1.1:any:any), and when a
+`design.md` exists the frozen design keeps a seed copy as historical
+provenance. The `adr.md` row encodes the D8b predicate `adr ⟺ ∃ track ≥
+medium`: an ADR records decision *substance* (complexity), so it exists iff at
+least one track reconciled to medium or higher complexity, reading the per-track
+`reconciled_tag` the ledger schema carries; the adversarial-gate verdict folds
+into `adr.md` when one exists and into the PR description otherwise. A
+design-gate or track-count escalation materializes the dropped plan (and the
+`design.md` when the design gate flips to yes) through the inline-replan
+ESCALATE path (D11).
 
 ### Plan file content (`implementation-plan.md`) — thinned `lite`/`full` plan
 <!-- roles=planner phases=1 summary="The thinned derived-mirror plan: Checklist plus a thin cross-track Component Map; minimal has no plan." -->
@@ -272,8 +284,9 @@ already own.
 ```markdown
 # <Feature Name>
 
-<!-- `## Design Document` is `full`-only — omit these two lines in lite,
-     which has no design.md (see §Per-tier artifact set above). -->
+<!-- `## Design Document` is present only when the design gate is yes — omit
+     these two lines when there is no design.md (see §Per-axis artifact set
+     above). -->
 ## Design Document
 [design.md](design.md)
 
@@ -311,24 +324,25 @@ Each old plan section is disposed per D5:
 - **`## Plan Review`** is removed: resume state lives in the phase ledger
   (D3) and the Phase-2 audit summary lives in `plan-review.md` (D7), so
   the plan no longer carries the State-0 checkbox the startup protocol
-  used to read. The tier line and matched categories also move to the
-  ledger (D4), so the former `**Change tier:**` line leaves the plan.
+  used to read. The complexity-axis fields and matched categories also move
+  to the ledger (D4), so the former `**Change tier:**` line leaves the plan.
 - **`## Final Artifacts`** is removed: Phase-4 progress and the final
-  carrier are ledger / `plan-review.md` concerns, and the tier-keyed
-  durable carrier is governed by §Per-tier artifact set above.
+  carrier are ledger / `plan-review.md` concerns, and the axis-derived
+  durable carrier is governed by §Per-axis artifact set above.
 
-The `## Design Document` block is `full`-only: the §Per-tier artifact set
-matrix above is the authority on which artifacts each tier produces, and
-the `create-plan` templates are the operative per-tier source. The
-schematic above shows the `full` shape; `lite` omits the `## Design
-Document` block, and `minimal` has no plan at all.
+The `## Design Document` block is present only when the design gate is yes:
+the §Per-axis artifact set matrix above is the authority on which artifacts
+each change produces, and the `create-plan` templates are the operative
+source. The schematic above shows the design-gate=yes shape; a
+`design_gate=no` change omits the `## Design
+Document` block, and a single-track change has no plan at all.
 
 The Phase-2 plan review and the resume-state routing read the phase
 ledger and `plan-review.md`, not a plan checkbox (D3/D7). A user forces a
 re-validation by invoking `/review-plan`, whose verdict appends to
-`plan-review.md`. The runtime re-pointing of `determine_state` and the
-startup protocol onto the ledger is Track 2's work; this section specifies
-the artifact shape the consumers branch on.
+`plan-review.md`. `determine_state` and the startup protocol read the
+ledger's complexity-axis fields rather than the removed tier line; this
+section specifies the artifact shape the consumers branch on.
 
 **Planning rule:** Size each track by its planned in-scope file footprint,
 not its step count. *Maximize* — extend a track up to the soft footprint
@@ -805,7 +819,7 @@ Explicitly NOT stamped:
 - `_workflow/design-mutations.md`. The file is an append-only log
   whose stamp would always equal `design.md`'s; the append-only
   contract makes the file replay-immune by construction.
-- `_workflow/research-log.md`. The research log (§1.2:planner,orchestrator,decomposer:1,2,3A *Per-tier artifact
+- `_workflow/research-log.md`. The research log (§1.2:planner,orchestrator,decomposer:1,2,3A *Per-axis artifact
   set*) is an append-only Phase-0/1 ledger that no §1.6(h):planner,orchestrator:1 walk
   enumerates and no phase machinery rewrites or re-derives — its
   post-authoring reads consume decision *content*, never re-emit the

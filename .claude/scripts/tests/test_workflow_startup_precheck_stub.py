@@ -29,6 +29,12 @@ the ledger reader drifted apart" distinctly from a regression in the parser's ow
 suite. The synthesized ledger lines are byte-faithful to the grammar pinned in
 `test_workflow_startup_precheck.py` and the script header.
 
+The ledger lines carry the post-`tier=`-removal schema: the dead `tier=minimal`
+token these fixtures used to seed is migrated to the live complexity-axis fields
+(`design_gate=no` for a no-design change plus `tracks=1` for the single-track /
+no-plan shape) so the resume read exercises the live signal rather than a token
+the reader no longer consumes.
+
 Invocation (from repo root):
 
     python3 .claude/scripts/tests/test_workflow_startup_precheck_stub.py
@@ -266,7 +272,7 @@ def test_minimal_no_plan_ledger_phase_0_is_readable_state_0() -> None:
     resume signal, and its absence of a plan does not strand resume on a parse
     failure."""
     with MinimalLedgerFixture() as fx:
-        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=0 tier=minimal\n")
+        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=0 design_gate=no tracks=1\n")
         assert not fx.plan_file.exists(), (
             "the plan-less minimal fixture must have no implementation-plan.md"
         )
@@ -286,7 +292,7 @@ def test_minimal_no_plan_ledger_phase_c_resolves_state_c_track_1() -> None:
     is the no-plan analogue of the old stub's plan-review-flipped -> State C
     transition."""
     with MinimalLedgerFixture() as fx:
-        fx.write_ledger(f"[{_TS}] [ctx=info] phase=C tier=minimal\n")
+        fx.write_ledger(f"[{_TS}] [ctx=info] phase=C design_gate=no tracks=1\n")
         fx.write_track_1(
             "# Track 1\n\n## Progress\n"
             "- [x] 2026-06-15T00:00Z [ctx=info] Review + decomposition complete\n"
@@ -311,7 +317,7 @@ def test_minimal_no_plan_ledger_phase_c_no_track_file_is_state_a() -> None:
     pre-Phase-A State A, mirroring the legacy walk's
     first-`[ ]`-track-without-a-file branch."""
     with MinimalLedgerFixture() as fx:
-        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=C tier=minimal\n")
+        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=C design_gate=no tracks=1\n")
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
         assert state == {"phase": "A", "substate": None}, (
             "a phase=C ledger with no plan/track-1.md must resolve State A, "
@@ -326,8 +332,8 @@ def test_minimal_no_plan_ledger_phase_done_is_done() -> None:
     track-and-final-artifacts-flipped -> Done transition."""
     with MinimalLedgerFixture() as fx:
         fx.write_ledger(
-            f"[{_TS}] [ctx=safe] phase=C tier=minimal\n"
-            f"[{_TS}] [ctx=safe] phase=Done tier=minimal\n"
+            f"[{_TS}] [ctx=safe] phase=C design_gate=no tracks=1\n"
+            f"[{_TS}] [ctx=safe] phase=Done design_gate=no tracks=1\n"
         )
         state = _state(run_precheck("--mode", "full", cwd=fx.path))
         assert state == {"phase": "Done", "substate": None}, (
@@ -343,7 +349,7 @@ def test_minimal_no_plan_ledger_drift_clean_anchor_is_track_1() -> None:
     read, and the unstamped ledger does NOT trip the unstamped-drift
     short-circuit — it is excluded from the walk by omission."""
     with MinimalLedgerFixture() as fx:
-        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=C tier=minimal\n")
+        fx.write_ledger(f"[{_TS}] [ctx=safe] phase=C design_gate=no tracks=1\n")
         fx.write_track_1(
             "# Track 1\n\n## Progress\n- [ ] Review + decomposition\n",
             stamp=fx.head_sha(),

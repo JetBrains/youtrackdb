@@ -430,21 +430,23 @@ finding ID prefixes, and gate format.
    a. **Select review agents** based on code characteristics (see
       review-agent-selection.md:orchestrator:3A,3B,3C),
       then spawn them in parallel (fresh sub-agents each iteration).
-      The step-level baseline narrows to `review-bugs-concurrency`
-      only: the other three baselines (`review-code-quality`,
-      `review-test-behavior`, `review-test-completeness`) defer to the
+      The step-level baseline narrows to `review-bugs` (always) plus
+      `review-concurrency` when the `concurrency` category is present:
+      the other baselines (`review-code-quality`, `review-test-quality`)
+      defer to the
       Phase C track pass, which reads them identically off the
       cumulative diff (see §Step-level vs track-level routing in
       `review-agent-selection.md`). This step-level baseline runs
       unless the diff is workflow-only (see
       the baseline-skip override in `review-agent-selection.md`), which
-      removes the whole baseline group, `review-bugs-concurrency`
-      included. The step-level workflow reviewers (`hook-safety`,
+      removes the whole baseline group, `review-bugs` and
+      `review-concurrency` included. The step-level workflow reviewers
+      (`hook-safety`,
       `prompt-design`) fire by their existing file-pattern triggers,
       evaluated after the §Workflow-machinery override staged-path
       normalization and, on a mixed Java + workflow step, scoped to the
       workflow-machinery subset by the same Case-3 `IN_SCOPE_FILES`
-      pre-filter that scopes `review-bugs-concurrency` to the Java files
+      pre-filter that scopes `review-bugs` / `review-concurrency` to the Java files
       (see §Step-level vs track-level routing in
       `review-agent-selection.md`); conditional agents are added based on
       the step description and changed files.

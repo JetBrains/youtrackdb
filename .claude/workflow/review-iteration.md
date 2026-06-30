@@ -53,7 +53,8 @@ reset between iterations).
 | `R` | Risk review |
 | `A` | Adversarial review |
 | `CQ` | Code quality review |
-| `BC` | Bugs & concurrency review |
+| `BG` | Bugs review |
+| `CN` | Concurrency review |
 | `CS` | Crash safety review |
 | `SE` | Security review |
 | `PF` | Performance review |

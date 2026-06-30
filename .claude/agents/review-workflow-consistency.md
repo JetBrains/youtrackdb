@@ -60,7 +60,7 @@ Focus only on changed files under `.claude/`, root `CLAUDE.md`, and `docs/adr/<d
 
 ### Skill ↔ skill / skill ↔ agent references
 - A skill's prose names another skill via `/<name>` or `[[name]]` — does that skill exist at `.claude/skills/<name>/SKILL.md`?
-- A skill dispatches sub-agents by name (e.g., `review-bugs-concurrency`) — does each agent file exist under `.claude/agents/`?
+- A skill dispatches sub-agents by name (e.g., `review-concurrency`) — does each agent file exist under `.claude/agents/`?
 - A skill's `description:` advertises arguments via `argument-hint:` — does the body's `$ARGUMENTS` handling match the hint?
 
 ### Threshold and table sync

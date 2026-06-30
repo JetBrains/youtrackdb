@@ -115,6 +115,11 @@ def run_precheck(*args: str, cwd: Optional[Path] = None) -> subprocess.Completed
         text=True,
         check=False,
         cwd=str(cwd) if cwd is not None else None,
+        # The script shells out to git / mkdir / cat / mv; bound every
+        # invocation so a wedged child fails the suite loudly instead of
+        # hanging the runner indefinitely. The script is fast and local, so
+        # 30s is generous headroom.
+        timeout=30,
     )
 
 
@@ -3402,7 +3407,8 @@ def test_conformance_normalization_recompute_walk_enumerates_canonical_globs() -
 #
 #   * the appended grammar (the contract Track 2 consumes): the fixed
 #     `[<ISO>] [ctx=<level>] key=value …` shape with the
-#     { phase, track, tier, categories, s17, paused } key set, `categories`
+#     { phase, track, design_gate, tracks, phase1_complete, reconciled_tag,
+#       substate, categories, s17, paused } key set, `categories`
 #     quoted, empty fields omitted;
 #   * last-value-wins reads (a second append of a changed key is the value read);
 #   * the torn (interrupted) append leaving the prior tail intact;
@@ -3433,9 +3439,12 @@ def _ledger_text(fx: "GitFixture") -> str:
 def test_append_ledger_writes_pinned_grammar() -> None:
     """A single `--append-ledger` with every field set writes ONE line in the
     fixed grammar: a leading `[<ISO>]` timestamp, a `[ctx=<level>]` marker, then
-    the `phase`/`track`/`tier`/`categories`/`s17`/`paused` tokens in that order,
-    with `categories` the one double-quoted value (it may carry a comma). This
-    pins the contract Track 2's readers consume."""
+    the `phase`/`track`/`design_gate`/`tracks`/`phase1_complete`/`reconciled_tag`/
+    `substate`/`categories`/`s17`/`paused` tokens in that order, with `categories`
+    the one double-quoted value (it may carry a comma) and the four
+    complexity-axis fields (`design_gate`/`tracks`/`phase1_complete`/
+    `reconciled_tag`) all bare and emitted in the pre-`categories` block. This
+    pins the contract Track 2's readers consume after the `tier=` removal."""
     import re
 
     with GitFixture() as fx:
@@ -3446,7 +3455,10 @@ def test_append_ledger_writes_pinned_grammar() -> None:
             "--ctx", "safe",
             "--phase", "A",
             "--track", "1",
-            "--tier", "full",
+            "--design-gate", "yes",
+            "--tracks", "3",
+            "--phase1-complete", "yes",
+            "--reconciled-tag", "high",
             "--categories", "Workflow machinery,Architecture",
             "--s17", "b",
             "--paused", "phase-2",
@@ -3462,11 +3474,39 @@ def test_append_ledger_writes_pinned_grammar() -> None:
         lines = _ledger_text(fx).splitlines()
         assert len(lines) == 1, f"one append must write exactly one line, got {lines!r}"
         pattern = (
-            rf"^{_ISO_TS_RE} \[ctx=safe\] phase=A track=1 tier=full "
+            rf"^{_ISO_TS_RE} \[ctx=safe\] phase=A track=1 "
+            r"design_gate=yes tracks=3 phase1_complete=yes reconciled_tag=high "
+            r'substate=steps-partial '
             r'categories="Workflow machinery,Architecture" s17=b paused=phase-2$'
         )
-        assert re.match(pattern, lines[0]), (
-            f"appended line must match the pinned grammar {pattern!r}, got {lines[0]!r}"
+        # The substate token in the expected pattern is supplied below so the
+        # full pre-`categories` block ordering (every bare reader-consumed field
+        # ahead of the one quoted field) is pinned end to end.
+        proc2 = run_precheck(
+            "--append-ledger",
+            "--ctx", "safe",
+            "--phase", "A",
+            "--track", "1",
+            "--design-gate", "yes",
+            "--tracks", "3",
+            "--phase1-complete", "yes",
+            "--reconciled-tag", "high",
+            "--substate", "steps-partial",
+            "--categories", "Workflow machinery,Architecture",
+            "--s17", "b",
+            "--paused", "phase-2",
+            cwd=fx.path,
+        )
+        assert proc2.returncode == 0, (
+            f"the substate-bearing append should exit 0, got {proc2.returncode}; "
+            f"stderr: {proc2.stderr!r}"
+        )
+        # The second append is the one matched against the full-grammar pattern;
+        # it is the last line on disk.
+        full_line = _ledger_text(fx).splitlines()[-1]
+        assert re.match(pattern, full_line), (
+            f"appended line must match the pinned grammar {pattern!r}, got "
+            f"{full_line!r}"
         )
 
 
@@ -3488,7 +3528,10 @@ def test_append_ledger_omits_empty_fields_and_defaults_ctx() -> None:
         assert re.match(rf"^{_ISO_TS_RE} \[ctx=safe\] phase=0$", line), (
             f"a phase-only append must default ctx and omit empty keys, got {line!r}"
         )
-        for absent in ("track=", "tier=", "categories=", "s17=", "paused="):
+        for absent in (
+            "track=", "design_gate=", "tracks=", "phase1_complete=",
+            "reconciled_tag=", "substate=", "categories=", "s17=", "paused=",
+        ):
             assert absent not in line, (
                 f"unsupplied key {absent!r} must be omitted, got {line!r}"
             )
@@ -3511,20 +3554,22 @@ def test_append_ledger_appends_does_not_overwrite() -> None:
 
 
 def test_append_ledger_last_value_wins_on_read() -> None:
-    """Two appends of the same key (`tier=minimal` then `tier=full`, a mid-flight
-    tier change) plus a `phase` change resolve to the LATEST value of each key:
-    the ledger-driven state reads `phase=C`/`track=1` from the second append, not
-    the first. This is the read half of the append-only / last-value-wins
-    contract."""
+    """Two appends of the same key (`design_gate=no` then `design_gate=yes`, a
+    mid-flight design-gate change) plus a `phase` change resolve to the LATEST
+    value of each key: the ledger-driven state reads `phase=C`/`track=1` from the
+    second append, not the first. This is the read half of the append-only /
+    last-value-wins contract, exercised on a live complexity-axis field after the
+    `tier=` removal."""
     with GitFixture() as fx:
         fx.commit("init")
         fx.add_bare_remote()
         head = fx.head_sha()
         run_precheck(
-            "--append-ledger", "--phase", "A", "--tier", "minimal", cwd=fx.path
+            "--append-ledger", "--phase", "A", "--design-gate", "no", cwd=fx.path
         )
         run_precheck(
-            "--append-ledger", "--phase", "C", "--track", "1", "--tier", "full",
+            "--append-ledger", "--phase", "C", "--track", "1",
+            "--design-gate", "yes",
             cwd=fx.path,
         )
         # A track file so the latest phase=C resolves the two-level State C read.
@@ -3555,7 +3600,7 @@ def test_torn_append_leaves_prior_tail_intact() -> None:
         head = fx.head_sha()
         # A complete prior ledger recording phase=A.
         prior = fx.write_ledger(
-            f"[2026-06-15T10:00Z] [ctx=safe] phase=A tier=minimal\n"
+            f"[2026-06-15T10:00Z] [ctx=safe] phase=A design_gate=no tracks=1\n"
         )
         prior_bytes = prior.read_bytes()
         # A stray temp file as if a crashed append had written a partial line to
@@ -3563,7 +3608,7 @@ def test_torn_append_leaves_prior_tail_intact() -> None:
         # script's `.phase-ledger.<pid>.tmp` pattern; a torn body has no newline.
         torn = prior.parent / ".phase-ledger.99999.tmp"
         torn.write_text(
-            "[2026-06-15T10:00Z] [ctx=safe] phase=A tier=minimal\n"
+            "[2026-06-15T10:00Z] [ctx=safe] phase=A design_gate=no tracks=1\n"
             "[2026-06-15T11:00Z] [ctx=info] phase=C tra",  # truncated mid-line
             encoding="utf-8",
         )
@@ -3680,7 +3725,9 @@ def test_ledger_no_plan_minimal_resume_defaults_track_1() -> None:
         fx.add_bare_remote()
         head = fx.head_sha()
         # Ledger records phase=C but names no track; the active track defaults to 1.
-        fx.write_ledger("[2026-06-15T12:00Z] [ctx=info] phase=C tier=minimal\n")
+        fx.write_ledger(
+            "[2026-06-15T12:00Z] [ctx=info] phase=C design_gate=no tracks=1\n"
+        )
         fx.write_track_only(
             1,
             "<!-- track fixture -->\n# Track 1\n\n## Progress\n"
@@ -4419,7 +4466,8 @@ def test_append_substate_rejects_space() -> None:
     """`--substate` append validation (S6): a space in the `substate` value is
     rejected (exit 3 + stderr diagnostic), the ledger is NOT written, and the
     diagnostic names the bare-token cause. `substate` is a bare metacharacter-free
-    token, so it joins phase/track/tier/s17/paused under the existing bare-token
+    token, so it joins phase/track/design_gate/tracks/phase1_complete/
+    reconciled_tag/s17/paused under the existing bare-token
     rejection — a space would let the reader split the value or spawn a spurious
     `key=value` token."""
     with GitFixture() as fx:
@@ -4500,6 +4548,349 @@ def test_append_substate_written_before_categories() -> None:
         assert sub_pos < cat_pos, (
             "substate must be emitted BEFORE the quoted categories field "
             f"(emit-order invariant), got {line!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# The four complexity-axis fields that replaced `tier` (D10): design_gate,
+# tracks, phase1_complete, and the per-track reconciled_tag.
+#
+# `tier=` was dropped from the ledger schema and split into these four fields.
+# `determine_state` does not yet CONSUME them (Track 2 wires the resume router
+# and the Phase-C / Phase-4 readers); this step adds the fields, their
+# append-time validation, and a track-scoped read for the per-track tag. So the
+# read assertions below pin the SCHEMA contract — the exact on-disk grammar the
+# append writes and the last-value-wins / track-scoped semantics the script's
+# `ledger_tail_value` / `ledger_tail_value_for_track` header contract defines —
+# via a Python reader that replicates those readers' first-`key=`-token scan
+# byte-for-byte. Pinning the contract here (not through a not-yet-existing
+# consumer) is what lets Track 2 build its readers against a frozen schema. The
+# loud-reject and torn-append cases run the real script, since they need no
+# consumer.
+# ---------------------------------------------------------------------------
+
+
+def _ledger_tail_value(ledger_text: str, key: str) -> Optional[str]:
+    """Replicate the script's `ledger_tail_value` last-value-wins read: scan
+    every line, take the FIRST ` <key>=` token on each line (anchored on a
+    leading space so `tracks=` never matches inside `xtracks=`), strip a
+    surrounding pair of double quotes, and keep the most recent line's value.
+    Returns None when the key never appears. This mirrors the bash reader's
+    semantics exactly so the test pins the same contract Track 2's readers will
+    consume — including the bash reader's requirement of a *leading space*: the
+    bash strip `${line#*" $key="}` operates on the bare line, so a key at column
+    0 (no preceding space) is not matched. Every reachable ledger line begins
+    with `[<ISO>] [ctx=...] `, so the first real ` key=` token is always
+    space-preceded; the leading-space anchor below matches the bash reader on
+    every reachable input and diverges only on the unreachable column-0 line."""
+    import re
+
+    found: Optional[str] = None
+    for line in ledger_text.splitlines():
+        # Anchor on a leading space, matching the bash `${line#*" $key="}` strip
+        # (which requires a literal space before the key on the bare line), and
+        # take the FIRST match (the bash strip removes up to the first space-
+        # preceded occurrence). A column-0 key is not matched, mirroring the
+        # bash reader, which cannot strip a key it never sees a leading space
+        # before.
+        m = re.search(rf" {re.escape(key)}=(.*)$", line)
+        if not m:
+            continue
+        rest = m.group(1)
+        if rest.startswith('"'):
+            # Quoted value: everything between this `"` and the next `"`.
+            value = rest[1:].split('"', 1)[0]
+        else:
+            # Bare token: everything up to the next space.
+            value = rest.split(" ", 1)[0]
+        found = value
+    return found
+
+
+def _ledger_tail_value_for_track(
+    ledger_text: str, key: str, track: str
+) -> Optional[str]:
+    """Replicate the script's `ledger_tail_value_for_track`: the track-scoped
+    last-value-wins read. Only lines whose first ` track=` token equals `track`
+    contribute; among those, the most recent `key` value wins. A line carrying
+    `key` but no matching `track=` is skipped (strict track-scoping), so a prior
+    track's value cannot leak into the active track's resolution. Both the
+    `track=` and `<key>=` matches anchor on a leading space, mirroring the bash
+    reader's `${line#*" track="}` / `${line#*" $key="}` strips (which require a
+    literal preceding space); every reachable ledger line is `[<ISO>] [ctx=...] `
+    prefixed, so the first real token is always space-preceded."""
+    import re
+
+    found: Optional[str] = None
+    for line in ledger_text.splitlines():
+        tm = re.search(r" track=(\S*)", line)
+        if not tm or tm.group(1) != track:
+            continue
+        km = re.search(rf" {re.escape(key)}=(.*)$", line)
+        if not km:
+            continue
+        rest = km.group(1)
+        if rest.startswith('"'):
+            value = rest[1:].split('"', 1)[0]
+        else:
+            value = rest.split(" ", 1)[0]
+        found = value
+    return found
+
+
+def test_new_fields_append_round_trip() -> None:
+    """A single `--append-ledger` carrying all four new fields writes each as a
+    bare `key=value` token, and a last-value-wins read returns each field's value.
+    This pins the round-trip half of the schema contract: the fields are written
+    in the grammar Track 2's readers expect, and the read resolves them."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--phase", "C", "--track", "2",
+            "--design-gate", "yes",
+            "--tracks", "4",
+            "--phase1-complete", "yes",
+            "--reconciled-tag", "medium",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"a four-field append must exit 0, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        text = _ledger_text(fx)
+        assert _ledger_tail_value(text, "design_gate") == "yes", text
+        assert _ledger_tail_value(text, "tracks") == "4", text
+        assert _ledger_tail_value(text, "phase1_complete") == "yes", text
+        # reconciled_tag is per-track: read it track-scoped for track 2.
+        assert _ledger_tail_value_for_track(text, "reconciled_tag", "2") == "medium", text
+
+
+def test_new_fields_emitted_in_pre_categories_block() -> None:
+    """All four new fields are emitted as bare tokens in the pre-`categories`
+    block — each appears BEFORE the quoted `categories="…"` field on the line.
+    This is the emit-order invariant the first-match token reader's safety rests
+    on: a reader-consumed key emitted AFTER the quoted field could lose to a
+    same-named decoy inside it."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--phase", "C", "--track", "1",
+            "--design-gate", "no",
+            "--tracks", "1",
+            "--phase1-complete", "yes",
+            "--reconciled-tag", "low",
+            "--categories", "Workflow machinery",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"the append must exit 0, got {proc.returncode}; stderr: {proc.stderr!r}"
+        )
+        line = _ledger_text(fx).splitlines()[0]
+        cat_pos = line.index('categories="')
+        for field in ("design_gate=", "tracks=", "phase1_complete=", "reconciled_tag="):
+            pos = line.index(field)
+            assert pos < cat_pos, (
+                f"{field!r} must be emitted BEFORE the quoted categories field "
+                f"(emit-order invariant), got {line!r}"
+            )
+
+
+def test_new_fields_last_value_wins() -> None:
+    """Last-value-wins per key for the new fields: a second append of a changed
+    `design_gate` / `tracks` resolves the LATEST value. The first append seeds the
+    fields; the second changes them; the read returns the second's values. This is
+    the read half of the append-only / last-value-wins contract for the new
+    fields."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        run_precheck(
+            "--append-ledger", "--phase", "0",
+            "--design-gate", "no", "--tracks", "1",
+            cwd=fx.path,
+        )
+        run_precheck(
+            "--append-ledger", "--phase", "C",
+            "--design-gate", "yes", "--tracks", "3",
+            cwd=fx.path,
+        )
+        text = _ledger_text(fx)
+        assert _ledger_tail_value(text, "design_gate") == "yes", (
+            f"the latest design_gate (yes) must win, got {text!r}"
+        )
+        assert _ledger_tail_value(text, "tracks") == "3", (
+            f"the latest tracks (3) must win, got {text!r}"
+        )
+
+
+def test_reconciled_tag_track_scoped_no_leak() -> None:
+    """The per-track `reconciled_tag` is read TRACK-SCOPED, so a completed prior
+    track's tag cannot resolve as a later track's value when the two sit on
+    different ledger lines. Here track 1 reconciled `high` on an earlier line and
+    track 2 reconciled `low` on a later line; the track-scoped read for track 2
+    must return `low`, never track 1's `high` (which a global last-value-wins read
+    over the wrong scope could wrongly pick up)."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        run_precheck(
+            "--append-ledger", "--phase", "C", "--track", "1",
+            "--reconciled-tag", "high",
+            cwd=fx.path,
+        )
+        run_precheck(
+            "--append-ledger", "--phase", "C", "--track", "2",
+            "--reconciled-tag", "low",
+            cwd=fx.path,
+        )
+        text = _ledger_text(fx)
+        assert _ledger_tail_value_for_track(text, "reconciled_tag", "2") == "low", (
+            f"track 2's reconciled_tag (low) must resolve track-scoped, got {text!r}"
+        )
+        assert _ledger_tail_value_for_track(text, "reconciled_tag", "1") == "high", (
+            f"track 1's reconciled_tag (high) must stay track-scoped to track 1, "
+            f"got {text!r}"
+        )
+
+
+def test_new_field_first_match_wins_over_categories_decoy() -> None:
+    """First-match-wins / same-named-decoy invariant for a new field: a ledger line
+    whose quoted `categories="…"` value embeds a `design_gate=`-shaped decoy still
+    reads the REAL bare `design_gate=` token that precedes the quoted field. The
+    bare token is emitted in the pre-`categories` block, and the first-`key=` token
+    scan stops at it, so the decoy inside the quoted span can never win. This pins
+    the load-bearing ordering the step calls out: a bare reader-consumed field
+    placed AFTER `categories` would let such a decoy win."""
+    # The bare design_gate=no precedes the quoted categories that embeds a decoy
+    # design_gate=yes. The first-match reader must resolve the bare `no`.
+    ledger = (
+        '[2026-06-20T12:00Z] [ctx=info] phase=C track=1 design_gate=no tracks=1 '
+        'categories="Workflow machinery design_gate=yes tracks=99"\n'
+    )
+    assert _ledger_tail_value(ledger, "design_gate") == "no", (
+        "the real bare design_gate=no before the quoted categories must win over "
+        f"the decoy embedded inside it, got {_ledger_tail_value(ledger, 'design_gate')!r}"
+    )
+    assert _ledger_tail_value(ledger, "tracks") == "1", (
+        "the real bare tracks=1 before the quoted categories must win over the "
+        f"decoy tracks=99 inside it, got {_ledger_tail_value(ledger, 'tracks')!r}"
+    )
+
+
+def test_new_field_first_match_decoy_is_real_on_disk_emit() -> None:
+    """The decoy guard verified end-to-end against the SCRIPT's emit (not just a
+    hand-authored line): an append carrying both the real `design_gate` and a
+    `categories` value that embeds a `design_gate=`-shaped decoy writes the bare
+    field BEFORE the quoted one, so the first-match reader over the script's own
+    output resolves the real bare token. This proves the emit order the script
+    produces actually satisfies the first-match invariant, closing the loop on the
+    hand-authored decoy test above."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger",
+            "--phase", "C", "--track", "1",
+            "--design-gate", "no",
+            "--categories", "Workflow machinery design_gate=yes",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 0, (
+            f"the decoy-bearing append must exit 0, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        text = _ledger_text(fx)
+        assert _ledger_tail_value(text, "design_gate") == "no", (
+            "the script's emit must place the bare design_gate before the quoted "
+            f"categories so the first-match reader resolves it, got {text!r}"
+        )
+
+
+def test_append_new_field_rejects_space() -> None:
+    """Append validation for the new bare fields: a space in `design_gate` is
+    rejected (exit 3 + a bare-token diagnostic) and the ledger is NOT written. The
+    new fields join phase/track/substate/s17/paused under the existing bare-token
+    rejection, so a space — which the reader would split on — fails loudly."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "C", "--design-gate", "ye s",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 3, (
+            f"a space in design_gate must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "bare token" in proc.stderr, (
+            f"the reject must name the bare-token cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_append_new_field_rejects_newline() -> None:
+    """Append validation for the new bare fields: a newline smuggled into
+    `reconciled_tag` is rejected (exit 3 + a newline diagnostic) and the ledger is
+    NOT written. Without the guard the newline would write a second physical line
+    whose smuggled tail the last-value-wins reader would resolve, routing resume to
+    the wrong state — the same hazard the other field guards cover."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        proc = run_precheck(
+            "--append-ledger", "--phase", "C", "--track", "1",
+            "--reconciled-tag", "high\nphase=Done",
+            cwd=fx.path,
+        )
+        assert proc.returncode == 3, (
+            f"a newline in reconciled_tag must exit 3, got {proc.returncode}; "
+            f"stderr: {proc.stderr!r}"
+        )
+        assert "newline" in proc.stderr, (
+            f"the reject must name the newline cause, got {proc.stderr!r}"
+        )
+        assert not fx.ledger_file.exists(), (
+            "a rejected append must not create the ledger"
+        )
+
+
+def test_torn_append_leaves_prior_tail_intact_new_fields() -> None:
+    """Torn-append safety for the new schema: a stray `.phase-ledger.<pid>.tmp`
+    holding a half-written line carrying the new fields, beside a complete prior
+    ledger that also carries the new fields, must leave the prior tail
+    authoritative — the read resolves the prior `design_gate`/`tracks`, never the
+    torn temp's partial values. Mirrors the existing torn-append test but with the
+    post-`tier=`-removal fields on both the prior and the torn line."""
+    with GitFixture() as fx:
+        fx.commit("init")
+        fx.add_bare_remote()
+        prior = fx.write_ledger(
+            "[2026-06-15T10:00Z] [ctx=safe] phase=A design_gate=no tracks=1\n"
+        )
+        prior_bytes = prior.read_bytes()
+        torn = prior.parent / ".phase-ledger.99999.tmp"
+        torn.write_text(
+            "[2026-06-15T10:00Z] [ctx=safe] phase=A design_gate=no tracks=1\n"
+            "[2026-06-15T11:00Z] [ctx=info] phase=C design_gate=yes trac",  # torn
+            encoding="utf-8",
+        )
+        # The committed ledger (never the temp) is what the read resolves.
+        text = prior.read_text(encoding="utf-8")
+        assert _ledger_tail_value(text, "design_gate") == "no", (
+            "a torn append must leave the prior design_gate=no authoritative, "
+            f"got {text!r}"
+        )
+        assert _ledger_tail_value(text, "tracks") == "1", (
+            f"the prior tracks=1 must stay authoritative, got {text!r}"
+        )
+        assert prior.read_bytes() == prior_bytes, (
+            "the prior ledger bytes must be untouched by a torn append"
         )
 
 
@@ -4628,6 +5019,16 @@ TESTS: List[Tuple[str, Callable[[], None]]] = [
     ("append_substate_rejects_space", test_append_substate_rejects_space),
     ("append_substate_rejects_newline", test_append_substate_rejects_newline),
     ("append_substate_written_before_categories", test_append_substate_written_before_categories),
+    # -- the four complexity-axis fields that replaced tier (D10) ---------------
+    ("new_fields_append_round_trip", test_new_fields_append_round_trip),
+    ("new_fields_emitted_in_pre_categories_block", test_new_fields_emitted_in_pre_categories_block),
+    ("new_fields_last_value_wins", test_new_fields_last_value_wins),
+    ("reconciled_tag_track_scoped_no_leak", test_reconciled_tag_track_scoped_no_leak),
+    ("new_field_first_match_wins_over_categories_decoy", test_new_field_first_match_wins_over_categories_decoy),
+    ("new_field_first_match_decoy_is_real_on_disk_emit", test_new_field_first_match_decoy_is_real_on_disk_emit),
+    ("append_new_field_rejects_space", test_append_new_field_rejects_space),
+    ("append_new_field_rejects_newline", test_append_new_field_rejects_newline),
+    ("torn_append_leaves_prior_tail_intact_new_fields", test_torn_append_leaves_prior_tail_intact_new_fields),
 ]
 
 

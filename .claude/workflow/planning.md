@@ -6,9 +6,9 @@
 |---|---|---|---|
 | §Overview | planner | 1 | Phase 1 develops the implementation plan and design document in a single session, informed by Phase 0 research. |
 | §Goal | planner | 1 | Author the design doc first in its own reviewed session, then derive the plan; step detail is deferred to execution. |
-| §Tier classification | planner | 1 | The two-gate change tier (full/lite/minimal), decided at Phase 0 to 1, selects the Phase-1 artifact and review set. |
+| §Tier classification | planner | 1 | The complexity axes (design gate, track count, per-track tag) select the Phase-1 artifact and review set. |
 | §How to run | planner | 0,1 | Start /create-plan, run Phase 0 research, then transition to Phase 1 planning on the user's explicit go-ahead. |
-| §Plan file structure | planner | 1 | The _workflow files (research log, plan, design, track files, mutation log); the per-tier artifact set governs which. |
+| §Plan file structure | planner | 1 | The _workflow files (research log, plan, design, track files, mutation log); the per-axis artifact set governs which. |
 | §Architecture Notes format | planner | 1 | Architecture Notes carry the strategic shape of the design; the section's per-component budgets keep the plan file lean. |
 | §Boundary with `design.md` and track files | planner | 1 | Architecture Notes hold strategic shape only; long-form material belongs in the design doc or track narrative. |
 | §Per-section budget at a glance | planner,reviewer-plan | 1,2 | The per-section line/token budgets (component, DR, invariant, integration, intro, total) enforced by structural review. |
@@ -85,117 +85,138 @@ captured in the project's track episodes (plan file) and step episodes
 <!-- roles=planner phases=1 summary="Author the design doc first in its own reviewed session, then derive the plan; step detail is deferred to execution." -->
 
 Produce a plan markdown file with a high-level description, architecture notes,
-and track-level decomposition. The flow is **tier-adaptive** (§Tier
-classification): the description below is the `full`-tier path, where the
-plan is **derived from a frozen, reviewed `design.md`**; `lite` and
-`minimal` shed the design and author the plan and track files directly
-from the research log in a single session. In `full`, Phase 1 is
-design-first: `create-plan` authors and reviews `design.md` first
-(Step 4a), the design freezes and is committed when its review passes, and the
-implementation plan is derived from that frozen seed (Step 4b) within the same
-`/create-plan` invocation. The plan back-fills nothing the design has not
-already settled, so the Decision Records mirror the design's decisions rather
-than crystallizing ahead of it. The two steps no longer span a session
-boundary; the context isolation that boundary forced is supplied by the
-`design-author` sub-agent spawn, which reads the frozen committed design
-regardless of session. `/create-plan` auto-resumes plan derivation as crash
-recovery only — when `design.md` is committed and clean and
+and track-level decomposition. The flow is **axis-adaptive** (§Tier
+classification): the description below is the design-first path, taken when the
+**design gate** is yes, where the plan is **derived from a frozen, reviewed
+`design.md`**; a `design_gate=no` change sheds the design and authors the plan
+and track files directly from the research log in a single session. When the
+design gate is yes, Phase 1 is design-first: `create-plan` authors and reviews
+`design.md` first (Step 4a), the design freezes and is committed when its
+review passes, and the implementation plan is derived from that frozen seed
+(Step 4b) within the same `/create-plan` invocation. The plan back-fills
+nothing the design has not already settled, so the Decision Records mirror the
+design's decisions rather than crystallizing ahead of it. The two steps no
+longer span a session boundary; the context isolation that boundary forced is
+supplied by the `design-author` sub-agent spawn, which reads the frozen
+committed design regardless of session. `/create-plan` auto-resumes plan
+derivation as crash recovery only — when `design.md` is committed and clean and
 `implementation-plan.md` does not exist (see
 `create-plan/SKILL.md` Step 1c / Step 4). Step-level decomposition is
-**deferred to execution** in every tier — tracks include scope indicators (a
+**deferred to execution** for every change — tracks include scope indicators (a
 rough sketch of expected work) but not detailed steps. Final step
 decomposition happens just-in-time during Phase 3 when the execution agent
 has maximum codebase context from prior tracks.
 
 ## Tier classification
-<!-- roles=planner phases=1 summary="The two-gate change tier (full/lite/minimal), decided at Phase 0 to 1, selects the Phase-1 artifact and review set." -->
+<!-- roles=planner phases=1 summary="The complexity axes (design gate, track count, per-track tag) select the Phase-1 artifact and review set." -->
 
-Phase 1 is **tier-adaptive**: a one-line fix does not pay the ceremony a
-durability rework needs. `create-plan` Step 4 classifies the change into
-one of three tiers at the Phase 0 → 1 boundary, from the research log,
-before any Phase-1 artifact is authored, and the user confirms it.
+Phase 1 is **axis-adaptive**: a one-line fix does not pay the ceremony a
+durability rework needs. Rather than one whole-change tier, the workflow
+reads three independent **complexity axes**, each decided at its natural
+point in Phase 1:
 
-**The two gates.** The tier is two orthogonal yes/no questions, not one
-ordinal scale:
-
-| Gate | Question | Answers |
-|---|---|---|
-| Gate 1 | Does the change need a `design.md`? | yes / no |
-| Gate 2 | Does the change span multiple tracks? | multi / single |
-
-A design-needing change is multi-track by construction (a change worth a
-design document is not a single-track stub), so the two gates collapse to
-three reachable tiers:
-
-| Tier | Gate 1 | Gate 2 | Phase-1 artifacts |
+| Axis | Question | Decided at | Persisted as |
 |---|---|---|---|
-| `full` | design = yes | multi | research log + phase ledger + plan-review doc + `design.md` + thinned plan + track files |
-| `lite` | design = no | multi | research log + phase ledger + plan-review doc + thinned plan + track files (no design) |
-| `minimal` | design = no | single | research log + phase ledger + plan-review doc + one self-contained track file (no plan) |
+| Design gate | Does the change need a `design.md`? | Phase 0 → 1 boundary, from the research log | ledger `design_gate` (yes/no) |
+| Track count | How many track files did the planner author? (> 1 ⇒ an `implementation-plan.md` exists) | end of Step 4b, once decomposed | ledger `tracks` (N) |
+| Per-track complexity tag | How hard is each track? | predicted per track at Phase 1, reconciled to `max(step tags)` at the Phase A → C boundary | track file at Phase 1 (the prediction), then ledger per-track `reconciled_tag` (low/medium/high) written only at the Phase A → C reconciliation |
 
-The tier names are deliberately distinct from the per-step **risk tag**
-(`low`/`medium`/`high`) and the Phase-3A step-count axis
-(Simple/Moderate/Complex) so the three vocabularies never collide
-(`conventions.md` `§1.1` glossary). The confirmed tier persists as a field
-in the **phase ledger** (`_workflow/phase-ledger.md`, present in every
-tier; D4, `conventions.md` `§1.2` *Per-tier artifact set*) so every fresh
+`create-plan` Step 4 proposes the **design gate** at the Phase 0 → 1
+boundary, from the research log, before any Phase-1 artifact is authored,
+and the user confirms it. The **track count** is not knowable until the
+planner decomposes, so it is settled at the end of Step 4b. The two
+together select which Phase-1 artifacts the change produces:
+
+| design gate | track count | Phase-1 artifacts |
+|---|---|---|
+| yes | multi | research log + phase ledger + plan-review doc + `design.md` + thinned plan + track files |
+| no | multi | research log + phase ledger + plan-review doc + thinned plan + track files (no design) |
+| no | single | research log + phase ledger + plan-review doc + one self-contained track file (no plan) |
+| yes | single | research log + phase ledger + plan-review doc + `design.md` + one self-contained track file (no plan) |
+
+A design-needing change is usually multi-track, but the axes are
+independent: the design+single-track shape (a design with one track and no
+plan) is now expressible, where the old whole-change tier could not
+represent it. The axis names are deliberately distinct from the per-step
+**risk tag** (`low`/`medium`/`high`) and the Phase-3A step-count axis
+(Simple/Moderate/Complex) so the vocabularies never collide
+(`conventions.md` `§1.1` glossary). Each axis persists as a field in the
+**phase ledger** (`_workflow/phase-ledger.md`, present for every change;
+D4, `conventions.md` `§1.2` *Per-axis artifact set*) so every fresh
 `/execute-tracks` session reads it — the ledger, not a plan line, is the
-resume-state and tier home, which is what lets `minimal` drop the plan.
+resume-state home, which is what lets a single-track change drop the plan.
 
-**Gate 1 criteria — one source of truth with risk-tagging.** Gate 1's
-"needs a design" test reuses the HIGH-risk category list in
+**Design-gate criteria — one source of truth with risk-tagging.** The
+design gate's "needs a design" test reuses the HIGH-risk category list in
 `risk-tagging.md` §Gate 1 reuse (change-level) — `Concurrency`,
 `Crash-safety / Durability`, `Public API`, `Security`,
 `Architecture / cross-component coordination`, `Performance hot path`, and
 `Workflow machinery` — read at the **change** level rather than the
 per-step level. The same list drives the Phase-A per-step tagging; one
-source of truth. Gate 1 is yes only when a category is **central to the
-change's purpose**, not merely touched by one incidental edit. The agent
-proposes the tier and the centrally-matched categories from the research
-log; the user confirms or overrides in either direction, and may add or
-drop an adversarial lens at confirmation. The centrally-matched categories
-prime the relocated adversarial review's lenses
+source of truth. The design gate is yes only when a category is **central
+to the change's purpose**, not merely touched by one incidental edit. The
+agent proposes the design gate and the centrally-matched categories from
+the research log; the user confirms or overrides in either direction, and
+may add or drop an adversarial lens at confirmation. The centrally-matched
+categories prime the relocated adversarial review's lenses
 (`prompts/adversarial-review.md` §Research-log-scoped review).
 
-**Per-tier Phase-1 flow.**
+**Per-track complexity-tag prediction (Phase 1).** When the planner
+authors the track files, it also **predicts each track's complexity tag**
+(`low` / `medium` / `high`) and records it in the track file, from the same
+seven `risk-tagging.md` HIGH triggers read over that track's planned work
+(not its individual steps, which are not decomposed until Phase 3): a track
+whose planned work is central to any HIGH category is predicted `high`. The
+prediction is an estimate the planner makes from the scope sketch; Phase A
+recomputes the tag from the decomposed steps and reconciles it to
+`max(step tags)`, writing the reconciled value to the ledger at the Phase A
+→ C boundary. The Phase-1 prediction is recorded in the track file only; the
+ledger's per-track `reconciled_tag` field is written solely by that Phase A →
+C reconciliation. The computation mechanism is owned by `risk-tagging.md`;
+this section only requests the prediction at authoring time.
 
-- `full` — design-first, exactly as §Goal and §Design Document describe:
-  `design.md` is authored and reviewed in Step 4a, freezes and is committed
-  when its review passes, and the thinned plan plus track files derive from
-  that frozen seed in Step 4b — both within one `/create-plan` invocation, no
-  longer across a session boundary (the `design-author` sub-agent spawn
-  supplies the context isolation).
-- `lite` — no `design.md`. The thinned plan and the track files are
-  authored in a single Phase-1 session (Step 4b only); the track files
+**Per-axis Phase-1 flow.**
+
+- **design gate yes** — design-first, exactly as §Goal and §Design Document
+  describe: `design.md` is authored and reviewed in Step 4a, freezes and is
+  committed when its review passes, and the thinned plan plus track files
+  derive from that frozen seed in Step 4b — both within one `/create-plan`
+  invocation, no longer across a session boundary (the `design-author`
+  sub-agent spawn supplies the context isolation).
+- **design gate no** — no `design.md`. The thinned plan and the track files
+  are authored in a single Phase-1 session (Step 4b only); the track files
   carry the full inline Decision Records directly, with no design seed to
   derive from.
-- `minimal` — no `design.md` and **no plan** (D2). **One** self-contained
-  track file, authored in a single Phase-1 session, carries the whole
-  change; resume state lives in the phase ledger
-  (`conventions.md` `§1.2` *Per-tier artifact set*).
+- **single track (no plan)** — **no** `implementation-plan.md` (D1): a
+  cross-track summary is vacuous for one track. **One** self-contained track
+  file, authored in a single Phase-1 session, carries the whole change;
+  resume state lives in the phase ledger (`conventions.md` `§1.2`
+  *Per-axis artifact set*). This shape is orthogonal to the design gate — a
+  single-track change may or may not carry a `design.md`.
 
-**The phase ledger and the inline-DR carrier (every tier).** The resume
+**The phase ledger and the inline-DR carrier (every change).** The resume
 state machine, the drift gate, and Phase-2 routing read the **phase
-ledger** (`_workflow/phase-ledger.md`, present in every tier; D3) for
-branch-level state, so dropping the `minimal` plan does not break the
-machinery. The `implementation-plan.md`, where present (`lite`/`full`), is
-a **derived-mirror plan** (D1): a cross-track summary that holds no fact a
-track file does not already own. The **live decision
-carrier is the track file** in every tier: each track's `## Decision Log`
-carries the full inline Decision Record (D7, the track-canonical live
-decision, `conventions.md` `§1.1` glossary). In `full`, the frozen `design.md` keeps a seed
-copy of each D-record for derivation, navigation, and `**Full design**`
-references — historical provenance, never the live authority. After a
-track absorbs a decision, the track is the source of truth.
+ledger** (`_workflow/phase-ledger.md`, present for every change; D3) for
+branch-level state, so dropping the plan on a single-track change does not
+break the machinery. The `implementation-plan.md`, where present
+(multi-track), is a **derived-mirror plan** (D1): a cross-track summary that
+holds no fact a track file does not already own. The **live decision
+carrier is the track file** for every change: each track's `## Decision
+Log` carries the full inline Decision Record (D7, the track-canonical live
+decision, `conventions.md` `§1.1` glossary). When the design gate is yes,
+the frozen `design.md` keeps a seed copy of each D-record for derivation,
+navigation, and `**Full design**` references — historical provenance, never
+the live authority. After a track absorbs a decision, the track is the
+source of truth.
 
-**Mid-flight tier upgrade.** Gate 2 stays an estimate until decomposition.
-If the estimate is wrong mid-execution — a `minimal` single track balloons,
-or a `lite` change turns out to need a design — the tier upgrade rides the
-existing inline-replan ESCALATE path, adding the new tier's artifacts and
-running its Phase-3A passes from the upgrade point onward. It does not
-reach back to re-run a Phase-2 pass an earlier session already skipped, and
-downgrades are likewise not automatic (a completed review cannot be
-un-run).
+**Mid-flight design-gate upgrade.** The track count stays an estimate until
+decomposition. If an axis estimate is wrong mid-execution — a single track
+balloons into several, or a `design_gate=no` change turns out to need a
+design — the upgrade rides the existing inline-replan ESCALATE path, adding
+the new artifacts and running the appropriate Phase-3A passes from the
+upgrade point onward. It does not reach back to re-run a Phase-2 pass an
+earlier session already skipped, and downgrades are likewise not automatic
+(a completed review cannot be un-run).
 
 ## How to run
 <!-- roles=planner phases=0,1 summary="Start /create-plan, run Phase 0 research, then transition to Phase 1 planning on the user's explicit go-ahead." -->
@@ -212,36 +233,36 @@ transitions to Phase 1 (Planning) and produces the plan and design document,
 incorporating all findings and decisions from the research phase.
 
 ## Plan file structure
-<!-- roles=planner phases=1 summary="The _workflow files (research log, plan, design, track files, mutation log); the per-tier artifact set governs which." -->
+<!-- roles=planner phases=1 summary="The _workflow files (research log, plan, design, track files, mutation log); the per-axis artifact set governs which." -->
 
 The plan file structure is defined in `conventions.md` `§1.2`,
-including the `§1.2` *Per-tier artifact set* that says which of these the
-change tier produces. The key points:
+including the `§1.2` *Per-axis artifact set* that says which of these the
+change produces, derived from the complexity axes. The key points:
 
 - `docs/adr/<dir-name>/_workflow/research-log.md` — the durable Phase-0/1
-  decision ledger, produced in every tier (see `research.md` §The research
+  decision ledger, produced for every change (see `research.md` §The research
   log)
 - `docs/adr/<dir-name>/_workflow/phase-ledger.md` — the append-only,
   unstamped event log that owns branch-level resume state (phase, active
-  track, tier + matched categories, `§1.7` staging mode, pause events),
-  produced in every tier; last-value-wins on read (D3/D6,
-  `conventions.md` `§1.1` *Phase ledger*)
+  track, the complexity-axis fields + matched categories, `§1.7` staging
+  mode, pause events), produced for every change; last-value-wins on read
+  (D3/D6, `conventions.md` `§1.1` *Phase ledger*)
 - `docs/adr/<dir-name>/_workflow/plan-review.md` — the Phase-2 consistency
-  and structural audit summary, produced in every tier; a cold record the
+  and structural audit summary, produced for every change; a cold record the
   review state in the ledger points at (D7)
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — the
   **derived-mirror plan**: a cross-track summary (the `## Checklist` plus a
   thin cross-track Component Map) that mirrors content the track files own
-  (`lite`/`full` only; `minimal` drops it — D1/D2)
+  (multi-track only; a single-track change drops it — D1)
 - `docs/adr/<dir-name>/_workflow/design.md` — design-level: class diagrams, workflow
-  diagrams, dedicated sections for complex/opaque parts (`full` tier only)
+  diagrams, dedicated sections for complex/opaque parts (design gate yes only)
 - `docs/adr/<dir-name>/_workflow/plan/track-N.md` — per-track ExecPlan, created at
   Phase 1 with its four track-level sections plus the inline Decision
   Records in `## Decision Log`; the `## Concrete Steps` roster is filled at
   Phase A
 - `docs/adr/<dir-name>/_workflow/design-mutations.md` — append-only mutation log
   for `design.md` / `design-mechanics.md`; read by `edit-design`'s
-  `design-sync` step (`full` tier only)
+  `design-sync` step (design gate yes only)
 
 The `_workflow/` directory is tracked under git for the branch
 lifetime (so the draft PR shows progress to teammates and so a
@@ -278,15 +299,15 @@ home, and the plan keeps only the thin cross-track Component Map:
   The format and budget rules below still apply to it.
 - **Decision Records** — track-canonical (D7): each track's
   `## Decision Log` carries the full inline DR. The plan no longer holds
-  them. In `full`, the frozen `design.md` keeps the seed copy. The DR
-  format below is the shape those track-file records take.
+  them. When the design gate is yes, the frozen `design.md` keeps the seed
+  copy. The DR format below is the shape those track-file records take.
 - **`### Constraints` + Invariants** — move to each track's combined
   `## Invariants & Constraints` section (D9). The Invariants format
   below is the shape they take there.
 - **Integration Points** — move to each track's `## Interfaces and
   Dependencies` (D9). The format below is their shape there.
 - **Non-Goals** — move to the research log and the PR `## Motivation`
-  (and `design.md` in `full`).
+  (and `design.md` when the design gate is yes).
 
 The sub-sections below are retained as the **format reference** for these
 parts in their new homes (the DR four-bullet shape, the invariant and
@@ -577,14 +598,15 @@ Beyond the four narrative sections, Phase 1 also populates the track's
 responsible for — the **track-canonical live decision** carrier (D7,
 `conventions.md` `§1.1` glossary). Each record is a complete four-bullet DR (Alternatives
 considered, Rationale, Risks/Caveats, Implemented-in), authored from the
-research log in `lite`/`minimal` and copied from the frozen `design.md`
-seed in `full`. The track file is the live authority in every tier; in
-`full`, the `design.md` seed copy is historical provenance with an
-optional `**Full design**` line pointing at the seed's mechanism — it
-never substitutes for the inline record. The write-time cold-read
-(`prompts/design-review.md` §Track-scoped cold-read) checks at authoring
-time that every load-bearing research-log decision in the track's scope is
-absorbed into this section (and, in `full`, stays faithful to its seed).
+research log when the design gate is no and copied from the frozen
+`design.md` seed when the design gate is yes. The track file is the live
+authority for every change; when the design gate is yes, the `design.md`
+seed copy is historical provenance with an optional `**Full design**` line
+pointing at the seed's mechanism — it never substitutes for the inline
+record. The write-time cold-read (`prompts/design-review.md` §Track-scoped
+cold-read) checks at authoring time that every load-bearing research-log
+decision in the track's scope is absorbed into this section (and, when the
+design gate is yes, stays faithful to its seed).
 
 Phase 1 also populates the track's combined **`## Invariants &
 Constraints`** section (D9, the 15th track-file section): the per-track
@@ -713,13 +735,13 @@ architecture, not premature step decomposition.
 ## Design Document
 <!-- roles=planner phases=1 summary="The design doc is authored first in its own reviewed session, then frozen; the plan derives from it." -->
 
-**This section applies to the `full` tier only.** A `design.md` exists
-only when Gate 1 says the change needs one (§Tier classification); in
-`lite` and `minimal` there is no design document and the rest of this
-section does not apply — the track files' inline Decision Records are the
-sole decision carrier.
+**This section applies only when the design gate is yes.** A `design.md`
+exists only when the design gate says the change needs one
+(§Tier classification); when `design_gate=no` there is no design document
+and the rest of this section does not apply — the track files' inline
+Decision Records are the sole decision carrier.
 
-In `full`, the plan derives from a separate **design document** at
+When the design gate is yes, the plan derives from a separate **design document** at
 `docs/adr/<dir-name>/_workflow/design.md`. It explains the structural and behavioral
 design (not code): class diagrams, workflow diagrams, and dedicated sections
 for complex/opaque parts (concurrency, crash recovery, performance paths).

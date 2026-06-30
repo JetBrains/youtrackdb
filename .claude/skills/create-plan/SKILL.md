@@ -28,8 +28,8 @@ Read and follow the workflow for Phase 0 (Research) and Phase 1 (Planning).
 
 Read these in order before doing anything else (do NOT ask the user anything yet):
 1. `.claude/workflow/conventions.md` — shared formats,
-   glossary (including the **change tier** and **tier gates** terms),
-   plan file structure, the `§1.2` *Per-tier artifact set*, scope
+   glossary (including the **complexity axes** and **design gate** terms),
+   plan file structure, the `§1.2` *Per-axis artifact set*, scope
    indicators, review iteration protocol
 2. `.claude/workflow/research.md` — Phase 0 instructions:
    interactive research, code exploration, internet research, the
@@ -128,7 +128,7 @@ the research log, plan, design, track files, review files, and handoff
 files; the Phase 4 cleanup commit removes it before merge (see
 `.claude/workflow/conventions.md` `§1.2`).
 
-**Step 1c — Tier-aware resume check (before the aim prompt).**
+**Step 1c — Resume check (before the aim prompt).**
 
 After Step 1.5 (drift) and Step 1a (handoff) have cleared, check the
 design-first artifacts plus the phase ledger and the single-track glob on
@@ -141,156 +141,186 @@ ls docs/adr/<dir-name>/_workflow/design.md \
    docs/adr/<dir-name>/_workflow/plan/track-1.md 2>/dev/null
 ```
 
-The routing signal is **tier-dependent** (D10). `minimal` has **no plan**
+The routing signal is the three complexity axes the ledger now carries (D10):
+the **design gate** (does a `design.md` exist), the **plan-presence /
+track-count** signal (how many track files the planner authored — more than
+one means an `implementation-plan.md` exists), and the **Phase-1-complete
+marker** (did Phase 1 finish cleanly). A plan-less change has **no plan**
 (D2), so `implementation-plan.md` presence cannot disambiguate it; the
-**phase ledger** is the signal for `minimal` — when the ledger is present
-and its `tier` line reads `minimal`, an interrupted `minimal` session
-resumes off the ledger, with the `plan/track-1.md` glob as the secondary
-signal that the one track file was written. For `lite`/`full`,
-`implementation-plan.md` **presence** stays the routing signal (the plan is
-present in those tiers), and the tier is read from the **ledger** `tier`
-field, never from a plan line (the plan no longer carries a tier line; it
-moved to the ledger per D4) and never from a fresh read of the research log,
-which would be a third decision-content read site and break S2.
+**phase ledger** is the signal — when the ledger records `design_gate=no` and
+the plan-presence signal is single (`tracks=1`), an interrupted plan-less
+session resumes off the ledger, with the `plan/track-1.md` glob as the
+secondary signal that the one track file was written. When the plan is
+present (`tracks` > 1), `implementation-plan.md` **presence** stays the
+routing signal, and the design gate is read from the **ledger** `design_gate`
+field, never from a plan line (the plan no longer carries a tier line; the
+classification moved to the ledger per D4) and never from a fresh read of the
+research log, which would be a third decision-content read site and break S2.
 
-Read the tier from the ledger once before routing — the same
-last-value-wins `tier` field the script's `--append-ledger` seeds at
-Phase 1 (`conventions.md` `§1.1` *Phase ledger*):
+The new shape the three axes make expressible is a **design with one track
+and no plan** (`design_gate=yes`, `tracks=1`): on disk it is a `design.md`,
+no plan, and one track file — a file set **identical** to a mid-authoring
+crash that wrote `design.md` before deriving any plan. File presence alone
+cannot tell the two apart, so the **Phase-1-complete marker** is the
+disambiguator: set (`phase1_complete=yes`) means the design+single-track
+steady state (do not re-author); unset means a mid-authoring crash (re-enter
+Step 4a). The marker check runs first to separate "Phase 1 is done" from
+"Phase 1 is not done"; the existing committed-and-clean `design.md` check
+still applies *within* the crash arm to tell a frozen design apart from an
+unfrozen one.
+
+Read the three fields from the ledger once before routing — the same
+last-value-wins fields the script's `--append-ledger` seeds at Phase 1
+(`conventions.md` `§1.1` *Phase ledger*):
 
 ```bash
-# Tier from the ledger (last value wins); empty if no ledger or no tier line.
-LEDGER_TIER="$(sed -n 's/.* tier=\([a-z]*\).*/\1/p' \
-    docs/adr/<dir-name>/_workflow/phase-ledger.md 2>/dev/null | tail -n 1)"
+LEDGER="docs/adr/<dir-name>/_workflow/phase-ledger.md"
+# design gate (yes/no), track count (integer), and the Phase-1-complete
+# marker (yes); each last-value-wins, empty if no ledger or no such line.
+LEDGER_DESIGN_GATE="$(sed -n 's/.* design_gate=\([a-z]*\).*/\1/p' "$LEDGER" 2>/dev/null | tail -n 1)"
+LEDGER_TRACKS="$(sed -n 's/.* tracks=\([0-9]*\).*/\1/p' "$LEDGER" 2>/dev/null | tail -n 1)"
+LEDGER_PHASE1_COMPLETE="$(sed -n 's/.* phase1_complete=\([a-z]*\).*/\1/p' "$LEDGER" 2>/dev/null | tail -n 1)"
 ```
 
 Route on what exists. Evaluate the branches in order; the first whose
-condition holds wins. The `design.md`-keyed branches are mutually exclusive
-with the no-design branches by file presence, but the `minimal` resume branch
+condition holds wins. The `design.md`-present branch fans out on the
+Phase-1-complete marker (steady state vs mid-authoring crash); the no-design
+branches differ from it by `design.md` absence. The plan-less resume branch
 and the fresh-start branch both describe the no-plan/no-design state, so the
-order matters: the more-specific `minimal` resume is reached first and the
+order matters: the more-specific plan-less resume is reached first and the
 fresh-start branch is the catch-all that fires only when no earlier branch
 matched.
 
-- **`design.md` exists, `implementation-plan.md` does not** — `full` tier
-  mid-authoring (only `full` writes a `design.md`). This branch is
-  **crash-recovery-only** after the 4a/4b collapse: the happy path no longer
-  ends the session at the design freeze, so Step 4b normally runs in the same
-  invocation that authored the design and never re-enters through this resume
-  branch. Reaching this branch means the prior `/create-plan` invocation
-  authored (and possibly committed) `design.md` but ended — crash,
-  context-full `/clear`, or the user stopping the session — before the plan
-  was derived. File presence alone is not proof the design is frozen:
-  `edit-design` writes `design.md` to disk in its *apply* step, **before** the
-  cold-read review runs and before the design commit lands. A session
-  interrupted after the write but before the review passed leaves an
-  **unreviewed, uncommitted** `design.md` on disk. So before auto-resuming
-  into Step 4b, confirm the design is **committed and clean** — the on-disk
-  proxy for "frozen and reviewed", since the `Add initial design` commit lands
-  only after its review passes:
+- **`design.md` exists, `implementation-plan.md` does not** — a `design.md`
+  is written (`design_gate=yes`) and no plan exists. Two on-disk-identical
+  states share this signature — the design+single-track steady state and a
+  mid-authoring crash — so check the **Phase-1-complete marker first**:
+  - **Marker set (`LEDGER_PHASE1_COMPLETE` = `yes`)** — Phase 1 finished
+    cleanly. This is the design+single-track steady state (`design_gate=yes`,
+    `tracks=1`): the design and its one track file are the durable Phase-1
+    artifacts and there is no plan by derivation (a cross-track summary is
+    vacuous for one track). This is a **normal resume**, not a Step-4 entry:
+    the drift / handoff / state routing above already handled it; **do not
+    re-author** the design or re-derive a plan. Proceed to Step 2 only if the
+    user explicitly asks to start a new aim against the same dir (rare). The
+    marker alone is **sufficient by construction** here: a clean Phase-1 seed
+    co-writes `phase1_complete=yes` and `design_gate=yes` on the same line, so
+    a set marker implies the gate and no cross-check of `LEDGER_DESIGN_GATE` is
+    needed on this arm. The `LEDGER_DESIGN_GATE` / `LEDGER_TRACKS` locals
+    parsed at the top of the step are read only by the lower no-design
+    branches — they are intentionally unused here, not a missing check.
+  - **Marker unset (`LEDGER_PHASE1_COMPLETE` blank)** — Phase 1 did **not**
+    finish: the prior `/create-plan` invocation authored (and possibly
+    committed) `design.md` but ended — crash, context-full `/clear`, or the
+    user stopping the session — before the plan derivation completed and the
+    marker was seeded. This is the **crash-recovery** arm. File presence alone
+    is not proof the design is frozen: `edit-design` writes `design.md` to
+    disk in its *apply* step, **before** the cold-read review runs and before
+    the design commit lands. A session interrupted after the write but before
+    the review passed leaves an **unreviewed, uncommitted** `design.md` on
+    disk. So confirm the design is **committed and clean** — the on-disk proxy
+    for "frozen and reviewed", since the `Add initial design` commit lands only
+    after its review passes:
 
-  ```bash
-  # committed: at least one commit touches design.md
-  git log -1 --format=%h -- docs/adr/<dir-name>/_workflow/design.md
-  # clean: no uncommitted changes to design.md (empty output = clean)
-  git status --porcelain docs/adr/<dir-name>/_workflow/design.md
-  ```
+    ```bash
+    # committed: at least one commit touches design.md
+    git log -1 --format=%h -- docs/adr/<dir-name>/_workflow/design.md
+    # clean: no uncommitted changes to design.md (empty output = clean)
+    git status --porcelain docs/adr/<dir-name>/_workflow/design.md
+    ```
 
-  - **Committed (non-empty `git log`) AND clean (empty `git status`)** —
-    the design is frozen and reviewed, and the prior invocation crashed
-    between the design commit and the plan derivation. **Auto-resume into
-    Step 4b** (plan derivation): skip Step 2's aim prompt and Step 3's
-    Phase 0 research loop entirely — the aim and research are already
-    captured in the frozen `design.md` and the conversation that produced it.
-    Read `planning.md` (deferred from Step 1) and derive the plan from the
-    frozen design. This crash-recovery resume reaches the same Step 4b the
-    collapsed happy path flows into directly, so the plan derives identically
-    whether or not the prior session was interrupted.
-  - **Uncommitted (empty `git log`) OR dirty (non-empty `git status`)** —
-    a session was interrupted mid-design-authoring (before the `Add initial
-    design` freeze-and-commit). **Resume Step 4a**, not Step 4b: re-enter the
-    `edit-design` review loop so the adversarial gate and cold-read pass run
-    and the design is committed before any plan derives from it. This arm is
-    **retained** by the collapse: even though the happy path no longer crosses
-    a session boundary, a crash mid-authoring still leaves an unfrozen
-    `design.md`, and re-entering Step 4a is how that state recovers.
-    Re-entering the loop on an already-good design is idempotent and harmless,
-    so this branch is safe even on a false alarm (e.g., a stray editor write
-    left the file dirty).
-- **`implementation-plan.md` exists, `design.md` does not** — a `lite` or
-  `full` tier whose plan is already derived (`minimal` has no plan, so it
-  never reaches this branch). Read the tier from the ledger `LEDGER_TIER`
-  parsed above. Two sub-cases:
-  - **Ledger tier `lite`** — a no-design tier whose plan is already derived;
-    the missing `design.md` is by design, not a sign of an interrupted
-    Step 4a. This is a normal resume, not a Step-4 entry: the drift /
-    handoff / state routing above already handled it; do not re-run Step 4
-    and do not route to design authoring. Proceed to Step 2 only if the user
-    explicitly asks to start a new aim against the same dir (rare).
-  - **Ledger tier `full` (or absent / unreadable)** — a `full`-tier plan
-    with no `design.md` is malformed (the design should have been authored
-    and committed first); an absent ledger tier means the branch predates
-    the ledger scheme. Treat it as the **Both files exist** normal resume
-    below and surface the inconsistency to the user rather than silently
-    re-deriving — do not re-run Step 4.
-- **`minimal` resume — ledger present with `tier=minimal`, `plan/track-1.md`
-  present, no `implementation-plan.md`, no `design.md`** — a `minimal`
-  session whose single track file is already written (D10). The ledger, not
-  a plan, is the resume signal here; the `plan/track-1.md` glob is the
-  secondary signal that the track file landed. This is a normal resume, not
-  a Step-4 entry: the drift / handoff / state routing above already handled
-  it; do not re-run Step 4 and do not author a plan (`minimal` has none).
-  Proceed to Step 2 only if the user explicitly asks to start a new aim
-  against the same dir (rare).
+    - **Committed (non-empty `git log`) AND clean (empty `git status`)** —
+      the design is frozen and reviewed, and the prior invocation crashed
+      between the design commit and the plan derivation. **Auto-resume into
+      Step 4b** (plan derivation): skip Step 2's aim prompt and Step 3's
+      Phase 0 research loop entirely — the aim and research are already
+      captured in the frozen `design.md` and the conversation that produced
+      it. Read `planning.md` (deferred from Step 1) and derive the plan from
+      the frozen design. This crash-recovery resume reaches the same Step 4b
+      the collapsed happy path flows into directly, so the plan derives
+      identically whether or not the prior session was interrupted.
+    - **Uncommitted (empty `git log`) OR dirty (non-empty `git status`)** —
+      a session was interrupted mid-design-authoring (before the `Add initial
+      design` freeze-and-commit). **Resume Step 4a**, not Step 4b: re-enter
+      the `edit-design` review loop so the adversarial gate and cold-read pass
+      run and the design is committed before any plan derives from it. This
+      arm is **retained** by the collapse: even though the happy path no
+      longer crosses a session boundary, a crash mid-authoring still leaves an
+      unfrozen `design.md`, and re-entering Step 4a is how that state recovers.
+      Re-entering the loop on an already-good design is idempotent and
+      harmless, so this branch is safe even on a false alarm (e.g., a stray
+      editor write left the file dirty).
+- **`implementation-plan.md` exists, `design.md` does not** — a no-design
+  multi-track change whose plan is already derived (`design_gate=no`,
+  `tracks` > 1; a one-track change has no plan, so it never reaches this
+  branch). The missing `design.md` is by derivation (`design_gate=no`), not a
+  sign of an interrupted Step 4a. This is a normal resume, not a Step-4 entry:
+  the drift / handoff / state routing above already handled it; do not re-run
+  Step 4 and do not route to design authoring. If the ledger instead records
+  `design_gate=yes` (or is absent / unreadable), a multi-track plan with no
+  `design.md` is malformed (the design should have been authored and committed
+  first) or the branch predates the ledger scheme; treat it as the **Both
+  files exist** normal resume below and surface the inconsistency to the user
+  rather than silently re-deriving. Proceed to Step 2 only if the user
+  explicitly asks to start a new aim against the same dir (rare).
+- **Plan-less resume — ledger records `design_gate=no` and `tracks=1`,
+  `plan/track-1.md` present, no `implementation-plan.md`, no `design.md`** — a
+  no-design single-track session whose one track file is already written
+  (D10). The ledger, not a plan, is the resume signal here; the
+  `plan/track-1.md` glob is the secondary signal that the track file landed.
+  This is a normal resume, not a Step-4 entry: the drift / handoff / state
+  routing above already handled it; do not re-run Step 4 and do not author a
+  plan (a one-track change has none). Proceed to Step 2 only if the user
+  explicitly asks to start a new aim against the same dir (rare).
 - **Ledger absent, `plan/track-1.md` present, no `implementation-plan.md`,
-  no `design.md`** — a `minimal` Phase-1 session interrupted between the
-  track-file write and the ledger seed (the seed runs after the track file
-  is written; Step "Seed the phase ledger"). The durable Phase-1 artifact
-  in `minimal` is the track file, and it landed, so this is **not** a fresh
-  start: re-authoring `plan/track-1.md` would clobber work already on disk.
-  Resume by seeding the ledger (`--phase 0 --tier minimal`, plus the
-  matched categories and any `§1.7` staging mode) and continuing from the
-  recorded state, not by re-running research, tier classification, or the
-  Step-4b track-file Write. (`lite`/`full` cannot reach this branch: their
-  durable Phase-1 artifact is `implementation-plan.md`, whose presence is
-  matched by an earlier branch above.)
-- **Neither `implementation-plan.md` nor `design.md` exists, and no
-  `minimal` resume signal is present** — fresh start. The "no `minimal`
-  resume signal" condition is the OR of three testable arms, evaluated
-  against the same `LEDGER_TIER` value parsed at the top of this step: the
-  ledger is **absent**; OR the ledger is present but its `tier` field is
-  **empty or unreadable** (`LEDGER_TIER` blank); OR the ledger reads
-  `tier=minimal` but `plan/track-1.md` has **not** been written yet (the
-  branch immediately above already claimed the case where the track file
-  exists). Proceed to Step 2 (aim), then Step 3 (research), then Step 4 (the
-  tier classifier + adversarial gate, then per-tier Step 4a/4b). This also
-  covers the narrow `/clear` window where Step 4's gate cleared but no
-  artifact was written yet: with no plan, no `design.md`, no seeded ledger
-  tier, and no track file on disk there is no resume signal, so the resume
-  correctly reads as a fresh start and Step 4's classifier re-runs,
-  re-deriving the tier from the now-populated log through its existing
-  sanctioned authoring read — no extra read site, S2 intact.
-- **Both files exist** — the plan is already derived (`full` tier, design
-  and plan both committed); this is a normal resume, not a Step-4 entry.
-  The drift / handoff / state routing above already handled it; do not
-  re-run Step 4. Proceed to Step 2 only if the user explicitly asks to
-  start a new aim against the same dir (rare); the common case is the
-  session has nothing new to plan.
+  no `design.md`** — a no-design single-track Phase-1 session interrupted
+  between the track-file write and the ledger seed (the seed runs after the
+  track file is written; Step "Seed the phase ledger"). The durable Phase-1
+  artifact for a one-track no-design change is the track file, and it landed,
+  so this is **not** a fresh start: re-authoring `plan/track-1.md` would
+  clobber work already on disk. Resume by seeding the ledger (`--design-gate
+  no --tracks 1`, plus the matched categories and any `§1.7` staging mode) and
+  continuing from the recorded state, not by re-running research,
+  classification, or the Step-4b track-file Write. (A multi-track change
+  cannot reach this branch: its durable Phase-1 artifact is
+  `implementation-plan.md`, whose presence is matched by an earlier branch
+  above.)
+- **Neither `implementation-plan.md` nor `design.md` exists, and no plan-less
+  resume signal is present** — fresh start. The "no plan-less resume signal"
+  condition is the OR of three testable arms, evaluated against the
+  `LEDGER_DESIGN_GATE` / `LEDGER_TRACKS` values parsed at the top of this
+  step: the ledger is **absent**; OR the ledger is present but its
+  `design_gate` field is **empty or unreadable** (`LEDGER_DESIGN_GATE` blank);
+  OR the ledger records `design_gate=no` and `tracks=1` but `plan/track-1.md`
+  has **not** been written yet (the branch immediately above already claimed
+  the case where the track file exists). Proceed to Step 2 (aim), then Step 3
+  (research), then Step 4 (the design-gate classifier + adversarial gate, then
+  Step 4a/4b). This also covers the narrow `/clear` window where Step 4's gate
+  cleared but no artifact was written yet: with no plan, no `design.md`, no
+  seeded ledger fields, and no track file on disk there is no resume signal,
+  so the resume correctly reads as a fresh start and Step 4's classifier
+  re-runs, re-deriving the classification from the now-populated log through
+  its existing sanctioned authoring read — no extra read site, S2 intact.
+- **Both files exist** — the plan is already derived (a design-and-plan change
+  with both committed); this is a normal resume, not a Step-4 entry. The
+  drift / handoff / state routing above already handled it; do not re-run
+  Step 4. Proceed to Step 2 only if the user explicitly asks to start a new
+  aim against the same dir (rare); the common case is the session has nothing
+  new to plan.
 
 This check has a defined resume path for every artifact combination, so the
-"never a dead end" invariant holds for every arm. A **committed, clean**
-`design.md` with no plan is never a dead end — after the collapse this state
-arises only when a session crashed between the design commit and plan
-derivation, and the crash-recovery resume always routes it to Step 4b. An
-uncommitted or dirty `design.md` routes back to Step 4a to finish authoring
-(the arm the collapse retains for a crash mid-authoring). A `lite`/`full`
-derived plan resumes normally without re-entering design authoring, and a
-plan-less `minimal` session resumes off the ledger and its single track file
-(or, when the seed had not yet run, by seeding the ledger and continuing)
-rather than reading as a fresh start. The check runs **after** the drift and
-handoff gates so a pending migration or handoff resolves first (those can
-change what is on disk), and **before** the aim prompt so a Step-4b
-crash-recovery resume does not re-ask for an aim already captured in the
-design or the research log.
+"never a dead end" invariant holds for every arm. A `design.md` with no plan
+is never a dead end — with the **marker set** it is the design+single-track
+steady state (do not re-author); with the **marker unset** it is a crash, and
+the committed-and-clean check then routes a frozen design to Step 4b and an
+unfrozen one back to Step 4a. A derived plan resumes normally without
+re-entering design authoring, and a plan-less single-track session resumes off
+the ledger and its single track file (or, when the seed had not yet run, by
+seeding the ledger and continuing) rather than reading as a fresh start. The
+check runs **after** the drift and handoff gates so a pending migration or
+handoff resolves first (those can change what is on disk), and **before** the
+aim prompt so a Step-4b crash-recovery resume does not re-ask for an aim
+already captured in the design or the research log.
 
 **Step 2 — Ask the user for the aim, then seed the research log.**
 
@@ -349,41 +379,44 @@ Once the user provides the aim, enter **research mode**. In this mode:
 Stay in research mode until the user explicitly asks to create the plan
 (e.g., "create the plan", "let's plan this", "proceed to planning").
 
-**Step 4 — Classify the tier, gate the research log, then transition to planning (Phase 1).**
+**Step 4 — Classify the design gate, gate the research log, then transition to planning (Phase 1).**
 
-Phase 1 is **tier-adaptive** (`planning.md` §Tier classification): a
+Phase 1 is **complexity-adaptive** (`planning.md` §Tier classification): a
 one-line fix does not pay the ceremony a durability rework needs. Step 4
 runs in three parts at the Phase 0 → 1 boundary, before any Phase-1
 artifact is authored:
 
-1. **Tier classification** — propose the `full` / `lite` / `minimal` tier
-   from the now-rich research log, with the centrally-matched HIGH-risk
-   categories, and let the user confirm.
+1. **Design-gate classification** — propose the change-level **design gate**
+   (does a `design.md` exist) from the now-rich research log, with the
+   centrally-matched HIGH-risk categories, and let the user confirm.
 2. **The adversarial gate** — run the relocated adversarial review on the
    research log as a gate (loop on blockers, gate on should-fix, no
-   `skip`), domain-primed by the confirmed tier's matched categories.
-3. **Per-tier transition** — branch to Step 4a (design-first, `full` only)
-   or straight to Step 4b (thinned plan + tracks in `lite`, one track file
-   in `minimal`).
+   `skip`), domain-primed by the confirmed matched categories.
+3. **Transition** — branch to Step 4a (design-first, when the design gate is
+   yes) or straight to Step 4b (thinned plan + tracks, or one track file when
+   the change is single-track).
 
-**Step 4 part 1 — The two-gate tier classifier.**
+**Step 4 part 1 — The design-gate classifier.**
 
 When the user asks to create the plan, before authoring anything, confirm
 the research log captures the conversation's decisions (append any settled
 but unlogged), then classify the change. Read the now-rich research log's
 `## Decision Log`, `## Surprises & Discoveries`, and `## Open Questions` —
-this is a sanctioned Step-4 authoring read (S2). Propose the tier from the
-two orthogonal gates (`planning.md` §Tier classification, `conventions.md`
-`§1.1` **tier gates** glossary):
+this is a sanctioned Step-4 authoring read (S2). Classify the change on two
+orthogonal gates (`planning.md` §Tier classification):
 
 | Gate | Question | Answers |
 |---|---|---|
 | Gate 1 | Does the change need a `design.md`? | yes / no |
 | Gate 2 | Does the change span multiple tracks? | multi / single |
 
-`design = yes` implies multi-track, so the two gates collapse to three
-reachable tiers: `full` (design + multi), `lite` (no design + multi),
-`minimal` (no design + single).
+Gate 1 is the **design gate** this part persists: it decides whether a
+`design.md` (and the Phase-4 `design-final.md`) exists. Gate 2's
+multi-vs-single answer is **not** decided up front here — the track count is
+not knowable until the planner has decomposed the change, so plan presence is
+decided at the end of Step 4b from the authored track count (D1). `design =
+yes` implies multi-track, so the only single-track shape Gate 2 adds beyond
+the design gate is the no-design single-track change.
 
 Gate 1's "needs a design" test reuses the HIGH-risk category list in
 `risk-tagging.md` §Gate 1 reuse (change-level), read at the **change**
@@ -392,18 +425,21 @@ change's purpose**, not merely touched by one incidental edit. Record the
 **centrally-matched** categories — they prime the adversarial gate's
 lenses in part 2 and seed the Phase-4 durable carrier's lens set (D16).
 
-Propose the tier and the matched categories to the user and **wait for
-confirmation**. The user confirms or overrides the tier in either
-direction, and may **add or drop an adversarial lens** explicitly at this
-point (D16) — confirming the tier confirms the matched categories, so a
-tier override may shift the lenses. A Gate-1-no change runs its gate
-lens-free unless the user adds one. This is a human gate on the
-artifact-shedding decision; do not proceed to part 2 until the tier and
-the lens set are confirmed.
+Propose the design gate (`design_gate=yes/no`) and the matched categories to
+the user and **wait for confirmation**. The user confirms or overrides the
+design gate in either direction, and may **add or drop an adversarial lens**
+explicitly at this point (D16) — confirming the design gate confirms the
+matched categories, so an override may shift the lenses. A `design_gate=no`
+change runs its gate lens-free unless the user adds one. This is a human gate
+on the artifact-shedding decision; do not proceed to part 2 until the design
+gate and the lens set are confirmed. The confirmed `design_gate` value is
+seeded into the phase ledger at the Step "Seed the phase ledger" below — it
+is the resume router's design-gate signal and the consistency / structural
+reviews' design-presence read.
 
 **Step 4 part 2 — The adversarial gate on the research log.**
 
-Once the tier is confirmed, run the relocated adversarial review on the
+Once the design gate is confirmed, run the relocated adversarial review on the
 research log as a **gate** before any Phase-1 artifact derives (D6,
 `planning.md` §Tier classification). The gate spawns the existing
 `reviewer-adversarial` in its research-log scope
@@ -435,8 +471,8 @@ Inputs substitutes the inputs):
   ```
   - research_log_path: docs/adr/<dir-name>/_workflow/research-log.md
   - matched_categories: the centrally-matched HIGH-risk categories from the
-    confirmed tier's Gate 1, plus any user-added lens — or (none) for a
-    Gate-1-no change with no user lens
+    confirmed design gate's Gate 1, plus any user-added lens — or (none) for a
+    `design_gate=no` change with no user lens
   - output_path: docs/adr/<dir-name>/_workflow/reviews/research-log-adversarial-iter<N>.md
     (one file per gate iteration, <N> starting at 1 — the <type>-iter<N>.md
     naming conventions-execution.md §2.5 §Third-scope review-file home fixes)
@@ -444,10 +480,10 @@ Inputs substitutes the inputs):
   ```
 
 **Model and effort (D14).** Pin the spawn's model on the `Agent` tool's
-`model` field by the confirmed tier:
+`model` field by the confirmed design gate:
 
-- `full` → `model: fable`
-- `lite` / `minimal` → `model: opus`
+- `design_gate=yes` → `model: fable`
+- `design_gate=no` → `model: opus`
 
 The `Agent` tool has **no per-spawn effort field**, and there is no
 adversarial-reviewer agent file under `.claude/agents/` to carry effort in
@@ -515,28 +551,29 @@ multi-session handoff queue block) live in this SKILL's review-hold
 batching section and `mid-phase-handoff.md`. Step 4 here owns the first,
 pre-presentation gate run; the batch loop is the consumer of the same gate.
 
-**Step 4 part 3 — Per-tier transition to Phase 1.**
+**Step 4 part 3 — Transition to Phase 1.**
 
-After the gate clears, branch on the confirmed tier:
+After the gate clears, branch on the confirmed design gate (part 1's only
+confirmed output — the multi-vs-single track count is **not** decided here;
+it is settled at the end of Step 4b, where the plan-presence decision lives):
 
-- **`full`** — design-first, Step 4a then Step 4b within one `/create-plan`
-  invocation (the freeze-and-commit between them stays the logical gate and
-  crash checkpoint, but is no longer a session boundary), exactly as the rest
-  of this Step describes.
-- **`lite`** — no `design.md`. Author the thinned derived-mirror plan and
-  the multi-track files directly from the research log in a **single Phase-1
-  session** (Step 4b only); the track files carry the full inline Decision
-  Records, with no design seed to derive from.
-- **`minimal`** — no `design.md` and **no plan** (D2). Author **one**
-  self-contained track file from the research log in a **single Phase-1
-  session** (Step 4b only). Resume state lives in the phase ledger
-  (`conventions.md` `§1.2` *Per-tier artifact set*), so `minimal` produces
-  no `implementation-plan.md`.
+- **`design_gate=yes`** — design-first: Step 4a (author + review + freeze
+  `design.md`) then Step 4b, within one `/create-plan` invocation (the
+  freeze-and-commit between them stays the logical gate and crash checkpoint,
+  but is no longer a session boundary), exactly as the rest of this Step
+  describes.
+- **`design_gate=no`** — no `design.md`. Skip Step 4a; go straight to
+  Step 4b and author the track files directly from the research log in a
+  **single Phase-1 session**, with the full inline Decision Records and no
+  design seed to derive from. The thinned derived-mirror plan is authored at
+  the end of Step 4b iff the planner decomposed into more than one track (the
+  plan-presence decision, D1); resume state otherwise lives in the phase
+  ledger (`conventions.md` `§1.2` *Per-axis artifact set*).
 
-The `full`-tier design-first split keeps the design-authoring and
+The `design_gate=yes` design-first split keeps the design-authoring and
 plan-derivation work in order, but both run in one `/create-plan` invocation:
 
-- **Step 4a (design authoring, `full` only)** — author `design.md` via
+- **Step 4a (design authoring, `design_gate=yes` only)** — author `design.md` via
   `edit-design`, run its review, and freeze it. The design's review passing
   (or the user accepting open risks) is the gate that releases Step 4b; the
   freeze-and-commit is the crash checkpoint but no longer ends the session.
@@ -570,22 +607,24 @@ gate. Were a future change to break the invariant, the boundary would be
 reinstated at that authoring step, not skipped at runtime.
 
 The startup protocol's auto-resume into Step 4b is now **crash-recovery-only**:
-it fires when **`design.md` is committed and clean and
-`implementation-plan.md` does not exist** — the state a crash leaves between
-the design commit and the plan derivation. The committed-and-clean test (not
-bare file presence) is what proves the design is reviewed rather than
-abandoned mid-authoring. This is checked after Step 1.5 (drift) and Step 1a
-(handoff) have cleared and before the aim prompt (Step 2): a crash-recovery
-resume into Step 4b skips the aim prompt and the Phase 0 research loop,
-because the aim and research are already captured in the frozen `design.md`
-and the conversation that produced it. Step 1c above is the single
-decision-rule home for every artifact combination — it spells out the exact
-`git log` / `git status` check, the branch order, the never-a-dead-end
-fallback, and the resume-Step-4a arm for a dirty or uncommitted design; this
-block does not re-derive that routing.
+it fires when **`design.md` is committed and clean, `implementation-plan.md`
+does not exist, AND the Phase-1-complete marker is unset** — the state a crash
+leaves between the design commit and the plan derivation. The marker check
+comes first: a *set* marker with that same on-disk file set is the
+design+single-track steady state (do not re-author), not a crash; the
+committed-and-clean test then (within the unset-marker crash arm) proves the
+design is reviewed rather than abandoned mid-authoring. This is checked after
+Step 1.5 (drift) and Step 1a (handoff) have cleared and before the aim prompt
+(Step 2): a crash-recovery resume into Step 4b skips the aim prompt and the
+Phase 0 research loop, because the aim and research are already captured in
+the frozen `design.md` and the conversation that produced it. Step 1c above is
+the single decision-rule home for every artifact combination — it spells out
+the marker fan-out, the exact `git log` / `git status` check, the branch
+order, the never-a-dead-end fallback, and the resume-Step-4a arm for a dirty
+or uncommitted design; this block does not re-derive that routing.
 
-The `lite` and `minimal` tiers have **no `design.md`** and so no Step 4a at
-all: their Step-4b plan derivation runs in the same Phase-1 session that
+A `design_gate=no` change has **no `design.md`** and so no Step 4a at
+all: its Step-4b plan derivation runs in the same Phase-1 session that
 Step 4 part 1/2 ran in, with no design freeze in between. After the collapse
 `full` also runs Step 4a and Step 4b in one invocation, so the difference is
 no longer single-session vs two-session — it is whether a `design.md` is
@@ -594,11 +633,11 @@ tier-aware branch keeps an interrupted no-design tier (plan on disk, no
 `design.md` by design) routing to a normal resume rather than back into
 design authoring.
 
-**Step 4a — Author the design first (`full` tier only).**
+**Step 4a — Author the design first (`design_gate=yes` only).**
 
-This sub-step runs in `full` only. In `lite`/`minimal` there is no
-`design.md`; skip directly to Step 4b. When the user asks to create the
-plan in `full` (and `design.md` does not yet exist):
+This sub-step runs when `design_gate=yes` only. When `design_gate=no` there
+is no `design.md`; skip directly to Step 4b. When the user asks to create the
+plan with `design_gate=yes` (and `design.md` does not yet exist):
 
 First, read the design workflow document (deferred from Step 1):
 - `.claude/workflow/design-document-rules.md` — design document rules,
@@ -1017,17 +1056,17 @@ library/function signatures) — plus the full inline Decision Records in
 `## Invariants & Constraints` (D9). Keeping per-track detail out of the plan
 keeps `/execute-tracks` startup context small (see
 `.claude/workflow/conventions.md` `§1.2` for the directory layout under
-`_workflow/`, the `§1.2` *Per-tier artifact set*, and the `§1.2` thinned
+`_workflow/`, the `§1.2` *Per-axis artifact set*, and the `§1.2` thinned
 `lite`/`full` plan content, and `conventions-execution.md` `§2.1` for the
 track-file shape and section lifecycle).
 
-**No tier line in the plan.** The confirmed tier and its matched categories
-live in the **phase ledger** `tier` / `categories` fields (D4,
-`conventions.md` `§1.1` *Phase ledger*), seeded at Phase 1 below — not in a
-plan line. Every fresh `/execute-tracks` session and the Step 1c resume
-check read the tier from the ledger, the one artifact present in every tier
-(including plan-less `minimal`), so the plan no longer carries a
-`**Change tier:**` line.
+**No tier line in the plan.** The confirmed design gate and its matched
+categories live in the **phase ledger** `design_gate` / `categories` fields
+(D4, `conventions.md` `§1.1` *Phase ledger*), seeded at Phase 1 below — not in
+a plan line. Every fresh `/execute-tracks` session and the Step 1c resume
+check read the design gate from the ledger, the one artifact present for every
+change (including a plan-less single-track change), so the plan no longer
+carries a `**Change tier:**` line.
 
 Before writing the thinned-plan template, substitute the resolved
 40-character SHA into the `$WORKFLOW_SHA` placeholder on line 1.
@@ -1213,17 +1252,31 @@ The `## Base commit` section is added by Phase B at session start
 and is omitted from the Phase 1 skeleton. Full lifecycle for every
 section above is tabulated in `conventions-execution.md` `§2.1`.
 
-**Seed the phase ledger (every tier; D6/D10).** After the track files (and,
-in `lite`/`full`, the plan) are written and before the Step 5 commit, seed
+**Decide plan presence from the authored track count (D1).** Now that the
+track files exist, decide whether `implementation-plan.md` is written:
+**`implementation-plan.md` exists iff the change spans more than one track**
+(D8a). A cross-track Component Map and Checklist are vacuous for a single
+track, so a one-track change writes **no** plan — only its one
+`plan/track-1.md` and the ledger carry its Phase-1 state. A multi-track change
+writes the thinned derived-mirror plan above alongside its track files. This
+decision is made here, at the end of Step 4b, not up front: the track count is
+not knowable until the planner has decomposed the change, so the
+plan-presence question can only be answered once the track files are authored
+(D1). The authored track count is the `--tracks` value seeded into the ledger
+just below — the resume router's plan-presence signal.
+
+**Seed the phase ledger (D6/D10).** After the track files (and, for a
+multi-track change, the plan) are written and before the Step 5 commit, seed
 the phase ledger with the Phase-1 boundary so a later `/execute-tracks`
-session resumes off the ledger rather than re-running research and tier
-classification. The ledger is the resume-state home in every tier — the one
-artifact `minimal` keeps now that it has no plan (D2/D3). Append one event
-line with `workflow-startup-precheck.sh --append-ledger`, recording the
-confirmed tier, its matched categories, and (when the plan declares
-workflow-modifying) the `§1.7` staging mode; the phase is `0` because the
-next gate is the State-0 autonomous plan review, which has not yet run
-(`workflow.md` § Startup Protocol, `phase == "0"`):
+session resumes off the ledger rather than re-running research and
+classification. The ledger is the resume-state home for every change — the
+one artifact a plan-less single-track change keeps now that it has no plan
+(D2/D3). Append one event line with `workflow-startup-precheck.sh
+--append-ledger`, recording the confirmed design gate, the authored track
+count, the Phase-1-complete marker, the matched categories, and (when the
+plan declares workflow-modifying) the `§1.7` staging mode; the phase is `0`
+because the next gate is the State-0 autonomous plan review, which has not yet
+run (`workflow.md` § Startup Protocol, `phase == "0"`):
 
 ```bash
 # Parse the `level=` token from the statusline file (the same read the
@@ -1236,24 +1289,33 @@ CTX_LEVEL="$(sed -n 's/.*level=\([a-z]*\).*/\1/p' \
 .claude/scripts/workflow-startup-precheck.sh --append-ledger \
     --ctx "$CTX_LEVEL" \
     --phase 0 \
-    --tier "<full | lite | minimal>" \
+    --design-gate "<the design_gate value confirmed in Step 4 part 1>" \
+    --tracks "<count of plan/track-*.md files just authored>" \
+    --phase1-complete yes \
     --categories "<comma-separated centrally-matched HIGH-risk categories, or empty>"
     # add --s17 with the staging-mode token only when the plan declares
     # workflow-modifying or takes the §1.7 prose-rule opt-out (conventions.md
     # §1.7(b)/(k) — the marker home is this ledger field, D4). Omit otherwise.
 ```
 
-The `--ctx` value is the current context level (`safe` / `info` / `warning`
-/ `critical`) parsed from the statusline file; omit `--ctx` to let the
-script default it to `safe`. The append is atomic (temp-file-plus-rename) and
-**loud**: a malformed field value exits 3 and a write error exits non-zero
+`--design-gate` carries the Step-4 part-1 classifier's confirmed value;
+`--tracks` carries the authored track count (1 for a single-track change,
+> 1 for a multi-track change — the plan-presence signal the resume router
+reads, decided at the end of Step 4b just above); `--phase1-complete yes`
+records that Phase 1 finished cleanly, which is the marker the resume router
+uses to tell the design+single-track steady state apart from a mid-authoring
+crash. The `--ctx` value is the current context level (`safe` / `info` /
+`warning` / `critical`) parsed from the statusline file; omit `--ctx` to let
+the script default it to `safe`. The append is atomic (temp-file-plus-rename)
+and **loud**: a malformed field value exits 3 and a write error exits non-zero
 with a stderr diagnostic, so check the exit status — a zero exit means the
-boundary is recorded (`conventions.md` `§1.1` *Phase ledger*; the grammar
-and key set `{ phase, track, tier, categories, s17, paused }` are pinned in
-the script header). The phase vocabulary is exactly `{0, A, C, D, Done}`;
-`create-plan` only ever writes `phase 0`. Track is omitted at Phase 1 (the
-ledger names no active track until Phase C; the plan-less `minimal` resume
-defaults the active track to `track-1`). The ledger file itself
+boundary is recorded (`conventions.md` `§1.1` *Phase ledger*; the grammar and
+key set `{ phase, track, design_gate, tracks, phase1_complete, reconciled_tag,
+substate, categories, s17, paused }` are pinned in the script header). The
+phase vocabulary is exactly `{0, A, C, D, Done}`; `create-plan` only ever
+writes `phase 0`. Track is omitted at Phase 1 (the ledger names no active
+track until Phase C; the plan-less single-track resume defaults the active
+track to `track-1`). The ledger file itself
 (`_workflow/phase-ledger.md`) is unstamped (D13, `§1.6(f)`) and is swept
 into the Step 5 commit by the blanket `git add docs/adr/<dir-name>/_workflow/`.
 

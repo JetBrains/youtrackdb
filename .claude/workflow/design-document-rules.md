@@ -64,7 +64,7 @@ design document.
 | File | What it carries |
 |---|---|
 | `implementation-plan.md` | Goals, constraints, the **decisions themselves** (alternatives / rationale / risks / where-implemented / link-to-design), the Component Map (topology + short intent bullets), short invariant statements, short integration-point bullets, the track checklist. **Strategic, scannable, loaded every session.** |
-| `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; decisions-and-invariants footer (the D11 rename of the former references footer). **In `full`-tier plans only; the frozen seed for the carriers. Loaded only when referenced; serves both human reviewers and execution agents.** |
+| `design.md` | Concept-first Overview; Core Concepts (when applicable); class diagrams; sequence/flow diagrams; **TL;DR-shaped** entries for every complex topic; condensed mechanism overview; edge-case bullets; decisions-and-invariants footer (the D11 rename of the former references footer). **Present only when the design gate is yes; the frozen seed for the carriers. Loaded only when referenced; serves both human reviewers and execution agents.** |
 | `design-mechanics.md` (optional, length-triggered) | Long-form derivations, file:line citations, edit-list subsections, full state-machine tables, exhaustive worked examples that don't fit in `design.md`'s mechanism overview. **Created only when `design.md` exceeds the length trigger; cross-referenced from `design.md`'s decisions-and-invariants footer (the `Mechanics:` line).** |
 | `plan/track-N.md` `## Purpose / Big Picture` | Per-track intro paragraph that names the track, its BLUF outcome, and the ADDED/MODIFIED/REMOVED triad (sibling Move 2 reserved slot). Track-level concrete deliverables and edit detail belong here together with the three sections below. |
 | `plan/track-N.md` `## Context and Orientation` | Per-track static context: the files, classes, methods, and subsystems the track touches; ordering constraints relative to other tracks; pre-existing invariants the track must respect. |
@@ -92,14 +92,15 @@ four-bullet form and the long-form material lives in `design.md` under
 a section the DR links to.
 
 **The seed-vs-carrier boundary (D11, YTDB-1083 acceptance #4
-rewrite).** In `full`, `design.md` is the **frozen seed**: it holds
-each decision's full record once (the introduce-once rule, § Per-section
-mandatory shape), and Step 4b seeds the **track-canonical live records**
-(each relevant track's `## Decision Log`, D7 / YTDB-814) from those seed
-D-records. The seed is provenance, never the live authority — once a
-track absorbs a record it is authoritative, and the frozen seed cannot
-follow a Phase-3 replan. In `lite`/`minimal` there is no `design.md`;
-Step 4b authoring reads the **research log** directly as the seed for
+rewrite).** When the design gate is yes, `design.md` is the **frozen
+seed**: it holds each decision's full record once (the introduce-once
+rule, § Per-section mandatory shape), and Step 4b seeds the
+**track-canonical live records** (each relevant track's `## Decision Log`,
+D7 / YTDB-814) from those seed D-records. The seed is provenance, never the
+live authority — once a track absorbs a record it is authoritative, and the
+frozen seed cannot follow a Phase-3 replan. When `design_gate=no` there is
+no `design.md`; Step 4b authoring reads the **research log** directly as
+the seed for
 the track records (S2: the log is read for decision content only at
 Step 4a/4b authoring and the Phase-2 consistency cross-check; the
 authoring site's two sanctioned readers are the code-grounded author,
@@ -109,7 +110,8 @@ rewrites YTDB-1083's original acceptance #4 — which framed the log as a
 transient bridge folded into the design and deleted before freeze: under
 D5 the log is a durable Phase-0/1 ledger removed only at Phase 4
 cleanup, and it is a Phase-2 cross-check input, never a Step-4b seeding
-input in `full` (where the frozen seed is the seeding source).
+input when the design gate is yes (where the frozen seed is the seeding
+source).
 
 **What this looks like in practice:**
 

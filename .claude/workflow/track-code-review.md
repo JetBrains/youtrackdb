@@ -539,14 +539,16 @@ Use the track description and `git diff {base_commit}..HEAD --name-only` to
 determine which conditional agents to include alongside the baseline.
 
 The track pass runs the full review selection against the cumulative track
-diff, so it is where the step-deferred agents get their coverage. All four
-baselines run here — `review-bugs-concurrency`, `review-code-quality`,
-`review-test-behavior`, and `review-test-completeness` — subject only to the
+diff, so it is where the step-deferred agents get their coverage. The full
+baseline group runs here — `review-bugs` (always), `review-concurrency`
+(when the `concurrency` category is present), `review-code-quality`, and
+`review-test-quality` — subject only to the
 workflow-only / `docs-only` baseline-skip override; the track set is not
-narrowed. The three baselines that step-level review defers
-(`review-code-quality`, `review-test-behavior`, `review-test-completeness`)
-are covered at this pass, alongside `review-bugs-concurrency`, which runs at
-both the step and the track. The full trigger-based workflow-reviewer
+narrowed. The baselines that step-level review defers
+(`review-code-quality`, `review-test-quality`)
+are covered at this pass, alongside `review-bugs`, which runs at
+both the step and the track (joined by `review-concurrency`, which also
+runs at both levels whenever its `concurrency` category is present). The full trigger-based workflow-reviewer
 selection also runs here, so the four workflow reviewers that defer from the
 step (`consistency`, `context-budget`, `writing-style`,
 `instruction-completeness`) get their coverage at the track pass, alongside
@@ -666,6 +668,30 @@ apply spawns a **fresh per-iteration implementer** (`level=track`,
 `mode=FIX_REVIEW_FINDINGS`) per §Implementer Spawns below; the
 orchestrator never edits source files itself in Phase C.
 
+**Read the per-track complexity tag to set the rigor dial.** Which
+reviewers run is domain-only (the selection at §Agent selection and
+launching is identical at every complexity level — complexity never drops
+a domain-selected reviewer per
+review-agent-selection.md:orchestrator:3A,3B,3C §"Complexity sets the
+Phase-C rigor dial, never the set"). The per-track reconciled complexity
+tag — `max(step tags)`, read track-scoped from the phase ledger's
+per-track reconciled-tag field written at the A→C boundary — sets only
+**how hard this loop iterates**:
+
+- `low` → a single shallow pass (run once; do not iterate even if
+  should-fix findings remain — surface them at track completion).
+- `medium` → the normal cap-3 iteration below.
+- `high` → iterate to convergence within the cap-3 ceiling (run the full
+  three iterations rather than stopping early on a clean-but-shallow
+  pass).
+
+The `low`-track single-pass shortcut still honors every hard gate: a
+`REGRESSION` verdict or a `blocker` finding forces the loop to continue
+regardless of complexity, because the dial shortens optional iteration
+depth, never the must-fix gates. When the ledger carries no reconciled
+tag (a pre-scheme branch or a torn append), treat the loop as `medium`
+and run the standard cap-3 — the safe default.
+
 1. **Classify findings.** From the routed handoff, separate in-scope
    findings (to apply now) from deferred findings (to push to other
    tracks via plan corrections — see §Plan Corrections from Deferred
@@ -746,8 +772,8 @@ orchestrator never edits source files itself in Phase C.
      prefixes — "Workflow update" row).
    - Spawn **fresh sub-agents** to verify (gate check) — only re-run the
      review dimension(s) that had open findings. For example, if only
-     crash-safety code findings and test-completeness findings remain,
-     spawn only `review-crash-safety` and `review-test-completeness`.
+     crash-safety code findings and test-quality findings remain,
+     spawn only `review-crash-safety` and `review-test-quality`.
      If findings span all dimensions, re-run all originally selected agents.
      The gate-check sub-agents review the new HEAD (after the
      `Review fix:` commit), which they reach via the same

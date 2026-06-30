@@ -43,7 +43,7 @@ This file defines two renderings. The **slim plan** (the sections through
 snapshot, produced by `render-slim-plan.py` and consumed today. The
 **slim track** (§"Slim-track rendering" at the end) is the track-file
 analog the carrier flip (D7) introduces: under D7 the track file is the
-live decision carrier in every tier, so sub-agents need a compact track
+live decision carrier for every change, so sub-agents need a compact track
 view that keeps the full inline `## Decision Log` while shedding the
 high-cadence continuous logs. The slim-track rule is doc-only orchestrator
 prose with no script behind it; its consumer rewiring is a recorded
@@ -136,12 +136,21 @@ Sub-agents run in separate processes and don't inherit the main agent's
 ## Rendering rule
 <!-- roles=orchestrator phases=3B,3C summary="Keep pre-Checklist content and [ ] tracks verbatim; collapse [x] and [~] entries to title + intro + episode." -->
 
+**This rendering applies only when a plan exists.** The slim plan is the
+aggregator-plan snapshot, present only for a multi-track change (the
+track-count axis: a cross-track summary is vacuous for one track). A
+single-track change has no `implementation-plan.md` to render — there is no
+slim-plan output for it, and sub-agents read its single track file
+directly (the slim-track rendering at the end of this file covers the
+compact track view). The rules below assume a plan is present.
+
 1. **Keep the pre-Checklist content verbatim.** Under the thinned
-   `lite`/`full` plan (D5/D9) the pre-Checklist content is only the feature
-   name, the `## Design Document` link (`full` only — absent in `lite`,
-   which has no `design.md`), and the thin cross-track `## Component Map` —
-   all strategic and needed by every sub-agent for cross-track impact
-   assessment. The plan no longer carries `### Goals`, `### Constraints`,
+   multi-track plan (D5/D9) the pre-Checklist content is only the feature
+   name, the `## Design Document` link (design gate yes only — absent when
+   `design_gate=no`, which has no `design.md`), and the thin cross-track
+   `## Component Map` — all strategic and needed by every sub-agent for
+   cross-track impact assessment. The plan no longer carries `### Goals`,
+   `### Constraints`,
    the full `### Architecture Notes` (Decision Records, Invariants,
    Integration Points), or `## Non-Goals`: those moved to the track files
    (Decision Records → each track's `## Decision Log`, invariants and
@@ -165,7 +174,7 @@ Sub-agents run in separate processes and don't inherit the main agent's
 
    **Completed-track entry is already one line of episode (D5/D7).** Under
    the carrier flip the full completion episode is canonical in the track
-   file's `## Episodes` (`### Track completion` block); the `lite`/`full`
+   file's `## Episodes` (`### Track completion` block); the multi-track
    plan entry is collapsed at Phase C to a one-line `**Track episode:**`
    summary followed by a pointer to that block, plus the `**Track file:**`
    line (see track-code-review.md:orchestrator:3C §Track Completion step 4).
@@ -184,8 +193,8 @@ Sub-agents run in separate processes and don't inherit the main agent's
 4. **No `## Final Artifacts` section to render.** The thinned plan does
    not carry a `## Final Artifacts` section (D7): Phase-4 progress and the
    review state live in the phase ledger, the Phase-2 audit summary lives in
-   `plan-review.md`, and the tier-keyed durable carrier is governed by the
-   per-tier artifact set (`conventions.md` §Per-tier artifact set). So the
+   `plan-review.md`, and the durable carrier is governed by the per-axis
+   artifact set (`conventions.md` §Per-axis artifact set). So the
    render stops after the `## Checklist`; there is no trailing section to
    copy verbatim.
 
@@ -272,7 +281,7 @@ idempotent for those entries.
 <!-- roles=orchestrator phases=3A,3B,3C summary="Render a track inline for sub-agents: keep the inline Decision Log, drop high-cadence logs; consumer rewiring deferred." -->
 
 The carrier flip (D7) makes the track file the **live decision carrier**
-in every tier: each track's `## Decision Log` holds the full inline
+for every change: each track's `## Decision Log` holds the full inline
 Decision Records the change realizes, and `design.md` is at most a frozen
 provenance seed (path-only, on-demand). A sub-agent that needs a track's
 tactical context must therefore see the inline `## Decision Log` in full —
@@ -313,9 +322,10 @@ never a silent script edit.
 The shape mirrors the slim plan's principle (keep what a sub-agent reads
 for strategy and tactics, shed the high-cadence continuous logs that exist
 for resume and audit) with one carrier-specific addition: the inline
-`## Decision Log` is **load-bearing and kept in full** in every tier,
-because under D7 it is where the live decision lives. In `full`, any
-`**Full design**` pointer inside a Decision Record stays path-only (it
+`## Decision Log` is **load-bearing and kept in full** for every change,
+because under D7 it is where the live decision lives. When the design gate
+is yes, any `**Full design**` pointer inside a Decision Record stays
+path-only (it
 points at the frozen `design.md` seed mechanism, never the live decision),
 matching the slim plan's "`design.md` stays path-only" treatment.
 

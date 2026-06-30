@@ -106,7 +106,8 @@ Everything within a phase executes autonomously: Phase A runs reviews
 (as sub-agents), decomposes steps, and assigns each step a risk tag
 (`low` / `medium` / `high`) per `risk-tagging.md`. Phase B implements
 steps and produces episodes; the step-level dimensional review loop
-(the step-level baseline `review-bugs-concurrency`, subject to the
+(the step-level baseline `review-bugs` always, plus `review-concurrency`
+when the `concurrency` category is present, subject to the
 baseline-skip override, plus conditional agents and the step-level
 workflow reviewers `hook-safety`/`prompt-design`; full rules in
 `review-agent-selection.md` §Step-level vs track-level routing) fires
