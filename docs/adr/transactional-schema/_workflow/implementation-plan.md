@@ -279,6 +279,9 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
 - **I-P2 / I-P3 / I-P4** (Track 5) — indexes are overlaid, not copied, and the
   snapshot rebuilds on mid-tx index change; a tx-created index is not query-usable
   until commit; the build commits to exactly the transaction's final state.
+- **I-P5** (Track 5) — during a schema or index tx the immutable snapshot reflects
+  tx-local classes, property types, and constraint rules, so `EntityImpl.validate()`
+  enforces a same-tx-created constraint instead of silently skipping it (D21).
 - **I-U1** (Track 2) — per-class records remove write amplification, and the root
   is written exactly when its payload changes.
 - **I-U2 / I-U3** (Track 6) — class rename touches zero storage; engine files are
@@ -299,6 +302,9 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   choose the write-lock branch and run reconciliation (Track 4).
 - The query planner reads the effective index set through the per-session routing
   seam and skips unbuilt indexes (Track 5).
+- `EntityImpl.validate()` and entity serialization read the schema contract through the
+  tx-aware `SchemaProxy.makeSnapshot()`, so a same-tx schema change is enforced on that
+  transaction's own entities (Track 5).
 - New binaries reject an old-format database on the schema version check at storage
   open and redirect to export/import (Track 8).
 
@@ -466,11 +472,12 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > force-rebuild the tx-local snapshot on every mid-tx index change, build a
   > tx-created index's engine at commit through a lock-free scan plus final-state
   > re-derivation (bounded to empty classes for v1), and make the planner skip an
-  > unbuilt index. Completes the I-A7 membership-ripple routing Track 3 de-guarded.
-  > Also cover the index-engine half of the failed-commit registry-cleanliness criterion (I-A4): assert `indexEngines` / `indexEngineNameMap` carry no entry after a failed engine-creating commit and the ids are reused on the next commit. Track 4 tested the collection arm only — engine reconciliation at commit lands in this track (Track 4 review finding TB2).
-  > Also resolve the create-time provisional-collection gap: indexing a class created in the same transaction throws `IndexException("Collection with id -2 does not exist")` because `IndexManagerEmbedded.createIndex`'s deferred path resolves collection ids through `DatabaseSessionEmbedded.getCollectionNameById`, which returns null for any id `< 0`. Resolve provisional ids (`<= -2`) via `TxSchemaState` (it carries the generated collection name) so the deferred handle stores the right name and the commit-time engine build re-resolves it. Track 4 left this untested; surfaced in Track 4 completion review.
-  > Also realize the drop-side commit half: a tx-local `dropIndex` currently only calls `markClassChanged` (`IndexManagerEmbedded.java:590-600`), so the index stays in the shared registry, keeps indexing new records, and survives the commit — the planner still uses it mid-tx and after commit. Beyond the tx-dropped overlay above, the commit must remove the registry entry and delete the engine for a tx-dropped index, with a test asserting the planner stops using it after commit. Tighten the `IndexManagerEmbedded` drop comment, which reads as if the Track 4 commit already drops the index. Track 4 left this untested; surfaced in Track 4 completion review.
-  > Also make the immutable snapshot tx-aware so same-tx schema changes reach validation and serialization (D21, escalated from Track 4 completion review). `SchemaProxy.makeSnapshot()` resolves the tx-local `SchemaShared` during a schema or index tx, widen D15's force-rebuild to fire on mid-tx class and property changes (not only index changes), guard the commit-path snapshot read in `computeCommitWorkingSet` against a provisional collection id, and extend D13's planner skip-unbuilt treatment to a query against a tx-created (provisional-collection) class. Closes the silent same-tx constraint-skip in `EntityImpl.validate()`.
+  > unbuilt index. Completes the I-A7 membership-ripple routing Track 3 de-guarded, and
+  > makes the immutable snapshot tx-aware so same-tx schema changes reach validation and
+  > serialization (D21). Also lands three items the Track-4 completion review surfaced —
+  > the index-engine half of the failed-commit registry-cleanliness criterion (I-A4/TB2),
+  > the create-time provisional-collection index gap, and the drop-side `dropIndex` commit
+  > half — each detailed in `track-5.md`'s `## Plan of Work` and `## Validation and Acceptance`.
   > **Scope:** ~18 files covering `IndexManagerEmbedded`, `ClassIndexManager`, the routing seam, the snapshot rebuild, the planner guard, the commit build, `SchemaProxy.makeSnapshot` / the snapshot tx-awareness, the `AbstractStorage.computeCommitWorkingSet` commit-path guard, and overlay / build / same-tx-validation tests.
   > **Depends on:** Track 3, Track 4
 
@@ -505,15 +512,13 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > **Depends on:** Track 2, Track 4, Track 5
 
 ## Plan Review
-- [ ] Plan review (consistency + structural) — autonomous; runs as the first phase of /execute-tracks
+- [x] Plan review (consistency + structural) — passed (post-D21-replan re-validation): consistency iter 1 clean (0 findings), structural iter 2 gate-verified
 
-<!-- Reset by the inline replan after Track 4 (D21, the tx-aware snapshot). The next
-/execute-tracks session re-runs Phase 2 (consistency + structural) against the revised
-plan; the structural-review preview run during the replan was advisory, not the gate. -->
+**Auto-fixed (mechanical)**: S1 — trimmed the Track-5 plan-file checklist intro from 5 paragraphs (~15 sentences) to 3 sentences, moving the I-A4/TB2 failed-commit engine-cleanliness arm, the create-time provisional-collection index gap, and the drop-side `dropIndex` commit half into `track-5.md`'s `## Plan of Work` and `## Validation and Acceptance`.
 
-**Auto-fixed (mechanical)**: none.
+**Escalated (design decisions)**: S2 — added invariant I-P5 (Track 5) for D21's same-tx schema-contract enforcement, plus an Integration Point bullet for the tx-aware `SchemaProxy.makeSnapshot()` read on the `EntityImpl.validate()` / serialization path. User chose "Add I-P5 + IP bullet".
 
-**Escalated (design decisions)**: none.
+**Consistency (CR)**: 0 findings — all 14 current-state code citations driving Track 5 (D21's `EntityImpl.validate()`, `SchemaProxy.makeSnapshot`, the `AbstractStorage` commit chain, the create/drop index gaps, the 174-call-site snapshot tier) verified clean via PSI.
 
 ## Final Artifacts
 - [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)
