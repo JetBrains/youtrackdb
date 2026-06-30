@@ -1,0 +1,518 @@
+package com.jetbrains.youtrackdb.internal.core.query.analyzed;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+
+import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
+import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.YouTrackDBSql;
+import java.io.ByteArrayInputStream;
+import java.util.Date;
+import java.util.Objects;
+import org.junit.Test;
+
+/// Round-trip parity suite for {@link AnalyzedExprEvaluator}, the whole acceptance bar for this
+/// slice: there is no live consumer, so correctness is defined as the IR evaluating to the same value
+/// the AST produces on the same row.
+///
+/// For every covered SQL fragment the test asserts
+/// {@code Objects.equals(lower(parse(sql)).evaluate(row, ctx), parse(sql).<oracle>(row, ctx))}. The
+/// AST is the oracle; a divergence is a real evaluator (or shared numeric-promotion) bug, never a
+/// reason to relax an assertion. The oracle method is shape-dependent — {@link
+/// SQLExpression#execute(Result, CommandContext)} for arithmetic and function-call fragments, {@link
+/// SQLBinaryCondition#evaluate(Result, CommandContext)} for comparison and boolean fragments — so the
+/// harness dispatches the oracle by parsed shape and lowers comparison / {@code NOT} fragments through
+/// the package-visible {@link AnalyzedExprLowerer#lowerBoolean}, which is why this suite lives in the
+/// {@code query.analyzed} package.
+///
+/// Each matrix row pins a mechanism a naive implementation would get wrong: precedence and
+/// associativity in the arithmetic fold, integer-vs-double widening through the shared promotion
+/// engine, the collation transform and the EQ/NE session difference in comparison, cross-type operand
+/// coercion, the guarded collate fetch on a schemaless / absent-column row, {@code NOT} negation, and
+/// the method-call path. Null-propagation and a {@code Date + Long} row pin promotion semantics.
+public class AnalyzedExprEvaluatorTest extends DbTestBase {
+
+  private static YouTrackDBSql parser(String sql) {
+    return new YouTrackDBSql(new ByteArrayInputStream(sql.getBytes()));
+  }
+
+  private static SQLExpression parseExpression(String sql) {
+    try {
+      return parser(sql).Expression();
+    } catch (Exception e) {
+      throw new IllegalStateException("failed to parse expression: " + sql, e);
+    }
+  }
+
+  private static SQLBinaryCondition parseComparison(String sql) {
+    try {
+      return (SQLBinaryCondition) parser(sql).BinaryCondition();
+    } catch (Exception e) {
+      throw new IllegalStateException("failed to parse comparison: " + sql, e);
+    }
+  }
+
+  private static SQLNotBlock parseNotBlock(String sql) {
+    try {
+      return parser(sql).NotBlock();
+    } catch (Exception e) {
+      throw new IllegalStateException("failed to parse NOT block: " + sql, e);
+    }
+  }
+
+  private CommandContext context() {
+    return new BasicCommandContext(session);
+  }
+
+  /// Asserts arithmetic / value parity: the IR evaluation of {@code sql} equals {@link
+  /// SQLExpression#execute(Result, CommandContext)} on the same row. The AST result is computed first
+  /// and used as the expected value, so a divergence reports the AST's value against the IR's.
+  private void assertValueParity(String sql, Result row) {
+    var ctx = context();
+    SQLExpression ast = parseExpression(sql);
+    Object oracle = ast.execute(row, ctx);
+    Object ir =
+        AnalyzedExprEvaluator.evaluate(AnalyzedExprLowerer.lower(parseExpression(sql)), row, ctx);
+    assertEquals("value parity for: " + sql, oracle, ir);
+  }
+
+  /// Asserts comparison parity: the IR evaluation of a comparison {@code sql} equals {@link
+  /// SQLBinaryCondition#evaluate(Result, CommandContext)} on the same row. Comparisons are parsed and
+  /// lowered through the boolean entry, matching how the AST reaches the collation-applying overload.
+  private void assertComparisonParity(String sql, Result row) {
+    var ctx = context();
+    SQLBinaryCondition ast = parseComparison(sql);
+    boolean oracle = ast.evaluate(row, ctx);
+    AnalyzedExpr ir = AnalyzedExprLowerer.lowerBoolean(parseComparison(sql));
+    Object irResult = AnalyzedExprEvaluator.evaluate(ir, row, ctx);
+    assertTrue("comparison parity must produce a Boolean for: " + sql, irResult instanceof Boolean);
+    assertEquals("comparison parity for: " + sql, oracle, irResult);
+  }
+
+  /// Asserts boolean-block parity for a {@code NOT} fragment: the IR evaluation equals {@link
+  /// SQLBooleanExpression#evaluate(Result, CommandContext)} on the same row.
+  private void assertNotParity(String sql, Result row) {
+    var ctx = context();
+    SQLBooleanExpression ast = parseNotBlock(sql);
+    boolean oracle = ast.evaluate(row, ctx);
+    AnalyzedExpr ir = AnalyzedExprLowerer.lowerBoolean(parseNotBlock(sql));
+    Object irResult = AnalyzedExprEvaluator.evaluate(ir, row, ctx);
+    assertEquals("NOT parity for: " + sql, oracle, irResult);
+  }
+
+  /// Builds a schema-free {@link ResultInternal} row carrying the given properties. Numeric arithmetic
+  /// needs no schema (no collation, no property type), so a plain projection-style row is the parity
+  /// reference for the arithmetic and function-call fragments.
+  private Result row(Object... namesAndValues) {
+    var r = new ResultInternal(session);
+    for (int i = 0; i < namesAndValues.length; i += 2) {
+      r.setProperty((String) namesAndValues[i], namesAndValues[i + 1]);
+    }
+    return r;
+  }
+
+  // ---- Arithmetic precedence and associativity (precedence fold + shared promotion) ----
+
+  /// WHEN `a + b * c` is evaluated, THE tighter-binding `*` is applied before the `+`, so the IR
+  /// value matches the AST's. The row uses distinct values so a mis-nesting would change the result.
+  @Test
+  public void arithmeticMixedPrecedence() {
+    assertValueParity("a + b * c", row("a", 2, "b", 3, "c", 4));
+  }
+
+  /// WHEN `a * b + c` is evaluated (operators in the other order), THE precedence fold still applies
+  /// `*` first, matching the AST.
+  @Test
+  public void arithmeticMixedPrecedenceOtherOrder() {
+    assertValueParity("a * b + c", row("a", 2, "b", 3, "c", 4));
+  }
+
+  /// WHEN `a - b - c` is evaluated, THE left-associative reduction `(a - b) - c` matches the AST,
+  /// not the right-associative `a - (b - c)` (which differs in value for subtraction).
+  @Test
+  public void arithmeticLeftAssociativeSubtraction() {
+    assertValueParity("a - b - c", row("a", 10, "b", 3, "c", 2));
+  }
+
+  /// WHEN `a - b + c` is evaluated, THE mixed same-priority operators fold left-associatively,
+  /// matching the AST.
+  @Test
+  public void arithmeticMixedSamePriorityLeftAssociative() {
+    assertValueParity("a - b + c", row("a", 10, "b", 3, "c", 2));
+  }
+
+  /// WHEN `a / b / c` is evaluated with integer operands, THE integer-vs-double divide widening
+  /// through the shared promotion engine matches the AST, and left-associativity `(a / b) / c` is
+  /// the value-sensitive case division pins.
+  @Test
+  public void arithmeticDivideWideningLeftAssociative() {
+    assertValueParity("a / b / c", row("a", 100, "b", 5, "c", 2));
+  }
+
+  /// WHEN `(a + b) * c` is evaluated, THE parenthesis recursion overrides precedence — the IR nests
+  /// the addition under the multiplication — matching the AST.
+  @Test
+  public void arithmeticParenthesisOverridesPrecedence() {
+    assertValueParity("(a + b) * c", row("a", 2, "b", 3, "c", 4));
+  }
+
+  /// WHEN `a * (b + c)` is evaluated, THE parenthesis groups on the right, matching the AST.
+  @Test
+  public void arithmeticParenthesisGroupsOnRight() {
+    assertValueParity("a * (b + c)", row("a", 2, "b", 3, "c", 4));
+  }
+
+  /// WHEN an operand is null (`a + b` with `a` absent so it resolves to null), THE shared promotion
+  /// engine propagates null and the IR matches the AST's null result — the object-level `apply`
+  /// entry the evaluator routes through is what carries null-propagation, which a direct
+  /// `NumericOps.apply(Number, …)` call would throw on.
+  @Test
+  public void arithmeticNullPropagation() {
+    assertValueParity("a + b", row("b", 3));
+  }
+
+  /// WHEN a date column is shifted by a Long (`d + n` with a {@link Date} and a Long), THE
+  /// `Date + Long` promotion in the shared engine produces the same shifted date as the AST. This
+  /// pins the object-level promotion path the direct numeric entry would skip.
+  @Test
+  public void arithmeticDatePlusLong() {
+    assertValueParity("d + n", row("d", new Date(1_000_000L), "n", 5_000L));
+  }
+
+  // ---- Comparison: collation, session threading, cross-type coercion ----
+
+  /// WHEN a `ci`-collated column is compared case-insensitively (`name = 'Foo'` against stored
+  /// `'foo'`), THE IR applies the same collate transform the AST applies on its `Result` overload,
+  /// so both report a match. Without the collate transform the raw `equals` would differ.
+  @Test
+  public void comparisonCollationCaseInsensitiveMatch() {
+    session.execute("CREATE class CollEq");
+    session.execute("CREATE PROPERTY CollEq.name STRING (COLLATE ci)");
+    session.begin();
+    session.execute("INSERT INTO CollEq SET name = 'foo'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM CollEq")) {
+      Result stored = rs.next();
+      // Mixed-case literal vs lower-case stored value: equal only under ci collation.
+      assertComparisonParity("name = 'Foo'", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN a type-coercing not-equal is evaluated (`val != 'x'` on an integer column), THE NE operator
+  /// passes a null session to coercion where EQ passes the live one, so EQ and NE can resolve a
+  /// mixed-type comparison differently. Reproducing the AST's concrete operator class makes the IR
+  /// match the AST for both. This row pins the NE arm of that session difference.
+  @Test
+  public void comparisonNotEqualSessionThreading() {
+    session.execute("CREATE class NeCoerce");
+    session.execute("CREATE PROPERTY NeCoerce.val INTEGER");
+    session.begin();
+    session.execute("INSERT INTO NeCoerce SET val = 7");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM NeCoerce")) {
+      Result stored = rs.next();
+      assertComparisonParity("val != 'x'", stored);
+      // EQ arm on the same mixed-type operands, to pin both sides of the session difference.
+      assertComparisonParity("val = 'x'", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN a Long column is compared against an Integer literal (`val != 1` on a LONG column), THE
+  /// operand value-type fidelity through `visitVar` / `visitConst` plus the operator's cross-type
+  /// coercion matches the AST's `left.execute` / `right.execute` + operator path.
+  @Test
+  public void comparisonLongColumnVsIntegerLiteral() {
+    session.execute("CREATE class LongCmp");
+    session.execute("CREATE PROPERTY LongCmp.val LONG");
+    session.begin();
+    session.execute("INSERT INTO LongCmp SET val = 1");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM LongCmp")) {
+      Result stored = rs.next();
+      assertComparisonParity("val != 1", stored);
+      assertComparisonParity("val = 1", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN a `ci`-collated comparison runs against a schemaless / absent-column row, THE guarded
+  /// collate helper returns null (no entity / no schema class / no property) instead of throwing,
+  /// so the IR matches the AST's non-entity behavior. This pins parity on the path where an
+  /// unguarded collate fetch would NPE / CCE.
+  @Test
+  public void comparisonCollateGuardOnSchemalessRow() {
+    // A plain projection row is not an entity, so getCollate must short-circuit to null on both
+    // sides exactly as the AST's getCollate does for a non-entity Result.
+    assertComparisonParity("name = 'foo'", row("name", "Foo"));
+  }
+
+  /// WHEN each comparison operator runs against a plain row with matching and non-matching operands,
+  /// THE IR matches the AST for all six operators (and both `!=` spellings). This sweeps the operator
+  /// reconstruction across every concrete class, including the ordering `doCompare`-vs-0 mapping.
+  @Test
+  public void comparisonAllOperatorsParity() {
+    Result r = row("a", 3, "b", 5);
+    assertComparisonParity("a = b", r);
+    assertComparisonParity("a != b", r);
+    assertComparisonParity("a <> b", r);
+    assertComparisonParity("a < b", r);
+    assertComparisonParity("a <= b", r);
+    assertComparisonParity("a > b", r);
+    assertComparisonParity("a >= b", r);
+    // Also the equal-operands case, so `=` true and the ordering boundaries (<=, >=) true are pinned.
+    Result eq = row("a", 5, "b", 5);
+    assertComparisonParity("a = b", eq);
+    assertComparisonParity("a <= b", eq);
+    assertComparisonParity("a >= b", eq);
+    assertComparisonParity("a < b", eq);
+  }
+
+  // ---- Boolean NOT ----
+
+  /// WHEN `NOT a = b` (unparenthesized) is evaluated, THE IR's `visitUnaryOp(NOT)` over the lowered
+  /// `SQLNotBlock` negates the comparison, matching the AST. Both the true and false comparison
+  /// cases are checked so the negation is pinned in both directions.
+  @Test
+  public void notNegatesComparison() {
+    assertNotParity("NOT a = b", row("a", 3, "b", 5)); // a != b so a = b is false, NOT -> true
+    assertNotParity("NOT a = b", row("a", 5, "b", 5)); // a = b true, NOT -> false
+  }
+
+  // ---- Function call (method-call coercion) ----
+
+  /// WHEN a method-call coercion `name.asInteger()` is evaluated against a string column, THE IR's
+  /// `visitFuncCall` resolves the method by name and invokes it on the base value, matching the AST's
+  /// `SQLEngine.getMethod` / `SQLMethod.execute` path.
+  @Test
+  public void funcCallMethodCoercionParity() {
+    assertValueParity("name.asInteger()", row("name", "42"));
+  }
+
+  // ---- Identifiable adapter (future-caller seam) ----
+
+  /// WHEN an {@link Identifiable} is wrapped via {@link AnalyzedExprEvaluator#wrap} and a
+  /// `ci`-collated comparison is evaluated through the resulting synthetic {@link Result}, THE
+  /// comparison runs through the collation-applying path: a mixed-case literal matches the
+  /// lower-case stored value case-insensitively. This exercises the deliberate convergence where the
+  /// unified `Result` path applies collation that the AST's `Identifiable` overload skips.
+  @Test
+  public void identifiableAdapterEvaluatesThroughCollationPath() {
+    session.execute("CREATE class AdaptColl");
+    session.execute("CREATE PROPERTY AdaptColl.name STRING (COLLATE ci)");
+    session.begin();
+    session.execute("INSERT INTO AdaptColl SET name = 'foo'");
+    session.commit();
+    Identifiable stored;
+    session.begin();
+    try (var rs = session.query("SELECT FROM AdaptColl")) {
+      stored = rs.next().asEntity().getIdentity();
+    }
+    session.commit();
+
+    session.begin();
+    var ctx = context();
+    Result wrapped = AnalyzedExprEvaluator.wrap(stored, session);
+    AnalyzedExpr ir = AnalyzedExprLowerer.lowerBoolean(parseComparison("name = 'Foo'"));
+    Object result = AnalyzedExprEvaluator.evaluate(ir, wrapped, ctx);
+    // ci collation makes 'Foo' match the stored 'foo' through the unified Result path.
+    assertEquals(Boolean.TRUE, result);
+    session.commit();
+  }
+
+  /// WHEN the wrapped {@link Identifiable} path compares against a non-matching value, THE comparison
+  /// is false — confirming the adapter does not merely always return true and that real values flow
+  /// through the synthetic row.
+  @Test
+  public void identifiableAdapterReturnsFalseOnNonMatch() {
+    session.execute("CREATE class AdaptCollNeg");
+    session.execute("CREATE PROPERTY AdaptCollNeg.name STRING (COLLATE ci)");
+    session.begin();
+    session.execute("INSERT INTO AdaptCollNeg SET name = 'foo'");
+    session.commit();
+    Identifiable stored;
+    session.begin();
+    try (var rs = session.query("SELECT FROM AdaptCollNeg")) {
+      stored = rs.next().asEntity().getIdentity();
+    }
+    session.commit();
+
+    session.begin();
+    var ctx = context();
+    Result wrapped = AnalyzedExprEvaluator.wrap(stored, session);
+    AnalyzedExpr ir = AnalyzedExprLowerer.lowerBoolean(parseComparison("name = 'bar'"));
+    Object result = AnalyzedExprEvaluator.evaluate(ir, wrapped, ctx);
+    assertEquals(Boolean.FALSE, result);
+    session.commit();
+  }
+
+  // ---- Direct evaluator unit assertions (independent of the AST oracle) ----
+
+  /// WHEN a single-segment {@link AnalyzedExpr.Var} is evaluated against a row that lacks that
+  /// property, THE evaluator returns null rather than throwing. The round-trip rows always carry
+  /// their columns, so this pins the absent-property branch of `visitVar` directly.
+  @Test
+  public void varResolvesNullForAbsentProperty() {
+    Object value =
+        AnalyzedExprEvaluator.evaluate(new AnalyzedExpr.Var(java.util.List.of("missing")),
+            row("present", 1), context());
+    assertEquals(null, value);
+  }
+
+  /// WHEN a {@link AnalyzedExpr.Var} is evaluated against a null row, THE evaluator returns null
+  /// rather than dereferencing the row. The round-trip suite always supplies a row, so this pins the
+  /// null-row guard branch of `visitVar` directly.
+  @Test
+  public void varResolvesNullForNullRow() {
+    Object value =
+        AnalyzedExprEvaluator.evaluate(new AnalyzedExpr.Var(java.util.List.of("any")), null,
+            context());
+    assertEquals(null, value);
+  }
+
+  /// WHEN a {@link AnalyzedExpr.Var} names a result metadata key (not a normal property), THE
+  /// evaluator falls back to the metadata value, mirroring the AST's column-resolution fallback
+  /// chain. This pins the metadata-fallback branch a normal-property row leaves uncovered.
+  @Test
+  public void varResolvesResultMetadataFallback() {
+    var r = new ResultInternal(session);
+    r.setMetadata("meta", 7);
+    Object value =
+        AnalyzedExprEvaluator.evaluate(new AnalyzedExpr.Var(java.util.List.of("meta")), r,
+            context());
+    assertEquals(7, value);
+  }
+
+  /// WHEN a {@link AnalyzedExpr.Var} names a temporary property (neither a normal property nor a
+  /// metadata key), THE evaluator falls back to the temporary-property value, completing the
+  /// AST-mirroring resolution chain and pinning its last fallback branch.
+  @Test
+  public void varResolvesTemporaryPropertyFallback() {
+    var r = new ResultInternal(session);
+    r.setTemporaryProperty("tmp", "value");
+    Object value =
+        AnalyzedExprEvaluator.evaluate(new AnalyzedExpr.Var(java.util.List.of("tmp")), r,
+            context());
+    assertEquals("value", value);
+  }
+
+  /// WHEN a {@link AnalyzedExpr.FuncCall} names a method the engine does not know, THE evaluator
+  /// throws {@link UnsupportedAnalyzedNodeException} rather than dereferencing a null method. The
+  /// lowering pass does not validate method existence, so this guard is the evaluator's, and a
+  /// hand-built FuncCall with an unknown name is the way to reach it.
+  @Test
+  public void funcCallUnknownMethodThrows() {
+    AnalyzedExpr ir =
+        new AnalyzedExpr.FuncCall(
+            "thisMethodDoesNotExist", java.util.List.of(new AnalyzedExpr.Const("x")));
+    org.junit.Assert.assertThrows(
+        UnsupportedAnalyzedNodeException.class,
+        () -> AnalyzedExprEvaluator.evaluate(ir, row(), context()));
+  }
+
+  /// WHEN a `ci`-collated comparison runs on a schemaless-class entity (an entity whose class
+  /// defines no property for the column), THE collate helper returns null through the
+  /// absent-property branch and the comparison still matches the AST. This pins the
+  /// `property == null` guard of the collate chain on a real entity row, distinct from the
+  /// non-entity short-circuit pinned elsewhere.
+  @Test
+  public void collateGuardOnEntityWithAbsentProperty() {
+    // A schemaless class: properties are stored dynamically with no SchemaProperty, so
+    // schemaClass.getProperty(name) returns null and the collate fetch short-circuits there.
+    session.execute("CREATE class CollAbsentProp");
+    session.begin();
+    session.execute("INSERT INTO CollAbsentProp SET name = 'Foo'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM CollAbsentProp")) {
+      Result stored = rs.next();
+      // No COLLATE on this dynamic property, so 'Foo' = 'foo' is case-sensitive false in both
+      // AST and IR — the point is the collate helper returns null without throwing.
+      assertComparisonParity("name = 'foo'", stored);
+      assertComparisonParity("name = 'Foo'", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN the right operand of a comparison carries the collated column (the left being a literal),
+  /// THE collate helper resolves the collate from the right operand after the left returns null,
+  /// matching the AST's left-then-right collate fetch. This pins the right-operand collate branch.
+  @Test
+  public void collateResolvedFromRightOperand() {
+    session.execute("CREATE class CollRight");
+    session.execute("CREATE PROPERTY CollRight.name STRING (COLLATE ci)");
+    session.begin();
+    session.execute("INSERT INTO CollRight SET name = 'foo'");
+    session.commit();
+
+    session.begin();
+    try (var rs = session.query("SELECT FROM CollRight")) {
+      Result stored = rs.next();
+      // Literal on the left, collated column on the right: the helper must fall through to the
+      // right operand to find the ci collate, exactly as the AST does.
+      assertComparisonParity("'Foo' = name", stored);
+    }
+    session.commit();
+  }
+
+  /// WHEN a {@link AnalyzedExpr.Const} is evaluated, THE evaluator returns the literal value
+  /// unchanged, including a null literal.
+  @Test
+  public void constReturnsLiteralValue() {
+    var ctx = context();
+    assertEquals(42, AnalyzedExprEvaluator.evaluate(new AnalyzedExpr.Const(42), row(), ctx));
+    assertEquals(null, AnalyzedExprEvaluator.evaluate(new AnalyzedExpr.Const(null), row(), ctx));
+  }
+
+  /// WHEN a `NOT` is applied directly over a boolean comparison that evaluates true, THE result is
+  /// false — a direct unit check on the negation independent of the parser round-trip.
+  @Test
+  public void notNegatesBooleanDirectly() {
+    var ctx = context();
+    // a = a is true on a row where a = 5, so NOT(a = a)-shaped tree negates to false. Build the IR
+    // tree directly: NOT over EQ(Var a, Const 5) against a row with a = 5.
+    AnalyzedExpr eq =
+        new AnalyzedExpr.BinaryOp(BinaryOperator.EQ, new AnalyzedExpr.Var(java.util.List.of("a")),
+            new AnalyzedExpr.Const(5));
+    AnalyzedExpr not = new AnalyzedExpr.UnaryOp(UnaryOperator.NOT, eq);
+    assertEquals(false, AnalyzedExprEvaluator.evaluate(not, row("a", 5), ctx));
+    // And NOT over a false comparison negates to true.
+    AnalyzedExpr neq =
+        new AnalyzedExpr.BinaryOp(BinaryOperator.EQ, new AnalyzedExpr.Var(java.util.List.of("a")),
+            new AnalyzedExpr.Const(6));
+    AnalyzedExpr notNeq = new AnalyzedExpr.UnaryOp(UnaryOperator.NOT, neq);
+    assertEquals(true, AnalyzedExprEvaluator.evaluate(notNeq, row("a", 5), ctx));
+  }
+
+  /// WHEN the round-trip helpers' `Objects.equals` contract is exercised on a value the AST and IR
+  /// both produce, THE values are equal — a guard that the parity helpers compare boxed values
+  /// rather than identity. (Sanity check on the harness itself.)
+  @Test
+  public void parityHarnessComparesByValue() {
+    var ctx = context();
+    Result r = row("a", 2, "b", 3);
+    SQLExpression ast = parseExpression("a + b");
+    Object oracle = ast.execute(r, ctx);
+    Object ir =
+        AnalyzedExprEvaluator.evaluate(AnalyzedExprLowerer.lower(parseExpression("a + b")), r, ctx);
+    assertTrue(Objects.equals(oracle, ir));
+    assertFalse(Objects.equals(oracle, "definitely-not-the-value"));
+  }
+}
