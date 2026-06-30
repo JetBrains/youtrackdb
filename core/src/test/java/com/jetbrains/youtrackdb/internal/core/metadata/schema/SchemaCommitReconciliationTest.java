@@ -452,7 +452,11 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
             () -> {
               try {
                 dataSession.activateOnCurrentThread();
-                schemaInWindow.await();
+                // Bounded: if the schema commit never enters its window (a regression), the data
+                // thread fails fast instead of parking forever and leaking with its session open.
+                if (!schemaInWindow.await(30, TimeUnit.SECONDS)) {
+                  throw new AssertionError("the schema commit never entered its window");
+                }
                 dataCommitStarted.countDown();
                 dataSession.begin();
                 var e = (EntityImpl) dataSession.newEntity("DataTarget");
@@ -469,12 +473,16 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
             "data-commit-thread");
 
     // Pin the schema commit inside its window so the data commit demonstrably contends with the held
-    // write lock.
+    // write lock. The hook waits with a bound: if the test body never releases (an assertion above
+    // failed before releaseSchema.countDown()), the test-body finally releases it anyway, but the
+    // bound is a second backstop so the schema thread cannot park forever and leak.
     storage.setCommitWindowTestHook(
         () -> {
           schemaInWindow.countDown();
           try {
-            releaseSchema.await();
+            if (!releaseSchema.await(50, TimeUnit.SECONDS)) {
+              throw new AssertionError("the schema commit was never released from its window");
+            }
           } catch (final InterruptedException ie) {
             Thread.currentThread().interrupt();
           }
@@ -501,10 +509,14 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
       assertTrue("the data commit must complete once the write lock is released",
           dataCommitted.await(30, TimeUnit.SECONDS));
     } finally {
+      // Always release the pinned schema commit and clear the hook, then interrupt-and-join both
+      // racer threads so neither leaks past the test (each closes its own session in its own
+      // finally). The join is what makes those session closes happen before teardown recreates the
+      // database for the next test, even when an assertion above failed or the @Test(timeout)
+      // interrupted the body thread.
       releaseSchema.countDown();
       storage.setCommitWindowTestHook(null);
-      schemaThread.join(30_000);
-      dataThread.join(30_000);
+      interruptAndJoin(schemaThread, dataThread);
     }
 
     if (errors.get() != null) {
@@ -538,6 +550,13 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     var reloadSession = openDatabase();
     var indexSession = openDatabase();
 
+    // Every barrier.await() is bounded and every catch block resets the barrier. If any racer throws
+    // mid-loop (the contended create/drop path can), the thrown racer never reaches the next barrier
+    // point; resetting the barrier breaks the other two out of their await with a
+    // BrokenBarrierException instead of parking them forever, so a single racer failure cannot turn
+    // into a whole-test hang that the @Test(timeout) would only catch on the test-body thread while
+    // the two racer threads leak with their sessions open. The bounded await is a second backstop.
+
     // Thread A: schema-carrying commits (create then drop a uniquely named class each round) on the
     // base session — the four-lock commit path.
     var commitThread =
@@ -546,13 +565,14 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
               try {
                 session.activateOnCurrentThread();
                 for (var i = 0; i < rounds; i++) {
-                  barrier.await();
+                  barrier.await(30, TimeUnit.SECONDS);
                   var cls = "Racer" + i;
                   session.executeInTx(tx -> session.getMetadata().getSchema().createClass(cls));
                   session.executeInTx(tx -> session.getMetadata().getSchema().dropClass(cls));
                 }
               } catch (final Throwable t) {
                 error.compareAndSet(null, t);
+                barrier.reset();
               }
             },
             "schema-commit-racer");
@@ -565,11 +585,12 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
                 reloadSession.activateOnCurrentThread();
                 var schema = reloadSession.getSharedContext().getSchema();
                 for (var i = 0; i < rounds; i++) {
-                  barrier.await();
+                  barrier.await(30, TimeUnit.SECONDS);
                   schema.reload(reloadSession);
                 }
               } catch (final Throwable t) {
                 error.compareAndSet(null, t);
+                barrier.reset();
               } finally {
                 reloadSession.activateOnCurrentThread();
                 reloadSession.close();
@@ -585,11 +606,12 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
                 indexSession.activateOnCurrentThread();
                 var indexManager = indexSession.getSharedContext().getIndexManager();
                 for (var i = 0; i < rounds; i++) {
-                  barrier.await();
+                  barrier.await(30, TimeUnit.SECONDS);
                   indexManager.load(indexSession);
                 }
               } catch (final Throwable t) {
                 error.compareAndSet(null, t);
+                barrier.reset();
               } finally {
                 indexSession.activateOnCurrentThread();
                 indexSession.close();
@@ -597,19 +619,41 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
             },
             "index-load-racer");
 
-    commitThread.start();
-    reloadThread.start();
-    indexThread.start();
+    try {
+      commitThread.start();
+      reloadThread.start();
+      indexThread.start();
 
-    commitThread.join(55_000);
-    reloadThread.join(55_000);
-    indexThread.join(55_000);
+      commitThread.join(55_000);
+      reloadThread.join(55_000);
+      indexThread.join(55_000);
 
-    assertFalse("the schema-commit racer must finish (no deadlock)", commitThread.isAlive());
-    assertFalse("the schema-reload racer must finish (no deadlock)", reloadThread.isAlive());
-    assertFalse("the index-load racer must finish (no deadlock)", indexThread.isAlive());
-    if (error.get() != null) {
-      throw new AssertionError("a concurrent racer failed", error.get());
+      assertFalse("the schema-commit racer must finish (no deadlock)", commitThread.isAlive());
+      assertFalse("the schema-reload racer must finish (no deadlock)", reloadThread.isAlive());
+      assertFalse("the index-load racer must finish (no deadlock)", indexThread.isAlive());
+      if (error.get() != null) {
+        throw new AssertionError("a concurrent racer failed", error.get());
+      }
+    } finally {
+      // Guarantee no racer thread leaks past the test, even if an assertion above fails or the
+      // @Test(timeout) interrupts the body thread mid-test. Interrupt then bounded-join all three;
+      // each racer closes its own session in its own finally (Thread B and C above), so the join is
+      // what makes those closes happen before teardown recreates the database for the next test.
+      interruptAndJoin(commitThread, reloadThread, indexThread);
+    }
+  }
+
+  /** Interrupts each thread and joins it with a bounded wait so a test never leaks a racer thread. */
+  private static void interruptAndJoin(final Thread... threads) throws InterruptedException {
+    for (final var t : threads) {
+      if (t != null) {
+        t.interrupt();
+      }
+    }
+    for (final var t : threads) {
+      if (t != null) {
+        t.join(10_000);
+      }
     }
   }
 
