@@ -125,6 +125,25 @@ the planner's skip-unbuilt treatment so a query against a tx-created (provisiona
 collection) class in the same tx falls through to the merged tx scan rather than
 resolving a collection or engine that does not exist yet.
 
+Three commit-path gaps the Track-4 completion review surfaced land here too.
+(1) Failed-commit engine cleanliness (I-A4 / Track-4 review finding TB2): assert
+`indexEngines` and `indexEngineNameMap` carry no entry after a failed engine-creating
+commit, and the engine ids are reused on the next commit. Track 4 tested the collection
+arm of the failed-commit registry-cleanliness criterion only; engine reconciliation at
+commit is this track's. (2) Create-time provisional-collection index gap: indexing a
+class created in the same transaction throws `IndexException("Collection with id -2 does
+not exist")` because `IndexManagerEmbedded.createIndex`'s deferred path resolves
+collection ids through `DatabaseSessionEmbedded.getCollectionNameById`, which returns null
+for any id `< 0`. Resolve provisional ids (`<= -2`) via `TxSchemaState` (it carries the
+generated collection name) so the deferred handle stores the right name and the
+commit-time engine build re-resolves it. (3) Drop-side commit half: a tx-local `dropIndex`
+today only calls `markClassChanged` (`IndexManagerEmbedded.java:590-600`), so the index
+stays in the shared registry, keeps indexing new records, and survives the commit — the
+planner uses it mid-tx and after commit. Beyond the tx-dropped overlay above, the commit
+must remove the registry entry and delete the engine for a tx-dropped index; also tighten
+the `IndexManagerEmbedded` drop comment, which currently reads as if the Track 4 commit
+already drops the index.
+
 Ordering constraints: the snapshot force-rebuild must fire on every mid-tx index
 or class/property change before a later read in the same tx; the population scan and the re-derivation
 together must cover the committed rows the tx did not touch plus exactly the tx-touched
@@ -167,6 +186,15 @@ rows, with no double-count and none missed; the overlay publish must follow
 - Run a query against a tx-created class inside the same transaction; it returns the
   transaction's own rows through the scan fallthrough without an engine-not-found or
   collection-not-found error (D13 extended to provisional-collection classes).
+- After a failed engine-creating commit, `indexEngines` and `indexEngineNameMap` carry no
+  entry for the would-be engine, and the freed engine ids are reused on the next
+  successful commit (I-A4 engine arm; Track 4 covered the collection arm only — TB2).
+- Create a class and an index on it inside the same transaction, then commit; the deferred
+  index handle resolves the provisional collection id (`<= -2`) to the real collection at
+  commit instead of throwing `IndexException("Collection with id -2 does not exist")`.
+- Drop an index inside a transaction and commit; after commit the registry entry and the
+  engine are gone and the planner no longer uses the index (today it survives because the
+  tx-local `dropIndex` only marks the class changed).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
