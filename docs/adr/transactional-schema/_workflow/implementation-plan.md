@@ -460,6 +460,7 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > tx-created index's engine at commit through a lock-free scan plus final-state
   > re-derivation (bounded to empty classes for v1), and make the planner skip an
   > unbuilt index. Completes the I-A7 membership-ripple routing Track 3 de-guarded.
+  > Also cover the index-engine half of the failed-commit registry-cleanliness criterion (I-A4): assert `indexEngines` / `indexEngineNameMap` carry no entry after a failed engine-creating commit and the ids are reused on the next commit. Track 4 tested the collection arm only — engine reconciliation at commit lands in this track (Track 4 review finding TB2).
   > **Scope:** ~15 files covering `IndexManagerEmbedded`, `ClassIndexManager`, the routing seam, the snapshot rebuild, the planner guard, the commit build, and overlay/build tests.
   > **Depends on:** Track 3, Track 4
 
