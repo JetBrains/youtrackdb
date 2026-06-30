@@ -536,14 +536,21 @@ review-mode rounds.
      or decomposition. Save all work and ask the user for a session
      refresh (see `workflow.md` §Context Consumption Check). If the pause
      leaves Phase A mid-flight (for example, technical review PASSed
-     but risk / adversarial reviews are still unrun, or all reviews
-     PASSed but decomposition has not yet been written), write a
-     handoff file per
+     but risk / adversarial reviews are still unrun, all reviews
+     PASSed but decomposition has not yet been written, or decomposition
+     is written but the upward-divergence reconciliation
+     (§"Reconciliation on upward divergence (D5)") has not yet run),
+     write a handoff file per
      mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 so the next session
      does not re-spawn reviewers whose results already landed in the
-     **Outcomes & Retrospective** section. If the level is `safe`/`info`,
-     continue. If the file does not exist or the command fails, this
-     is **not an error** — treat as `safe` and continue.
+     **Outcomes & Retrospective** section. When the pause is in the
+     decomposition-written-but-reconciliation-pending state, the handoff
+     records whether `max(step tags)` over the committed roster exceeds
+     the predicted tag, so the next session knows the missed-reviewer
+     pass is still owed (the resume action for this state in §Resume
+     actions re-runs the comparison either way). If the level is
+     `safe`/`info`, continue. If the file does not exist or the command
+     fails, this is **not an error** — treat as `safe` and continue.
 4. **Decompose scope indicators** into concrete steps. For each step,
    assign a **risk tag** (`low` / `medium` / `high`) per the criteria
    in risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C — load that file at the
@@ -1060,7 +1067,7 @@ reviews are already in progress):
 |---|---|---|
 | Empty (no `Technical:` / `Risk:` / `Adversarial:` prefixed entries) | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
 | One or more `Technical:` / `Risk:` / `Adversarial:` entries recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
-| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed. If the decomposition is already committed, do **not** declare steady state on the commit alone — verify the A→C ledger tail first (`tail -1 docs/adr/<dir-name>/_workflow/phase-ledger.md` must carry both `phase=C` and `track=<N>`). Only a tail reading `phase=C track=<N>` is steady state, where `/execute-tracks` routes to Phase B on the next invocation. If the roster is committed but the tail is not `phase=C track=<N>` (a dropped or failed step-6 append), run §Phase A Completion step 2's recovery branch (re-run the step-6 append, dedicated commit, re-verify the tail) before treating the track as resumable into Phase B. |
+| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; before resuming to sub-step 6, **re-run the upward-divergence reconciliation** (§"Reconciliation on upward divergence (D5)", which sits between sub-step 4 and sub-step 6): recompute `max(step tags)` over the committed `## Concrete Steps` roster and compare it to the predicted tag. On an upward miss, run the missed strategic reviewers and feed their findings back into decomposition before proceeding — a resume that entered after the decompose write would otherwise skip this comparison and commit a track whose missed reviewers never ran. The re-run is safe on resume: `max(step tags)` is recomputed from the committed roster, and each missed reviewer is gated on its own `## Outcomes & Retrospective` `[x]` checkbox (a reviewer that already ran and recorded `[x]` is a no-op). Then resume from sub-step 6 (commit) if not yet committed. If the decomposition is already committed, do **not** declare steady state on the commit alone — verify the A→C ledger tail first (`tail -1 docs/adr/<dir-name>/_workflow/phase-ledger.md` must carry both `phase=C` and `track=<N>`). Only a tail reading `phase=C track=<N>` is steady state, where `/execute-tracks` routes to Phase B on the next invocation. A committed roster with a `phase=C track=<N>` tail means the prior session already ran the reconciliation and committed past it, so the reconciliation re-run is unnecessary; the unreconciled case is precisely the roster-committed-but-tail-not-advanced state. If the roster is committed but the tail is not `phase=C track=<N>` (a dropped or failed step-6 append), re-run the reconciliation comparison as above, then run §Phase A Completion step 2's recovery branch (re-run the step-6 append, dedicated commit, re-verify the tail) before treating the track as resumable into Phase B. |
 
 Pattern-match on the entry prefix (`Technical:` / `Risk:` /
 `Adversarial:`) to filter out Phase C iteration entries

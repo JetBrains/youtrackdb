@@ -389,7 +389,7 @@ Set `subagent_type` to the agent name. The agent's frontmatter declares its mode
 
 After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
-1. **Map sub-agent severities to synthesized severities.** Most sub-agents emit findings under `Critical / Recommended / Minor`, but three of the older code-review agents use legacy scales. Translate as:
+1. **Map sub-agent severities to synthesized severities.** Most sub-agents emit findings under `Critical / Recommended / Minor`, but several older code-review agents use legacy scales (`review-bugs` and `review-concurrency` share one, `review-crash-safety` and `review-security` each have their own). Translate as:
    - `Critical` → **blocker** (all agents)
    - `Recommended` → **should-fix** (most agents)
    - `Minor` → **suggestion** (most agents)

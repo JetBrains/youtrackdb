@@ -116,7 +116,7 @@ The two axes give four combinations:
 | `yes` | yes | `design-final.md` (Artifact 1) + `adr.md` (Artifact 2) | `adr.md` |
 | `yes` | no | `design-final.md` (Artifact 1) only — **skip Artifact 2** (no track earned a durable ADR; the decisions live in the final design's D-records) | PR description |
 | `no` | yes | `adr.md` (Artifact 2) only — **skip Artifact 1** (no `design.md` exists, so there is nothing to carry forward to a final design) | `adr.md` |
-| `no` | no | **neither** — no `docs/adr/<dir>/` entry. The adversarial-verdict fold is a two-line summary in the PR description (see §"Minimal tier: PR-description verdict fold" below) | PR description |
+| `no` | no | **neither** — no `docs/adr/<dir>/` entry. The adversarial-verdict fold is a two-line summary in the PR description (see §"No-ADR verdict fold: PR description" below) | PR description |
 
 The verdict fold runs in **every** change (the research log dies at the
 Step 6 cleanup regardless); only its destination differs by the `adr`
@@ -327,8 +327,8 @@ handoff. If the file does not exist or the command fails, this is
 
 **Only when ∃ track ≥ medium — skip this artifact otherwise.** A change
 whose every track reconciled to `low` earns no `docs/adr/<dir>/` ADR; its
-verdict fold goes in the PR description instead (see §"Minimal tier:
-PR-description verdict fold" below).
+verdict fold goes in the PR description instead (see §"No-ADR verdict fold:
+PR description" below).
 
 Write `docs/adr/<dir-name>/adr.md` — a post-implementation Architecture
 Decision Record derived from `implementation-plan.md`, adjusted for actual
@@ -421,8 +421,8 @@ cleanup deletes the log.
 `adr.md` exists (∃ track reconciled ≥ medium), the fold lands in its
 `## Adversarial gate verdicts` section; otherwise (every track `low`,
 whether or not a design exists) there is no `adr.md` and the fold becomes
-the two-line summary in the PR description (see §"Minimal tier:
-PR-description verdict fold" below). So when Step 3's bridge sentence says
+the two-line summary in the PR description (see §"No-ADR verdict fold:
+PR description" below). So when Step 3's bridge sentence says
 the sub-sections are "written for the `design_gate=yes` + `∃ track ≥
 medium` case, apply the carrier table to decide which run," this one
 resolves to: land in `adr.md` when one exists, re-route to the PR
@@ -468,7 +468,7 @@ run, replace that section rather than appending a second one — and if the
 ADR is otherwise complete, leave the existing section as is rather than
 regenerating it against a different snapshot.
 
-### Minimal tier: PR-description verdict fold
+### No-ADR verdict fold: PR description
 <!-- roles=final-designer phases=4 summary="When no ADR exists the adversarial-verdict fold goes into the PR description as a two-line summary." -->
 
 **Runs whenever no `adr.md` exists (every track reconciled `low`).** Two

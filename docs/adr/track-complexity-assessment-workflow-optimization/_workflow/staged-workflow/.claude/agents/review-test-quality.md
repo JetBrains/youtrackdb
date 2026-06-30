@@ -1,6 +1,6 @@
 ---
 name: review-test-quality
-description: "Reviews test code for behavior-driven quality and completeness: whether tests verify real behavior vs chasing coverage (assertion depth, exception testing) and whether corner cases, boundary conditions, and test data quality are covered. Dispatched by /code-review."
+description: "Reviews test code for behavior-driven quality and completeness: whether tests verify real behavior vs chasing coverage (assertion depth, exception testing) and whether corner cases, boundary conditions, and test data quality are covered. Always launched on test changes. Dispatched by /code-review."
 model: opus
 ---
 

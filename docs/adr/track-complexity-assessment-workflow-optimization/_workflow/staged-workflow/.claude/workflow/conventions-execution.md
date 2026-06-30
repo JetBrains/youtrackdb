@@ -523,9 +523,10 @@ at session startup. Load on demand:
   applies to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
   sub-agent reviews; the reviewer pool across both tiers is 4 baseline
-  + up to 6 conditional + up to 6 workflow-review, max 3 iterations).
-  The per-level baseline selection differs — the step level launches a
-  subset (`review-bugs` always + `review-concurrency` when the
+  agents (3 always-on plus `review-concurrency` on the `concurrency`
+  category) + up to 6 conditional + up to 6 workflow-review, max 3
+  iterations). The per-level baseline selection differs — the step level
+  launches a subset (`review-bugs` always + `review-concurrency` when the
   `concurrency` category is present), the track level all four; see
   code-review-protocol.md:orchestrator:3B,3C.
 - **Complexity-driven review selection** (which Phase-3A pre-execution

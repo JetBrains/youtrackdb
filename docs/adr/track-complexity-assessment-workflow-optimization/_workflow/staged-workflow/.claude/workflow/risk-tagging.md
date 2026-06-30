@@ -249,12 +249,11 @@ the content-based step tags is the safety net that corrects an
 under-prediction.
 
 The complexity tag (the seven triggers) and the thirteen `code-review`
-categories (which drive Phase-C reviewer selection) stay **distinct** — they
-are **mapped, not merged**. The seven triggers answer *how hard* a track is
+categories (which drive Phase-C reviewer selection) stay distinct and serve
+two different purposes. The seven triggers answer *how hard* a track is
 (Phase-A breadth + Phase-C rigor); the thirteen categories answer *which
-dimensions* a track touches (which Phase-C reviewers run). They overlap but
-serve two purposes, so the design maps one onto the other rather than
-collapsing them.
+dimensions* a track touches (which Phase-C reviewers run). The design maps one
+onto the other.
 
 The Phase-1 *request* for this prediction is wired into `planning.md` by
 Track 1; this section owns the computation rule that request points at. The
