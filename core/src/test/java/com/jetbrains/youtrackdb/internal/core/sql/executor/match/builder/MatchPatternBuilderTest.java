@@ -8,7 +8,9 @@ import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder.Direction;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -403,16 +405,21 @@ public class MatchPatternBuilderTest {
   // ── build() one-shot contract ──
 
   /**
-   * {@link MatchPatternBuilder#build()} must expose alias maps as read-only views so callers
-   * cannot mutate the returned {@link MatchPatternBuilder.PatternIR}.
+   * {@link MatchPatternBuilder#build()} must expose alias maps as read-only views and hand back a
+   * deep-copied {@link Pattern} so callers cannot mutate the returned
+   * {@link MatchPatternBuilder.PatternIR} or corrupt the builder's accumulator.
    */
   @Test
-  public void build_readOnlyAliasMaps_rejectMutation() throws Exception {
+  public void build_patternAndAliasMapsIsolatedFromBuilderState() throws Exception {
     var wb = new MatchWhereBuilder();
     var where = wb.wrap(wb.eq("age", MatchLiteralBuilder.toLiteral(30L)));
     var b = new MatchPatternBuilder().addNode("p", "Person", where, false);
     var ir = b.build();
 
+    assertNotSame(
+        "pattern must be copied out of the builder",
+        readField(b, "pattern"),
+        ir.pattern());
     assertNotSame(
         "aliasClasses must be a wrapper, not the builder's live map reference",
         readField(b, "aliasClasses"),
@@ -422,11 +429,14 @@ public class MatchPatternBuilderTest {
         readField(b, "aliasFilters"),
         ir.aliasFilters());
 
+    ir.pattern().aliasToNode.put("hacked", new PatternNode());
     assertThrows(UnsupportedOperationException.class, () -> ir.aliasClasses().put("p", "Hacked"));
     assertThrows(UnsupportedOperationException.class, () -> ir.aliasFilters().put("p", where));
 
+    Pattern internalPattern = readField(b, "pattern");
     Map<String, String> internalClasses = readField(b, "aliasClasses");
     Map<String, SQLWhereClause> internalFilters = readField(b, "aliasFilters");
+    assertEquals(1, internalPattern.aliasToNode.size());
     assertEquals("Person", internalClasses.get("p"));
     assertSame(where, internalFilters.get("p"));
   }
@@ -490,7 +500,7 @@ public class MatchPatternBuilderTest {
         if (!f.trySetAccessible()) {
           throw new IllegalAccessException("Cannot access field " + fieldName + " on " + c);
         }
-        return ((Class<T>) Map.class).cast(f.get(owner));
+        return (T) f.get(owner);
       } catch (NoSuchFieldException ignored) {
         c = c.getSuperclass();
       }
