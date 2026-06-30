@@ -495,3 +495,6 @@ testable constraints and the testable invariants. -->
   (the domain-selected set is unchanged). Verified by: the
   `review-agent-selection.md` text still asserting "complexity never drops a
   domain-selected reviewer".
+
+## Base commit
+1570fd20ae7d6b5524d46a6c762b06b929b29278
