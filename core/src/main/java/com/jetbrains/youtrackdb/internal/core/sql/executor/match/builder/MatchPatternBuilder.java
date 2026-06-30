@@ -7,6 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.annotation.Nonnull;
@@ -39,7 +40,8 @@ public final class MatchPatternBuilder {
     OUT, IN, BOTH
   }
 
-  /** Immutable triple returned by {@link #build()}. */
+  /** Triple returned by {@link #build()}. {@code aliasClasses} and {@code aliasFilters} are
+   * unmodifiable views; {@code pattern} is handed over by reference. */
   public record PatternIR(
       Pattern pattern,
       Map<String, String> aliasClasses,
@@ -131,8 +133,8 @@ public final class MatchPatternBuilder {
               + "wire them through when the translator's variable-depth handler arrives");
     }
 
-    var fromFilter = SQLMatchFilter.fromGqlNode(fromAlias, null);
-    var toFilter = SQLMatchFilter.fromGqlNode(toAlias, null);
+    var fromFilter = SQLMatchFilter.fromAliasAndClass(fromAlias, null);
+    var toFilter = SQLMatchFilter.fromAliasAndClass(toAlias, null);
     if (edgeFilter != null) {
       toFilter.setFilter(edgeFilter);
     }
@@ -174,18 +176,19 @@ public final class MatchPatternBuilder {
 
   /**
    * Returns the accumulated IR and locks the builder. The {@link Pattern} is handed over by
-   * reference (the planner is its new sole owner); the alias maps are defensively copied so future
-   * inspection of the returned {@link PatternIR} is stable. After {@code build()}, any further
+   * reference (the planner is its new sole owner); the alias maps are exposed as
+   * {@link Collections#unmodifiableMap(Map) unmodifiable views} so callers cannot mutate
+   * {@link PatternIR} after {@code build()}. After {@code build()}, any further
    * {@link #addNode} / {@link #addEdge} / {@link #build()} call throws
-   * {@link IllegalStateException} — the one-shot contract makes the ownership transfer explicit
-   * and prevents the half-snapshotted state where a re-built IR would share the live
-   * {@link Pattern} but a stale copy of the maps.
+   * {@link IllegalStateException} — the one-shot contract makes the ownership transfer explicit.
    */
   public PatternIR build() {
     checkNotBuilt();
     built = true;
     return new PatternIR(
-        pattern, new LinkedHashMap<>(aliasClasses), new LinkedHashMap<>(aliasFilters));
+        pattern,
+        Collections.unmodifiableMap(aliasClasses),
+        Collections.unmodifiableMap(aliasFilters));
   }
 
   private void checkNotBuilt() {

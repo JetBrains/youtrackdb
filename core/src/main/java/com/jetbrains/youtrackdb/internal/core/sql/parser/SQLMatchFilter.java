@@ -53,6 +53,16 @@ public class SQLMatchFilter extends SimpleNode {
   /// Factory method for GQL parser: creates SQLMatchFilter from simple alias and class name.
   /// Constructs proper YQL IR structure without exposing internal parser-generated type complexity.
   public static SQLMatchFilter fromGqlNode(String alias, String className) {
+    return fromAliasAndClass(alias, className);
+  }
+
+  /**
+   * Factory method for front-ends that construct MATCH AST directly (GQL, Gremlin translators).
+   *
+   * <p>Creates a filter from a simple alias and class name without exposing parser-only internal
+   * structure.
+   */
+  public static SQLMatchFilter fromAliasAndClass(String alias, String className) {
     var filter = new SQLMatchFilter(-1);
     if (alias != null && !alias.isBlank()) {
       filter.setAlias(alias);
