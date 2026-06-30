@@ -126,14 +126,31 @@ public abstract class YTDBGraphImplAbstract implements YTDBGraphInternal, Consum
       // whole duration. The write path below is taken only when the snapshot reports the label
       // absent; getOrCreateClass re-checks under the write lock and is idempotent, so a snapshot
       // momentarily stale against a concurrent create still resolves correctly.
+      // getImmutableSchemaSnapshot() is @Nullable: it returns null when the schema is not yet (or
+      // no longer) materialized on the session. That does not happen on an open session in
+      // production, but a null deref here would NPE rather than degrade gracefully, so a null
+      // snapshot falls back to the lock-based shared schema for the existence and vertex-type
+      // check. The two reads return different schema-class types (the snapshot's immutable view vs
+      // the shared impl), so the existence and vertex-type outcomes are computed per branch rather
+      // than bound to one cross-type variable.
       var snapshot = session.getMetadata().getImmutableSchemaSnapshot();
-      var vertexClass = snapshot.getClass(label);
+      final boolean exists;
+      final boolean isVertexType;
+      if (snapshot != null) {
+        var vertexClass = snapshot.getClass(label);
+        exists = vertexClass != null;
+        isVertexType = exists && vertexClass.isVertexType();
+      } else {
+        var vertexClass = session.getSharedContext().getSchema().getClass(label);
+        exists = vertexClass != null;
+        isVertexType = exists && vertexClass.isVertexType();
+      }
 
-      if (vertexClass == null) {
+      if (!exists) {
         var schema = session.getSharedContext().getSchema();
         var vClass = schema.getClass(SchemaClass.VERTEX_CLASS_NAME);
         schema.getOrCreateClass(session, label, vClass);
-      } else if (!vertexClass.isVertexType()) {
+      } else if (!isVertexType) {
         throw new IllegalArgumentException("Class " + label + " is not a vertex type");
       }
     });

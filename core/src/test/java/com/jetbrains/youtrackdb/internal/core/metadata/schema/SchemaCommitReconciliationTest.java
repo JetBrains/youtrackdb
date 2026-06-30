@@ -913,4 +913,39 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
         java.util.Arrays.toString(idsBefore),
         java.util.Arrays.toString(schemaShared().getClass("RenameTo").getCollectionIds()));
   }
+
+  /**
+   * A schema-carry commit that suppresses the link-consistency check around schema serialization
+   * must restore the caller's prior flag rather than force the check back on. When an outer scope
+   * has already disabled the check and then triggers a schema commit, an unconditional re-enable
+   * would clobber that outer disable for the rest of the outer operation. This pins the
+   * save-and-restore: with the check disabled before the commit, it stays disabled afterward.
+   */
+  @Test
+  public void schemaCommitRestoresPriorLinkConsistencyFlag() {
+    // Simulate an outer scope that disabled the check (for example an import) before the schema
+    // commit runs.
+    session.disableLinkConsistencyCheck();
+    try {
+      assertFalse("precondition: the link-consistency check is disabled before the commit",
+          session.isLinkConsistencyEnabled());
+
+      // A class create commits through the schema-carry path, which suppresses the check around
+      // schema serialization and restores it in a finally.
+      session.executeInTx(
+          tx -> session.getMetadata().getSchema().createClass("LinkConsistencyCarry"));
+
+      assertFalse(
+          "the schema-carry commit must restore the prior (disabled) link-consistency flag, not"
+              + " force it back on",
+          session.isLinkConsistencyEnabled());
+    } finally {
+      // Leave the session as the suite expects it (the check enabled by default).
+      session.enableLinkConsistencyCheck();
+    }
+
+    // The class still committed normally despite the surrounding disabled window.
+    assertNotNull("the schema-carry create must still commit",
+        schemaShared().getClass("LinkConsistencyCarry"));
+  }
 }

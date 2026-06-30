@@ -533,6 +533,40 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
+   * Truncating a class inside a transaction is a data operation that changes no schema, so it must
+   * not route onto the schema-carry commit path. The proxy routes truncate through the read
+   * resolver, so it neither seeds a tx-local schema state nor records the class in the changed-class
+   * set; the record deletions truncate performs are what make the transaction a write transaction.
+   * Recording the class here would falsely force the heavier schema write-lock commit branch for a
+   * pure-data truncate and rewrite the class's unchanged per-class record.
+   */
+  @Test
+  public void truncateInsideTransactionRecordsNoSchemaChange() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("TruncateOnly");
+    assertNotNull("the class to truncate must be created at the top level first", cls);
+
+    session.executeInTx(
+        tx -> {
+          // truncate() is a SchemaClassInternal method, not on the public SchemaClass interface.
+          var clsInternal =
+              (SchemaClassInternal) session.getMetadata().getSchema().getClass("TruncateOnly");
+          clsInternal.truncate();
+
+          var state = session.getTxSchemaState();
+          // A truncate-only transaction performs no schema write, so the read-routed truncate must
+          // not seed the tx-local schema state. If a future change makes truncate seed the state,
+          // this asserts it still records no changed class so the commit stays off the schema-carry
+          // branch.
+          if (state != null) {
+            assertFalse(
+                "a truncate-only transaction must not record the class as a schema change",
+                state.getChangedClasses().contains("TruncateOnly"));
+          }
+        });
+  }
+
+  /**
    * A class created inside a transaction carries a provisional collection id, not a real one. The
    * eager, self-committing collection allocation is replaced by a provisional placeholder drawn from
    * the {@code <= -2} sub-range, so during the transaction the class's collection id is provisional.
