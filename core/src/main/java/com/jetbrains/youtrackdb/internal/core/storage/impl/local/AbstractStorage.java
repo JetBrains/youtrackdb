@@ -2928,9 +2928,28 @@ public abstract class AbstractStorage
     // idempotent if a later create somehow reused the freed slot.
     for (final var entry : dropped) {
       final var collection = entry.collection();
-      if (collection != null && entry.id() < collections.size()
-          && collections.get(entry.id()) == null) {
+      if (collection == null) {
+        continue;
+      }
+      if (entry.id() < collections.size() && collections.get(entry.id()) == null) {
         registerCollection(collection);
+      } else {
+        // Unreachable by construction: the create-undo arm above ran first (freeing every id this
+        // commit created) and the whole undo holds stateLock.writeLock(), so a dropped collection's
+        // original slot is in range and null here. The assert pins that invariant at zero production
+        // cost during testing. If it is somehow violated in production, do NOT register over the slot
+        // (that would leak the occupant) and do NOT throw: undoReconciledCollections runs in the
+        // failure-path finally while the original commit exception propagates, so a throw would mask
+        // the real failure. Log loudly so the in-memory-registry inconsistency is diagnosable, then
+        // leave the slot alone, mirroring the log-and-swallow stance of the surrounding cleanup.
+        assert entry.id() < collections.size() && collections.get(entry.id()) == null
+            : "drop-restore slot " + entry.id() + " is out of range or occupied";
+        LogManager.instance()
+            .error(this,
+                "Cannot re-register dropped collection '%s' on slot %d during failed-commit undo:"
+                    + " the slot is out of range or occupied; the collection is present on disk but"
+                    + " absent from the in-memory registry",
+                null, collection.getName(), entry.id());
       }
     }
   }
