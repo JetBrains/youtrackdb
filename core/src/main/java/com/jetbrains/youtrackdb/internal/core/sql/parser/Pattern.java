@@ -227,4 +227,37 @@ public class Pattern {
   public void setNumOfEdges(int numOfEdges) {
     this.numOfEdges = numOfEdges;
   }
+
+  /**
+   * Returns a deep copy of this pattern graph. {@link PatternNode} and {@link PatternEdge}
+   * instances are new; {@link SQLMatchPathItem} AST nodes are shared.
+   */
+  public Pattern copy() {
+    var result = new Pattern();
+    var nodeMap = new IdentityHashMap<PatternNode, PatternNode>();
+
+    for (var entry : aliasToNode.entrySet()) {
+      var src = entry.getValue();
+      var dst = new PatternNode();
+      dst.alias = src.alias;
+      dst.optional = src.optional;
+      result.aliasToNode.put(entry.getKey(), dst);
+      nodeMap.put(src, dst);
+    }
+
+    for (var src : aliasToNode.values()) {
+      var dst = nodeMap.get(src);
+      for (var edge : src.out) {
+        var edgeCopy = new PatternEdge();
+        edgeCopy.item = edge.item;
+        edgeCopy.out = dst;
+        edgeCopy.in = nodeMap.get(edge.in);
+        dst.out.add(edgeCopy);
+        edgeCopy.in.in.add(edgeCopy);
+      }
+    }
+
+    result.numOfEdges = numOfEdges;
+    return result;
+  }
 }
