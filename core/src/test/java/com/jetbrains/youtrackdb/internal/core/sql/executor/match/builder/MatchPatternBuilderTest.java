@@ -403,28 +403,27 @@ public class MatchPatternBuilderTest {
   // ── build() one-shot contract ──
 
   /**
-   * {@link MatchPatternBuilder#build()} must hand back defensive copies of the alias
-   * maps so callers can mutate the returned {@link MatchPatternBuilder.PatternIR}
-   * without corrupting the builder's internal accumulator state.
+   * {@link MatchPatternBuilder#build()} must expose alias maps as read-only views so callers
+   * cannot mutate the returned {@link MatchPatternBuilder.PatternIR}.
    */
   @Test
-  public void build_defensiveCopy_aliasMapsIsolatedFromBuilderState() throws Exception {
+  public void build_readOnlyAliasMaps_rejectMutation() throws Exception {
     var wb = new MatchWhereBuilder();
     var where = wb.wrap(wb.eq("age", MatchLiteralBuilder.toLiteral(30L)));
     var b = new MatchPatternBuilder().addNode("p", "Person", where, false);
     var ir = b.build();
 
     assertNotSame(
-        "aliasClasses must be copied out of the builder",
+        "aliasClasses must be a wrapper, not the builder's live map reference",
         readField(b, "aliasClasses"),
         ir.aliasClasses());
     assertNotSame(
-        "aliasFilters must be copied out of the builder",
+        "aliasFilters must be a wrapper, not the builder's live map reference",
         readField(b, "aliasFilters"),
         ir.aliasFilters());
 
-    ir.aliasClasses().put("p", "Hacked");
-    ir.aliasFilters().put("p", where);
+    assertThrows(UnsupportedOperationException.class, () -> ir.aliasClasses().put("p", "Hacked"));
+    assertThrows(UnsupportedOperationException.class, () -> ir.aliasFilters().put("p", where));
 
     Map<String, String> internalClasses = readField(b, "aliasClasses");
     Map<String, SQLWhereClause> internalFilters = readField(b, "aliasFilters");
