@@ -40,8 +40,8 @@ public final class MatchPatternBuilder {
     OUT, IN, BOTH
   }
 
-  /** Triple returned by {@link #build()}. {@code aliasClasses} and {@code aliasFilters} are
-   * unmodifiable views; {@code pattern} is handed over by reference. */
+  /** Triple returned by {@link #build()}. {@code pattern} is a deep copy; {@code aliasClasses}
+   * and {@code aliasFilters} are unmodifiable views. */
   public record PatternIR(
       Pattern pattern,
       Map<String, String> aliasClasses,
@@ -175,10 +175,9 @@ public final class MatchPatternBuilder {
   }
 
   /**
-   * Returns the accumulated IR and locks the builder. The {@link Pattern} is handed over by
-   * reference (the planner is its new sole owner); the alias maps are exposed as
-   * {@link Collections#unmodifiableMap(Map) unmodifiable views} so callers cannot mutate
-   * {@link PatternIR} after {@code build()}. After {@code build()}, any further
+   * Returns the accumulated IR and locks the builder. {@code pattern} is deep-copied; the alias
+   * maps are exposed as {@link Collections#unmodifiableMap(Map) unmodifiable views} so callers
+   * cannot mutate {@link PatternIR} after {@code build()}. After {@code build()}, any further
    * {@link #addNode} / {@link #addEdge} / {@link #build()} call throws
    * {@link IllegalStateException} — the one-shot contract makes the ownership transfer explicit.
    */
@@ -186,7 +185,7 @@ public final class MatchPatternBuilder {
     checkNotBuilt();
     built = true;
     return new PatternIR(
-        pattern,
+        pattern.copy(),
         Collections.unmodifiableMap(aliasClasses),
         Collections.unmodifiableMap(aliasFilters));
   }
