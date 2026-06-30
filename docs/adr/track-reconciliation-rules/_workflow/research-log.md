@@ -168,13 +168,18 @@ risk level" most naturally maps to the per-track complexity tag (the only
 tag that drives review iteration today), but the wording overlaps the
 risk-tag vocabulary.
 
-### 2026-06-30T12:56Z [ctx=safe] Prose-only workflow-modifying change
-This change edits only workflow prose rules (Markdown under
-`.claude/workflow/**` and `.claude/skills/code-review/SKILL.md`) — no
-scripts, hooks, settings, or Java code. That makes it a candidate for the
-§1.7(k) prose-rule self-application opt-out: edit the workflow prose live
-rather than staging it under `staged-workflow/`. The design-gate classifier
-at Step 4 owns this call.
+### 2026-06-30T12:56Z [ctx=safe] Workflow-modifying change — STAGES (not the §1.7(k) opt-out)
+This change edits only Markdown under `.claude/workflow/**` and
+`.claude/skills/code-review/SKILL.md` — no scripts, hooks, settings, or Java.
+**Resolved 2026-06-30T13:xx (user-confirmed): it STAGES** (`s17` =
+workflow-modifying), it does **not** take the §1.7(k) prose-rule opt-out.
+Initially mis-flagged as an opt-out candidate; on re-reading §1.7(k)
+criterion 2, the opt-out requires every edited file's consumer to be
+judgment-layer, but the dominant edit is `track-code-review.md` §Review loop
+— the Phase-C orchestration loop's termination control flow, an execution
+procedure (the orchestration-loop exclusion example). Editing it live would
+let this branch's own Phase C run its half-built loop on itself, the exact
+hazard staging prevents.
 
 ### 2026-06-30T12:56Z [ctx=safe] Suggestions never drive iteration at any level
 The Phase-C loop's hard continuation/exit gate is blockers (and
