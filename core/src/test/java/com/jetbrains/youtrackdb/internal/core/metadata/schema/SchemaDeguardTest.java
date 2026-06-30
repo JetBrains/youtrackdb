@@ -699,6 +699,71 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
+   * The commit half of the abstract&rarr;concrete alter provisional-id path: making an abstract
+   * class concrete inside a transaction and then COMMITTING must resolve the provisional collection
+   * id the alter allocated to a real (non-negative) collection that exists in storage and survives a
+   * durable reload. The rollback half is covered by
+   * {@link #rolledBackInTransactionSetAbstractFalseLeavesNoCollectionOnDisk}; this is its commit
+   * mirror. {@code setAbstract(false)} is the second provisional-id producer (the create path is the
+   * first), and it mutates an already-committed class in place — re-pointing the class's collection
+   * id list and recording the class changed. A regression in this alter-specific producer's commit
+   * resolution (the patch list missing the alter-allocated id, the real collection created under the
+   * wrong name, or the collection-id reassignment not re-pointed) would commit a structurally broken
+   * concrete class that loses its collection at the next open. The test commits the alter and asserts
+   * the class is concrete with only real collection ids that resolve in storage, then reloads and
+   * reopens to confirm the resolution reached durable bytes with no {@code <= -2} provisional id
+   * surviving.
+   */
+  @Test
+  public void inTransactionSetAbstractFalseResolvesToRealCollectionAtCommit() {
+    var schema = session.getMetadata().getSchema();
+    var committed = session.getSharedContext().getSchema();
+    // Commit an abstract class first, so the in-tx alter exercises the make-non-abstract branch that
+    // allocates a provisional collection id.
+    schema.createAbstractClass("AlterToConcrete");
+    assertTrue("the class must be abstract before the alter",
+        committed.getClass("AlterToConcrete").isAbstract());
+
+    // Make the class concrete inside a transaction and commit: the provisional id allocated by
+    // setAbstractInternal must resolve to a real collection at commit.
+    session.executeInTx(tx -> schema.getClass("AlterToConcrete").setAbstract(false));
+
+    var cls = committed.getClass("AlterToConcrete");
+    assertFalse("the class must be concrete after the committed alter", cls.isAbstract());
+    var idsBefore = cls.getCollectionIds();
+    assertTrue("a concrete class must own at least one collection after the alter",
+        idsBefore.length > 0);
+    for (var collectionId : idsBefore) {
+      assertTrue(
+          "no provisional id may survive the alter commit; every collection id must be a real "
+              + "(>= 0) id, was " + collectionId,
+          collectionId >= 0);
+      assertNotNull("the resolved real collection must exist in storage, id " + collectionId,
+          session.getCollectionNameById(collectionId));
+    }
+
+    // The resolution reached durable bytes: after a reload re-parses the on-disk per-class record,
+    // the class is still concrete with the same real collection ids. A regression that left a
+    // provisional id on disk, or created the real collection under the wrong carried name, would fail
+    // here because the reload would either resurrect the provisional id or fail to resolve the
+    // collection.
+    committed.reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var after = session.getSharedContext().getSchema().getClass("AlterToConcrete");
+    assertNotNull("the altered class must survive a reload", after);
+    assertFalse("the class must remain concrete after a durable reload", after.isAbstract());
+    assertEquals("the alter's resolved real collection ids must survive the round trip unchanged",
+        java.util.Arrays.toString(idsBefore),
+        java.util.Arrays.toString(after.getCollectionIds()));
+    for (var collectionId : after.getCollectionIds()) {
+      assertTrue("no provisional id may survive a reload of the altered class, was " + collectionId,
+          collectionId >= 0);
+      assertNotNull("the alter's real collection must still exist after the reload",
+          session.getCollectionNameById(collectionId));
+    }
+  }
+
+  /**
    * An abstract class created inside a transaction still reads the single abstract marker
    * {@code -1}, not a provisional id. The provisional sub-range is {@code <= -2} precisely so it
    * cannot collide with the abstract marker; this test pins that the two id families stay disjoint
