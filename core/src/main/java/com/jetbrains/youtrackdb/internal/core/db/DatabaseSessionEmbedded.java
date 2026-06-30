@@ -5676,6 +5676,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     this.ensureLinkConsistency = true;
   }
 
+  /**
+   * Whether the bidirectional-link-consistency check is currently enabled. A caller that disables
+   * the check around a nested operation reads this first and restores the captured value afterward
+   * rather than forcing the check back on, so a nested disable inside an outer disabled window is
+   * preserved.
+   */
+  public boolean isLinkConsistencyEnabled() {
+    return this.ensureLinkConsistency;
+  }
+
   // --- Default methods migrated from DatabaseSessionEmbedded ---
 
   @SuppressWarnings("unused")

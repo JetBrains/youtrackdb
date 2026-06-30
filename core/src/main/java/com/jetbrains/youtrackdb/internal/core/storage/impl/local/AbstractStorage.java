@@ -2496,6 +2496,12 @@ public abstract class AbstractStorage
           // a class record from the root the tracker would (incorrectly) try to decrement a
           // non-existent back-reference on the class record and throw LinksConsistencyException. The
           // tracker is meant for user vertex/edge links only; schema records are exempt.
+          //
+          // Capture and restore the prior flag rather than forcing it back on: a schema-carry
+          // commit can run inside an outer scope that already disabled the check (for example an
+          // import), and an unconditional re-enable would clobber that outer disable for the rest
+          // of the outer operation.
+          final var priorLinkConsistency = session.isLinkConsistencyEnabled();
           session.disableLinkConsistencyCheck();
           // The selective write keys on the transaction's changed-class set so only changed classes'
           // per-class records enter the working set (the write-amplification win), and on whether the
@@ -2509,7 +2515,9 @@ public abstract class AbstractStorage
           try {
             schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
           } finally {
-            session.enableLinkConsistencyCheck();
+            if (priorLinkConsistency) {
+              session.enableLinkConsistencyCheck();
+            }
             // Release without the save side effect: the records are enrolled in the user
             // transaction and persist through the apply below, not through saveInternal.
             schemaContext.txLocalSchema().releaseSchemaWriteLock(session, false);
@@ -2665,10 +2673,36 @@ public abstract class AbstractStorage
             // snapshot exactly once. fromStream binds new classes to the committed owner; a dropped
             // class drops out. Promotion runs after a successful apply only, still under the held
             // write lock and the open commit window.
-            final EntityImpl committedRoot =
-                session.load(schemaContext.committedSchema().getIdentity());
-            schemaContext.committedSchema().fromStream(session, committedRoot);
-            schemaContext.committedSchema().forceSnapshot();
+            // The commit is already durable here (endTxCommit applied the WAL). A throw during
+            // promotion (a cache-miss load, a fromStream parse failure, a forceSnapshot assert)
+            // must not both mask the successful commit and leave the in-memory committed schema
+            // half-parsed against correct durable bytes. fromStream clears and rebuilds the in-
+            // memory schema, so a mid-parse throw corrupts it, and rebuilding the snapshot would
+            // only reflect that corruption (makeSnapshot reads the in-memory class graph, not the
+            // disk). Reloading from disk inline is unsafe (it would begin a nested transaction
+            // while this commit is still active), so on failure drop any stale snapshot and move
+            // the storage to error state: the divergence then self-corrects on the next reopen,
+            // which re-parses the schema from the durable records. The durable commit still
+            // succeeds; the failure is logged rather than rethrown.
+            try {
+              final EntityImpl committedRoot =
+                  session.load(schemaContext.committedSchema().getIdentity());
+              schemaContext.committedSchema().fromStream(session, committedRoot);
+              schemaContext.committedSchema().forceSnapshot();
+            } catch (final RuntimeException | AssertionError e) {
+              LogManager.instance()
+                  .error(this,
+                      "Schema promotion failed after a durable schema-carry commit; the in-memory"
+                          + " schema is now untrusted and the storage will reload it from disk on"
+                          + " reopen",
+                      e);
+              try {
+                schemaContext.committedSchema().forceSnapshot();
+              } catch (final RuntimeException | AssertionError ignored) {
+                // Best-effort: a forceSnapshot failure here must not mask the durable commit.
+              }
+              setInError(e);
+            }
           }
         }
       }
