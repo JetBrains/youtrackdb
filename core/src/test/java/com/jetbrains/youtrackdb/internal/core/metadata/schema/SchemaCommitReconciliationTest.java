@@ -28,6 +28,7 @@ import static org.junit.Assert.fail;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.ArrayList;
@@ -692,6 +693,90 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
   }
 
   /**
+   * The cross-class provisional-id re-key in one committed transaction: create a superclass AND a
+   * subclass of it in the SAME transaction, then commit. Polymorphic inheritance grows the
+   * SUPERCLASS's polymorphic collection set to absorb the subclass's collection (so a polymorphic
+   * query on the parent spans the child's records). Both classes are created in the same transaction,
+   * so the child's collection is allocated as a PROVISIONAL id, and the parent's polymorphic set
+   * therefore carries that provisional id during the transaction. The commit must resolve every
+   * provisional id to its real id first, then re-key the reverse map and re-point cross-class
+   * references, so the parent ends up indexing the child's RESOLVED real collection rather than a
+   * stale provisional id. This is the multi-class resolve-then-re-key ordering: it only bites when
+   * one class's id array references an id another same-transaction class produced. The existing
+   * two-class test creates independent classes that share no collection id, so its two-pass rebuild
+   * has nothing to settle between the classes; this test forces the cross-class reference through
+   * inheritance. A regression in the ordering (rebuilding the reverse map before all classes are
+   * patched, or the polymorphic-id patch skipping the inherited id) would leave a provisional id in
+   * the parent's polymorphic set and silently misroute polymorphic reads of the subclass's records.
+   */
+  @Test
+  public void multiClassInheritanceInOneTxResolvesCrossClassProvisionalIds() {
+    session.executeInTx(
+        tx -> {
+          var schema = session.getMetadata().getSchema();
+          var parent = schema.createClass("InhParent");
+          // The subclass's (provisional) collection is absorbed into the parent's polymorphic set in
+          // the same tx, so the parent now references an id the child produced.
+          schema.createClass("InhChild", parent);
+        });
+
+    var committed = schemaShared();
+    var parent = committed.getClass("InhParent");
+    var child = committed.getClass("InhChild");
+    assertNotNull("the parent class must be promoted after commit", parent);
+    assertNotNull("the child class must be promoted after commit", child);
+
+    // Every collection id on both classes is a resolved real id; no provisional id survived the
+    // cross-class resolution.
+    for (var id : parent.getCollectionIds()) {
+      assertTrue("parent collection id must be resolved real, was " + id, id >= 0);
+      assertNotNull("the parent's real collection must exist in storage, id " + id,
+          session.getCollectionNameById(id));
+    }
+    for (var id : child.getCollectionIds()) {
+      assertTrue("child collection id must be resolved real, was " + id, id >= 0);
+      assertNotNull("the child's real collection must exist in storage, id " + id,
+          session.getCollectionNameById(id));
+    }
+
+    // The cross-class re-key settled: the parent's polymorphic set absorbed the child's resolved real
+    // own collection (the child's primary collection id), proving the inherited reference was
+    // re-pointed to the resolved id and not left as a stale provisional one. No provisional id may
+    // survive anywhere in the parent's polymorphic set.
+    var childOwnCollectionId = child.getCollectionIds()[0];
+    assertTrue("the child's own collection id must be a resolved real id",
+        childOwnCollectionId >= 0);
+    var parentPoly = new HashSet<Integer>();
+    for (var id : parent.getPolymorphicCollectionIds()) {
+      assertTrue("no provisional id may survive in the parent's polymorphic set, was " + id,
+          id >= 0);
+      parentPoly.add(id);
+    }
+    assertTrue(
+        "the parent's polymorphic collection ids must include the child's resolved real collection "
+            + "(the cross-class re-key must settle the inherited id, not leave it provisional)",
+        parentPoly.contains(childOwnCollectionId));
+
+    // The cross-class resolution reached durable bytes: after a reload re-parses the on-disk
+    // per-class records, the inheritance and the re-keyed polymorphic id survive unchanged.
+    committed.reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloaded = session.getSharedContext().getSchema();
+    var parentAfter = reloaded.getClass("InhParent");
+    var childAfter = reloaded.getClass("InhChild");
+    assertNotNull("the parent must survive a reload", parentAfter);
+    assertNotNull("the child must survive a reload", childAfter);
+    var parentPolyAfter = new HashSet<Integer>();
+    for (var id : parentAfter.getPolymorphicCollectionIds()) {
+      parentPolyAfter.add(id);
+    }
+    assertTrue(
+        "the re-keyed inherited collection id must survive the durable round trip in the parent's "
+            + "polymorphic set",
+        parentPolyAfter.contains(childAfter.getCollectionIds()[0]));
+  }
+
+  /**
    * The root record is written on a class drop because the class link set shrank: a drop removes the
    * dropped class's record from the root's {@code "classes"} link set and deletes that record, so the
    * root must be rewritten for the removed link to persist — even though a drop changes none of the
@@ -868,6 +953,64 @@ public class SchemaCommitReconciliationTest extends DbTestBase {
     reOpen("admin", ADMIN_PASSWORD);
     assertTrue("the altered attribute must persist across a durable reload",
         schemaShared().getClass("StrictTarget").isStrictMode());
+  }
+
+  /**
+   * The property-level sibling of the attribute-alter test: a property mutation on a committed class
+   * inside a transaction must survive commit through the property write choke point. Every property
+   * setter on the routing proxy resolves the write target into the tx-local copy and, at that choke
+   * point, records the property's OWNER class as changed (a property mutation is serialized inside
+   * the owner's per-class record). The class-attribute branch is covered by
+   * {@link #attributeAlterOutsideCreateDropRenameSurvivesCommit} through {@code setStrictMode}; this
+   * test drives the property branch through {@code setReadonly}. The property branch is more
+   * error-prone because it must resolve the property's owner against the tx-local class and mark that
+   * owner: a regression that resolved the wrong owner, or failed to mark it, would drop the owner
+   * class from the changed set, so the selective per-class write would skip the owner's record and
+   * the mutation would be lost both in memory (promotion re-parses the stale record) and on disk
+   * while the commit reported success. The test reads the property attribute back after a durable
+   * reload, where a skipped record write would revert it. {@code setReadonly} is chosen over a rename
+   * or retype because it changes only the per-class record and does not grow the global-property
+   * table, keeping the test focused on the per-class write path rather than the root-payload arm.
+   */
+  @Test
+  public void inTransactionPropertyAlterSurvivesCommitViaPropertyChokePoint() {
+    // Build a committed class with a property. In-transaction property CREATE on a fresh class is
+    // still throw-guarded, so the class and its property are committed at the top level first; the
+    // mutation under test is an alter of that existing property inside a transaction.
+    var schema = session.getMetadata().getSchema();
+    var target = schema.createClass("PropAlterTarget");
+    target.createProperty("p", PropertyType.STRING);
+
+    assertFalse("the property must start non-readonly",
+        schemaShared().getClass("PropAlterTarget").getProperty("p").isReadonly());
+
+    var classRid = schemaShared().getClass("PropAlterTarget").getRecordId();
+    assertNotNull("the owner class must have a bound per-class record", classRid);
+    var classVersionBefore = recordVersion(classRid);
+
+    // Alter the property inside a transaction. setReadonly routes through SchemaPropertyProxy, which
+    // resolves the write into the tx-local copy and records the owner class changed at the choke
+    // point. If the owner were not recorded, the selective write would skip the owner's per-class
+    // record and the change would be silently lost.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("PropAlterTarget").getProperty("p")
+            .setReadonly(true));
+
+    assertTrue(
+        "a property alter inside a transaction must rewrite the owner class's per-class record",
+        recordVersion(classRid) > classVersionBefore);
+    assertTrue("the property alter must be visible in the committed in-memory schema",
+        schemaShared().getClass("PropAlterTarget").getProperty("p").isReadonly());
+
+    // The property change survives a durable round trip: promotion re-parses the owner's per-class
+    // record, so an owner dropped from the changed set would revert the readonly flag here.
+    schemaShared().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedProperty =
+        session.getSharedContext().getSchema().getClass("PropAlterTarget").getProperty("p");
+    assertNotNull("the altered property must survive the durable round trip", reloadedProperty);
+    assertTrue("the property alter must persist across a durable reload",
+        reloadedProperty.isReadonly());
   }
 
   /**
