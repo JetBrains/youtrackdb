@@ -28,13 +28,23 @@ and is scoped to Phase C alone; Phase-2 plan reviews, Phase-A track reviews, and
 Phase-B step reviews keep the canonical cap-3-then-escalate behavior.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] 2026-06-30T16:33Z [ctx=info] Review + decomposition complete
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- **2026-06-30 [Phase A]** The Phase-1 restate mechanism — a grep scoped to
+  `track-code-review.md` alone — structurally missed two other Phase-C-loading
+  files carrying standalone cap-3 assertions that describe the track-level loop:
+  `code-review-protocol.md:53` (`Max 3 iterations per level.`) and
+  `design-decision-escalation.md:62` (`Phase C: track-level code review (up to 3
+  iterations …)`). Surfaced by Phase-A risk (R1) and adversarial (A1, A2). The
+  in-scope set, Plan of Work (edits 7-8 + the tree-wide restate authority),
+  Validation, and Invariants were broadened to the Phase-C-loading file set. This
+  extends D2.1's "announce the override at every canonical home" principle to two
+  more homes; no decision changed — D2's scope stays Phase-C behavior only.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -191,6 +201,19 @@ and no-progress escalation never preempts a context pause.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 1 (0 findings). All six edit sites resolved
+  against the live workflow files; the restate-set grep matched the cited line
+  list byte-for-byte.
+- [x] Risk: PASS at iteration 2 (1 finding, 1 accepted). R1 (should-fix): the
+  `track-code-review.md`-only restate grep missed `code-review-protocol.md:53`.
+  Fixed by broadening to the Phase-C-loading file set; gate-verified VERIFIED.
+- [x] Adversarial: PASS at iteration 2 (2 findings, 2 accepted). A1/A2
+  (should-fix): two more Phase-C-loading files with standalone cap-3 assertions
+  (`design-decision-escalation.md:62`, `code-review-protocol.md:53`) outside the
+  Phase-1 scope. Fixed by the same broadening (edits 7-8 + tree-wide restate
+  authority); both gate-verified VERIFIED. Ran on Opus — Fable 5 unavailable
+  (D14 degradation caveat: the model pin degrading to the session default does
+  not reopen the decision).
 
 ## Context and Orientation
 This is a workflow-machinery change for a reader who maintains `.claude/workflow/**`
@@ -218,14 +241,30 @@ The in-scope files and their current state:
   that describes the dial (`low` single shallow pass / `medium` cap-3 / `high`
   iterate to convergence) for prose-sync purposes, even though the `/code-review`
   skill itself takes no complexity input.
+- **`.claude/workflow/code-review-protocol.md`** — the shared code-review
+  protocol, loaded in Phase C. Its synthesis preamble (≈line 53) asserts
+  `Max 3 iterations per level.` as a flat cap covering both the step-level and
+  the track-level loop; its §Iteration protocol (≈line 97) calls the shared
+  protocol `max 3 iterations` but defers to `review-iteration.md` §Limits by
+  pointer, so it inherits edit 6's carve-out. The standalone preamble assertion
+  does not. (Surfaced by Phase-A risk R1 / adversarial A2.)
+- **`.claude/workflow/design-decision-escalation.md`** §Per-phase autonomy
+  (≈line 62) — describes the Phase-C autonomy boundary as
+  `Phase C: track-level code review (up to 3 iterations; …)`, a direct
+  description of the loop this track uncaps. The Phase-B step-level line just
+  above it (`up to 3 per step`) is unchanged — step-level review keeps cap-3.
+  (Surfaced by Phase-A adversarial A1.)
 
 The design.md already carries the loop flowchart (design.md §The new Phase-C
 review loop); this track does not duplicate it.
 
 ## Plan of Work
 The edits, in order. Edits 1-3 are the substantive policy change in
-`track-code-review.md`; edits 4-6 keep the three derived/sync sites consistent so
-no file ships self-contradictory text.
+`track-code-review.md`; edits 4-8 keep every derived/sync site consistent so no
+Phase-C-loading file ships self-contradictory text. Edits 4-6 cover the three
+sites known at Phase 1; edits 7-8 add two more Phase-C-loading files the Phase-A
+risk and adversarial reviews surfaced (R1, A1, A2), each carrying a standalone
+cap-3 assertion the `track-code-review.md`-only grep could not catch.
 
 1. **`track-code-review.md` §Review loop — replace the dial mapping** (≈681-693).
    Swap the current `low` single-pass / `medium` cap-3 / `high` iterate-within-cap-3
@@ -306,8 +345,51 @@ no file ships self-contradictory text.
    review type" / "If blockers persist after 3 iterations, escalate" as the stated
    default for Phases 2 / 3A / 3B.
 
+7. **`code-review-protocol.md` — restate the standalone cap-3 assertion** (≈line
+   53). The synthesis preamble `Max 3 iterations per level.` asserts a flat cap
+   covering the track-level (Phase-C) loop this track uncaps. Restate it so the
+   per-level termination defers to each level's protocol: step-level and
+   Phase-2/3A reviews keep `review-iteration.md` §Limits cap-3, while the
+   Phase-C track-level loop is keyed to the per-track complexity tag with no fixed
+   cap per `track-code-review.md` §Review loop. The §Iteration protocol pointer
+   (≈line 97) already defers to `review-iteration.md` §Limits, so it inherits
+   edit 6's carve-out — confirm the carve-out landed; no separate edit.
+
+8. **`design-decision-escalation.md` §Per-phase autonomy — restate the Phase-C
+   line** (≈line 62). `Phase C: track-level code review (up to 3 iterations; …)`
+   becomes the new policy: track-level code review keyed to the per-track
+   complexity tag, no fixed iteration cap, terminated by no-progress detection;
+   keep the `medium`/`high` focal-point clause. Leave the Phase-B step-level line
+   above it (`up to 3 per step`) unchanged — step-level review keeps cap-3.
+
+**Restate authority is the Phase-C-loading file set, not one file.** The R1/A1/A2
+findings showed a `track-code-review.md`-only grep structurally misses cap-3 prose
+in other files a Phase-C reader loads. At implementation time, re-run the restate
+grep over the whole set, then triage each hit:
+   ```bash
+   grep -rnE '3 iterations|N/3|/3|of 3|three iteration|Max 3|up to 3' \
+     .claude/workflow/track-code-review.md \
+     .claude/workflow/code-review-protocol.md \
+     .claude/workflow/design-decision-escalation.md \
+     .claude/workflow/review-iteration.md \
+     .claude/workflow/review-agent-selection.md \
+     .claude/skills/code-review/SKILL.md
+   ```
+   Restate any assertion describing the **Phase-C track-level** loop; leave
+   step-level (Phase B), Phase-2, and Phase-3A assertions on cap-3 (out of scope),
+   and reword illustrative cost-model counts only where they cite the cap as a hard
+   bound. One borderline shared-recipe hit — `finding-synthesis-recipe.md:414`
+   `(2 of 3 used)` — is pacing guidance shared with the still-capped step-level
+   loop; reword only if it reads as a Phase-C bound, otherwise leave it.
+
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the numbered roster here. -->
+<!-- Decomposed at Phase A. One coherent commit: the policy re-key plus every
+consistency-coupled sync edit must land together so no intermediate state ships
+self-contradictory text. HIGH-isolation rule keeps the whole change in one step
+so its step-level dimensional review sees track-code-review.md and all six
+sync sites at once. -->
+
+1. Re-key the Phase-C track-code-review loop to the per-complexity-tag termination policy and propagate it to every Phase-C-loading sync site in one consistent commit — Plan-of-Work edits 1-8 (the `track-code-review.md` §Review loop dial mapping D3 + no-progress detection D4.1 + `medium` single-shared-counter D3.1 + context-pause composition D4.2 + every cap-3-keyed restate the tree-wide grep surfaces; the `review-iteration.md` §Limits Phase-C carve-out D2.1; and the `review-agent-selection.md` / `code-review/SKILL.md` / `code-review-protocol.md` / `design-decision-escalation.md` sync restates); edits route through `_workflow/staged-workflow/.claude/...` per §1.7, verify by re-running the tree-wide restate grep + reading each carve-out — risk: high (workflow machinery: re-keys the Phase-C review-iteration termination control-flow protocol; also edits `review-iteration.md` §Limits, the canonical cap-3 home)  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -321,9 +403,14 @@ plus grep, not by Java tests — this is a prose-only change):
   tag (`low` none, `medium` up to three, `high` uncapped); and no-progress
   detection — escalate on the first iteration that clears nothing — replaces the
   fixed cap-3 escalation as the safety valve.
-- No cap-3-keyed site in `track-code-review.md` still asserts a fixed `/3` cap as
-  live behavior; every restate-set hit reads as restated (cost-model /
-  illustrative) or carries the no-progress framing.
+- No cap-3-keyed site describing the **Phase-C track-level loop** still asserts a
+  fixed `/3` cap as live behavior, across the Phase-C-loading file set
+  (`track-code-review.md`, `code-review-protocol.md`,
+  `design-decision-escalation.md`, plus the `review-iteration.md` §Limits
+  carve-out, `review-agent-selection.md`, and `code-review/SKILL.md`); every
+  restate-set hit reads as restated (cost-model / illustrative) or carries the
+  no-progress framing. Step-level (Phase B), Phase-2, and Phase-3A cap-3
+  assertions stay live and unchanged.
 - `review-iteration.md` §Limits carries the Phase-C carve-out so a Phase-C reader
   landing there is routed to the override, and keeps cap-3-then-escalate as the
   stated default for Phases 2 / 3A / 3B.
@@ -336,13 +423,20 @@ plus grep, not by Java tests — this is a prose-only change):
 <!-- Reserved for Move 3 — EARS or Gherkin acceptance lines. Empty until Move 3 lands. -->
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder — names per-step idempotence and recovery paths. -->
+- **Step 1.** Idempotent: the edits are deterministic text replacements driven by
+  the tree-wide restate grep over the Phase-C-loading file set — re-running the
+  grep and re-applying the same restates converges to the same state, so a partial
+  re-run leaves no half-edit. Recovery: `git reset --hard HEAD` discards the
+  staged-workflow edits; re-derive the restate set from the live grep and re-apply.
+  No durable state, no migration — the only artifacts are the staged
+  `_workflow/staged-workflow/.claude/...` copies, which the Phase-4 promotion
+  overwrites live.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
 
 ## Interfaces and Dependencies
-**In-scope files** (the four edited rules):
+**In-scope files** (six edited rules):
 - `.claude/workflow/track-code-review.md` — the dial mapping, the new termination
   machinery, and every cap-3-keyed restate site.
 - `.claude/workflow/review-agent-selection.md` — §"Complexity sets the Phase-C
@@ -350,11 +444,19 @@ plus grep, not by Java tests — this is a prose-only change):
 - `.claude/workflow/review-iteration.md` §Limits — the one-line Phase-C carve-out
   (default cap-3-then-escalate for Phases 2 / 3A / 3B preserved).
 - `.claude/skills/code-review/SKILL.md` — the standalone-skill dial note (≈225).
+- `.claude/workflow/code-review-protocol.md` — the standalone synthesis-preamble
+  cap-3 assertion (≈53) restated; §Iteration protocol (≈97) inherits the §Limits
+  carve-out via its pointer. (Added from Phase-A risk R1 / adversarial A2.)
+- `.claude/workflow/design-decision-escalation.md` §Per-phase autonomy — the
+  Phase-C `up to 3 iterations` line (≈62) restated. (Added from Phase-A
+  adversarial A1.)
 
 **Out-of-scope** (keep cap-3 unchanged): `structural-review.md`,
 `implementation-review.md`, `track-review.md` (Phase A), `step-implementation.md`
-(Phase B), and any other §Limits consumer outside Phase C. The cap-3-then-escalate
-default in `review-iteration.md` §Limits must stay live for those loops.
+(Phase B), `inline-replanning.md`, the step-level cap-3 path in
+`code-review-protocol.md` and the `risk-tagging.md` step-level row, and any other
+§Limits consumer outside Phase C. The cap-3-then-escalate default in
+`review-iteration.md` §Limits must stay live for those loops.
 
 **Inter-track dependencies:** none — this is a single-track change.
 
@@ -379,10 +481,14 @@ testable constraints and the testable invariants. -->
 - The change is scoped to Phase C; `review-iteration.md` §Limits keeps
   cap-3-then-escalate as the stated default for Phases 2 / 3A / 3B. Verified by:
   reading §Limits after the edit.
-- After the change, no cap-3-keyed site in `track-code-review.md` still asserts a
-  fixed `/3` cap as live behavior. Verified by: re-running the restate-set grep
-  and confirming every hit reads as restated (cost-model / illustrative) or
-  carries the no-progress framing.
+- After the change, no cap-3-keyed site describing the Phase-C track-level loop
+  still asserts a fixed `/3` cap as live behavior, across the Phase-C-loading file
+  set (`track-code-review.md`, `code-review-protocol.md`,
+  `design-decision-escalation.md`, `review-iteration.md` §Limits,
+  `review-agent-selection.md`, `code-review/SKILL.md`). Verified by: re-running
+  the tree-wide restate grep over that set and confirming every Phase-C hit reads
+  as restated (cost-model / illustrative) or carries the no-progress framing,
+  while step-level / Phase-2 / Phase-3A cap-3 assertions stay live.
 - `review-iteration.md` §Limits carries the Phase-C carve-out so a Phase-C reader
   landing there is routed to the override. Verified by: reading §Limits.
 - The dial only changes iteration depth / termination, never which reviewers run
