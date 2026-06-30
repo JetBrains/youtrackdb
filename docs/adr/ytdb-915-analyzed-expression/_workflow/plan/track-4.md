@@ -452,3 +452,6 @@ tree-building lowerer. The stacked-diff series lands it as its own reviewable PR
 - **I3 — Exhaustive visitor dispatch (evaluator side).** `AnalyzedExprEvaluator` implements
   the no-defaults base `AnalyzedExprVisitor<Object>`, so a new IR variant breaks it at
   compile time — verified by the compiler (Track 1 owns the dispatcher-side half).
+
+## Base commit
+d55ee6e39095355dcf533f326531a0e5bc6ed46a
