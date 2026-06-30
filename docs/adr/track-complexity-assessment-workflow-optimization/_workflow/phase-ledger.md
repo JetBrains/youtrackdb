@@ -6,3 +6,4 @@
 [2026-06-29T13:39Z] [ctx=info] track=2 substate=decomposition-pending
 [2026-06-29T14:44Z] [ctx=info] phase=C track=2 substate=steps-partial
 [2026-06-29T16:49Z] [ctx=warning] phase=C track=2 substate=steps-done-review-pending
+[2026-06-30T07:35Z] [ctx=info] phase=C track=2 substate=review-done-track-open
