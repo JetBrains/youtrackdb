@@ -135,6 +135,18 @@ public final class TxSchemaState {
   }
 
   /**
+   * Removes a previously recorded class name from the changed-class set. Used by a transaction-local
+   * rename: the proxy write choke point ({@link SchemaProxedResource#resolveForWrite()}) records the
+   * write target under the name it carries at resolution time, which for a rename is the class's old
+   * name. The rename then records the new name; the old name must not survive, because a name in the
+   * changed-class set that is absent from the tx-local copy reads as a drop at commit and would delete
+   * the renamed class's per-class record. Removing a name that was never recorded is a no-op.
+   */
+  public void unmarkClassChanged(@Nonnull String className) {
+    changedClasses.remove(className);
+  }
+
+  /**
    * The names of classes the transaction has changed so far. The returned set is the live backing
    * set; callers must not mutate it outside {@link #markClassChanged}.
    */

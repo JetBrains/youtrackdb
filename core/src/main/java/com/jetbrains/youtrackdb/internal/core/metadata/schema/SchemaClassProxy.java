@@ -127,7 +127,11 @@ public final class SchemaClassProxy extends SchemaProxedResource<SchemaClassImpl
   @Override
   public void truncate() {
     assert this.session.assertIfNotActive();
-    resolveForWrite().truncate(session);
+    // truncate empties a class's records and changes no schema, so it routes through the read
+    // resolver: it must not mark the class changed or seed a tx-local schema state, which would
+    // route a truncate-only transaction onto the heavier schema-carry commit path. The record
+    // deletions it performs already make the transaction a write transaction on their own.
+    resolve().truncate(session);
   }
 
   @Override
