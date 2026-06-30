@@ -24,11 +24,12 @@ the IR runs the same code the AST runs.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-06-29T17:08Z [ctx=info] Review + decomposition complete
+- [x] 2026-06-30T08:01Z [ctx=safe] Step 1 complete (commit 1ec0e87294)
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-29): the evaluator's three reuse seams need integration-shape detail
@@ -59,6 +60,13 @@ the IR runs the same code the AST runs.
     (`getImmutableSchemaClass`/`getProperty`) — those live on `EntityImpl` / `SchemaClass`.
   - D15's "~12 callers of `evaluate(Identifiable)`" attaches the count to the base
     `SQLBooleanExpression` dispatch surface, not the concrete override (0 direct callers).
+- **Step 1 (2026-06-30): the evaluator review surfaced three latent S1+ divergences carried
+  to YTDB-916.** None break an S0 round-trip matrix row, so they ship as forward notes rather
+  than S0 fixes: `visitVar` does not filter `$`-prefixed variable names (bites once context
+  variables enter the lowering subset); `visitFuncCall` `$current` seeding is row-vs-current;
+  and a `$current` context-mutation doc note. No IR-vs-AST divergence surfaced in any parity
+  row, including divide-by-zero (both sides throw the same class via shared `NumericOps`).
+  See Episodes §Step 1.
 
 ## Decision Log
 <!-- Full inline Decision Records this track owns (four-bullet form). One block per decision: -->
@@ -355,10 +363,65 @@ collate/session logic; run a fresh instance of the AST's own operator class.
 
 ## Concrete Steps
 
-1. Implement `AnalyzedExprEvaluator` — the `AnalyzedExprVisitor<Object>` runtime over the IR (the single `evaluate(AnalyzedExpr, Result, CommandContext)` overload; `visitVar`/`visitConst`/`visitFuncCall`; arithmetic via the AST `SQLMathExpression.Operator.apply(Object, Object)` after an authored IR→AST enum map; comparison via freshly constructed `SQLBinaryCompareOperator` instances plus the guarded collate-resolution helper; `visitUnaryOp(NOT)`), the S1+ `Identifiable`→synthetic-`Result` adapter with its own focused test, and the round-trip parity suite asserting the § Validation matrix (in `core/.../query/analyzed/` so it can call package-visible `lowerBoolean`) — risk: high (architecture: introduces the IR-runtime abstraction layer, the capstone of the S0 substrate, and its comparison-parity mechanism — collation plus the EQ/NE session difference — is S0's whole acceptance surface)  [ ]
+1. Implement `AnalyzedExprEvaluator` — the `AnalyzedExprVisitor<Object>` runtime over the IR (the single `evaluate(AnalyzedExpr, Result, CommandContext)` overload; `visitVar`/`visitConst`/`visitFuncCall`; arithmetic via the AST `SQLMathExpression.Operator.apply(Object, Object)` after an authored IR→AST enum map; comparison via freshly constructed `SQLBinaryCompareOperator` instances plus the guarded collate-resolution helper; `visitUnaryOp(NOT)`), the S1+ `Identifiable`→synthetic-`Result` adapter with its own focused test, and the round-trip parity suite asserting the § Validation matrix (in `core/.../query/analyzed/` so it can call package-visible `lowerBoolean`) — risk: high (architecture: introduces the IR-runtime abstraction layer, the capstone of the S0 substrate, and its comparison-parity mechanism — collation plus the EQ/NE session difference — is S0's whole acceptance surface)  [x] commit: 1ec0e87294
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 1ec0e87294, 2026-06-30T08:01Z [ctx=safe]
+**What was done:** Implemented `AnalyzedExprEvaluator` (commit 74a93c2034), the
+`AnalyzedExprVisitor<Object>` runtime over the lowered IR, with the single
+`evaluate(AnalyzedExpr, Result, CommandContext)` overload (D3). `visitVar` mirrors the AST
+`SQLSuffixIdentifier.execute(Result)` column resolution (property → result metadata →
+temporary-property fallback → null); `visitConst` returns the literal; arithmetic routes
+through the AST `SQLMathExpression.Operator.apply(Object, Object)` after an authored
+four-constant IR→AST enum map (carries null-propagation, `Date ± Long`, `String` concat);
+comparison replicates `SQLBinaryCondition.evaluate(Result, ctx)`'s slow path — evaluate
+operands, guarded single-property collate fetch left-then-right, `collate.transform` on both
+when non-null, delegate to a freshly built `SQLBinaryCompareOperator` of the matching
+concrete class via `new SQLXxxOperator(-1)` (D11/D6-R); `visitUnaryOp(NOT)` negates the
+boolean operand; `visitFuncCall` reproduces the `SQLEngine.getMethod`→`SQLMethod.execute`
+path with `VAR_CURRENT` seeded as the AST `SQLModifier` does. Added the guarded `collateFor`
+helper and the S1+ `Identifiable`→synthetic-`Result` adapter with its own focused test (D15).
+The round-trip parity suite asserts the § Validation matrix against the shape-dispatched AST
+oracle by `Objects.equals` (invariant I1). The dim-review fix iteration (commit 1ec0e87294)
+added six parity-test methods closing the test-completeness gaps TC1–TC5: per-operator
+null-propagation, `String` concat / mixed-`String` arithmetic, divide widening plus
+divide-by-zero (parity-on-throw), a parameter-carrying method call, and nested /
+non-negated NOT. 34/34 tests green; coverage gate PASS (96.5% line / 91.9% branch on the
+changed slice).
+
+**What was discovered:** All four Phase-A integration-shape findings held against the live
+code: arithmetic must route via `Operator.apply(Object, Object)` not
+`NumericOps.apply(Number, Operator, Number)`; comparison uses `new SQLXxxOperator(-1)` (no
+`INSTANCE` on NE/NEQ/GE); the collate chain is off
+`EntityImpl.getImmutableSchemaClass(session)`→`SchemaClass.getProperty`→`getCollate`;
+`visitFuncCall` is in-subset (`name.indexof(...)` round-trips green). No IR-vs-AST divergence
+surfaced in any parity row, including divide-by-zero where both sides throw the same class
+through the shared `NumericOps` path — direct evidence the evaluator is faithful to the
+oracle. The bugs-concurrency reviewer's three suggestions are latent S1+ divergences, none
+breaking a current matrix row: BC1 — `visitVar` does not filter `$`-prefixed names (bites
+when context variables enter the subset); BC2 — `visitFuncCall` `$current` seeding is
+row-vs-current; BC3 — a `$current` context-mutation doc note. They are forward notes for S1
+(YTDB-916). The remaining suggestions (CQ1–3 test style, TB1–3 assertion precision, TS1–3
+test structure) were recorded as accepted-minor and not applied.
+
+**What changed from the plan:** None substantive — the seven-item build order and the
+Validation matrix were followed as written. Two test-shape adaptations landed during the fix
+iteration: divide-by-zero is compared via a parity-on-throw helper (both sides throw
+`ArithmeticException` through shared `NumericOps`), and nested / non-negated NOT is built via
+the public `SQLNotBlock(-1)`/`setSub`/`setNegate` API rather than a parser round-trip (the
+grammar produces only single-level negation), keeping the AST block's own `evaluate` as the
+oracle.
+
+**Key files:**
+- `core/.../query/analyzed/AnalyzedExprEvaluator.java` (new)
+- `core/.../query/analyzed/AnalyzedExprEvaluatorTest.java` (new)
+
+**Critical context:** The JaCoCo coverage report is not produced by `mvn test`; the
+`jacoco:report` goal must regenerate the XML from the fresh exec before `coverage-gate.py`
+reads current numbers. Track 4 is the last track of the S0 substrate — the round-trip parity
+suite (invariant I1) is S0's whole acceptance bar and is green.
 
 ## Validation and Acceptance
 The round-trip parity suite is S0's whole acceptance bar: for every covered SQL fragment,
