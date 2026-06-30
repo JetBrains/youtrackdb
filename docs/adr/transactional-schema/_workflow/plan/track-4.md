@@ -34,9 +34,6 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] 2026-06-30T08:20Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations) — commit ab8f411066
 - [x] 2026-06-30T08:28Z [ctx=info] Track-level code review complete (all in-scope findings VERIFIED, 0 blockers; 2/3 iterations used)
 
-**PAUSED 2026-06-30 at Phase C track-completion pending user approval + 1 queued review-mode fix (SchemaCommitReconciliationTest barrier-hang hardening)**
-- Handoff: `docs/adr/transactional-schema/_workflow/handoff-track-4-phaseC.md`
-
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 - 2026-06-26T10:04Z Step 1 established the create/publish seam — the create
