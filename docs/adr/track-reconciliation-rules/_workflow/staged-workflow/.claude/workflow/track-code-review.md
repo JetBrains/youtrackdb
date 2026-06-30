@@ -713,13 +713,16 @@ review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-p
 - **Identity** — a finding is "the same" across iterations by its
   reviewer-assigned `id` (the cumulative finding ID the gate-check already
   verdicts by), not by its text or location.
-- **Threshold** — an iteration makes no progress when its gate-check
-  returns `STILL OPEN` for every finding carried into it, clears none (no
-  `VERIFIED` / `MOOT` / `REJECTED`), and surfaces no new fixable finding.
-  One net clear, or one new fixable finding, is progress and the loop
-  continues. A `REGRESSION` is always progress-negative and escalates
-  immediately, because it already forces a `FAIL` under existing verdict
-  handling.
+- **Threshold** — a `REGRESSION` verdict on any carried finding escalates
+  immediately (it already forces a `FAIL` under existing verdict handling),
+  short-circuiting the no-progress test below. Otherwise, an iteration makes
+  no progress when its gate-check returns `STILL OPEN` for every finding
+  carried into it, clears none (no `VERIFIED` / `MOOT` / `REJECTED`), and
+  surfaces no new fixable finding. A "new fixable finding" is a
+  newly-surfaced in-scope finding at `blocker` or `should-fix` severity; a
+  new `suggestion` does not count, because suggestions never drive iteration
+  — they surface at track completion. One net clear, or one new fixable
+  finding, is progress and the loop continues.
 - **Which loops it gates** — each uncapped loop: the blocker loop at all
   three levels and `high`'s should-fix loop. The `medium` should-fix loop
   is already bounded by its cap-3, so no-progress detection does not gate

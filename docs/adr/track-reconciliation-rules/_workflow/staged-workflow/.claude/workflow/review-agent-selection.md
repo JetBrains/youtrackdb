@@ -8,7 +8,7 @@
 | §Conditional agents | orchestrator | 3A,3B,3C | Add crash-safety, security, performance, or test-structure agents based on what the step or track touches. |
 | §Examples | orchestrator | 3A,3B,3C | Worked agent-selection examples for storage, refactor, public-API, and WAL-replay changes. |
 | §Step-level vs track-level routing | orchestrator | 3A,3B,3C | Non-mirrored note: which baseline and workflow reviewers run at a high step versus the cumulative track pass. |
-| §Complexity sets the Phase-C rigor dial, never the set | orchestrator | 3A,3B,3C | Domain selects the Phase-C set at every level; complexity moves only iteration depth and termination; the floor is never suppressed. |
+| §Complexity sets the Phase-C rigor dial, never the set | orchestrator | 3A,3B,3C | Domain selects the Phase-C set at every level; complexity moves only iteration depth and termination, never the set. |
 | §Workflow-review agents | orchestrator | 3A,3B,3C | The six workflow-machinery review agents and their finding prefixes; they ignore Java code. |
 | §Workflow-machinery file set | orchestrator | 3A,3B,3C | What counts as workflow-machinery (.claude/, root CLAUDE.md, docs/adr/<dir>/); exclusive with docs-only. |
 | §Per-agent file-pattern triggers | orchestrator | 3A,3B,3C | Which workflow-review agents fire on which changed-file patterns; consistency and context-budget always launch. |
@@ -225,7 +225,7 @@ drives Phase-A panel breadth and the Phase-C rigor dial only — see
 ---
 
 ## Complexity sets the Phase-C rigor dial, never the set
-<!-- roles=orchestrator phases=3A,3B,3C summary="Domain selects the Phase-C set at every level; complexity moves only iteration depth and termination; the floor is never suppressed." -->
+<!-- roles=orchestrator phases=3A,3B,3C summary="Domain selects the Phase-C set at every level; complexity moves only iteration depth and termination, never the set." -->
 
 The category-driven selection above takes **no complexity input**: domain
 (category presence) selects the dimensional reviewer set identically at

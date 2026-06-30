@@ -4,7 +4,7 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Limits | orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track | 2,3A,3B,3C | Max 3 iterations per review type; escalate if blockers persist. |
+| §Limits | orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track | 2,3A,3B,3C | Max 3 iterations per review type; escalate if blockers persist (Phase-C track review overrides). |
 | §Finding ID prefixes | orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track | 2,3A,3B,3C | The cumulative finding-ID prefix family across plan, technical, code, test, and workflow review types. |
 | §Severity levels | orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track | 2,3A,3B,3C | The blocker/should-fix/suggestion/skip severities; skip is valid only in track reviews. |
 | §Iteration flow | orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track | 2,3A,3B,3C | Full review then gate-check then escalate; re-run the full review if fixes restructure the plan. |
@@ -32,7 +32,7 @@ needed at session startup.
 ---
 
 ## Limits
-<!-- roles=orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track phases=2,3A,3B,3C summary="Max 3 iterations per review type; escalate if blockers persist." -->
+<!-- roles=orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track phases=2,3A,3B,3C summary="Max 3 iterations per review type; escalate if blockers persist (Phase-C track review overrides)." -->
 
 - Max 3 iterations per review type.
 - If blockers persist after 3 iterations, escalate.
@@ -94,6 +94,12 @@ Iteration 1: Full review -> findings -> decisions -> apply fixes
 Iteration 2: Gate check -> verify fixes + catch regressions -> if blockers, loop
 Iteration 3: Gate check -> if still blockers, escalate
 ```
+
+The cap-3 escalation in the diagram above is the default for Phase-2 plan
+reviews, Phase-3A track reviews, and Phase-3B step reviews. Phase-C track
+code review overrides it per track-code-review.md:orchestrator:3C §Review
+loop — no fixed iteration cap, terminated by no-progress detection (see the
+§Limits Phase-C exception above).
 
 If structural fixes significantly restructure the plan (tracks reordered,
 scope indicators changed substantially), re-run the full review instead of
