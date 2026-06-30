@@ -548,6 +548,30 @@ public class AnalyzedExprEvaluatorTest extends DbTestBase {
         () -> AnalyzedExprEvaluator.evaluate(ir, row(), context()));
   }
 
+  /// WHEN a multi-segment {@link AnalyzedExpr.Var} is evaluated, THE evaluator throws {@link
+  /// IllegalStateException} rather than silently reading the first path segment. The lowering pass
+  /// only emits single-segment Vars, so this pins the production guard on that lowering-contract
+  /// invariant (a hand-built two-segment Var is the way to reach it).
+  @Test
+  public void varMultiSegmentThrows() {
+    AnalyzedExpr ir = new AnalyzedExpr.Var(java.util.List.of("a", "b"));
+    org.junit.Assert.assertThrows(
+        IllegalStateException.class,
+        () -> AnalyzedExprEvaluator.evaluate(ir, row("a", 1), context()));
+  }
+
+  /// WHEN a {@link AnalyzedExpr.FuncCall} carries no arguments, THE evaluator throws {@link
+  /// IllegalStateException} rather than indexing args.get(0) out of bounds. The lowering pass always
+  /// puts the target value at args[0], so this pins the production guard on that lowering-contract
+  /// invariant (a hand-built empty-args FuncCall is the way to reach it).
+  @Test
+  public void funcCallEmptyArgsThrows() {
+    AnalyzedExpr ir = new AnalyzedExpr.FuncCall("anyMethod", java.util.List.of());
+    org.junit.Assert.assertThrows(
+        IllegalStateException.class,
+        () -> AnalyzedExprEvaluator.evaluate(ir, row(), context()));
+  }
+
   /// WHEN a `ci`-collated comparison runs on a schemaless-class entity (an entity whose class
   /// defines no property for the column), THE collate helper returns null through the
   /// absent-property branch and the comparison still matches the AST. This pins the

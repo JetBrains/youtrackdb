@@ -94,9 +94,12 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     // SQLSuffixIdentifier.execute(Result) column lookup: read the property when present, otherwise
     // fall back to result metadata / temporary properties, otherwise null. The lowering pass only
     // produces single-segment Vars (a multi-segment path throws at lowering), so path() has exactly
-    // one element here; assert it so a future multi-segment Var fails loudly rather than silently
-    // reading path.get(0). Assert lines are excluded from the coverage gate.
-    assert var.path().size() == 1 : "evaluator expects single-segment Var, got " + var.path();
+    // one element here. A multi-segment Var is a lowering-contract violation, not a value to read
+    // through; throw in production rather than silently reading path.get(0) (an assert would be a
+    // no-op without -ea and let the broken invariant produce a wrong result).
+    if (var.path().size() != 1) {
+      throw new IllegalStateException("evaluator expects single-segment Var, got " + var.path());
+    }
     String name = var.path().get(0);
     if (row == null) {
       return null;
@@ -152,8 +155,12 @@ public final class AnalyzedExprEvaluator implements AnalyzedExprVisitor<Object> 
     // is read without mutation.
     List<AnalyzedExpr> args = funcCall.args();
     // FuncCall always carries at least the target as args[0] (the lowering pass puts the base value
-    // there before any method parameter); assert it so a malformed hand-built FuncCall fails loudly.
-    assert !args.isEmpty() : "FuncCall must carry at least the target argument";
+    // there before any method parameter). An empty args list is a lowering-contract violation; throw
+    // in production rather than indexing args.get(0) out of bounds (an assert would be a no-op
+    // without -ea and let the broken invariant produce a late, opaque crash).
+    if (args.isEmpty()) {
+      throw new IllegalStateException("FuncCall must carry at least the target argument");
+    }
     Object target = AnalyzedExpr.dispatch(args.get(0), this);
 
     SQLMethod method = SQLEngine.getMethod(funcCall.name());
