@@ -21,7 +21,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
+- [x] Track-level code review
 - [ ] Track completion
 - [x] 2026-06-26T08:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-26T10:04Z [ctx=safe] Step 1 complete (commit 7c7a157efa)
@@ -32,6 +32,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] 2026-06-29T16:47Z [ctx=safe] Step 6 complete (commit 2bf7d95305)
 - [x] 2026-06-30T08:07Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations) — commit 0cb16dfc71
 - [x] 2026-06-30T08:20Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations) — commit ab8f411066
+- [x] 2026-06-30T08:28Z [ctx=info] Track-level code review complete (all in-scope findings VERIFIED, 0 blockers; 2/3 iterations used)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -366,6 +367,24 @@ flowchart LR
 - [x] Technical: PASS at iteration 2 (3 findings, 3 accepted — T1 blocker `lockIndexes`/`getIndexEngine` readLock re-entry self-deadlock under the D19 write lock; T2 should-fix D3 mechanism correction; T3 suggestion read-site enumeration).
 - [x] Risk: PASS at iteration 2 (4 findings, 4 accepted — R1 should-fix phantom in-memory registration on failed commit; R2 should-fix F59/D6 selective-write hosting; R3/R4 suggestions enumeration + I-A4 fault seam).
 - [x] Adversarial: PASS at iteration 2 (4 findings, 4 accepted — A1 blocker phantom registration; A2 should-fix `SchemaShared.toStream` selective write; A3 should-fix engine-id axis + multi-class re-key ordering; A4 suggestion scope, accepted as decomposition guidance). Ran on the session-default model: D14 pins Fable 5 at `full` but Fable was unavailable; verdicts rest on PSI re-checks, so the degradation does not weaken the gate.
+
+### Phase C — track-level code review (2026-06-30)
+Nine dimensional reviewers (4 baseline + crash-safety, test-crash-safety, performance, test-concurrency, test-structure) ran over the cumulative diff `1dd9c0424f..HEAD`. They returned 31 findings: 1 blocker, 10 should-fix, 20 suggestions. Two review-fix iterations cleared every in-scope finding; the gate-checks PASSed each dimension. 0 blockers remain.
+
+**Iteration 1 — commit `0cb16dfc71` (production correctness).** Fixed the blocker plus five should-fixes, all VERIFIED at gate check:
+- **The committed test `SchemaDeguardTest.renameClassInsideTransactionRecordsNewNameOnly` was a confirmed Track-4 regression** (proved empirically: green at base `1dd9c0424f`, red at HEAD). Root cause: Step 5's `recordWriteTarget` choke point recorded the class under its *old* name on `setName`, before `changeClassName` renamed it, so the commit wrote a stale old-name record ("an absent name reads as a drop at commit"). Fix: `changeClassName` now calls `TxSchemaState.unmarkClassChanged(oldName)` so a tx-local rename leaves only the new name in the changed set. The Step-5 "over-marking is correctness-safe" assumption holds for every routed write except the two where the recorded name diverges from the live class — a rename and a pure-data `truncate` — both now handled.
+- `truncate` routed through `resolve()` instead of `resolveForWrite()` (same over-marking root cause; keeps a data-only truncate off the schema-carry commit path).
+- A schema-carry commit now saves and restores the link-consistency flag instead of unconditionally re-enabling it (matters for the Track 8 import/genesis work that nests a schema-carry commit inside a `disableLinkConsistencyCheck` window).
+- The Step-6 snapshot-first read in `createVertexWithClass` now guards the `@Nullable` `getImmutableSchemaSnapshot()` and falls back to the lock-based path.
+- Post-durable-commit promotion is wrapped: on a throw it drops the stale snapshot and moves the storage to error state so the in-memory/durable divergence self-corrects on reopen, while the durable commit still reports success.
+
+**Iteration 2 — commit `ab8f411066` (test coverage, test-additive).** Added three committed tests for acceptance-criterion gaps, all green and VERIFIED: the abstract→concrete provisional-id resolution at commit (I-A2), a property-level alter through the `SchemaPropertyProxy` choke point (Step 5), and the cross-class provisional-id re-key (I-A3). Writing the I-A3 test corrected the finding's prose: the model is that a superclass's polymorphic set absorbs the subclass's collection (not the reverse) — confirmed working, no production defect.
+
+**Deferred.** TB2 (the index-engine half of the I-A4 failed-commit registry-cleanliness criterion) → plan correction to Track 5, where engine reconciliation at commit lands; Track 4 covered the collection arm. CQ1 (the ~250-line `applyCommitOperations` method) left as-is — a refactor of the central commit method carries more risk than value in a review fix. TY1/CS3 (crash-before-commit WAL-replay coverage) remain `@Ignore`'d, leaning on Track 1, as already documented. TY2 (the durable round-trip tests use a session re-open, so the no-provisional-on-disk and F59 claims bite only on the CI disk profile, not the in-memory default) is noted for a future test-profile hardening. Suggestion-tier findings (perf allocations on the rare schema-commit path, DRY of the lock-skip boilerplate, dead singular `TxSchemaState` accessors, timing-based concurrency-test signals) are recorded here, not fixed.
+
+**Open before merge (user decision).** `MetadataWriteMutexTest.twoConcurrentSchemaTransactionsSerializeWithoutAbort` remains red and is **not** in the Track 4 diff — it is the pre-existing Track 3 / Track 7 tx-local-seed / mutex-handshake failure, confirmed red identically before and after this track. It must be resolved before merge by its owning track. The Track 4 regression (`SchemaDeguardTest`) is fixed.
+
+**Verification caveat.** The host's parallel-surefire `default-test` run intermittently crashes at fork startup (reproduces on the clean base, so environmental), so no full-suite or cumulative-coverage run was performed this session. Verification rested on targeted single-class runs — every Track 4 test class is green at HEAD — plus the documented known-red set. The CI coverage gate (85% line / 70% branch on changed code) is the final arbiter; per the iteration-1 implementer, the changed files are well covered and the only uncovered lines are the by-design-unreachable defensive branches added here (the CS1 promotion-failure catch, the BC3 null-snapshot fallback, the rename unseeded-state throw).
 
 ## Context and Orientation
 `AbstractStorage.commit` today takes `stateLock.readLock()` and runs the data-record
