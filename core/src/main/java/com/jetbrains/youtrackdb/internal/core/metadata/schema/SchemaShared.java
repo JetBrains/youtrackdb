@@ -702,10 +702,12 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
       if (txLocal && newName != null && !session.isSeedingTxSchemaState()) {
-        // Transaction-local rename: record the new name only. A renamed class keeps its committed
-        // per-class record RID, so the commit rewrites that record under the new name. The old name
-        // must not survive in the changed-class set: a name there that is absent from the tx-local
-        // copy reads as a drop at commit, which would delete the renamed class's record. The proxy
+        // Transaction-local rename: record the new name only. The point is to keep the changed-class
+        // set accurate. A rename touches the class under its new name, and the old name no longer
+        // designates a live class, so leaving the old name in the set would describe a class that is
+        // not there. An accurate set keeps the selective-rewrite filter (the sole consumer of
+        // getChangedClasses, in SchemaShared#toStream) rewriting only the live classes that changed,
+        // and keeps the white-box invariant that every changed live class was written. The proxy
         // write choke point (SchemaProxedResource#resolveForWrite) already recorded this class
         // under its pre-rename name when the setName write was routed, so the old name is removed
         // here to leave the new name only. The seeding guard mirrors the create and drop sites;

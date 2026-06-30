@@ -502,10 +502,10 @@ public class SchemaDeguardTest extends DbTestBase {
 
   /**
    * A class renamed inside a transaction records the NEW name in the tx-local changed-class set and
-   * does NOT record the old name. A renamed class keeps its committed per-class record RID, so the
-   * commit rewrites that record under the new name. Recording the old name would make it read as a
-   * drop at commit and delete the renamed class's record, so the test pins that the old name is
-   * absent from the changed set.
+   * does NOT record the old name. The changed-class set must stay accurate: a rename touches the
+   * class under its new name, and the old name no longer designates a live class, so recording the
+   * old name would describe a class that is not there. An accurate set keeps the selective-rewrite
+   * filter correct, so the test pins that the old name is absent from the changed set.
    */
   @Test
   public void renameClassInsideTransactionRecordsNewNameOnly() {
@@ -527,7 +527,8 @@ public class SchemaDeguardTest extends DbTestBase {
               "the rename must record the new name in the tx-local changed-class set",
               state.getChangedClasses().contains("RenameAfter"));
           assertFalse(
-              "the rename must NOT record the old name (an absent name reads as a drop at commit)",
+              "the rename must NOT record the old name (the old name no longer designates a live "
+                  + "class, so keeping it would make the changed-class set inaccurate)",
               state.getChangedClasses().contains("RenameBefore"));
         });
   }
