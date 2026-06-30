@@ -7,7 +7,7 @@
 | §Overview | orchestrator,reviewer-plan | 2 | What Phase 2 plan review covers and when it runs. |
 | §How to run | orchestrator | 2 | Entry points and preconditions for launching the review. |
 | §Precondition (both entry points) | orchestrator | 2 | State that must hold before either entry point starts. |
-| §Tier-driven pass selection (D9/D10) | orchestrator | 2 | Phase-2 passes key off the tier line: per-tier consistency shape, minimal drops structural, design-presence guards. |
+| §Axis-driven pass selection (D9/D10) | orchestrator | 2 | Phase-2 passes key off the axes: design gate sets the consistency shape, plan presence drops structural. |
 | §Step 1: Consistency Review | orchestrator,reviewer-plan | 2 | The consistency pass: contradictions, missing links, mismatched counts. |
 | §What it checks | reviewer-plan | 2 | Consistency dimensions the reviewer inspects. |
 | §Sub-agent prompt | orchestrator,reviewer-plan | 2 | Prompt template for the consistency review sub-agent. |
@@ -172,11 +172,11 @@ git status --porcelain \
   docs/adr/<dir-name>/_workflow/design-mutations.md
 ```
 
-`implementation-plan.md` is absent under `minimal` (no plan) and
-`design.md` / `design-mechanics.md` / `design-mutations.md` are absent under
-`lite`/`minimal`; `design-mechanics.md` exists only when the length trigger
+`implementation-plan.md` is absent for a single-track change (no plan) and
+`design.md` / `design-mechanics.md` / `design-mutations.md` are absent when
+`design_gate=no`; `design-mechanics.md` exists only when the length trigger
 has fired and `design-mutations.md` is created on the first `edit-design` run.
-Non-existent paths produce no output, so listing them is safe in every tier.
+Non-existent paths produce no output, so listing them is safe for every change.
 
 If the output is non-empty, halt and ask the user to commit (or stash)
 those edits first — uncommitted changes to these files would otherwise
@@ -186,48 +186,53 @@ ignore (the audit-trail `git add` is path-scoped to the files above).
 
 ---
 
-## Tier-driven pass selection (D9/D10)
-<!-- roles=orchestrator phases=2 summary="Phase-2 passes key off the tier line: per-tier consistency shape, minimal drops structural, design-presence guards." -->
+## Axis-driven pass selection (D9/D10)
+<!-- roles=orchestrator phases=2 summary="Phase-2 passes key off the axes: design gate sets the consistency shape, plan presence drops structural." -->
 
-Which Phase-2 passes run, and in what shape, is keyed off the **confirmed
-tier** (D9), not off a step-count axis. Before launching Step 1, read the
-tier **ledger-first**: the phase ledger's `tier` field
+Which Phase-2 passes run, and in what shape, is keyed off two of the
+**complexity axes** (D9) — the **design gate** and the **track count** —
+not off a step-count axis. Before launching Step 1, read both
+**ledger-first**: the phase ledger's `design_gate` and `tracks` fields
 (`_workflow/phase-ledger.md`, last value wins); when no `phase-ledger.md`
-exists (an in-flight pre-ledger `lite`/`full` plan), fall back to the **D18
-tier line** in `implementation-plan.md`, the single change-level line
-`create-plan` writes at confirmation, carrying the tier
-(`full` / `lite` / `minimal`) and its centrally-matched HIGH-risk
-categories. The ledger `tier` field is present in every tier (D4), so the
-read resolves even under `minimal`, which has no plan to carry a tier line;
-the develop-era plan tier line is the pre-ledger fallback only. The same
-read happens on every entry — a fresh `/execute-tracks` State-0 session and a
-manual `/review-plan` re-run both resolve the tier the same way.
+exists (an in-flight pre-ledger plan), fall back to the mechanical on-disk
+tests — does `design.md` exist (the design-gate fallback), and does
+`implementation-plan.md` exist (the plan-presence fallback). Both ledger
+fields are present for every change (D4), so the read resolves even for a
+single-track change, which has no plan; the on-disk tests are the
+pre-ledger fallback only. The same read happens on every entry — a fresh
+`/execute-tracks` State-0 session and a manual `/review-plan` re-run both
+resolve the axes the same way.
 
-**Per-tier pass selection.** Each Phase-2 pass either runs as today,
+**Pass selection by axis.** Each Phase-2 pass either runs as today,
 narrows, or drops (the change-level half of the design's Part-6 review
 matrix):
 
-| Pass | `full` | `lite` | `minimal` |
+| Pass | `design_gate=yes`, plan present | `design_gate=no`, plan present | no plan (single-track) |
 |---|---|---|---|
 | Step 1 consistency | full (design + plan + tracks + code) | drops the design half (plan + tracks + code) | drops the design half **and** the plan-content cross-check (track + code only) |
-| Step 2 structural | runs | runs | **dropped** (`minimal` has no plan, so there is no plan-file shape to validate) |
+| Step 2 structural | runs | runs | **dropped** (no plan, so there is no plan-file shape to validate) |
 
 The two narrowings are independent. The **design half** of the
-consistency review is dropped whenever no `design.md` exists — that is, in
-`lite` and `minimal`. The **plan-content cross-check** is additionally
-dropped in `minimal` only, because `minimal` has no plan (D2): with no
-`implementation-plan.md` on disk there is no plan content to cross-check, so
-the `minimal` consistency pass cross-checks track-vs-code only. `minimal` also
-**drops the Step 2 structural pass** entirely: with no plan file there are no
-decision records and no ordering to validate, so the structural pass has no
-plan-file shape to check.
+consistency review is dropped whenever no `design.md` exists — that is,
+when `design_gate=no`. The **plan-content cross-check** is additionally
+dropped when no plan exists, because a single-track change has no
+`implementation-plan.md` (the track-count axis — a cross-track summary is
+vacuous for one track): with no plan file on disk there is no plan content
+to cross-check, so the consistency pass cross-checks track-vs-code only. A
+single-track change also **drops the Step 2 structural pass** entirely:
+with no plan file there are no decision records and no ordering to
+validate, so the structural pass has no plan-file shape to check. The two
+axes are orthogonal — a `design_gate=yes` single-track change drops the
+plan-content cross-check and the structural pass but keeps the design half,
+and a `design_gate=no` multi-track change keeps both cross-checks but drops
+the design half.
 
-**Design-presence guard.** The two narrowings reduce to one mechanical
-test the orchestrator and the sub-agent both apply: **does
+**Design-presence guard.** The design-half narrowing reduces to one
+mechanical test the orchestrator and the sub-agent both apply: **does
 `docs/adr/<dir-name>/_workflow/design.md` exist?** When it is absent
-(every `lite`/`minimal` plan), every clause that opens, reads, cites, or
+(every `design_gate=no` change), every clause that opens, reads, cites, or
 routes a finding to a design file is skipped. The passes are not rewritten
-per tier — the same Step 1 / Step 2 flow runs with the design-reading
+per axis — the same Step 1 / Step 2 flow runs with the design-reading
 clauses guarded behind the design-presence test. A no-design dry-run of
 the Step 1 flow must reach no instruction that dereferences `design.md`;
 this is the track's no-design acceptance check.
@@ -238,14 +243,14 @@ Phase-2 finding that touches frozen seed text defers to Phase 4 (see
 design, every correction is plan-or-track-scoped: the defer-to-Phase-4
 branch is **unreachable**, and all findings route to the plan or the track
 files directly. The live decision always lives in the track regardless
-(D7), so the only thing the no-design tiers lose is the deferral target,
-not a routing destination.
+(D7), so the only thing a `design_gate=no` change loses is the deferral
+target, not a routing destination.
 
-**Mid-flight upgrade.** A `lite`/`minimal` plan that upgrades to `full`
-mid-flight (the D12 ESCALATE path) gains a `design.md` and re-enters the
-design-present branches from the upgrade point onward; findings already
-routed as plan/track corrections before the upgrade are not retroactively
-moved.
+**Mid-flight upgrade.** A `design_gate=no` change that upgrades to
+`design_gate=yes` mid-flight (the D12 ESCALATE path) gains a `design.md`
+and re-enters the design-present branches from the upgrade point onward;
+findings already routed as plan/track corrections before the upgrade are
+not retroactively moved.
 
 ---
 
@@ -271,29 +276,31 @@ findings.
 ### What it checks
 <!-- roles=reviewer-plan phases=2 summary="Consistency dimensions the reviewer inspects." -->
 
-- **Design ↔ Code** (design half — `full` only): class diagrams match
-  real classes, workflow diagrams match real call flows, complex-part
+- **Design ↔ Code** (design half — `design_gate=yes` only): class diagrams
+  match real classes, workflow diagrams match real call flows, complex-part
   sections describe actual behavior
 - **Plan ↔ Code**: Component Map and Decision Records reference real
   constructs, Integration Points exist, track descriptions don't reference
   phantom code
-- **Design ↔ Plan** (design half — `full` only): diagrams align with track
-  descriptions and Decision Records, scope indicators are consistent with
-  design complexity
+- **Design ↔ Plan** (design half — `design_gate=yes` only): diagrams align
+  with track descriptions and Decision Records, scope indicators are
+  consistent with design complexity
 - **Track ↔ Code**: each track's inline Decision Records and its
   in-scope/out-of-scope file lists reference real constructs (the track is
-  the live decision carrier in every tier, D7)
-- **Gaps**: plan elements without design coverage (design half — `full`
-  only), design elements no track covers (design half — `full` only),
-  codebase constructs the documents should reference but don't
+  the live decision carrier for every change, D7)
+- **Gaps**: plan elements without design coverage (design half —
+  `design_gate=yes` only), design elements no track covers (design half —
+  `design_gate=yes` only), codebase constructs the documents should
+  reference but don't
 
 The bullets tagged **design half** run only when `design.md` exists, i.e.
-in `full`. In `lite`/`minimal` the design-presence guard (see
-§"Tier-driven pass selection") skips them, and the review reads plan +
-tracks + code (`lite`) or track + code (`minimal`). The **Plan ↔ Code**
-and **Track ↔ Code** bullets are the plan-content and track-content
-cross-checks: `minimal` also drops the plan-content cross-check (`minimal`
-has no plan to verify, per D2), running **Track ↔ Code** only.
+when `design_gate=yes`. When `design_gate=no` the design-presence guard
+(see §"Axis-driven pass selection") skips them, and the review reads plan +
+tracks + code (multi-track) or track + code (single-track, no plan). The
+**Plan ↔ Code** and **Track ↔ Code** bullets are the plan-content and
+track-content cross-checks: a single-track change also drops the
+plan-content cross-check (no plan to verify — the track-count axis),
+running **Track ↔ Code** only.
 
 Each pending track's detailed description lives in that track's
 track file (`plan/track-N.md`, written by `create-plan` at Phase 1)
@@ -436,12 +443,12 @@ orchestrator/planner owns the strategic fallback per `§2.5`).
 ## Step 2: Structural Review
 <!-- roles=orchestrator,reviewer-plan phases=2 summary="The structural pass: section shape, budgets, bloat." -->
 
-Runs **automatically** after the consistency review passes, **except under
-`minimal`** — the `minimal` tier drops the structural pass entirely (see
-§"Tier-driven pass selection"), because `minimal` has no plan (D2) — no
-plan file, no decision records, no ordering for the structural pass to
-validate. Under `full` and `lite` the structural pass runs. Validates
-plan-internal structure without reading the codebase.
+Runs **automatically** after the consistency review passes, **except for a
+single-track change with no plan** — a no-plan change drops the structural
+pass entirely (see §"Axis-driven pass selection"), because it has no plan
+(the track-count axis) — no plan file, no decision records, no ordering for
+the structural pass to validate. On a multi-track change the structural
+pass runs. Validates plan-internal structure without reading the codebase.
 
 ### What it checks
 <!-- roles=reviewer-plan phases=2 summary="Consistency dimensions the reviewer inspects." -->
@@ -625,8 +632,8 @@ The audit splits into two homes (D7): the multi-line review *summary*
 goes to `plan-review.md` (a cold record rarely read during development),
 and the review *state* — "plan review passed" — is recorded in the phase
 ledger so the resume hot path stays terse for `determine_state` to grep.
-`plan-review.md` is present in every tier, so a `minimal` change with no
-plan still has a review-fact home.
+`plan-review.md` is present for every change, so a single-track change with
+no plan still has a review-fact home.
 
 After Phase 2 passes, the orchestrator writes `plan-review.md` with the
 audit summary:
@@ -694,16 +701,17 @@ where the final-designer reconciles the design's narrative with what
 was actually built.
 
 **This whole deferral mechanism applies only when a `design.md` exists,
-i.e. in `full`.** In `lite`/`minimal` no design file exists (see
-§"Tier-driven pass selection"), so no finding can touch frozen seed text:
-the defer-to-Phase-4-design branch is unreachable and every correction is
-plan-or-track-scoped, applied via `Edit` directly. The live decision lives
-in the track in every tier (D7), so a no-design tier loses only the
-deferral target, not a place to route the fix. A design-destination bloat
-fix (one that would move live material into the frozen seed) re-routes
-to the matching track section in **every** tier, including `full`, because
-the seed is non-canonical under the carrier flip (the structural review
-owns this re-route; see structural-review.md:orchestrator,reviewer-plan:2,3A,3C).
+i.e. when `design_gate=yes`.** When `design_gate=no` no design file exists
+(see §"Axis-driven pass selection"), so no finding can touch frozen seed
+text: the defer-to-Phase-4-design branch is unreachable and every
+correction is plan-or-track-scoped, applied via `Edit` directly. The live
+decision lives in the track for every change (D7), so a `design_gate=no`
+change loses only the deferral target, not a place to route the fix. A
+design-destination bloat fix (one that would move live material into the
+frozen seed) re-routes to the matching track section for **every** change,
+including when a design exists, because the seed is non-canonical under the
+carrier flip (the structural review owns this re-route; see
+structural-review.md:orchestrator,reviewer-plan:2,3A,3C).
 
 Plan-file and track-file edits use `Edit` directly (unchanged) — no
 mutation discipline applies to those files.
@@ -752,8 +760,8 @@ When both reviews pass:
 1. Write the audit summary to `plan-review.md` and append the `phase=A`
    ledger boundary (see §Audit trail).
 2. Stage and commit the audit-trail changes. Stage `plan-review.md`, the
-   phase ledger, the plan file (when present — absent under `minimal`),
-   and every track file the review actually touched (use `git status
+   phase ledger, the plan file (when present — absent for a single-track
+   change), and every track file the review actually touched (use `git status
    --porcelain docs/adr/<dir-name>/_workflow/plan/` to find them; pass each
    modified path explicitly rather than the whole `plan/` directory
    so unrelated files don't sneak in). No design files are staged —

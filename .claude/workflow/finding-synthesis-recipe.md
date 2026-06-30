@@ -185,7 +185,7 @@ from each reviewer's review file):
 
 | Dimension | Index entry |
 |---|---|
-| `review-bugs-concurrency` | `{id: BC3, sev: should-fix, loc: CASDiskWriteAheadLogLifecycleTest.java:142, basis: "fixed-sleep polling can mask a race"}` |
+| `review-concurrency` | `{id: CN3, sev: should-fix, loc: CASDiskWriteAheadLogLifecycleTest.java:142, basis: "fixed-sleep polling can mask a race"}` |
 | `review-test-concurrency` | `{id: TX1, sev: blocker, loc: CASDiskWriteAheadLogLifecycleTest.java:142, basis: "30 s test timeout fires before WAL flush on slow CI; suite hangs"}` |
 | `review-performance` | `{id: PF2, sev: suggestion, loc: CASDiskWriteAheadLogLifecycleTest.java:142, basis: "busy-loop wastes ~100 ms per invocation"}` |
 | `review-test-structure` | `{id: TS5, sev: should-fix, loc: CASDiskWriteAheadLogLifecycleTest.java:142, basis: "long poll signals weak WAL-state isolation"}` |
@@ -197,8 +197,8 @@ anchors:
 
 ```markdown
 ### loc bucket: CASDiskWriteAheadLogLifecycleTest.java:142 [blocker]
-ids: BC3, TX1, PF2, TS5, CQ9
-anchors: "### BC3 ", "### TX1 ", "### PF2 ", "### TS5 ", "### CQ9 "
+ids: CN3, TX1, PF2, TS5, CQ9
+anchors: "### CN3 ", "### TX1 ", "### PF2 ", "### TS5 ", "### CQ9 "
 ```
 
 The bucket severity is `blocker` — strictest of the five, contributed
@@ -349,7 +349,7 @@ tactical body, and it is the exception, not the routine.
 **Review-mode guidance override (track level only).** When the user
 gave explicit bucketing guidance during a prior Review-mode pass, that
 guidance overrides the default for the items it named. Review-mode
-guidance names reviewer `id`s directly (`BC3`, `TX1`, …) — the same
+guidance names reviewer `id`s directly (`CN3`, `TX1`, …) — the same
 IDs that survive end to end (S2). Match each guidance `id` against the
 manifest index `id` directly and apply the user's bucket override
 before final assignment. There is no merge layer and no contributing-
@@ -456,10 +456,10 @@ Review files:
 - ... (one per contributing review file)
 
 #### loc bucket: <file:line> [<strictest sev>]
-ids: BC3, TX1, CQ9
-anchors: "### BC3 ", "### TX1 ", "### CQ9 "
+ids: CN3, TX1, CQ9
+anchors: "### CN3 ", "### TX1 ", "### CQ9 "
 basis (per id, manifest-sourced, no body read):
-  - BC3 [should-fix]: <basis line>
+  - CN3 [should-fix]: <basis line>
   - TX1 [blocker]: <basis line>
   - CQ9 [should-fix]: <basis line>
 
@@ -471,7 +471,7 @@ basis (per id, manifest-sourced, no body read):
 - ... (one per review file whose manifest failed §2.5 count-validation)
 
 ### Deferred to next iteration
-- BC7 (should-fix style) — displaced by pre-spawn budget.
+- CN7 (should-fix style) — displaced by pre-spawn budget.
 - TS8 (should-fix boundary case) — depends on the prior bucket landing.
 
 ### Plan corrections (route to other tracks)
@@ -480,7 +480,7 @@ basis (per id, manifest-sourced, no body read):
   from Deferred Findings.
 
 ### Per-dimension high-water-marks (handed to the reviewer at re-spawn)
-- BC: 9   TX: 1   PF: 4   TS: 8   CQ: 9
+- CN: 9   TX: 1   PF: 4   TS: 8   CQ: 9
 ```
 
 The handoff carries the manifest-sourced `basis` line per `id` (one
@@ -490,7 +490,7 @@ Findings`. The implementer reaches the full body by anchor when it
 needs the reviewer's detail.
 
 **`id`s are the sole addressing (D5).** There is no `M<n>` merge layer:
-every routed finding carries its reviewer-assigned `id` (`BC3`, `TX1`)
+every routed finding carries its reviewer-assigned `id` (`CN3`, `TX1`)
 end to end, into the implementer's `findings:` block, its `Review fix:`
 commit message, and the per-dimension gate-check. The `id` is preserved
 verbatim and never renumbered (S2) — it is both the bucketing dimension
@@ -498,7 +498,7 @@ proxy and the Review-mode override match key.
 
 **Per-dimension high-water-marks.** The orchestrator hands each
 dimension's highest-seen `id` number back to the reviewer at the next
-spawn, so the reviewer continues its own numbering (`BC10`, `BC11`)
+spawn, so the reviewer continues its own numbering (`CN10`, `CN11`)
 rather than restarting. This applies at initial review too, not only at
 gate-check: the reviewer self-assigns from the high-water-mark the
 orchestrator passes. The mark per dimension is the max `id` index seen

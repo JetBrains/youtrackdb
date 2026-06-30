@@ -523,13 +523,16 @@ at session startup. Load on demand:
   applies to durable content — branch-only commit messages are exempt.
 - **Two-tier dimensional code review** (step-level and track-level
   sub-agent reviews; the reviewer pool across both tiers is 4 baseline
-  + up to 6 conditional + up to 6 workflow-review, max 3 iterations).
-  The per-tier baseline selection differs — the step tier launches a
-  subset (`review-bugs-concurrency` only), the track tier all four;
-  see code-review-protocol.md:orchestrator:3B,3C.
-- **Tier-driven review selection** (which Phase-3A pre-execution reviews
-  to run, keyed off the confirmed tier rather than step count): covered in
-  track-review.md:orchestrator:3A §Tier-driven review selection.
+  agents (3 always-on plus `review-concurrency` on the `concurrency`
+  category) + up to 6 conditional + up to 6 workflow-review, max 3
+  iterations). The per-level baseline selection differs — the step level
+  launches a subset (`review-bugs` always + `review-concurrency` when the
+  `concurrency` category is present), the track level all four; see
+  code-review-protocol.md:orchestrator:3B,3C.
+- **Complexity-driven review selection** (which Phase-3A pre-execution
+  reviews to run, keyed off the per-track complexity tag rather than step
+  count): covered in track-review.md:orchestrator:3A §Tier-driven review
+  selection.
 - **Checklist decomposition rules** (step sizing, cross-cutting concerns,
   parallel step annotation): covered in
   track-review.md:orchestrator,decomposer:3A §Step Decomposition.
@@ -556,8 +559,8 @@ HTML-comment `MANIFEST` block, then segregated body sections:
 <!-- MANIFEST
 findings: 12   severity: {blocker: 2, should-fix: 5, suggestion: 5}
 index:
-  - {id: BC1, sev: blocker,    loc: Foo.java:142, anchor: "### BC1 ", cert: C3, basis: "TOCTOU on shared cache map; concrete interleaving traced"}
-  - {id: BC2, sev: should-fix, loc: Bar.java:88,  anchor: "### BC2 ", cert: C7, basis: "missing null check on nullable return"}
+  - {id: CN1, sev: blocker,    loc: Foo.java:142, anchor: "### CN1 ", cert: C3, basis: "TOCTOU on shared cache map; concrete interleaving traced"}
+  - {id: BG1, sev: should-fix, loc: Bar.java:88,  anchor: "### BG1 ", cert: C7, basis: "missing null check on nullable return"}
 evidence_base: {section: "## Evidence base", certs: 20, matches: 16}
 cert_index:
   - {id: C3, verdict: WRONG, anchor: "#### C3 "}
@@ -565,8 +568,8 @@ flags: [CONTRACT_OK]
 -->
 
 ## Findings
-### BC1 [blocker] ...
-### BC2 [should-fix] ...
+### CN1 [blocker] ...
+### BG1 [should-fix] ...
 
 ## Evidence base
 #### C1 ... MATCHES
@@ -584,11 +587,11 @@ already rely on, so it parses stably.
 **Manifest index fields — mandatory vs downstream.** Each `index` entry
 carries six fields. Three are **mandatory** on every producer's manifest:
 
-- `id` — the per-reviewer finding ID (`BC1`, `T1`); the anchor key and
+- `id` — the per-reviewer finding ID (`CN1`, `T1`); the anchor key and
   bucketing dimension proxy. Never renumbered.
 - `sev` — the finding's severity (`blocker` / `should-fix` /
   `suggestion`, or the producer's native scale).
-- `anchor` — the stable heading anchor (`### BC1 `) the body is reached
+- `anchor` — the stable heading anchor (`### CN1 `) the body is reached
   by.
 
 Three are **consumed downstream** — populated by the producer, read by
@@ -611,7 +614,7 @@ and `flags` carries `CONTRACT_OK` or `CONTRACT_VIOLATION`.
 ### Anchored addressing and count validation (S4/S6)
 <!-- roles=orchestrator,planner,decomposer,implementer,reviewer-dim-step,reviewer-dim-track,reviewer-plan,reviewer-technical,reviewer-risk,reviewer-adversarial phases=1,2,3A,3B,3C,4 summary="Anchor-based addressing, the ID-anchored count grep, and the CONTRACT_VIOLATION whole-section fallback." -->
 
-Addressing keys on **stable heading anchors** (`^### BC1 `, `^#### C3 `),
+Addressing keys on **stable heading anchors** (`^### CN1 `, `^#### C3 `),
 which survive minor format drift; a line offset, when present, is an
 optional fast-path hint only.
 
@@ -638,7 +641,7 @@ rather than a bare 40-hex match. The character class is `[A-Z]+`
 (one-or-more uppercase), **not** `[A-Z]{2,}`: the strategic reviewers use
 single-letter prefixes (`T` technical, `R` risk, `A` adversarial, `S`
 structural) while the dimensional reviewers use two-letter prefixes
-(`BC`, `CQ`, …), and `[A-Z]{2,}` would return zero for a single-letter
+(`CN`, `CQ`, …), and `[A-Z]{2,}` would return zero for a single-letter
 strategic file (`### T1 ` → 0) and raise a spurious `CONTRACT_VIOLATION`.
 `[A-Z]+` matches both prefix shapes; the trailing space after `[0-9]+`
 excludes the four-hash `#### <cert>` evidence entries from the count.

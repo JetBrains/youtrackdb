@@ -35,14 +35,13 @@ name. Otherwise, default to the current git branch name
 Read:
 - `docs/adr/<dir-name>/_workflow/implementation-plan.md` — full plan with track episodes
 - `docs/adr/<dir-name>/_workflow/design.md` — original design document (do NOT modify).
-  **`full`-tier only — absent in `lite`/`minimal`.** A `design.md` exists
-  only when the plan's confirmed tier is `full` (Step 3's tier table keys
+  **Present only when `design_gate=yes` — absent otherwise.** A `design.md`
+  exists only when the change needed a design (Step 3's carrier table keys
   artifact production off this). Skip this read when the file does not
-  exist; read the confirmed tier ledger-first if
-  unsure which tier you are in — the phase ledger's `tier` field
-  (`_workflow/phase-ledger.md`, last value wins); when no
-  `phase-ledger.md` exists, fall back to the D18 tier line in
-  `implementation-plan.md`.
+  exist; read the design gate ledger-first if unsure — the phase ledger's
+  `design_gate` field (`_workflow/phase-ledger.md`, last value wins, a bare
+  `yes`/`no`); when no `phase-ledger.md` exists, fall back to the D18
+  design-gate line in `implementation-plan.md`.
 - `docs/adr/<dir-name>/_workflow/plan/track-*.md` — all track files with step
   episodes. Each track file carries the track's original description
   across its `## Purpose / Big Picture`, `## Context and Orientation`,
@@ -84,26 +83,49 @@ authoritative source for edge cases.
 - Run PSI queries (find-usages, find-implementations, type-hierarchy) via `steroid_execute_code`, which evaluates a Kotlin snippet against the PSI tree — there is no dedicated `find_usages` tool.
 - For Kotlin recipes, fetch the `coding-with-intellij-psi` skill via `steroid_fetch_resource`.
 
-**Step 3 — Produce the per-tier final artifacts.**
+**Step 3 — Produce the final artifacts.**
 
-**Which artifacts to produce is keyed off the confirmed tier (D16).** Read
-the confirmed tier ledger-first — the phase ledger's `tier` field
-(`_workflow/phase-ledger.md`, last value wins); when no `phase-ledger.md`
-exists, fall back to the tier line in `implementation-plan.md` — first,
-then produce:
+**Which artifacts to produce is re-derived from two independent axes (D16,
+D8b)** — not a single tier. Each artifact has its own predicate:
 
-| Tier | Artifacts | Verdict fold lands in |
-|---|---|---|
-| `full` | `design-final.md` (Artifact 1) + `adr.md` (Artifact 2) | `adr.md` |
-| `lite` | `adr.md` (Artifact 2) only — **skip Artifact 1** (no `design.md` exists, so there is nothing to carry forward to a final design) | `adr.md` |
-| `minimal` | **neither** — no `docs/adr/<dir>/` entry. The adversarial-verdict fold is a two-line summary in the PR description (see §"Minimal tier: PR-description verdict fold" below) | PR description |
+- **`design-final.md` (Artifact 1) iff `design_gate=yes`** — a final design
+  reflects the original `design.md`'s as-built state, and a `design.md`
+  exists only when the change needed one.
+- **`adr.md` (Artifact 2) iff at least one track reconciled to `medium` or
+  higher** — an ADR tracks decision *substance*, which a non-trivial track
+  carries.
 
-Gate 2 (multi-track) is the durable-ADR boundary: `full`/`lite` earn a
-committed `docs/adr/<dir>/` artifact set, `minimal` documents itself in the
-PR the way any small change does. The verdict fold runs in every tier (the
-research log dies at the Step 6 cleanup in every tier); only its
-destination differs. The sub-sections below are written for `full`; apply
-the tier table above to decide which run.
+Read both axes ledger-first:
+
+- The **design gate** — the phase ledger's `design_gate` field
+  (`_workflow/phase-ledger.md`, last value wins; a bare `yes`/`no`). When no
+  `phase-ledger.md` exists, fall back to the D18 design-gate line in
+  `implementation-plan.md`.
+- The **per-track reconciled tags** — scan the ledger's `reconciled_tag`
+  field, which Track 1 writes **per track** (each on a line carrying its own
+  `track=` token) and Phase A reconciles to `max(step tags)`. The `adr`
+  predicate is satisfied when **any** track's reconciled tag is `medium` or
+  `high`. When no `phase-ledger.md` exists, fall back to the per-track tags
+  recorded in the track files' `## Concrete Steps` rosters (`max(step tags)`
+  per track).
+
+The two axes give four combinations:
+
+| `design_gate` | ∃ track ≥ medium | Artifacts | Verdict fold lands in |
+|---|---|---|---|
+| `yes` | yes | `design-final.md` (Artifact 1) + `adr.md` (Artifact 2) | `adr.md` |
+| `yes` | no | `design-final.md` (Artifact 1) only — **skip Artifact 2** (no track earned a durable ADR; the decisions live in the final design's D-records) | PR description |
+| `no` | yes | `adr.md` (Artifact 2) only — **skip Artifact 1** (no `design.md` exists, so there is nothing to carry forward to a final design) | `adr.md` |
+| `no` | no | **neither** — no `docs/adr/<dir>/` entry. The adversarial-verdict fold is a two-line summary in the PR description (see §"No-ADR verdict fold: PR description" below) | PR description |
+
+The verdict fold runs in **every** change (the research log dies at the
+Step 6 cleanup regardless); only its destination differs by the `adr`
+predicate — it lands in `adr.md` when one exists, otherwise in the PR
+description. The `design_gate=yes` / all-low row is rare but coherent (the
+design gate and complexity correlate); when it occurs `design-final.md`
+stands alone and the verdict fold re-routes to the PR description. The
+sub-sections below are written for the `design_gate=yes` + `∃ track ≥
+medium` case; apply the carrier table above to decide which run.
 
 ### Ephemeral identifier rule (applies to BOTH artifacts)
 <!-- roles=final-designer phases=4 summary="Strip working-file identifiers from both committed artifacts; the authoritative rule lives in a dedicated file." -->
@@ -150,11 +172,12 @@ ephemeral-identifier-rule.md:final-designer:4
 ### Artifact 1: Final Design Document (`design-final.md`)
 <!-- roles=final-designer phases=4 summary="Produce the final design reflecting the actual implementation: verify diagrams against code, then use edit-design." -->
 
-**`full`-tier only — skip this artifact in `lite` and `minimal`.** A
-`design-final.md` reflects the original `design.md`'s as-built state, and
-no `design.md` exists in `lite`/`minimal`; there is nothing to carry
-forward, so those tiers write no `design-final.md`. In `lite`, the
-architecture decisions live in `adr.md` (Artifact 2) alone.
+**`design_gate=yes` only — skip this artifact when no design exists.** A
+`design-final.md` reflects the original `design.md`'s as-built state, and a
+`design.md` exists only when `design_gate=yes`; with no `design.md` there
+is nothing to carry forward, so a `design_gate=no` change writes no
+`design-final.md`. When `design_gate=no` but a track reconciled to medium
+or higher, the architecture decisions live in `adr.md` (Artifact 2) alone.
 
 Produce `docs/adr/<dir-name>/design-final.md` (the top-level final
 artifact, not under `_workflow/`) reflecting the **actual
@@ -302,10 +325,10 @@ handoff. If the file does not exist or the command fails, this is
 ### Artifact 2: ADR (`adr.md`)
 <!-- roles=final-designer phases=4 summary="Write the ADR from the plan adjusted for actual outcomes; fold the adversarial verdicts; append telemetry last." -->
 
-**`full`/`lite` only — skip this artifact in `minimal`.** A single-track
-`minimal` change earns no `docs/adr/<dir>/` entry; its verdict fold goes in
-the PR description instead (see §"Minimal tier: PR-description verdict
-fold" below).
+**Only when ∃ track ≥ medium — skip this artifact otherwise.** A change
+whose every track reconciled to `low` earns no `docs/adr/<dir>/` ADR; its
+verdict fold goes in the PR description instead (see §"No-ADR verdict fold:
+PR description" below).
 
 Write `docs/adr/<dir-name>/adr.md` — a post-implementation Architecture
 Decision Record derived from `implementation-plan.md`, adjusted for actual
@@ -392,16 +415,19 @@ the design decisions themselves already live in the tracks (D7) and in the
 Decision Records section above. Do this fold **before** the Step 6
 cleanup deletes the log.
 
-**Tier disposition of the verdict fold.** Unlike the per-artifact
-sub-sections (each tagged inline `full`-tier-only or `full`/`lite`), the
-verdict fold runs in **`full` and `lite`** and lands in the `## Adversarial
-gate verdicts` section of `adr.md` in both. Under **`minimal`** there is no
-`adr.md`; the fold becomes the two-line summary in the PR description (see
-§"Minimal tier: PR-description verdict fold" below). So when Step 3's bridge
-sentence says the sub-sections are "written for `full`, apply the tier table
-to decide which run," this one resolves to: run in `full`/`lite`, re-route
-to the PR description in `minimal` — never skipped in any tier, because the
-research log dies at cleanup in every tier.
+**Disposition of the verdict fold.** Unlike the per-artifact sub-sections
+(each tagged inline by its own axis predicate), the verdict fold runs in
+**every** change. Where it lands follows the `adr` predicate: when an
+`adr.md` exists (∃ track reconciled ≥ medium), the fold lands in its
+`## Adversarial gate verdicts` section; otherwise (every track `low`,
+whether or not a design exists) there is no `adr.md` and the fold becomes
+the two-line summary in the PR description (see §"No-ADR verdict fold:
+PR description" below). So when Step 3's bridge sentence says
+the sub-sections are "written for the `design_gate=yes` + `∃ track ≥
+medium` case, apply the carrier table to decide which run," this one
+resolves to: land in `adr.md` when one exists, re-route to the PR
+description otherwise — never skipped, because the research log dies at
+cleanup regardless.
 
 **Telemetry section — run the script, paste its output.** After writing
 the rest of `adr.md` (through `## Adversarial gate verdicts`), populate the
@@ -442,15 +468,18 @@ run, replace that section rather than appending a second one — and if the
 ADR is otherwise complete, leave the existing section as is rather than
 regenerating it against a different snapshot.
 
-### Minimal tier: PR-description verdict fold
-<!-- roles=final-designer phases=4 summary="Minimal writes no docs/adr artifact; the adversarial-verdict fold goes into the PR description as a two-line summary." -->
+### No-ADR verdict fold: PR description
+<!-- roles=final-designer phases=4 summary="When no ADR exists the adversarial-verdict fold goes into the PR description as a two-line summary." -->
 
-**`minimal` only — replaces both artifacts above.** A `minimal` change
-writes no `design-final.md` and no `adr.md` and no `docs/adr/<dir>/` entry
-at all. The research log still dies at the Step 6 cleanup, so its adversarial
-gate verdicts must still be captured somewhere durable: fold them into the
-**PR description** as a two-line gate-verdict summary, which the
-squash-merge carries into `develop`'s `git log`.
+**Runs whenever no `adr.md` exists (every track reconciled `low`).** Two
+carrier-table rows reach here: a `design_gate=no` + all-low change writes no
+`docs/adr/<dir>/` entry at all, and a `design_gate=yes` + all-low change
+writes `design-final.md` but no `adr.md`. In both, the research log still
+dies at the Step 6 cleanup, so its adversarial gate verdicts must still be
+captured somewhere durable: fold them into the **PR description** as a
+two-line gate-verdict summary, which the squash-merge carries into
+`develop`'s `git log`. (The `adr.md` fold above covers the rows where an ADR
+exists.)
 
 Read `research.md`'s `## Adversarial gate record` (latest dated heading,
 verdict/status only — same S2 discipline as the `adr.md` fold), and edit
@@ -463,10 +492,13 @@ Pre-execution adversarial review cleared all blockers before code.
 
 Use `env -u GITHUB_TOKEN gh pr edit <PR> --body "<updated body>"` (or the
 project's `gh` invocation) to update the description in place; keep the
-rest of the PR template intact. There is no final-artifacts commit in
-`minimal`, so Step 5 below is a no-op for this tier — proceed from the
-PR-description edit straight to the Step 6 cleanup commit (and, on a
-workflow-modifying `minimal` branch, the Step 4 promotion still runs first).
+rest of the PR template intact. When no artifact at all is produced
+(`design_gate=no` + all-low), there is no final-artifacts commit, so Step 5
+below is a no-op — proceed from the PR-description edit straight to the
+Step 6 cleanup commit (and, on a workflow-modifying branch, the Step 4
+promotion still runs first). When `design-final.md` was produced
+(`design_gate=yes` + all-low), Step 5 still commits that one artifact even
+though the verdict fold went to the PR description.
 
 **Step 4 — Promote staged workflow changes (workflow-modifying plans only).**
 
@@ -529,32 +561,33 @@ commit. The cleanup commit in Step 6 below removes the staged subtree
 alongside the rest of `_workflow/`; the live tree carries the promoted
 content forward to the merge.
 
-**Step 5 — Commit the final artifacts** (`full`/`lite` only; **no-op
-under `minimal`**).
+**Step 5 — Commit the final artifacts** (runs whenever at least one
+artifact exists; **no-op when neither does** — `design_gate=no` + all-low).
 
-A `minimal` change produces no `docs/adr/<dir>/` artifact — its verdict
-fold already went into the PR description in Step 3. Skip this step
-entirely under `minimal` and proceed to the Step 6 cleanup commit.
+A `design_gate=no` + all-low change produces no `docs/adr/<dir>/`
+artifact — its verdict fold already went into the PR description in Step 3.
+Skip this step entirely in that case and proceed to the Step 6 cleanup
+commit.
 
-For `full`/`lite`: by this point the artifacts the tier requires are on
-disk. In `full`, the `edit-design` skill has written `design-final.md`
-(and `design-mechanics-final.md` if applicable) and presented the diff +
-review-log entry, and `adr.md` was written directly. In `lite`, only
-`adr.md` exists (Artifact 1 was skipped). Stage and commit the tier's
-artifacts in a single commit:
+Otherwise: by this point the artifacts the two axes require are on disk.
+When `design_gate=yes`, the `edit-design` skill has written
+`design-final.md` (and `design-mechanics-final.md` if applicable) and
+presented the diff + review-log entry. When at least one track reconciled
+to medium or higher, `adr.md` was written directly. Stage and commit
+whichever artifacts exist in a single commit:
 
 ```
 Add final design and ADR
 
 Post-implementation artifacts:
-- design-final.md: actual design reflecting implemented code (full only)
+- design-final.md: actual design reflecting implemented code (design_gate=yes)
 - (optional) design-mechanics-final.md: long-form mechanism content
-- adr.md: architecture decision record with actual outcomes (full and lite)
+- adr.md: architecture decision record with actual outcomes (∃ track ≥ medium)
 ```
 
-Stage **only** the top-level final artifacts the tier produced
-(`full`: `design-final.md` + `design-mechanics-final.md` if present +
-`adr.md`; `lite`: `adr.md` only). Do **not** stage anything under
+Stage **only** the top-level final artifacts the two axes produced
+(`design_gate=yes`: `design-final.md` + `design-mechanics-final.md` if
+present; `∃ track ≥ medium`: `adr.md`). Do **not** stage anything under
 `docs/adr/<dir-name>/_workflow/` — the ephemeral `design-mutations.md`
 log, the research log, and every other working file under `_workflow/`
 are removed wholesale by the cleanup commit in Step 6 below.

@@ -188,20 +188,24 @@ There are **16 specialized review agents** in three groups:
 | Agent | Launch when ANY of these categories are present |
 |---|---|
 | **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
-| **review-bugs-concurrency** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-bugs** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-concurrency** | `concurrency` is present on any changed file |
 | **review-crash-safety** | `crash-durability` |
 | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
 | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
+
+`review-bugs` owns every defect findable by single-threaded sequential reasoning (logic, null safety, resource leaks, RID handling, state-machine / lifecycle); `review-concurrency` owns every defect whose detection needs reasoning about two or more threads interleaving (races, visibility / publication, lock-ordering / deadlock, compound-op atomicity). When `review-bugs`, reasoning sequentially, meets concurrent-looking code that `review-concurrency` was not triaged onto, it emits a one-line "concurrency triage gap" note so the orchestrator can launch `review-concurrency`.
 
 **Test-review agents** (review test quality and coverage gaps):
 
 | Agent | Launch when |
 |---|---|
-| **review-test-behavior** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
-| **review-test-completeness** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
+| **review-test-quality** | Always launched (unless `docs-only` or `build-config` are the ONLY categories) |
 | **review-test-structure** | Any test files are changed (reviews isolation, readability, setup/teardown of test code itself) |
 | **review-test-concurrency** | `concurrency` is present on any changed file (production or test) |
 | **review-test-crash-safety** | `crash-durability` |
+
+`review-test-quality` carries both the behavior sub-protocol (whether tests verify real behavior, assertion depth) and the completeness sub-protocol (corner cases, boundary conditions); it keeps both the `TB` and `TC` finding prefixes verbatim.
 
 Categories from **both** production and test code count for the test-review side — for example, if production code adds a new `synchronized` block but tests don't exercise threading, `review-test-concurrency` should still launch to flag the gap.
 
@@ -218,6 +222,8 @@ Categories from **both** production and test code count for the test-review side
 
 The workflow-review agents focus on `.claude/`, root `CLAUDE.md`, and plan artifacts under `docs/adr/<dir>/_workflow/`. They ignore Java code changes — the code-review and test-review agents handle those.
 
+**Complexity never changes which agents this step selects.** Selection is domain-only: a category is present → its agent launches, identically at every per-track complexity level. The per-track complexity tag (read by the workflow's Phase-C callers, not by this standalone skill) moves only the **rigor dial** — how hard the review-iteration loop iterates: `low` runs a single shallow pass, `medium` the normal cap-3 iteration, `high` iterates to convergence (see `review-iteration.md` § Limits and `track-code-review.md` § Review loop). The floor plus the domain-matched set is **never suppressed** by a low complexity; complexity only shortens or lengthens iteration, never drops a selected reviewer. The standalone `/code-review` skill takes no complexity input and always runs the domain-selected set once.
+
 ### 5c: Log your triage decision
 <!-- roles=orchestrator phases=3B,3C summary="Print the triage summary naming detected categories, selected agents, and skipped agents before launching." -->
 
@@ -226,8 +232,8 @@ Before launching agents, output a brief triage summary so the user can see the r
 ```
 ### Triage summary
 - **Categories detected**: storage-engine, concurrency, index-data-structures
-- **Code agents selected**: review-code-quality, review-bugs-concurrency, review-crash-safety, review-performance
-- **Test agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-concurrency, review-test-crash-safety
+- **Code agents selected**: review-code-quality, review-bugs, review-concurrency, review-crash-safety, review-performance
+- **Test agents selected**: review-test-quality, review-test-structure, review-test-concurrency, review-test-crash-safety
 - **Workflow agents selected**: (none — no workflow-machinery changes)
 - **Agents skipped**: review-security (no network/API/SQL/config/dependency changes)
 ```
@@ -244,7 +250,7 @@ The rules below cover combinations not handled by the per-row tables above. Wher
 - If the diff **mixes `workflow-machinery` with production-code or test categories**: launch each group's agents on its in-scope files. Each group is dispatched with a pre-filtered `IN_SCOPE_FILES` list (see Step 6) so cross-contamination is bounded.
 - If **the only category present is `docs-only`**: Skip all agents. Just report that only end-user documentation changed and no review is needed.
 - If **the only category present is `build-config`**: Launch only `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes). Skip all test-review and workflow-review agents.
-- If **the only category present is `tests-only`**: Launch `review-code-quality` and `review-bugs-concurrency` (test logic can have bugs too), plus the full test-review set selected by the test-side rules above.
+- If **the only category present is `tests-only`**: Launch `review-code-quality` and `review-bugs` (test logic can have bugs too), plus `review-concurrency` if the `concurrency` category is present, plus the full test-review set selected by the test-side rules above.
 - If **the only categories are `build-config` and `tests-only`** (e.g., a CI tweak plus the test it enables): Launch `review-code-quality`, `review-security`, and the full test-review set. The `tests-only` rule wins over `build-config`'s "skip test-review" because the tests are the substantive change.
 - If **a file matches no category** (e.g., `.gitattributes`): assign it the `other` category — it does not dispatch any agent. If `other` is the only category present, skip all agents and report that nothing reviewable changed.
 - If **in doubt** about whether an agent is relevant: **launch it**. False positives (an agent finding nothing) are better than false negatives (missing a real issue).
@@ -356,14 +362,14 @@ The 16 possible agents (launch only those selected in Step 5):
 
 **Code-review agents:**
 1. **review-code-quality** — code quality, conventions, readability
-2. **review-bugs-concurrency** — bugs, logic errors, concurrency, resource leaks
-3. **review-crash-safety** — WAL correctness, durability, crash recovery
-4. **review-security** — injection, auth, data exposure, dependencies
-5. **review-performance** — algorithmic complexity, allocations, lock contention, I/O
+2. **review-bugs** — bugs, logic errors, null safety, resource leaks, RID handling, state-machine / lifecycle (single-threaded sequential reasoning)
+3. **review-concurrency** — races, visibility / publication, lock-ordering / deadlock, compound-op atomicity (multi-thread interleaving reasoning)
+4. **review-crash-safety** — WAL correctness, durability, crash recovery
+5. **review-security** — injection, auth, data exposure, dependencies
+6. **review-performance** — algorithmic complexity, allocations, lock contention, I/O
 
 **Test-review agents:**
-6. **review-test-behavior** — behavior-driven quality, assertion precision, exception testing
-7. **review-test-completeness** — corner cases, boundary conditions, test data quality
+7. **review-test-quality** — behavior-driven quality (assertion precision, exception testing) plus completeness (corner cases, boundary conditions, test data quality)
 8. **review-test-structure** — isolation, independence, readability, documentation
 9. **review-test-concurrency** — concurrent behavior testing quality
 10. **review-test-crash-safety** — crash/recovery test quality, production assert statements
@@ -383,12 +389,12 @@ Set `subagent_type` to the agent name. The agent's frontmatter declares its mode
 
 After all selected agents complete, produce a unified review report. Do NOT simply concatenate the outputs. Instead:
 
-1. **Map sub-agent severities to synthesized severities.** Most sub-agents emit findings under `Critical / Recommended / Minor`, but three of the older code-review agents use legacy scales. Translate as:
+1. **Map sub-agent severities to synthesized severities.** Most sub-agents emit findings under `Critical / Recommended / Minor`, but several older code-review agents use legacy scales (`review-bugs` and `review-concurrency` share one, `review-crash-safety` and `review-security` each have their own). Translate as:
    - `Critical` → **blocker** (all agents)
    - `Recommended` → **should-fix** (most agents)
    - `Minor` → **suggestion** (most agents)
-   - `Likely Issues` → **should-fix** (`review-bugs-concurrency`)
-   - `Potential Concerns` → **suggestion** (`review-bugs-concurrency`)
+   - `Likely Issues` → **should-fix** (`review-bugs`, `review-concurrency`)
+   - `Potential Concerns` → **suggestion** (`review-bugs`, `review-concurrency`)
    - `Concerning` → **should-fix** (`review-crash-safety`)
    - `Informational` → **suggestion** (`review-crash-safety`)
    - `High` → **blocker** (`review-security`)
@@ -399,7 +405,7 @@ After all selected agents complete, produce a unified review report. Do NOT simp
 
 2. **Deduplicate.** Findings merge when they share the same `(file, line-range, root issue)`. Different review dimensions on the same line merge into one finding listing all dimensions. Different lines do not merge. Workflow-review findings on a shell or JSON file may merge with code-review findings on the same file when they describe the same root issue.
 
-3. **Attribute.** For each finding, indicate which review dimension(s) identified it. Use a short label (e.g., `[code-quality]`, `[bugs-concurrency]`, `[test-behavior]`, `[test-crash-safety]`, `[workflow-consistency]`, `[workflow-hook-safety]`, `[workflow-writing-style]`).
+3. **Attribute.** For each finding, indicate which review dimension(s) identified it. Use a short label (e.g., `[code-quality]`, `[bugs]`, `[concurrency]`, `[test-quality]`, `[test-crash-safety]`, `[workflow-consistency]`, `[workflow-hook-safety]`, `[workflow-writing-style]`).
 
 4. **Summarize.** Write a brief overall assessment (2-3 sentences). Cover whichever of code, tests, and workflow machinery actually appear in the diff. Do not write about a dimension that produced no findings.
 

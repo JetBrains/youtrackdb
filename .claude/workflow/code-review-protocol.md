@@ -27,10 +27,12 @@ review-agent-selection.md:orchestrator:3A,3B,3C).
   reviewers receive the per-step risk tags and treat `medium` and
   `high` step ranges as focal points within the diff.
 
-The baseline agents differ by level. At a **high** step, only
-`review-bugs-concurrency` runs from the baseline group; the other three
-baselines defer to the track pass. At a **track**, all four baselines
-run. Both selections sit under the baseline-skip override: a
+The baseline agents differ by level. At a **high** step,
+`review-bugs` runs from the baseline group (joined by
+`review-concurrency` when the `concurrency` category is present); the
+other baselines (`review-code-quality`, `review-test-quality`) defer to
+the track pass. At a **track**, the full baseline group
+runs. Both selections sit under the baseline-skip override: a
 workflow-only or `docs-only`+workflow diff skips the whole baseline
 group at either level (see the override in
 `review-agent-selection.md` §Workflow-review agents, and

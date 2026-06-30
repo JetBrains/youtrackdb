@@ -15,6 +15,7 @@
 | §Performance hot path | decomposer | 3A | Hot-path performance changes that trigger high risk. |
 | §Workflow machinery | decomposer | 3A | Workflow-machinery edits (.claude/**, root CLAUDE.md) that trigger high risk. |
 | §Gate 1 reuse (change-level) | planner | 1 | The seven HIGH categories above are also tier Gate 1's source, read at the change level (central, not merely touched). |
+| §Track-level complexity tag | planner,orchestrator | 1,3A | The seven HIGH triggers run at track granularity over planned work, predicting a tag reconciled to max(step tags). |
 | §MEDIUM-risk triggers | decomposer | 3A | Conditions that put a step at medium risk. |
 | §LOW-risk default | decomposer | 3A | The default low-risk classification for routine steps. |
 | §Tests-only steps | decomposer | 3A | Risk handling for steps that add only tests. |
@@ -65,7 +66,7 @@ justified.
 
 | Level | Implementer model | Step-level review (sub-step 4) | Track-level review treatment |
 |---|---|---|---|
-| `high` | `opus` | Step-level dimensional review: `review-bugs-concurrency` (subordinate to the workflow/docs-only baseline-skip override) + triggered conditional + step-level workflow reviewers (`hook-safety`, `prompt-design`), up to 3 iterations | Focal point |
+| `high` | `opus` | Step-level dimensional review: `review-bugs` always + `review-concurrency` when the `concurrency` category is present (both subordinate to the workflow/docs-only baseline-skip override) + triggered conditional + step-level workflow reviewers (`hook-safety`, `prompt-design`), up to 3 iterations | Focal point |
 | `medium` | `opus` | None | Focal point |
 | `low` | `opus` | None | Default coverage |
 
@@ -204,6 +205,61 @@ category names for Gate 1, it quotes the headings above **verbatim** —
 cross-component coordination`, not "load-bearing architecture" — so a
 paraphrase never drifts the Gate-1 vocabulary from the live per-step
 labels.
+
+## Track-level complexity tag
+<!-- roles=planner,orchestrator phases=1,3A summary="The seven HIGH triggers run at track granularity over planned work, predicting a tag reconciled to max(step tags)." -->
+
+The per-track **complexity tag** runs the same seven HIGH triggers at
+**track granularity**: `Concurrency`, `Crash-safety / Durability`,
+`Public API`, `Security`, `Architecture / cross-component coordination`,
+`Performance hot path`, and `Workflow machinery`. The tag is `high` if a
+trigger fires centrally on the track's planned work, `medium` if only a
+MEDIUM trigger does, `low` otherwise. It is the intensity knob the Phase-A
+strategic panel and the Phase-C rigor dial read (`track-review.md`
+§"Tier-driven review selection and which reviews to run").
+
+The triggers run over the track's **planned work** — its `## Plan of Work`
+(the prose sequence of edits) plus its `## Interfaces and Dependencies`
+(the in-scope file set) — **not a bare file-path list**. The seven HIGH
+triggers are **content predicates**: they test what a change *does*
+("introduces synchronization", "modifies WAL recovery", "adds an
+abstraction layer / SPI registration"), and a path list cannot answer a
+verb-on-change predicate. The planner has described the planned edits by
+the end of Phase 1, so the content needed to evaluate the triggers exists
+in the track's prose.
+
+**Three granularities read the same seven triggers** — keep them distinct
+so the track-level read is not mistaken for the others:
+
+- **Change-level** (Gate 1 reuse, §"Gate 1 reuse (change-level)" above):
+  "is this category central to the whole change?" — the design-gate source.
+- **Track-level** (this rule): "is this category central to *this track's*
+  planned work?" — the complexity-tag prediction.
+- **Step-level** (the per-step `risk:` tag, the HIGH/MEDIUM/LOW sections
+  above): "does *this step* introduce it?" — the per-step focal-point tag.
+
+The track-level read is a **prediction**: it judges the planner's described
+work, not the realized diff. The reconciliation in `track-review.md`
+§"Tier-driven review selection and which reviews to run" closes the gap —
+after Phase A decomposes the track into steps, the predicted tag is
+reconciled to `max(step tags)` (the largest per-step tag, computed from the
+content-based step tags), and that reconciled tag governs Phase C. A thin or
+vague `## Plan of Work` yields a weak prediction; the reconciliation against
+the content-based step tags is the safety net that corrects an
+under-prediction.
+
+The complexity tag (the seven triggers) and the thirteen `code-review`
+categories (which drive Phase-C reviewer selection) stay distinct and serve
+two different purposes. The seven triggers answer *how hard* a track is
+(Phase-A breadth + Phase-C rigor); the thirteen categories answer *which
+dimensions* a track touches (which Phase-C reviewers run). The design maps one
+onto the other.
+
+The Phase-1 *request* for this prediction is wired into `planning.md` by
+Track 1; this section owns the computation rule that request points at. The
+orchestrator reconciles the prediction against `max(step tags)` at Phase A
+per `track-review.md` §"Tier-driven review selection and which reviews to
+run".
 
 ## MEDIUM-risk triggers
 <!-- roles=decomposer phases=3A summary="Conditions that put a step at medium risk." -->

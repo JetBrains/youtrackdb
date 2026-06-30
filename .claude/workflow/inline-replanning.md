@@ -138,62 +138,96 @@ new track during a later replan still carries the revision format
 because the decision's state is "ever revised," even though this later
 replan did not itself revise it.
 
-**Tier upgrade rides this same path (D12).** A mid-flight tier upgrade
-(a `minimal` change that grows a second track, or a `lite` change that
-turns out to need a design) is an inline replan like any other: it adds
-the new tier's artifacts and runs that tier's Phase-3A passes from the
-upgrade point onward. It does not retroactively insert a Phase-2 pass
-an earlier session already skipped, and a downgrade is likewise not
-automatic — a completed review cannot be un-run. No dedicated
-tier-upgrade mechanism exists; the ESCALATE replan is the carrier.
+**A complexity-axis raise rides this same path (D12).** The unbundling
+dissolved the single whole-change `tier` enum into three independent ledger
+axes (Track 1): the change-level `design_gate` (`yes`/`no`, decides whether a
+`design.md` exists), the `tracks` track-count signal (decides whether a
+thinned `implementation-plan.md` exists), and the per-track `reconciled_tag`
+(`low`/`medium`/`high`, drives Phase-A breadth and Phase-C rigor). What was
+one "tier upgrade" is now one or more independent **axis raises**, each an
+inline replan like any other:
 
-**Materialize first, then write the upgraded tier (D11).** A `minimal`
-upgrade is the demanding case: under D2 the `minimal` tier has no
-`implementation-plan.md` and no `design.md`, so the upgrade carrier must
-**materialize** the dropped artifacts before it records the new tier. Land
+- A **`design_gate` no→yes flip** — the change discovers it needs a design.
+  This materializes the `design.md` seed (the old `*`→`full`
+  design-materialization) and appends `--design-gate yes`.
+- A **track-count growth** (single→multi) — a change planned as one track
+  grows a second. This materializes the thinned `implementation-plan.md` (the
+  old `minimal`→`lite` plan-materialization) and appends `--tracks <N>`.
+- A **per-track complexity-tag raise** — a track turns out harder than its
+  reconciled tag. This appends `--reconciled-tag <tag>` on that track's
+  `--track <N>` ledger line.
+
+An axis raise adds the artifacts the pre-raise state lacked and runs the
+matching Phase-3A passes from the raise point onward (a `design_gate` flip
+brings the design-gated passes; a raised `reconciled_tag` widens the Phase-A
+strategic panel and the Phase-C rigor). It does not retroactively insert a
+Phase-2 pass an earlier session already skipped, and a lowering is likewise
+not automatic — a completed review cannot be un-run. No dedicated
+axis-raise mechanism exists; the ESCALATE replan is the carrier.
+
+**Materialize first, then write the raised axis (D11).** A `design_gate`
+flip and a track-count growth are the demanding cases: a change that
+previously had no `design.md` or no `implementation-plan.md` must
+**materialize** the dropped artifact before it records the raised axis. Land
 them in this order:
 
-1. **Materialize the artifacts the source tier never had.** A
-   `minimal`→`lite` (or `minimal`→`full`) upgrade writes a thinned
-   `implementation-plan.md` (the derived-mirror plan `lite`/`full` carry but
-   `minimal` does not); a `*`→`full` upgrade additionally writes the
-   `design.md` seed. A `lite`→`full` upgrade only adds the `design.md` seed,
-   since `lite` already has a plan. Seed each artifact from the existing
-   research log and the track files, the same sources `create-plan` reads at
-   confirmation.
-2. **Append the upgraded tier as a ledger event.** The tier home is the
-   phase ledger's `tier` field (D4), not a plan line, so the upgrade records
-   the new tier by appending a boundary:
+1. **Materialize the artifacts the pre-raise state never had.** A
+   track-count growth (single→multi) writes a thinned
+   `implementation-plan.md` (the derived-mirror plan a multi-track change
+   carries but a single-track no-plan change does not); a `design_gate` no→yes
+   flip writes the `design.md` seed. A flip on a change that already has a
+   plan adds only the `design.md` seed; a growth on a change that already has
+   a design adds only the plan. A per-track `reconciled_tag` raise
+   materializes nothing — it is a tag value on existing track state. Seed each
+   materialized artifact from the existing research log and the track files,
+   the same sources `create-plan` reads at confirmation.
+2. **Append the raised axis as a ledger event.** Each axis lives in its own
+   phase-ledger field (Track 1: `design_gate`, `tracks`, per-track
+   `reconciled_tag`), not a plan line, so the raise records the new value by
+   appending a boundary through the same script, using the axis flag(s) the
+   raise touched:
 
    ```bash
-   .claude/scripts/workflow-startup-precheck.sh --append-ledger --tier <new-tier>
+   # design_gate no->yes flip:
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger --design-gate yes
+   # track-count growth to N tracks:
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger --tracks <N>
+   # per-track complexity-tag raise (rides the track's own --track line):
+   .claude/scripts/workflow-startup-precheck.sh --append-ledger \
+       --track <N> --reconciled-tag <tag>
    ```
 
-   The ledger is last-value-wins, so the appended `tier=<new-tier>` is what
-   every Phase-2/3A/4 selector reads ledger-first from the next State-0
-   re-run onward (step 6 below resets review state, routing the next
-   `/execute-tracks` session through Phase 2). The materialize-then-write
-   order keeps the same-commit set internally consistent: the materialized
-   plan and the `tier` append land together in the step-6 commit, so the
-   committed pair never shows an upgraded tier pointing at a plan that is
-   not yet written. A `full` upgrade that crosses the `§1.7` staging line
-   also appends the `s17` field on the same or a following boundary.
+   The ledger is last-value-wins, so the appended `design_gate=yes` /
+   `tracks=<N>` is what every Phase-2/3A/4 selector reads `design_gate` /
+   `tracks` ledger-first from the next State-0 re-run onward (step 6 below
+   resets review state, routing the next `/execute-tracks` session through
+   Phase 2). The `reconciled_tag` is read track-scoped — last-value-wins on a
+   ledger line that also carries that track's `track=` token — which is why
+   the raise emits `--reconciled-tag` on the same line as `--track <N>`,
+   mirroring the A→C boundary write in `track-review.md`
+   §"Tier-driven review selection and which reviews to run". The
+   materialize-then-write order keeps the same-commit set internally
+   consistent: the materialized artifact and the axis append land together in
+   the step-6 commit, so the committed pair never shows a raised axis pointing
+   at an artifact that is not yet written. A `design_gate` flip that crosses
+   the `§1.7` staging line also appends the `s17` field on the same or a
+   following boundary.
 
 Without the materialize step, the re-entered selectors would resolve the
-new tier from the ledger but find no plan or design to drive the wider
-tier's passes; without the ledger append, every selector would keep reading
-the stale pre-upgrade tier and run the lighter tier's passes, so the upgrade
-would be announced but never take effect downstream. The tier field is
-normally a `create-plan`-owned ledger write at confirmation (it is read-only
-for every execution-time consumer), and the upgrade is the one
-execution-time exception: the ESCALATE replan owns this single tier append,
+raised axis from the ledger but find no plan or design to drive the
+now-gated passes; without the ledger append, every selector would keep
+reading the stale pre-raise axis value and run the lighter passes, so the
+raise would be announced but never take effect downstream. The axis fields
+are normally `create-plan`-owned ledger writes at confirmation (they are
+read-only for every execution-time consumer), and the raise is the one
+execution-time exception: the ESCALATE replan owns this single axis append,
 the same way it owns the revised Decision Records it lands.
 
-Neither the materialized artifacts nor the `tier` append is committed until
+Neither the materialized artifacts nor the axis append is committed until
 the step-6 commit, so an escalation interrupted anywhere before that commit
 is recoverable with the standard `git reset --hard HEAD`: the reset reverts
-the uncommitted plan/design and the ledger `tier` append together, restoring
-the pre-upgrade `minimal` state.
+the uncommitted plan/design and the ledger axis append together, restoring
+the pre-raise state.
 
 **File-location mechanics.** Each proposed track revision lands in a
 specific file on disk depending on the track's current status. See
@@ -283,15 +317,16 @@ preview — they will appear in the next-session State 0 re-run.
   git push
   ```
 
-  Stage the phase ledger (always — the `phase=0` reset, and the `tier`
-  append on a tier upgrade), plus only the other paths the revision actually
-  touched (the enumeration in
+  Stage the phase ledger (always — the `phase=0` reset, and the axis
+  append on a complexity-axis raise), plus only the other paths the revision
+  actually touched (the enumeration in
   [§Updating plan and track files](#updating-plan-and-track-files) tells you
-  which files apply per case). A `minimal` upgrade additionally stages the
-  newly-materialized `implementation-plan.md` (and `design.md` for `full`)
-  from the materialize-then-write step above. Outside a `full` upgrade a
-  replan never touches `design.md` (it is frozen after Phase 1 — see step 3's
-  "Design intent stays in the plan" rule).
+  which files apply per case). A track-count growth additionally stages the
+  newly-materialized `implementation-plan.md`, and a `design_gate` flip the
+  newly-materialized `design.md`, from the materialize-then-write step above.
+  Outside a `design_gate` flip a replan never touches `design.md` (it is
+  frozen after Phase 1 — see step 3's "Design intent stays in the plan"
+  rule).
 
   This is a Workflow update commit (single-commit-per-replan; per
   the table in `commit-conventions.md` § Commit type prefixes).

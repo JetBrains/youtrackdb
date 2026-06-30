@@ -168,17 +168,19 @@ whenever code or tests were modified.
    | Agent | Launch when ANY of these categories are present |
    |---|---|
    | **review-code-quality** | Always launched (unless `docs-only` is the ONLY category) |
-   | **review-bugs-concurrency** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
+   | **review-bugs** | `concurrency`, `storage-engine`, `index-data-structures`, `network-server`, `serialization`, `gremlin`, `sql-query` |
+   | **review-concurrency** | `concurrency` is present on any changed file |
    | **review-crash-safety** | `crash-durability` |
    | **review-security** | `network-server`, `public-api`, `sql-query`, `serialization`, `configuration`, OR when new dependencies are added in `pom.xml` |
    | **review-performance** | `storage-engine`, `index-data-structures`, `concurrency`, `serialization`, `sql-query`, `gremlin` |
+
+   `review-bugs` owns sequential-reasoning defects (logic, null safety, leaks, RID handling, state-machine / lifecycle); `review-concurrency` owns interleaving-reasoning defects (races, visibility / publication, lock-ordering / deadlock, compound-op atomicity) and fires only on the `concurrency` category.
 
    **1c: Select test quality agents based on categories**
 
    | Agent | When to launch |
    |---|---|
-   | **review-test-behavior** | Always (unless `docs-only` or `build-config` are the ONLY categories) |
-   | **review-test-completeness** | Always (unless `docs-only` or `build-config` are the ONLY categories) |
+   | **review-test-quality** | Always (unless `docs-only` or `build-config` are the ONLY categories) — carries both the behavior and completeness sub-protocols, both the `TB` and `TC` prefixes |
    | **review-test-structure** | Any test files are changed |
    | **review-test-concurrency** | `concurrency`, OR production code touches shared mutable state / threading primitives even if no concurrency tests exist yet |
    | **review-test-crash-safety** | `crash-durability` |
@@ -189,16 +191,16 @@ whenever code or tests were modified.
    ```
    ### Triage Summary
    - **Categories detected**: storage-engine, concurrency
-   - **Code review agents selected**: review-code-quality, review-bugs-concurrency, review-performance
+   - **Code review agents selected**: review-code-quality, review-bugs, review-concurrency, review-performance
    - **Code review agents skipped**: review-crash-safety (no crash-durability category), review-security (no network/API/SQL/config/dependency changes)
-   - **Test quality agents selected**: review-test-behavior, review-test-completeness, review-test-structure, review-test-concurrency
+   - **Test quality agents selected**: review-test-quality, review-test-structure, review-test-concurrency
    - **Test quality agents skipped**: review-test-crash-safety (no crash-durability category)
    ```
 
    **1e: Edge cases**
    - If **all categories are `docs-only`**: Skip all agents. Report that only documentation changed and no code review is needed.
    - If **all categories are `build-config`**: Launch `review-code-quality` (to check for misconfigurations) and `review-security` (to check for dependency changes).
-   - If **all categories are `tests-only`**: Launch `review-code-quality`, `review-bugs-concurrency` for code agents, and `review-test-behavior`, `review-test-completeness`, `review-test-structure` for test agents.
+   - If **all categories are `tests-only`**: Launch `review-code-quality`, `review-bugs` (plus `review-concurrency` if the `concurrency` category is present) for code agents, and `review-test-quality`, `review-test-structure` for test agents.
    - If **in doubt** about whether an agent is relevant: **launch it**. False positives are better than false negatives.
 
 2. **Launch selected review agents in parallel** (fresh sub-agents):

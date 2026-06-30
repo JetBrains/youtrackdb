@@ -4,10 +4,11 @@
 
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
-| §Baseline agents (always run) | orchestrator | 3A,3B,3C | The four baseline review agents (code quality, bugs/concurrency, test behavior, test completeness) and when they skip. |
+| §Baseline agents (always run) | orchestrator | 3A,3B,3C | The baseline review agents (code quality, bugs, test quality, plus concurrency on its category) and when they skip. |
 | §Conditional agents | orchestrator | 3A,3B,3C | Add crash-safety, security, performance, or test-structure agents based on what the step or track touches. |
 | §Examples | orchestrator | 3A,3B,3C | Worked agent-selection examples for storage, refactor, public-API, and WAL-replay changes. |
 | §Step-level vs track-level routing | orchestrator | 3A,3B,3C | Non-mirrored note: which baseline and workflow reviewers run at a high step versus the cumulative track pass. |
+| §Complexity sets the Phase-C rigor dial, never the set | orchestrator | 3A,3B,3C | Domain selects the Phase-C set at every level; complexity moves only iteration depth; the floor is never suppressed. |
 | §Workflow-review agents | orchestrator | 3A,3B,3C | The six workflow-machinery review agents and their finding prefixes; they ignore Java code. |
 | §Workflow-machinery file set | orchestrator | 3A,3B,3C | What counts as workflow-machinery (.claude/, root CLAUDE.md, docs/adr/<dir>/); exclusive with docs-only. |
 | §Per-agent file-pattern triggers | orchestrator | 3A,3B,3C | Which workflow-review agents fire on which changed-file patterns; consistency and context-budget always launch. |
@@ -31,31 +32,43 @@ either review actually fires.
 ---
 
 ## Baseline agents (always run)
-<!-- roles=orchestrator phases=3A,3B,3C summary="The four baseline review agents (code quality, bugs/concurrency, test behavior, test completeness) and when they skip." -->
+<!-- roles=orchestrator phases=3A,3B,3C summary="The baseline review agents (code quality, bugs, test quality, plus concurrency on its category) and when they skip." -->
 
-These four agents cover the dimensions relevant to every code change:
+These agents cover the dimensions relevant to every code change. The
+first three are always-on; `review-concurrency` joins them whenever the
+`concurrency` category is present:
 
 | Agent | `subagent_type` | Finding prefix |
 |---|---|---|
 | Code quality | `review-code-quality` | `CQ1, CQ2, ...` |
-| Bugs & concurrency | `review-bugs-concurrency` | `BC1, BC2, ...` |
-| Test behavior | `review-test-behavior` | `TB1, TB2, ...` |
-| Test completeness | `review-test-completeness` | `TC1, TC2, ...` |
+| Bugs | `review-bugs` | `BG1, BG2, ...` |
+| Concurrency (on the `concurrency` category) | `review-concurrency` | `CN1, CN2, ...` |
+| Test quality | `review-test-quality` | `TB1, TB2, ...` / `TC1, TC2, ...` |
+
+`review-bugs` owns every defect findable by single-threaded sequential
+reasoning (logic, null safety, resource leaks, RID handling,
+state-machine / lifecycle); `review-concurrency` owns every defect whose
+detection needs reasoning about two or more threads interleaving and
+fires only on the `concurrency` category. `review-test-quality` merges
+the former test-behavior and test-completeness reviewers, carrying both
+sub-protocols and both the `TB` and `TC` prefixes verbatim. The
+cognitive-mode ownership boundary and the `review-bugs` triage backstop
+are specified in the `review-bugs` / `review-concurrency` agent files.
 
 The baseline group runs **unless the diff is workflow-only or
 workflow-machinery + docs-only** — see the baseline-skip override under
 *Workflow-machinery override* below.
 
 The "always run" in the heading is the track-level reading. At a high
-step only `review-bugs-concurrency` runs from this group; the other
-three (`review-code-quality`, `review-test-behavior`,
-`review-test-completeness`) read identically on the cumulative diff and
-defer to the Phase C track pass that runs the full group. The
-step-vs-track timing for both the baseline group and the workflow-review
-group lives in §Step-level vs track-level routing below, not here; this
-carve-out stays subordinate to the baseline-skip override, so a
-workflow-only or docs-only diff still skips the whole group,
-`review-bugs-concurrency` included.
+step only `review-bugs` runs from this group's always-on members (joined
+by `review-concurrency` when the `concurrency` category is present); the
+others (`review-code-quality`, `review-test-quality`) read identically on
+the cumulative diff and defer to the Phase C track pass that runs the
+full group. The step-vs-track timing for both the baseline group and the
+workflow-review group lives in §Step-level vs track-level routing below,
+not here; this carve-out stays subordinate to the baseline-skip override,
+so a workflow-only or docs-only diff still skips the whole group,
+`review-bugs` and `review-concurrency` included.
 
 ---
 
@@ -79,15 +92,16 @@ agent.
 
 - **Step adds a histogram to a B-tree leaf page** → baseline + crash-safety
   + test-crash-safety (storage/durability) + performance (data structure).
-  7 agents.
-- **Step refactors an internal utility class** → baseline only. 4 agents.
+  6 agents.
+- **Step refactors an internal utility class** → baseline only. 3 agents.
 - **Step adds a new Gremlin traversal step with public API** → baseline +
   security (public API) + test-structure (likely new test fixtures).
-  6 agents.
+  5 agents.
 - **Step modifies WAL replay with lock changes** → all 10 agents
-  (storage + performance + concurrency all apply).
+  (storage + performance + concurrency all apply; `review-concurrency`
+  joins the baseline because the `concurrency` category is present).
 
-*These counts assume the track-level full baseline group; at a high step the baseline group narrows to `review-bugs-concurrency` only per §Step-level vs track-level routing.*
+*These counts assume the track-level baseline group, which is `review-code-quality` + `review-bugs` + `review-test-quality` (three always-on), joined by `review-concurrency` only when the `concurrency` category is present; at a high step the baseline group narrows to `review-bugs` (plus `review-concurrency` when the `concurrency` category is present) per §Step-level vs track-level routing.*
 
 ---
 
@@ -125,16 +139,19 @@ qualifies.
 **Baseline group (§Baseline agents).** Sole-step-of-its-track exception:
 the full selection runs at the step per the single-step-high override
 above. Otherwise, at a high step of a **multi-step** track
-only `review-bugs-concurrency` runs; `review-code-quality`,
-`review-test-behavior`, and `review-test-completeness` defer to the track
-pass. `review-bugs-concurrency` catches bug, logic-error, resource-leak,
-and null-safety defects that get buried once a step's diff folds into the
-cumulative diff, so it must see each step's diff in isolation. Deferring
-`review-code-quality` loses only style, DRY, and readability findings: its
-buriable error-handling subset is already covered by
-`review-bugs-concurrency` at the step. The two test-review baselines read
-whole-suite quality off the cumulative diff identically, so the step adds
-nothing.
+`review-bugs` runs always, and `review-concurrency` runs when the
+`concurrency` category is present; `review-code-quality` and
+`review-test-quality` defer to the track pass. `review-bugs` catches
+bug, logic-error, resource-leak, and null-safety defects that get buried
+once a step's diff folds into the cumulative diff, so it must see each
+step's diff in isolation; `review-concurrency` inherits the same burial
+role for races and other interleaving defects in the step diff, which is
+why it joins at the step whenever its `concurrency` category is present.
+Deferring `review-code-quality` loses only style, DRY, and readability
+findings: its buriable error-handling subset is already covered by
+`review-bugs` at the step. The merged `review-test-quality` baseline
+reads whole-suite quality off the cumulative diff identically, so the
+step adds nothing.
 
 **Workflow-review group (§Workflow-review agents).** Unless the high step
 is the sole step of its track (then every workflow reviewer the track pass
@@ -165,7 +182,7 @@ checks span files, so a step lands false positives a later step resolves).
 the sole step of its track (then the full track-pass-equivalent selection
 runs at the step per the single-step-high override above — for a bare
 `.claude/workflow/*.md` diff that is the four deferred workflow reviewers
-plus the three deferred baselines), at a high step of a **multi-step**
+plus the two deferred baselines), at a high step of a **multi-step**
 track such a step matches
 neither step-level workflow trigger (neither `hook-safety`'s
 script/settings globs nor `prompt-design`'s `SKILL.md` / agent /
@@ -182,21 +199,72 @@ track: with one step the cumulative diff equals the step's diff and the
 Phase C cumulative pass never runs, so the override above runs the full
 selection at the step instead.
 
-**Exclusion from workflow-machinery changes.** `review-bugs-concurrency`
-is a Java-code reviewer and never reviews workflow machinery. On a
-workflow-only diff the baseline-skip override removes the whole baseline
-group; on a mixed Java + workflow diff `IN_SCOPE_FILES` scopes
-`review-bugs-concurrency` to the Java files. The same Case-3
+**Exclusion from workflow-machinery changes.** `review-bugs` and
+`review-concurrency` are Java-code reviewers and never review workflow
+machinery. On a workflow-only diff the baseline-skip override removes the
+whole baseline group; on a mixed Java + workflow diff `IN_SCOPE_FILES`
+scopes both to the Java files. The same Case-3
 `IN_SCOPE_FILES` pre-filter complementarily scopes the step-level workflow
 reviewers (`hook-safety`, `prompt-design`) to the workflow-machinery subset
 of the diff (see the §Workflow-machinery override Case 3); the mechanics
 live there and are not duplicated here. The Java review path
-(`review-bugs-concurrency`) and the workflow review path (the six
-workflow reviewers) are deliberately disjoint.
+(`review-bugs` / `review-concurrency`) and the workflow review path (the
+six workflow reviewers) are deliberately disjoint.
 
 The split changes only which mandatory reviewers run at the step. No
 conditional reviewer's trigger is widened and no agent is forced on; the
 track-level selection is unchanged.
+
+**Complexity does not drive step-level selection.** Step-level review
+stays gated on the per-*step* `risk: high` tag plus the
+localized-versus-buried routing above; the per-track complexity tag plays
+no part in deciding which reviewers run at a step. The complexity tag
+drives Phase-A panel breadth and the Phase-C rigor dial only — see
+§"Complexity sets the Phase-C rigor dial, never the set" below.
+
+---
+
+## Complexity sets the Phase-C rigor dial, never the set
+<!-- roles=orchestrator phases=3A,3B,3C summary="Domain selects the Phase-C set at every level; complexity moves only iteration depth; the floor is never suppressed." -->
+
+The category-driven selection above takes **no complexity input**: domain
+(category presence) selects the dimensional reviewer set identically at
+every per-track complexity level. The per-track complexity tag moves only
+the **rigor dial** — how hard the Phase-C review-iteration loop iterates:
+
+- `low` → a single shallow pass.
+- `medium` → the normal cap-3 iteration.
+- `high` → iterate to convergence.
+
+(The iteration mechanics live in
+review-iteration.md:orchestrator,reviewer-plan,reviewer-dim-step,reviewer-dim-track:2,3A,3B,3C
+§Limits; `track-code-review.md` §Review loop is the Phase-C dispatch
+point that reads the per-track reconciled tag and applies the dial.)
+
+The **floor** plus the domain-matched set is **never suppressed** by a
+low complexity. Complexity never drops a reviewer the domain selected — a
+track tagged `low` that nonetheless touches a dangerous category still
+gets that category's specialist, because the Phase-C specialists are
+gated on largely the same HIGH triggers that make a track `high`, so
+letting complexity suppress a domain-selected specialist would subtract
+review in the dangerous direction. A `high` tag adds **no** extra Phase-C
+finding-verification beyond deeper iteration; it only lengthens the loop.
+
+The floor every track gets: `review-code-quality`, `review-bugs`,
+`review-test-quality` (plus `review-test-structure` when tests changed).
+The workflow-machinery analog is `review-workflow-consistency` +
+`review-workflow-context-budget`, joined by `review-workflow-writing-style`
+(any `*.md`), `review-workflow-prompt-design` /
+`review-workflow-instruction-completeness` (the SKILL / agent / prompt
+globs), and `review-workflow-hook-safety` (`.claude/scripts/**`,
+`.claude/hooks/*.sh`, or `.claude/settings*.json`) when the diff matches
+their globs, per §"Per-agent file-pattern triggers".
+
+The Phase-A panel reads the same per-track tag for breadth (how many of
+the strategic trio run): `low` → Technical only; `medium` → +Adversarial;
+`high` → +Risk +Adversarial. That panel logic is owned by
+`track-review.md` §"Tier-driven review selection and which reviews to
+run"; this section governs only the Phase-C dimensional set and rigor.
 
 ---
 
@@ -298,8 +366,8 @@ present in the diff.
 
 1. **Workflow-only diff** — `workflow-machinery` is the only category
    present. **Skip the baseline group** (`review-code-quality`,
-   `review-bugs-concurrency`, `review-test-behavior`,
-   `review-test-completeness`); launch the workflow-review group via
+   `review-bugs`, `review-concurrency`,
+   `review-test-quality`); launch the workflow-review group via
    the per-agent triggers above. Conditional agents do not fire (their
    triggers depend on Java characteristics).
 2. **`docs-only` + `workflow-machinery` mix** — any combination of

@@ -7,7 +7,7 @@
 | §Overview | orchestrator,planner | any | What the execution workflow is and how its phases compose. |
 | §Terminology: Phases 0/1/2/3/4 vs Phases A/B/C | any | any | Disambiguates the numeric planning phases from the A/B/C per-track sub-phases. |
 | §Session Lifecycle | orchestrator | 2,3A,3B,3C,4 | How one /execute-tracks session starts, advances tracks, and ends. |
-| §Startup Protocol (Auto-Resume) | orchestrator | 2,3A,3B,3C,4 | State detection at startup: resume from the phase ledger and track files (lite/full also read the plan). |
+| §Startup Protocol (Auto-Resume) | orchestrator | 2,3A,3B,3C,4 | State detection at startup: resume from the phase ledger and track files (a multi-track change also reads the plan). |
 | §Track Pre-Flight (Strategy Assessment + Track Summary) | orchestrator | 3A | Per-track strategy check and summary before review and decomposition. |
 | §Cross-Track Impact Monitoring | orchestrator | 3B,3C | Watching for changes that ripple into upcoming tracks. |
 | §Session Boundary Rules | orchestrator | 2,3A,3B,3C,4 | When to end a session and what to record before stopping. |
@@ -19,7 +19,7 @@
 | §Inline Replanning (ESCALATE) | orchestrator | 3A,3C | The ESCALATE back-edge that re-opens planning mid-execution. |
 | §Track Skip (`[~]`) | orchestrator | 3A | Marking a track skipped and the conditions that justify it. |
 | §Track Completion Protocol | orchestrator | 3C | Steps to close a track: episode, marks, progress update. |
-| §Final Artifacts (Phase 4) | orchestrator,final-designer | 4 | Producing the per-tier durable artifacts with the adversarial-verdict fold; the promotion and cleanup commits. |
+| §Final Artifacts (Phase 4) | orchestrator,final-designer | 4 | Producing the axis-derived durable artifacts with the adversarial-verdict fold; the promotion and cleanup commits. |
 | §Conventions | orchestrator | any | Pointer to the shared conventions this workflow relies on. |
 
 <!--Document index end-->
@@ -92,7 +92,7 @@ The overall workflow has five phases:
   replanning. Full orchestration in `implementation-review.md` (loaded
   on-demand only when State 0 is active).
 - **Phase 3 (Execution)**: `/execute-tracks` — implement and review tracks
-- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce the per-tier durable artifacts (`full`: `design-final.md` + `adr.md`; `lite`: `adr.md`; `minimal`: a two-line PR-description fold) per `prompts/create-final-design.md`
+- **Phase 4 (Final Artifacts)**: `/execute-tracks` (State D) — produce the axis-derived durable artifacts (`design-final.md` iff a design exists; `adr.md` iff a track reconciled ≥ medium; otherwise a two-line PR-description verdict fold) per `prompts/create-final-design.md`
 
 Within Phase 3, each track goes through three sub-phases:
 - **Phase A**: Review + Decomposition (`track-review.md`)
@@ -173,7 +173,7 @@ cross-track impact.
 ---
 
 ## Startup Protocol (Auto-Resume)
-<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State detection at startup: resume from the phase ledger and track files (lite/full also read the plan)." -->
+<!-- roles=orchestrator phases=2,3A,3B,3C,4 summary="State detection at startup: resume from the phase ledger and track files (a multi-track change also reads the plan)." -->
 
 Startup is a single dispatch over one JSON blob. Run
 `.claude/scripts/workflow-startup-precheck.sh --mode full` once at
@@ -198,12 +198,14 @@ a parsed JSON blob is the only license to dispatch.
 The dispatch order mirrors the old numbered protocol — divergence,
 then drift, then handoffs, then state routing.
 
-1. **Read the plan file for orientation, when present.** In `lite`/`full`
+1. **Read the plan file for orientation, when present.** When the track
+   count exceeds one (`tracks` > 1) an `implementation-plan.md` exists:
    read `docs/adr/<dir-name>/_workflow/implementation-plan.md` (the
    thinned derived-mirror plan) for cross-track orientation; per-track
    files at `plan/track-N.md` load later, when a track enters Phase A or
-   its description is amended. In `minimal` there is **no plan** (D2):
-   orient from the phase ledger and the single `plan/track-1.md`. The
+   its description is amended. For a single-track change (`tracks=1`) there
+   is **no plan** (D2): orient from the phase ledger and the single
+   `plan/track-1.md`. The
    script computes `state` from the **phase ledger** tail (D3), not from
    plan checkboxes — the ledger owns the top-level phase and active track,
    the track file's `## Progress` owns the within-track sub-state (the
@@ -291,9 +293,10 @@ then drift, then handoffs, then state routing.
    phase ledger tail and the active track file (D3); `state` is
    `{ "phase": "0"|"A"|"C"|"D"|"Done", "substate": <slug>|null }`.
    There is **no `state.track` field** — re-derive the active track this
-   way, gated by tier:
+   way, gated by the track count (`tracks`):
 
-   - **`lite`/`full`** (a plan exists): read the active track from the
+   - **Multi-track** (`tracks` > 1, a plan exists): read the active track
+     from the
      **ledger `track` tail** — the same value the script's ledger path
      read to compute `state.substate` (D3), so the track you display and
      the sub-state you route on always name the same track. Cross-check
@@ -303,11 +306,12 @@ then drift, then handoffs, then state routing.
      Checklist flip, or a `track=N` append that landed before the prior
      box was flipped — surface the inconsistency to the user rather than
      silently preferring one source.
-   - **`minimal`** (no plan, no Checklist): the active track is
-     **`track-1`** by construction — a single-track tier has exactly one
+   - **Single-track** (`tracks=1`, no plan, no Checklist): the active
+     track is **`track-1`** by construction — a single-track change has
+     exactly one
      track file, which the script's ledger path defaults to when the
      ledger names no track (D10). There is no `## Checklist` to walk, so
-     the `lite`/`full` cross-check above does not apply.
+     the multi-track cross-check above does not apply.
 
    Each resume handles exactly **one phase**; end the session after that
    phase.
@@ -325,10 +329,11 @@ then drift, then handoffs, then state routing.
    - **`phase == "A"`** — the active track has no track file
      yet (pre-Phase-A; rare, since `/create-plan` writes every track
      file at Phase 1 and the only track-file-deleting action leaves
-     the track `[~]`). In `lite`/`full` the active track is the first
-     `[ ]` Checklist track; in `minimal` the ledger recorded a phase
-     before `plan/track-1.md` was written and the active track is
-     `track-1` per the tier-gated re-derivation above. Run the Track
+     the track `[~]`). For a multi-track change the active track is the
+     first `[ ]` Checklist track; for a single-track change the ledger
+     recorded a phase before `plan/track-1.md` was written and the active
+     track is `track-1` per the track-count-gated re-derivation above. Run
+     the Track
      Pre-Flight gate
      (`track-review.md` § Track Pre-Flight), then Phase A in the same
      session. **Panel 1 (strategy assessment) is conditionally
@@ -346,7 +351,7 @@ then drift, then handoffs, then state routing.
      | `failed-step` | The roster carries a `[!]` step. Check if a retry `[ ]` step follows — if yes, resume from the retry. If no retry step, present the failed episode to the user. |
      | `steps-partial` | Resume from the next `[ ]` step (see step-implementation-recovery.md:orchestrator:3B §Phase B Resume for orphan-commit recovery). |
      | `steps-done-review-pending` | All steps `[x]`/`[~]`, code review not yet `[x]`. Run Phase C from the current iteration (single-step tracks skip code review but still run track completion — see track-code-review.md:orchestrator,reviewer-dim-track:3C). |
-     | `review-done-track-open` | All steps `[x]`/`[~]`, code review `[x]`, track completion not yet recorded (the ledger has not advanced past phase `C` for this track; in `lite`/`full` the plan track entry is still `[ ]`). Resume track completion — compile the episode, present to the user for approval. |
+     | `review-done-track-open` | All steps `[x]`/`[~]`, code review `[x]`, track completion not yet recorded (the ledger has not advanced past phase `C` for this track; for a multi-track change the plan track entry is still `[ ]`). Resume track completion — compile the episode, present to the user for approval. |
 
      The Track Pre-Flight gate is **skipped** on State C resume: the
      track file's four track-level sections (`## Purpose / Big
@@ -442,14 +447,14 @@ exactly one phase:
 - **After Phase C (code review + track completion)** — review is complete,
   plan corrections saved (if any), user approved track results, the
   completion episode is written to the track file's `## Episodes`, the
-  ledger completion boundary is appended (and in `lite`/`full` the plan
-  track entry is collapsed and marked `[x]`). Session ends. The next
+  ledger completion boundary is appended (and for a multi-track change the
+  plan track entry is collapsed and marked `[x]`). Session ends. The next
   session's Track Pre-Flight gate runs Panel 1 (strategy assessment)
   against this track's episode. If the session is interrupted before user
   approval, the next session re-enters Phase C at the track completion
   stage (all phases `[x]` in the track file, but the ledger has not
-  recorded this track's completion boundary; in `lite`/`full` the plan
-  track entry is still `[ ]`).
+  recorded this track's completion boundary; for a multi-track change the
+  plan track entry is still `[ ]`).
 
 - **After ESCALATE resolution** — if inline replanning produces a revised
   plan, end the session. The next session starts fresh with the revised plan.
@@ -590,7 +595,7 @@ User interaction points:
 | **Track pre-flight (State A, pre-Phase-A)** | Two-panel summary: Panel 1: strategy assessment (look-back: CONTINUE / ADJUST / ESCALATE) when an earlier track has just completed/skipped; Panel 2: upcoming track summary built from the plan-file entry + the track file's four track-level sections (`## Purpose / Big Picture` intro, `## Context and Orientation` current-state framing plus any track-level diagram, `## Plan of Work` step sequencing, `## Interfaces and Dependencies` in-scope / out-of-scope and inter-track dependencies). Panel 1 is skipped on the very first Phase A entry (no anchor track) and on resume when the strategy-refresh line is already on disk. | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (accept and start Phase A with any review-mode-accumulated amendments + clarifications); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; Apply executes `EDIT_PLAN` / `EDIT_STEP_DESC` / `SKIP_TRACK`, buffers `CLARIFY`, answers `QUESTION` inline); **ESCALATE** (Panel 1 ESCALATE accepted, or review mode produced a deep amendment) → inline replanning. Skipped on State C resume. |
 | **Phase A/B complete (and State 0 complete)** | Phase summary, what was done, next phase | User clears session, re-runs `/execute-tracks` |
 | **Cross-track impact** | Which tracks affected, what broke, recommendation | Continue, pause, or escalate |
-| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write the completion episode to the track file + append the ledger completion boundary; in `lite`/`full` also collapse the plan entry + mark `[x]`); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`, `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
+| **Track complete (end of Phase C)** | Track episode, step episodes, git log of commits, plan corrections | Three one-step options per `review-mode.md` § Approval-panel contract: **Approve** (write the completion episode to the track file + append the ledger completion boundary; for a multi-track change also collapse the plan entry + mark `[x]`); **Review mode** (conversational refinement loop per `review-mode.md` § Flow; on Apply, `FIX_FINDING` items spawn a fresh implementer with `mode=FIX_REVIEW_FINDINGS`, `QUESTION` items are answered inline); **ESCALATE** → inline replanning. |
 | **Step failure (2nd attempt)** | What failed twice, what was tried, options | Retry differently, adjust, or escalate |
 | **Design decision needed** | Alternatives with trade-offs, recommendation | Choose an alternative or provide guidance |
 | **Self-improvement reflection (every session end)** | 0..N proposed YouTrack issues (capped at 3, deduped against existing `project: YTDB tag: dev-workflow` issues), each with title + Bug/Feature type + one-line summary; skipped with a notice when the YouTrack MCP server is unreachable | Pick which proposals to create in YouTrack (numbers, "all", or "none") |
@@ -651,48 +656,66 @@ Completion.
 ---
 
 ## Final Artifacts (Phase 4)
-<!-- roles=orchestrator,final-designer phases=4 summary="Producing the per-tier durable artifacts with the adversarial-verdict fold; the promotion and cleanup commits." -->
+<!-- roles=orchestrator,final-designer phases=4 summary="Producing the axis-derived durable artifacts with the adversarial-verdict fold; the promotion and cleanup commits." -->
 
-After all tracks are complete, a separate session produces the per-tier
-durable artifacts that survive merge into `develop`. **Which artifacts
-Phase 4 produces is keyed off the confirmed tier (D16):**
+After all tracks are complete, a separate session produces the durable
+artifacts that survive merge into `develop`. **Which artifacts Phase 4
+produces derives from the complexity axes, each carrier tied to the axis
+that justifies it (D16; conventions.md:any:any §Per-axis artifact set):**
 
-| Tier | Durable artifacts | Verdict fold | `docs/adr/<dir>/` entry |
-|---|---|---|---|
-| `full` | `design-final.md` + `adr.md` | folded into `adr.md` | yes |
-| `lite` | `adr.md` only (no design to carry forward) | folded into `adr.md` | yes |
-| `minimal` | none — a two-line gate-verdict summary folded into the PR description | folded into the PR description | **no** |
+Each carrier is an **independent** predicate over the axes (not three
+mutually-exclusive tiers):
 
-Gate 2 (multi-track) is the durable-ADR boundary: a multi-track change
-earns post-merge archaeology under `docs/adr/`, a single-track `minimal`
-change documents itself the way any small PR does (its full certificate
-trail survives only in the PR's commit history on GitHub). In `lite`/
-`minimal` no `design.md` exists, so there is no `design-final.md` to
-write; `adr.md` (in `lite`) carries the architecture decisions and the
-adversarial verdict fold alone.
+| Carrier | Exists when | Verdict fold |
+|---|---|---|
+| `design-final.md` (+ `design-mechanics-final.md` if used) | the design gate is yes (a `design.md` exists) | — |
+| `adr.md` | ∃ track reconciled ≥ medium | folded into `adr.md` when it exists |
+| PR-description verdict summary | no track reached medium (no `adr.md` to write) | folded into the PR description |
+
+`∃ track reconciled ≥ medium` is the durable-ADR boundary: a change with a
+medium-or-higher track earns post-merge archaeology under `docs/adr/`
+because it has decisions worth recording, while an all-`low` change
+documents itself the way any small PR does (its full certificate trail
+survives only in the PR's commit history on GitHub). The `adr.md` predicate
+reads the **reconciled** per-track tags (the `max(step tags)` values written
+to the ledger at the A→C boundary), which are settled by Phase 4. When no
+`design.md` exists (`design_gate=no`) there is no `design-final.md` to write;
+`adr.md` then carries the architecture decisions and the adversarial verdict
+fold alone. The two predicates are independent: the common case pairs
+`design-final.md` with `adr.md`, but a rare `design_gate=yes` change whose
+tracks all reconciled `low` produces `design-final.md` with no `adr.md` (its
+decisions live in the design's D-records), and an all-`low` no-design change
+produces neither and folds the verdict into the PR. The old tiers map cleanly —
+a former `lite` whose work was all-`low` now drops `adr.md`, a former
+single-track change that reached `high` now gets one — and the design+single
+cell (`design_gate=yes`, one track) is representable for the first time as
+`design-final.md` + `adr.md` with no plan.
 
 **The verdict fold (D10/D16).** The Phase 4 cleanup deletes the research
-log in every tier, so before the cleanup `git rm` runs, Phase 4 folds the
-log's **resolved adversarial gate verdicts** into the tier's durable
+log for every change, so before the cleanup `git rm` runs, Phase 4 folds the
+log's **resolved adversarial gate verdicts** into the change's durable
 carrier. The fold reads `research.md`'s `## Adversarial gate record`
 section (Track 1's canonical verdict carrier), matching the latest dated
 heading per that section's gate-record cadence, and copies the
 **verdict / status only** — never decision content (S2: the Phase-4 fold
-is the one sanctioned non-decision-content read of the log). In
-`full`/`lite` the fold lands in `adr.md`; in `minimal` it lands as a
-two-line summary in the PR description.
+is the one sanctioned non-decision-content read of the log). When an
+`adr.md` exists the fold lands there; otherwise it lands as a two-line
+summary in the PR description.
 
-Phase 4 therefore lands, per tier and modification class:
+Phase 4 therefore lands, keyed on whether a durable `docs/adr/` carrier
+exists (`design-final.md` and/or `adr.md`) and the modification class:
 
-- **`full`/`lite`, non-workflow-modifying** — two commits (final-artifacts
+- **Carrier exists, non-workflow-modifying** — two commits (final-artifacts
   with the fold, then cleanup).
-- **`full`/`lite`, workflow-modifying** — three commits (promote-staged-
+- **Carrier exists, workflow-modifying** — three commits (promote-staged-
   workflow, then final-artifacts with the fold, then cleanup).
-- **`minimal`, non-workflow-modifying** — one commit (cleanup only); the
-  fold goes in the PR description, no `docs/adr/` final-artifacts commit.
-- **`minimal`, workflow-modifying** — two commits (promote-staged-workflow,
-  then cleanup); the shed removes the fold's `adr.md` home and the
-  final-artifacts commit, not the rest of Phase 4. Promotion still runs.
+- **No carrier (all-`low`, no design), non-workflow-modifying** — one commit
+  (cleanup only); the fold goes in the PR description, no `docs/adr/`
+  final-artifacts commit.
+- **No carrier (all-`low`, no design), workflow-modifying** — two commits
+  (promote-staged-workflow, then cleanup); the shed removes the fold's
+  `adr.md` home and the final-artifacts commit, not the rest of Phase 4.
+  Promotion still runs.
 
 The directory-presence guard is `docs/adr/<dir-name>/_workflow/staged-workflow/.claude/`
 per conventions.md:any:any `§1.7(c)` *Detection rule*: when
@@ -715,19 +738,29 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    `conventions.md` `§1.7(f)` *Rebase-precedes-promotion*. When the
    guard fails, the step is a silent no-op and Phase 4 stays in the
    two-commit shape.
-2. **Final-artifacts commit** (`full`/`lite` only; skipped under
-   `minimal`). First **fold the resolved adversarial gate verdicts** from
+2. **Final-artifacts commit** (when a durable `docs/adr/` carrier exists —
+   `design-final.md` when the design gate is yes, `adr.md` when ∃ track
+   reconciled ≥ medium, or both; skipped only when neither exists, i.e. an
+   all-`low` no-design change). First, when an `adr.md` is being written,
+   **fold the resolved adversarial gate verdicts** from
    `research.md`'s `## Adversarial gate record` (latest dated heading,
-   verdict/status only) into `adr.md`. Then stage the tier's artifacts
-   (`design-final.md` + `design-mechanics-final.md` if applicable +
-   `adr.md` in `full`; `adr.md` only in `lite`) and commit with the
+   verdict/status only) into it. Then stage the change's artifacts
+   (`design-final.md` + `design-mechanics-final.md` if applicable when a
+   design exists; `adr.md` when ∃ track ≥ medium — either or both) and
+   commit with the
    message defined in `prompts/create-final-design.md` § Step 5; push.
-   The fold runs **before** the cleanup `git rm` below deletes the log,
-   so the verdict trail is captured in the durable carrier first. Under
-   `minimal` there is no `adr.md` and no final-artifacts commit: the fold
+   That executor still keys its carrier selection off the tier table until
+   the create-final-design re-key lands onto the axes — both files' staged
+   edits promote together in the single Phase-4 commit (conventions.md:any:any
+   `§1.7(e)`), so the staged workflow is consistent at promotion. The fold
+   runs **before** the cleanup
+   `git rm` below deletes the log,
+   so the verdict trail is captured in the durable carrier first. When no
+   `adr.md` exists the verdict fold has no `adr.md` home: it
    is a two-line gate-verdict summary written into the PR description (the
    squash-merge carries it into `develop`'s `git log`), authored before
-   the cleanup commit.
+   the cleanup commit — and when no `design-final.md` exists either, there is
+   no final-artifacts commit at all.
 3. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
    (plan, `design.md` if present, `design-mechanics.md`, the research log,
@@ -736,8 +769,7 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    recursive `git rm` sweeps the review-file directories automatically; no
    `plan/*`-globbing removal is needed (and would risk catching the
    `plan/track-N.md` files). Commit with a message such as `Remove
-   workflow scaffolding`. Push. This commit runs in **every** tier,
-   `minimal` included.
+   workflow scaffolding`. Push. This commit runs for **every** change.
 
 The end-of-session self-improvement reflection runs after the final
 Phase 4 commit lands — it creates any approved proposals as YouTrack

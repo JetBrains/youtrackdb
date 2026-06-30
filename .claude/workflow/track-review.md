@@ -5,16 +5,16 @@
 | Section | Roles | Phases | Summary |
 |---|---|---|---|
 | §Overview | orchestrator,decomposer | 3A | Phase A reviews and decomposes the upcoming track, gated by the Track Pre-Flight strategy assessment. |
-| §Phase A: Review + Decomposition | orchestrator,decomposer | 3A | The Phase A flow: tier selects reviews, sequential reviews, step decomposition, and the mandatory session boundary. |
+| §Phase A: Review + Decomposition | orchestrator,decomposer | 3A | The Phase A flow: the complexity tag selects reviews, sequential reviews, decomposition, and the session boundary. |
 | §Tooling — PSI is required for symbol audits in Phase A | orchestrator,decomposer | 3A | Symbol audits during Phase A go through PSI via mcp-steroid, not grep; the preflight and fallback rules apply. |
 | §Pre-write rule — PSI-verify class names | decomposer | 3A | Verify every class/method name through PSI before it lands in a decomposed step or track-file claim. |
 | §Track Pre-Flight — Strategy Assessment + Track Summary | orchestrator | 3A | The two-panel Pre-Flight gate: a look-back strategy assessment and an upcoming-track summary with a review-mode loop. |
-| §What You Do | orchestrator,decomposer | 3A | The concrete Phase A actions: read the tier, run the selected reviews, decompose into steps, write the track file. |
-| §Tier-driven review selection and which reviews to run | orchestrator,decomposer | 3A | Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only. |
+| §What You Do | orchestrator,decomposer | 3A | Phase A actions: read the predicted complexity tag, run reviews, decompose, reconcile to max(step tags), write the file. |
+| §Tier-driven review selection and which reviews to run | orchestrator,decomposer | 3A | Pick the Phase-3A panel by complexity tag (low=Technical; medium=+Adversarial; high=+Risk+Adversarial); reconcile once. |
 | §Inputs passed to Phase A review sub-agents | orchestrator | 3A | The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope). |
 | §Track-scoped technical review | reviewer-technical | 3A | The track-scoped technical review and its prompt file. |
 | §Track-scoped risk review | reviewer-risk | 3A | The track-scoped risk review and its prompt file. |
-| §Track-scoped adversarial review | reviewer-adversarial | 3A | The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the D14 tier model/effort pin. |
+| §Track-scoped adversarial review | reviewer-adversarial | 3A | The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the design_gate model pin. |
 | §Review gate verification | orchestrator | 3A | Re-run the Phase A reviews against applied fixes via the review-gate-verification prompt. |
 | §Review iteration protocol | orchestrator | 3A | Phase A reviews follow the shared review iteration protocol (max 3 iterations, cumulative IDs). |
 | §Step Decomposition | decomposer | 3A | Decompose the track into a roster of risk-tagged steps; sizing, cross-cutting, and parallel-annotation rules. |
@@ -41,7 +41,7 @@ Phase C includes both the track-level code review and track completion
 ---
 
 ## Phase A: Review + Decomposition
-<!-- roles=orchestrator,decomposer phases=3A summary="The Phase A flow: tier selects reviews, sequential reviews, step decomposition, and the mandatory session boundary." -->
+<!-- roles=orchestrator,decomposer phases=3A summary="The Phase A flow: the complexity tag selects reviews, sequential reviews, decomposition, and the session boundary." -->
 
 > **In this phase, you are a reviewer and planner, not an implementer. You
 > NEVER edit source code, test files, or build files. You explore the
@@ -465,7 +465,7 @@ review-mode rounds.
 **8. Continue.** Move to §What You Do sub-step 1 below.
 
 ### What You Do
-<!-- roles=orchestrator,decomposer phases=3A summary="The concrete Phase A actions: read the tier, run the selected reviews, decompose into steps, write the track file." -->
+<!-- roles=orchestrator,decomposer phases=3A summary="Phase A actions: read the predicted complexity tag, run reviews, decompose, reconcile to max(step tags), write the file." -->
 
 > The Track Pre-Flight gate above must clear before sub-step 1 starts.
 > On State C resume the gate is skipped (see §Phase A Resume).
@@ -481,12 +481,17 @@ review-mode rounds.
    subsection committed by the gate above; both phases of consumption
    route through the same file.
 
-2. **Read the confirmed tier** — ledger-first: the phase ledger's
-   `tier` field (`_workflow/phase-ledger.md`, last value wins); when no
-   `phase-ledger.md` exists (an in-flight pre-ledger `lite`/`full`
-   plan), fall back to the tier line in `implementation-plan.md` — to
-   select which reviews to run (see
-   §Tier-driven review selection below).
+2. **Read the predicted per-track complexity tag** — the planner computed
+   it at Phase 1 by running the seven HIGH triggers at track granularity
+   over the track's planned work (`## Plan of Work` +
+   `## Interfaces and Dependencies`), per
+   risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C
+   §"Track-level complexity tag"; it is recorded on the track file by the
+   Phase-1 request Track 1 wires into `planning.md`. This is a
+   *prediction* (computed before decomposition, so no per-step risk tags
+   exist yet) — it selects which strategic-panel reviews run (see
+   §Tier-driven review selection below) and is reconciled against
+   `max(step tags)` after decomposition.
 
 3. **Run track-scoped reviews** as sub-agents (technical, risk, adversarial
    as warranted). After each review completes:
@@ -531,14 +536,21 @@ review-mode rounds.
      or decomposition. Save all work and ask the user for a session
      refresh (see `workflow.md` §Context Consumption Check). If the pause
      leaves Phase A mid-flight (for example, technical review PASSed
-     but risk / adversarial reviews are still unrun, or all reviews
-     PASSed but decomposition has not yet been written), write a
-     handoff file per
+     but risk / adversarial reviews are still unrun, all reviews
+     PASSed but decomposition has not yet been written, or decomposition
+     is written but the upward-divergence reconciliation
+     (§"Reconciliation on upward divergence (D5)") has not yet run),
+     write a handoff file per
      mid-phase-handoff.md:orchestrator,planner:0,1,2,3A,3B,3C,4 so the next session
      does not re-spawn reviewers whose results already landed in the
-     **Outcomes & Retrospective** section. If the level is `safe`/`info`,
-     continue. If the file does not exist or the command fails, this
-     is **not an error** — treat as `safe` and continue.
+     **Outcomes & Retrospective** section. When the pause is in the
+     decomposition-written-but-reconciliation-pending state, the handoff
+     records whether `max(step tags)` over the committed roster exceeds
+     the predicted tag, so the next session knows the missed-reviewer
+     pass is still owed (the resume action for this state in §Resume
+     actions re-runs the comparison either way). If the level is
+     `safe`/`info`, continue. If the file does not exist or the command
+     fails, this is **not an error** — treat as `safe` and continue.
 4. **Decompose scope indicators** into concrete steps. For each step,
    assign a **risk tag** (`low` / `medium` / `high`) per the criteria
    in risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C — load that file at the
@@ -590,14 +602,23 @@ review-mode rounds.
    instead of re-running Phase A from the top. The `--substate steps-partial`
    token records the within-track sub-state the ledger-primary resume read
    routes on: a `phase=C` track whose last `substate` is `steps-partial`
-   resumes into Phase B step implementation. Reuse the same `<level>`
-   sub-step 5 read for its `## Progress` entry (`unknown` when that
-   statusline read missed — a valid bare `--ctx` token), so there is no
+   resumes into Phase B step implementation. The same line also carries the
+   **reconciled tag** (`--reconciled-tag <max(step tags)>`, the
+   reconciliation output from §Tier-driven review selection above) so the tag
+   that governs Phase C lands on the same ledger line as its `--track <N>`
+   token — the track-scoped reader resolves `reconciled_tag` only on a ledger
+   line that also carries that track's `track=` token. Recompute
+   `max(step tags)` from the committed `## Concrete Steps` roster on every
+   (re)entry, so a re-run of this append produces the same
+   `--reconciled-tag` value and the write is idempotent on resume. Reuse the
+   same `<level>` sub-step 5 read for its `## Progress` entry (`unknown` when
+   that statusline read missed — a valid bare `--ctx` token), so there is no
    second statusline read:
 
    ```bash
    .claude/scripts/workflow-startup-precheck.sh --append-ledger \
-       --ctx <level> --phase C --track <N> --substate steps-partial
+       --ctx <level> --phase C --track <N> --substate steps-partial \
+       --reconciled-tag <max(step tags)>
    ```
 
    Then commit and push, staging both the track file and the ledger so the
@@ -618,50 +639,92 @@ review-mode rounds.
    pulled in.
 
 ### Tier-driven review selection and which reviews to run
-<!-- roles=orchestrator,decomposer phases=3A summary="Pick the Phase-3A panel by tier, not step count; Risk gated, Adversarial narrowed, minimal Technical-only." -->
+<!-- roles=orchestrator,decomposer phases=3A summary="Pick the Phase-3A panel by complexity tag (low=Technical; medium=+Adversarial; high=+Risk+Adversarial); reconcile once." -->
 
-The **confirmed tier** (D9), not step count, selects the Phase-3A panel
-at the change level. Read the tier ledger-first: the phase ledger's
-`tier` field (last value wins); when no `phase-ledger.md` exists, fall
-back to the tier line in `implementation-plan.md`. This
-replaces the former Simple / Moderate / Complex step-count axis as the
-change-level selector. The selection reads **no per-step risk signal**
-(S4): the tier is the change-level driver; the per-step `risk:` tag stays
-the Phase-3B gate and the Phase-C triage stays the Phase-3C gate, and the
-two never stack into one signal. The reviews still determine *which*
+The **per-track complexity tag** (D6), not step count or a whole-change
+tier, selects the Phase-3A panel. The panel runs once per track (one
+`/execute-tracks` sub-phase handles one track), so the tag it reads is the
+track's own complexity, not a change-level signal. Phase A runs this panel
+(§What You Do sub-step 3) **before** it decomposes the track into steps
+(sub-step 4), so when the panel runs no per-step risk tags exist yet: it
+sizes itself from the **track-tag prediction alone** — the complexity tag
+the planner computed at Phase 1 over the track's planned work
+(`## Plan of Work` + `## Interfaces and Dependencies`), per
+risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C §"Track-level
+complexity tag". The selection reads **no per-step risk signal** (S4): the
+track tag is the Phase-3A driver; the per-step `risk:` tag stays the
+Phase-3B gate and the Phase-C triage stays the Phase-3C gate, and the
+three never stack into one signal. The reviews still determine *which*
 pre-execution passes run, not user interaction level: all tracks execute
 autonomously after review, all tracks get track-level code review
-(Phase C) regardless of tier, and step-level dimensional review (Phase B
-sub-step 4) runs only for steps tagged `risk: high` per
+(Phase C) regardless of complexity, and step-level dimensional review
+(Phase B sub-step 4) runs only for steps tagged `risk: high` per
 risk-tagging.md:decomposer,orchestrator,implementer:3A,3B,3C; `medium` and `low` steps rely on
 tests plus track-level review.
 
-| Tier | Phase-3A review pipeline |
+| Per-track complexity tag | Phase-3A review pipeline |
 |---|---|
-| `minimal` | Technical review only — Risk and Adversarial are dropped (a single track is the whole change the research-log gate already vetted). |
-| `lite` | Technical (always); Risk track-characteristic-gated (see below); Adversarial narrowed to track realization (see §Track-scoped adversarial review). |
-| `full` | Technical (always); Risk track-characteristic-gated (see below); Adversarial narrowed to track realization (see §Track-scoped adversarial review). |
+| `low` | Technical review only — Risk and Adversarial are dropped (a genuinely `low` track is a pure refactor / tests / docs that the research-log gate already vetted). |
+| `medium` | Technical (always) + Adversarial narrowed to track realization (see §Track-scoped adversarial review); Risk dropped. |
+| `high` | Technical (always) + Risk + Adversarial narrowed to track realization (see §Track-scoped adversarial review). |
 
-**Risk is track-characteristic-gated in `lite`/`full`.** The Phase-3A Risk
-review is a distinct sub-agent from the per-step `risk:` tag that gates
-Phase 3B. It runs when the track's characteristics warrant it:
+Complexity sets *how many* of the strategic trio run; domain (the track's
+HIGH-trigger characteristics) only biases which concerns the Risk and
+Adversarial reviewers emphasize, not which of the three run. Adversarial is
+the default extra at `medium` and above; Risk is the high-stakes add,
+because a `high` tag *is* a HIGH-trigger characteristic (it hit one of the
+seven `risk-tagging.md` HIGH triggers over the track's planned work). An
+architecture-central track does not fall through the `low`-drops-Adversarial
+gap: it tags `high` (it hit the Architecture HIGH trigger over its planned
+work) and so earns Risk + Adversarial; the per-step `risk: high` override is
+the backstop for a subtle case the prediction misses.
 
-| Tier + track characteristics | Reviews to run |
-|---|---|
-| `minimal` (any characteristics) | Technical only |
-| `lite`/`full`, no warranting characteristic | Technical + Adversarial (narrowed) |
-| `lite`/`full` + critical paths or performance constraints | Technical + Risk + Adversarial (narrowed) |
-| `lite`/`full` + major architectural decisions | Technical + Risk + Adversarial (narrowed) |
+#### Reconciliation on upward divergence (D5)
 
-The Risk-gating characteristics are critical paths, performance
-constraints, **or major architectural decisions** — the design's Part-6
-enumeration deliberately widens Risk to cover architectural decisions
-(which today's mapping routed to Adversarial), so the table above is the
-target enumeration, not today's mapping. The Adversarial pass runs in
-every `lite`/`full` track (narrowed to track realization), so the prior
-"major architectural decisions or non-obvious scope → add Adversarial"
-upgrade row is subsumed: Adversarial is no longer conditional in
-`lite`/`full`.
+The Phase-A panel sizes itself from the **prediction**; `max(step tags)` is
+computable only after sub-step 4 assigns per-step risk tags. So the panel can
+run at the predicted intensity and only afterward discover the steps are
+harder — a real prediction-versus-reconciled gap. After decomposition (the
+end of sub-step 4, before the A→C commit in sub-step 6), compute
+`max(step tags)` over the committed `## Concrete Steps` roster and compare it
+to the predicted track tag (`low` < `medium` < `high`):
+
+- **Upward miss** (`max(step tags)` above the prediction, at any level): run
+  the **missed strategic reviewers** — the higher-intensity panel reviewers
+  the predicted panel skipped, per the complexity→panel map above. A predicted
+  `low` track whose steps reach `medium` runs Adversarial; a predicted
+  `low`/`medium` track whose steps reach `high` runs Risk, plus Adversarial if
+  it has not already run. They run as ordinary Phase-A passes — each its own
+  review type under the existing per-review-type cap-3 (§Review iteration
+  protocol), exactly like the predicted-intensity panel. Feed their findings
+  back into decomposition: revise the step plan / adjust the step count / split
+  or merge steps as the findings call for (re-decomposition is an *outcome* the
+  findings may require, not an automatic action), then return to sub-step 4
+  once and re-run to PASS.
+
+  **Reconciliation fires at most once per Phase A.** Termination is bounded
+  because the intensity ceiling is `high`: after the missed reviewers run and
+  any re-decomposition lands, the divergence comparison is **not** re-evaluated
+  against a second upward miss. If re-decomposition raises `max(step tags)`
+  again it can only reach `high`, which the missed-reviewer pass already
+  covered — so there is no decompose-then-re-review ping-pong.
+
+- **Downward divergence** (`max(step tags)` below the prediction): run **no**
+  missed reviewers — the panel already over-ran, so the extra review is
+  preserved and the result is safe. Phase C reads `max(step tags)` as the
+  **floor**: even when the prediction over-ran, Phase-C rigor never drops below
+  the step-derived maximum. Emit a **light flag** asking the decomposer to
+  re-check that no step was tagged below the work it actually does before the
+  lower reconciled tag is trusted; no re-review runs.
+
+A predicted `high` track cannot diverge upward (there is no level above
+`high`), so it never triggers the missed-reviewer pass.
+
+The **reconciled tag** (`max(step tags)`) — not the prediction — governs
+Phase C, and it is written to the per-track ledger field at the A→C boundary
+(§What You Do sub-step 6). Recompute `max(step tags)` from the committed
+`## Concrete Steps` roster on every (re)entry, so the comparison and the
+ledger write are deterministic and idempotent on resume.
 
 ### Inputs passed to Phase A review sub-agents
 <!-- roles=orchestrator phases=3A summary="The strategic and tactical inputs each Phase A review sub-agent receives (slim plan, track file, diff scope)." -->
@@ -750,11 +813,13 @@ defined in §Inputs passed to Phase A review sub-agents above.
 **Prompt file:** prompts/risk-review.md:reviewer-risk:3A
 
 ### Track-scoped adversarial review
-<!-- roles=reviewer-adversarial phases=3A summary="The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the D14 tier model/effort pin." -->
+<!-- roles=reviewer-adversarial phases=3A summary="The narrowed track-realization adversarial pass, its track-1 episode-challenge drop, and the design_gate model pin." -->
 
 Spawn a sub-agent with the adversarial review prompt. Inputs: the
 shared set defined in §Inputs passed to Phase A review sub-agents
-above. Runs in `lite` and `full` only (`minimal` drops it).
+above. Runs on `medium` and `high` tracks only (`low` drops it), and on
+any upward-divergence reconciliation that raises the panel to `medium`
+or above (see §Tier-driven review selection).
 
 **Narrowed to track realization (D9).** A track's inline decisions are
 already vetted by the Phase-0→1 research-log adversarial gate, so this
@@ -776,8 +841,11 @@ exactly the track most worth challenging. (This is why the pass is not
 dropped wholesale on track 1; only the one challenge that needs a prior
 episode is.)
 
-**Model and effort pin (D14).** Pin the Agent `model` field by tier on the
-spawn: `full` → Fable 5, `lite` → Opus 4.x. Both are intended to run at
+**Model and effort pin (D14).** Pin the Agent `model` field on the spawn by
+the change-level `design_gate` flag (the axis that replaced the dropped
+`tier` key for this pin): `design_gate=yes` → Fable 5, `design_gate=no` →
+Opus 4.x. Read `design_gate` ledger-first (the phase ledger's `design_gate`
+field, last value wins). Both are intended to run at
 xhigh effort; the Agent surface exposes no per-spawn effort field and
 there is no adversarial-reviewer agent file to carry it in frontmatter, so
 the xhigh-effort half rides the session default. Do not attempt to set a
@@ -999,7 +1067,7 @@ reviews are already in progress):
 |---|---|---|
 | Empty (no `Technical:` / `Risk:` / `Adversarial:` prefixed entries) | Empty | Re-fire the gate (per the rules above), then run §What You Do sub-steps 1-6 from the top. |
 | One or more `Technical:` / `Risk:` / `Adversarial:` entries recorded as `[x]` | Empty | Skip the gate. Resume reviews from the next missing review type (§What You Do sub-step 3 onward). |
-| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; resume from sub-step 6 (commit) if not yet committed. If the decomposition is already committed, do **not** declare steady state on the commit alone — verify the A→C ledger tail first (`tail -1 docs/adr/<dir-name>/_workflow/phase-ledger.md` must carry both `phase=C` and `track=<N>`). Only a tail reading `phase=C track=<N>` is steady state, where `/execute-tracks` routes to Phase B on the next invocation. If the roster is committed but the tail is not `phase=C track=<N>` (a dropped or failed step-6 append), run §Phase A Completion step 2's recovery branch (re-run the step-6 append, dedicated commit, re-verify the tail) before treating the track as resumable into Phase B. |
+| All planned `Technical:` / `Risk:` / `Adversarial:` entries recorded | Non-empty `[ ]` items | Skip the gate. Decomposition has run; before resuming to sub-step 6, **re-run the upward-divergence reconciliation** (§"Reconciliation on upward divergence (D5)", which sits between sub-step 4 and sub-step 6): recompute `max(step tags)` over the committed `## Concrete Steps` roster and compare it to the predicted tag. On an upward miss, run the missed strategic reviewers and feed their findings back into decomposition before proceeding — a resume that entered after the decompose write would otherwise skip this comparison and commit a track whose missed reviewers never ran. The re-run is safe on resume: `max(step tags)` is recomputed from the committed roster, and each missed reviewer is gated on its own `## Outcomes & Retrospective` `[x]` checkbox (a reviewer that already ran and recorded `[x]` is a no-op). Then resume from sub-step 6 (commit) if not yet committed. If the decomposition is already committed, do **not** declare steady state on the commit alone — verify the A→C ledger tail first (`tail -1 docs/adr/<dir-name>/_workflow/phase-ledger.md` must carry both `phase=C` and `track=<N>`). Only a tail reading `phase=C track=<N>` is steady state, where `/execute-tracks` routes to Phase B on the next invocation. A committed roster with a `phase=C track=<N>` tail means the prior session already ran the reconciliation and committed past it, so the reconciliation re-run is unnecessary; the unreconciled case is precisely the roster-committed-but-tail-not-advanced state. If the roster is committed but the tail is not `phase=C track=<N>` (a dropped or failed step-6 append), re-run the reconciliation comparison as above, then run §Phase A Completion step 2's recovery branch (re-run the step-6 append, dedicated commit, re-verify the tail) before treating the track as resumable into Phase B. |
 
 Pattern-match on the entry prefix (`Technical:` / `Risk:` /
 `Adversarial:`) to filter out Phase C iteration entries
@@ -1045,11 +1113,15 @@ After writing the track file with all decomposed steps:
    commit is present but the ledger tail is NOT `phase=C track=<N>` (a
    skipped append, or a corrupted or hand-edited append-only ledger),
    recover by re-running step 6's append against the live ledger, then
-   committing and pushing it in a dedicated commit, and re-verify the tail:
+   committing and pushing it in a dedicated commit, and re-verify the tail.
+   Recompute `--reconciled-tag` from the committed `## Concrete Steps` roster
+   here too (the same `max(step tags)` step 6 wrote), so the recovery re-append
+   carries the identical reconciled tag and the write stays idempotent:
 
    ```bash
    .claude/scripts/workflow-startup-precheck.sh --append-ledger \
-       --ctx <level> --phase C --track <N> --substate steps-partial
+       --ctx <level> --phase C --track <N> --substate steps-partial \
+       --reconciled-tag <max(step tags)>
    git add docs/adr/<dir-name>/_workflow/phase-ledger.md
    git commit -m "Append A->C phase-ledger boundary for <track>"
    git push

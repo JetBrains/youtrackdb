@@ -48,57 +48,58 @@ code to find gaps and inconsistencies between the four artifacts:
    its `## Purpose / Big Picture`, `## Context and Orientation`,
    `## Plan of Work`, and `## Interfaces and Dependencies` sections.
    Written by `create-plan` at Phase 1.
-3. **Design document** (`design.md`) — **present only in `full`-tier
-   plans.** In `lite` and `minimal` no design file exists.
+3. **Design document** (`design.md`) — **present only when the design
+   gate is yes** (`design_gate=yes`). When the design gate is no, no
+   design file exists.
 4. **Actual codebase**
 
-**Tier and the design-presence guard.** The set of artifacts you compare
-depends on the plan's confirmed tier — read ledger-first: the phase
-ledger's `tier` field (`_workflow/phase-ledger.md`, last value wins);
-when no `phase-ledger.md` exists (an in-flight pre-ledger `lite`/`full`
-plan), fall back to the tier line in `implementation-plan.md`. Apply one
-mechanical test: **does
-`design.md` exist?**
+**The design gate and the design-presence guard.** The set of artifacts
+you compare depends on the change's confirmed design gate — read
+ledger-first: the phase ledger's `design_gate` field
+(`_workflow/phase-ledger.md`, last value wins); when no `phase-ledger.md`
+exists (an in-flight pre-ledger plan), fall back to the mechanical
+on-disk test: **does `design.md` exist?** The two agree by construction —
+`design.md` exists iff `design_gate=yes` — so the on-disk test is the
+fallback when the ledger field is unreadable.
 
-- **`full`** (design present): compare all four artifacts — the full
-  consistency review below runs unchanged.
-- **`lite`** (no design): skip every axis and gap that reads `design.md`
-  (the **DESIGN ↔ CODE** and **DESIGN ↔ PLAN** axes, and the design half
-  of **GAPS**). Compare plan + tracks + code.
-- **`minimal`** (no design, no plan): `minimal` drops the plan outright
-  (D2), so there is no `implementation-plan.md`. Drop the **PLAN ↔ CODE**
-  axis entirely — there is no plan file to compare against, and the only
-  plan-vs-code obligation that survives is whatever reads the track files
-  directly (see §PLAN ↔ CODE CONSISTENCY below for the track-reference
-  bullets that still run against the track files). Do not raise findings
-  against a plan file that does not exist, **except** the
-  tier-line-presence check below, which runs in every tier (the tier home
-  under `minimal` is the ledger `tier` field, not a plan line).
+- **`design_gate=yes`** (design present): compare all four artifacts —
+  the full consistency review below runs unchanged.
+- **`design_gate=no`** (no design): skip every axis and gap that reads
+  `design.md` (the **DESIGN ↔ CODE** and **DESIGN ↔ PLAN** axes, and the
+  design half of **GAPS**). Compare plan + tracks + code.
 
-**Tier-presence check (runs in every tier).** Reading the confirmed tier
-is the precondition for the tier selection above, so its absence is a
-finding, not stub-content drift. If the tier resolves from neither
-source — no `tier` field in the phase ledger and (for a pre-ledger
-`lite`/`full` plan) no D18 tier line in `implementation-plan.md` — emit
-a finding (the tier is required in every tier per
-D18; a `lite`/`full` plan's tier line and the ledger `tier` field are
-the two homes) and treat the plan as
-malformed. This check is carved out of the `minimal` "do not raise
-findings against the stub plan's absent content" suppression: the
-suppression covers decision and ordering content, never the tier.
+When the plan itself is absent (the single-track change carries no
+`implementation-plan.md`, since a cross-track summary is vacuous for one
+track), drop the **PLAN ↔ CODE** axis entirely — there is no plan file to
+compare against, and the only plan-vs-code obligation that survives is
+whatever reads the track files directly (see §PLAN ↔ CODE CONSISTENCY
+below for the track-reference bullets that still run against the track
+files). Do not raise findings against a plan file that does not exist.
+Whether the plan exists is the **track-count axis** (> 1 track ⇒ a plan
+exists), orthogonal to the design gate: a `design_gate=yes` single-track
+change has a `design.md` but no plan, and a `design_gate=no` multi-track
+change has a plan but no design.
 
-**Degenerate case — tier unreadable.** If the tier cannot be
-read from either source, do not guess a tier. Fall back to the
-design-presence test alone
-for axis selection: compare against whatever artifacts exist on disk
-(`design.md` present or not), run the track-vs-code check, and raise the
-tier-presence finding above. This keeps the run deterministic while
-that finding stands, instead of proceeding in an unspecified shape.
+**Design-gate-presence check.** Reading the confirmed design gate is the
+precondition for the axis selection above, so its absence is a finding,
+not stub-content drift. If the design gate resolves from neither source —
+no `design_gate` field in the phase ledger and (for a pre-ledger plan) no
+`design.md` on disk to fall back to — emit a finding (the design gate is
+recorded in the ledger for every change per D10) and treat the plan as
+malformed.
+
+**Degenerate case — design gate unreadable.** If the design gate cannot
+be read from the ledger, do not guess. Fall back to the design-presence
+test alone for axis selection: compare against whatever artifacts exist
+on disk (`design.md` present or not), run the track-vs-code check, and
+raise the design-gate-presence finding above. This keeps the run
+deterministic while that finding stands, instead of proceeding in an
+unspecified shape.
 
 When `design.md` is absent, emit no finding that opens, cites, or routes a
 correction to a design file: there is no frozen seed to defer to, so every
 correction is plan-or-track-scoped. The track is the live decision carrier
-in every tier (D7), so its `## Decision Log` inline DRs are always in
+for every change (D7), so its `## Decision Log` inline DRs are always in
 scope for the track-vs-code check.
 
 Prose produced by this file follows the project house-style at `.claude/output-styles/house-style.md`. See `.claude/workflow/conventions.md §1.5 Writing style for Markdown and prose artifacts` for the canonical workflow-level anchor and tier mapping; the four AI-tell subset section slugs to apply are `## Banned sentence patterns`, `## Banned analysis patterns`, `## Orientation`, and `## Plain language`.
@@ -242,9 +243,9 @@ finding and the classification rules below will route it correctly.
 ### DESIGN ↔ CODE CONSISTENCY
 <!-- roles=reviewer-plan phases=2 summary="Do the design document's class and workflow diagrams match the actual classes and call flows in the code?" -->
 
-**Design half — skip entirely when `design.md` is absent** (`lite` /
-`minimal`). This axis reads the design document; with no design there is
-nothing to compare, so emit no findings here.
+**Design half — skip entirely when `design.md` is absent**
+(`design_gate=no`). This axis reads the design document; with no design
+there is nothing to compare, so emit no findings here.
 
 - Do class diagrams in the design document match the actual classes in the
   codebase? Check: class names, interface names, inheritance/composition
@@ -261,12 +262,14 @@ nothing to compare, so emit no findings here.
 ### PLAN ↔ CODE CONSISTENCY
 <!-- roles=reviewer-plan phases=2 summary="Do Architecture Notes, integration points, track references, and invariants in the plan reflect the real codebase?" -->
 
-**Under `minimal`, lightens to a track-vs-code check.** The `minimal`
-aggregator plan is a ~10-line stub with one checklist entry and no
+**When no plan exists, lightens to a track-vs-code check.** A single-track
+change carries no `implementation-plan.md` (the track-count axis: a
+cross-track summary is vacuous for one track), so there are no
 Architecture Notes, Component Map, Decision Records, or Integration Points
-to verify, so skip the plan-content bullets (the first, second, and fourth
-below) and run only the track-reference bullet (the third) against the
-single track file plus the code. Under `full`/`lite` all four bullets run.
+in a plan to verify — skip the plan-content bullets (the first, second,
+and fourth below) and run only the track-reference bullet (the third)
+against the single track file plus the code. When a plan exists
+(multi-track) all four bullets run.
 
 - Do the Architecture Notes (Component Map, Decision Records) accurately
   reflect the current codebase structure? Check that referenced components,
@@ -290,9 +293,9 @@ single track file plus the code. Under `full`/`lite` all four bullets run.
 ### DESIGN ↔ PLAN CONSISTENCY
 <!-- roles=reviewer-plan phases=2 summary="Do the design document's diagrams, decisions, and complexity align with the plan's Component Map, DRs, and scope?" -->
 
-**Design half — skip entirely when `design.md` is absent** (`lite` /
-`minimal`). This axis reads the design document; with no design there is
-nothing to align against, so emit no findings here.
+**Design half — skip entirely when `design.md` is absent**
+(`design_gate=no`). This axis reads the design document; with no design
+there is nothing to align against, so emit no findings here.
 
 - Are the classes/interfaces in the design document's class diagrams
   consistent with the Component Map and Decision Records in the plan?
@@ -334,9 +337,9 @@ design, which signals a genuine plan/design inconsistency.
 <!-- roles=reviewer-plan phases=2 summary="Plan parts with no design coverage, design parts no track covers, and codebase constructs the documents skip." -->
 
 The first two bullets are the **design half** — skip them when `design.md`
-is absent (`lite` / `minimal`), since "no design coverage" and "design
+is absent (`design_gate=no`), since "no design coverage" and "design
 part no track covers" are vacuous with no design. The third bullet
-(orphan codebase constructs) runs in every tier.
+(orphan codebase constructs) runs for every change.
 
 - Are there parts of the implementation plan that have no corresponding
   design coverage? (e.g., a track describes complex concurrency behavior

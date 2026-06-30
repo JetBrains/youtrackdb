@@ -50,13 +50,13 @@ structure and the append cadence. The log is carried forward into Phase 1
 <!-- roles=planner phases=0,1 summary="The five-section durable decision ledger Phase 0 writes; the append cadence and the one-way read-scope discipline (S2)." -->
 
 The research log (`_workflow/research-log.md`) is the single durable
-Phase-0/1 decision ledger. It is produced in **every** tier (the tier is
-not yet chosen during Phase 0; the log is what Step 4 reads to propose
-one), and it is the one artifact present across all three tiers — which is
-why the relocated adversarial review gates the log rather than a
-tier-specific artifact (see `prompts/adversarial-review.md`
-§Research-log-scoped review (Phase 0→1) and `planning.md` §Tier
-classification).
+Phase-0/1 decision ledger. It is produced for **every** change (the design
+gate is not yet chosen during Phase 0; the log is what Step 4 reads to
+propose it), and it is the one artifact present for every change regardless
+of the complexity axes — which is why the relocated adversarial review
+gates the log rather than an axis-specific artifact (see
+`prompts/adversarial-review.md` §Research-log-scoped review (Phase 0→1) and
+`planning.md` §Tier classification).
 
 The log is the agent's internal memory, never surfaced to the user during
 research: its structure stays out of the research conversation, and findings
@@ -131,8 +131,8 @@ reading it add no third decision-content site. After a track absorbs a
 decision as an inline Decision Record, the **track** is authoritative and the
 log is historical provenance. The log is removed in the Phase 4 cleanup with the rest of
 `_workflow/`, so any audit trail that must survive merge is folded into a
-durable carrier (`adr.md`, or the `minimal`-tier PR-description summary),
-not left in the log.
+durable carrier (`adr.md`, or — when no `adr.md` exists because no track
+reconciled ≥ medium — the PR-description summary), not left in the log.
 
 ## How it works
 <!-- roles=planner phases=0 summary="The user drives an exploration loop; the agent answers, explores code, and never starts planning early." -->
@@ -172,21 +172,21 @@ When the user says to create the plan:
    durable seed for planning: it ensures the planning phase builds on what
    was decided, not just what the agent happens to remember after a context
    boundary.
-2. Step 4 of `create-plan` reads the now-rich log to propose the change
-   tier (`full` / `lite` / `minimal`) and runs the relocated adversarial
-   review on the log as a gate before any Phase-1 artifact is authored
-   (see `planning.md` §Tier classification).
+2. Step 4 of `create-plan` reads the now-rich log to propose the **design
+   gate** (yes / no) and runs the relocated adversarial review on the log
+   as a gate before any Phase-1 artifact is authored (see `planning.md`
+   §Tier classification).
 3. The agent proceeds to Phase 1 (Planning) — producing the
-   tier-appropriate artifacts (the aggregator plan and self-contained
-   track files in every tier; a `design.md` in `full`). All decisions,
-   surprises, and open questions in the research log **must** inform the
-   artifacts:
+   axis-appropriate artifacts (the self-contained track files for every
+   change, a cross-track plan when multi-track, a `design.md` when the
+   design gate is yes). All decisions, surprises, and open questions in the
+   research log **must** inform the artifacts:
    - Track Decision Records absorb the log's load-bearing decisions and
      their rejected alternatives
    - Architecture Notes build on codebase exploration findings
    - Track descriptions incorporate constraints discovered during research
-   - In `full`, the `design.md` reflects the design choices discussed with
-     the user
+   - When the design gate is yes, the `design.md` reflects the design
+     choices discussed with the user
 
 ## Rules
 <!-- roles=planner phases=0 summary="No premature planning, stay responsive, be thorough, surface trade-offs, record decisions, internet research allowed." -->
@@ -207,7 +207,7 @@ When the user says to create the plan:
   Phase-1 transition findings summary (§Transition to Phase 1), and it too is
   plain language, not log quotes. Surfacing findings, blockers, or a gate
   verdict to the user (for example the `create-plan` Step-4 adversarial-gate
-  verdict and tier proposal) is not a recap of the log and stays permitted.
+  verdict and design-gate proposal) is not a recap of the log and stays permitted.
 - **Record decisions in the research log.** When the user makes a
   decision during research (e.g., "let's use approach X"), the
   acknowledgment to the user is conversational; appending the decision to
