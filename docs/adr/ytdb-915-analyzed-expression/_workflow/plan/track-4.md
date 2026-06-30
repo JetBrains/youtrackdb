@@ -25,11 +25,12 @@ the IR runs the same code the AST runs.
 ## Progress
 - [x] Review + decomposition
 - [x] Step implementation
-- [ ] Track-level code review
-- [ ] Track completion
+- [x] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
+- [x] Track completion
 
 - [x] 2026-06-29T17:08Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-30T08:01Z [ctx=safe] Step 1 complete (commit 1ec0e87294)
+- [x] 2026-06-30T09:05Z [ctx=safe] Track complete (review-mode fix 9b0753c645)
 
 ## Surprises & Discoveries
 - **Phase A review (2026-06-29): the evaluator's three reuse seams need integration-shape detail
@@ -422,6 +423,33 @@ oracle.
 `jacoco:report` goal must regenerate the XML from the fresh exec before `coverage-gate.py`
 reads current numbers. Track 4 is the last track of the S0 substrate — the round-trip parity
 suite (invariant I1) is S0's whole acceptance bar and is green.
+
+### Track completion — 2026-06-30T09:05Z [ctx=safe]
+Track 4 delivered `AnalyzedExprEvaluator` — the `AnalyzedExprVisitor<Object>` runtime over the
+lowered IR — and the round-trip parity suite that is S0's whole acceptance bar, completing the
+S0 analyzed-expression substrate. Arithmetic delegates to the shared `NumericOps` through the
+AST `Operator.apply`, so AST and IR arithmetic cannot drift; comparison replicates
+`SQLBinaryCondition.evaluate`'s slow path exactly (guarded single-property collate fetch, then a
+freshly built concrete `SQLBinaryCompareOperator`), making parity structural rather than
+re-derived. The suite asserts every § Validation matrix row by `Objects.equals` against a
+shape-dispatched AST oracle (invariant I1).
+
+All four Phase-A integration-shape findings held against live code, and no IR-vs-AST divergence
+surfaced in any parity row — including divide-by-zero, where both sides throw the same class
+through `NumericOps`, direct evidence the evaluator is faithful to the oracle. Two review
+iterations refined it: the step-level fix added six parity rows closing the test-completeness
+gaps, and a completion review-mode round hardened the two evaluator invariant guards
+(`visitVar` single-segment, `visitFuncCall` non-empty-args) from Java `assert` to
+`throw new IllegalStateException`, matching the file's existing switch-default convention, so a
+future lowering-contract break fails loud in production instead of silently dropping path
+segments or crashing late — each backed by a focused throw test.
+
+No cross-track impact and no plan corrections. The three deferred bugs-concurrency suggestions
+(BC1–BC3 — `visitVar` `$`-name filtering, `visitFuncCall` `$current` row-vs-current seeding) are
+latent S1+ divergences, none breaking a current matrix row; they are forward notes for YTDB-916,
+not Phase-C deferrals to other S0 tracks.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 The round-trip parity suite is S0's whole acceptance bar: for every covered SQL fragment,

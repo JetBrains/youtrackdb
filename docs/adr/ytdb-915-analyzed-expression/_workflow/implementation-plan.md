@@ -115,12 +115,16 @@ flowchart TD
   > assumption is contradicted. The added `AnalyzedAstAccess` parser seam is additive — Track 4
   > reaches the AST only via `SQLBinaryCompareOperator` instances and `Result`.
 
-- [ ] Track 4: Evaluator + round-trip parity
+- [x] Track 4: Evaluator + round-trip parity
   > Track 4 adds the `AnalyzedExprVisitor`-based evaluator — arithmetic via the shared
   > `NumericOps`, comparison by replicating the AST's exact `SQLBinaryCondition.evaluate`
   > sequence — and the round-trip parity test suite that is S0's whole acceptance
   > criterion. It depends on Track 1 (IR types), Track 2 (`NumericOps`), and Track 3
   > (lowering, to produce trees to evaluate).
-  > **Scope:** ~4 files covering `AnalyzedExprEvaluator` and the round-trip parity test
-  > suite.
-  > **Depends on:** Track 1, Track 2, Track 3
+  >
+  > **Track episode:** `AnalyzedExprEvaluator` + round-trip parity suite complete the S0
+  > substrate; parity held on every matrix row and two review iterations hardened test
+  > coverage and the evaluator invariant guards — see `plan/track-4.md` `## Episodes`
+  > § Track completion. (1 step, 0 failed)
+  >
+  > **Track file:** `plan/track-4.md`
