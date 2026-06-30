@@ -1,10 +1,14 @@
 <!-- workflow-sha: 3e9c22298dfe68d2980646704850c781f8af88d5 -->
-# Track 5: Tx-local index overlay, commit-time engine build, and query-usability (D12, D13, D15)
+# Track 5: Tx-local index overlay, commit-time engine build, query-usability, and the tx-aware snapshot (D12, D13, D15, D21)
 
 ## Purpose / Big Picture
 After this track, an index created or dropped inside a transaction is visible only
 to that transaction, its engine is built at commit, and a polymorphic query sees
-the right rows through the parent index after a committed membership change.
+the right rows through the parent index after a committed membership change. A
+class, property type, or constraint rule created or changed inside the transaction
+is also enforced on that transaction's own entities: the immutable snapshot reads
+the tx-local schema during a schema or index tx, so `EntityImpl.validate()` and
+serialization see same-tx schema instead of silently skipping it (D21).
 
 <!-- Reserved for Move 2 — ADDED/MODIFIED/REMOVED triad. Empty until Move 2 lands. -->
 
@@ -50,6 +54,13 @@ design.md D-records this track owns. -->
 - **Implemented in**: this track
 - **Full design**: design.md §"Index build and query-usability"
 
+#### D21: Tx-aware immutable snapshot makes same-tx schema changes visible to validation and serialization (added after Track 4)
+- **Alternatives considered**: (B) route `EntityImpl` validation and serialization through the tx-aware `SchemaProxy` — rejected: per-field proxy resolution is too slow on the data-write hot path. (A) accept the limitation and document the semantic — rejected: same-tx DDL plus DML is a real usage pattern and the silent constraint-skip is a significant DevX degradation.
+- **Rationale**: Track 4 completion review found that `EntityImpl.validate()` (`EntityImpl.java:3932`) resolves the class through the committed-only snapshot and guards every check behind `if (immutableSchemaClass != null)`, so a class, property type, or rule created in the open transaction resolves to null — strict-mode, mandatory, notnull, type, min/max, and regex are silently skipped and serialization falls back to schemaless. The snapshot is the single read tier the whole read/query/serialize/security stack consumes (174 call sites), so making it tx-aware gives consistent read-your-writes at per-operation build cost: `SchemaProxy.makeSnapshot()` resolves the tx-local `SchemaShared` during a schema or index tx, and the snapshot is refcount-pinned per operation (`MetadataDefault.makeThreadLocalSchemaSnapshot`), not resolved per field. This reuses D15's lazy force-rebuild rather than adding a mechanism and makes the snapshot's class and property view consistent with the index-list view D15 already makes tx-aware. Supersedes the committed-only-snapshot behavior (`SchemaProxy.makeSnapshot` reads the committed `delegate`, `SchemaProxy.java:78`): `design.md` §"The tx-local schema view" states reads route to the tx-local structure "not only the snapshot" (design.md:270), yet leaves the snapshot itself committed-only; the Phase 4 `design-final.md` reconciles the as-built tx-aware snapshot.
+- **Risks/Caveats**: (1) commit-path read before promotion — `computeCommitWorkingSet` (`AbstractStorage.java:2410`, reached at line 2528, after `reconcileCollections` at 2473 and before `forceSnapshot` at 2691) calls `getImmutableSchemaClass` then `getCollectionForNewInstance`; a tx-aware snapshot must hand back the reconciled real collection id, never a provisional id (`<= -2`), or `doGetAndCheckCollection` fails. Verify reconciliation re-keys the tx-local class before the working-set build, or guard the commit-path read. (2) query or MATCH against a tx-created class in the same transaction — the class now appears in the snapshot but its physical collection (provisional id, D2) and indexes and engines (built at commit, D12) do not exist yet; extend D13's skip-unbuilt treatment to provisional-collection classes so the WHERE block falls through to the merged tx scan. (3) the D15 force-rebuild trigger widens from mid-tx index changes to mid-tx class and property changes.
+- **Implemented in**: this track (with D15's index overlay — shared snapshot force-rebuild)
+- **Full design**: captured in this record and this track's `## Context and Orientation` and `## Plan of Work`; `design.md` is frozen, so the as-built design reconciles in Phase 4.
+
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
 
@@ -68,6 +79,17 @@ materialized once at snapshot init. There is no per-session routing seam for the
 index manager today. A new index's engine does not exist until built, and reading an
 engine-less index throws; the scan fallback (`FetchFromClassExecutionStep`) already
 returns the correct merged tx view.
+
+The snapshot's class and property view is committed-only for the same reason its
+index list once was: `MetadataDefault.getImmutableSchemaSnapshot` builds through
+`SchemaProxy.makeSnapshot()`, which reads the committed `delegate`, not the tx-local
+copy (the "Tier 1" lock-free fast read). Structural reads route through the tx-aware
+`SchemaProxy`, but `EntityImpl.validate()` (`EntityImpl.java:3932`) and serialization
+read the snapshot, so a class, property type, or rule created in the open transaction
+resolves to null and every constraint is silently skipped — read-your-writes holds
+for structure and breaks for the schema contract. Making the snapshot tx-aware (D21)
+closes this, and it rides the same force-rebuild seam D15 adds for the index list:
+both make a per-session snapshot reflect tx-local state during a schema or index tx.
 
 This track is the index analogue of Track 3's schema view plus Track 4's commit
 machinery. It builds on the engaged mutex (Track 3), the commit reconciliation and
@@ -90,8 +112,21 @@ manager as replacement objects under the index-manager write lock, sharing Track
 single trailing `forceSnapshot`. Add the planner guard that excludes unbuilt indexes.
 Settle the v1 populated-class boundary (loud reject vs documented heap envelope).
 
+Make the snapshot tx-aware (D21): change `SchemaProxy.makeSnapshot()` to resolve the
+tx-local `SchemaShared` when a schema or index tx is active, so the snapshot's classes
+and properties — not only its index list — reflect tx-local state, and widen the D15
+force-rebuild trigger to fire on mid-tx class and property changes, not only index
+changes. Guard the commit-path read: `computeCommitWorkingSet` reads
+`getImmutableSchemaClass` then `getCollectionForNewInstance` at `AbstractStorage:2528`,
+after `reconcileCollections` (2473) and before `forceSnapshot` (2691); confirm the
+tx-local class carries its reconciled real collection id by that point, or guard the
+read so it never hands `doGetAndCheckCollection` a provisional id (`<= -2`). Extend
+the planner's skip-unbuilt treatment so a query against a tx-created (provisional-
+collection) class in the same tx falls through to the merged tx scan rather than
+resolving a collection or engine that does not exist yet.
+
 Ordering constraints: the snapshot force-rebuild must fire on every mid-tx index
-change before a later insert in the same tx; the population scan and the re-derivation
+or class/property change before a later read in the same tx; the population scan and the re-derivation
 together must cover the committed rows the tx did not touch plus exactly the tx-touched
 rows, with no double-count and none missed; the overlay publish must follow
 `commitChanges` success (Track 4's deferral rule).
@@ -120,6 +155,18 @@ rows, with no double-count and none missed; the overlay publish must follow
 - A populated-class build beyond the v1 size bound behaves per the settled boundary
   decision (loud rejection pointing at YTDB-1064, or accept with a documented heap
   envelope).
+- Create a class with a strict-mode, mandatory, notnull, type, or regex constraint
+  inside a transaction, then in the same transaction validate an entity that violates
+  it; validation enforces the constraint instead of silently skipping it (the same-tx
+  validation gap, D21).
+- Add a property type or constraint to an existing class inside a transaction; that
+  constraint is enforced on the same transaction's entities of that class.
+- Commit a transaction that creates a class and inserts an entity of it; the commit
+  succeeds and the commit-path collection-id resolution does not fail on a provisional
+  id (the D21 commit-path guard).
+- Run a query against a tx-created class inside the same transaction; it returns the
+  transaction's own rows through the scan fallthrough without an engine-not-found or
+  collection-not-found error (D13 extended to provisional-collection classes).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
@@ -138,8 +185,11 @@ verbatim as test method names. Empty until Move 3 lands. -->
   the commit-time engine build (lock-free scan + final-state re-derivation, empty-class
   boundary); the overlay publish into the shared index manager under the index-manager
   write lock; the planner skip-unbuilt-index guard (`getIndexesInternal`); the
-  membership-category routing for the Track-3 de-guarded sites; overlay/build/coverage
-  tests.
+  membership-category routing for the Track-3 de-guarded sites; the tx-aware snapshot
+  (`SchemaProxy.makeSnapshot` resolving the tx-local `SchemaShared`, the widened
+  force-rebuild trigger, the `AbstractStorage.computeCommitWorkingSet` commit-path
+  guard, and the D13 planner extension for provisional-collection classes); overlay /
+  build / coverage / same-tx-validation tests.
 - **Out of scope**: the schema view itself (Track 3); the commit's four-lock acquisition
   and the trailing `forceSnapshot` it owns (Track 4 — this track hooks its overlay publish
   into that window); base-keyed engine files and rename (Track 6); the monolithic
