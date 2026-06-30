@@ -985,6 +985,63 @@ public class SelectExecutionPlanner {
   }
 
   /**
+   * Returns {@code true} when every OR branch in the flattened WHERE is provably unsatisfiable
+   * at plan time — e.g. {@code field = 'a' AND field = 'b'} on the same property with different
+   * early-calculable literals. The result set is guaranteed empty without scanning.
+   */
+  static boolean isUnsatisfiableWhere(
+      @Nullable List<SQLAndBlock> flattenedWhereClause, CommandContext ctx) {
+    if (flattenedWhereClause == null || flattenedWhereClause.isEmpty()) {
+      return false;
+    }
+    for (var block : flattenedWhereClause) {
+      if (!isUnsatisfiableAndBlock(block, ctx)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Detects contradictory equality literals on the same property inside one AND block.
+   * Non-literal equalities (parameters, per-row expressions) are ignored — they cannot be
+   * resolved at plan time.
+   */
+  static boolean isUnsatisfiableAndBlock(SQLAndBlock block, CommandContext ctx) {
+    Map<String, List<Object>> literalEqualities = new HashMap<>();
+    for (var expr : block.getSubBlocks()) {
+      if (!(expr instanceof SQLBinaryCondition cond)) {
+        continue;
+      }
+      if (!(cond.getOperator() instanceof SQLEqualsOperator)) {
+        continue;
+      }
+      var property = cond.getRelatedIndexPropertyName();
+      if (property == null) {
+        continue;
+      }
+      var right = cond.getRight();
+      if (right == null || !right.isEarlyCalculated(ctx)) {
+        continue;
+      }
+      Object value = right.execute((Result) null, ctx);
+      literalEqualities.computeIfAbsent(property, k -> new ArrayList<>()).add(value);
+    }
+    for (var values : literalEqualities.values()) {
+      if (values.size() < 2) {
+        continue;
+      }
+      var first = values.getFirst();
+      for (var i = 1; i < values.size(); i++) {
+        if (!Objects.equals(first, values.get(i))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * Adds synthetic projection items for ORDER BY expressions that are not already
    * present in the user's SELECT list.
    *
@@ -2103,6 +2160,10 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     var identifier = from.getItem().getIdentifier();
+    if (isUnsatisfiableWhere(info.flattenedWhereClause, ctx)) {
+      plan.chain(new EmptyStep(ctx, profilingEnabled));
+      return;
+    }
     if (handleClassAsTargetWithIndexedFunction(
         plan, identifier, info, ctx, profilingEnabled)) {
       plan.chain(new FilterByClassStep(identifier, ctx, profilingEnabled));
