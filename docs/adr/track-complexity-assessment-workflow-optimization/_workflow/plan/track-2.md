@@ -848,6 +848,45 @@ findings — expected per D10 (forward fix; it takes effect on develop at Phase 
 promotion, and the toc-check gate skips on draft PRs and runs the live script).
 Phase 4 promotion `cp -r` carries the fixed script + test to the live tree.
 
+### Track completion — 2026-06-30T07:34Z [ctx=info]
+Wired the per-track complexity tag through the review machinery as the single
+process-intensity control, and split/merged the reviewer roster to match. The
+tag is the seven `risk-tagging` HIGH triggers run over a track's planned work,
+predicted at Phase 1 and reconciled to `max(step tags)` after Phase-A
+decomposition, where it sets strategic-panel breadth. At Phase C, domain alone
+selects the dimensional reviewer set and complexity moves only the rigor dial,
+with the floor and the domain-matched set never suppressed
+(`review-agent-selection.md` plus the five mirror sites). `review-bugs-concurrency`
+split into `review-bugs` (always-on, sequential reasoning) and `review-concurrency`
+(fires on the concurrency category, interleaving reasoning); `review-test-behavior`
+and `review-test-completeness` merged into `review-test-quality`; the `BC` finding
+prefix retired for `BG`/`CN`. `inline-replanning`'s mid-flight escalation model and
+`create-final-design`'s Phase-4 `adr.md` predicate were re-derived from the
+unbundled `design_gate` + per-track `reconciled_tag` ledger axes the prior track
+froze.
+
+Two Phase-4 obligations carry forward. First, §1.7(e) promotion is additive-only,
+so the three live source agents the roster change supersedes
+(`review-bugs-concurrency.md`, `review-test-behavior.md`,
+`review-test-completeness.md`) must be hand-deleted after the promotion `cp -r` —
+the staged tree cannot represent a deletion. Second, the reindex scope fix
+(`workflow-reindex.py` over-fired its TOC/annotation rules on the staged,
+TOC-less `fix-ci-failure/SKILL.md` copy) takes effect on `develop` only at
+promotion; until then the live script over-fires on that staged copy, tolerated
+because the toc-check CI gate skips on draft PRs.
+
+Phase C review ran workflow-only (six workflow reviewers, baselines skipped) and
+found zero blockers across every dimension; the context-budget and hook-safety
+passes were clean. One review-fix iteration applied seven findings. The lone
+should-fix wired the Phase-A reconciliation step into the resume-actions table
+and the context-check handoff trigger — an interrupted mid-Phase-A resume had
+otherwise jumped straight to commit, dropping the strategic reviewers the
+upward-divergence reconciliation is meant to add. The remaining six were a
+baseline-count drift, a stale re-keyed section heading, two reviewer-description
+clarity tweaks, and one prose AI-tell. All re-verified PASS.
+
+6 steps, 0 failed.
+
 ## Validation and Acceptance
 
 Track-level behavioral acceptance — what must hold once every step lands:

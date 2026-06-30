@@ -85,16 +85,16 @@ flowchart TD
   > `create-final-design.md`, `design-review.md`) all sit in Track 2's scope and
   > promote with it at Phase 4. No downstream impact on Track 2's plan.
 
-- [ ] Track 2: Complexity-tag mechanics, reviewer selection, and roster
+- [x] Track 2: Complexity-tag mechanics, reviewer selection, and roster
   > Compute the per-track complexity tag from planned work, reconcile it to
   > `max(step tags)` at Phase A, drive Phase-A panel breadth and Phase-C rigor
   > from it, split the bugs/concurrency reviewer and merge the two test
   > reviewers, and re-derive the Phase-4 `adr.md` predicate from the reconciled
   > tag.
-  > **Scope:** ~20 files covering `risk-tagging.md`, `track-review.md`,
-  > `review-agent-selection.md`, `code-review/SKILL.md`, `step-implementation.md`,
-  > `track-code-review.md`, `fix-ci-failure/SKILL.md`, `finding-synthesis-recipe.md`,
-  > `code-review-protocol.md`, `conventions-execution.md`, `inline-replanning.md`,
-  > `review-iteration.md` (the finding-prefix owner table), the six reviewer agent
-  > files, and the `create-final-design` / `design-review` prompts.
-  > **Depends on:** Track 1
+  >
+  > **Track episode:** Wired the per-track complexity tag through the review
+  > machinery and split/merged the reviewer roster; Phase 4 owes a hand-delete of
+  > the three superseded source agents and the reindex-fix promotion — see
+  > `plan/track-2.md` `## Episodes` § Track completion. (6 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-2.md`
