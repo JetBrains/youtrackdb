@@ -385,6 +385,24 @@ step (or the fallback). No IR wire format is added.
   also let S15/cleanup drop the round-trip acceptance. Decision pending user steer
   (minimal source-WHERE bridge for S1 + file cleanup issue, vs. narrow
   FilterStep/ExpandStep serialize removal in S1 + amend acceptance).
+- 2026-07-01 [ctx=safe] **Strategic payoff of the umbrella (out of S1 scope, filed
+  as YTDB-1186): immutable IR enables share-not-copy plan caching.** The plan cache
+  (`YqlExecutionPlanCache`) reuses live plans via `copy(ctx)`, which deep-copies the
+  predicate subtree inside each step (`FilterStep.copy` → `whereClause.copy()` →
+  recursive `SQLBooleanExpression.copy` + the `flattened` memo) because the AST is
+  mutable. `AnalyzedExpr` is immutable records with params resolved at eval time, so
+  an IR-carrying step's `copy` can **share** the IR reference — eliminating the
+  predicate deep-copy on every cache hit and removing the AST's lazy re-derivation.
+  This is NOT automatic: the slices deliver the enabling condition (immutable IR in
+  steps), but no slice charters reworking the cache/`copy` semantics — it is
+  orthogonal to "separate AST from IR." Precondition: the AST fallback must be
+  retired (S15/S16/S17), else the cache keeps the deep-copy path alive. Split into
+  two sizes: **(A)** share-not-copy predicates + IR-canonical cache form — filed as
+  **YTDB-1186** (depends on YTDB-901; relates to YTDB-916); **(B)** the blueprint/
+  runtime execution-model split to eliminate the step-skeleton copy entirely (steps
+  stay stateful — `ctx`/`prev`/`next`/profiling/close/iterator state — so each
+  execution still needs its own step objects) — noted as a larger follow-on that
+  YTDB-1186 enables but does not deliver.
 
 ## Open Questions
 
