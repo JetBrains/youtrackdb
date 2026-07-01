@@ -53,9 +53,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
  * <ol>
  *   <li><b>No YouTrackDB session / kill switch.</b> The traversal has no attached {@link
  *       YTDBGraph} (e.g. an anonymous {@code __.V()} detached traversal, or a non-YTDB graph),
- *       or {@link GlobalConfiguration#QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED} is {@code
- *       false} for the traversal's session. Reading the flag per-session gives operators a
- *       runtime kill-switch without a redeploy.</li>
+ *       the session exposes no {@code ContextConfiguration} (its {@code getConfiguration()} is
+ *       {@code @Nullable}), or {@link
+ *       GlobalConfiguration#QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED} is {@code false} for the
+ *       traversal's session. Reading the flag per-session gives operators a runtime kill-switch
+ *       without a redeploy; an unresolvable configuration declines rather than throwing.</li>
  *   <li><b>Idempotency.</b> The traversal already contains a {@link YTDBMatchPlanStep}
  *       anywhere in its step list. A traversal's strategy chain can be applied more than once
  *       (clone-for-reuse, test-harness re-application, lazy first-iteration apply); leaving an
@@ -80,18 +82,27 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
  *
  * {@code apply} runs inside {@code traversal.applyStrategies()}, which fires on <em>every</em>
  * Gremlin traversal compilation, and the strategy is registered globally for all YTDB graph
- * traversals. An uncaught throwable in {@code apply} would abort compilation for that
+ * traversals. An uncaught exception in {@code apply} would abort compilation for that
  * traversal, and the blast radius of a translator / walker bug would be every Gremlin query
  * the server runs, not only the recognized shapes. The whole body therefore runs inside a
- * {@code try/catch (Throwable)} that turns any failure — a walker bug, a recognizer NPE, a
- * malformed {@code MatchPlanInputs}, a planner exception — into a clean decline: the method
- * returns and the original step list is preserved for the native pipeline (which, under the
- * all-or-nothing rule, is at least as well-served as before). The net degrades a translator bug
- * to native
- * execution rather than a broken query, and it exists from the skeleton so the invariant
- * holds before any recognizer runs under the strategy. The net catches during the walk and
- * the plan build; the actual step-list mutation happens only after both succeed (see {@link
- * #applyTranslation}), so a caught throw always leaves the step list untouched.
+ * {@code try} that catches {@link Exception} and turns any ordinary failure — a walker bug, a
+ * recognizer NPE, a malformed {@code MatchPlanInputs}, a planner exception — into a clean
+ * decline: the method returns and the original step list is preserved for the native pipeline
+ * (which, under the all-or-nothing rule, is at least as well-served as before). The net
+ * degrades a translator bug to native execution rather than a broken query, and it exists from
+ * the skeleton so the invariant holds before any recognizer runs under the strategy.
+ *
+ * <p>{@link Error} — including {@link AssertionError} — is deliberately <em>not</em> swallowed:
+ * a separate {@code catch (Error)} arm re-throws it. Under {@code -ea} (the test/CI default) a
+ * genuine invariant violation in the walk or plan build must surface loudly instead of
+ * degrading to a silent decline that masks a real bug, and a fatal {@code OutOfMemoryError} /
+ * {@code StackOverflowError} must not be handed to the native pipeline to re-attempt in an
+ * already-exhausted JVM. This mirrors the codebase convention in {@code Streams#composedClose},
+ * which rethrows {@code Error} from a {@code catch (Throwable)} before wrapping the rest.
+ *
+ * <p>The net catches during the walk and the plan build; the actual step-list mutation happens
+ * only after both succeed (see {@link #applyTranslation}), so a caught exception always leaves
+ * the step list untouched.
  *
  * <h2>Strategy ordering</h2>
  *
@@ -179,17 +190,27 @@ public final class GremlinToMatchStrategy
   @Override
   public void apply(Traversal.Admin<?, ?> traversal) {
     // Throw-safety net: the whole body runs on every Gremlin compilation and the
-    // strategy is registered globally, so ANY throwable here must degrade to a decline
-    // (leave the native step list untouched), never abort compilation. See class Javadoc
-    // "Throw-safety net". The mutation in applyTranslation runs only after the walk and the
-    // plan build both succeed, so a caught throw always leaves the step list unmodified.
+    // strategy is registered globally, so any recognizer/planner Exception here must degrade
+    // to a decline (leave the native step list untouched), never abort compilation. Error and
+    // AssertionError are deliberately re-thrown, not swallowed (see the catch arms below and
+    // the class Javadoc "Throw-safety net"). The mutation in applyTranslation runs only after
+    // the walk and the plan build both succeed, so a caught Exception always leaves the step
+    // list unmodified.
     try {
       applyOrDecline(traversal);
-    } catch (Throwable t) {
-      // Swallow deliberately: translation is a best-effort optimization. A failure declines
-      // to the native pipeline, which handles the traversal correctly. Rethrowing would
-      // break every Gremlin query, recognized or not.
-      declineOnThrow(traversal, t);
+    } catch (Error e) {
+      // Never swallow a JVM Error. AssertionError (an Error subclass) also lands here: under
+      // -ea (the test/CI default) a genuine invariant violation in the walk or plan build must
+      // surface loudly rather than degrade to a silent decline. OutOfMemoryError /
+      // StackOverflowError must not be handed to the native pipeline to re-attempt in an
+      // already-exhausted JVM. This mirrors the codebase convention in Streams#composedClose,
+      // which rethrows Error from a catch(Throwable) before wrapping the rest.
+      throw e;
+    } catch (Exception e) {
+      // Swallow ordinary exceptions deliberately: translation is a best-effort optimization. A
+      // recognizer/planner failure declines to the native pipeline, which handles the traversal
+      // correctly. Rethrowing would break every Gremlin query, recognized or not.
+      declineOnThrow(traversal, e);
     }
   }
 
@@ -217,13 +238,15 @@ public final class GremlinToMatchStrategy
   }
 
   /**
-   * Hook for the throw-safety net so a caught throwable has a single, greppable landing
-   * point. Currently a no-op beyond the decline (the traversal is already unmodified because
-   * the mutation runs last); kept as a seam for future diagnostics (e.g. a debug-level log or
-   * a metric) without widening the catch block in {@link #apply}.
+   * Hook for the throw-safety net so a caught exception has a single, greppable landing point.
+   * Only ordinary {@link Exception}s reach here — {@link Error} (including {@link
+   * AssertionError}) is re-thrown by {@link #apply} rather than declined. Currently a no-op
+   * beyond the decline (the traversal is already unmodified because the mutation runs last);
+   * kept as a seam for future diagnostics (e.g. a debug-level log or a metric) without
+   * widening the catch block in {@link #apply}.
    */
   @SuppressWarnings("unused")
-  private static void declineOnThrow(Traversal.Admin<?, ?> traversal, Throwable ignored) {
+  private static void declineOnThrow(Traversal.Admin<?, ?> traversal, Exception ignored) {
     // Intentionally empty: the decline is the absence of a mutation. See apply()'s catch.
   }
 
@@ -237,7 +260,9 @@ public final class GremlinToMatchStrategy
    * throws {@code UnsupportedOperationException}, and a non-YTDB graph would fail the cast on
    * {@code graph.tx()}. Reading the flag from the session's {@code ContextConfiguration}
    * (rather than the JVM-global {@link GlobalConfiguration}) lets operators — and tests — flip
-   * it per-session without mutating global state.
+   * it per-session without mutating global state. The session's {@code getConfiguration()} is
+   * {@code @Nullable}; a null result is treated as "decline" (returns {@code null}) so the
+   * kill-switch read never dereferences a null configuration.
    */
   @Nullable private static DatabaseSessionEmbedded resolveSessionIfEnabled(
       Traversal.Admin<?, ?> traversal) {
@@ -250,10 +275,17 @@ public final class GremlinToMatchStrategy
     }
     tx.readWrite();
     var session = tx.getDatabaseSession();
+    // getConfiguration() is @Nullable (it delegates to storage.getContextConfiguration()). A
+    // null ContextConfiguration cannot be dereferenced for the flag, so treat it as "not
+    // enabled" and decline explicitly rather than relying on the throw-safety net to catch an
+    // NPE — declining is the safe default when the kill-switch cannot be resolved.
+    var configuration = session.getConfiguration();
+    if (configuration == null) {
+      return null;
+    }
     var enabled =
-        session
-            .getConfiguration()
-            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+        configuration.getValueAsBoolean(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
     return enabled ? session : null;
   }
 
