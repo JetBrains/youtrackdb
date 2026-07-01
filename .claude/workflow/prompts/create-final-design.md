@@ -606,7 +606,12 @@ subtree in a single second commit so only `design-final.md`,
 into `develop`:
 
 ```bash
-git rm -r docs/adr/<dir-name>/_workflow/
+# -f force-deletes the tracked-but-modified design-mutations.md; the
+# follow-up rm -rf clears the untracked cold-read output and per-round
+# params directly under _workflow/, plus any .pyc caches under
+# staged-workflow/, that git rm never reaches.
+git rm -rf docs/adr/<dir-name>/_workflow/
+rm -rf docs/adr/<dir-name>/_workflow/
 git commit -m "Remove workflow scaffolding"
 git push
 ```
@@ -614,7 +619,9 @@ git push
 This deletes the plan, `design.md`, `design-mechanics.md`, every track
 file under `plan/`, the per-track review files under
 `plan/track-N/reviews/`, and the design-mutations log in one commit. The
-recursive `git rm -r` sweeps the `reviews/` directories automatically —
+recursive `git rm -rf` sweeps the tracked files under the `reviews/`
+directories automatically, and the follow-up `rm -rf` removes the
+untracked cold-read output and params remnants `git rm` cannot reach —
 no `plan/*`-globbing removal is needed (and would risk catching the
 `plan/track-N.md` files). The squash-merge folds this deletion together
 with the rest of the branch's history; on `develop`, the final state is

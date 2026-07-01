@@ -150,7 +150,7 @@ prefixes").
 | **Step rollback** | `Revert step:` prefix | `Revert step: add histogram header to leaf page` |
 | **Workflow update** | Imperative summary of the workflow-file change (no special prefix; commit only touches paths under `_workflow/`) | `Add initial design`, `Add initial implementation plan`, `Phase A review and decomposition for histogram track`, `Apply pre-Phase-A amendments to Track 2`, `Record Phase B base commit for histogram track`, `Record episode for histogram leaf write step`, `Apply plan corrections from histogram-leaf review`, `Mark histogram-leaf track complete`, `Inline replan after Track 2`, `Record Phase C iteration 1 for histogram track`, `Record Phase C iteration failure for histogram track` |
 | **Phase 4 final** | `Add final design and ADR` (the standard final-artifacts commit) | (defined verbatim in `prompts/create-final-design.md` § Step 5) |
-| **Phase 4 cleanup** | `Remove workflow scaffolding` — single commit that runs `git rm -r docs/adr/<dir>/_workflow/` after the final-artifacts commit | (see `workflow.md` § Final Artifacts) |
+| **Phase 4 cleanup** | `Remove workflow scaffolding` — single commit that runs `git rm -rf docs/adr/<dir>/_workflow/` then `rm -rf docs/adr/<dir>/_workflow/` (the `rm -rf` clears untracked remnants `git rm` cannot reach) after the final-artifacts commit | (see `workflow.md` § Final Artifacts) |
 
 **Step rollback (`Revert step:`) commits** are produced **only by the
 Phase B orchestrator** when a `FIX_REVIEW_FINDINGS` respawn at

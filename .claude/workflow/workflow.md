@@ -761,15 +761,22 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    squash-merge carries it into `develop`'s `git log`), authored before
    the cleanup commit — and when no `design-final.md` exists either, there is
    no final-artifacts commit at all.
-3. **Cleanup commit.** Run `git rm -r docs/adr/<dir-name>/_workflow/`
+3. **Cleanup commit.** Run `git rm -rf docs/adr/<dir-name>/_workflow/`
+   followed by `rm -rf docs/adr/<dir-name>/_workflow/`
    to remove every working file under the `_workflow/` subtree
    (plan, `design.md` if present, `design-mechanics.md`, the research log,
    track files, per-track review files under `plan/track-N/reviews/`,
-   design-mutations log, and the staged subtree if present). The blanket
-   recursive `git rm` sweeps the review-file directories automatically; no
-   `plan/*`-globbing removal is needed (and would risk catching the
-   `plan/track-N.md` files). Commit with a message such as `Remove
-   workflow scaffolding`. Push. This commit runs for **every** change.
+   design-mutations log, and the staged subtree if present). `-f`
+   force-deletes the tracked-but-modified `design-mutations.md`; the
+   follow-up `rm -rf` clears the untracked cold-read output and per-round
+   params directly under `_workflow/`, plus any `.pyc` caches under
+   `staged-workflow/`, that `git rm` never reaches. The blanket recursive
+   `git rm -rf` sweeps the tracked review-file directories automatically,
+   so no `plan/*`-globbing removal is needed (and would risk catching the
+   `plan/track-N.md` files). Both deletions
+   run inside this one step, so the cleanup stays a single commit. Commit
+   with a message such as `Remove workflow scaffolding`. Push. This commit
+   runs for **every** change.
 
 The end-of-session self-improvement reflection runs after the final
 Phase 4 commit lands — it creates any approved proposals as YouTrack
