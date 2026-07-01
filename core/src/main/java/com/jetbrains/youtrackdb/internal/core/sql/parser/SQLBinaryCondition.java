@@ -368,6 +368,17 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
     return right;
   }
 
+  /**
+   * True when this is an equality against the SQL {@code null} literal ({@code field = null} or
+   * {@code null = field}). Such a condition is always false — {@code equals(x, null)} never holds,
+   * even for a null-valued field ({@code IS NULL} is the way to match null) — so any AND block that
+   * contains it is unsatisfiable.
+   */
+  public boolean isEqualityWithNullLiteral() {
+    return operator instanceof SQLEqualsOperator
+        && ((left != null && left.isNull) || (right != null && right.isNull));
+  }
+
   public void setLeft(SQLExpression left) {
     this.left = left;
   }

@@ -31,6 +31,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMetadataIdentifier;
@@ -1004,9 +1005,20 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * Detects contradictory equality literals on the same property inside one AND block.
-   * Non-literal equalities (parameters, per-row expressions) are ignored — they cannot be
-   * resolved at plan time.
+   * Detects that one AND block can never match. Two independent reasons make a block empty:
+   *
+   * <ul>
+   *   <li>an equality against the SQL {@code null} literal ({@code field = null}) — always false,
+   *       so a single such condition empties the block;
+   *   <li>contradictory equality literals on the same property ({@code field = 'a' AND field =
+   *       'b'}) — the property would have to hold two different values at once; and
+   *   <li>a non-null equality and an {@code IS NULL} on the same property ({@code field = 'a' AND
+   *       field IS NULL}) — the property would have to be both a value and null.
+   * </ul>
+   *
+   * <p>Non-literal equalities (parameters, per-row expressions) are ignored — they cannot be
+   * resolved at plan time. The property may sit on either side of the operator, so both
+   * {@code field = 'a'} and {@code 'a' = field} are recognised.
    *
    * <p>Two literals count as contradictory only when the engine's own equality
    * ({@link QueryOperatorEquals#equals}) reports them unequal. That is the same comparison the
@@ -1016,22 +1028,46 @@ public class SelectExecutionPlanner {
    */
   static boolean isUnsatisfiableAndBlock(SQLAndBlock block, CommandContext ctx) {
     Map<String, List<Object>> literalEqualities = new HashMap<>();
+    Set<String> nullRequiredProperties = new HashSet<>();
     for (var expr : block.getSubBlocks()) {
+      // `field IS NULL` forces the property to be null; record it and cross-check against non-null
+      // equalities on the same property after the loop.
+      if (expr instanceof SQLIsNullCondition isNull) {
+        var target = isNull.getExpression();
+        if (target != null && target.isBaseIdentifier()) {
+          nullRequiredProperties.add(target.getDefaultAlias().getStringValue());
+        }
+        continue;
+      }
       if (!(expr instanceof SQLBinaryCondition cond)) {
         continue;
+      }
+      // `X = null` is always false, so one such condition makes the whole AND block empty.
+      if (cond.isEqualityWithNullLiteral()) {
+        return true;
       }
       if (!(cond.getOperator() instanceof SQLEqualsOperator)) {
         continue;
       }
-      var property = cond.getRelatedIndexPropertyName();
-      if (property == null) {
-        continue;
-      }
+      // The property can be on either side of '='; the literal is whatever the other side is,
+      // provided it resolves at plan time. Skip conditions with no bare property (e.g. field =
+      // field) or a non-literal operand.
+      var left = cond.getLeft();
       var right = cond.getRight();
-      if (right == null || !right.isEarlyCalculated(ctx)) {
+      String property;
+      SQLExpression valueExpr;
+      if (left != null && left.isBaseIdentifier() && right != null
+          && right.isEarlyCalculated(ctx)) {
+        property = left.getDefaultAlias().getStringValue();
+        valueExpr = right;
+      } else if (right != null && right.isBaseIdentifier()
+          && left != null && left.isEarlyCalculated(ctx)) {
+        property = right.getDefaultAlias().getStringValue();
+        valueExpr = left;
+      } else {
         continue;
       }
-      Object value = right.execute((Result) null, ctx);
+      Object value = valueExpr.execute((Result) null, ctx);
       literalEqualities.computeIfAbsent(property, k -> new ArrayList<>()).add(value);
     }
     var session = ctx.getDatabaseSession();
@@ -1047,6 +1083,13 @@ public class SelectExecutionPlanner {
         if (!QueryOperatorEquals.equals(session, first, values.get(i))) {
           return true;
         }
+      }
+    }
+    // A property required to be null (IS NULL) cannot also equal a non-null literal. The literal
+    // map never holds null values, because `= null` is rejected above, so any overlap contradicts.
+    for (var nullProperty : nullRequiredProperties) {
+      if (literalEqualities.containsKey(nullProperty)) {
+        return true;
       }
     }
     return false;

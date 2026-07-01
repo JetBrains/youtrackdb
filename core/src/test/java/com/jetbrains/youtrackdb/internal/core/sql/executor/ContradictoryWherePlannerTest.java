@@ -228,4 +228,147 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
       assertFalse(rs.hasNext());
     }
   }
+
+  /**
+   * The coercion carve-out must also hold when the field is indexed: {@code num = 1 AND num = 1.0}
+   * on an indexed INTEGER field is satisfiable, so it must keep the index lookup and return the
+   * {@code num = 1} row rather than short-circuiting to {@link EmptyStep}. Covers the intersection
+   * of the coercion detector and the same-field index merge, which the non-indexed
+   * {@link #numericCoercion_sameValueDifferentType_isNotContradictory} case does not exercise.
+   */
+  @Test
+  public void indexedNumericCoercion_sameValueDifferentType_returnsRow() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("num", PropertyType.INTEGER);
+    clazz.createIndex(cn + ".num", SchemaClass.INDEX_TYPE.NOTUNIQUE, "num");
+    session.begin();
+    session.newInstance(cn).setProperty("num", 1);
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE num = 1 AND num = 1.0")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "num = 1 AND num = 1.0 must keep the index lookup, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof FetchFromIndexStep);
+      assertTrue("expected the num=1 record to be returned", rs.hasNext());
+      assertEquals(1, (int) rs.next().getProperty("num"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * An equality against the {@code null} literal is always false ({@code = null} matches nothing at
+   * runtime, {@code IS NULL} is the null test), so a block containing it is unsatisfiable. Both
+   * {@code indexed = 'v1' AND indexed = null} and a lone {@code indexed = null} must short-circuit
+   * to {@link EmptyStep} and return no rows.
+   */
+  @Test
+  public void nullLiteralEquality_shortCircuitsToEmptyStep() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed = 'v1' AND indexed = null")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for equality against null, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+    try (var rs = session.query("SELECT FROM " + className + " WHERE indexed = null")) {
+      assertTrue(
+          "lone equality against null must short-circuit to EmptyStep",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * A block emptied only by a {@code = null} equality must not empty the whole WHERE when another
+   * OR branch is satisfiable: {@code indexed = null OR indexed = 'v0'} must still return {@code v0}.
+   */
+  @Test
+  public void nullEqualityInOneBranch_stillReturnsOtherBranch() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed = null OR indexed = 'v0'")) {
+      assertFalse(
+          "OR with a satisfiable branch must not short-circuit to empty",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertTrue(rs.hasNext());
+      assertEquals("v0", rs.next().getProperty("indexed"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * The property may sit on the left of the literal: {@code 'v1' = indexed AND 'v2' = indexed} is
+   * contradictory and must short-circuit to {@link EmptyStep}, the same as the right-hand form.
+   */
+  @Test
+  public void leftLiteralContradiction_shortCircuitsToEmptyStep() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE 'v1' = indexed AND 'v2' = indexed")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for left-literal contradiction, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Left-literal equalities with the same value are satisfiable and must not be flagged: the query
+   * must not short-circuit to {@link EmptyStep} and must return the matching row. Guards the
+   * left-hand detection path against over-flagging.
+   */
+  @Test
+  public void leftLiteralSameValue_isNotContradictory() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE 'v1' = indexed AND 'v1' = indexed")) {
+      assertFalse(
+          "duplicate left-literal equalities must not short-circuit to empty",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertTrue(rs.hasNext());
+      assertEquals("v1", rs.next().getProperty("indexed"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * A non-null equality and an {@code IS NULL} on the same field cannot both hold — the field would
+   * have to be a value and null at once — so the predicate must short-circuit to {@link EmptyStep}.
+   */
+  @Test
+  public void equalityAndIsNullSameField_shortCircuitsToEmptyStep() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed = 'v1' AND indexed IS NULL")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for '= literal AND IS NULL', got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Two {@code IS NULL} conditions on the same field are satisfiable (the field is simply null), so
+   * the detector must not treat them as contradictory: no {@link EmptyStep} short-circuit.
+   */
+  @Test
+  public void doubleIsNullSameField_isNotContradictory() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed IS NULL AND indexed IS NULL")) {
+      assertFalse(
+          "two IS NULL on the same field must not short-circuit to empty",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+    }
+  }
 }

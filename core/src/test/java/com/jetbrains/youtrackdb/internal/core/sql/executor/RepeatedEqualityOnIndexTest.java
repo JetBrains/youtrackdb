@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
@@ -39,6 +40,13 @@ public class RepeatedEqualityOnIndexTest extends TestUtilsFixture {
   private Set<Integer> queryValues(String where) {
     var seen = new HashSet<Integer>();
     try (var rs = session.query("SELECT FROM " + className + " WHERE " + where)) {
+      // The merge must produce a real index lookup, not a full scan; otherwise a regression that
+      // silently falls back to a scan would still return the right values and hide itself.
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected FetchFromIndexStep for '" + where + "', got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof FetchFromIndexStep);
       while (rs.hasNext()) {
         seen.add(rs.next().getProperty("n"));
       }
@@ -46,7 +54,7 @@ public class RepeatedEqualityOnIndexTest extends TestUtilsFixture {
     return seen;
   }
 
-  /** Duplicate equality on an indexed field must return the matching row, not an empty result. */
+  /** Duplicate equality on an indexed field must return the matching row through the index. */
   @Test
   public void duplicateEquality_returnsMatchingRow() {
     assertEquals(Set.of(5), queryValues("n = 5 AND n = 5"));
