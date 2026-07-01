@@ -10,7 +10,7 @@ Today a `SELECT FROM Person WHERE @rid = #18:0` reads every record in `Person` a
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-01T13:50Z [ctx=safe] Review + decomposition complete
