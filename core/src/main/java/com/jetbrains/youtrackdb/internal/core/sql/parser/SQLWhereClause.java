@@ -1040,6 +1040,104 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
+   * Extracts a {@code @rid IN [<expr-list>]} condition from this WHERE clause,
+   * sibling to {@link #extractAndRemoveRidEquality()}. Handles both the simple
+   * form and the compound AND form:
+   * <ul>
+   *   <li>{@code WHERE @rid IN [#23:1, #23:2]} → ridExpression="[#23:1, #23:2]",
+   *       remainingWhere=null
+   *   <li>{@code WHERE @rid IN :params AND x > 5} → ridExpression=":params",
+   *       remainingWhere="x > 5"
+   *   <li>{@code WHERE x > 5} → returns null
+   * </ul>
+   *
+   * <p>The returned {@code ridExpression} is a single {@link SQLExpression} whose
+   * runtime value is a collection; the planner normalizes scalar-vs-collection at
+   * the emission site so {@code =} (via {@link #extractAndRemoveRidEquality()}) and
+   * {@code IN} feed one direct-fetch path. Only an early-calculable right side is
+   * accepted — a list literal ({@code rightMathExpression}) or a bound parameter
+   * ({@code rightParam}); a subquery ({@code rightStatement}) is not early-calculable
+   * at plan time, so this primitive returns null and the planner falls through to the
+   * class scan. A negated {@code @rid NOT IN [...]} parses to a distinct
+   * {@code SQLNotInCondition} node type that never reaches this detector, so the
+   * complement is left unoptimized for free.
+   *
+   * @return extraction result, or {@code null} if no {@code @rid IN} condition is found
+   */
+  @Nullable
+  public RidExtractionResult extractAndRemoveRidInList() {
+    if (baseExpression == null) {
+      return null;
+    }
+
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        return null;
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      return null;
+    }
+
+    for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
+      var ridExpr = tryExtractRidInListFromTerm(andBlock.subBlocks.get(idx));
+      if (ridExpr != null) {
+        if (andBlock.subBlocks.size() == 1) {
+          return new RidExtractionResult(ridExpr, null);
+        }
+        var remaining = buildWhereWithout(andBlock, idx);
+        return new RidExtractionResult(ridExpr, remaining);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Checks if a single AND term (possibly wrapped in a single-element OrBlock
+   * and/or a non-negated NotBlock) is {@code @rid IN <early-calc value>}. Returns
+   * the value-side wrapped as a single {@link SQLExpression}, or null.
+   */
+  @Nullable
+  private static SQLExpression tryExtractRidInListFromTerm(SQLBooleanExpression term) {
+    // Unwrap single-element wrapper blocks via the shared helper, mirroring the
+    // equality path (tryExtractRidFromTerm) — the parser nests even a simple
+    // condition inside OrBlock/AndBlock wrappers.
+    term = unwrapSingleElementTerm(term);
+    if (term == null) {
+      return null;
+    }
+    if (!(term instanceof SQLInCondition cond)) {
+      return null;
+    }
+    // Left side must be a bare @rid — reuse the same record-attribute check the
+    // equality path applies (tryExtractRidValue). A non-null return means the left
+    // side is @rid; the returned value (cond.getLeft()) is discarded, only the
+    // membership is needed here.
+    if (tryExtractRidValue(cond.getLeft(), cond.getLeft()) == null) {
+      return null;
+    }
+    // Reject a subquery right side (rightStatement) — not early-calculable at plan
+    // time. Accept a list literal (rightMathExpression) or a bound param (rightParam),
+    // wrapping either into one SQLExpression so the emission site can uniformly call
+    // execute/isEarlyCalculated. This mirrors SQLInCondition.resolveKeyFrom.
+    if (cond.getRightMathExpression() != null) {
+      var wrapped = new SQLExpression(-1);
+      wrapped.setMathExpression(cond.getRightMathExpression().copy());
+      return wrapped;
+    }
+    if (cond.getRightParam() != null) {
+      var base = new SQLBaseExpression(-1);
+      base.setInputParam(cond.getRightParam().copy());
+      var wrapped = new SQLExpression(-1);
+      wrapped.setMathExpression(base);
+      return wrapped;
+    }
+    return null;
+  }
+
+  /**
    * Unwraps single-element {@code OrBlock}/{@code AndBlock} wrappers and a
    * non-negated {@code NotBlock} around one AND term. Returns {@code null} when
    * the term cannot be reduced to a single leaf condition.

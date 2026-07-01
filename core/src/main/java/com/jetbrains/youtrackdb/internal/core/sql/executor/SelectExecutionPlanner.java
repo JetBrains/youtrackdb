@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.collection.MultiValue;
 import com.jetbrains.youtrackdb.internal.common.util.PairIntegerObject;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
@@ -57,6 +58,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -2294,6 +2296,17 @@ public class SelectExecutionPlanner {
       info.flattenedWhereClause = null;
       return;
     }
+
+    // Tried next, once the WHERE is known satisfiable: an early-calculable @rid = /
+    // @rid IN under a class target compiles to a direct RID fetch instead of a full
+    // class scan. Unlike the index handlers below, this branch chains NO
+    // FilterByClassStep — the class-membership guard inside the handler (collection-id
+    // intersection) already filters at plan time, whereas FilterByClassStep would
+    // redundantly re-filter each loaded record.
+    if (handleClassAsTargetWithRidEquality(plan, identifier, info, ctx, profilingEnabled)) {
+      return;
+    }
+
     if (handleClassAsTargetWithIndexedFunction(
         plan, identifier, info, ctx, profilingEnabled)) {
       plan.chain(new FilterByClassStep(identifier, ctx, profilingEnabled));
@@ -2337,6 +2350,146 @@ public class SelectExecutionPlanner {
       info.orderApplied = true;
     }
     plan.chain(fetcher);
+  }
+
+  /**
+   * Attempts to compile an early-calculable {@code @rid = <value>} or
+   * {@code @rid IN [<values>]} predicate under a class target into a direct RID
+   * fetch, replacing the full class scan the predicate would otherwise survive as a
+   * post-filter.
+   *
+   * <p>The body, in order:
+   * <ol>
+   *   <li>Cheap O(1) guards: bail when there is no WHERE, or when the WHERE flattens
+   *       to more than one OR branch (the extraction primitives only handle a single
+   *       OR branch).</li>
+   *   <li>Pull at most one RID predicate via {@code extractAndRemoveRidEquality} then
+   *       {@code extractAndRemoveRidInList}; if neither matches, return false so the
+   *       caller falls through to the index / scan chain.</li>
+   *   <li>Gate on {@code ridExpression.isEarlyCalculated(ctx)} — a literal or bound
+   *       parameter resolves at plan time; a field reference or subquery cannot, so
+   *       return false and fall through.</li>
+   *   <li>Evaluate the RID expression to candidate {@link RecordIdInternal}s (a
+   *       singleton for {@code =}, the list elements for {@code IN}), mapping each
+   *       result the way {@code SQLRid.toRecordId}'s switch does, then dedup.</li>
+   *   <li>Membership-filter the candidates against the class's polymorphic
+   *       collection-id set: keep a candidate iff its collection id is in the set.</li>
+   *   <li>Survivors present → set {@code info.whereClause} to the extraction
+   *       remainder and invalidate {@code info.flattenedWhereClause}, then chain a
+   *       {@link FetchFromRidsStep}. No survivors (wrong-class RID, empty {@code IN []},
+   *       or an all-non-member list) → chain an {@link EmptyStep}. Both cases return
+   *       true so the caller short-circuits past the scan fallthrough.</li>
+   * </ol>
+   *
+   * <p>The membership filter is a correctness requirement: {@link FetchFromRidsStep}
+   * fetches by RID with no class check, so a bare fetch would let
+   * {@code SELECT FROM A WHERE @rid = <rid-of-B>} wrongly return the B record. The
+   * dedup is also a correctness requirement: the step iterates with no dedup, so a
+   * duplicate {@code IN} list would otherwise return a record more than once, whereas
+   * the scan-plus-filter it replaces returns it once.
+   *
+   * <p>Leaves {@code info.orderApplied} false so the downstream projections block
+   * still assembles ORDER BY / SKIP / LIMIT / GROUP BY / DISTINCT.
+   *
+   * @return {@code true} if the query was compiled to a direct RID fetch (or an empty
+   *     result), {@code false} to fall through to the existing handler chain
+   */
+  private boolean handleClassAsTargetWithRidEquality(
+      SelectExecutionPlan plan,
+      SQLIdentifier queryTarget,
+      QueryPlanningInfo info,
+      CommandContext ctx,
+      boolean profilingEnabled) {
+    if (queryTarget == null || info.whereClause == null) {
+      return false;
+    }
+    // More than one OR branch means the RID predicate is not the sole top-level
+    // conjunction; the extraction primitives only handle a single OR branch.
+    if (info.flattenedWhereClause != null && info.flattenedWhereClause.size() > 1) {
+      return false;
+    }
+
+    // Pull at most one RID predicate: try equality first, then the IN list.
+    var extraction = info.whereClause.extractAndRemoveRidEquality();
+    if (extraction == null) {
+      extraction = info.whereClause.extractAndRemoveRidInList();
+    }
+    if (extraction == null) {
+      return false;
+    }
+
+    // Only optimize a plan-time-resolvable RID value (literal or bound param).
+    var ridExpression = extraction.ridExpression();
+    if (!ridExpression.isEarlyCalculated(ctx)) {
+      return false;
+    }
+
+    // Evaluate the RID expression and map its result(s) to RecordIdInternal, mapping
+    // each the way SQLRid.toRecordId's switch does. A scalar result yields one
+    // candidate; a multi-value result (the IN list) yields one per element.
+    var evaluated = ridExpression.execute((Result) null, ctx);
+    var candidates = new LinkedHashSet<RecordIdInternal>();
+    if (MultiValue.isMultiValue(evaluated)) {
+      var iterable = MultiValue.getMultiValueIterable(evaluated);
+      if (iterable != null) {
+        for (var element : iterable) {
+          var rid = toRecordIdCandidate(element);
+          if (rid != null) {
+            candidates.add(rid);
+          }
+        }
+      }
+    } else {
+      var rid = toRecordIdCandidate(evaluated);
+      if (rid != null) {
+        candidates.add(rid);
+      }
+    }
+
+    // Membership-filter: keep only candidates whose collection is in the target
+    // class's polymorphic collection set. This is the class filter the scan gave for
+    // free, applied here at plan time (see the no-FilterByClassStep note at the call
+    // site). A missing class resolution is treated as no members.
+    var classCollectionIds = resolveClassToCollectionIds(queryTarget.getStringValue(), plan);
+    List<RecordIdInternal> members = new ArrayList<>();
+    if (classCollectionIds != null) {
+      for (var rid : candidates) {
+        if (classCollectionIds.contains(rid.getCollectionId())) {
+          members.add(rid);
+        }
+      }
+    }
+
+    if (members.isEmpty()) {
+      // Wrong-class RID, empty IN [], or an all-non-member list: no rows are possible.
+      // Return an empty result rather than falling through to a full scan.
+      plan.chain(new EmptyStep(ctx, profilingEnabled));
+      return true;
+    }
+
+    // Wire the extraction remainder as the WHERE for handleWhere to chain a single
+    // FilterStep. Both fields must move together: mutating only whereClause and
+    // leaving flattenedWhereClause stale violates the invariant the index handlers
+    // uphold, so null both. A null remainder means the RID predicate was the sole
+    // condition and no filter step is chained.
+    info.whereClause = extraction.remainingWhere();
+    info.flattenedWhereClause = null;
+    plan.chain(new FetchFromRidsStep(members, ctx, profilingEnabled));
+    return true;
+  }
+
+  /**
+   * Maps a single evaluated value to a {@link RecordIdInternal}, mirroring the switch
+   * in {@code SQLRid.toRecordId}: an {@link Identifiable} yields its identity, a
+   * {@link String} is parsed as a RID, anything else is skipped (null).
+   */
+  @Nullable private static RecordIdInternal toRecordIdCandidate(Object value) {
+    return switch (value) {
+      case null -> null;
+      case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
+      case String s -> RecordIdInternal.fromString(s, false);
+      default -> null;
+    };
   }
 
   /**
