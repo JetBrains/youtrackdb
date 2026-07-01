@@ -124,6 +124,23 @@ scope-downs, dependency reveals, gate-override reasons. -->
   Concrete Step and in R1 above is the shape; the isolated-child context is the
   correct `ctx`. See Episodes §Step 2. (Reconcile the design's clone note in
   Phase 4.)
+- **analysis / no-change (query metrics, pre-Step-5)** — the design is silent on
+  `QueryMetricsListener`, and it stays intact by construction: `QueryDetails` has
+  a single producer (`YTDBQueryMetricsStep`), and both its fields are decoupled
+  from the step-list swap — `getQuerySummary()` reads the `querySummary`
+  `OptionsStrategy` config (a traversal-level strategy, not a step), and
+  `getQuery()` renders `traversal.getBytecode()` (fixed at construction, not the
+  post-strategy step list). `YTDBQueryMetricsStrategy` is a `FinalizationStrategy`,
+  so it appends its step *after* `GremlinToMatchStrategy` (a
+  `ProviderOptimizationStrategy`) has run `replaceAllSteps`; both are idempotent
+  on re-apply. The SQL/MATCH execution path builds no `QueryDetails`, so a
+  translated query is measured exactly once — no double-count, no summary built
+  from the null `statement`. **Do not** refactor this ordering or move summary
+  derivation onto the step list. Step 5 adds the empirical proof (a
+  metrics-under-translation smoke test). Track 3+ note: the MATCH path's only
+  counter touchpoint is `CoreMetrics.PREFILTER_EFFECTIVENESS` (`EdgeTraversal`),
+  which translated edge shapes will begin feeding once Track 3 lands — a metric
+  *attribution* shift, unrelated to `QueryDetails`.
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -184,7 +201,7 @@ flowchart LR
 2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [x]  commit: e121bb25f6
 3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [x]  commit: 999cea5dfe
 4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [x]  commit: 0a8d0e8044
-5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check — `risk: high`  [ ]
+5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check, plus a **query-metrics-under-translation** check: with query monitoring on and `querySummary` set via `with(...)`, a translated `g.V()` records exactly one `QueryDetails` whose `getQuerySummary()` returns the config value, whose `getQuery()` renders the original Gremlin (proving `getBytecode()` survives the boundary splice), with a non-zero duration and the correct count — `risk: high`  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -378,6 +395,10 @@ duplicate-id-declines and non-polymorphic-subclass cases).
 - A user label starting with `$` declines the whole traversal (collision pre-flight).
 - The plan cache serves one plan for the same shape across distinct parameter values; a schema change invalidates it.
 - The three half-measure strategies still serve their shapes on decline.
+- Query monitoring survives translation: a translated `g.V()` run with monitoring
+  enabled records exactly one `QueryDetails` — `getQuerySummary()` = the
+  `with(querySummary, …)` config value, `getQuery()` = the original Gremlin
+  string, non-zero duration, correct count (Step 5 smoke test).
 
 <!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
 
