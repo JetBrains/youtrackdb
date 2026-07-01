@@ -18,6 +18,7 @@ This track fixes the two operative command sites (the actual `git rm` commands t
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-01T13:37Z [ctx=safe] Review + decomposition complete
+- [x] 2026-07-01T14:03Z [ctx=safe] Step 1 complete (commit a989816b40)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -88,10 +89,22 @@ Ordering: the operative-command fix and the prose reconciliation are independent
 
 ## Concrete Steps
 
-1. Fix both operative Phase-4 cleanup command sites and reconcile every descriptive mention. At `create-final-design.md` § Step 6 and `workflow.md` § Final Artifacts, change `git rm -r docs/adr/<dir-name>/_workflow/` to `git rm -rf docs/adr/<dir-name>/_workflow/` and add a follow-up `rm -rf docs/adr/<dir-name>/_workflow/` (with a one-line rationale: `-f` deletes the tracked-modified `design-mutations.md`; the `rm -rf` clears the untracked cold-read output / per-round params / `.pyc` remnants `git rm` never reaches). Keep both operative sites in step (they are documented mirrors) and preserve the single-cleanup-commit contract and the existing `plan/*`-glob warning. Correct the "sweeps automatically" prose at `create-final-design.md:617` and `workflow.md:769`, and reconcile the descriptive mentions at `commit-conventions.md:153`, `conventions-execution.md:372` / `:747`, and `mid-phase-handoff.md:493` so no doc still claims the recursive `git rm` sweeps untracked files. All edits route to the §1.7 staged mirror (five files under `.claude/workflow/`). — risk: medium (bounded behavioral workflow edit: changes the Phase-4 cleanup command the orchestrator executes and adds a force-delete `rm -rf`; no gate/dispatch/schema change so not HIGH, not meaning-preserving so above the prose-only LOW cap) — size: ~5 files; (a) no mergeable low/medium work fits — this is the entire single-track change  [ ]
+1. Fix both operative Phase-4 cleanup command sites and reconcile every descriptive mention. At `create-final-design.md` § Step 6 and `workflow.md` § Final Artifacts, change `git rm -r docs/adr/<dir-name>/_workflow/` to `git rm -rf docs/adr/<dir-name>/_workflow/` and add a follow-up `rm -rf docs/adr/<dir-name>/_workflow/` (with a one-line rationale: `-f` deletes the tracked-modified `design-mutations.md`; the `rm -rf` clears the untracked cold-read output / per-round params / `.pyc` remnants `git rm` never reaches). Keep both operative sites in step (they are documented mirrors) and preserve the single-cleanup-commit contract and the existing `plan/*`-glob warning. Correct the "sweeps automatically" prose at `create-final-design.md:617` and `workflow.md:769`, and reconcile the descriptive mentions at `commit-conventions.md:153`, `conventions-execution.md:372` / `:747`, and `mid-phase-handoff.md:493` so no doc still claims the recursive `git rm` sweeps untracked files. All edits route to the §1.7 staged mirror (five files under `.claude/workflow/`). — risk: medium (bounded behavioral workflow edit: changes the Phase-4 cleanup command the orchestrator executes and adds a force-delete `rm -rf`; no gate/dispatch/schema change so not HIGH, not meaning-preserving so above the prose-only LOW cap) — size: ~5 files; (a) no mergeable low/medium work fits — this is the entire single-track change  [x] commit: a989816b40
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit a989816b402b2e84869b5777220f00cc7a08bd97, 2026-07-01T14:03Z [ctx=safe]
+**What was done:** Fixed both operative Phase-4 cleanup command sites and reconciled every descriptive mention, across five `.claude/workflow/` files routed to the §1.7 staged mirror. At `create-final-design.md` § Step 6 and `workflow.md` § Final Artifacts, the bare `git rm -r docs/adr/<dir-name>/_workflow/` became `git rm -rf …` plus a follow-up `rm -rf …`, with a one-line rationale: `-f` deletes the tracked-modified `design-mutations.md`, and the `rm -rf` clears the untracked cold-read output, per-round params, and `.pyc` remnants `git rm` never reaches. The "sweeps automatically" prose at both operative sites now separates the tracked sweep (`git rm -rf`) from the untracked sweep (`rm -rf`); the descriptive mentions in `commit-conventions.md`, `conventions-execution.md` (`:372` and `:747`), and `mid-phase-handoff.md` carry the same `-rf` + `rm -rf` shape. Both operative sites keep the single-cleanup-commit contract (both deletions precede the single `git commit`) and the `plan/*`-glob warning.
+
+**What was discovered:** The `mid-phase-handoff.md` descriptive mention already named "Step 6 of `create-final-design.md`", which matches the current Step 6 header, so no cross-reference drift needed fixing there. The staged fix does not self-apply to this branch's own Phase 4, and the gap stays inert here: the promote-staged-workflow step lands before the cleanup commit, so this branch's cleanup runs the fixed `git rm -rf` + `rm -rf`, and `design_gate=no` means no `design-mutations.md` or per-round params are produced to trip the old command (see `## Decision Log` D3). The cumulative track-diff stat reads ~3,093 insertions, but five freshly-staged whole-file copies inflate that count — the real change surface is ~15 delta lines, so Phase C should read the stat as an order-of-magnitude artifact rather than an oversize-track signal.
+
+**Key files:**
+- `staged-workflow/.claude/workflow/prompts/create-final-design.md` (new — staged copy: operative § Step 6 + descriptive)
+- `staged-workflow/.claude/workflow/workflow.md` (new — staged copy: operative § Final Artifacts + descriptive)
+- `staged-workflow/.claude/workflow/commit-conventions.md` (new — staged copy: descriptive)
+- `staged-workflow/.claude/workflow/conventions-execution.md` (new — staged copy: descriptive ×2)
+- `staged-workflow/.claude/workflow/mid-phase-handoff.md` (new — staged copy: descriptive)
 
 ## Validation and Acceptance
 Acceptance is verified by grep over the edited files plus a documented Phase-4 dry-run check; there is no automated test for a workflow-prose change. Each check below maps 1:1 to an entry in `## Invariants & Constraints`.
