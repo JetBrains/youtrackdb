@@ -75,7 +75,17 @@ public final class SchemaProxy extends SchemaProxedResource<SchemaShared>
   @Override
   public ImmutableSchema makeSnapshot() {
     assert session.assertIfNotActive();
-    // Tier 1: the immutable snapshot is taken from the committed instance, not the tx-local copy.
+    if (session.hasActiveIndexOverlay()) {
+      // A schema/index transaction with a tx-local index overlay is in progress. Build a
+      // session-private, uncached snapshot: its per-class index list resolves against this session's
+      // overlay through the index-manager routing seam, and it is never stored in the process-shared
+      // snapshot cache, so a concurrent session still reads the committed index set. The class and
+      // property structure still comes from the committed instance here; the tx-aware class/property
+      // view is a later step and rides this same session-private-snapshot seam.
+      return delegate.makeUncachedSnapshot(session);
+    }
+    // Tier 1: the immutable snapshot is taken from the committed instance's shared cache, not the
+    // tx-local copy.
     return delegate.makeSnapshot(session);
   }
 
