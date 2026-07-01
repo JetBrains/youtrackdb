@@ -181,19 +181,40 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // All-or-nothing decline — the production facade declines every shape; a declined
-  // traversal is left byte-for-byte unchanged (native pipeline handles it).
+  // Production translation — with the walker wired, the production strategy recognizes the
+  // vertex source (g.V()) and splices in a single boundary step end to end.
   // ---------------------------------------------------------------------------
 
   /**
-   * The production strategy (with its declining facade) leaves a {@code g.V()} traversal's step
-   * list verbatim — same step instances, same order — because the facade declines. This pins
-   * the skeleton's "decline is a no-op mutation" contract: the start step is still the plain
-   * {@code GraphStep} the native pipeline expects, not a boundary step.
+   * The production strategy (with the walker-backed facade) recognizes a bare {@code g.V()} and
+   * replaces its entire step list with a single {@link YTDBMatchPlanStep} carrying a real
+   * execution plan. This pins the end-to-end production path — gates on, walker recognizes,
+   * planner builds, splice runs — that the earlier decline-only skeleton could not exercise.
    */
   @Test
-  public void apply_productionFacadeDeclines_leavesNativeStepListVerbatim() {
+  public void apply_productionVertexSource_translatesToSingleBoundary() {
     var admin = graph.traversal().V().asAdmin();
+
+    GremlinToMatchStrategy.instance().apply(admin);
+
+    assertThat(admin.getSteps()).hasSize(1);
+    var only = admin.getSteps().getFirst();
+    assertThat(only).isInstanceOf(YTDBMatchPlanStep.class);
+    var boundary = (YTDBMatchPlanStep<?, ?>) only;
+    assertThat(boundary.getPlan()).as("a real execution plan was built and installed").isNotNull();
+    assertThat(boundary.getBoundaryAlias()).isEqualTo("$g2m_v0");
+    assertThat(boundary.getOutputType()).isEqualTo(BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * The production strategy leaves an <em>unrecognized</em> traversal ({@code g.V().out()}, whose
+   * {@code out()} step has no recognizer yet) byte-for-byte unchanged: under all-or-nothing one
+   * unrecognized step declines the whole traversal, so the native step list — same step instances,
+   * same order — is preserved for the native pipeline and no boundary step is spliced in.
+   */
+  @Test
+  public void apply_productionUnrecognizedStep_leavesNativeStepListVerbatim() {
+    var admin = graph.traversal().V().out().asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     GremlinToMatchStrategy.instance().apply(admin);
