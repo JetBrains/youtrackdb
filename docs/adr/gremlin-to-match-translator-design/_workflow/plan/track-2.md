@@ -14,8 +14,18 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 - [ ] Track-level code review
 - [ ] Track completion
 
+- [x] 2026-07-01T14:11Z [ctx=safe] Step 1 complete (commit 0da2d3753e)
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- 2026-07-01T14:11Z Step 1: callers of the new
+  `MatchExecutionPlanner(MatchPlanInputs)` ctor must pass `useCache=false` —
+  the null inherited `statement` NPEs the cache path (R2). Binds Steps 3–5 and
+  every later track that plans through this ctor. See Episodes §Step 1.
+- 2026-07-01T14:11Z Step 1: the origin/develop-scoped coverage gate cannot pass
+  on a per-step single-test-class run (it needs a full-suite report). Later
+  production-code steps in this track hit the same artifact; run one full `core`
+  coverage build at the track's final verification. See Episodes §Step 1.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -117,7 +127,7 @@ flowchart LR
 
 ## Concrete Steps
 
-1. Add `MatchPlanInputs` record + additive `MatchExecutionPlanner(MatchPlanInputs)` ctor — mutable defensive copies of `aliasFilters` (the planner mutates it via `detectNotInAntiJoin`), `aliasRids`, and `aliasClasses`, the final `groupBy` / `orderBy` / `unwind` fields assigned, and a `useCache=false` path so the null inherited `statement` never reaches the cache (D2; T4, R2) — `risk: medium`  [ ]
+1. Add `MatchPlanInputs` record + additive `MatchExecutionPlanner(MatchPlanInputs)` ctor — mutable defensive copies of `aliasFilters` (the planner mutates it via `detectNotInAntiJoin`), `aliasRids`, and `aliasClasses`, the final `groupBy` / `orderBy` / `unwind` fields assigned, and a `useCache=false` path so the null inherited `statement` never reaches the cache (D2; T4, R2) — `risk: medium`  [x]  commit: 0da2d3753e
 2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [ ]
 3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [ ]
 4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [ ]
@@ -125,6 +135,38 @@ flowchart LR
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 0da2d3753e30c744a54bb9e70678a2c555ad58b2, 2026-07-01T14:11Z [ctx=safe]
+**What was done:** Added the `MatchPlanInputs` record and the single additive
+`MatchExecutionPlanner(MatchPlanInputs)` constructor (D2). The record carries
+every post-parse field the planner reads: pattern, `aliasClasses` /
+`aliasFilters` / `aliasRids`, match / notMatch expressions, return items /
+aliases / nested projections, `groupBy`, `orderBy`, `unwind`, `limit`, `skip`,
+`returnDistinct`, and the return-mode flags. The constructor defensive-copies the
+three working maps and shallow-copies the AST lists, so a caller's `aliasFilters`
+survives the planner's in-place `detectNotInAntiJoin` mutation (T4). The three
+existing constructors are unchanged. 14 tests cover null normalisation,
+null-input rejection, per-map copy independence, and field propagation.
+
+**What was discovered:** `MatchExecutionPlanner` needed no reconciliation — its
+post-parse field set matched the record's fields exactly, and the final `groupBy` /
+`orderBy` / `unwind` fields are assignable in the new constructor because every
+existing constructor already assigns them.
+
+**Key files:**
+- `core/.../sql/executor/match/MatchPlanInputs.java` (new)
+- `core/.../sql/executor/match/MatchExecutionPlanner.java` (modified)
+- `core/.../sql/executor/match/MatchExecutionPlannerInputsTest.java` (new)
+
+**Critical context:** Callers of the new constructor must plan with
+`createExecutionPlan(ctx, profiling, useCache=false)`. The inherited `statement`
+field stays null and NPEs the cache lookup on the `useCache=true` path (R2, D5
+cache deferral); this is documented on the constructor Javadoc and enforced by
+convention, not a runtime guard, so it binds Steps 3–5 and every later track that
+builds a plan through this constructor. A full-suite coverage report is deferred
+to the track's final verification: a single-test-class run cannot satisfy the
+origin/develop-scoped gate, but this step's changed lines are 100% line and
+branch by direct JaCoCo inspection.
 
 ## Validation and Acceptance
 - `g.V()`, `g.V(id)`, `g.V(id1, id2, …)` translate and return the same multiset as the native pipeline (translator-on vs translator-off).
