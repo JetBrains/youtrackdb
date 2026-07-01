@@ -525,3 +525,9 @@ attribution, A3 differential-parity harness) and internal-consistency fixes (A5 
 precision, A6 D3/D5 "never both" reconciliation, A7 stale Open-Questions bookkeeping). Reference
 claims PSI-verified: dead plan serialize, collation parity, raw-value bind-param parity, live-object
 plan cache. Addressed below before re-challenge.
+
+### Adversarial review of this log (2026-07-01T15:17:00Z) — PASS
+Iteration 2 (verdict-producer): `_workflow/reviews/research-log-adversarial-iter2.md`. All seven
+iteration-1 findings (A1–A7) VERIFIED as resolved by the strengthening; 0 blockers, 0 STILL-OPEN
+should-fix, 0 remaining. New-finding sweep over the revisions found no overreach, no reopened
+decision, no fresh inconsistency. **Gate clears** — Phase 1 may derive the design and plan from D1–D5.
