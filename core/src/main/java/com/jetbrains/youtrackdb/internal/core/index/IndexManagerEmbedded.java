@@ -25,15 +25,22 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.util.MultiKey;
 import com.jetbrains.youtrackdb.internal.common.util.UncaughtExceptionHandler;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.db.record.RecordOperation;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.InvalidIndexEngineIdException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.SecurityResourceProperty;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -497,8 +504,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // De-guarded: a schema transaction no longer throws here. A create is itself a schema write,
       // so seed the tx-local schema state and record the index definition against its owning class
       // in the changed-class set; the engine is not created and the shared index registry is not
-      // mutated now. The commit builds the engine and publishes the definition (the tx-local
-      // index-definition overlay and the commit-time engine build are a later track), so a
+      // mutated now. The commit builds the engine and publishes the definition (through the tx-local
+      // index-definition overlay recorded below and the commit-time reconciliation phases), so a
       // tx-created index is not query-usable until commit and a rollback leaves the shared index
       // manager untouched. A definition-only instance is returned so the caller has a non-null
       // handle; it is intentionally absent from the shared registry.
@@ -509,8 +516,13 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       var deferredHandle = Indexes.createIndexInstance(type, algorithm, storage);
       // Populate the handle with its definition so the public path (e.g. the SQL CREATE INDEX
       // statement's size() probe) sees a sensible, NPE-free deferred index; the engine is not built
-      // and the handle is not registered in the shared manager until commit.
-      var deferredCollections = findCollectionsByIds(collectionIdsToIndex, session);
+      // and the handle is not registered in the shared manager until commit. Resolve collection ids
+      // through the provisional-aware path: indexing a class created in this same transaction hands
+      // a provisional collection id (<= -2), which getCollectionNameById returns null for; the
+      // provisional-aware resolver reads the carried <class>_<counter> name off TxSchemaState so the
+      // deferred handle stores the right collection name and the commit-time build re-resolves it.
+      var deferredCollections =
+          resolveDeferredCollectionNames(collectionIdsToIndex, session, txState);
       deferredHandle.markDeferred(
           new IndexMetadata(iName, indexDefinition, deferredCollections, type, algorithm, -1,
               metadata));
@@ -663,15 +675,48 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     return collectionsToIndex;
   }
 
+  /**
+   * Resolves the collection names for a deferred (transaction-created) index handle, tolerating a
+   * provisional collection id (<= -2) that a class created in this same transaction carries. A real
+   * committed id (>= 0) resolves through the storage name map as usual; a provisional id resolves to
+   * the {@code <class>_<counter>} name the transaction recorded on {@link TxSchemaState} when it
+   * allocated the id, because {@code getCollectionNameById} returns null for any negative id and the
+   * real collection does not exist until commit. This is why the deferred create no longer throws
+   * {@code IndexException("Collection with id -2 does not exist")} when indexing a same-transaction
+   * class: the handle stores the generated name, and the commit-time engine build re-resolves it to
+   * the real collection once reconciliation has created it.
+   */
+  private static Set<String> resolveDeferredCollectionNames(
+      int[] collectionIdsToIndex, DatabaseSessionEmbedded session, TxSchemaState txState) {
+    final Set<String> collectionsToIndex = new HashSet<>();
+    if (collectionIdsToIndex == null) {
+      return collectionsToIndex;
+    }
+    for (final var collectionId : collectionIdsToIndex) {
+      final String collectionName;
+      if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+        collectionName = txState.getProvisionalCollectionName(collectionId);
+      } else {
+        collectionName = session.getCollectionNameById(collectionId);
+      }
+      if (collectionName == null) {
+        throw new IndexException(session.getDatabaseName(),
+            "Collection with id " + collectionId + " does not exist.");
+      }
+      collectionsToIndex.add(collectionName);
+    }
+    return collectionsToIndex;
+  }
+
   @Override
   public void dropIndex(DatabaseSessionEmbedded session, final String iIndexName) {
     if (session.getTransactionInternal().isActive()) {
       // De-guarded: a schema transaction no longer throws here. A drop is itself a schema write, so
       // seed the tx-local schema state and record the drop against the index's owning class in the
-      // changed-class set, leaving the shared index registry and the engine intact now. The commit
-      // removes the entry and deletes the engine inside its own atomic operation (the tx-local
-      // index-definition overlay that hides the dropped index and the commit-time engine drop are
-      // a later track), so a rollback leaves the index in place.
+      // changed-class set, leaving the shared index registry and the engine intact now. The overlay
+      // hides the dropped index from the tx-local raw index set; the commit removes the shared
+      // registry entry and deletes the engine inside its own atomic operation (the drop-side commit
+      // half in the reconciliation phases), so a rollback leaves the index in place.
       var txState = session.ensureTxSchemaState();
       boolean recordedDrop = false;
       // An index created earlier in this same transaction lives only in the overlay, never in the
@@ -727,6 +772,306 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         releaseExclusiveLock(session, true);
       }
     });
+  }
+
+  /**
+   * A committed-index membership change applied in the enroll phase, captured so a failed commit can
+   * revert the eager in-memory mutation (the record write reverts with the atomic operation, but the
+   * in-memory {@code Index.collectionsToIndex} set was mutated synchronously).
+   *
+   * @param index          the committed index whose membership changed.
+   * @param collectionName the collection added to or removed from the index.
+   * @param wasAdd         {@code true} when the change added the collection (revert removes it),
+   *                       {@code false} when it removed the collection (revert re-adds it).
+   */
+  private record AppliedMembership(IndexAbstract index, String collectionName, boolean wasAdd) {
+
+  }
+
+  /**
+   * The plan a schema-carrying commit executes for the transaction's index deltas, carried across
+   * the three commit phases (record enrollment before the working set, engine build/drop and
+   * population after the record apply, shared-map publication after {@code commitChanges} success).
+   * Built once by {@link #enrollReconciledIndexRecords} and consumed by
+   * {@link #buildAndDropReconciledEngines} and {@link #publishReconciledIndexes}. The failure path
+   * reads {@link #createdEngineExternalIds} to undo phantom engine registrations and
+   * {@link #appliedMembership} to revert the eager membership mutations.
+   *
+   * @param created         tx-created deferred handles to build engines for and publish.
+   * @param dropped         committed indexes the transaction dropped, to delete engines for and
+   *                        unpublish.
+   * @param appliedMembership the committed-index membership changes applied eagerly in the enroll
+   *                        phase, for the failure-path revert.
+   * @param createdEngineExternalIds the built engine ids, filled in during the build phase so the
+   *                        failure path can revert the phantom registrations.
+   */
+  public record ReconciledIndexPlan(
+      List<IndexAbstract> created,
+      List<Index> dropped,
+      List<AppliedMembership> appliedMembership,
+      List<Integer> createdEngineExternalIds) {
+
+  }
+
+  /**
+   * Phase 1 of the commit-time index reconciliation, run before the commit gathers its record working
+   * set: enrolls the changed per-index entity records into the transaction so they join the working
+   * set, and enforces the v1 empty-source-collection build bound. For each tx-created index it writes
+   * the deferred handle's metadata record and adds its RID to the index-manager entity's link set;
+   * for each tx-dropped committed index it removes the link and deletes the index entity record. The
+   * shared {@code indexes} / {@code classPropertyIndex} lookup maps are NOT touched here — that
+   * publication is deferred to {@link #publishReconciledIndexes} after {@code commitChanges} succeeds,
+   * so a failed commit leaves the committed view unchanged.
+   *
+   * <p>The v1 empty-source-collection bound: a tx-created index whose source collection already
+   * holds committed rows is loudly rejected, because the in-commit build would hold the whole
+   * collection's rows in heap under the exclusive lock. The populated-class build is YTDB-1064. A
+   * source collection created in this same transaction is empty by construction, so a same-transaction
+   * class-plus-index passes the bound.
+   *
+   * <p>Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   *
+   * @param session         the committing session.
+   * @param transaction     the in-flight commit transaction.
+   * @param overlay         the transaction's index overlay (its four delta categories).
+   * @return the plan the build and publish phases consume, or {@code null} when the overlay carries
+   *     no index delta.
+   */
+  @Nullable public ReconciledIndexPlan enrollReconciledIndexRecords(
+      DatabaseSessionEmbedded session, FrontendTransaction transaction, IndexOverlay overlay) {
+    if (overlay == null || overlay.isEmpty()) {
+      return null;
+    }
+    final List<IndexAbstract> created = new ArrayList<>();
+    final List<Index> dropped = new ArrayList<>();
+
+    var indexManagerEntity = transaction.loadEntity(indexManagerIdentity);
+    var indexLinkSet = indexManagerEntity.getOrCreateLinkSet(CONFIG_INDEXES);
+
+    for (final var handle : overlay.getTxCreatedIndexes()) {
+      // The v1 build is bounded to an empty source collection: a populated source would hold the
+      // whole collection in heap under the exclusive commit lock. Reject loudly and point at the
+      // follow-up rather than stalling or silently truncating.
+      rejectNonEmptySourceCollection(session, handle);
+      final var abstractHandle = (IndexAbstract) handle;
+      abstractHandle.saveRecordAtCommit(transaction);
+      indexLinkSet.add(abstractHandle.getIdentity());
+      created.add(abstractHandle);
+    }
+
+    for (final var droppedName : overlay.getTxDroppedNames()) {
+      final var committed = indexes.get(droppedName);
+      if (committed == null) {
+        // A tx-dropped name with no committed index cannot happen: recordDropped cancels a pending
+        // create instead of recording a drop, so a tx-dropped name always names a committed index.
+        continue;
+      }
+      // Enroll only the record-level removal here: unlink the index entity from the index-manager
+      // link set and delete the index entity record. The engine deletion runs lock-free in the build
+      // phase (the public Index.delete re-acquires stateLock and starts a nested transaction, both
+      // illegal inside the commit window), and the shared registry-map removal is deferred to the
+      // publish phase after commitChanges succeeds.
+      indexLinkSet.remove(committed.getIdentity());
+      ((IndexAbstract) committed).deleteRecordAtCommit(transaction);
+      dropped.add(committed);
+    }
+
+    // Persist the committed-index membership deltas here too: the membership change re-writes the
+    // committed index's own metadata record (its CONFIG_COLLECTIONS set), which must join the working
+    // set, so it belongs in the enroll phase. The in-memory Index.collectionsToIndex set is mutated
+    // eagerly (like a created collection published in reconcileCollections) and reverted on a failed
+    // commit through the captured AppliedMembership list. The parent index then covers the new
+    // subclass collection, so a later insert into that collection tracks the parent index and a
+    // polymorphic lookup returns the subclass rows.
+    final List<AppliedMembership> appliedMembership = new ArrayList<>();
+    for (final var entry : overlay.getMembershipAdded().entrySet()) {
+      final var committed = indexes.get(entry.getKey());
+      if (committed instanceof IndexAbstract abstractIndex) {
+        for (final var collectionName : entry.getValue()) {
+          if (abstractIndex.addCollectionRecordAtCommit(transaction, collectionName)) {
+            appliedMembership.add(new AppliedMembership(abstractIndex, collectionName, true));
+          }
+        }
+      }
+    }
+    for (final var entry : overlay.getMembershipRemoved().entrySet()) {
+      final var committed = indexes.get(entry.getKey());
+      if (committed instanceof IndexAbstract abstractIndex) {
+        for (final var collectionName : entry.getValue()) {
+          if (abstractIndex.removeCollectionRecordAtCommit(transaction, collectionName)) {
+            appliedMembership.add(new AppliedMembership(abstractIndex, collectionName, false));
+          }
+        }
+      }
+    }
+
+    return new ReconciledIndexPlan(created, dropped, appliedMembership, new ArrayList<>());
+  }
+
+  /**
+   * Rejects a tx-created index whose source collection already holds committed rows (the v1
+   * v1 empty-class build bound). Reads the collection's approximate record count lock-free (the
+   * caller holds {@code stateLock.writeLock()}), so it never re-acquires the non-reentrant state
+   * lock. A same-transaction-created source collection is empty by construction and passes.
+   */
+  private void rejectNonEmptySourceCollection(
+      DatabaseSessionEmbedded session, Index handle) {
+    final var definition = handle.getDefinition();
+    if (definition == null) {
+      return;
+    }
+    for (final var collectionName : handle.getCollections()) {
+      final var collectionId = session.getCollectionIdByName(collectionName);
+      if (collectionId < 0) {
+        continue;
+      }
+      if (((AbstractStorage) storage).getApproximateRecordsCountInCommitWindow(collectionId) > 0) {
+        throw new IndexException(session.getDatabaseName(),
+            "Building index '" + handle.getName() + "' inside a transaction is bounded to an empty"
+                + " source collection in this version; collection '" + collectionName + "' is not"
+                + " empty. The unbounded populated-class in-commit build is tracked by YTDB-1064.");
+      }
+    }
+  }
+
+  /**
+   * Phase 2 of the commit-time index reconciliation, run inside the commit window after the record
+   * apply has assigned the transaction's records persistent RIDs: builds the engine for each
+   * tx-created index and populates it from the transaction's final record state, and deletes the
+   * engine for each tx-dropped index. The build feeds {@code doPut} directly with no copied session
+   * or nested transaction (both would re-enter the non-reentrant {@code stateLock}). Because the v1
+   * bound guarantees an empty source collection, the committed-row population scan is empty and the
+   * whole population comes from the final-state re-derivation over the transaction's own record
+   * operations: each created or updated entity of the index's collections contributes its key,
+   * deletes are skipped.
+   *
+   * <p>The built engine ids are recorded on the plan so the failure path can revert the phantom
+   * engine registrations.
+   *
+   * <p>Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   */
+  public void buildAndDropReconciledEngines(
+      DatabaseSessionEmbedded session,
+      FrontendTransactionImpl transaction,
+      AtomicOperation atomicOperation,
+      ReconciledIndexPlan plan)
+      throws IOException {
+    try {
+      for (final var handle : plan.created()) {
+        final var externalId = handle.buildEngineAtCommit(transaction, atomicOperation);
+        plan.createdEngineExternalIds().add(externalId);
+        populateTxCreatedIndex(session, transaction, handle);
+      }
+      for (final var droppedIndex : plan.dropped()) {
+        final var engineId = droppedIndex.getIndexId();
+        if (engineId >= 0) {
+          ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(engineId, atomicOperation);
+        }
+      }
+    } catch (final InvalidIndexEngineIdException e) {
+      // Wrap the checked engine-id exception as an unchecked IndexException so the commit's
+      // RuntimeException/Error catch reaches the failure-path undo (which reverts the engines this
+      // phase already created), mirroring how the collection reconciliation wraps its IOException.
+      throw BaseException.wrapException(
+          new IndexException(session.getDatabaseName(),
+              "Error building or dropping index engines during schema commit"),
+          e, session.getDatabaseName());
+    }
+  }
+
+  /**
+   * Populates a freshly built tx-created index from the transaction's final record state (the
+   * final-state re-derivation). With the v1 empty-source-collection bound the committed-row scan is
+   * empty, so every indexed entry comes from the transaction's own record operations: a created or
+   * updated entity whose collection the index covers contributes its key through the index's
+   * definition; a deleted record is skipped. Feeds {@code doPut} directly on the built engine.
+   */
+  private void populateTxCreatedIndex(
+      DatabaseSessionEmbedded session, FrontendTransactionImpl transaction, IndexAbstract handle)
+      throws InvalidIndexEngineIdException {
+    final var definition = handle.getDefinition();
+    if (definition == null) {
+      return;
+    }
+    final var coveredCollectionIds = new IntOpenHashSet();
+    for (final var collectionName : handle.getCollections()) {
+      final var id = session.getCollectionIdByName(collectionName);
+      if (id >= 0) {
+        coveredCollectionIds.add(id);
+      }
+    }
+    for (final var recordOperation : transaction.getRecordOperationsInternal()) {
+      if (recordOperation.type == RecordOperation.DELETED) {
+        continue;
+      }
+      final var record = recordOperation.record;
+      if (!(record instanceof EntityImpl entity)) {
+        continue;
+      }
+      final var rid = entity.getIdentity();
+      // The record apply has already assigned persistent RIDs; a still-non-persistent RID cannot be
+      // indexed (doPut stores the RID as the value), so skip it defensively.
+      if (rid == null || !rid.isPersistent()) {
+        continue;
+      }
+      if (!coveredCollectionIds.contains(rid.getCollectionId())) {
+        continue;
+      }
+      final var key = definition.getDocumentValueToIndex(transaction, entity);
+      if (key instanceof Collection<?> keys) {
+        for (final var keyItem : keys) {
+          if (!definition.isNullValuesIgnored() || keyItem != null) {
+            handle.doPut(session, (AbstractStorage) storage, keyItem, rid);
+          }
+        }
+      } else if (!definition.isNullValuesIgnored() || key != null) {
+        handle.doPut(session, (AbstractStorage) storage, key, rid);
+      }
+    }
+  }
+
+  /**
+   * Phase 3 of the commit-time index reconciliation, run after {@code commitChanges} succeeds (the
+   * records are durable): publishes the transaction's created and dropped index deltas into the
+   * shared {@code indexes} / {@code classPropertyIndex} lookup maps as the design's "replacement
+   * objects" — a tx-created index is registered and a tx-dropped index is removed. Deferring this
+   * publication past {@code commitChanges} keeps the committed view unchanged on a failed commit,
+   * mirroring the schema promotion. Committed-index membership changes are NOT handled here: they
+   * mutate a committed index's own membership set (not the lookup maps that key by name), so the
+   * enroll phase applies and persists them eagerly and the failure path reverts them. Runs under the
+   * index-manager write lock, which the commit already holds through {@code acquireExclusiveLockForCommit}.
+   *
+   * <p>Must be called with the index-manager write lock and {@code stateLock.writeLock()} held.
+   */
+  public void publishReconciledIndexes(FrontendTransaction transaction, ReconciledIndexPlan plan) {
+    for (final var handle : plan.created()) {
+      // The engine is built and the record durable, so register the handle in the shared lookup maps
+      // exactly as the non-transactional create's addIndexInternalNoLock does, without re-updating the
+      // index-manager entity (its link set was updated in the enroll phase and is already durable).
+      addIndexInternalNoLock(handle, transaction, false);
+    }
+    for (final var droppedIndex : plan.dropped()) {
+      removeClassPropertyIndexInternal(droppedIndex);
+      indexes.remove(droppedIndex.getName());
+    }
+  }
+
+  /**
+   * Reverts the eager in-memory membership mutations the enroll phase applied, on a failed commit.
+   * The membership record writes revert with the rolled-back atomic operation, but the in-memory
+   * {@code Index.collectionsToIndex} sets were mutated synchronously, so a membership add is undone
+   * (the collection removed again) and a membership remove is undone (the collection re-added). The
+   * mirror of {@link #undoReconciledIndexEngines} for the membership category. Runs under the held
+   * write locks on the failure path.
+   */
+  public void undoAppliedMembership(ReconciledIndexPlan plan) {
+    for (final var applied : plan.appliedMembership()) {
+      if (applied.wasAdd()) {
+        applied.index().removeCollectionInMemoryAtCommit(applied.collectionName());
+      } else {
+        applied.index().addCollectionInMemoryAtCommit(applied.collectionName());
+      }
+    }
   }
 
   public List<Map<String, Object>> getIndexesConfiguration(DatabaseSessionEmbedded session) {

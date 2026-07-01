@@ -388,8 +388,11 @@ public class SchemaDeguardTest extends DbTestBase {
               indexManager.existsIndex(indexName));
         });
 
-    assertFalse("after commit the deferred-only index must remain unregistered until a later track"
-        + " builds it",
+    // The commit builds the deferred index's engine and publishes it into the shared manager (the
+    // commit-time engine build): the class is empty, so the build passes the v1 empty-source bound,
+    // and after commit the index is a real, registered index. During the transaction it stayed
+    // deferred (the assertions above); the registration is the commit-time transition.
+    assertTrue("after commit the deferred index must be built and registered in the shared manager",
         indexManager.existsIndex(indexName));
   }
 
