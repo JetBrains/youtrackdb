@@ -108,6 +108,11 @@ Ordering: the operative-command fix and the prose reconciliation are independent
 - `staged-workflow/.claude/workflow/conventions-execution.md` (new — staged copy: descriptive ×2)
 - `staged-workflow/.claude/workflow/mid-phase-handoff.md` (new — staged copy: descriptive)
 
+### Track completion — 2026-07-01T14:33Z [ctx=safe]
+Made the Phase-4 `_workflow/` cleanup robust against a dirty tree: both operative command sites (`create-final-design.md` § Step 6, `workflow.md` § Final Artifacts) now run `git rm -rf …/_workflow/` then `rm -rf …/_workflow/`, and the four descriptive mention sites were reconciled to the same shape. All edits are §1.7-staged and promote to the live files at Phase 4. Phase C ran the workflow-only reviewer selection (5 workflow reviewers; baseline group skipped, hook-safety not triggered) and cleared two non-blocker findings in one Review-fix iteration (`e7c8ee91f4`). The one discovery worth carrying to Phase 4: the follow-up-`rm -rf` rationale must scope "under `staged-workflow/`" to the `.pyc` caches only — the cold-read output and per-round params live directly under `_workflow/`; a mis-scoped rationale is a latent invitation to narrow the delete and reintroduce the bug. No cross-track impact, no plan corrections.
+
+1 step, 0 failed.
+
 ## Validation and Acceptance
 Acceptance is verified by grep over the edited files plus a documented Phase-4 dry-run check; there is no automated test for a workflow-prose change. Each check below maps 1:1 to an entry in `## Invariants & Constraints`.
 
