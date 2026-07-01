@@ -23,15 +23,12 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * purpose outside the strategy, and exposing it would let callers bypass the strategy's
  * gating (kill-switch, idempotency, start-step shape).
  *
- * <p><b>Current state — declines every shape.</b> This class is a skeleton: {@link
- * #translate} returns {@link Optional#empty()} for every input. The strategy is therefore
- * a structural no-op — it walks its gates and then declines, leaving the native pipeline in
- * charge. The real walker (the {@code GremlinStepWalker} + {@code StepRecogniser} registry)
- * lands in a follow-up step; wiring the decline-only facade now lets the strategy's gating
- * cascade and its throw-safety net be implemented and unit-tested in isolation, before any
- * recognizer runs under the strategy. Any later fully-recognizing implementation must honor
- * the same empty-on-no-translation contract so the strategy never has to guard against a
- * non-empty result that would not actually rewrite the step list.
+ * <p>Translation is delegated to the shared production {@link GremlinStepWalker}, which walks
+ * the step list and dispatches each step to the registered {@link StepRecogniser}s. Phase 1
+ * recognises only the vertex source ({@code g.V()} / {@code g.V(ids)}); any unrecognised step
+ * declines the whole traversal (the all-or-nothing contract) so the native TinkerPop pipeline
+ * keeps handling it verbatim. Later tracks widen the recognised set by adding recognisers to
+ * the walker's registry — this facade does not change.
  */
 final class GremlinToMatchTranslator {
 
@@ -40,21 +37,18 @@ final class GremlinToMatchTranslator {
   }
 
   /**
-   * Attempts to translate {@code traversal} whole into MATCH plan inputs.
+   * Attempts to translate {@code traversal} whole into MATCH plan inputs by delegating to the
+   * shared production {@link GremlinStepWalker}.
    *
    * <p>Returns {@link Optional#empty()} when the traversal contains any unrecognized step
-   * (the all-or-nothing decline), and — in the current skeleton — for <em>every</em> input,
-   * since no recognizer is wired yet. The strategy treats an empty result as "no
-   * translation" and leaves the traversal untouched, preserving the native execution path.
+   * (the all-or-nothing decline). The strategy treats an empty result as "no translation" and
+   * leaves the traversal untouched, preserving the native execution path.
    *
    * @param traversal the traversal to inspect; never {@code null}
-   * @return the whole-traversal translation, or {@link Optional#empty()} to decline; always
-   *     empty in the current skeleton
+   * @return the whole-traversal translation, or {@link Optional#empty()} to decline
    */
   static Optional<TranslationResult> translate(Traversal.Admin<?, ?> traversal) {
-    // Skeleton: see class Javadoc. The real whole-traversal walk lands in the next step of
-    // this track. Declining here keeps the strategy a structural no-op end to end.
-    return Optional.empty();
+    return GremlinStepWalker.production().walk(traversal);
   }
 
   /**

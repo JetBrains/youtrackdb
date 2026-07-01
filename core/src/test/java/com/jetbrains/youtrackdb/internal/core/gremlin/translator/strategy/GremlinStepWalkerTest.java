@@ -1,0 +1,328 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
+import java.util.List;
+import java.util.Optional;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.junit.Test;
+
+/**
+ * Unit tests for {@link GremlinStepWalker} + {@link StartStepRecogniser}, the walker layer that
+ * translates the Phase 1 vertex-source shapes ({@code g.V()} / {@code g.V(id)} /
+ * {@code g.V(id1, id2, …)}) into {@link
+ * com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs}.
+ *
+ * <p>The tests drive the walker directly (not through the strategy) against real
+ * {@link GraphBaseTest} traversals so that {@code YTDBStrategyUtil.isPolymorphic} — which needs
+ * an attached YouTrackDB graph — resolves. They verify three things:
+ *
+ * <ul>
+ *   <li><b>Translation correctness</b> — each recognized shape produces the right single-node
+ *       {@code $g2m_v0} pattern, with the RID landing on {@code aliasRids} (single ID) or an
+ *       {@code @rid IN [...]} filter (multi ID).
+ *   <li><b>The plain-{@code GraphStep} key</b> — the registry keys {@link StartStepRecogniser}
+ *       under the plain TinkerPop {@code GraphStep}, NOT {@code YTDBGraphStep}. A pinned
+ *       regression test would fail if it keyed on {@code YTDBGraphStep}, because at translator
+ *       time (before {@code YTDBGraphStepStrategy} runs) the start step is a plain
+ *       {@code GraphStep}. A second test drives a {@code YTDBGraphStep} through the walker to
+ *       prove class-keyed dispatch fails safe on the unexpected subclass — {@code
+ *       map.get(YTDBGraphStep.class)} finds no entry, so the traversal declines.
+ *   <li><b>Decline discipline</b> — an unrecognized step declines the whole walk (the native
+ *       step list would be preserved by the caller), a detached / null-{@code isPolymorphic}
+ *       traversal declines, and a declining recognizer leaves the {@link WalkerContext}
+ *       unmutated (no-mutation-on-decline).
+ * </ul>
+ */
+public class GremlinStepWalkerTest extends GraphBaseTest {
+
+  private static final String BOUNDARY_ALIAS = "$g2m_v0";
+
+  // ---------------------------------------------------------------------------
+  // Translation correctness — g.V() / g.V(id) / g.V(ids) → MatchPlanInputs.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V()} translates to a single-node pattern under the boundary alias {@code $g2m_v0}
+   * with the default vertex class {@code V}, no RID hint, and — under the default polymorphic
+   * mode — no {@code @class} narrowing filter. The boundary metadata pins the {@code ELEMENT}
+   * output type and {@code Vertex} return class.
+   */
+  @Test
+  public void walk_bareVertexSource_translatesToSingleNodePattern() {
+    var admin = graph.traversal().V().asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isPresent();
+    var translation = result.get();
+    assertThat(translation.boundaryAlias()).isEqualTo(BOUNDARY_ALIAS);
+    assertThat(translation.outputType()).isEqualTo(BoundaryOutputType.ELEMENT);
+    assertThat(translation.returnClass()).isEqualTo(Vertex.class);
+
+    var inputs = translation.inputs();
+    assertThat(inputs.pattern().aliasToNode).containsOnlyKeys(BOUNDARY_ALIAS);
+    assertThat(inputs.aliasClasses()).containsEntry(BOUNDARY_ALIAS, "V");
+    assertThat(inputs.aliasRids()).as("bare g.V() has no RID hint").doesNotContainKey(
+        BOUNDARY_ALIAS);
+  }
+
+  /**
+   * {@code g.V(id)} with a single RID-shaped ID lands the RID on {@code aliasRids} (the planner's
+   * {@code SELECT FROM #X:Y} fast path), not on an {@code @rid IN [...]} filter. The rendered RID
+   * matches the requested ID.
+   */
+  @Test
+  public void walk_singleId_landsOnAliasRids() {
+    var admin = graph.traversal().V("#25:3").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isPresent();
+    var inputs = result.get().inputs();
+    assertThat(inputs.aliasRids()).containsKey(BOUNDARY_ALIAS);
+    SQLRid rid = inputs.aliasRids().get(BOUNDARY_ALIAS);
+    assertThat(rid.toString()).isEqualTo("#25:3");
+    // The single-ID path uses the RID hint, so no @rid IN [...] filter is emitted for the alias
+    // under the default (polymorphic) mode.
+    assertThat(inputs.aliasFilters()).doesNotContainKey(BOUNDARY_ALIAS);
+  }
+
+  /**
+   * {@code g.V(id1, id2)} with multiple RID-shaped IDs builds an {@code @rid IN [#..:.., #..:..]}
+   * filter on {@code aliasFilters} rather than an {@code aliasRids} hint (which the grammar caps
+   * at one RID per alias). The rendered filter carries both requested RIDs.
+   */
+  @Test
+  public void walk_multipleIds_buildsRidInFilter() {
+    var admin = graph.traversal().V("#25:3", "#25:7").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isPresent();
+    var inputs = result.get().inputs();
+    assertThat(inputs.aliasRids()).as("multi-ID uses an IN filter, not the single-RID hint")
+        .doesNotContainKey(BOUNDARY_ALIAS);
+    assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
+    var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
+    assertThat(rendered).contains("@rid").contains("#25:3").contains("#25:7");
+  }
+
+  // ---------------------------------------------------------------------------
+  // The plain-GraphStep gate — recognizer keys on plain GraphStep, not YTDBGraphStep.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Regression guard for the plain-{@code GraphStep} gate. At translator time — before
+   * {@code YTDBGraphStepStrategy} runs — the traversal's start step is a plain TinkerPop
+   * {@code GraphStep}, NOT {@code YTDBGraphStep}. The walker must recognize this shape. This test
+   * asserts the precondition (start step is a plain {@code GraphStep}, not the YTDB subclass) and
+   * then that the walk succeeds. If the recognizer keyed on {@code YTDBGraphStep} it would decline
+   * here, translating nothing — so this test fails loudly under the wrong gate.
+   */
+  @Test
+  public void walk_plainGraphStepStart_isRecognized() {
+    var admin = graph.traversal().V().asAdmin();
+    assertThat(admin.getStartStep())
+        .as("precondition: at translator time the start step is a plain GraphStep")
+        .isInstanceOf(GraphStep.class)
+        .isNotInstanceOf(YTDBGraphStep.class);
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("plain GraphStep start must be recognized, not declined").isPresent();
+  }
+
+  /**
+   * Class-keyed dispatch fails safe on an unexpected subclass. If the strategy ordering ever
+   * changed so the translator ran after {@code YTDBGraphStepStrategy} folded the plain
+   * {@code GraphStep} into a {@code YTDBGraphStep}, the walker would see a step whose runtime
+   * class ({@code YTDBGraphStep}) has no registry entry — {@code map.get(YTDBGraphStep.class)}
+   * returns {@code null} — so it declines the whole traversal rather than misrouting the
+   * unexpected subclass through the {@code GraphStep} recogniser (D9). Under D4 this never
+   * happens: the translator runs first and sees the plain {@code GraphStep}. The decline is the
+   * safe default for a shape we did not expect.
+   */
+  @Test
+  public void walk_ytdbGraphStepStart_declinesAsUnexpectedSubclass() {
+    var traversal = graph.traversal().V();
+    // Run the half-measure strategy that rewrites the plain GraphStep into a YTDBGraphStep,
+    // simulating the case where the translator ran after (not before) YTDBGraphStepStrategy.
+    YTDBGraphStepStrategy.instance().apply(traversal.asAdmin());
+    var admin = traversal.asAdmin();
+    assertThat(admin.getStartStep()).isInstanceOf(YTDBGraphStep.class);
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result)
+        .as("a YTDBGraphStep has no registry entry, so class-keyed dispatch declines it")
+        .isEmpty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Decline discipline — unrecognized step, edge start, detached traversal,
+  // no-mutation-on-decline.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A traversal carrying a step past the vertex source ({@code g.V().out()}) declines: the
+   * walker recognizes the start step but no recognizer claims the {@code out()} step, so under
+   * all-or-nothing the whole walk declines. The native step list the caller holds is untouched
+   * (the walker never mutates the traversal's steps — it only reads them).
+   */
+  @Test
+  public void walk_unrecognizedStep_declinesWholeWalk() {
+    var admin = graph.traversal().V().out().asAdmin();
+    var stepsBefore = List.copyOf(admin.getSteps());
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("a step past the vertex source declines the whole walk").isEmpty();
+    assertThat(admin.getSteps())
+        .as("the walker never mutates the traversal's native step list")
+        .isEqualTo(stepsBefore);
+  }
+
+  /**
+   * An edge start ({@code g.E()}) declines: the start-step recognizer accepts only vertex-rooted
+   * ({@code returnsVertex()}) sources.
+   */
+  @Test
+  public void walk_edgeStart_declines() {
+    var admin = graph.traversal().E().asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).isEmpty();
+  }
+
+  /**
+   * A traversal whose {@code getGraph()} is empty makes {@code YTDBStrategyUtil.isPolymorphic}
+   * return {@code null}; the recognizer treats a null polymorphism result as a clean decline
+   * rather than proceeding with an unresolved flag. This pins the null-{@code isPolymorphic}
+   * decline branch. A real vertex {@code GraphStep} clears the structural gates (vertex source,
+   * no ids, no hasContainers) so the recognizer reaches the polymorphism resolution; the
+   * {@link WalkerContext}'s traversal is a graph-less mock so {@code isPolymorphic} returns null
+   * (rather than throwing on {@code EmptyGraph.tx()}, which a real detached traversal would do —
+   * that non-transactional case is filtered out by the strategy's own gates before the walker
+   * ever runs).
+   */
+  @Test
+  public void walk_nullIsPolymorphic_declines() {
+    // A real vertex GraphStep to satisfy the recognizer's structural gates.
+    var realAdmin = graph.traversal().V().asAdmin();
+    Step<?, ?> vertexStart = realAdmin.getStartStep();
+
+    // A graph-less traversal so YTDBStrategyUtil.isPolymorphic returns null.
+    @SuppressWarnings("unchecked")
+    Traversal.Admin<Object, Object> graphless = mock(Traversal.Admin.class);
+    when(graphless.getGraph()).thenReturn(Optional.empty());
+    var ctx = new WalkerContext(graphless);
+
+    boolean recognized = StartStepRecogniser.INSTANCE.recognize(vertexStart, ctx);
+
+    assertThat(recognized).as("a null isPolymorphic declines cleanly").isFalse();
+    assertThat(ctx.boundaryAlias).as("no-mutation-on-decline").isNull();
+  }
+
+  /**
+   * No-mutation-on-decline invariant: when {@link StartStepRecogniser} declines a step (here an
+   * edge start), it must leave the {@link WalkerContext} exactly as it found it — no pattern node,
+   * no alias filter/RID, no boundary metadata. A later recognizer (or the walker's own boundary
+   * pinning) must never inspect tainted state left by a declining recognizer.
+   */
+  @Test
+  public void recognizer_declines_leavesContextUnmutated() {
+    var admin = graph.traversal().E().asAdmin();
+    var ctx = new WalkerContext(admin);
+    Step<?, ?> edgeStart = admin.getStartStep();
+
+    boolean recognized = StartStepRecogniser.INSTANCE.recognize(edgeStart, ctx);
+
+    assertThat(recognized).as("edge start is not a vertex source").isFalse();
+    assertThat(ctx.patternBuilder.build().pattern().aliasToNode)
+        .as("declining recognizer must add no pattern node").isEmpty();
+    assertThat(ctx.aliasRids).isEmpty();
+    assertThat(ctx.aliasFilters).isEmpty();
+    assertThat(ctx.returnItems).isEmpty();
+    assertThat(ctx.boundaryAlias).isNull();
+    assertThat(ctx.outputType).isNull();
+    assertThat(ctx.returnClass).isNull();
+  }
+
+  /**
+   * The recognizer only accepts at step index 0: a non-zero {@code stepIndex} (a misregistered
+   * registry placing the start recognizer after another step) declines even for a well-formed
+   * vertex {@code GraphStep}, and leaves the context unmutated.
+   */
+  @Test
+  public void recognizer_atNonZeroIndex_declines() {
+    var admin = graph.traversal().V().asAdmin();
+    var ctx = new WalkerContext(admin);
+    ctx.stepIndex = 1;
+    Step<?, ?> vertexStart = admin.getStartStep();
+
+    boolean recognized = StartStepRecogniser.INSTANCE.recognize(vertexStart, ctx);
+
+    assertThat(recognized).as("start recognizer only accepts at index 0").isFalse();
+    assertThat(ctx.boundaryAlias).isNull();
+  }
+
+  /**
+   * A malformed RID string ({@code g.V("not-a-rid")}) declines cleanly rather than throwing: the
+   * ID cannot be normalized to a record id, so the recognizer returns false and the whole walk
+   * declines. This keeps unconvertible-ID traversals on the native pipeline that knows how to
+   * resolve every Gremlin ID shape.
+   */
+  @Test
+  public void walk_unconvertibleId_declines() {
+    var admin = graph.traversal().V("not-a-rid").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("an unconvertible ID declines the whole walk").isEmpty();
+  }
+
+  /**
+   * Non-polymorphic mode narrows the class: when the session opts out of polymorphism (the
+   * global {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT} flag is false, which
+   * {@code YTDBStrategyUtil.isPolymorphic} falls back to when no per-traversal option is set), a
+   * bare {@code g.V()} emits a {@code @class = 'V'} filter on the boundary alias so the plan
+   * matches only direct instances of {@code V}, mirroring native non-polymorphic Gremlin set
+   * membership. The flag is restored in a finally block so the shared session's default is not
+   * leaked to later tests.
+   */
+  @Test
+  public void walk_nonPolymorphic_emitsClassEqualsFilter() {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var config = tx.getDatabaseSession().getConfiguration();
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
+    try {
+      var admin = graph.traversal().V().asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isPresent();
+      var filters = result.get().inputs().aliasFilters();
+      assertThat(filters).containsKey(BOUNDARY_ALIAS);
+      assertThat(filters.get(BOUNDARY_ALIAS).toString()).contains("@class").contains("V");
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
+  }
+}

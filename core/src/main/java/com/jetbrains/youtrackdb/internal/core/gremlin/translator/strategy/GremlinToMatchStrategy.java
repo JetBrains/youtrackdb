@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
@@ -23,6 +24,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.AbstractTraversalStrategy;
 import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Provider-optimization strategy that rewrites a fully-recognized Gremlin traversal into a
@@ -33,17 +36,17 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
  * strategies — keeps handling it verbatim. A translated traversal therefore contains exactly
  * one step (the boundary); a declined traversal is left byte-for-byte unchanged.
  *
- * <h2>Current state — skeleton, declines every shape</h2>
+ * <h2>Current state — recognizes the vertex source only</h2>
  *
- * <p>This is the strategy skeleton. The whole-traversal walk is delegated to {@link
- * GremlinToMatchTranslator#translate}, which currently declines every input (its walker is
- * wired in a follow-up step). So today {@code apply} runs its gates, calls the facade,
- * receives an empty result, and returns without mutating the traversal — a structural no-op.
- * The splice path ({@link #applyTranslation}) is fully implemented but unreachable until the
- * facade starts recognizing shapes. Landing the skeleton (gating cascade + throw-safety net +
- * kill-switch) before any recognizer runs under the strategy is deliberate: it guarantees the
- * "a throw in {@code apply} can only ever decline, never break a query" invariant holds from
- * the moment the strategy is first registered.
+ * <p>The whole-traversal walk is delegated to {@link GremlinToMatchTranslator#translate},
+ * which drives the shared {@code GremlinStepWalker} + {@code StepRecogniser} registry. Phase 1
+ * recognizes only the vertex source ({@code g.V()} / {@code g.V(ids)}); any traversal carrying
+ * an unrecognized step declines whole and stays on the native pipeline. On a recognized shape
+ * {@code apply} runs its gates, receives a non-empty translation, and splices the boundary
+ * step in place of the entire step list ({@link #applyTranslation}). Landing the gating
+ * cascade + throw-safety net + kill-switch before any recognizer ran under the strategy was
+ * deliberate: it guarantees the "a throw in {@code apply} can only ever decline, never break a
+ * query" invariant holds from the moment the strategy is first registered.
  *
  * <h2>Gating cascade</h2>
  *
@@ -133,6 +136,8 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 public final class GremlinToMatchStrategy
     extends AbstractTraversalStrategy<TraversalStrategy.ProviderOptimizationStrategy>
     implements TraversalStrategy.ProviderOptimizationStrategy {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(GremlinToMatchStrategy.class);
 
   /**
    * Empty prior/post set. Ordering is expressed by the half-measure strategies naming this
@@ -240,14 +245,23 @@ public final class GremlinToMatchStrategy
   /**
    * Hook for the throw-safety net so a caught exception has a single, greppable landing point.
    * Only ordinary {@link Exception}s reach here — {@link Error} (including {@link
-   * AssertionError}) is re-thrown by {@link #apply} rather than declined. Currently a no-op
-   * beyond the decline (the traversal is already unmodified because the mutation runs last);
-   * kept as a seam for future diagnostics (e.g. a debug-level log or a metric) without
-   * widening the catch block in {@link #apply}.
+   * AssertionError}) is re-thrown by {@link #apply} rather than declined. The decline itself is
+   * the absence of a mutation (the traversal is already unmodified because the step-list swap
+   * runs last); this hook additionally records the swallowed exception at {@code DEBUG} so an
+   * operator diagnosing "why is nothing being translated?" has a signal. {@code DEBUG} rather
+   * than {@code WARN} keeps a deterministic translator bug — which would otherwise log on every
+   * matching traversal — from flooding the log, while staying discoverable when the level is
+   * raised.
    */
-  @SuppressWarnings("unused")
-  private static void declineOnThrow(Traversal.Admin<?, ?> traversal, Exception ignored) {
-    // Intentionally empty: the decline is the absence of a mutation. See apply()'s catch.
+  private static void declineOnThrow(Traversal.Admin<?, ?> traversal, Exception cause) {
+    LogManager.instance()
+        .debug(
+            GremlinToMatchStrategy.class,
+            "Gremlin-to-MATCH translation declined after an unexpected exception;"
+                + " falling back to native execution for traversal: %s",
+            LOGGER,
+            cause,
+            traversal);
   }
 
   /**
