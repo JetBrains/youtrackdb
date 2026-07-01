@@ -296,16 +296,17 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * Non-polymorphic mode narrows the class: when the session opts out of polymorphism (the
-   * global {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT} flag is false, which
-   * {@code YTDBStrategyUtil.isPolymorphic} falls back to when no per-traversal option is set), a
-   * bare {@code g.V()} emits a {@code @class = 'V'} filter on the boundary alias so the plan
-   * matches only direct instances of {@code V}, mirroring native non-polymorphic Gremlin set
-   * membership. The flag is restored in a finally block so the shared session's default is not
-   * leaked to later tests.
+   * Non-polymorphic mode does NOT narrow a bare {@code g.V()} by class. Native non-polymorphic
+   * {@code g.V()} still returns the full polymorphic vertex set: the no-id branch of
+   * {@code YTDBGraphImplAbstract.elements} browses the class polymorphically regardless of the
+   * flag, and the by-id branch applies no class filter at all. Emitting {@code @class = 'V'}
+   * would exclude every subclass instance the native path keeps, so under
+   * {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT = false} the recogniser must emit no filter on
+   * the boundary alias for a bare {@code g.V()}. The flag is restored in a finally block so the
+   * shared session's default is not leaked to later tests.
    */
   @Test
-  public void walk_nonPolymorphic_emitsClassEqualsFilter() {
+  public void walk_nonPolymorphicBareVertexSource_emitsNoClassFilter() {
     var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
     var config = tx.getDatabaseSession().getConfiguration();
@@ -318,11 +319,33 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
       var result = GremlinStepWalker.production().walk(admin);
 
       assertThat(result).isPresent();
-      var filters = result.get().inputs().aliasFilters();
-      assertThat(filters).containsKey(BOUNDARY_ALIAS);
-      assertThat(filters.get(BOUNDARY_ALIAS).toString()).contains("@class").contains("V");
+      // No @class narrowing: a bare g.V() carries no boundary-alias filter even under non-poly.
+      assertThat(result.get().inputs().aliasFilters())
+          .as("non-poly bare g.V() must not narrow by @class")
+          .doesNotContainKey(BOUNDARY_ALIAS);
+      // The single-node polymorphic V-class scan is still pinned via aliasClasses.
+      assertThat(result.get().inputs().aliasClasses()).containsEntry(BOUNDARY_ALIAS, "V");
     } finally {
       config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
     }
+  }
+
+  /**
+   * {@code g.V(id, id)} with a repeated id declines the whole walk. An {@code @rid IN [...]}
+   * filter has set semantics — MATCH emits each matching vertex once regardless of how many times
+   * its id appears in the list — while native {@code g.V(ids)}
+   * ({@code YTDBGraphImplAbstract.elements}) streams the id array one-to-one and emits the vertex
+   * once per occurrence. Since MATCH cannot reproduce the native duplicate-emission multiset, the
+   * recogniser declines the shape to the native pipeline rather than return a smaller multiset.
+   */
+  @Test
+  public void walk_duplicateIds_declines() {
+    var admin = graph.traversal().V("#25:3", "#25:3").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result)
+        .as("a repeated id cannot be expressed exactly by @rid IN, so the walk declines")
+        .isEmpty();
   }
 }

@@ -5,13 +5,10 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCollection;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
@@ -22,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -32,9 +30,11 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 /**
  * Recogniser for the start step of a vertex-rooted traversal — the bare {@code g.V()}
  * or {@code g.V(ids)} shape. Holds all of Phase 1's translation logic for the single-
- * node pattern: ID normalisation (Identifiable / RID strings), single-vs-multi-ID
- * routing through {@code aliasRids} or a hand-built {@code @rid IN [...]} filter, and
- * {@code @class = 'V'} narrowing under the non-polymorphic mode.
+ * node pattern: ID normalisation (Identifiable / RID strings) and single-vs-multi-ID
+ * routing through {@code aliasRids} or a hand-built {@code @rid IN [...]} filter. It
+ * emits no {@code @class} narrowing: a bare {@code g.V()} / {@code g.V(ids)} returns the
+ * full polymorphic vertex set on the native pipeline regardless of the polymorphic flag,
+ * so narrowing to the exact root class would drop subclass instances the native path keeps.
  *
  * <p>The recogniser is the only one registered in Phase 1's
  * {@link GremlinStepWalker} registry. It only accepts a step at index 0 — running it
@@ -138,6 +138,18 @@ final class StartStepRecogniser implements StepRecogniser {
       return false;
     }
 
+    // Native g.V(ids) (YTDBGraphImplAbstract.elements) streams the id array one-to-one
+    // with no dedup, so a repeated id emits the vertex once per occurrence. A translated
+    // @rid IN [...] filter has set semantics: MATCH scans the class once and emits each
+    // matching vertex once, regardless of how many times the id appears. MATCH cannot
+    // express "emit the same vertex twice" through an IN clause, so a duplicated id is a
+    // shape this recogniser cannot match exactly — decline it to native rather than
+    // return a smaller multiset than the native pipeline. The single-id path is exact
+    // (one native emission, one aliasRids lookup) and is unaffected.
+    if (hasDuplicate(rids)) {
+      return false;
+    }
+
     // Polymorphism resolution intentionally lives here, not in the walker pre-check:
     // YTDBStrategyUtil.isPolymorphic calls graph.tx() unconditionally, which throws
     // UnsupportedOperationException on graphs that do not support transactions
@@ -161,15 +173,14 @@ final class StartStepRecogniser implements StepRecogniser {
       ctx.aliasRids.put(BOUNDARY_ALIAS, toSqlRid(rids.get(0)));
     }
 
-    // Build the WHERE clause that aggregates the multi-ID IN filter (when present) and
-    // the non-polymorphic @class narrowing (when applicable). Either may be null; AND-
-    // combination handles the merge so the planner sees a single clause per alias.
-    SQLBooleanExpression ridIn = rids.size() > 1 ? buildRidInExpression(rids) : null;
-    SQLBooleanExpression classEq =
-        !polymorphic ? buildClassEqExpression(DEFAULT_VERTEX_CLASS) : null;
-    SQLBooleanExpression combined = combineAnd(ridIn, classEq);
-    if (combined != null) {
-      ctx.aliasFilters.put(BOUNDARY_ALIAS, wrapWhere(combined));
+    // Multi-ID sources need a WHERE @rid IN [...] filter; the single/no-ID paths carry no
+    // filter here. No @class narrowing is applied: for a bare g.V() (and g.V(ids) with no
+    // folded label) the native pipeline returns the full polymorphic set regardless of the
+    // polymorphic flag — the no-id branch always browses the class polymorphically, and the
+    // by-id branch applies no class filter (YTDBGraphImplAbstract.elements /
+    // YTDBGraphStep.elements). Emitting @class = 'V' would wrongly exclude subclass instances.
+    if (rids.size() > 1) {
+      ctx.aliasFilters.put(BOUNDARY_ALIAS, wrapWhere(buildRidInExpression(rids)));
     }
 
     // The boundary step pulls the matched vertex out of each result row by name, so the
@@ -290,97 +301,39 @@ final class StartStepRecogniser implements StepRecogniser {
     var condition = new SQLInCondition(-1);
     condition.setLeft(leftExpr);
     condition.setRightMathExpression(rightBase);
-    setInOperator(condition);
+    // SQLInCondition needs its operator populated so toString and the plan-time
+    // supportsBasicCalculation path see a well-formed IN condition. setOperator is public and
+    // SQLInOperator implements SQLBinaryCompareOperator, so we set it directly — the same way
+    // MatchWhereBuilder.in constructs its inline-list IN condition.
+    condition.setOperator(new SQLInOperator(-1));
     return condition;
   }
 
   /**
-   * Builds {@code @class = '<className>'}. Used to narrow a polymorphic-by-default
-   * class constraint to the exact direct-instance class when the traversal's
-   * polymorphism flag is {@code false}.
+   * Returns {@code true} if {@code rids} contains the same {@link RecordIdInternal} more
+   * than once. Used to decline a {@code g.V(ids)} source with a repeated id: an
+   * {@code @rid IN [...]} filter has set semantics and cannot reproduce the native
+   * pipeline's one-emission-per-occurrence multiset.
    */
-  private static SQLBooleanExpression buildClassEqExpression(String className) {
-    var classAttr = new SQLRecordAttribute(-1);
-    classAttr.setName("@class");
-    var leftExpr = new SQLExpression(classAttr, null);
-
-    var rightExpr = MatchLiteralBuilder.toLiteral(className);
-
-    var condition = new SQLBinaryCondition(-1);
-    condition.setLeft(leftExpr);
-    condition.setOperator(new SQLEqualsOperator(-1));
-    condition.setRight(rightExpr);
-    return condition;
-  }
-
-  /**
-   * AND-combines two optional boolean expressions. Returns {@code null} when both are
-   * absent, the lone non-null when only one is present, and an {@link SQLAndBlock} when
-   * both are present. Mirrors the parser's "no wrapping for a single operand" parity rule.
-   */
-  @Nullable private static SQLBooleanExpression combineAnd(
-      @Nullable SQLBooleanExpression a, @Nullable SQLBooleanExpression b) {
-    if (a == null) {
-      return b;
+  private static boolean hasDuplicate(List<RecordIdInternal> rids) {
+    // Dedup on the value key (collection id + position) rather than the RecordIdInternal
+    // instance: the ids reach this list from two paths — RecordIdInternal.fromString and
+    // Identifiable.getIdentity — that can return different concrete permitted subtypes for the
+    // same logical rid, so an instance-hashCode-based set is not guaranteed to collide them.
+    // The same @rid IN filter is emitted regardless of which subtype carried the value, so the
+    // value key is the right identity here.
+    var seen = new HashSet<String>(rids.size());
+    for (var rid : rids) {
+      if (!seen.add(rid.getCollectionId() + ":" + rid.getCollectionPosition())) {
+        return true;
+      }
     }
-    if (b == null) {
-      return a;
-    }
-    var block = new SQLAndBlock(-1);
-    var subBlocks = new ArrayList<SQLBooleanExpression>(2);
-    subBlocks.add(a);
-    subBlocks.add(b);
-    block.setSubBlocks(subBlocks);
-    return block;
+    return false;
   }
 
   private static SQLWhereClause wrapWhere(SQLBooleanExpression expr) {
     var clause = new SQLWhereClause(-1);
     clause.setBaseExpression(expr);
     return clause;
-  }
-
-  /**
-   * Cached {@link SQLInCondition#operator} field. Resolved once at class-load time so
-   * the multi-ID translation hot path does not pay the per-call {@code getDeclaredField}
-   * + {@code setAccessible} cost. If the parser package layout changes such that the
-   * field disappears, the {@link ExceptionInInitializerError} surfaces immediately at
-   * class load — preferable to a deferred {@link IllegalStateException} on the first
-   * multi-ID translation, since the failure is structural and uniform.
-   */
-  private static final java.lang.reflect.Field SQL_IN_OPERATOR_FIELD = resolveInOperatorField();
-
-  private static java.lang.reflect.Field resolveInOperatorField() {
-    try {
-      var field = SQLInCondition.class.getDeclaredField("operator");
-      field.setAccessible(true);
-      return field;
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException(
-          "SQLInCondition.operator is no longer present; the parser's package layout changed",
-          e);
-    }
-  }
-
-  /**
-   * Sets the canonical {@link SQLInOperator} on the condition via reflection. The
-   * {@code SQLInCondition.operator} field is {@code protected} with no public setter,
-   * and the class lives under {@code internal/core/sql/parser/} (parser-generated; not
-   * safe to hand-edit a setter). Without populating the field, the runtime's
-   * {@code toString} and some optimizer paths see a half-formed condition.
-   *
-   * <p>This mirrors the same trick {@code MatchWhereBuilder.setInOperator} uses; the
-   * two call sites cannot share helper code without making the parser-private setter
-   * public, which the project intentionally avoids. Field resolution is cached in
-   * {@link #SQL_IN_OPERATOR_FIELD} so multi-ID translations only pay the
-   * {@link java.lang.reflect.Field#set} cost.
-   */
-  private static void setInOperator(SQLInCondition condition) {
-    try {
-      SQL_IN_OPERATOR_FIELD.set(condition, new SQLInOperator(-1));
-    } catch (ReflectiveOperationException e) {
-      throw new IllegalStateException(
-          "SQLInCondition.operator field is no longer writable", e);
-    }
   }
 }

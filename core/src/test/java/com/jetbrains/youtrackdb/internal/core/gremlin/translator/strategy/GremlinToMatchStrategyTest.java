@@ -24,6 +24,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
+import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -562,6 +563,106 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             inputs, "v", BoundaryOutputType.ELEMENT, null))
         .isInstanceOf(NullPointerException.class)
         .hasMessageContaining("returnClass");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Multiset parity against the native pipeline — the translator-on result must equal
+  // the native (translator-off) result for every recognized shape. These run the spliced
+  // traversal end to end against a real graph and compare vertex-id multisets.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Non-polymorphic bare {@code g.V()} over a schema with a {@code Person extends V} subclass
+   * returns the SAME vertices translated as native. Native non-poly {@code g.V()} returns the
+   * full polymorphic set (subclass instances included), so a translated plan that narrowed to
+   * {@code @class = 'V'} would drop every {@code Person} row and diverge. Under
+   * {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT = false} the translated plan must emit no
+   * {@code @class} filter and therefore return the identical id set. Both flags are restored in
+   * a finally block so the shared session's defaults are not leaked to later tests.
+   */
+  @Test
+  public void nonPolymorphicBareVertexSource_returnsSameVerticesAsNative() {
+    // Person extends V; create the subclass before any data transaction is active — schema
+    // changes are non-transactional. Use the base-class session so no graph write tx is open.
+    session.createVertexClass("Person");
+
+    // isPolymorphic reads the flag off the GRAPH tx session, so set it there (not on the base
+    // session): open the graph tx after schema creation, then flip the default-polymorphic flag.
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var config = tx.getDatabaseSession().getConfiguration();
+    var previousPoly =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
+    try {
+      // Instantiate the subclass so an @class = 'V' narrowing would exclude these rows.
+      graph.addVertex(T.label, "Person");
+      graph.addVertex(T.label, "Person");
+      graph.addVertex(); // a plain V instance too, so the native set spans both classes.
+      graph.tx().commit();
+
+      var nativeIds = vertexIds(graph.traversal().V().asAdmin(), false);
+
+      var translatedAdmin = graph.traversal().V().asAdmin();
+      GremlinToMatchStrategy.instance().apply(translatedAdmin);
+      // Precondition: the translator actually claimed this shape (otherwise the parity is vacuous).
+      assertThat(translatedAdmin.getSteps()).anyMatch(GremlinToMatchStrategyTest::isBoundary);
+      var translatedIds = vertexIds(translatedAdmin, true);
+
+      assertThat(translatedIds)
+          .as("non-poly bare g.V() must return the full polymorphic set, matching native")
+          .containsExactlyInAnyOrderElementsOf(nativeIds);
+      assertThat(translatedIds).hasSize(3);
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previousPoly);
+    }
+  }
+
+  /**
+   * {@code g.V(id, id)} with a repeated id is left on the native pipeline: the production strategy
+   * declines the shape (no boundary step is spliced in), because an {@code @rid IN [...]} filter
+   * would emit the vertex once while native emits it once per list occurrence. Declining preserves
+   * the native duplicate-emission multiset instead of silently returning a smaller one.
+   */
+  @Test
+  public void duplicateIdVertexSource_leftOnNativePipeline() {
+    var v = graph.addVertex();
+    graph.tx().commit();
+    var id = v.id().toString();
+
+    var admin = graph.traversal().V(id, id).asAdmin();
+    var stepsBefore = List.copyOf(admin.getSteps());
+
+    GremlinToMatchStrategy.instance().apply(admin);
+
+    assertThat(admin.getSteps())
+        .as("a duplicate-id g.V(ids) must decline to native, leaving the step list verbatim")
+        .isEqualTo(stepsBefore);
+    assertThat(admin.getSteps()).noneMatch(GremlinToMatchStrategyTest::isBoundary);
+  }
+
+  /**
+   * Materialises a traversal to the set of matched vertex ids, running inside a read-write
+   * transaction so the (possibly translated) boundary step can open its execution stream. The
+   * {@code applyDefaultStrategies} flag distinguishes the native path (let the default strategy
+   * chain compile {@code g.V()} into its native steps) from the already-translated path (the
+   * boundary step was spliced by an explicit {@code apply}, so re-running strategies would only
+   * risk touching an already-final plan).
+   */
+  private java.util.List<Object> vertexIds(
+      Traversal.Admin<?, ?> admin, boolean alreadyTranslated) {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    try {
+      if (!alreadyTranslated) {
+        admin.applyStrategies();
+      }
+      var ids = new java.util.ArrayList<>();
+      admin.forEachRemaining(t -> ids.add(((Vertex) t).id()));
+      return ids;
+    } finally {
+      tx.commit();
+    }
   }
 
   private static boolean isBoundary(Step<?, ?> step) {
