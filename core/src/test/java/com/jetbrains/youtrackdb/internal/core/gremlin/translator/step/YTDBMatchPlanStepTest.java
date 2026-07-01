@@ -14,6 +14,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
@@ -32,6 +33,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 /**
@@ -439,15 +441,45 @@ public class YTDBMatchPlanStepTest {
     assertThat(cloned.getPlan()).isSameAs(copiedPlan);
     assertThat(cloned.getPlan()).isNotSameAs(original.getPlan());
     assertThat(original.getPlan()).isSameAs(plan);
-    // Copy is taken against the original plan's own context (same DB session, independent
-    // step chain) — mirrors HashJoinMatchStep's copy(isolatedCtx) shape.
-    verify(plan).copy(ctx);
     // Cloning must not eagerly start either plan — start() is lazy, on first iteration.
     verify(plan, never()).start();
     verify(copiedPlan, never()).start();
     // Configuration survives the clone.
     assertThat(cloned.getBoundaryAlias()).isEqualTo("v");
     assertThat(cloned.getOutputType()).isEqualTo(BoundaryOutputType.ELEMENT);
+  }
+
+  /**
+   * The clone's plan copy must be taken against an ISOLATED CHILD context — a fresh
+   * {@link BasicCommandContext} parented to the original plan's context — not against the
+   * original context itself. This is the per-execution isolation that mirrors
+   * {@code HashJoinMatchStep}: the child owns its own unsynchronised variable maps
+   * ({@code $current}, {@code $matched}, step statistics), so the original's and the clone's
+   * executions cannot race on or leak that per-run context state. Copying against the shared
+   * context (the pre-fix behaviour) would leave both plans pointing at the SAME context.
+   *
+   * <p>The captured argument is asserted to be (a) a distinct instance from the original
+   * context (not the shared {@code ctx}), (b) a {@link BasicCommandContext}, and (c) parented
+   * to the original context so the database session / input parameters / timeout still
+   * resolve through it.
+   */
+  @Test
+  public void clone_copiesPlanAgainstIsolatedChildContext() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    var contextCaptor = ArgumentCaptor.forClass(CommandContext.class);
+    when(plan.copy(contextCaptor.capture())).thenReturn(copiedPlan);
+
+    var original = elementStep("v");
+    original.clone();
+
+    var copyContext = contextCaptor.getValue();
+    // Not the shared original context — an isolated copy.
+    assertThat(copyContext).isNotSameAs(ctx);
+    // A fresh BasicCommandContext (the isolation vehicle used by HashJoinMatchStep).
+    assertThat(copyContext).isInstanceOf(BasicCommandContext.class);
+    // Parented to the original context so session/params/timeout resolve through it while
+    // the child's own variable maps stay independent.
+    assertThat(copyContext.getParent()).isSameAs(ctx);
   }
 
   /**
@@ -519,6 +551,94 @@ public class YTDBMatchPlanStepTest {
     // independent and do not share a single plan instance.
     verify(plan, times(1)).start();
     verify(copiedPlan, times(1)).start();
+  }
+
+  // ---- Re-iteration via reset() ----
+
+  /**
+   * After {@code reset()} the step is re-armed and {@code createIterator()} may open the plan
+   * again on the SAME instance — honouring {@link org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep}'s
+   * reset contract (reset makes a start step re-iterable). Before the fix, {@code reset()}
+   * re-armed only the inherited fields and left the local guard set, so the second
+   * {@code createIterator()} threw {@link IllegalStateException} instead of re-running the
+   * plan. This test drives one iteration, resets, and drives a second — asserting the second
+   * open succeeds, rewinds the plan via {@code plan.reset(ctx)} (the plan's step chain must
+   * be rewound before re-execution), and starts the plan a second time.
+   */
+  @Test
+  public void reset_thenCreateIterator_reRunsPlanOnSameInstance() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.createIterator(); // first arming — opens the plan
+    step.reset(); // re-arm in place
+
+    // Second open must NOT throw and must re-start the plan.
+    step.createIterator();
+
+    verify(plan, times(2)).start();
+    // The re-arm rewinds the plan's step chain before the second start so the second pass
+    // runs from the top rather than against consumed cursors.
+    verify(plan, times(1)).reset(ctx);
+  }
+
+  /**
+   * A never-started step that is reset (e.g. TinkerPop resets a start step before any
+   * iteration) must NOT call {@code plan.reset(ctx)} on its first open — there is no consumed
+   * state to rewind, and rewinding a fresh plan is wasted work. This pins the {@code everStarted}
+   * guard: the plan is rewound only when re-arming a plan that actually ran.
+   */
+  @Test
+  public void reset_beforeFirstIteration_doesNotRewindPlanOnFirstOpen() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.reset(); // reset before any createIterator
+    step.createIterator(); // first open
+
+    verify(plan, times(1)).start();
+    verify(plan, never()).reset(any());
+  }
+
+  /**
+   * Cloning must not rewind the ORIGINAL's plan. {@code AbstractStep.clone()} invokes
+   * {@code reset()} on the freshly-cloned instance while the clone still aliases the
+   * original's plan reference (the clone's own copy is installed later in {@code clone()}).
+   * If {@code reset()} rewound the plan there, it would corrupt the original's in-flight run.
+   * This test drives the original to {@code started}, then clones it, and asserts the
+   * original's plan was never {@code reset()} as a side effect of cloning.
+   */
+  @Test
+  public void clone_afterOriginalStarted_doesNotResetOriginalsPlan() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var original = elementStep("v");
+    original.createIterator(); // original is now started (everStarted=true)
+
+    original.clone(); // AbstractStep.clone() calls reset() on the clone mid-construction
+
+    // The original's plan must never be rewound by the clone path.
+    verify(plan, never()).reset(any());
+  }
+
+  // ---- Clone field-write (no reflection) ----
+
+  /**
+   * The clone installs its plan copy via a plain field write, not reflection. The {@code plan}
+   * field is non-final precisely so {@code clone()} can assign it directly after
+   * {@code super.clone()} — avoiding a post-construction reflective write to a final field,
+   * which would void the JMM final-field publication guarantee. This test locks the field's
+   * non-final modifier so a future change back to {@code final} (which would reintroduce the
+   * reflective-write smell) fails here rather than silently regressing the visibility contract.
+   */
+  @Test
+  public void planField_isNonFinal_soCloneAssignsWithoutReflection() throws Exception {
+    Field planField = YTDBMatchPlanStep.class.getDeclaredField("plan");
+    assertThat(java.lang.reflect.Modifier.isFinal(planField.getModifiers()))
+        .as("plan field must be non-final so clone() can assign the copy without reflection")
+        .isFalse();
   }
 
   // ---- Test helpers ----
