@@ -27,6 +27,7 @@ the membership-ripple overlay routing that Track 3 de-guarded.
 - [ ] Track completion
 - [x] 2026-07-01T08:25Z [ctx=info] Review + decomposition complete
 - [x] 2026-07-01T11:22Z [ctx=safe] Step 1 complete (commit 08dca19c71)
+- [x] 2026-07-01T17:37Z [ctx=info] Step 2 complete (commit 9288956334)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -43,6 +44,21 @@ the membership-ripple overlay routing that Track 3 de-guarded.
   `invalidateOverlaySnapshot`, or equivalent) on every schema-visible change, not only
   index changes, or a mid-tx class or property change serves a stale memoized snapshot
   and I-P5 fails silently. See Episodes §Step 1.
+- **Step 3 (D21) must cover the committer-side promotion read, not only the two-map
+  publish.** Step 2's TX1 review accepted the commit-time publish as non-reader-atomic
+  (the D19 best-effort semantic). A stress test showed the boundary is wider: on the disk
+  profile the committer's own schema-promotion record read (`fromStream` → `session.load`)
+  races concurrent reader activity and can drive the storage to error state under sustained
+  concurrent schema commits — the same YTDB-1101 / read-chain snapshot-versioning boundary
+  D21 is slated to close. Step 3's snapshot-version work must account for the committer-side
+  promotion read, not just the `indexes`/`classPropertyIndex` two-map publish. See Episodes
+  §Step 2.
+- **Pre-existing failed-commit undo bypass shared with Track 4 (CS2).** An `endTxCommit`
+  failure after the reconcile phases (a throw from `endAtomicOperation` in the no-error
+  branch of the commit finally) propagates uncaught, so neither the index undo/restore arms
+  nor Track 4's `undoReconciledCollections` run. Pre-existing and identical across both
+  tracks; accepted out of scope for Step 2 and relevant to Track 7 concurrency hardening.
+  Candidate for a follow-up issue. See Episodes §Step 2.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -75,6 +91,12 @@ design.md D-records this track owns. -->
 - **Risks/Caveats**: (1) commit-path read before promotion — the schema-carrying commit pins its immutable snapshot from committed state (`MetadataDefault.getImmutableSchemaSnapshot` memoises `immutableSchema`) before reconciliation, then `computeCommitWorkingSet` (run after `reconcileCollections`, before the trailing `forceSnapshot`) calls `getImmutableSchemaClass` then `getCollectionForNewInstance`. Reconciliation re-keys the tx-local class object to its real id, but the pinned snapshot the working-set read consults is not rebuilt, so the read can still resolve a provisional id (`<= -2`) and `doGetAndCheckCollection` fails. The guard is definite, not conditional: after provisional-id resolution and before the working-set build, clear the pin and force-rebuild the snapshot (or resolve the working-set collection through the reconciled real id directly). (2) provisional collection id leaks past the planner — a tx-created class now appears in the tx-aware snapshot, but its physical collection (provisional id, D2), indexes, and engines (built at commit, D12) do not exist yet. D13's skip-unbuilt treatment must extend to every snapshot reader that resolves a collection for a provisional-collection class, not the planner alone: the fetch-step collection-scan setup (`FetchFromClassExecutionStep`, which adds a `<= -2` id to the scan set because `getCollectionNameById` returns null), security id→name resolution, and serialization, alongside the WHERE-block planner. (3) snapshot-cache invalidation is three-layered — the D15 force-rebuild trigger widens from mid-tx index changes to mid-tx class and property changes, and it must invalidate the whole read chain: the tx-local `SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot version (because `EntityImpl.getImmutableSchemaClass` at `EntityImpl.java:4194-4210` caches `immutableClazz` and re-resolves only when `immutableSchema.getVersion()` advances). Rebuilding the tx-local `SchemaShared` alone leaves both downstream caches stale and I-P5 silently fails. (4) `makeSnapshot` tx-awareness is a strict no-op outside a schema/index tx (no tx-local seed read), preserving the committed fast path for pure-data commits and reads.
 - **Implemented in**: this track (with D15's index overlay — shared snapshot force-rebuild)
 - **Full design**: captured in this record and this track's `## Context and Orientation` and `## Plan of Work`; `design.md` is frozen, so the as-built design reconciles in Phase 4.
+
+#### Step 2 mid-Phase-B: failed-drop engine restore and publish reader-atomicity (dim-review design fork)
+- **Context**: CS1 (a failed *drop* commit leaves a surviving committed index pointing at a deleted/unregistered engine) and TX1 (the commit-time publish is not reader-atomic) surfaced during Step 2's dimensional review, after the commit landed. Both were escalated to the user and resolved fix-forward with no revert, matching the Track-4 precedent.
+- **Decision (CS1/BC1)**: reconstruct-on-failure. The drop's file and config delete stays inside the commit WAL atomic operation, because a deferred delete would let a crash between `endTxCommit` and the delete resurrect the dropped index on reopen. Only the in-memory engine state splits: on the failure path a fresh engine is rebuilt from the `IndexEngineData` captured at drop time and re-registered, never re-publishing the torn object (the histogram teardown is irreversible and re-publishing hangs `waitForAndBlockRebalance`'s CAS loop). The invariant "a surviving committed index is usable after a failed drop commit" is deterministic and tested on both the in-memory and disk profiles. The rejected alternative (B) would have split `BaseIndexEngine.delete` across every engine implementation, too large a surface for a review-fix iteration.
+- **Decision (TX1)**: accept the non-reader-atomic publish as the D19 best-effort semantic and defer full reader-atomicity to Step 3 (D21). The scope D21 must close is broader than the two-map publish: on the disk profile the committer's own schema-promotion read (`fromStream` → `session.load`) races concurrent readers under sustained schema commits (the YTDB-1101 boundary). See Surprises & Discoveries and Episodes §Step 2.
+- **Deferred**: CS2 (`endTxCommit`-after-reconcile failure bypasses the undo arms), a pre-existing exposure shared identically with Track 4's `undoReconciledCollections`; relevant to Track 7.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -188,7 +210,7 @@ rows, with no double-count and none missed; the overlay publish must follow
 
 ## Concrete Steps
 1. Tx-local index-definition overlay and query-side resolution (D15, D13, I-A7): introduce `IndexOverlay` (new class) over the index manager's two lookup maps with its four categories (tx-created, tx-dropped, in-place rename, collection-membership); add the per-session index-manager routing seam so the immutable snapshot and `ClassIndexManager` resolve the overlaid set during a schema/index tx; force-rebuild the tx-local snapshot lazily (O(1) null-and-rebuild) on every mid-tx `createIndex`/`dropIndex`; route the Track-3 de-guarded `addCollectionToIndex`/`removeCollectionFromIndex` through the membership category; and add the D13 planner guard that skips an unbuilt index (`getIndexId() < 0`) so a query inside the creating tx falls through to the merged tx scan. Overlay updates defer all engine work to commit and never mutate a shared `Index` object mid-tx. — risk: high (Architecture / cross-component coordination)  [x]  commit: 08dca19c71
-2. Commit-time engine lifecycle (D12, I-A4/TB2, create/drop commit halves): at commit, drive engine creation and drops from the changed-index set; build a tx-created index's engine through a lock-free scan of the source collection feeding `doPut` plus a final-state re-derivation (population scan skips the tx's record-operation RIDs), bounded to an empty source collection for v1 with a loud rejection pointing at YTDB-1064 beyond it; publish the overlay into the shared index manager as replacement objects under the index-manager write lock, sharing Track 4's single trailing `forceSnapshot`; remove the registry entry and delete the engine for a tx-dropped index; assert failed-commit engine cleanliness on both the in-memory and disk profiles with the create-side revert mirroring Track 4's component-guarded `undoReconciledCollections` arm; and resolve provisional collection ids (`<= -2`) via `TxSchemaState` at the deferred handle-build (`IndexManagerEmbedded.createIndex` / `findCollectionsByIds`) and the commit-time re-resolve so indexing a same-tx class does not throw. — risk: high (Crash-safety / Durability)  [ ]
+2. Commit-time engine lifecycle (D12, I-A4/TB2, create/drop commit halves): at commit, drive engine creation and drops from the changed-index set; build a tx-created index's engine through a lock-free scan of the source collection feeding `doPut` plus a final-state re-derivation (population scan skips the tx's record-operation RIDs), bounded to an empty source collection for v1 with a loud rejection pointing at YTDB-1064 beyond it; publish the overlay into the shared index manager as replacement objects under the index-manager write lock, sharing Track 4's single trailing `forceSnapshot`; remove the registry entry and delete the engine for a tx-dropped index; assert failed-commit engine cleanliness on both the in-memory and disk profiles with the create-side revert mirroring Track 4's component-guarded `undoReconciledCollections` arm; and resolve provisional collection ids (`<= -2`) via `TxSchemaState` at the deferred handle-build (`IndexManagerEmbedded.createIndex` / `findCollectionsByIds`) and the commit-time re-resolve so indexing a same-tx class does not throw. — risk: high (Crash-safety / Durability)  [x]  commit: 9288956334
 3. Tx-aware immutable snapshot (D21): make `SchemaProxy.makeSnapshot()` resolve the tx-local `SchemaShared` during a schema/index tx and stay a strict no-op otherwise; widen the D15 force-rebuild to mid-tx class and property changes and make it invalidate the whole read chain (tx-local `SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot version so `EntityImpl`'s version-keyed `immutableClazz` re-resolves); guard the commit-path read definitely (clear the pin and force-rebuild after provisional-id resolution and before the `computeCommitWorkingSet` working-set build, or resolve through the reconciled real id, so `doGetAndCheckCollection` never sees a provisional id); and guard every snapshot reader that resolves a collection for a tx-created (provisional-collection) class — the fetch-step collection-scan setup (`FetchFromClassExecutionStep`), security id→name resolution, and serialization — so a same-tx query or serialization falls through to the merged tx scan. — risk: high (Architecture / cross-component coordination)  [ ]
 
 Steps run sequentially: Step 2 and Step 3 both depend on Step 1 (Step 3 reuses the D15 force-rebuild seam), and Steps 2 and 3 both touch the `AbstractStorage` commit-under-lock path, so none are parallel. Each is one HIGH-category change kept isolated for step-level review; a self-deadlock or re-entrancy discovery under the commit write lock may force a mid-Phase-B split (as Track 4's reconciliation core did), which is expected, not a plan error.
@@ -255,6 +277,96 @@ overlay-aware `ImmutableSchema` is never written into the shared `SchemaShared.s
 field and lives on per-tx `TxSchemaState` custom data, so it cannot leak across sessions
 and is dropped at commit or rollback. The memo restores the committed path's O(1)-per-read
 profile within a stable overlay generation.
+
+### Step 2 — commit 9288956334, 2026-07-01T17:37Z [ctx=info]
+**What was done:** Built the commit-time index engine lifecycle. A
+schema-carrying commit reconciles the transaction's index deltas in three
+phases driven by the index manager from the overlay. An enroll phase
+before the working set applies create-side index-entity and link-set adds,
+drop-side link removal and record delete, and committed-membership adds and
+removes. A build/drop phase inside the commit window after the record apply
+builds each tx-created index's engine at a commit-local engine id (a
+lock-free scan of the source collection feeding `doPut` plus a final-state
+re-derivation that skips the tx's record-operation RIDs) and deletes each
+tx-dropped index's engine. A publish phase after `commitChanges` succeeds
+lands the created and dropped deltas in the shared `indexes` /
+`classPropertyIndex` maps. The v1 build is bounded to an empty source
+collection, confirmed by an exact lock-free count, with a loud rejection
+pointing at YTDB-1064 beyond it. The review-fix commit added the CS1/BC1
+drop-side restore arm, a create-side file-presence revert guard,
+drop-then-recreate-as-replace (BC2), the exact-count empty-source
+confirmation (BC4), a post-build test hook plus a lock-free registration
+probe with a both-profile failed-drop-restore test (BC3/TY1), a best-effort
+concurrent-reader test (TX1), a stuck-thread class timeout (TX2), a
+deferred-IT crash breadcrumb (TY2), and a YTDB-1101 boundary note (TX3).
+
+**What was discovered:** Three self-deadlock and ordering hazards under the
+non-reentrant `stateLock` the commit holds for writing were designed
+around. The public `Index.delete` re-acquires `stateLock` and starts a
+nested transaction, so a tx-dropped engine's deletion splits across the
+enroll, build, and publish phases. `callIndexEngine` (reached via
+`onIndexEngineChange` during the build) was not commit-window-aware and
+gained a lock-free body like `getIndexEngine`. A same-tx insert into a
+tx-created-indexed class routes `addIndexEntry` to the deferred handle
+(`indexId = -1`), leaving tracked entries that failed both `commitIndexes`
+and the post-commit identity assertion on the unbuilt index; those entries
+are stripped from the transaction's live `indexEntries` map before the
+working set, and the commit-time re-derivation is the sole population
+source. The CS1 blocker resolved with the user's chosen reconstruct-on-
+failure approach: the drop's file and config delete stays in the commit WAL
+atomic operation, because a crash between `endTxCommit` and a deferred
+delete would resurrect the dropped index on reopen; only the in-memory
+engine state splits, and the failure path rebuilds a fresh engine from the
+`IndexEngineData` captured at drop time rather than re-publishing the torn
+object (re-publishing spins forever in `waitForAndBlockRebalance`'s CAS
+loop because the histogram teardown is irreversible). The feared in-memory-
+profile reconstruction wall does not exist:
+`failedDropCommitLeavesTheSurvivingCommittedIndexUsable` passes on both the
+default in-memory and the disk profile.
+
+**What changed from the plan:** The mid-Phase-B design fork resolved fix-
+forward with no revert, matching the Track-4 precedent. CS1/BC1 took the
+reconstruct-on-failure alternative. TX1's non-reader-atomic publish is
+accepted as the D19 best-effort semantic and deferred to Step 3 (D21): the
+test asserts crash-free lock-free reads and eventual consistency, not mid-
+publish atomicity. The accepted concurrent-schema-commit-versus-reader
+boundary is broader than the torn two-map publish TX1 named. On the disk
+profile the committer's own schema-promotion record read (`fromStream`
+→ `session.load`) races concurrent reader activity and can drive the
+storage to error state under sustained concurrent schema commits, so Step 3
+(D21) must cover the committer-side promotion read, not only the two-map
+publish. The create-class-plus-property-plus-index-in-one-tx scenario stays
+unreachable end to end (in-transaction property creation is still throw-
+guarded, a later track), so the reachable tests exercise a deferred index
+on a committed class; the provisional-id resolver is implemented and
+forward-looking. Step 1's `dropThenCreateSameNameResolvesToCreate` unit
+test was rewritten to `dropThenCreateSameCommittedNameIsAReplace` for the
+BC2 replace semantics; no downstream step is affected. CS2 (an
+`endTxCommit`-after-phase-2 failure bypassing the undo arms) is a pre-
+existing exposure shared identically with Track 4's
+`undoReconciledCollections`, accepted out of scope and relevant to Track 7
+concurrency hardening.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexAbstract.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexOverlay.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/CommitTimeIndexBuildTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexOverlayTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaDeguardTest.java` (modified)
+
+**Critical context:** Engine registry publication is split by commit-safety
+exactly like collections: the engine files and the
+`indexEngines`/`indexEngineNameMap` entries publish inside the commit
+window (revertible through the failure-path create-undo and drop-restore
+arms), while the shared `indexes`/`classPropertyIndex` lookup-map publish is
+deferred past `commitChanges`. The commit-local engine-id allocator (first-
+null-slot) lets a failed commit free its engine id for reuse. Build, drop,
+and publish all run drops before creates so a drop-then-recreate of the same
+index name resolves as a replace. The cumulative Track-5 code diff is
+~3,040 lines across 12 Java files with the Step-3 tx-aware snapshot still
+ahead; Phase C should weigh splitting the track-level review.
 
 ## Validation and Acceptance
 - Create an index mid-transaction, insert rows into the indexed class in the same
