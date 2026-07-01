@@ -59,6 +59,7 @@ decisions**:
 - Phase B: step implementation, testing, coverage, step-level code review
   iterations (up to 3 per step — fires only on `risk: high` steps),
   episode production, within-track adaptation
-- Phase C: track-level code review (up to 3 iterations; treats `medium`
-  and `high` step ranges as focal points)
+- Phase C: track-level code review (iteration depth keyed to the per-track
+  complexity tag, no fixed iteration cap, terminated by no-progress
+  detection; treats `medium` and `high` step ranges as focal points)
 - Cross-track impact checks (unless impact is detected)

@@ -50,7 +50,12 @@ For both levels:
 After all selected agents complete, findings are synthesised per
 finding-synthesis-recipe.md:orchestrator:3B,3C:
 deduplicated, severity-assigned (blocker / should-fix / suggestion),
-and attributed to source dimension(s). Max 3 iterations per level.
+and attributed to source dimension(s). Iteration termination is
+per-level: step-level (Phase 3B) and Phase-2 / 3A reviews follow
+`review-iteration.md` §Limits (max 3 iterations, then escalate), while
+the Phase-C track-level loop is keyed to the per-track complexity tag
+with no fixed cap, terminated by no-progress detection, per
+track-code-review.md:orchestrator:3C §Review loop.
 
 ---
 

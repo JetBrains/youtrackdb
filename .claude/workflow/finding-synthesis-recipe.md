@@ -76,7 +76,7 @@ the orchestrator to read one.
 If every selected agent's manifest reports `findings: 0`, emit:
 
 ```markdown
-## Routed findings — iteration {N}/3
+## Routed findings — iteration {N}
 
 (no findings)
 ```
@@ -448,7 +448,7 @@ never finding bodies. The implementer reads the bodies by anchor and
 fixes at the code level. Present the routed list in this shape:
 
 ```markdown
-## Routed findings — iteration {N}/3
+## Routed findings — iteration {N}
 
 ### In-scope this iteration
 Review files:

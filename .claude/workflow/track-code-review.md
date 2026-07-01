@@ -488,8 +488,8 @@ changed-files list is an orchestrator-context optimisation — see
 "Why" below.
 
 **Why.** A track-level review fan-out is up to six dimensional
-reviewers × three iterations = eighteen sub-agent spawns, all
-targeting the same cumulative diff. Inlining a 12K-line diff into
+reviewers across several iterations — on the order of a dozen-plus
+sub-agent spawns — all targeting the same cumulative diff. Inlining a 12K-line diff into
 every spawn accumulates ~230K lines of redundant diff content in the
 orchestrator's tool-call history, which the prompt cache reads on
 every subsequent tool call. Pre-staging puts the diff in the
@@ -524,7 +524,7 @@ previously staged files are still current — skip the re-run.
 **Why paths, not inline contents.** Inlining the plan, track file,
 diff, and changed-files list into every track-level sub-agent spawn
 embeds copies in the main agent's tool-call history — up to ~10 agents
-× 3 iterations per track. Paths keep the main agent lean; sub-agents
+across several iterations per track. Paths keep the main agent lean; sub-agents
 Read the files themselves so the contents land only in sub-agent
 context.
 
@@ -676,21 +676,87 @@ review-agent-selection.md:orchestrator:3A,3B,3C §"Complexity sets the
 Phase-C rigor dial, never the set"). The per-track reconciled complexity
 tag — `max(step tags)`, read track-scoped from the phase ledger's
 per-track reconciled-tag field written at the A→C boundary — sets only
-**how hard this loop iterates**:
+**what terminates this loop**. Blockers loop until clear at every level;
+the tag selects whether and how long should-fix findings keep the loop
+running. The policy is stated as the delta from the prior cap-3 dial:
 
-- `low` → a single shallow pass (run once; do not iterate even if
-  should-fix findings remain — surface them at track completion).
-- `medium` → the normal cap-3 iteration below.
-- `high` → iterate to convergence within the cap-3 ceiling (run the full
-  three iterations rather than stopping early on a clean-but-shallow
-  pass).
+- `low` → the blocker loop runs uncapped to clear (terminated by
+  no-progress detection below). Should-fix never drives iteration;
+  remaining should-fix surface at track completion. `low` has no should-fix
+  cap as a backstop — it relies entirely on no-progress detection for its
+  escalation path.
+- `medium` → the uncapped blocker loop plus up to three iterations to clear
+  should-fix; after three, remaining should-fix surface at track
+  completion.
+- `high` → loop until no blockers and no should-fix remain, with no fixed
+  cap on either; both uncapped loops are terminated by no-progress
+  detection.
 
-The `low`-track single-pass shortcut still honors every hard gate: a
-`REGRESSION` verdict or a `blocker` finding forces the loop to continue
-regardless of complexity, because the dial shortens optional iteration
-depth, never the must-fix gates. When the ledger carries no reconciled
-tag (a pre-scheme branch or a torn append), treat the loop as `medium`
-and run the standard cap-3 — the safe default.
+The dial shortens optional should-fix iteration depth, never the must-fix
+gates: a `REGRESSION` verdict or a `blocker` finding forces the loop to
+continue regardless of complexity. (At `low` this is the only thing that
+drives a second iteration at all, since should-fix never iterates there.)
+When the ledger carries no reconciled tag (a pre-scheme branch or a torn
+append), treat the loop as `medium` and run the cap-3 should-fix loop
+above — the safe default.
+
+**No-progress detection — the termination control on the uncapped loops.**
+Because the blocker loop (all levels) and `high`'s should-fix loop are
+uncapped, termination uses no-progress detection in place of the fixed
+cap-3 escalation: escalate to the user the moment an iteration clears
+nothing, rather than at a fixed iteration count. The detector reads the
+gate-check verdict stream the loop already emits per carried finding
+(`VERIFIED` / `REJECTED` / `MOOT` / `STILL OPEN` / `REGRESSION` — see
+review-iteration.md:orchestrator,reviewer-dim-step,reviewer-dim-track,reviewer-plan:2,3A,3B,3C
+§Gate-check verdict handling); it adds no new measurement machinery.
+
+- **Identity** — a finding is "the same" across iterations by its
+  reviewer-assigned `id` (the cumulative finding ID the gate-check already
+  verdicts by), not by its text or location.
+- **Threshold** — a `REGRESSION` verdict on any carried finding escalates
+  immediately (it already forces a `FAIL` under existing verdict handling),
+  short-circuiting the no-progress test below. Otherwise, an iteration makes
+  no progress when its gate-check returns `STILL OPEN` for every finding
+  carried into it, clears none (no `VERIFIED` / `MOOT` / `REJECTED`), and
+  surfaces no new fixable finding. A "new fixable finding" is a
+  newly-surfaced in-scope finding at `blocker` or `should-fix` severity; a
+  new `suggestion` does not count, because suggestions never drive iteration
+  — they surface at track completion. One net clear, or one new fixable
+  finding, is progress and the loop continues.
+- **Which loops it gates** — each uncapped loop: the blocker loop at all
+  three levels and `high`'s should-fix loop. The `medium` should-fix loop
+  is already bounded by its cap-3, so no-progress detection does not gate
+  it; once a surviving blocker carries a `medium` track's iterations past
+  three, the blocker loop's no-progress gate governs from there.
+
+On a no-progress iteration the orchestrator escalates to the user,
+surfacing the surviving findings and the per-iteration verdict history.
+This is the same escalation shape cap-3 exhaustion produced, fired on the
+no-progress signal instead of a fixed count.
+
+**The `medium` single shared counter.** The iteration counter is shared
+across all dimensions (one counter, not independent per-dimension
+counters). `medium` needs the blocker loop uncapped while the should-fix
+loop caps at three on that same counter, so gate only the should-fix
+continuation: "should-fix drives a new iteration" is gated on `iteration ≤
+3`; "a surviving blocker drives a new iteration" is not gated — it
+continues past three, bounded by no-progress detection. When a should-fix
+finding re-surfaces in a post-3 blocker-driven iteration, it is fixed
+opportunistically if the implementer is already touching that code,
+otherwise surfaced at track completion. No second counter is introduced.
+
+**Composition with the per-iteration context pause.** The context-
+consumption check below (step 3, mandatory after each iteration) halts at
+`warning` (≥40%) / `critical` (≥50%) and writes a `mid-phase-handoff.md`.
+It and no-progress detection sit on orthogonal axes and neither substitutes
+for the other: the context pause bounds per-session burn (it suspends and
+resumes next session, and the cross-session resume re-reads loop state),
+while no-progress detection bounds convergence (it escalates when findings
+stop shrinking across iterations, including across a resume). A `high`
+track that makes real but slow progress hits the context pause, hands off,
+and continues next session; because it makes real progress each iteration
+it never escalates. A stuck track escalates on the first no-progress
+iteration regardless of context level.
 
 1. **Classify findings.** From the routed handoff, separate in-scope
    findings (to apply now) from deferred findings (to push to other
@@ -721,9 +787,9 @@ and run the standard cap-3 — the safe default.
    message budget mid-iteration — motivated this rule. **The
    thresholds (~15 findings / ~10 files) are heuristics, not
    contract gates** — when the finding-set is borderline, prefer
-   splitting; when an iteration count is already tight (2 of 3 used)
-   and the remaining findings genuinely cohere, accept the larger
-   spawn and document the choice.
+   splitting; when several iterations have already been spent and a
+   no-progress escalation looks near, and the remaining findings
+   genuinely cohere, accept the larger spawn and document the choice.
 3. **If any in-scope findings need fixes:**
    - **Spawn the per-iteration implementer** with `level=track`,
      `mode=FIX_REVIEW_FINDINGS`, `base_commit` (read from the step
@@ -762,7 +828,7 @@ and run the standard cap-3 — the safe default.
      current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
      running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to the
      track file's `## Progress` section:
-     `- [x] <ISO> [ctx=<level>] Track-level code review iteration N complete (N/3 iterations)`.
+     `- [x] <ISO> [ctx=<level>] Track-level code review iteration N complete`.
 
      The `[ctx=<level>]` field is mandatory per D12 — see
      `design.md` §"Continuous-log discipline" subsection
@@ -829,27 +895,30 @@ and run the standard cap-3 — the safe default.
      continue to the next iteration. If the file does not exist or
      the command fails, this is **not an error** — treat as `safe`
      and continue.
-4. Max 3 iterations **total across sessions** — on resume, read the
-   iteration count from the Progress section to determine how many remain.
-   The iteration count is shared across all review dimensions (not
+4. The loop has no fixed iteration cap — it terminates per the
+   per-track complexity tag and the no-progress detection defined in the
+   §Review loop preamble above (`medium`'s should-fix loop is the one
+   bounded path, capped at three on the shared counter). On resume, read
+   the running iteration count from the Progress section together with the
+   no-progress / open-findings state — there is no remaining-cap count to
+   compute. The iteration count is shared across all review dimensions (not
    independent counters). Iterations short-circuited via the
    pre-spawn budget split in step 2 each consume one counter — a
-   24-finding set split into a 12+12 sequence consumes 2 of 3
-   iterations on the in-scope findings alone, leaving only one
-   iteration for any gate-check carry-over from **either** chunk.
-   This is tight: if iteration 1's gate-check surfaces new fixable
-   findings and iteration 2 is already full at 12 carry-overs, the
-   single remaining iteration must absorb gate-check carry from
-   both prior iterations and may exhaust the budget. When the
-   pre-spawn finding-set is large enough that a 2-chunk split is
-   forced, expect blockers-persist exit at the end and surface the
-   residual findings at track completion rather than treating the
-   third iteration as a guaranteed cleanup slot.
-5. If blockers persist after 3 iterations, or if any iteration ended
-   in a non-`SUCCESS` return that exited the loop, note the unfixed
-   findings — they'll be presented to the user during track completion
-   (below).
-6. When all reviews pass (or max iterations reached), append a
+   24-finding set split into a 12+12 sequence consumes two iterations
+   on the in-scope findings alone before any gate-check carry-over from
+   **either** chunk. The blocker loop absorbs that carry-over without a
+   ceiling, terminating on no-progress rather than a fixed count; a
+   `medium` track's should-fix loop, by contrast, stops at three even
+   when carry-over remains, surfacing the residual should-fix at track
+   completion. So when the pre-spawn finding-set is large enough that a
+   2-chunk split is forced, expect a `medium` track to surface residual
+   should-fix at track completion rather than treating any later iteration
+   as a guaranteed should-fix cleanup slot.
+5. If the loop escalates on no-progress with blockers still open, or if
+   any iteration ended in a non-`SUCCESS` return that exited the loop,
+   note the unfixed findings — they'll be presented to the user during
+   track completion (below).
+6. When all reviews pass (or the loop escalates on no-progress), append a
    track-completion entry to the track file's `## Progress` section.
    Read the statusline per
    episode-format-reference.md:orchestrator:3A,3B,3C
@@ -872,7 +941,7 @@ and run the standard cap-3 — the safe default.
    must read the ledger to know review is done, so this boundary
    needs its own committed append that survives `git reset --hard
    HEAD`. Run this commit **only on the all-reviews-pass path**, not
-   when the loop exited with blockers still open after 3 iterations
+   when the loop exited on no-progress with blockers still open
    (step 5): a blockers-persist exit is not "review done," and its
    residual findings are surfaced to the user at track completion. On
    the blockers-persist path, skip this commit — the Progress entry
@@ -1089,7 +1158,7 @@ authoritative inputs to the user's choice — do not discard them. If
    current UTC time as `<ISO>` (format `YYYY-MM-DDTHH:MMZ`) by
    running `date -u +%Y-%m-%dT%H:%MZ`. Append a single entry to
    `## Progress`:
-   `- [!] <ISO> [ctx=<level>] Track-level code review FAILED at iteration N/3`.
+   `- [!] <ISO> [ctx=<level>] Track-level code review FAILED at iteration N`.
 
    The `[ctx=<level>]` field is mandatory per D12. Commit the
    Progress update as a Workflow update commit and embed the
@@ -1103,7 +1172,8 @@ authoritative inputs to the user's choice — do not discard them. If
 2. **Exit the iteration loop.** Do not respawn the implementer for
    the same findings. The remaining findings are now "unfixed" and
    are presented to the user during track completion (the existing
-   "If blockers persist after 3 iterations, note them" branch).
+   "if the loop escalates on no-progress with blockers open, note them"
+   branch).
 3. If `recommended_action: escalate`, present the situation to the
    user and consider entering ESCALATE per
    inline-replanning.md:orchestrator:3A,3C. For `retry`, the
@@ -1244,8 +1314,8 @@ manual and requires user approval — do not auto-respawn.
    - **Discard.** Run the snapshot-and-diff revert on the
      implementer's behalf and treat the iteration as `FAILED`
      with `recommended_action: escalate`. The remaining findings
-     are surfaced at track completion via the existing "blockers
-     persist after N iterations" branch.
+     are surfaced at track completion via the existing
+     "no-progress escalation with blockers open" branch.
 
 4. **Iteration counter accounting.** A `RESULT_MISSING` recovery
    consumes one iteration counter regardless of which option the
@@ -1253,7 +1323,7 @@ manual and requires user approval — do not auto-respawn.
    commit's worth of state on disk; that has the same impact on
    the budget as a `FAILED` return. Update the Progress section
    with the new counter and a note (e.g.,
-   `- [ ] Track-level code review (1/3 iterations, iteration 1
+   `- [ ] Track-level code review (iteration 1
    recovered from RESULT_MISSING via commit-as-is)`) and commit it
    as a Workflow update commit before the next action.
 
