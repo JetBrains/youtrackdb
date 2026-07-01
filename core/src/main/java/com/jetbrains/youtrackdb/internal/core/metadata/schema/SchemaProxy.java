@@ -82,7 +82,24 @@ public final class SchemaProxy extends SchemaProxedResource<SchemaShared>
       // snapshot cache, so a concurrent session still reads the committed index set. The class and
       // property structure still comes from the committed instance here; the tx-aware class/property
       // view is a later step and rides this same session-private-snapshot seam.
-      return delegate.makeUncachedSnapshot(session);
+      //
+      // Memoize the built snapshot on the transaction state for the lifetime of the current overlay
+      // generation. This branch is reached unpinned per record on the same-tx DDL-then-DML path
+      // (getImmutableSchemaClass reads unpinned, executeReadRecord pins per record), so without the
+      // memo an operation touching N records would rebuild the whole ImmutableSchema up to N times.
+      // The memo stays session-scoped (it lives on TxSchemaState, never in the shared cache) and is
+      // invalidated on every mid-tx index change through forceRebuildSchemaSnapshotForIndexOverlay,
+      // so a change still forces exactly one rebuild.
+      var txState = session.getTxSchemaState();
+      // txState is non-null here: hasActiveIndexOverlay() is true only when the state carries a
+      // non-empty overlay, and the overlay lives on the state.
+      var memoized = txState.getOverlaySnapshot();
+      if (memoized != null) {
+        return memoized;
+      }
+      var built = delegate.makeUncachedSnapshot(session);
+      txState.setOverlaySnapshot(built);
+      return built;
     }
     // Tier 1: the immutable snapshot is taken from the committed instance's shared cache, not the
     // tx-local copy.
