@@ -403,6 +403,23 @@ step (or the fallback). No IR wire format is added.
   stay stateful — `ctx`/`prev`/`next`/profiling/close/iterator state — so each
   execution still needs its own step objects) — noted as a larger follow-on that
   YTDB-1186 enables but does not deliver.
+- 2026-07-01 [ctx=safe] **Umbrella gap: no slice owned the "pipeline is completely
+  IR-only" end state — filed as S18 (YTDB-1187).** S15 (YTDB-930) removes the AST
+  *evaluation* API and moves the plan cache to IR serialization, and depends on all
+  migration slices (S1–S14 + S16/S17 by link; its description text still reads
+  "S1…S14" — minor doc drift). But two things fell through: (1) the AST *optimizer*
+  methods on parse nodes (`flatten`/`isIndexAware`/`findIndex`/`splitForAggregation`/
+  `mergeUsingAnd`/`rewriteIndexChainsAsSubqueries`/`isCacheable` — umbrella evidence
+  #2) are ported "off" the AST by S3/S4/S12/S14 but their *removal* from the nodes
+  had no clear owner; (2) nothing enforced the end state against regression. S15's
+  acceptance only checks "no references to the *deleted evaluation* methods remain."
+  So IR-only was designed to *emerge* from the sum of slices but was not *owned* or
+  *enforced*. Filed **S18 (YTDB-1187)** (subtask of YTDB-901, depends on YTDB-930,
+  relates to YTDB-916): final audit that only the parser + lowerer touch `SQL*`
+  parse nodes, sweep residual AST optimizer methods, and an ArchUnit-style
+  dependency/boundary test that fails the build if executor/planner/optimizer code
+  re-couples to the AST. Same gap shape as the boolean-family (S16/S17) and
+  serialization (YTDB-1185/1186) gaps.
 
 ## Open Questions
 
