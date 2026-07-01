@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -358,17 +359,112 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
   }
 
   /**
-   * Two {@code IS NULL} conditions on the same field are satisfiable (the field is simply null), so
-   * the detector must not treat them as contradictory: no {@link EmptyStep} short-circuit.
+   * Two {@code IS NULL} conditions on the same field are satisfiable — the field is simply null —
+   * so the detector must not treat them as contradictory. With a null-valued row present the plan
+   * must stay non-empty and return that row, proving the "satisfiable" claim against real data
+   * rather than only at plan-shape level.
    */
   @Test
-  public void doubleIsNullSameField_isNotContradictory() {
-    try (var rs =
-        session.query(
-            "SELECT FROM " + className + " WHERE indexed IS NULL AND indexed IS NULL")) {
+  public void doubleIsNullSameField_returnsNullRow() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("p", PropertyType.STRING);
+    session.begin();
+    session.newInstance(cn).setProperty("p", "x");
+    session.newInstance(cn); // second row leaves p null
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE p IS NULL AND p IS NULL")) {
       assertFalse(
           "two IS NULL on the same field must not short-circuit to empty",
           rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertTrue("the null-valued row must be returned", rs.hasNext());
+      assertNull("IS NULL must match the row whose property is null", rs.next().getProperty("p"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * {@code field = null} is always false even when a null-valued row exists: {@code = null} matches
+   * nothing, {@code IS NULL} is the null test. With one null row and one valued row present,
+   * {@code p = null} must short-circuit to {@link EmptyStep} and return nothing, while
+   * {@code p IS NULL} returns the null row. Proves the short-circuit matches runtime semantics on
+   * real null data, not only the plan shape.
+   */
+  @Test
+  public void equalityAgainstNull_isEmptyEvenWhenNullRowExists() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("p", PropertyType.STRING);
+    session.begin();
+    session.newInstance(cn).setProperty("p", "x");
+    session.newInstance(cn); // null-valued row
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE p = null")) {
+      assertTrue(
+          "p = null must short-circuit to EmptyStep",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertFalse("p = null must match no row, even the null one", rs.hasNext());
+    }
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE p IS NULL")) {
+      assertTrue("p IS NULL must match the null-valued row", rs.hasNext());
+      assertNull(rs.next().getProperty("p"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Two equalities against numeric string literals with the same value but different text
+   * ({@code num = '5' AND num = '05'}) are satisfiable on an INTEGER property: the runtime coerces
+   * each literal to the field type, so both become {@code 5}. The detector must coerce to the
+   * declared type before comparing; a raw string comparison ('5' vs '05') would wrongly short
+   * circuit to {@link EmptyStep} and drop the matching row.
+   */
+  @Test
+  public void numericStringLiterals_sameCoercedValue_isNotContradictory() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("num", PropertyType.INTEGER);
+    session.begin();
+    session.newInstance(cn).setProperty("num", 5);
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE num = '5' AND num = '05'")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertFalse(
+          "num = '5' AND num = '05' coerces to 5 = 5 and is satisfiable, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertTrue("expected the num=5 record to be returned", rs.hasNext());
+      assertEquals(5, (int) rs.next().getProperty("num"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * The contradiction check needs the declared type to reproduce the runtime coercion. On a
+   * schemaless field the type is unknown, so {@code n = '5' AND n = '05'} must not be flagged
+   * contradictory: the stored INTEGER {@code 5} matches both literals, and the row must be returned
+   * rather than dropped by a raw string comparison.
+   */
+  @Test
+  public void numericStringLiterals_schemalessField_isNotContradictory() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    session.begin();
+    session.newInstance(cn).setProperty("n", 5); // no declared property: schemaless
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE n = '5' AND n = '05'")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertFalse(
+          "a schemaless field must not be flagged contradictory, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertTrue("expected the schemaless n=5 record to be returned", rs.hasNext());
+      assertEquals(5, (int) rs.next().getProperty("n"));
+      assertFalse(rs.hasNext());
     }
   }
 }

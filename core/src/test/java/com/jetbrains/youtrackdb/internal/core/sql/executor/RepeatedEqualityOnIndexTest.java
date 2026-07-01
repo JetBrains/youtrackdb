@@ -73,4 +73,26 @@ public class RepeatedEqualityOnIndexTest extends TestUtilsFixture {
     assertEquals(new HashSet<>(List.of(0, 1, 2, 3, 4)), queryValues("n <= 4 AND n <= 7"));
     assertEquals(new HashSet<>(List.of(0, 1, 2, 3, 4)), queryValues("n <= 7 AND n <= 4"));
   }
+
+  /**
+   * Two lower bounds with different operators merge to the tighter one and take the merge result's
+   * operator, not the first condition's ({@code n > 3 AND n >= 5} becomes {@code n >= 5}, not
+   * {@code n > 5}). Pins {@code mergeUsingAnd} reading the operator from the merge result: keeping
+   * the original {@code >} would wrongly drop {@code n = 5}. The same-operator bound tests above
+   * never change the operator, so they cannot catch that half of the fix.
+   */
+  @Test
+  public void lowerBounds_differentOperators_takeMergedOperator() {
+    assertEquals(new HashSet<>(List.of(5, 6, 7, 8, 9)), queryValues("n > 3 AND n >= 5"));
+  }
+
+  /**
+   * Two upper bounds with different operators merge to the tighter one and take the merge result's
+   * operator ({@code n < 8 AND n <= 5} becomes {@code n <= 5}, not {@code n < 5}); keeping the
+   * original {@code <} would wrongly drop {@code n = 5}.
+   */
+  @Test
+  public void upperBounds_differentOperators_takeMergedOperator() {
+    assertEquals(new HashSet<>(List.of(0, 1, 2, 3, 4, 5)), queryValues("n < 8 AND n <= 5"));
+  }
 }

@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -992,12 +993,13 @@ public class SelectExecutionPlanner {
    * early-calculable literals. The result set is guaranteed empty without scanning.
    */
   static boolean isUnsatisfiableWhere(
-      @Nullable List<SQLAndBlock> flattenedWhereClause, CommandContext ctx) {
+      @Nullable List<SQLAndBlock> flattenedWhereClause, CommandContext ctx,
+      @Nullable SchemaClass clazz) {
     if (flattenedWhereClause == null || flattenedWhereClause.isEmpty()) {
       return false;
     }
     for (var block : flattenedWhereClause) {
-      if (!isUnsatisfiableAndBlock(block, ctx)) {
+      if (!isUnsatisfiableAndBlock(block, ctx, clazz)) {
         return false;
       }
     }
@@ -1005,28 +1007,34 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * Detects that one AND block can never match. Two independent reasons make a block empty:
+   * Detects that one AND block can never match. A block is provably empty when any of these holds
+   * on the same property:
    *
    * <ul>
    *   <li>an equality against the SQL {@code null} literal ({@code field = null}) — always false,
    *       so a single such condition empties the block;
-   *   <li>contradictory equality literals on the same property ({@code field = 'a' AND field =
-   *       'b'}) — the property would have to hold two different values at once; and
-   *   <li>a non-null equality and an {@code IS NULL} on the same property ({@code field = 'a' AND
-   *       field IS NULL}) — the property would have to be both a value and null.
+   *   <li>contradictory equality values ({@code field = 'a' AND field = 'b'}) — the property would
+   *       have to hold two different values at once; and
+   *   <li>a non-null equality and an {@code IS NULL} ({@code field = 'a' AND field IS NULL}) — the
+   *       property would have to be both a value and null.
    * </ul>
    *
-   * <p>Non-literal equalities (parameters, per-row expressions) are ignored — they cannot be
-   * resolved at plan time. The property may sit on either side of the operator, so both
+   * <p>The value operand of an equality is resolved at plan time when it is a literal or a bound
+   * parameter — both of which the engine can evaluate up front; a per-row expression cannot be
+   * resolved and is ignored. The property may sit on either side of the operator, so both
    * {@code field = 'a'} and {@code 'a' = field} are recognised.
    *
-   * <p>Two literals count as contradictory only when the engine's own equality
-   * ({@link QueryOperatorEquals#equals}) reports them unequal. That is the same comparison the
-   * runtime filter applies, so numeric and cross-type coercion is honoured: {@code field = 1 AND
-   * field = 1.0} stays satisfiable rather than being misread as empty. Using strict
-   * {@link Objects#equals} here would drop rows for such queries.
+   * <p>Two equality values are contradictory only when they stay distinct after coercion to the
+   * property's declared type, compared with the engine's own type-aware equality. The runtime
+   * filter coerces each literal to the stored value's type, so {@code n = '5' AND n = '05'} on an
+   * INTEGER property is satisfiable — both coerce to {@code 5} — and must not be read as empty.
+   * Comparing the raw literals ({@code Objects.equals}, or the untyped equality) would drop that
+   * row. When the property type is unknown — a schemaless field, or {@code clazz} did not resolve —
+   * the coercion cannot be reproduced, so the equality-contradiction check is skipped; the
+   * type-independent {@code = null} and {@code IS NULL} contradictions still apply.
    */
-  static boolean isUnsatisfiableAndBlock(SQLAndBlock block, CommandContext ctx) {
+  static boolean isUnsatisfiableAndBlock(
+      SQLAndBlock block, CommandContext ctx, @Nullable SchemaClass clazz) {
     Map<String, List<Object>> literalEqualities = new HashMap<>();
     Set<String> nullRequiredProperties = new HashSet<>();
     for (var expr : block.getSubBlocks()) {
@@ -1071,28 +1079,68 @@ public class SelectExecutionPlanner {
       literalEqualities.computeIfAbsent(property, k -> new ArrayList<>()).add(value);
     }
     var session = ctx.getDatabaseSession();
-    for (var values : literalEqualities.values()) {
+    for (var entry : literalEqualities.entrySet()) {
+      var values = entry.getValue();
       if (values.size() < 2) {
+        continue;
+      }
+      // The runtime filter coerces each literal to the property's stored type, so two values only
+      // prove the block empty when they stay distinct under that same coercion. Without the
+      // declared type (schemaless field, or the class did not resolve) the coercion is unknown, so
+      // the contradiction cannot be proven and the block is left to normal planning.
+      var type = propertyType(clazz, entry.getKey());
+      if (type == null) {
         continue;
       }
       var first = values.getFirst();
       for (var i = 1; i < values.size(); i++) {
-        // Compare with the engine's coercing equality, not Objects.equals: the runtime filter
-        // treats e.g. 1 and 1.0 as equal, so only a value the filter also rejects proves the
-        // block empty. Objects.equals would falsely flag mixed-type-but-equal literals.
-        if (!QueryOperatorEquals.equals(session, first, values.get(i))) {
+        if (literalsProvablyDistinct(session, first, values.get(i), type)) {
           return true;
         }
       }
     }
-    // A property required to be null (IS NULL) cannot also equal a non-null literal. The literal
-    // map never holds null values, because `= null` is rejected above, so any overlap contradicts.
+    // A property forced null by IS NULL cannot also satisfy an equality on the same property: a
+    // non-null value contradicts IS NULL, and an equality whose value is null (a `= null` literal
+    // returns above; a parameter bound to null reaches the map) matches no row on its own. Either
+    // way, a property in both maps empties the block.
     for (var nullProperty : nullRequiredProperties) {
       if (literalEqualities.containsKey(nullProperty)) {
         return true;
       }
     }
     return false;
+  }
+
+  /**
+   * The declared type of {@code property} on {@code clazz}, or {@code null} when the class is
+   * unresolved, the property is not declared (schemaless), or the property has no type.
+   */
+  @Nullable private static PropertyTypeInternal propertyType(
+      @Nullable SchemaClass clazz, String property) {
+    if (clazz == null) {
+      return null;
+    }
+    var declared = clazz.getProperty(property);
+    if (declared == null) {
+      return null;
+    }
+    return PropertyTypeInternal.convertFromPublicType(declared.getType());
+  }
+
+  /**
+   * True when {@code a} and {@code b} stay unequal after coercion to {@code type}, so no stored
+   * value of that type can equal both. Uses the engine's type-aware equality so the plan-time test
+   * matches the runtime filter. A literal that cannot be coerced to {@code type} matches no row at
+   * runtime, but coercing it here can throw; that case is treated as "not provably distinct" so a
+   * query that used to run is never turned into a plan-time failure.
+   */
+  private static boolean literalsProvablyDistinct(
+      @Nullable DatabaseSessionEmbedded session, Object a, Object b, PropertyTypeInternal type) {
+    try {
+      return !QueryOperatorEquals.equals(session, a, b, type);
+    } catch (RuntimeException ignore) {
+      return false;
+    }
   }
 
   /**
@@ -2214,7 +2262,8 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     var identifier = from.getItem().getIdentifier();
-    if (isUnsatisfiableWhere(info.flattenedWhereClause, ctx)) {
+    var targetClass = getSchemaFromContext(ctx).getClass(identifier.getStringValue());
+    if (isUnsatisfiableWhere(info.flattenedWhereClause, ctx, targetClass)) {
       plan.chain(new EmptyStep(ctx, profilingEnabled));
       // The predicate is provably empty. Clear the WHERE so handleWhere() does not append a dead
       // FilterStep over the already-empty stream, matching how the index paths consume the WHERE.
