@@ -3562,12 +3562,23 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
    * builds a session-private uncached snapshot while the overlay is active
    * ({@link #hasActiveIndexOverlay()}), so clearing the shared cache is both unnecessary and
    * incorrect here (it would let this session's overlay leak into the shared snapshot a concurrent
-   * reader picks up). The thread-local clear is guarded on a zero pin count, which holds because an
-   * index DDL change is not issued from inside a pinned read-record operation; the force-clear
-   * itself asserts the count is zero and throws otherwise, surfacing a misplaced call.
+   * reader picks up). The thread-local clear is guarded on a zero pin count. On the supported paths
+   * the count is expected to be zero because an index DDL change is not issued from inside a pinned
+   * read-record operation; the force-clear itself throws when the count is non-zero, surfacing a
+   * misplaced call (a DDL issued while a read pin is held) rather than treating such a call as
+   * impossible.
+   *
+   * <p>It also invalidates the session-private overlay snapshot memoized on {@code TxSchemaState}
+   * (see {@link TxSchemaState#invalidateOverlaySnapshot()}), so the next snapshot read on the
+   * overlay-active branch of {@link SchemaProxy#makeSnapshot()} rebuilds once against the changed
+   * overlay while intervening unpinned reads between index changes reuse the built snapshot.
    */
   public void forceRebuildSchemaSnapshotForIndexOverlay() {
     getMetadata().forceClearThreadLocalSchemaSnapshot();
+    var txState = getTxSchemaState();
+    if (txState != null) {
+      txState.invalidateOverlaySnapshot();
+    }
   }
 
   /**
