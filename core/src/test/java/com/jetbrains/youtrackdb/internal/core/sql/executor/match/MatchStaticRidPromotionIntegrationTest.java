@@ -772,4 +772,85 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
     assertEquals("bob", rows.getFirst().getProperty("mName"));
     session.commit();
   }
+
+  /**
+   * The discriminating plan-shape test for the size-1 {@code @rid IN [#x]} to
+   * {@code setLeftRid} routing on the REVERSE traversal path. This is the case the
+   * reviewer flagged: post the aliasRids single-map consolidation, a size-1 IN list
+   * flows through {@link MatchExecutionPlanner#singletonPinnedRid} into
+   * {@link EdgeTraversal#setLeftRid}, and when the pinned node is the SOURCE
+   * ({@code edge.out}) of an edge scheduled in reverse, that RID becomes the reverse
+   * traverser's target constraint ({@link MatchReverseEdgeTraverser#targetRid}).
+   *
+   * <p>Why both ends must be pinned: a single size-1 pin always wins root selection
+   * (estimate collapses to 1), so the planner roots at it, prefetches it by RID, and
+   * traverses AWAY from it forward — the reverse routing never fires and stays
+   * hidden. Only when BOTH ends of an edge carry a size-1 pin can the planner root
+   * on one end and reverse-traverse into the other pinned end, populating the
+   * reverse edge's {@code leftRid} from the (pinned) {@code edge.out}.
+   *
+   * <p>The graph here is a triangle {@code a --Knows--> b --Ride--> t --Knows--> a}
+   * with both {@code a} and {@code t} pinned by singleton {@code @rid IN}. The
+   * planner roots at {@code a}, walks {@code a->b->t} forward, then closes the cycle
+   * with the consistency-check edge {@code {t}.out('Knows'){a}} scheduled in REVERSE.
+   * Because {@code t} (the closing edge's {@code edge.out}) is pinned, the closing
+   * reverse step carries {@code [leftRid=<t's RID>]} in the plan.
+   *
+   * <p>Discrimination: EXPLAIN asserts the {@code <----} closing step shows
+   * {@code leftRid=<t's RID>}. A broken {@code size() == 1} predicate in
+   * {@code singletonPinnedRid} drops that annotation (verified during development by
+   * mutating the predicate to {@code size() == 2}). Result-correctness alone cannot
+   * catch the mutation: {@code t} is still prefetched by RID (the prefetch uses the
+   * full pinned list, not {@code singletonPinnedRid}) and the retained WHERE
+   * {@code leftFilter} still validates the target, so the rows stay correct — the
+   * plan-shape {@code leftRid} annotation is the sole discriminating signal.
+   */
+  @Test
+  public void reverseEdgeIntoBothEndsPinned_leftRidPopulatedInPlan() {
+    // Inline triangle fixture: a --Knows--> b --Ride--> t --Knows--> a.
+    // 'Ride' is a fresh edge class so the middle hop is distinct from the two
+    // Knows hops; the closing Knows edge (t -> a) is what gets scheduled reverse.
+    session.execute("CREATE class Ride extends E").close();
+    session.begin();
+    knows("carol", "dave"); // a=carol -> b=dave (Knows already exists as a class)
+    ride("dave", "erin"); // b=dave -> t=erin (Ride)
+    knows("erin", "carol"); // t=erin -> a=carol (Knows) closes the triangle
+    session.commit();
+
+    session.begin();
+    var a = ridOf("Person", "carol");
+    var t = ridOf("Person", "erin");
+    // Pin BOTH a (root) and t (reverse target). t's RID must appear as leftRid on
+    // the closing reverse edge {t}.out('Knows'){a}.
+    var query =
+        "EXPLAIN MATCH {class: Person, as: a, where: (@rid in [" + a + "])}"
+            + ".out('Knows'){class: Person, as: b}"
+            + ".out('Ride'){class: Person, as: t, where: (@rid in [" + t + "])}"
+            + ".out('Knows'){class: Person, as: a} RETURN a.name";
+    var result = session.query(query).toList();
+    assertEquals(1, result.size());
+    String plan = result.getFirst().getProperty("executionPlanAsString");
+    assertNotNull(plan);
+
+    // Discriminating assertion: the reverse closing step carries t's pinned RID as
+    // leftRid. This is populated ONLY via singletonPinnedRid(size-1 list) ->
+    // setLeftRid on the reverse edge; a broken size()==1 predicate drops it.
+    assertTrue(
+        "reverse closing edge must carry [leftRid=" + t + "], got:\n" + plan,
+        plan.contains("<----") && plan.contains("[leftRid=" + t + "]"));
+
+    // Sanity: t is still prefetched by RID (the effect that masks the mutation at
+    // the result level), confirming leftRid — not the prefetch — is the signal.
+    assertTrue("pinned 't' should be prefetched by RID, got:\n" + plan,
+        prefetchBlock(plan, "t").contains("FETCH FROM RIDs"));
+    session.commit();
+  }
+
+  /** Creates a Ride edge between two named Persons (fresh edge class for the triangle). */
+  private void ride(String from, String to) {
+    session.execute(
+        "CREATE EDGE Ride FROM (SELECT FROM Person WHERE name = '" + from + "')"
+            + " TO (SELECT FROM Person WHERE name = '" + to + "')")
+        .close();
+  }
 }

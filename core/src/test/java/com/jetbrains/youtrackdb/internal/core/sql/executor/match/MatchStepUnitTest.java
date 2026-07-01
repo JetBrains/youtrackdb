@@ -3587,17 +3587,18 @@ public class MatchStepUnitTest extends DbTestBase {
    * traversal, that RID becomes the target constraint validated at runtime. This is
    * the case the reviewer flagged as newly reachable and untested.
    *
-   * <p>Why a unit test and not EXPLAIN: an earlier investigation established that
-   * {@code leftRid} is never rendered into the execution-plan string
-   * ({@link MatchStep#prettyPrint} emits only direction, aliases, method, and
-   * intersection descriptor), and its runtime effect is redundant with the
-   * {@code FETCH FROM RIDs} prefetch that always fires for a pinned alias (the
-   * prefetch uses the full pinned list via {@code pinnedRidsForAlias}, not
-   * {@code singletonPinnedRid}). Breaking the {@code size() == 1} predicate is
-   * therefore invisible to both plan-shape and result-correctness assertions at the
-   * integration level, so this internal-state assertion is the only discriminating
-   * check: a broken predicate would make {@code singletonPinnedRid} return null and
-   * {@code targetRid()} would then yield null instead of the pinned RID.
+   * <p>Why a unit test in addition to EXPLAIN: {@code leftRid} surfaces in the plan
+   * string ({@link MatchStep#prettyPrint} appends {@code [leftRid=#x:y]} to the
+   * {@code <----} line) only in the narrow case where a reverse edge's source node
+   * is itself pinned — which requires BOTH edge ends pinned, because a single pin
+   * always wins root selection, prefetches by RID, and traverses forward, hiding the
+   * reverse routing. The both-ends-pinned EXPLAIN case is covered by
+   * {@code MatchStaticRidPromotionIntegrationTest#reverseEdgeIntoBothEndsPinned_leftRidPopulated}.
+   * This unit test is the direct, always-available guard of the
+   * {@link MatchExecutionPlanner#singletonPinnedRid} predicate itself: a broken
+   * {@code size() == 1} check would make {@code singletonPinnedRid} return null and
+   * {@code targetRid()} would then yield null instead of the pinned RID, independent
+   * of any query shape or scheduling outcome.
    */
   @Test
   public void testReverseEdgeTraverserTargetRid_sizeOnePinnedList_flowsToTargetRid() {
