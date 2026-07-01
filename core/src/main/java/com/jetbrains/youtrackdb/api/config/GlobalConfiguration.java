@@ -1008,6 +1008,17 @@ public enum GlobalConfiguration {
       3,
       true),
 
+  QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED(
+      "youtrackdb.query.gremlin.toMatchTranslator.enabled",
+      "Enables the Gremlin-to-MATCH translator strategy. When true, a Gremlin traversal"
+          + " whose every step is in the recognized set is rewritten to a MATCH execution"
+          + " plan so the existing cost-based planner can pick join order and use index"
+          + " statistics; any unrecognized step declines the whole traversal to native"
+          + " TinkerPop execution unchanged (all-or-nothing). Set to false to bypass"
+          + " translation entirely (runtime kill-switch). True by default.",
+      Boolean.class,
+      true),
+
   STATEMENT_CACHE_SIZE(
       "youtrackdb.statement.cacheSize",
       "Number of parsed SQL statements kept in cache. Zero means cache disabled",
