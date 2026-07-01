@@ -152,3 +152,6 @@ Each invariant below is backed by a test.
 - **Non-early-calc fall-through.** A field-ref or subquery RID value falls through to the class scan with no behavior change.
 - **Plan shape.** An optimized query compiles to `FetchFromRidsStep`, not `FetchFromClassExecutionStep` — asserted via `EXPLAIN`.
 - **Ordering untouched.** The handler leaves `info.orderApplied` false, so ORDER BY / SKIP / LIMIT / GROUP BY / DISTINCT still assemble downstream.
+
+## Base commit
+75e4d639fd1f4a6ad7ee21ccc84596e51a80b4ee
