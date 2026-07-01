@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -32,20 +33,48 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashSet;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.Ignore;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 /**
  * Commit-time index engine lifecycle coverage: an index created or dropped inside a transaction
  * becomes real storage structure at commit. A tx-created index builds its engine inside the commit's
  * own atomic operation, populated from the transaction's final record state, and is published into
  * the shared index manager only after the records are durable. A tx-dropped index has its engine
- * deleted and its registry entry removed at commit. Indexing a class created in the same transaction
- * resolves the class's provisional collection id (<= -2) at commit instead of throwing. A build whose
- * source collection already holds committed rows is loudly rejected (the v1 empty-class bound). A
- * failed engine-creating commit leaves no phantom engine registration and frees the engine id for
- * reuse.
+ * deleted and its registry entry removed at commit. A drop-then-recreate of the same name in one
+ * transaction is a replace. Indexing a class created in the same transaction resolves the class's
+ * provisional collection id (&lt;= -2) at commit instead of throwing. A build whose source collection
+ * already holds committed rows is loudly rejected (the v1 empty-class bound). A failed engine-creating
+ * commit leaves no phantom engine registration and frees the engine id for reuse; a failed
+ * engine-dropping commit leaves the surviving committed index fully usable.
+ *
+ * <p>Concurrency boundary (accepted v1 semantic, tracked by YTDB-1101): a schema-carrying commit
+ * excludes concurrent data <em>commits</em> via the index-manager write lock, but the shared
+ * lookup-map publish is NOT atomic against lock-free <em>readers</em>. A concurrent reader can
+ * observe a torn two-map view mid-publish; the reader-atomic snapshot flip is deferred to the
+ * read-chain snapshot-versioning work (YTDB-1101). The concurrency test below asserts only the
+ * accepted best-effort semantic (eventual consistency after the commit completes), not reader
+ * atomicity.
  */
 public class CommitTimeIndexBuildTest extends DbTestBase {
+
+  /**
+   * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock} would
+   * busy-spin forever rather than throw, hanging the whole surefire fork with no signal. A per-method
+   * timeout converts that hang into a fast, diagnosable failure that names the stuck commit thread.
+   */
+  @Rule
+  public Timeout globalTimeout =
+      Timeout.builder()
+          .withTimeout(120, TimeUnit.SECONDS)
+          .withLookingForStuckThread(true)
+          .build();
 
   private AbstractStorage storage() {
     return (AbstractStorage) session.getStorage();
@@ -276,14 +305,18 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
-   * Failed-commit engine cleanliness (the engine arm of the failed-commit registry-cleanliness
-   * guarantee): a schema-carrying commit that creates an index engine and then fails after publishing
-   * it (but before the record apply makes the commit durable) leaves no phantom engine registration,
-   * and the freed engine id is reused by the next successful build. The fault is injected through the
-   * in-window test hook, which fires on the failure-path side. The collection arm of this criterion is
-   * already covered elsewhere; the engine arm is exercised here. The default in-memory profile is the
+   * Failed-commit engine cleanliness, create side (the engine arm of the failed-commit
+   * registry-cleanliness guarantee): a schema-carrying commit that builds and publishes an index
+   * engine and then fails, after the engine exists but before the record apply makes the commit
+   * durable, leaves no phantom engine registration, and the freed engine id is reused by the next
+   * successful build. The fault fires through the post-engine-build hook, which runs after the engine
+   * is published — the pre-record-apply commit-window hook fires before any engine exists, so it
+   * cannot exercise the create-side revert arm at all. The hook first asserts the engine IS registered
+   * at the fault point, so the post-failure assertions are load-bearing (a broken revert arm would
+   * leave a real registration behind rather than pass vacuously). The default in-memory profile is the
    * one that caught the equivalent collection-arm leak (the in-memory cache does not revert an eager
-   * file addFile on rollback), so it exercises the create-side engine-file revert arm.
+   * file addFile on rollback), so the surviving engine files this arm drops would otherwise block the
+   * id-reusing rebuild with a "file already exists" error.
    */
   @Test
   public void failedEngineCreatingCommitLeavesNoPhantomEngineAndReusesId() {
@@ -295,11 +328,17 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
 
     // A retry-family fault (CommandInterruptedException) keeps the storage OPEN after the failure,
     // as the collection-arm failed-commit test relies on, so the phantom-registration check is
-    // observable against a live storage rather than a poisoned one.
-    storage.setCommitWindowTestHook(
+    // observable against a live storage rather than a poisoned one. The post-build hook fires after
+    // the engine is built and published, so the create-side revert arm genuinely has an engine to
+    // revert; the precondition assert proves the arm is not exercised over an empty set.
+    storage.setPostEngineBuildTestHook(
         () -> {
+          assertTrue(
+              "the tx-created engine must be published before the fault so the create-side revert"
+                  + " arm has real work",
+              storage.isIndexEngineRegisteredInCommitWindow(indexName));
           throw new CommandInterruptedException(
-              session.getDatabaseName(), "injected in-window index-commit fault");
+              session.getDatabaseName(), "injected post-engine-build index-commit fault");
         });
     try {
       session.begin();
@@ -307,12 +346,12 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
           .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
       try {
         session.commit();
-        fail("the index-building commit must fail when the in-window fault hook throws");
+        fail("the index-building commit must fail when the post-build fault hook throws");
       } catch (final RuntimeException expected) {
         // Routed through rollback + the engine-registry undo, as intended.
       }
     } finally {
-      storage.setCommitWindowTestHook(null);
+      storage.setPostEngineBuildTestHook(null);
     }
 
     assertFalse("a failed index-building commit must leave no phantom index in the shared manager",
@@ -321,7 +360,9 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         engineIsRegistered(indexName));
 
     // The next successful build reuses the freed engine id (the allocator finds the slot free again)
-    // and publishes cleanly, proving the failed commit leaked no engine slot.
+    // and publishes cleanly, proving the failed commit leaked no engine slot AND that the create-side
+    // engine-file revert arm dropped the surviving in-memory-profile engine files (otherwise this
+    // id-reusing rebuild would fail with a "file already exists" error).
     var freedEngineId = storage.loadIndexEngine(indexName);
     assertEquals("the failed build's engine must be fully unregistered", -1, freedEngineId);
     session.executeInTx(tx -> session.getMetadata().getSchema().getClass("FailBuildTarget")
@@ -329,6 +370,96 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertTrue("the post-failure build must succeed and publish the index",
         session.getSharedContext().getIndexManager().existsIndex(indexName));
     assertTrue("the post-failure build's engine must be registered", engineIsRegistered(indexName));
+  }
+
+  /**
+   * Failed-commit engine cleanliness, drop side (the symmetric engine arm): a schema-carrying commit
+   * that drops a committed index's engine and then fails, after the drop tore the engine out of the
+   * in-memory registry but before the commit is durable, MUST leave the surviving committed index
+   * fully usable — queryable, with a registered engine, no unregistered-engine throw. The drop's
+   * synchronous registry removal is reconstructed on the failure path from the engine's captured
+   * durable data. Without the drop-restore arm the committed index would point at a nulled engine slot
+   * and throw {@code InvalidIndexEngineIdException} on the next read.
+   *
+   * <p>Two committed indexes are dropped in one transaction; the fault fires after both drops so the
+   * restore arm reconstructs both. The assertion that the surviving index still returns its rows is
+   * the deterministic invariant bar. Runs on the active profile (in-memory by default, disk under
+   * {@code -Dyoutrackdb.test.env=ci}); on the disk profile the rolled-back atomic operation restored
+   * the engine files, and on the in-memory profile the eager delete's files may differ, so the
+   * reconstruction reads whatever durable state the profile left — the invariant (usable surviving
+   * index) must hold on both.
+   */
+  @Test
+  public void failedDropCommitLeavesTheSurvivingCommittedIndexUsable() {
+    var storage = storage();
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("FailDropTarget");
+    cls.createProperty("keep", PropertyType.STRING);
+    cls.createProperty("gone", PropertyType.STRING);
+    var keepIndexName = "FailDropTarget.keep";
+    var goneIndexName = "FailDropTarget.gone";
+    // Two committed indexes on the same class, and one committed row so the survivor has a real entry
+    // to return after the failed drop commit.
+    cls.createIndex(keepIndexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "keep");
+    cls.createIndex(goneIndexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "gone");
+    session.begin();
+    var row = (EntityImpl) session.newEntity("FailDropTarget");
+    row.setProperty("keep", "survivor");
+    row.setProperty("gone", "doomed");
+    session.commit();
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertTrue("both indexes must exist before the failed drop",
+        indexManager.existsIndex(keepIndexName));
+    assertTrue("both indexes must exist before the failed drop",
+        indexManager.existsIndex(goneIndexName));
+
+    // Fault fires after the drop phase tore both engines out of the registry, so the drop-restore arm
+    // has both to reconstruct. The precondition assert proves the drops actually happened before the
+    // fault (a vacuous test would find the engines still registered here).
+    storage.setPostEngineBuildTestHook(
+        () -> {
+          assertFalse(
+              "the dropped engine must be unregistered at the fault point so the drop-restore arm has"
+                  + " real work",
+              storage.isIndexEngineRegisteredInCommitWindow(keepIndexName));
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected post-drop index-commit fault");
+        });
+    try {
+      session.begin();
+      indexManager.dropIndex(session, keepIndexName);
+      indexManager.dropIndex(session, goneIndexName);
+      try {
+        session.commit();
+        fail("the index-dropping commit must fail when the post-drop fault hook throws");
+      } catch (final RuntimeException expected) {
+        // Routed through rollback + the drop-restore arm, as intended.
+      }
+    } finally {
+      storage.setPostEngineBuildTestHook(null);
+    }
+
+    // Deterministic invariant: the failed drop commit rolled back, so BOTH committed indexes must be
+    // present and their engines reconstructed — the surviving index must be fully usable, not just
+    // present in the shared map with a nulled engine slot.
+    assertTrue("a failed drop commit must leave the surviving committed index published",
+        indexManager.existsIndex(keepIndexName));
+    assertTrue("a failed drop commit must leave the surviving committed index published",
+        indexManager.existsIndex(goneIndexName));
+    assertTrue("the surviving committed index's engine must be reconstructed after the failed drop",
+        engineIsRegistered(keepIndexName));
+    assertTrue("the surviving committed index's engine must be reconstructed after the failed drop",
+        engineIsRegistered(goneIndexName));
+
+    // The invariant bar: a query through the surviving index must return its committed row without an
+    // unregistered-engine / null-slot throw — the whole point of the drop-restore arm.
+    var keepIndex = indexManager.getIndex(keepIndexName);
+    var survivorRids = session.computeInTx(tx -> keepIndex.getRids(session, "survivor").toList());
+    assertEquals(
+        "the surviving committed index must still return its committed row after the failed"
+            + " drop commit",
+        1, survivorRids.size());
   }
 
   /**
@@ -386,5 +517,142 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         "a polymorphic lookup through the parent index must return the subclass row after the "
             + "committed membership change",
         1, rids.size());
+  }
+
+  /**
+   * A transaction that drops a committed index and recreates one of the same name is a replace: the
+   * old committed engine is deleted and a new engine (with the new type) is built and published under
+   * the same name, in one commit, without a "already exists" collision. The old committed index is
+   * NOTUNIQUE; the recreate is UNIQUE. After commit the index is the new type, a row inserted in the
+   * same recreate transaction is present, and the replace survives a reload. Before the overlay
+   * netted a drop-then-create to a create-only entry, so the old engine was never deleted and the
+   * new build collided with the still-registered old engine.
+   */
+  @Test
+  public void dropThenRecreateSameIndexNameInOneTransactionReplacesTheIndex() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("ReplaceTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "ReplaceTarget.name";
+    // Commit the original NOTUNIQUE index.
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertFalse("the original committed index must be NOTUNIQUE before the replace",
+        indexManager.getIndex(indexName).isUnique());
+
+    // Drop then recreate the same name (as a UNIQUE index) in one transaction, and insert a row so
+    // the replaced index has a same-tx entry.
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+    session.getMetadata().getSchema().getClass("ReplaceTarget")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "name");
+    var e = (EntityImpl) session.newEntity("ReplaceTarget");
+    e.setProperty("name", "replaced");
+    session.commit();
+
+    // After commit the index exists exactly once, is the NEW type, and carries the same-tx row.
+    assertTrue("the recreated index must be published after commit",
+        indexManager.existsIndex(indexName));
+    var replaced = indexManager.getIndex(indexName);
+    assertTrue("the replace must leave the index as the new UNIQUE type", replaced.isUnique());
+    assertTrue("the recreated index's engine must be registered", engineIsRegistered(indexName));
+    var rids = session.computeInTx(tx -> replaced.getRids(session, "replaced").toList());
+    assertEquals("the same-tx row must be in the recreated index", 1, rids.size());
+
+    // The replace is durable: after a reload the index is still the new type with the row.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedManager = session.getSharedContext().getIndexManager();
+    assertTrue("the recreated index must survive a reload", reloadedManager.existsIndex(indexName));
+    assertTrue("the recreated index must still be UNIQUE after a reload",
+        reloadedManager.getIndex(indexName).isUnique());
+    var reloadedRids =
+        session.computeInTx(
+            tx -> reloadedManager.getIndex(indexName).getRids(session, "replaced").toList());
+    assertEquals("the recreated index's row must survive the reload", 1, reloadedRids.size());
+  }
+
+  /**
+   * The accepted best-effort publish semantic (tracked by YTDB-1101): a concurrent reader on another
+   * session polling the shared index lookup path across a commit-time publish window must never crash
+   * on that lock-free read path, and once the create commit completes it eventually sees the index
+   * present in the shared maps. This does NOT assert reader atomicity mid-publish: a schema commit
+   * excludes concurrent data commits but not lock-free reads, so a concurrent reader can observe a
+   * torn two-map view (the index in one map, not yet the other) mid-publish, and the reader-atomic
+   * snapshot flip is deferred to the read-chain snapshot-versioning work (YTDB-1101). A torn view is
+   * the accepted v1 semantic, so this test does not fail on it; it pins the crash-free
+   * lock-free-read behaviour and the eventual-consistency end state instead.
+   *
+   * <p>The interaction is deliberately bounded to a single publish window: the residual
+   * concurrent-schema-commit-vs-reader window (a concurrent reader reading the schema/index-manager
+   * record while the committer re-parses it during promotion) is the same accepted YTDB-1101 boundary
+   * and is out of this step's scope, so the reader stays on the lock-free lookup-map path and the
+   * committer runs a single schema commit rather than stress-cycling many.
+   */
+  @Test
+  public void concurrentReaderNeverCrashesAndSeesEventuallyConsistentPublish() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("PublishRaceTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "PublishRaceTarget.name";
+
+    var readerReady = new CyclicBarrier(2);
+    var stop = new AtomicBoolean(false);
+    var readerError = new AtomicReference<Throwable>();
+
+    // A reader on its own session/thread repeatedly consults the shared lookup maps through the
+    // lock-free public read path while the main thread publishes the index at commit. The reader must
+    // never throw on that path (a crash there would be a real bug); a torn mid-publish view is the
+    // accepted v1 semantic and is deliberately NOT asserted against.
+    var reader = new Thread(() -> {
+      try (var other = openDatabase()) {
+        other.activateOnCurrentThread();
+        var im = other.getSharedContext().getIndexManager();
+        readerReady.await(5, TimeUnit.SECONDS);
+        while (!stop.get()) {
+          im.existsIndex(indexName);
+          im.getIndex(indexName);
+        }
+      } catch (final Throwable t) {
+        readerError.compareAndSet(null, t);
+      }
+    }, "publish-race-reader");
+    reader.start();
+
+    session.activateOnCurrentThread();
+    readerReady.await(5, TimeUnit.SECONDS);
+    var indexManager = session.getSharedContext().getIndexManager();
+    // A single create commit whose publish the concurrent reader crosses.
+    session.executeInTx(tx -> session.getMetadata().getSchema().getClass("PublishRaceTarget")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
+    stop.set(true);
+    reader.join(TimeUnit.SECONDS.toMillis(30));
+
+    assertNull("a concurrent reader must never crash on the lock-free lookup-map read path against"
+        + " the commit-time index publish", readerError.get());
+    // Eventual consistency end state: after the create commit completes, a settled reader sees the
+    // index in the shared maps.
+    assertTrue(
+        "after the create commit completes, the published index is visible in the shared maps",
+        indexManager.existsIndex(indexName));
+  }
+
+  /**
+   * Breadcrumb for crash-before-commit / crash-after-commit recovery of a commit-time index engine
+   * build and delete. The rollback half is covered by the failed-commit tests
+   * ({@code failedEngineCreatingCommitLeavesNoPhantomEngineAndReusesId} and
+   * {@code failedDropCommitLeavesTheSurvivingCommittedIndexUsable}); the clean-reload half by
+   * {@code builtIndexSurvivesReload}. The crash half — stop the storage hard, restore from the WAL,
+   * and assert the built engine's files replayed (committed) or are absent (crashed before commit) —
+   * leans on the {@code LocalPaginatedStorageRestoreFromWALIT} close-copy-restore harness and is
+   * deferred to the integration-test layer, mirroring the collection-arm breadcrumb. Kept as an
+   * ignored placeholder so the gap is visible at the test surface.
+   */
+  @Test
+  @Ignore("crash recovery of a commit-time index engine build/delete: needs the "
+      + "LocalPaginatedStorageRestoreFromWALIT harness; deferred to the integration-test layer")
+  public void crashRecoveryOfCommitTimeIndexEngineIsDeferredToIT() {
+    // Intentionally empty: see the Javadoc breadcrumb.
   }
 }

@@ -110,21 +110,52 @@ public class IndexOverlayTest {
   }
 
   /**
-   * A drop-then-recreate of the same name resolves to the new create: recordCreated cancels a pending
-   * drop of the same name, so the name reads as tx-created (not tx-dropped) afterwards.
+   * A drop-then-recreate of the same committed name is a replace: the name stays in the tx-dropped set
+   * (so the old committed engine is deleted at commit) AND reads as tx-created (so the new engine is
+   * built), so the two deltas net to a replace rather than cancelling the drop. A committed name
+   * reaches the tx-dropped set only through recordDropped (recordDropped cancels a same-tx create
+   * instead of recording a drop), so a name in tx-dropped always names a committed index whose old
+   * engine must be deleted before the recreate.
    */
   @Test
-  public void dropThenCreateSameNameResolvesToCreate() {
+  public void dropThenCreateSameCommittedNameIsAReplace() {
     var overlay = new IndexOverlay();
+    // recordDropped on a name with no pending create records a drop of the (implied) committed index.
     overlay.recordDropped("Y.name");
     var recreated = indexNamed("Y.name", "Y");
     overlay.recordCreated(recreated);
 
     assertTrue("the recreated name must read as tx-created", overlay.isTxCreated("Y.name"));
-    assertFalse("the pending drop must have been cancelled by the recreate",
+    assertTrue(
+        "the committed drop must survive the recreate so the old engine is deleted (replace)",
         overlay.isTxDropped("Y.name"));
     assertSame("the recreated handle must be the one returned", recreated,
         overlay.getTxCreated("Y.name"));
+  }
+
+  /**
+   * The effective raw-index set of a class that drops then recreates a same-named committed index
+   * surfaces only the new handle: resolveClassRawIndexes hides the committed index whose name is in
+   * the tx-dropped set and adds the tx-created replacement, so a name in both sets nets to the
+   * replacement being visible and the old one hidden.
+   */
+  @Test
+  public void resolveClassRawIndexesSurfacesTheReplacementForADropThenRecreate() {
+    var overlay = new IndexOverlay();
+    overlay.recordDropped("Z.name");
+    var recreated = indexNamed("Z.name", "Z");
+    overlay.recordCreated(recreated);
+
+    // The committed set still carries the old (about-to-be-dropped) index of the same name.
+    var oldCommitted = indexNamed("Z.name", "Z");
+    var effective = overlay.resolveClassRawIndexes("Z", java.util.List.of(oldCommitted));
+
+    assertEquals("the effective set must carry exactly one index for the replaced name", 1,
+        effective.size());
+    assertSame(
+        "the effective set must surface the tx-created replacement, not the dropped committed"
+            + " index",
+        recreated, effective.iterator().next());
   }
 
   /**

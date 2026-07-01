@@ -97,15 +97,21 @@ public final class IndexOverlay {
 
   /**
    * Records an index created inside the transaction. The handle is the deferred (engine-unbuilt)
-   * {@code Index}; the commit builds its engine and registers it in the shared manager. If the same
-   * name was previously dropped in this transaction, the drop is cancelled (a create-after-drop of
-   * the same name resolves to the new create).
+   * {@code Index}; the commit builds its engine and registers it in the shared manager.
+   *
+   * <p>A create after a drop of the same committed name is a <em>replace</em>: the name stays in
+   * {@code txDropped} (so the old committed engine is deleted at commit) while the new handle is added
+   * to {@code txCreated} (so the new engine is built). {@link #resolveClassRawIndexes} already hides
+   * the dropped committed index and surfaces the new one, and the commit runs drops before creates so
+   * the old engine's name-map entry clears before the new build's duplicate-name guard. The drop is
+   * NOT cancelled here: a committed name reaches {@code txDropped} only through {@link #recordDropped},
+   * which cancels a same-tx create instead of recording a drop, so a name in {@code txDropped} always
+   * names a committed index whose old engine must be deleted before the recreate.
    *
    * @param index the deferred handle; must carry a non-null name.
    */
   public void recordCreated(@Nonnull Index index) {
     final var name = index.getName();
-    txDropped.remove(name);
     txCreated.put(name, index);
   }
 
