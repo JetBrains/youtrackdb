@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -16,6 +17,10 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -1234,5 +1239,119 @@ public class SchemaDeguardTest extends DbTestBase {
               "a create-then-drop must not record the never-committed index as tx-dropped",
               overlay.isTxDropped(indexName));
         });
+  }
+
+  /**
+   * The tx-local index overlay stays invisible to a genuinely concurrent reader on another thread.
+   * The single-thread sibling test above proves the overlay never taints the process-shared snapshot
+   * cache, but sessions are thread-bound, so it can never place two live sessions on two threads at
+   * once. This test starts a second thread with its own session, holds the overlay open on the main
+   * thread across a mid-transaction {@code createIndex}, and has the reader read the shared immutable
+   * snapshot during that window. The reader must never observe the uncommitted index and must not
+   * fail: the overlay is session-scoped (built into the owning session's private, uncached snapshot
+   * and never written to the shared cache), so a concurrent reader on another thread races only the
+   * committed shared snapshot, not the overlay. This catches a regression that (re)introduces a
+   * shared-cache write on the overlay path or a visibility bug on the {@code volatile} snapshot
+   * publish, neither of which the sequential test can surface.
+   */
+  @Test
+  public void overlayIsInvisibleToAConcurrentReaderOnAnotherThread() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("OverlayRaceClass");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayRaceClass.name";
+
+    var overlayBuilt = new CountDownLatch(1);
+    var readerDone = new CountDownLatch(1);
+    var leaked = new AtomicBoolean(false);
+    var readerError = new AtomicReference<Throwable>();
+
+    // The reader runs on its own thread with its own session (sessions are thread-bound). It waits
+    // until the main thread has recorded the overlay and taken its overlay-resolved snapshot, then
+    // reads the shared committed snapshot; the uncommitted index must never appear in it.
+    var reader =
+        new Thread(
+            () -> {
+              try (var other = openDatabase()) {
+                other.activateOnCurrentThread();
+                overlayBuilt.await(5, TimeUnit.SECONDS);
+                var otherClass =
+                    (SchemaClassInternal) other
+                        .getMetadata()
+                        .getImmutableSchemaSnapshot()
+                        .getClassInternal("OverlayRaceClass");
+                if (otherClass != null) {
+                  for (var idx : otherClass.getIndexesInternal()) {
+                    if (indexName.equals(idx.getName())) {
+                      leaked.set(true);
+                    }
+                  }
+                }
+              } catch (Throwable t) {
+                readerError.set(t);
+              } finally {
+                readerDone.countDown();
+              }
+            },
+            "overlay-concurrent-reader");
+    reader.start();
+
+    // openDatabase() on the reader thread activated the reader's session on that thread; the main
+    // session is still bound to this thread, but reassert it explicitly before driving the overlay.
+    session.activateOnCurrentThread();
+    session.begin();
+    try {
+      cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+      // Signal only after the overlay has been recorded and the creating session's snapshot has been
+      // force-rebuilt, so the reader observes the shared snapshot during the overlay window rather
+      // than before or after it.
+      assertTrue(
+          "the creating session must see its own tx-created index through the overlay",
+          snapshotIndexNamesFor("OverlayRaceClass").contains(indexName));
+      overlayBuilt.countDown();
+      assertTrue(
+          "the concurrent reader must finish", readerDone.await(10, TimeUnit.SECONDS));
+    } finally {
+      overlayBuilt.countDown();
+      session.rollback();
+    }
+    reader.join(TimeUnit.SECONDS.toMillis(10));
+
+    assertNull("the concurrent reader must not fail", readerError.get());
+    assertFalse(
+        "the overlay must not leak into a concurrent reader's snapshot", leaked.get());
+  }
+
+  /**
+   * A mid-transaction index change force-rebuilds the schema snapshot, and that rebuild is guarded
+   * on a zero snapshot pin count: the force-clear throws {@code IllegalStateException} when a read
+   * pin is still held, surfacing a misplaced call (an index DDL issued from inside a pinned
+   * read-record operation). The supported paths never issue an index DDL under a held pin, so the
+   * common case runs at pin count zero; this test documents both arms of the contract by holding a
+   * pin explicitly and asserting the force-rebuild throws loudly rather than silently clearing a
+   * pinned snapshot. Without a held pin the overlay tests above already cover the safe zero-count
+   * path, so this test pins deliberately to exercise the throwing arm.
+   */
+  @Test
+  public void forceRebuildUnderAHeldSnapshotPinThrowsLoudly() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("PinnedRebuildClass");
+    cls.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    var meta = session.getMetadata();
+    // Pin the thread-local snapshot so immutableCount is 1; the force-rebuild the mid-tx createIndex
+    // triggers must then hit the non-zero-pin guard and throw.
+    meta.makeThreadLocalSchemaSnapshot();
+    try {
+      assertThrows(
+          "an index DDL that force-rebuilds under a held snapshot pin must throw loudly",
+          IllegalStateException.class,
+          () -> cls.createIndex(
+              "PinnedRebuildClass.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
+    } finally {
+      meta.clearThreadLocalSchemaSnapshot();
+      session.rollback();
+    }
   }
 }
