@@ -132,7 +132,18 @@ public class MatchStep extends AbstractExecutionStep {
     if (edge.out) {
       result.append("     ---->\n");
     } else {
-      result.append("     <----\n");
+      result.append("     <----");
+      // In reverse mode, edge.leftRid (the original source node's pinned RID) is the
+      // TARGET constraint the reverse traverser validates against — see
+      // MatchReverseEdgeTraverser.targetRid(). It is otherwise invisible in the plan,
+      // so surface it here to make the size-1 @rid IN / @rid = promotion routing
+      // (singletonPinnedRid -> setLeftRid) observable in EXPLAIN. Printed only when
+      // non-null so plans without a reverse-pinned target stay byte-identical.
+      var leftRid = edge.getLeftRid();
+      if (leftRid != null) {
+        result.append(" [leftRid=").append(leftRid.toString("")).append("]");
+      }
+      result.append("\n");
     }
     result.append(spaces);
     result.append("  ");

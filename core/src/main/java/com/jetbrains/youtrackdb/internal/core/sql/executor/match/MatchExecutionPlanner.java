@@ -6,7 +6,9 @@ import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Direction;
+import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.engine.SelectivityEstimator;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
@@ -40,6 +42,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLFromItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGroupBy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchFilter;
@@ -303,8 +307,12 @@ public class MatchExecutionPlanner {
   /** Maps each alias to the schema class name it is constrained to. */
   private Map<String, String> aliasClasses;
 
-  /** Maps each alias to a specific RID if one was provided in the pattern. */
-  private Map<String, SQLRid> aliasRids;
+  /**
+   * Maps each alias to pinned RIDs from the pattern ({@code {as: a, rid: #1:2}})
+   * or promoted from static {@code @rid = ...} / {@code @rid IN [...]} WHERE filters.
+   * Singleton pins use {@code List.of(rid)}; multi-RID pins use the promoted list.
+   */
+  private Map<String, List<SQLRid>> aliasPinnedRids;
 
   /**
    * Aliases whose class was inferred from edge LINK schema rather than
@@ -411,7 +419,7 @@ public class MatchExecutionPlanner {
     // Defensive copy: aliasFilters may be immutable (e.g. Map.of() from GQL).
     // detectNotInAntiJoin() mutates this map to strip NOT IN conditions.
     this.aliasFilters = new HashMap<>(aliasFilters);
-    this.aliasRids = Map.of();
+    this.aliasPinnedRids = Map.of();
   }
 
   /**
@@ -495,7 +503,7 @@ public class MatchExecutionPlanner {
 
     // Phase 3: Estimate how many root records each aliased node will produce.
     var estimatedRootEntries =
-        estimateRootEntries(aliasClasses, aliasRids, aliasFilters, context);
+        estimateRootEntries(aliasClasses, aliasPinnedRids, aliasFilters, context);
     // Inflate estimates for inferred-class aliases so they never outcompete
     // explicitly declared roots. A low-cardinality inferred class can cause
     // the scheduler to reverse traversal direction across while steps.
@@ -548,8 +556,8 @@ public class MatchExecutionPlanner {
 
     // Phase 6: Append NOT-pattern filter steps (nested-loop or hash anti-join)
     manageNotPatterns(
-        result, pattern, notMatchExpressions, aliasClasses, aliasFilters, aliasRids,
-        context, enableProfiling);
+        result, pattern, notMatchExpressions, aliasClasses, aliasFilters,
+        aliasPinnedRids, context, enableProfiling);
 
     // Phase 7: If optional nodes were encountered, replace EMPTY_OPTIONAL sentinels with null
     if (foundOptional) {
@@ -666,7 +674,7 @@ public class MatchExecutionPlanner {
    * @param notMatchExpressions  the list of negative match expressions
    * @param aliasClasses         per-alias class names (needed for hash join build-side)
    * @param aliasFilters         per-alias WHERE clauses
-   * @param aliasRids            per-alias RID constraints
+   * @param aliasPinnedRids            per-alias RID constraints
    * @param context              the command context
    * @param enableProfiling      whether to enable step profiling
    */
@@ -676,7 +684,7 @@ public class MatchExecutionPlanner {
       List<SQLMatchExpression> notMatchExpressions,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       boolean enableProfiling) {
     for (var exp : notMatchExpressions) {
@@ -713,10 +721,12 @@ public class MatchExecutionPlanner {
         lastFilter = item.getFilter();
       }
 
-      if (canUseHashJoin(exp, aliasClasses, aliasFilters, aliasRids, context)) {
+      if (canUseHashJoin(
+          exp, aliasClasses, aliasFilters, aliasPinnedRids, context)) {
         // Hash anti-join path: materialize NOT sub-pattern, probe per upstream row
         var buildPlan = buildNotPatternPlan(
-            exp, matchSteps, aliasClasses, aliasFilters, aliasRids, context, enableProfiling);
+            exp, matchSteps, aliasClasses, aliasFilters, aliasPinnedRids,
+            context, enableProfiling);
         var sharedAliases = findSharedAliases(exp, pattern);
         result.chain(new HashJoinMatchStep(
             context, buildPlan, sharedAliases, JoinMode.ANTI_JOIN, enableProfiling));
@@ -835,7 +845,7 @@ public class MatchExecutionPlanner {
       SQLMatchExpression exp,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     var originAlias = exp.getOrigin().getAlias();
     assert originAlias != null : "NOT expression origin must have an alias";
@@ -843,13 +853,13 @@ public class MatchExecutionPlanner {
     // If the origin alias has no class, RID, or filter, we can't estimate —
     // return MAX_VALUE to force fallback to nested-loop.
     if (aliasClasses.get(originAlias) == null
-        && aliasRids.get(originAlias) == null
+        && !aliasPinnedRids.containsKey(originAlias)
         && aliasFilters.get(originAlias) == null) {
       return Long.MAX_VALUE;
     }
     var session = context.getDatabaseSession();
     long estimate = estimateAliasCardinality(
-        originAlias, aliasClasses, aliasFilters, aliasRids, context);
+        originAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
     var currentClass = aliasClasses.get(originAlias);
     for (var item : exp.getItems()) {
       // Estimate fan-out from schema statistics (edgeCount / sourceCount)
@@ -894,7 +904,7 @@ public class MatchExecutionPlanner {
       SQLMatchExpression exp,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     if (notPatternDependsOnMatched(exp)) {
       return false;
@@ -903,8 +913,8 @@ public class MatchExecutionPlanner {
     if (originAlias == null || !aliasClasses.containsKey(originAlias)) {
       return false;
     }
-    var estimatedCardinality =
-        estimateNotPatternCardinality(exp, aliasClasses, aliasFilters, aliasRids, context);
+    var estimatedCardinality = estimateNotPatternCardinality(
+        exp, aliasClasses, aliasFilters, aliasPinnedRids, context);
     return estimatedCardinality <= getHashJoinThreshold();
   }
 
@@ -1026,7 +1036,7 @@ public class MatchExecutionPlanner {
    * @param joinMode            the join mode: SEMI_JOIN if no intermediates are downstream,
    *                            INNER_JOIN if any intermediate is referenced downstream
    * @param scanAlias           the alias to scan from in the build-side plan — must have a
-   *                            known class or RID in {@code aliasClasses}/{@code aliasRids}
+   *                            known class or RID in {@code aliasClasses}/{@code aliasPinnedRids}
    */
   record HashJoinBranch(
       List<String> sharedAliases,
@@ -1057,7 +1067,7 @@ public class MatchExecutionPlanner {
    * @param downstreamAliases  aliases referenced downstream of the MATCH traversal
    * @param aliasClasses       per-alias class names
    * @param aliasFilters       per-alias WHERE clauses
-   * @param aliasRids          per-alias RID constraints
+   * @param aliasPinnedRids          per-alias RID constraints
    * @param context            the command context
    * @return list of eligible hash join branches (may be empty)
    */
@@ -1066,7 +1076,7 @@ public class MatchExecutionPlanner {
       Set<String> downstreamAliases,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     if (scheduledEdges.size() < 2) {
       // Need at least 2 edges: one branch edge + one consistency-check edge
@@ -1103,7 +1113,7 @@ public class MatchExecutionPlanner {
         // This is a consistency-check edge — target was already visited.
         var branch = traceBackwardBranch(
             scheduledEdges, i, visitedBefore, downstreamAliases,
-            aliasClasses, aliasFilters, aliasRids, context);
+            aliasClasses, aliasFilters, aliasPinnedRids, context);
         if (branch != null) {
           // Discard branch if any of its edges overlap with an already-claimed branch
           boolean overlaps = false;
@@ -1154,7 +1164,7 @@ public class MatchExecutionPlanner {
       Set<String> downstreamAliases,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     var checkEdge = scheduledEdges.get(checkIdx);
     var checkTarget = targetAlias(checkEdge);
@@ -1188,7 +1198,7 @@ public class MatchExecutionPlanner {
     // Phase 3: Cardinality estimation and cost-based guards
     long cardinality = estimateBranchCardinality(
         trace.branchRoot, trace.branchEdges, aliasClasses, aliasFilters,
-        aliasRids, context);
+        aliasPinnedRids, context);
     long threshold = getHashJoinThreshold();
     if (cardinality > threshold) {
       return null;
@@ -1208,7 +1218,7 @@ public class MatchExecutionPlanner {
       // Guard 1: Skip hash join when the upstream (probe side) is small.
       long upstreamCardinality = estimateUpstreamCardinality(
           scheduledEdges, checkIdx, trace.branchEdges,
-          aliasClasses, aliasFilters, aliasRids, context);
+          aliasClasses, aliasFilters, aliasPinnedRids, context);
       if (upstreamCardinality < upstreamMin) {
         return null;
       }
@@ -1236,7 +1246,7 @@ public class MatchExecutionPlanner {
     // The build plan needs a scan alias with a known class or RID.
     var scanAlias = findScanAlias(
         otherShared, trace.branchRoot, trace.intermediateAliases, aliasClasses,
-        aliasRids);
+        aliasPinnedRids);
     if (scanAlias == null) {
       return null;
     }
@@ -1388,12 +1398,12 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> branchEdges,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     var session = context.getDatabaseSession();
     // Start with branch root cardinality
     long rows = estimateAliasCardinality(
-        branchRoot, aliasClasses, aliasFilters, aliasRids, context);
+        branchRoot, aliasClasses, aliasFilters, aliasPinnedRids, context);
 
     // Skip the last edge (consistency-check edge) — it doesn't expand cardinality,
     // it's a filter verifying the target alias matches an already-visited node (cost 0).
@@ -1448,7 +1458,7 @@ public class MatchExecutionPlanner {
       List<EdgeTraversal> branchEdges,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     var session = context.getDatabaseSession();
     var branchEdgeSet = new HashSet<>(branchEdges);
@@ -1456,7 +1466,7 @@ public class MatchExecutionPlanner {
     // Find the scan root alias (source of the first scheduled edge)
     var rootAlias = sourceAlias(scheduledEdges.get(0));
     long rows = estimateAliasCardinality(
-        rootAlias, aliasClasses, aliasFilters, aliasRids, context);
+        rootAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
 
     var currentClass = aliasClasses.get(rootAlias);
     for (int i = 0; i < checkIdx; i++) {
@@ -1533,16 +1543,18 @@ public class MatchExecutionPlanner {
       String alias,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     var cls = aliasClasses.get(alias);
     var filter = aliasFilters.get(alias);
-    var rid = aliasRids.get(alias);
     var singleClasses = cls != null ? Map.of(alias, cls) : Map.<String, String>of();
     var singleFilters = filter != null ? Map.of(alias, filter) : Map.<String, SQLWhereClause>of();
-    var singleRids = rid != null ? Map.of(alias, rid) : Map.<String, SQLRid>of();
+    var singlePinnedRids = aliasPinnedRids.containsKey(alias)
+        ? Map.of(alias, aliasPinnedRids.get(alias))
+        : Map.<String, List<SQLRid>>of();
 
-    var rootEstimates = estimateRootEntries(singleClasses, singleRids, singleFilters, context);
+    var rootEstimates = estimateRootEntries(
+        singleClasses, singlePinnedRids, singleFilters, context);
     var count = rootEstimates.get(alias);
     return count != null ? Math.max(1, count) : THRESHOLD;
   }
@@ -1557,17 +1569,20 @@ public class MatchExecutionPlanner {
       String branchRoot,
       Set<String> intermediateAliases,
       Map<String, String> aliasClasses,
-      Map<String, SQLRid> aliasRids) {
+      Map<String, List<SQLRid>> aliasPinnedRids) {
     // Prefer shared aliases — they anchor the build plan at a join endpoint
-    if (aliasClasses.get(otherShared) != null || aliasRids.get(otherShared) != null) {
+    if (aliasClasses.get(otherShared) != null
+        || aliasPinnedRids.containsKey(otherShared)) {
       return otherShared;
     }
-    if (aliasClasses.get(branchRoot) != null || aliasRids.get(branchRoot) != null) {
+    if (aliasClasses.get(branchRoot) != null
+        || aliasPinnedRids.containsKey(branchRoot)) {
       return branchRoot;
     }
     // Fall back to intermediates (relevant for INNER_JOIN where intermediates have classes)
     for (var alias : intermediateAliases) {
-      if (aliasClasses.get(alias) != null || aliasRids.get(alias) != null) {
+      if (aliasClasses.get(alias) != null
+          || aliasPinnedRids.containsKey(alias)) {
         return alias;
       }
     }
@@ -1583,7 +1598,7 @@ public class MatchExecutionPlanner {
    * @param matchSteps       the pre-built MatchStep chain for the NOT pattern's edges
    * @param aliasClasses     per-alias class names
    * @param aliasFilters     per-alias WHERE clauses
-   * @param aliasRids        per-alias RID constraints
+   * @param aliasPinnedRids    per-alias pinned RID lists
    * @param context          the command context
    * @param enableProfiling  whether to enable step profiling
    * @return a complete build-side execution plan
@@ -1593,19 +1608,19 @@ public class MatchExecutionPlanner {
       List<AbstractExecutionStep> matchSteps,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       boolean enableProfiling) {
     var originAlias = exp.getOrigin().getAlias();
     var originClass = aliasClasses.get(originAlias);
-    var originRid = aliasRids.get(originAlias);
+    var originRids = pinnedRidsForAlias(originAlias, aliasPinnedRids);
     var originFilter = aliasFilters.get(originAlias);
 
     // Build the origin scan: SELECT FROM <class> [WHERE ...]
     // Copy the WHERE clause to prevent mutable filter corruption (same as
     // buildHashJoinBranchPlan and addStepsFor).
     var select = createSelectStatement(
-        originClass, originRid, originFilter == null ? null : originFilter.copy());
+        originClass, originRids, originFilter == null ? null : originFilter.copy());
 
     // Create PatternNode for the origin alias
     var originNode = new PatternNode();
@@ -1645,13 +1660,13 @@ public class MatchExecutionPlanner {
     // all branch aliases.
     var scanAlias = branch.scanAlias();
     var scanClass = aliasClasses.get(scanAlias);
-    var scanRid = aliasRids.get(scanAlias);
+    var scanRids = pinnedRidsForAlias(scanAlias);
     var scanFilter = aliasFilters.get(scanAlias);
 
     // Copy the WHERE clause to prevent mutable state from the main plan's
     // execution corrupting the build-side filter (matches addStepsFor behavior).
     var select = createSelectStatement(
-        scanClass, scanRid, scanFilter == null ? null : scanFilter.copy());
+        scanClass, scanRids, scanFilter == null ? null : scanFilter.copy());
     var scanNode = new PatternNode();
     scanNode.alias = scanAlias;
 
@@ -1689,7 +1704,7 @@ public class MatchExecutionPlanner {
           // Left constraints = edge.out node's constraints (same as createPlanForPattern)
           traversal.setLeftClass(aliasClasses.get(outAlias));
           traversal.setLeftFilter(aliasFilters.get(outAlias));
-          traversal.setLeftRid(aliasRids.get(outAlias));
+          traversal.setLeftRid(singletonPinnedRid(aliasPinnedRids.get(outAlias)));
           buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
           current = inAlias;
           used[j] = true;
@@ -1703,7 +1718,7 @@ public class MatchExecutionPlanner {
           // constraints — the target in reverse mode is edge.out.
           traversal.setLeftClass(aliasClasses.get(outAlias));
           traversal.setLeftFilter(aliasFilters.get(outAlias));
-          traversal.setLeftRid(aliasRids.get(outAlias));
+          traversal.setLeftRid(singletonPinnedRid(aliasPinnedRids.get(outAlias)));
           buildPlan.chain(new MatchStep(context, traversal, profilingEnabled));
           current = outAlias;
           used[j] = true;
@@ -1806,7 +1821,7 @@ public class MatchExecutionPlanner {
         edge.setProfilingEnabled(profilingEnabled);
         if (edge.edge.out.alias != null) {
           edge.setLeftClass(aliasClasses.get(edge.edge.out.alias));
-          edge.setLeftRid(aliasRids.get(edge.edge.out.alias));
+          edge.setLeftRid(singletonPinnedRid(aliasPinnedRids.get(edge.edge.out.alias)));
           edge.setLeftFilter(aliasFilters.get(edge.edge.out.alias));
         }
       }
@@ -1826,7 +1841,8 @@ public class MatchExecutionPlanner {
       var downstreamAliases = collectDownstreamAliases(
           returnItems, groupBy, orderBy, unwind, pattern.aliasToNode.keySet());
       var hashJoinBranches = identifyHashJoinBranches(
-          sortedEdges, downstreamAliases, aliasClasses, aliasFilters, aliasRids, context);
+          sortedEdges, downstreamAliases, aliasClasses, aliasFilters,
+          aliasPinnedRids, context);
 
       // Collect edges that belong to hash join branches — skip them in the main loop.
       // Guards:
@@ -1879,9 +1895,9 @@ public class MatchExecutionPlanner {
         plan.chain(new MatchFirstStep(context, node, profilingEnabled));
       } else {
         var clazz = aliasClasses.get(node.alias);
-        var rid = aliasRids.get(node.alias);
+        var pinnedRids = pinnedRidsForAlias(node.alias);
         var filter = aliasFilters.get(node.alias);
-        var select = createSelectStatement(clazz, rid, filter);
+        var select = createSelectStatement(clazz, pinnedRids, filter);
         plan.chain(
             new MatchFirstStep(
                 context,
@@ -4190,7 +4206,7 @@ public class MatchExecutionPlanner {
 
     // The correlated alias must already be visited (it's in aliasClasses or known)
     if (aliasClasses.get(correlatedAlias) == null
-        && aliasRids.get(correlatedAlias) == null
+        && !aliasPinnedRids.containsKey(correlatedAlias)
         && !pattern.aliasToNode.containsKey(correlatedAlias)) {
       return null;
     }
@@ -4424,15 +4440,15 @@ public class MatchExecutionPlanner {
     if (first) {
       var patternNode = edge.out ? edge.edge.out : edge.edge.in;
       var clazz = this.aliasClasses.get(patternNode.alias);
-      var rid = this.aliasRids.get(patternNode.alias);
+      var pinnedRids = pinnedRidsForAlias(patternNode.alias);
       var where = aliasFilters.get(patternNode.alias);
       var select = new SQLSelectStatement(-1);
       select.setTarget(new SQLFromClause(-1));
       select.getTarget().setItem(new SQLFromItem(-1));
       if (clazz != null) {
         select.getTarget().getItem().setIdentifier(new SQLIdentifier(clazz));
-      } else if (rid != null) {
-        select.getTarget().getItem().setRids(Collections.singletonList(rid));
+      } else if (pinnedRids != null) {
+        select.getTarget().getItem().setRids(pinnedRids);
       }
       select.setWhereClause(where == null ? null : where.copy());
       var subContxt = new BasicCommandContext();
@@ -4530,10 +4546,10 @@ public class MatchExecutionPlanner {
       boolean profilingEnabled) {
     for (var alias : aliasesToPrefetch) {
       var targetClass = aliasClasses.get(alias);
-      var targetRid = aliasRids.get(alias);
+      var pinnedRids = pinnedRidsForAlias(alias);
       var filter = aliasFilters.get(alias);
       var prefetchStm =
-          createSelectStatement(targetClass, targetRid, filter);
+          createSelectStatement(targetClass, pinnedRids, filter);
 
       var step =
           new MatchPrefetchStep(
@@ -4546,18 +4562,18 @@ public class MatchExecutionPlanner {
   }
 
   /**
-   * Builds a synthetic `SELECT` statement that scans a class, a single RID, or applies a
-   * `WHERE` filter. This is used to generate the initial record source for
+   * Builds a synthetic {@code SELECT} that fetches from a RID list, scans a class,
+   * or both (RID list plus {@code WHERE}). Used as the initial record source for
    * {@link MatchFirstStep} and {@link MatchPrefetchStep}.
    */
   private static SQLSelectStatement createSelectStatement(
-      String targetClass, SQLRid targetRid, SQLWhereClause filter) {
+      String targetClass, @Nullable List<SQLRid> targetRids, SQLWhereClause filter) {
     var prefetchStm = new SQLSelectStatement(-1);
     prefetchStm.setWhereClause(filter);
     var from = new SQLFromClause(-1);
     var fromItem = new SQLFromItem(-1);
-    if (targetRid != null) {
-      fromItem.setRids(Collections.singletonList(targetRid));
+    if (targetRids != null && !targetRids.isEmpty()) {
+      fromItem.setRids(targetRids);
     } else if (targetClass != null) {
       fromItem.setIdentifier(new SQLIdentifier(targetClass));
     }
@@ -4598,7 +4614,7 @@ public class MatchExecutionPlanner {
     Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
     Map<String, String> aliasClasses = new LinkedHashMap<>();
     Map<String, String> aliasCollections = new LinkedHashMap<>();
-    Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
+    Map<String, List<SQLRid>> aliasPinnedRids = new LinkedHashMap<>();
     // Collect aliases that are directly part of a while-condition's recursive
     // zone (origin + while-item).  Class inference on these specific aliases
     // must be skipped — inferred classes change cost estimates which can
@@ -4608,16 +4624,203 @@ public class MatchExecutionPlanner {
     var whileAliases = collectAliasesFromWhilePatterns(this.matchExpressions);
     var inferredAliases = new HashSet<String>();
     for (var expr : this.matchExpressions) {
-      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasRids,
+      addAliases(expr, aliasFilters, aliasClasses, aliasCollections, aliasPinnedRids,
           ctx, whileAliases, inferredAliases);
     }
 
     this.aliasFilters = aliasFilters;
     this.aliasClasses = aliasClasses;
-    this.aliasRids = aliasRids;
+    this.aliasPinnedRids = aliasPinnedRids;
     this.inferredWhileExprAliases = inferredAliases;
 
+    // Promote static `@rid = <literal|param>` and `@rid IN [...]` filters into
+    // aliasPinnedRids before estimateRootEntries() and the topological
+    // schedule run. With a RID slot populated, the estimate collapses to the list
+    // size, so a 2M-row class restricted to a few RIDs stops losing root selection
+    // to a 10K-row unfiltered class.
+    // The promotion also lets createSelectStatement() take the FetchFromRids
+    // fast path instead of a class scan with post-filter.
+    // Back-refs (`@rid = $matched.X.@rid`) are skipped: those are bound at
+    // runtime and are handled by EdgeRidLookup or Pattern A back-ref hash
+    // join in the pre-filter pass.
+    // The @rid term stays in aliasFilters on purpose. For {@code @rid = <expr>}
+    // on a non-root alias, the DirectRid pre-filter pass on the producing edge
+    // still relies on findRidEquality(). {@code @rid IN <list>} has no
+    // RidFilterDescriptor analogue; non-root IN lists are enforced via prefetch
+    // or post-fetch WHERE evaluation instead.
+    promoteStaticRidsFromFilters(aliasFilters, aliasPinnedRids, ctx);
+
     rebindFilters(aliasFilters);
+  }
+
+  /**
+   * Promotes static {@code @rid = <literal|param>} equalities and
+   * {@code @rid IN <static-list>} into {@code aliasPinnedRids} so that
+   * {@link #estimateRootEntries} returns the pinned cardinality and
+   * {@link #createSelectStatement} uses a direct RID fetch.
+   *
+   * <p>The original {@code @rid} term is intentionally left in the filter. When
+   * the alias does not end up as a root, the pre-filter pass on the producing
+   * edge uses {@link SQLWhereClause#findRidEquality()} to attach a
+   * {@code DirectRid} intersection descriptor for singleton equalities only.
+   * {@code @rid IN <list>} has no matching pre-filter descriptor; those aliases
+   * rely on prefetch / {@link #createSelectStatement} or post-fetch WHERE.
+   *
+   * <p>Skipped:
+   * <ul>
+   *   <li>aliases that already have a RID slot (e.g.
+   *       {@code {as: a, rid: #1:2}})
+   *   <li>{@code @rid = $matched.X.@rid} back-refs (handled by
+   *       {@code EdgeRidLookup} or Pattern A back-ref hash join)
+   *   <li>expressions that are not early-calculable (depend on per-row context)
+   *   <li>{@code @rid IN <subquery>} or non-static right-hand sides
+   * </ul>
+   */
+  // Visible for testing
+  static void promoteStaticRidsFromFilters(
+      Map<String, SQLWhereClause> aliasFilters,
+      Map<String, List<SQLRid>> aliasPinnedRids,
+      CommandContext ctx) {
+    for (var entry : aliasFilters.entrySet()) {
+      var alias = entry.getKey();
+      var filter = entry.getValue();
+      if (filter == null) {
+        continue;
+      }
+      // Don't overwrite an explicit RID slot from the parser.
+      if (aliasPinnedRids.containsKey(alias)) {
+        continue;
+      }
+      var ridExpr = filter.findRidEquality();
+      if (ridExpr != null) {
+        var involved = ridExpr.getMatchPatternInvolvedAliases();
+        if (involved != null && !involved.isEmpty()) {
+          continue;
+        }
+        if (!ridExpr.isEarlyCalculated(ctx)) {
+          continue;
+        }
+        var rid = new SQLRid(-1);
+        SQLRid.internalPromoteExpression(rid, ridExpr);
+        aliasPinnedRids.put(alias, List.of(rid));
+        logger.debug(
+            "MATCH planner: promoted @rid = filter to aliasPinnedRids for alias '{}'",
+            alias);
+        continue;
+      }
+
+      var ridIn = filter.findRidInList();
+      if (ridIn == null) {
+        continue;
+      }
+      var involved = ridIn.getMatchPatternInvolvedAliases();
+      if (involved != null && !involved.isEmpty()) {
+        continue;
+      }
+      var promotedList = toPromotedSqlRidList(ridIn, ctx);
+      if (promotedList == null || promotedList.isEmpty()) {
+        continue;
+      }
+      aliasPinnedRids.put(alias, promotedList);
+      logger.debug(
+          "MATCH planner: promoted @rid IN filter ({} RIDs) for alias '{}'",
+          promotedList.size(),
+          alias);
+    }
+  }
+
+  /** Returns the pinned RID list for an alias, or {@code null} if none. */
+  @Nullable private List<SQLRid> pinnedRidsForAlias(String alias) {
+    return aliasPinnedRids.get(alias);
+  }
+
+  @Nullable private static List<SQLRid> pinnedRidsForAlias(
+      String alias,
+      Map<String, List<SQLRid>> aliasPinnedRids) {
+    return aliasPinnedRids.get(alias);
+  }
+
+  /** Returns the sole pinned RID when the list has exactly one entry (for {@code setLeftRid}). */
+  // Visible for testing
+  @Nullable static SQLRid singletonPinnedRid(@Nullable List<SQLRid> pinnedRids) {
+    return pinnedRids != null && pinnedRids.size() == 1 ? pinnedRids.get(0) : null;
+  }
+
+  /**
+   * Converts a static {@code @rid IN <expr>} condition into concrete {@link SQLRid}
+   * nodes suitable for {@code SELECT FROM [#a, #b, ...]}.
+   */
+  @Nullable static List<SQLRid> toPromotedSqlRidList(SQLInCondition inCond, CommandContext ctx) {
+    if (inCond.getRightStatement() != null) {
+      return null;
+    }
+    if (!isEarlyCalculableInRight(inCond, ctx)) {
+      return null;
+    }
+    Object rightVal;
+    if (inCond.getRightParam() != null) {
+      rightVal = inCond.getRightParam().getValue(ctx.getInputParameters());
+    } else if (inCond.getRightMathExpression() != null) {
+      rightVal = inCond.getRightMathExpression().execute((Result) null, ctx);
+    } else {
+      return null;
+    }
+    if (!(rightVal instanceof Iterable<?> iterable)) {
+      return null;
+    }
+    List<SQLRid> rids = new ArrayList<>();
+    for (var item : iterable) {
+      var sqlRid = sqlRidFromRuntimeValue(item);
+      if (sqlRid == null) {
+        return null;
+      }
+      rids.add(sqlRid);
+    }
+    return rids.isEmpty() ? null : rids;
+  }
+
+  private static boolean isEarlyCalculableInRight(SQLInCondition inCond, CommandContext ctx) {
+    if (inCond.getRightParam() != null) {
+      return true;
+    }
+    var math = inCond.getRightMathExpression();
+    return math != null && math.isEarlyCalculated(ctx);
+  }
+
+  @Nullable private static SQLRid sqlRidFromRuntimeValue(Object value) {
+    if (value instanceof Identifiable identifiable) {
+      var identity = identifiable.getIdentity();
+      var rid = new SQLRid(-1);
+      var collection = new SQLInteger(-1);
+      collection.setValue(identity.getCollectionId());
+      var position = new SQLInteger(-1);
+      position.setValue(identity.getCollectionPosition());
+      rid.setLegacy(true);
+      rid.setCollection(collection);
+      rid.setPosition(position);
+      return rid;
+    }
+    if (value instanceof String s) {
+      RecordIdInternal parsed;
+      try {
+        parsed = RecordIdInternal.fromString(s, false);
+      } catch (IllegalArgumentException ignored) {
+        return null;
+      }
+      if (parsed == null) {
+        return null;
+      }
+      var rid = new SQLRid(-1);
+      var collection = new SQLInteger(-1);
+      collection.setValue(parsed.getCollectionId());
+      var position = new SQLInteger(-1);
+      position.setValue(parsed.getCollectionPosition());
+      rid.setLegacy(true);
+      rid.setCollection(collection);
+      rid.setPosition(position);
+      return rid;
+    }
+    return null;
   }
 
   /**
@@ -4678,11 +4881,12 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
       Map<String, String> aliasCollections,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context,
       Set<String> whileAliases,
       Set<String> inferredWhileExprAliases) {
-    addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasRids, context);
+    addAliases(expr.getOrigin(), aliasFilters, aliasClasses, aliasCollections, aliasPinnedRids,
+        context);
 
     // Track the edge class set by the most recent outE/inE item, so that a
     // following inV/outV can look up the linked vertex class from the edge schema.
@@ -4691,7 +4895,7 @@ public class MatchExecutionPlanner {
 
     for (var item : expr.getItems()) {
       if (item.getFilter() != null) {
-        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasRids,
+        addAliases(item.getFilter(), aliasFilters, aliasClasses, aliasCollections, aliasPinnedRids,
             context);
 
         // Skip class inference only for aliases in the recursive zone
@@ -4845,7 +5049,7 @@ public class MatchExecutionPlanner {
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, String> aliasClasses,
       Map<String, String> aliasCollections,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       CommandContext context) {
     var alias = matchFilter.getAlias();
     var filter = matchFilter.getFilter();
@@ -4902,15 +5106,15 @@ public class MatchExecutionPlanner {
 
       var rid = matchFilter.getRid(context);
       if (rid != null) {
-        var previousRid = aliasRids.get(alias);
-        if (previousRid == null) {
-          aliasRids.put(alias, rid);
-        } else if (!previousRid.equals(rid)) {
+        var previousRids = aliasPinnedRids.get(alias);
+        if (previousRids == null) {
+          aliasPinnedRids.put(alias, List.of(rid));
+        } else if (previousRids.size() != 1 || !previousRids.get(0).equals(rid)) {
           throw new CommandExecutionException(context.getDatabaseSession(),
               "Invalid expression for alias "
                   + alias
                   + " cannot be of both RIDs "
-                  + previousRid
+                  + previousRids.get(0)
                   + " and "
                   + rid);
         }
@@ -4968,7 +5172,8 @@ public class MatchExecutionPlanner {
    * - **Root selection**: the topological scheduler starts from the cheapest root.
    *
    * <p>Estimation strategy per alias:
-   * - RID constraint → exactly 1 record.
+   * - Single RID constraint → exactly 1 record.
+   * - Static RID list constraint → list size records.
    * - Class constraint with `WHERE` → uses the filter's own
    *   {@link SQLWhereClause#estimate} method (which may use index statistics).
    * - Class constraint without filter → uses the class's record count.
@@ -4979,22 +5184,22 @@ public class MatchExecutionPlanner {
    */
   static Map<String, Long> estimateRootEntries(
       Map<String, String> aliasClasses,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       Map<String, SQLWhereClause> aliasFilters,
       CommandContext ctx) {
     Set<String> allAliases = new LinkedHashSet<>();
     allAliases.addAll(aliasClasses.keySet());
     allAliases.addAll(aliasFilters.keySet());
-    allAliases.addAll(aliasRids.keySet());
+    allAliases.addAll(aliasPinnedRids.keySet());
 
     var db = ctx.getDatabaseSession();
     var schema = db.getMetadata().getImmutableSchemaSnapshot();
 
     Map<String, Long> result = new LinkedHashMap<>();
     for (var alias : allAliases) {
-      var rid = aliasRids.get(alias);
-      if (rid != null) {
-        result.put(alias, 1L);
+      var ridList = aliasPinnedRids.get(alias);
+      if (ridList != null) {
+        result.put(alias, (long) ridList.size());
         continue;
       }
 

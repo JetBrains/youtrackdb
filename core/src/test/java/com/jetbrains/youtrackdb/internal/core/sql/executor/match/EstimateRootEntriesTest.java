@@ -18,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
@@ -48,10 +49,10 @@ public class EstimateRootEntriesTest {
 
   private Map<String, Long> invoke(
       Map<String, String> aliasClasses,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       Map<String, SQLWhereClause> aliasFilters) {
     return MatchExecutionPlanner.estimateRootEntries(
-        aliasClasses, aliasRids, aliasFilters, ctx);
+        aliasClasses, aliasPinnedRids, aliasFilters, ctx);
   }
 
   private SchemaClassInternal mockClass(String name, long count) {
@@ -64,7 +65,7 @@ public class EstimateRootEntriesTest {
 
   @Test
   public void ridAliasReturnsOne() {
-    var rids = Map.of("a", mock(SQLRid.class));
+    var rids = Map.of("a", List.of(mock(SQLRid.class)));
     var result = invoke(Map.of(), rids, Map.of());
 
     assertEquals(1L, (long) result.get("a"));
@@ -124,12 +125,12 @@ public class EstimateRootEntriesTest {
     var aliasClasses = new LinkedHashMap<String, String>();
     aliasClasses.put("p", "Person");
     aliasClasses.put("c", "City");
-    var aliasRids = new HashMap<String, SQLRid>();
-    aliasRids.put("r", mock(SQLRid.class));
+    var aliasPinnedRids = new HashMap<String, List<SQLRid>>();
+    aliasPinnedRids.put("r", List.of(mock(SQLRid.class)));
     var aliasFilters = new HashMap<String, SQLWhereClause>();
     aliasFilters.put("p", filterPerson);
 
-    var result = invoke(aliasClasses, aliasRids, aliasFilters);
+    var result = invoke(aliasClasses, aliasPinnedRids, aliasFilters);
 
     assertEquals("RID alias", 1L, (long) result.get("r"));
     assertEquals("Capped filter", 1000L, (long) result.get("p"));
@@ -179,11 +180,23 @@ public class EstimateRootEntriesTest {
     mockClass("Person", 5000L);
 
     var aliasClasses = Map.of("a", "Person");
-    var aliasRids = Map.of("a", mock(SQLRid.class));
+    var aliasPinnedRids = Map.of("a", List.of(mock(SQLRid.class)));
 
-    var result = invoke(aliasClasses, aliasRids, Map.of());
+    var result = invoke(aliasClasses, aliasPinnedRids, Map.of());
 
     assertEquals(1L, (long) result.get("a"));
+  }
+
+  @Test
+  public void ridListUsesListSize() {
+    mockClass("Comment", 5000L);
+    var aliasPinnedRids = Map.of(
+        "c",
+        List.of(mock(SQLRid.class), mock(SQLRid.class), mock(SQLRid.class)));
+    var result = MatchExecutionPlanner.estimateRootEntries(
+        Map.of("c", "Comment"), aliasPinnedRids, Map.of(), ctx);
+
+    assertEquals(3L, (long) result.get("c"));
   }
 
   @Test
@@ -250,11 +263,11 @@ public class EstimateRootEntriesTest {
     when(filter.estimate(any(), anyLong(), any())).thenReturn(200L);
 
     var aliasClasses = Map.of("a", "Person");
-    var aliasRids = Map.of("a", mock(SQLRid.class));
+    var aliasPinnedRids = Map.of("a", List.of(mock(SQLRid.class)));
     var aliasFilters = new HashMap<String, SQLWhereClause>();
     aliasFilters.put("a", filter);
 
-    var result = invoke(aliasClasses, aliasRids, aliasFilters);
+    var result = invoke(aliasClasses, aliasPinnedRids, aliasFilters);
 
     assertEquals("RID takes priority", 1L, (long) result.get("a"));
   }
@@ -300,7 +313,7 @@ public class EstimateRootEntriesTest {
 
   @Test
   public void filterOnlyAlias_noClassMapping_isOmitted() {
-    // Alias appears only in aliasFilters (not in aliasClasses or aliasRids).
+    // Alias appears only in aliasFilters (not in aliasClasses or aliasPinnedRids).
     // It's still in allAliases but className lookup returns null → skipped.
     var filter = mock(SQLWhereClause.class);
 

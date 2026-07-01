@@ -945,14 +945,14 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Recursively searches for {@code @rid = <expr>} in a possibly nested
-   * AND/OR structure. Handles the double-nesting created by
-   * {@code addAliases()} in {@code MatchExecutionPlanner}, where compound
-   * WHERE clauses like {@code @rid = #23:1 AND name = 'bob'} are wrapped
-   * in an extra AND layer.
+   * Recursively searches for a top-level {@code @rid} condition in a possibly
+   * nested AND/OR structure. Handles the double-nesting created by
+   * {@code addAliases()} in {@code MatchExecutionPlanner}.
    */
   @Nullable
-  private static SQLExpression findRidInExpression(SQLBooleanExpression expr) {
+  private static <T> T findRidConditionInExpression(
+      SQLBooleanExpression expr,
+      java.util.function.Function<SQLBooleanExpression, T> termExtractor) {
     if (expr instanceof SQLOrBlock orBlock) {
       if (orBlock.subBlocks.size() != 1) {
         return null;
@@ -961,19 +961,29 @@ public class SQLWhereClause extends SimpleNode {
     }
     if (expr instanceof SQLAndBlock andBlock) {
       for (var sub : andBlock.subBlocks) {
-        var ridExpr = tryExtractRidFromTerm(sub);
-        if (ridExpr != null) {
-          return ridExpr;
+        var result = termExtractor.apply(sub);
+        if (result != null) {
+          return result;
         }
-        // sub might be a nested AND/OR wrapping the compound condition —
-        // recurse to flatten it
-        ridExpr = findRidInExpression(sub);
-        if (ridExpr != null) {
-          return ridExpr;
+        result = findRidConditionInExpression(sub, termExtractor);
+        if (result != null) {
+          return result;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Recursively searches for {@code @rid = <expr>} in a possibly nested
+   * AND/OR structure. Handles the double-nesting created by
+   * {@code addAliases()} in {@code MatchExecutionPlanner}, where compound
+   * WHERE clauses like {@code @rid = #23:1 AND name = 'bob'} are wrapped
+   * in an extra AND layer.
+   */
+  @Nullable
+  private static SQLExpression findRidInExpression(SQLBooleanExpression expr) {
+    return findRidConditionInExpression(expr, SQLWhereClause::tryExtractRidFromTerm);
   }
 
   /**
@@ -1030,16 +1040,12 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Checks if a single AND term (possibly wrapped in a single-element OrBlock
-   * and/or a non-negated NotBlock) is {@code @rid = <expr>}. Returns the
-   * value-side expression or null.
+   * Unwraps single-element {@code OrBlock}/{@code AndBlock} wrappers and a
+   * non-negated {@code NotBlock} around one AND term. Returns {@code null} when
+   * the term cannot be reduced to a single leaf condition.
    */
   @Nullable
-  private static SQLExpression tryExtractRidFromTerm(SQLBooleanExpression term) {
-    // Unwrap single-element wrapper blocks. The parser produces deeply nested
-    // structures like OrBlock(AndBlock(OrBlock(BinaryCondition))) even for
-    // simple conditions. Peel off single-element OrBlock and AndBlock wrappers
-    // until we reach the actual condition.
+  private static SQLBooleanExpression unwrapSingleElementTerm(SQLBooleanExpression term) {
     while (true) {
       if (term instanceof SQLOrBlock orBlock) {
         if (orBlock.subBlocks.size() != 1) {
@@ -1055,14 +1061,28 @@ public class SQLWhereClause extends SimpleNode {
         break;
       }
     }
-    assert !(term instanceof SQLOrBlock) && !(term instanceof SQLAndBlock)
-        : "tryExtractRidFromTerm: loop should have unwrapped all single-element wrappers";
     if (term instanceof SQLNotBlock notBlock) {
       if (notBlock.negate) {
         return null;
       }
       term = notBlock.sub;
     }
+    return term;
+  }
+
+  /**
+   * Checks if a single AND term (possibly wrapped in a single-element OrBlock
+   * and/or a non-negated NotBlock) is {@code @rid = <expr>}. Returns the
+   * value-side expression or null.
+   */
+  @Nullable
+  private static SQLExpression tryExtractRidFromTerm(SQLBooleanExpression term) {
+    term = unwrapSingleElementTerm(term);
+    if (term == null) {
+      return null;
+    }
+    assert !(term instanceof SQLOrBlock) && !(term instanceof SQLAndBlock)
+        : "tryExtractRidFromTerm: loop should have unwrapped all single-element wrappers";
     if (!(term instanceof SQLBinaryCondition cond)) {
       return null;
     }
@@ -1080,20 +1100,69 @@ public class SQLWhereClause extends SimpleNode {
   @Nullable
   private static SQLExpression tryExtractRidValue(
       SQLExpression attrSide, SQLExpression valueSide) {
-    if (!(attrSide.mathExpression instanceof SQLBaseExpression attrBase)) {
+    if (!isBareRidExpression(attrSide)) {
       return null;
+    }
+    return valueSide;
+  }
+
+  /**
+   * Non-destructive version of RID-IN extraction: finds a
+   * {@code @rid IN <expr>} condition without modifying the WHERE clause.
+   *
+   * @return the {@link SQLInCondition}, or {@code null} if not found
+   */
+  @Nullable
+  public SQLInCondition findRidInList() {
+    if (baseExpression == null) {
+      return null;
+    }
+    return findRidInListInExpression(baseExpression);
+  }
+
+  /**
+   * Recursively searches for {@code @rid IN <expr>} in a possibly nested
+   * AND/OR structure.
+   */
+  @Nullable
+  private static SQLInCondition findRidInListInExpression(SQLBooleanExpression expr) {
+    return findRidConditionInExpression(expr, SQLWhereClause::tryExtractRidInFromTerm);
+  }
+
+  /**
+   * Checks if a single AND term is {@code @rid IN <expr>}. Returns the
+   * {@link SQLInCondition} or null.
+   */
+  @Nullable
+  private static SQLInCondition tryExtractRidInFromTerm(SQLBooleanExpression term) {
+    term = unwrapSingleElementTerm(term);
+    if (term == null) {
+      return null;
+    }
+    if (!(term instanceof SQLInCondition inCond)) {
+      return null;
+    }
+    if (!isBareRidExpression(inCond.getLeft())) {
+      return null;
+    }
+    return inCond;
+  }
+
+  /**
+   * Returns true when {@code expr} is a bare {@code @rid} record attribute
+   * without modifiers.
+   */
+  private static boolean isBareRidExpression(@Nullable SQLExpression expr) {
+    if (expr == null || !(expr.mathExpression instanceof SQLBaseExpression attrBase)) {
+      return false;
     }
     var ident = attrBase.getIdentifier();
     if (ident == null || ident.getSuffix() == null
         || ident.getSuffix().recordAttribute == null
         || attrBase.getModifier() != null) {
-      return null;
+      return false;
     }
-    if (!"@rid".equalsIgnoreCase(
-        ident.getSuffix().recordAttribute.getName())) {
-      return null;
-    }
-    return valueSide;
+    return "@rid".equalsIgnoreCase(ident.getSuffix().recordAttribute.getName());
   }
 
   /**
