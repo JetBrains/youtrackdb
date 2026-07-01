@@ -181,6 +181,45 @@ dispatching the right when left is false (mirror for `OR`).
   + any pass); flagged for those slices to revisit.
 - **Implemented in:** (planning-time; carried to the S1 plan).
 
+### D5: Serialization — minimal source-WHERE bridge for S1; vestigial plan-serialization removal deferred to a new cleanup slice (2026-07-01) [ctx=safe]
+S1's analyzed `FilterStep`/`ExpandStep` satisfy the YTDB-916 serialize/deserialize
+round-trip with a **minimal bridge**: the step serializes the **source WHERE** it
+was lowered from (reusing the existing `SQLWhereClause` structured serialize) plus
+a tag recording it carried the analyzed form; `deserialize` reconstructs the WHERE
+and re-runs the D3 `filterStepFor(...)` factory, which re-lowers to the analyzed
+step (or the fallback). No IR wire format is added.
+- **Why:** the execution-plan/step serialize/deserialize round-trip is dead
+  production code (see Surprises: `InternalExecutionPlan` defaults throw, zero
+  production callers via PSI + whole-repo sweep, EXPLAIN uses `toResult`/
+  `prettyPrint`, the plan cache reuses live objects via `copy(ctx)`, `server`/
+  `driver` ship no plans, fork-base vestige). Building a clean IR wire format
+  invests in a path nothing consumes; S16/S17 widen IR lowering/evaluation, not
+  serialization. The bridge reuses `SQLWhereClause.serialize` (already structured
+  and param-by-reference via `SQLInputParameter`) and the D3 factory, so it adds
+  almost no code and keeps the round-trip test green through the transition.
+- **Alternatives rejected:** (A) add `AnalyzedExpr` serialize/deserialize + IR
+  toString — over-investment in a dead path with no consumer; (C) narrow removal
+  of serialize from `FilterStep`+`ExpandStep` now + amend YTDB-916 acceptance —
+  in-charter but leaves sibling steps' dead serialize intact and makes any plan
+  holding a `FilterStep` un-round-trippable (only tests hit it, but it introduces
+  an inconsistency); the honest fix is the repo-wide removal below, not a per-step
+  amputation.
+- **Companion action (filed as YTDB-1185):** a separate cleanup issue to remove the
+  vestigial execution-plan serialize/deserialize repo-wide (all
+  `ExecutionStepInternal` subclasses + `SelectExecutionPlan`/`ExecutionStepInternal`/
+  `InternalExecutionPlan` + their round-trip tests), linked to YTDB-901 and
+  YTDB-916, dependency-noting it lets S15 (YTDB-930) drop the round-trip acceptance.
+  Mirrors the S16/S17 handling of the umbrella gap. Once it lands, S1's bridge is
+  deleted with the rest of the machinery.
+- **Risks/Caveats:** the bridge means the analyzed step retains the source
+  predicate (as text or structured form) for serialize + `prettyPrint` (EXPLAIN)
+  rendering only — a display/serialize-scoped retention, NOT the D3-rejected
+  dual-carry evaluation coupling (evaluation runs off the `AnalyzedExpr`). The
+  plan picks text-vs-structured and keeps the retention display/serialize-scoped,
+  removing it with the cleanup slice. Re-lowering on deserialize relies on
+  lowering determinism (holds — pure structural recursion).
+- **Implemented in:** (planning-time; carried to the S1 plan + the new cleanup slice).
+
 ## Surprises & Discoveries
 
 - 2026-07-01 [ctx=safe] The S0 lowering subset is tiny relative to a real WHERE
@@ -247,6 +286,105 @@ dispatching the right when left is false (mirror for `OR`).
   legitimate — the issue's scope bullets never enumerated condition-type
   lowering, and S0 built only comparison + arithmetic operators. The gap is at
   the *umbrella* level, not S1's.
+- 2026-07-01 [ctx=safe] **Collation-convergence confirmed by PSI + code — S1's
+  collation work is a regression test, not a behavior change.** Four facts. (1)
+  `SQLBinaryCondition.evaluate(Result)` applies collate
+  (`SQLBinaryCondition.java:101-108`: fetch left-then-right collate, transform
+  both operands); `evaluate(Identifiable)` does not (line 46 comment "the
+  existing overload never applies collation", no collate code). (2) PSI
+  find-usages over `evaluate(Identifiable)` + all overrides (23 override
+  targets) + `SQLWhereClause.matchesFilters(Identifiable)` returns 16 distinct
+  call sites — **none** in `FilterStep`, `ExpandStep`, `SelectExecutionPlanner`,
+  or `DeleteEdgeExecutionPlanner`. The non-AST-internal top-level `Identifiable`
+  entry points are `SecurityEngine` (S7/YTDB-922), `DeltaBuilder`, and
+  `SQLMatchPathItem` (MATCH); the rest are AST-internal tree-walk recursion
+  (`SQLAndBlock`/`SQLOrBlock`/`SQLNotBlock`/`SQLParenthesisBlock`/`SQLContains*`/
+  `SQLCaseExpression`/`SQLExpression`/`SQLWhereClause`) that inherits whichever
+  overload the top-level entry chose. (3) `FilterStep.filterMap`
+  (`FilterStep.java:72`) and `ExpandStep` push-down (`ExpandStep.java:134`) both
+  enter via `matchesFilters(Result)` → `evaluate(Result)`, so their whole
+  tree-walk stays on the collation-applying path. (4) The S0 analyzed evaluator
+  applies the same collate: `AnalyzedExprEvaluator.evaluateComparison`
+  (lines 225-235) fetches left-then-right collate and transforms both, mirroring
+  the `Result` path. So migrating `FilterStep`/`ExpandStep` to the analyzed
+  evaluator preserves collation; S1 adds a `ci`-collated regression test to lock
+  parity, and the observable case-insensitive shift the YTDB-916 comment warns of
+  belongs to the `Identifiable`-path callers (S7+), not S1. Closes the "NEEDS
+  PSI/code confirmation" caveat on the earlier collation entry.
+- 2026-07-01 [ctx=safe] **The AST in-place comparison fast path already exists
+  (YTDB-628, commit `a8d7204611`), so obligation #1(a) is a port, not a
+  from-scratch build.** `SQLBinaryCondition` already carries
+  `tryInPlaceComparison` (both the `Result` and `Identifiable` overloads use it),
+  backed by `EntityImpl.isPropertyEqualTo` / `comparePropertyTo` and
+  `InPlaceResult`. The S0 analyzed evaluator is slow-path-only by design
+  (`AnalyzedExprEvaluator` class comment line 47; `evaluateComparison` evaluates
+  both operands then compares, no in-place branch). S1's obligation #1(a) reuses
+  the existing `EntityImpl` in-place primitives from the analyzed evaluator's
+  comparison arm — guarded on left = single base identifier (a `Var`), right =
+  early-calculated constant, row = `EntityImpl`, FALLBACK on any
+  collation/coercion risk. Load-bearing for the "LDBC JMH neutral" acceptance:
+  without it the analyzed `FilterStep` deserializes where the AST `FilterStep`
+  did in-place comparison — a per-record hot-path regression.
+- 2026-07-01 [ctx=safe] **Plan-cache reuse model: live objects + copy-per-execution,
+  so the `Param`-by-reference constraint is a live-object concern (satisfied by D1),
+  not a serialization one.** `YqlExecutionPlanCache` is a Guava
+  `Cache<String, InternalExecutionPlan>` keyed by statement text
+  (`YqlExecutionPlanCache.java:26`). It stores **live plan objects**, not
+  serialized bytes: `put` caches `internal.copy(ctx)` (line 104) and `get`
+  returns `result.copy(ctx)` (line 137), the prepared-statement model where the
+  same statement text reuses the cached plan across executions with different
+  bind values. So the hot reuse path is `FilterStep.copy(ctx)`
+  (`FilterStep.java:120`), not serialize. Correctness requirement: the cached
+  step must hold the param *identity*, so each execution's `.copy(ctx)`
+  re-resolves against that execution's `ctx.getInputParameters()`. D1's `Param`
+  (name + number, resolves at eval time) satisfies this exactly, mirroring the
+  AST's `SQLInputParameter`. `AnalyzedExpr` is a sealed set of **immutable
+  records** (`AnalyzedExpr.java:26` — `Var`/`Const`/`BinaryOp`/`UnaryOp`/
+  `FuncCall`; `Param` would be a 6th), so the analyzed `FilterStep`'s copy can
+  **share** the IR reference with no value-baking risk — cleaner than the mutable
+  AST's deep `whereClause.copy()`.
+- 2026-07-01 [ctx=safe] **Execution-plan serialize/deserialize has no current
+  production consumer — it is test-and-plumbing only.** PSI find-usages:
+  `SelectExecutionPlan.serialize` has **0** project call sites;
+  `ExecutionStepInternal.serialize`/`deserialize` (11 override targets each) are
+  called only by tests (`*StepTest`, incl. `FilterStepTest`), the internal
+  sub-plan walk (`SelectExecutionPlan`, `ExecutionStepInternal` self-recursion),
+  and one step-internal deserialize (`FetchFromIndexStep`). No plan-cache
+  persistence, distributed-execution, or remote path serializes a full plan (the
+  cache stores live objects, above). So the YTDB-916 acceptance "`FilterStep`
+  serialize/deserialize round-trip through `AnalyzedExpr`" is a
+  self-consistency + test-green requirement, not a hot-path wire format — the
+  serialization design choice is not perf-constrained.
+- 2026-07-01 [ctx=safe] `AnalyzedExpr` has **no wire format today** (S0 shipped
+  none — grep: no `serialize` in the `analyzed` package). `SQLWhereClause`
+  already has a structured recursive serialize (`SQLWhereClause.java:557` →
+  `baseExpression.serialize`), and `SQLInputParameter.serialize`
+  (`SQLInputParameter.java:184`) emits the param's own identity fields, never a
+  resolved value — so serializing the source WHERE is inherently param-by-reference.
+- 2026-07-01 [ctx=safe] **Confirmed definitively: the execution-plan/step
+  serialize/deserialize round-trip is dead production code (vestigial from the
+  OrientDB fork's distributed-query era).** Full evidence: (1)
+  `InternalExecutionPlan.serialize`/`deserialize` default-throw
+  `UnsupportedOperationException` (`InternalExecutionPlan.java:65-72`); (2) PSI +
+  whole-repo (`core`/`server`/`embedded`/`driver`) sweep finds **no** production
+  caller of a top-level plan `serialize` — only the internal recursive walk
+  (`ExecutionStepInternal.java:208`, `SelectExecutionPlan`) that a top-level
+  serialize would drive, plus steps serializing their own sub-fields; (3) EXPLAIN
+  uses `toResult` + `prettyPrint` (`ExplainResultSet.java:56-57`), not serialize;
+  (4) the plan cache stores live objects reused via `copy(ctx)` (above); (5) the
+  remote `driver` and `server` modules have no plan-serialize/deserialize
+  references — no distributed plan shipping; (6) git traces the methods to the
+  package-rename fork-base commit, not a live feature; `SingleOpServerExecutionPlan`
+  does not even override them. Only `*StepTest` classes exercise the round-trip.
+  **Consequence for open question 2:** the "build a clean IR wire format" option
+  (A) is over-investment — S16/S17 widen IR lowering/evaluation, not a wire
+  format, and nothing consumes one. Removal is legitimate but cross-cutting
+  (~11+ step classes + plan classes + their round-trip tests) and out of S1's
+  "migrate FilterStep+ExpandStep" charter; it belongs in a separate umbrella
+  cleanup issue (mirrors the S16/S17 handling of the coverage gap), which would
+  also let S15/cleanup drop the round-trip acceptance. Decision pending user steer
+  (minimal source-WHERE bridge for S1 + file cleanup issue, vs. narrow
+  FilterStep/ExpandStep serialize removal in S1 + amend acceptance).
 
 ## Open Questions
 
@@ -277,10 +415,14 @@ dispatching the right when left is false (mirror for `OR`).
   with `AND`/`OR` and left-fold the n-ary `SQLAndBlock`/`SQLOrBlock` into nested
   `BinaryOp`, or add a dedicated (possibly n-ary) boolean IR node? Short-circuit
   semantics must match `SQLAndBlock`/`SQLOrBlock` either way.
-- 2026-07-01 [ctx=safe] **Serialization/plan-cache.** `FilterStep.serialize`
-  currently round-trips `SQLWhereClause`. Acceptance requires round-trip through
-  `AnalyzedExpr`. `AnalyzedExpr` has no serialize today (S0 shipped no wire
-  format). Does S1 add IR serialization, or serialize the source WHERE and
-  re-lower on deserialize? Interacts with the fallback choice.
+- 2026-07-01 [ctx=safe] **RESOLVED (D5; YTDB-1185 filed) — Serialization/plan-cache.**
+  Reframed: the plan cache reuses live objects via `copy(ctx)`, not serialize, so
+  the `Param`-by-reference constraint is satisfied by D1's eval-time resolution;
+  and the plan/step serialize/deserialize round-trip is dead production code (see
+  Surprises). S1 takes the minimal source-WHERE bridge (serialize the source WHERE
+  + tag, re-lower on deserialize) to keep the round-trip test green; the vestigial
+  plan-serialization machinery is removed repo-wide by the new cleanup slice
+  **YTDB-1185** (relates to YTDB-901 / YTDB-916 / YTDB-930), which then lets S15
+  drop the round-trip acceptance and S1 delete its bridge.
 
 ## Adversarial gate record
