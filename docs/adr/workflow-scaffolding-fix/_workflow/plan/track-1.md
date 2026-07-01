@@ -14,7 +14,7 @@ This track fixes the two operative command sites (the actual `git rm` commands t
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-01T13:37Z [ctx=safe] Review + decomposition complete
