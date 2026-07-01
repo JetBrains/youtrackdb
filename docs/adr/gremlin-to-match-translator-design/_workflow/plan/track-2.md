@@ -16,6 +16,7 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 
 - [x] 2026-07-01T14:11Z [ctx=safe] Step 1 complete (commit 0da2d3753e)
 - [x] 2026-07-01T15:27Z [ctx=safe] Step 2 complete (commit e121bb25f6) — bugs-concurrency review iter 1: 4 findings fixed, gate-check PASS
+- [x] 2026-07-01T21:46Z [ctx=info] Step 3 complete (commit 999cea5dfe) — bugs-concurrency (BC1/BC2 fixed) + performance (0 findings), gate-check PASS
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -33,6 +34,18 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
   variables (`$matched`, multi-alias joins), not only the single-node `g.V()`.
   Later tracks adding multi-alias plans or new `BoundaryOutputType` cases inherit
   it. See Episodes §Step 2.
+- 2026-07-01T21:46Z Step 3: the strategy's throw-safety net rethrows `Error` /
+  `AssertionError` and declines only on `Exception`. When Step 4 wires the walker
+  under the net, an `-ea` invariant violation in the walk propagates instead of
+  silently declining — Step-4 tests must not expect a swallow-everything net. The
+  translator `Function` seam and plan-builder `BiFunction` seam are the Step-4
+  injection points; registration + the three half-measure `applyPrior` edits land
+  in Step 5 (`YTDBGraphImplAbstract.registerOptimizationStrategies`). See
+  Episodes §Step 3.
+- 2026-07-01T21:46Z Step 3: cumulative track diff (production + tests, generated
+  excluded) is ~2,850 lines after three steps; Steps 4–5 (walker + registry +
+  registration + smoke tests) will likely push it past ~4,000. Flag for Phase C
+  to review in focal chunks per the medium/high step ranges, not one pass.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -148,7 +161,7 @@ flowchart LR
 
 1. Add `MatchPlanInputs` record + additive `MatchExecutionPlanner(MatchPlanInputs)` ctor — mutable defensive copies of `aliasFilters` (the planner mutates it via `detectNotInAntiJoin`), `aliasRids`, and `aliasClasses`, the final `groupBy` / `orderBy` / `unwind` fields assigned, and a `useCache=false` path so the null inherited `statement` never reaches the cache (D2; T4, R2) — `risk: medium`  [x]  commit: 0da2d3753e
 2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [x]  commit: e121bb25f6
-3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [ ]
+3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [x]  commit: 999cea5dfe
 4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [ ]
 5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check — `risk: high`  [ ]
 
@@ -229,6 +242,55 @@ single-node `g.V()` shape whose collision state is empty today. Later tracks tha
 add multi-alias plans or new `BoundaryOutputType` cases inherit the corrected
 isolation with no further work. Callers still plan with `useCache=false`
 (Step 1).
+
+### Step 3 — commit 999cea5dfe1c4848d6dbc8aa9dc1955082620afb, 2026-07-01T21:46Z [ctx=info]
+**What was done:** Added the `GremlinToMatchStrategy` skeleton
+(`ProviderOptimizationStrategy`), the declining `GremlinToMatchTranslator`
+facade, and the `QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED` kill-switch in
+`GlobalConfiguration`. `apply()` runs the gating cascade — per-session kill-switch
+resolution, whole-list idempotency scan (D7), plain-`GraphStep` vertex-start gate
+(T1/A1) — then delegates to the facade, which declines every shape, so the
+strategy is a structural no-op end to end. The whole body runs inside the
+throw-safety net (R3): a `catch (Error)` arm rethrows fatal and `-ea` invariant
+failures, and a `catch (Exception)` arm declines with the native step list left
+verbatim. The translator declares empty `applyPrior` / `applyPost`; the
+`replaceAllSteps` splice path is implemented but unreachable through the
+production facade. 16 tests.
+
+**What was discovered:** An earlier prefix / hybrid model — non-empty `applyPrior`
+/ `applyPost` on the translator plus a `prefixStepCount` — is incompatible with the
+current design (D3 all-or-nothing, D4 empty ordering with the half-measures naming
+the translator, `replaceAllSteps`), so the implementation follows the design and
+track; `TranslationResult` is a four-field record with no `prefixStepCount`. Two package-private seams (a
+translator `Function` and a plan-builder `BiFunction`) let the unreachable splice
+path be unit-tested with stubs without standing up the real planner over a
+schema. Cross-step note for Step 4: with the corrected net an `Error` or
+`AssertionError` thrown inside the walker now propagates rather than declining, so
+any Step-4 test expecting the old swallow-everything behavior needs updating; the
+decline-on-`Exception` contract for the walker seam is unchanged. The
+bugs-concurrency review found both the `catch (Throwable)` Error-swallow (BC1) and
+a `@Nullable` `getConfiguration()` NPE risk (BC2); both fixed and gate-verified.
+Performance review returned zero findings (decline-only skeleton).
+
+**What changed from the plan:** The earlier prefix model's `prefixStepCount` is
+obsolete under D3 (all-or-nothing replaces the whole step list, not a prefix), so
+`TranslationResult` carries only inputs / boundaryAlias / outputType / returnClass.
+Registration and the half-measure `applyPrior` edits remain Step 5, as planned.
+
+**Key files:**
+- `core/.../gremlin/translator/strategy/GremlinToMatchStrategy.java` (new)
+- `core/.../gremlin/translator/strategy/GremlinToMatchTranslator.java` (new)
+- `core/.../api/config/GlobalConfiguration.java` (modified — kill-switch knob)
+- `core/.../gremlin/translator/strategy/GremlinToMatchStrategyTest.java` (new)
+
+**Critical context:** The translator seam (`Function` → `Optional<TranslationResult>`)
+and the plan-builder seam (`BiFunction`) are the Step-4 injection points — the
+walker supplies the real translator. Registration wires into `YTDBGraphImplAbstract`
+(`registerOptimizationStrategies`) plus the three half-measure `applyPrior` edits
+in Step 5. Ephemeral-identifier gate: decision-record IDs (D1, D3, …) and
+risk-finding IDs (R3, …) are forbidden in durable Java source and Javadoc until
+restated in `adr.md` (Phase 4) — keep source comments self-contained; this binds
+every later source-touching step.
 
 ## Validation and Acceptance
 - `g.V()`, `g.V(id)`, `g.V(id1, id2, …)` translate and return the same multiset as the native pipeline (translator-on vs translator-off).
