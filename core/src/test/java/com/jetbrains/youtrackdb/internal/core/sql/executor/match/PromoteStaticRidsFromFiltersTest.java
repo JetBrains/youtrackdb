@@ -64,7 +64,14 @@ public class PromoteStaticRidsFromFiltersTest {
     }
   }
 
-  /** Asserts promoted RID list size and each resolved legacy RID literal. */
+  /**
+   * Asserts promoted RID list size and each resolved legacy RID literal, resolving
+   * every RID against the static {@link #CTX}. Use this no-ctx overload for
+   * literal-RID tests (e.g. {@code @rid = #25:7}, {@code @rid IN [#25:7, #26:8]}),
+   * where resolution needs no per-test parameter bindings. For parameter-bound
+   * RIDs, use the {@link #assertPromotedRids(Map, String, CommandContext, String...)
+   * ctx-taking overload} instead.
+   */
   private static void assertPromotedRids(
       Map<String, List<SQLRid>> aliasPinnedRids, String alias, String... expectedRids) {
     assertThat(aliasPinnedRids).containsKey(alias);
@@ -75,6 +82,14 @@ public class PromoteStaticRidsFromFiltersTest {
     }
   }
 
+  /**
+   * Same as {@link #assertPromotedRids(Map, String, String...)} but resolves every
+   * RID against the caller-supplied {@code ctx} (the per-test mock) rather than the
+   * static {@link #CTX}. Use this overload for parameter-bound RID tests
+   * ({@code @rid = :param} / {@code @rid IN :params}) that stub
+   * {@code ctx.getInputParameters()}, because the promoted {@link SQLRid} carries a
+   * parameter expression that only resolves against that mock's bindings.
+   */
   private static void assertPromotedRids(
       Map<String, List<SQLRid>> aliasPinnedRids, String alias, CommandContext ctx,
       String... expectedRids) {
@@ -187,6 +202,8 @@ public class PromoteStaticRidsFromFiltersTest {
     aliasFilters.put("c", parseWhere("SELECT FROM Comment WHERE @rid = #25:7"));
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
     var existing = mock(SQLRid.class);
+    // Immutable list: an in-place append by a buggy promoter would throw, so
+    // reference-identity below is not the only guard against mutation.
     var existingList = List.of(existing);
     aliasPinnedRids.put("c", existingList);
 
@@ -194,6 +211,12 @@ public class PromoteStaticRidsFromFiltersTest {
         aliasFilters, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).containsEntry("c", existingList);
+    // Post single-map consolidation there is no second map to prove placement
+    // against, so distinctness is recaptured by reference-identity plus map size:
+    // the pre-existing slot is the exact same object (no append or replacement)
+    // and the promotion added no new entry.
+    assertThat(aliasPinnedRids.get("c")).isSameAs(existingList);
+    assertThat(aliasPinnedRids).hasSize(1);
   }
 
   /**
@@ -573,6 +596,8 @@ public class PromoteStaticRidsFromFiltersTest {
         "c", parseWhere("SELECT FROM Comment WHERE @rid in [#25:7, #26:8]"));
     Map<String, List<SQLRid>> aliasPinnedRids = new HashMap<>();
     var existing = mock(SQLRid.class);
+    // Immutable list: an in-place append by a buggy promoter would throw, so
+    // reference-identity below is not the only guard against mutation.
     var existingList = List.of(existing);
     aliasPinnedRids.put("c", existingList);
 
@@ -580,6 +605,12 @@ public class PromoteStaticRidsFromFiltersTest {
         aliasFilters, aliasPinnedRids, ctx);
 
     assertThat(aliasPinnedRids).containsEntry("c", existingList);
+    // Post single-map consolidation there is no second map to prove placement
+    // against, so distinctness is recaptured by reference-identity plus map size:
+    // the pre-existing slot is the exact same object (the IN-list promotion did
+    // not append or replace) and it added no new entry.
+    assertThat(aliasPinnedRids.get("c")).isSameAs(existingList);
+    assertThat(aliasPinnedRids).hasSize(1);
   }
 
   /**
