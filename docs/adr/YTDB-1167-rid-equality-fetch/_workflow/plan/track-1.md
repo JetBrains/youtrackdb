@@ -17,6 +17,7 @@ Today a `SELECT FROM Person WHERE @rid = #18:0` reads every record in `Person` a
 - [x] 2026-07-01T14:36Z [ctx=safe] Step 1 complete (commit 08444b1fb8)
 - [x] 2026-07-01T16:30Z [ctx=info] Track-level code review iteration 1 complete
 - [x] 2026-07-01T16:34Z [ctx=info] Phase C review passed (iteration 1, all reviewers PASS; 2 should-fix + 1 fixed suggestion + coverage tests applied in commit ead4b3f8c2)
+- [x] 2026-07-01T19:01Z [ctx=warning] Iteration 2 (comparative-audit follow-up vs YTDB-629 MATCH): b1 correctness fix (don't expand a collection-valued scalar @rid) + b2/b4 tests committed 618f026e0b. Review reopened — gate-check of this delta (review-bugs-concurrency for b1, review-test-completeness for b2/b4) pending before completion; iteration-1 full fan-out already PASSed, so only the delta needs re-verification. Ledger reset to steps-done-review-pending to route resume back into Phase C.
 
 ## Surprises & Discoveries
 - Step 1 leaves the defensive `toRecordIdCandidate` switch arms for a String or null/other-type evaluated RID value uncovered — the Identifiable-RID tests never reach them. Changed-code coverage is 93.6% line / 76.3% branch, above the 85/70 gate. Phase C's test-completeness review can add a `@rid = '#c:p'` string-literal test to exercise the `case String` arm, or accept the arms as defensive skips. See Episodes §Step 1.
