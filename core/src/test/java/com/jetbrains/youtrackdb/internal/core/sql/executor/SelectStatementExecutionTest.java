@@ -10167,4 +10167,694 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // ====== LET pre-filter push-down tests ======
+
+  /**
+   * WHERE fully independent of LET: the entire WHERE is pushed before the LET
+   * step. Verifies results are correct and EXPLAIN shows FilterStep before LET.
+   */
+  @Test
+  public void testLetPreFilter_fullyIndependentWhere() {
+    var cls = "LpfIndep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // Query: WHERE age >= 50 is independent of LET $info
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE age >= 50";
+    var list = session.query(query).toList();
+    // age values: 0,10,20,30,40,50,60,70,80,90 → 5 rows have age >= 50
+    Assert.assertEquals("Should return 5 rows with age >= 50", 5, list.size());
+
+    // Verify EXPLAIN: FilterStep should appear before LET step
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "FilterStep should appear before LET step (push-down), plan:\n" + plan,
+        filterIdx < letIdx);
+    // Full push-down: no second FilterStep should exist after LET
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    // Verify row contents, not just count
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(
+        "Should contain exactly {n5, n6, n7, n8, n9}",
+        Set.of("n5", "n6", "n7", "n8", "n9"), names);
+    session.commit();
+  }
+
+  /**
+   * WHERE fully dependent on LET: no push-down occurs. The FilterStep should
+   * appear after the LET step in the EXPLAIN plan.
+   */
+  @Test
+  public void testLetPreFilter_fullyDependentWhere() {
+    var cls = "LpfDep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // WHERE references $total which is a LET variable → no push-down
+    session.begin();
+    var query = "SELECT name, $total FROM " + cls
+        + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
+        + " WHERE $total[0].cnt > 0";
+    var list = session.query(query).toList();
+    Assert.assertEquals("All rows should pass since count > 0", 5, list.size());
+    // Verify row contents, not just count
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals("Should contain exactly {n0, n1, n2, n3, n4}",
+        Set.of("n0", "n1", "n2", "n3", "n4"), names);
+
+    // Verify EXPLAIN: FilterStep should appear AFTER LET step
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "FilterStep should appear after LET step (no push-down), plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Mixed WHERE: some conjuncts are LET-independent (pushed down), some are
+   * LET-dependent (stay after LET). The dependent filter actually rejects rows
+   * so that dropping it would change the result set. EXPLAIN should show two
+   * FilterSteps.
+   */
+  @Test
+  public void testLetPreFilter_mixedWhere() {
+    var cls = "LpfMixed";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // age >= 50 is independent (selects n5..n9 = 5 rows).
+    // $total[0].cnt > 7 is dependent — count is 10, so 10 > 7 is true.
+    // The dependent filter passes all rows here, so we also add a second
+    // mixed-WHERE test below that uses a rejecting dependent filter.
+    session.begin();
+    var query = "SELECT name, $total FROM " + cls
+        + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
+        + " WHERE age >= 50 AND $total[0].cnt > 7";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 5 rows", 5, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals("Should contain exactly {n5, n6, n7, n8, n9}",
+        Set.of("n5", "n6", "n7", "n8", "n9"), names);
+
+    // Verify EXPLAIN: should have two FILTER steps — one before LET, one after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var firstFilterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    var secondFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue("EXPLAIN should contain pre-LET FILTER, plan:\n" + plan,
+        firstFilterIdx >= 0 && firstFilterIdx < letIdx);
+    Assert.assertTrue("EXPLAIN should contain post-LET FILTER, plan:\n" + plan,
+        secondFilterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Mixed WHERE where the dependent filter rejects rows: the LET subquery
+   * computes count(*) = 10, so the dependent filter $total[0].cnt > 100 fails
+   * and eliminates all rows even though the independent filter (age >= 50)
+   * passes 5 rows. This catches a bug that drops the dependent WHERE portion.
+   */
+  @Test
+  public void testLetPreFilter_mixedWhere_dependentFilterRejectsRows() {
+    var cls = "LpfMixedReject";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // age >= 50 is independent (passes 5 rows), $total[0].cnt > 100 is
+    // dependent. count(*) = 10, so 10 > 100 is false → all rows rejected.
+    session.begin();
+    var query = "SELECT name, $total FROM " + cls
+        + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
+        + " WHERE age >= 50 AND $total[0].cnt > 100";
+    var list = session.query(query).toList();
+    Assert.assertEquals(
+        "Dependent filter should reject all rows (count=10, threshold=100)",
+        0, list.size());
+    session.commit();
+  }
+
+  /**
+   * FROM (subquery) + LET + WHERE: the SubQueryStep guard should prevent
+   * push-down. The FilterStep must appear after the LET step.
+   */
+  @Test
+  public void testLetPreFilter_subqueryTargetFullyIndependentPushDown() {
+    // Fully-independent WHERE after a SubQueryStep target: push-down IS safe
+    // because info.whereClause becomes null, which makes
+    // tryPushDownFilterIntoExpand bail out at its null guard.
+    var cls = "LpfSubQ";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // FROM (subquery): last step before LET is a SubQueryStep.
+    // WHERE val >= 2 is fully independent of $info → full push-down.
+    session.begin();
+    var query = "SELECT name, $info FROM (SELECT FROM " + cls + ")"
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val >= 2";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 3 rows with val >= 2", 3, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n2", "n3", "n4"), names);
+
+    // Verify EXPLAIN: FilterStep should appear BEFORE LET step (push-down)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Fully-independent WHERE should be pushed before LET even after"
+            + " SubQueryStep, plan:\n" + plan,
+        filterIdx < letIdx);
+    // Full push-down: no second FilterStep should exist after LET
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n"
+            + plan,
+        postLetFilterIdx < 0);
+    // Verify $info is still populated (LET subquery ran after the filter)
+    for (var row : list) {
+      Assert.assertNotNull("$info should be populated", row.getProperty("$info"));
+    }
+    session.commit();
+  }
+
+  /**
+   * Mixed WHERE (some conjuncts LET-independent, some LET-dependent) after a
+   * SubQueryStep target: push-down is blocked because a mixed split would leave
+   * info.whereClause non-null with the dependent part, causing
+   * tryPushDownFilterIntoExpand to incorrectly match the SubQueryStep→FilterStep
+   * adjacency.
+   */
+  @Test
+  public void testLetPreFilter_subqueryTargetMixedWhereSkipsPushDown() {
+    var cls = "LpfSubQMix";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // FROM (subquery) + mixed WHERE: val >= 1 is independent, $info check
+    // is dependent. The SubQueryStep guard should prevent splitting.
+    session.begin();
+    var query = "SELECT name, $info FROM (SELECT FROM " + cls + ")"
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val >= 1 AND $info IS NOT NULL";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 4 rows with val >= 1", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n1", "n2", "n3", "n4"), names);
+
+    // Verify EXPLAIN: FilterStep should appear AFTER LET (no push-down)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Mixed WHERE after SubQueryStep should NOT be pushed down, plan:\n"
+            + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Multi-OR WHERE with mixed LET dependency: the entire WHERE must stay after
+   * LET because OR branches cannot be split. Verifies the OR-safety constraint.
+   */
+  @Test
+  public void testLetPreFilter_multiOrWithLetVarNoPushDown() {
+    var cls = "LpfMultiOr";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // age >= 90 matches only n9; $total[0].cnt > 100 is false (count=10).
+    // So the OR evaluates to: (true for n9) OR (false for all) → only n9.
+    session.begin();
+    var query = "SELECT name, $total FROM " + cls
+        + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
+        + " WHERE age >= 90 OR $total[0].cnt > 100";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Only n9 should match the OR condition", 1, list.size());
+    Assert.assertEquals("n9", list.getFirst().getProperty("name"));
+
+    // Verify EXPLAIN: FilterStep should be AFTER LET (no push-down for OR)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Multi-OR with LET ref should prevent push-down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Single-condition WHERE (non-AND) that is LET-independent: the entire WHERE
+   * is pushed before the LET step. This exercises the splitByLetDependency
+   * quick-exit path where no LET variable is referenced and the expression is
+   * not an AND block.
+   */
+  @Test
+  public void testLetPreFilter_singleConditionIndependent() {
+    var cls = "LpfSingleIndep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 6; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // Single condition (val > 3) is independent of LET $info → full push-down
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val > 3";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 2 rows with val > 3", 2, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n4", "n5"), names);
+    // Verify $info (LET subquery) was computed correctly after push-down
+    var infoResult = (List<?>) list.getFirst().getProperty("$info");
+    Assert.assertNotNull("$info should be populated after push-down", infoResult);
+    Assert.assertEquals("$info should contain exactly one result row", 1, infoResult.size());
+    var infoRow = (Result) infoResult.getFirst();
+    Assert.assertEquals("$info count should reflect all 6 records",
+        6L, ((Number) infoRow.getProperty("count(*)")).longValue());
+
+    // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Single independent condition should push down, plan:\n" + plan,
+        filterIdx < letIdx);
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    session.commit();
+  }
+
+  /**
+   * Single-condition WHERE (non-AND) that is LET-dependent: the entire WHERE
+   * stays after the LET step. Uses a rejecting threshold ($cnt[0].c > 5 with
+   * count=4) to verify the dependent filter actually executes and rejects rows.
+   */
+  @Test
+  public void testLetPreFilter_singleConditionDependent() {
+    var cls = "LpfSingleDep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 4; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      session.commit();
+    }
+
+    // Single condition referencing LET variable with rejecting threshold.
+    // count(*) = 4, and 4 > 5 is false → all rows rejected.
+    session.begin();
+    var query = "SELECT name, $cnt FROM " + cls
+        + " LET $cnt = (SELECT count(*) as c FROM " + cls + ")"
+        + " WHERE $cnt[0].c > 5";
+    var list = session.query(query).toList();
+    Assert.assertEquals(
+        "Dependent filter should reject all rows (count=4, threshold=5)",
+        0, list.size());
+
+    // Verify EXPLAIN: FilterStep after LET
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Single dependent condition should NOT push down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Multi-OR WHERE where ALL branches are LET-independent: the entire WHERE
+   * is pushed before the LET step. This exercises the splitByLetDependency
+   * quick-exit path for multi-OR blocks where no branch references any LET
+   * variable.
+   */
+  @Test
+  public void testLetPreFilter_multiOrAllIndependentPushDown() {
+    var cls = "LpfMultiOrIndep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // OR of two independent conditions: val < 2 (n0,n1) OR val > 7 (n8,n9)
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val < 2 OR val > 7";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 4 rows", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n0", "n1", "n8", "n9"), names);
+    // Verify $info (LET subquery) was computed correctly after push-down
+    var infoResult = (List<?>) list.getFirst().getProperty("$info");
+    Assert.assertNotNull("$info should be populated after push-down", infoResult);
+    Assert.assertEquals("$info should contain exactly one result row", 1, infoResult.size());
+    var infoRow = (Result) infoResult.getFirst();
+    Assert.assertEquals("$info count should reflect all 10 records",
+        10L, ((Number) infoRow.getProperty("count(*)")).longValue());
+
+    // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Multi-OR all-independent should push down, plan:\n" + plan,
+        filterIdx < letIdx);
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    session.commit();
+  }
+
+  /**
+   * LET expression (not subquery): WHERE independent of the expression-based
+   * LET is pushed before the LET step. This exercises the LetExpressionStep
+   * code path through handleLetPreFilter, verifying that the variable name
+   * collection works for expression LETs (not just subquery LETs).
+   */
+  @Test
+  public void testLetPreFilter_letExpressionPushDown() {
+    var cls = "LpfLetExpr";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 8; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("score", i * 5);
+      session.commit();
+    }
+
+    // LET $bonus = score + 100 is an expression (not a subquery).
+    // WHERE score >= 20 is independent of $bonus → push-down.
+    session.begin();
+    var query = "SELECT name, $bonus FROM " + cls
+        + " LET $bonus = score + 100"
+        + " WHERE score >= 20";
+    var list = session.query(query).toList();
+    // score values: 0,5,10,15,20,25,30,35 → 4 rows have score >= 20
+    Assert.assertEquals("Should return 4 rows with score >= 20", 4, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n4", "n5", "n6", "n7"), names);
+    // Verify $bonus is computed correctly for a returned row
+    var n4 = list.stream()
+        .filter(r -> "n4".equals(r.getProperty("name")))
+        .findFirst().orElseThrow();
+    Assert.assertEquals("$bonus for n4 (score=20) should be 120",
+        120, ((Number) n4.getProperty("$bonus")).intValue());
+
+    // Verify EXPLAIN: FilterStep before LET, no second FilterStep after
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "LET expression with independent WHERE should push down, plan:\n" + plan,
+        filterIdx < letIdx);
+    var postLetFilterIdx = plan.indexOf("FILTER ITEMS WHERE", letIdx);
+    Assert.assertTrue(
+        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
+        postLetFilterIdx < 0);
+    session.commit();
+  }
+
+  /**
+   * LET expression with dependent WHERE: the WHERE references the expression
+   * LET variable, so no push-down occurs. Verifies that expression-based LET
+   * variables are correctly detected as dependencies.
+   */
+  @Test
+  public void testLetPreFilter_letExpressionDependent() {
+    var cls = "LpfLetExprDep";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 6; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("score", i * 10);
+      session.commit();
+    }
+
+    // WHERE references $bonus (a LET expression variable) → no push-down.
+    session.begin();
+    var query = "SELECT name, $bonus FROM " + cls
+        + " LET $bonus = score + 100"
+        + " WHERE $bonus > 130";
+    var list = session.query(query).toList();
+    // score values: 0,10,20,30,40,50 → bonus: 100,110,120,130,140,150
+    // $bonus > 130 → n4 (140), n5 (150)
+    Assert.assertEquals("Should return 2 rows with $bonus > 130", 2, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n4", "n5"), names);
+
+    // Verify EXPLAIN: FilterStep after LET (no push-down)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "LET expression dependent WHERE should NOT push down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
+  /**
+   * Independent WHERE that rejects ALL rows: the pushed-down filter eliminates
+   * every record before the LET step, so zero rows flow into LET evaluation
+   * and zero results are returned. Verifies the boundary where the independent
+   * filter produces an empty pipeline.
+   */
+  @Test
+  public void testLetPreFilter_independentFilterRejectsAllRows() {
+    var cls = "LpfIndepRejectAll";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // val > 100 matches nothing — independent of LET → push-down, zero rows
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) FROM " + cls + ")"
+        + " WHERE val > 100";
+    var list = session.query(query).toList();
+    Assert.assertEquals("Should return 0 rows", 0, list.size());
+
+    // Verify EXPLAIN: FilterStep before LET (push-down still applies)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "Independent filter should push down even when it rejects all, plan:\n" + plan,
+        filterIdx < letIdx);
+    session.commit();
+  }
+
+  /**
+   * Multiple LET items: WHERE references only the second LET variable ($cnt).
+   * Verifies that the variable-name collection in handleLetPreFilter correctly
+   * includes ALL LET variables — not just the first one — so that a dependency
+   * on the second LET correctly prevents push-down.
+   */
+  @Test
+  public void testLetPreFilter_multipleLetsSecondVarDependent() {
+    var cls = "LpfMultiLet";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 5; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("val", i);
+      session.commit();
+    }
+
+    // $info is the first LET (expression), $cnt is the second LET (subquery).
+    // WHERE references $cnt → should NOT push down.
+    session.begin();
+    var query = "SELECT name, $info, $cnt FROM " + cls
+        + " LET $info = val * 2, $cnt = (SELECT count(*) as c FROM " + cls + ")"
+        + " WHERE $cnt[0].c > 0";
+    var list = session.query(query).toList();
+    Assert.assertEquals("All 5 rows should pass since count > 0", 5, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n0", "n1", "n2", "n3", "n4"), names);
+    // Verify the expression LET ($info = val * 2) was computed correctly
+    var n3 = list.stream()
+        .filter(r -> "n3".equals(r.getProperty("name")))
+        .findFirst().orElseThrow();
+    Assert.assertEquals("$info for n3 (val=3) should be 6",
+        6, ((Number) n3.getProperty("$info")).intValue());
+
+    // Verify EXPLAIN: FilterStep after LET (no push-down)
+    var explain = session.query("EXPLAIN " + query).toList();
+    var plan = (String) explain.getFirst().getProperty("executionPlanAsString");
+    var filterIdx = plan.indexOf("FILTER ITEMS WHERE");
+    var letIdx = plan.indexOf("LET (for each record)");
+    Assert.assertTrue("EXPLAIN should contain FILTER step, plan:\n" + plan,
+        filterIdx >= 0);
+    Assert.assertTrue("EXPLAIN should contain LET step, plan:\n" + plan,
+        letIdx >= 0);
+    Assert.assertTrue(
+        "WHERE on second LET var should prevent push-down, plan:\n" + plan,
+        filterIdx > letIdx);
+    session.commit();
+  }
+
 }
