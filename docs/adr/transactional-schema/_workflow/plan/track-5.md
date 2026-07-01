@@ -26,9 +26,23 @@ the membership-ripple overlay routing that Track 3 de-guarded.
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-01T08:25Z [ctx=info] Review + decomposition complete
+- [x] 2026-07-01T11:22Z [ctx=safe] Step 1 complete (commit 08dca19c71)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
+- **Pre-existing pin leak surfaced by Step 1's new assertion (BC2).**
+  `EntityImpl.getGlobalPropertyById`'s reload-fallback pins the schema snapshot
+  (`makeThreadLocalSchemaSnapshot`) with no paired clear, so a mid-tx index DDL after
+  that fallback can trip Step 1's new force-clear zero-pin assertion and throw a loud
+  `IllegalStateException`. Pre-existing and outside the overlay's scope; left for a
+  follow-up (relevant to Track 7 concurrency hardening). See Episodes §Step 1.
+- **PF1 adds a fourth snapshot-cache layer for Step 3 (D21).** D21 risk (3) lists three
+  read-chain layers to invalidate when the force-rebuild trigger widens to mid-tx class
+  and property changes. The PF1 fix adds a fourth: the `TxSchemaState.overlaySnapshot`
+  memo. Step 3 must invalidate it (via `forceRebuildSchemaSnapshotForIndexOverlay` →
+  `invalidateOverlaySnapshot`, or equivalent) on every schema-visible change, not only
+  index changes, or a mid-tx class or property change serves a stale memoized snapshot
+  and I-P5 fails silently. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Seeded from the frozen
@@ -173,7 +187,7 @@ rows, with no double-count and none missed; the overlay publish must follow
 `commitChanges` success (Track 4's deferral rule).
 
 ## Concrete Steps
-1. Tx-local index-definition overlay and query-side resolution (D15, D13, I-A7): introduce `IndexOverlay` (new class) over the index manager's two lookup maps with its four categories (tx-created, tx-dropped, in-place rename, collection-membership); add the per-session index-manager routing seam so the immutable snapshot and `ClassIndexManager` resolve the overlaid set during a schema/index tx; force-rebuild the tx-local snapshot lazily (O(1) null-and-rebuild) on every mid-tx `createIndex`/`dropIndex`; route the Track-3 de-guarded `addCollectionToIndex`/`removeCollectionFromIndex` through the membership category; and add the D13 planner guard that skips an unbuilt index (`getIndexId() < 0`) so a query inside the creating tx falls through to the merged tx scan. Overlay updates defer all engine work to commit and never mutate a shared `Index` object mid-tx. — risk: high (Architecture / cross-component coordination)  [ ]
+1. Tx-local index-definition overlay and query-side resolution (D15, D13, I-A7): introduce `IndexOverlay` (new class) over the index manager's two lookup maps with its four categories (tx-created, tx-dropped, in-place rename, collection-membership); add the per-session index-manager routing seam so the immutable snapshot and `ClassIndexManager` resolve the overlaid set during a schema/index tx; force-rebuild the tx-local snapshot lazily (O(1) null-and-rebuild) on every mid-tx `createIndex`/`dropIndex`; route the Track-3 de-guarded `addCollectionToIndex`/`removeCollectionFromIndex` through the membership category; and add the D13 planner guard that skips an unbuilt index (`getIndexId() < 0`) so a query inside the creating tx falls through to the merged tx scan. Overlay updates defer all engine work to commit and never mutate a shared `Index` object mid-tx. — risk: high (Architecture / cross-component coordination)  [x]  commit: 08dca19c71
 2. Commit-time engine lifecycle (D12, I-A4/TB2, create/drop commit halves): at commit, drive engine creation and drops from the changed-index set; build a tx-created index's engine through a lock-free scan of the source collection feeding `doPut` plus a final-state re-derivation (population scan skips the tx's record-operation RIDs), bounded to an empty source collection for v1 with a loud rejection pointing at YTDB-1064 beyond it; publish the overlay into the shared index manager as replacement objects under the index-manager write lock, sharing Track 4's single trailing `forceSnapshot`; remove the registry entry and delete the engine for a tx-dropped index; assert failed-commit engine cleanliness on both the in-memory and disk profiles with the create-side revert mirroring Track 4's component-guarded `undoReconciledCollections` arm; and resolve provisional collection ids (`<= -2`) via `TxSchemaState` at the deferred handle-build (`IndexManagerEmbedded.createIndex` / `findCollectionsByIds`) and the commit-time re-resolve so indexing a same-tx class does not throw. — risk: high (Crash-safety / Durability)  [ ]
 3. Tx-aware immutable snapshot (D21): make `SchemaProxy.makeSnapshot()` resolve the tx-local `SchemaShared` during a schema/index tx and stay a strict no-op otherwise; widen the D15 force-rebuild to mid-tx class and property changes and make it invalidate the whole read chain (tx-local `SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot version so `EntityImpl`'s version-keyed `immutableClazz` re-resolves); guard the commit-path read definitely (clear the pin and force-rebuild after provisional-id resolution and before the `computeCommitWorkingSet` working-set build, or resolve through the reconciled real id, so `doGetAndCheckCollection` never sees a provisional id); and guard every snapshot reader that resolves a collection for a tx-created (provisional-collection) class — the fetch-step collection-scan setup (`FetchFromClassExecutionStep`), security id→name resolution, and serialization — so a same-tx query or serialization falls through to the merged tx scan. — risk: high (Architecture / cross-component coordination)  [ ]
 
@@ -181,6 +195,66 @@ Steps run sequentially: Step 2 and Step 3 both depend on Step 1 (Step 3 reuses t
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 08dca19c71, 2026-07-01T11:22Z [ctx=safe]
+**What was done:** Added the tx-local index-definition overlay and query-side
+resolution. `IndexOverlay` (new) holds four definition-only delta categories over
+the index manager's two lookup maps (tx-created, tx-dropped, in-place rename, and
+collection-membership), mounted lazily on `TxSchemaState`. `IndexManagerEmbedded`
+gained the per-session routing seam — `getClassRawIndexes` / `getClassIndexes`
+resolve against the active overlay during a schema/index tx — and routes the
+Track-3 de-guarded `createIndex`, `dropIndex`, `addCollectionToIndex`, and
+`removeCollectionFromIndex` through the overlay categories, force-rebuilding the
+session's snapshot on a mid-tx create or drop. `SelectExecutionPlanner.findBestIndexFor`
+now skips an index whose engine is unbuilt (`getIndexId() < 0`, D13), so a query
+inside the creating tx falls through to the class scan. The review-fix commit added
+a session-private snapshot memo on `TxSchemaState` (PF1), softened two overstated
+comments (BC1/BC3), and added a concurrent-reader test and a pin-invariant test
+(TX1/TX2).
+
+**What was discovered:** The shared `SchemaShared.snapshot` cache is process-global,
+so caching an overlay-resolved snapshot there would leak a session's tx-local index
+view into concurrent sessions and survive its own rollback. `SchemaProxy.makeSnapshot`
+routes through `SchemaShared.makeUncachedSnapshot` while an overlay is active (never
+writing the shared `volatile` field) and keeps the overlay-aware snapshot only in
+per-session state. Dropping an index created earlier in the same tx must resolve
+against the overlay (`isTxCreated`), not the shared registry where the never-committed
+index does not exist; `recordDropped` then cancels the pending create. The step-level
+review (bugs-concurrency, performance, test-concurrency; PASS at iteration 2) flagged
+one deferred product bug (BC2): a pre-existing pin leak in `EntityImpl.getGlobalPropertyById`'s
+reload-fallback (`makeThreadLocalSchemaSnapshot` with no paired clear) that Step 1's
+new force-clear zero-pin assertion can now trip during a mid-tx DDL, throwing a loud
+`IllegalStateException`. It is outside the overlay's scope and left for a follow-up.
+The hook-issued-DDL variant (BC3) has no reachable path from shipped code.
+
+**What changed from the plan:** The PF1 fix adds a fourth snapshot-cache layer that
+D21's Step 3 must account for. D21 risk (3) lists three layers to invalidate when the
+force-rebuild trigger widens to mid-tx class and property changes: the tx-local
+`SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot
+version. The new `TxSchemaState.overlaySnapshot` memo is a fourth. Step 3 must invalidate
+it on every schema-visible change, not only index changes, or a mid-tx class or property
+change serves a stale memoized snapshot and I-P5 fails silently. Per-op same-tx index
+tracking off an already-resolved entity still depends on Step 3's snapshot-version bump
+(D21 risk 3) and is guaranteed end-to-end by Step 2's commit-time population scan; the
+softened `createIndex` / `dropIndex` comments record this cross-step staging.
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexOverlay.java` (new)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/IndexManagerEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/TxSchemaState.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaProxy.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/SelectExecutionPlanner.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/index/IndexOverlayTest.java` (new)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaDeguardTest.java` (modified)
+
+**Critical context:** The overlay is definition-only; all engine work is deferred to
+commit (Step 2). The session-private snapshot invariant is load-bearing: the
+overlay-aware `ImmutableSchema` is never written into the shared `SchemaShared.snapshot`
+field and lives on per-tx `TxSchemaState` custom data, so it cannot leak across sessions
+and is dropped at commit or rollback. The memo restores the committed path's O(1)-per-read
+profile within a stable overlay generation.
 
 ## Validation and Acceptance
 - Create an index mid-transaction, insert rows into the indexed class in the same
