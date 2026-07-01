@@ -137,3 +137,6 @@ invariants, each backed by a check. -->
 - No bare `git rm -r` (without `-f`) remains for the `_workflow/` cleanup at **any** in-scope site (operative or descriptive) — verified by `grep -rnE "git rm -r([^f]|$)" .claude/workflow` returning no match. This pattern spans every bug shape (`git rm -r docs/adr/…`, `git rm -r _workflow/`, `` `git rm -r`s ``) and excludes `git rm -rf`, so a partial fix that updated only the operative sites cannot pass while a descriptive site still carries the bare command.
 - The single-cleanup-commit contract holds: the fix adds no extra commit; the `rm -rf` of untracked files runs before the single `git commit` — verified by reading the command block.
 - The existing warning against a separate `plan/*`-globbing removal is preserved — verified by reading the § Step 6 / § Final Artifacts prose (the caution against globbing `plan/*` still stands).
+
+## Base commit
+cf1a58b8d251aad4c7993e0272554c9ec3bf3d5a
