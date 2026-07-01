@@ -1,4 +1,4 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 # Track 5: Result shaping — labels + dedup, projections, order/pagination, aggregations
 
 ## Purpose / Big Picture
@@ -73,3 +73,13 @@ Two semantic hazards dominate this track:
 **Out of scope:** union + list-shaping terminators (Track 6); approximate count (Phase 2); edge property extraction / edge-side labels (Phase 2 — design §"Out of scope").
 **Inter-track dependencies:** depends on Track 4 (predicate algebra for `by`-value resolution) and Track 1 (`hasProperty` presence primitive shared with `IS DEFINED`). Supplies all five output types and the projection logic that Track 6's list-shaping terminators post-process.
 **Signatures:** `EntityImpl.hasProperty(key)`; `Result.getProperty`; `SelectExecutionPlanner.handleHardwiredCountOnClass` / `handleHardwiredCountOnClassUsingIndex`; `session.countClass(name, polymorphic)`; `CountFromClassStep` / `CountFromIndexWithKeyStep`.
+
+## Invariants & Constraints
+<!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).
+Added by workflow migration (#1145). Strategic invariants/constraints for this track remain
+in implementation-plan.md § High-level plan (Architecture Notes) and this track's ## Decision
+Log — the conservative migration retained the plan Architecture Notes rather than folding them here. -->
+
+## Base commit
+<!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
+cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
