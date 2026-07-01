@@ -15,6 +15,7 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 - [ ] Track completion
 
 - [x] 2026-07-01T14:11Z [ctx=safe] Step 1 complete (commit 0da2d3753e)
+- [x] 2026-07-01T15:27Z [ctx=safe] Step 2 complete (commit e121bb25f6) — bugs-concurrency review iter 1: 4 findings fixed, gate-check PASS
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -26,6 +27,12 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
   on a per-step single-test-class run (it needs a full-suite report). Later
   production-code steps in this track hit the same artifact; run one full `core`
   coverage build at the track's final verification. See Episodes §Step 1.
+- 2026-07-01T15:27Z Step 2: `YTDBMatchPlanStep.clone()` isolates per-execution
+  state via a child `CommandContext` parented to the original plus an
+  `everStarted`-gated `plan.reset` — correct for later shapes that write context
+  variables (`$matched`, multi-alias joins), not only the single-node `g.V()`.
+  Later tracks adding multi-alias plans or new `BoundaryOutputType` cases inherit
+  it. See Episodes §Step 2.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -66,6 +73,18 @@ scope-downs, dependency reveals, gate-override reasons. -->
 - **review-sequencing (R3)** — the strategy's throw-safety net lands in Step 3
   with the skeleton, not Step 5: the walker runs under the strategy from Step 4,
   so a recogniser throw must never break native Gremlin before the net exists.
+- **exec-refinement (R1, Step 2)** — the R1 clone-copy copies against an
+  **isolated child** `CommandContext` parented to the original plan's context
+  (`setParentWithoutOverridingChild`, mirroring `HashJoinMatchStep`), not the
+  shared `plan.getContext()`; sharing the context would leave independent
+  executions writing the same per-run variable maps. `reset()` stays plan-free
+  and the `plan.reset` rewind moved into `createIterator()` behind an
+  `everStarted` flag, because `AbstractStep.clone()` calls `reset()` on the clone
+  while its `plan` still aliases the original — an eager rewind there would
+  corrupt the original's live plan. The bare `plan.copy(ctx)` phrasing in the
+  Concrete Step and in R1 above is the shape; the isolated-child context is the
+  correct `ctx`. See Episodes §Step 2. (Reconcile the design's clone note in
+  Phase 4.)
 
 <!-- Reserved for Move 1 — per-track inlined Decision Records. -->
 
@@ -128,7 +147,7 @@ flowchart LR
 ## Concrete Steps
 
 1. Add `MatchPlanInputs` record + additive `MatchExecutionPlanner(MatchPlanInputs)` ctor — mutable defensive copies of `aliasFilters` (the planner mutates it via `detectNotInAntiJoin`), `aliasRids`, and `aliasClasses`, the final `groupBy` / `orderBy` / `unwind` fields assigned, and a `useCache=false` path so the null inherited `statement` never reaches the cache (D2; T4, R2) — `risk: medium`  [x]  commit: 0da2d3753e
-2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [ ]
+2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [x]  commit: e121bb25f6
 3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [ ]
 4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [ ]
 5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check — `risk: high`  [ ]
@@ -167,6 +186,49 @@ builds a plan through this constructor. A full-suite coverage report is deferred
 to the track's final verification: a single-test-class run cannot satisfy the
 origin/develop-scoped gate, but this step's changed lines are 100% line and
 branch by direct JaCoCo inspection.
+
+### Step 2 — commit e121bb25f60a87d389bd6a72fbc1880b8dc0646c, 2026-07-01T15:27Z [ctx=safe]
+**What was done:** Added `YTDBMatchPlanStep` (extends `GraphStep`) and the
+`BoundaryOutputType` enum, with only the `ELEMENT` case wired for Track 2. The
+step lazily opens the plan's `ExecutionStream` on first `createIterator`,
+projects each `Result` row to a `YTDBVertexImpl` under the boundary alias, and
+closes stream-then-plan on exhaustion, explicit termination, and any open or
+hook-install failure. `clone()` copies the plan per execution against an isolated
+child `CommandContext` (R1), so parallel executions share no per-run state. 24
+unit tests cover ctor guards, iteration/projection, close ordering and
+idempotency, the failure-path closes, the single-shot guard, and clone/reset
+independence.
+
+**What was discovered:** The design's clone note shares one `SelectExecutionPlan`
+across original and clone, guarded only by a `started` flag — a direct R1
+violation. The step-level bugs-concurrency review surfaced four findings, all
+fixed: the shared-context copy (BC1), an unsafe reflective write to a `final`
+field (BC2), `reset()` leaving `started=true` and breaking re-iteration (BC3),
+and the drained-plan clone (BC4). Fixing BC3 exposed a latent bug —
+`AbstractStep.clone()` calls `reset()` on the clone while `cloned.plan` still
+aliases the original, so an eager `plan.reset()` in `reset()` would rewind the
+original's live plan mid-iteration. Resolved by moving the rewind into
+`createIterator()` gated on an `everStarted` flag and keeping `reset()`
+plan-free; pinned by `clone_afterOriginalStarted_doesNotResetOriginalsPlan`. The
+gate-check verified all four VERIFIED/MOOT (PSI was down — grep + `javap`
+bytecode fallback).
+
+**What changed from the plan:** The Plan of Work step-7 wording ("`clone()`
+shares the plan and resets `started`") is superseded by Decision Log R1 (copy
+per execution); the implementation follows R1. No new step impact.
+
+**Key files:**
+- `core/.../gremlin/translator/step/YTDBMatchPlanStep.java` (new)
+- `core/.../gremlin/translator/step/BoundaryOutputType.java` (new)
+- `core/.../gremlin/translator/step/YTDBMatchPlanStepTest.java` (new)
+
+**Critical context:** The clone's isolated-child `CommandContext` plus the
+`everStarted`-gated `plan.reset` make the boundary correct for later shapes that
+write context variables (`$matched`, multi-alias joins), not just the
+single-node `g.V()` shape whose collision state is empty today. Later tracks that
+add multi-alias plans or new `BoundaryOutputType` cases inherit the corrected
+isolation with no further work. Callers still plan with `useCache=false`
+(Step 1).
 
 ## Validation and Acceptance
 - `g.V()`, `g.V(id)`, `g.V(id1, id2, …)` translate and return the same multiset as the native pipeline (translator-on vs translator-off).
