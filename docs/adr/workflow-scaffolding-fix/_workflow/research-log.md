@@ -168,3 +168,7 @@ Re-validate the five edit sites against develop after any rebase before promotio
 See `reviews/research-log-adversarial-iter1.md`. A1 (should-fix, open question
 vs. surprise contradiction) and A2/A3 (suggestions) addressed in the Decision
 Log, the §1.7 rationale, and the enumeration surprise; re-challenging at iter2.
+
+### Adversarial review of this log (2026-07-01) — PASS
+See `reviews/research-log-adversarial-iter2.md` (verdict-producer variant).
+A1/A2/A3 all VERIFIED; no new findings. Gate cleared.
