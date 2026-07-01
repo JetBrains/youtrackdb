@@ -2449,14 +2449,22 @@ public class SelectExecutionPlanner {
     // Membership-filter: keep only candidates whose collection is in the target
     // class's polymorphic collection set. This is the class filter the scan gave for
     // free, applied here at plan time (see the no-FilterByClassStep note at the call
-    // site). A missing class resolution is treated as no members.
+    // site).
     var classCollectionIds = resolveClassToCollectionIds(queryTarget.getStringValue(), plan);
+    if (classCollectionIds == null) {
+      // Null means the class does not exist. Fall through (return false) so the scan
+      // path reaches its "Class or View not present" throw — matching the error the
+      // no-WHERE / non-@rid-WHERE form of this query still raises. Treating null as
+      // "no members" here would instead chain EmptyStep and silently swallow a typo'd
+      // class name for this one query shape. info.whereClause is untouched up to this
+      // point (only the survivors branch below mutates it), so the scan sees the
+      // original predicate.
+      return false;
+    }
     List<RecordIdInternal> members = new ArrayList<>();
-    if (classCollectionIds != null) {
-      for (var rid : candidates) {
-        if (classCollectionIds.contains(rid.getCollectionId())) {
-          members.add(rid);
-        }
+    for (var rid : candidates) {
+      if (classCollectionIds.contains(rid.getCollectionId())) {
+        members.add(rid);
       }
     }
 
@@ -2474,7 +2482,12 @@ public class SelectExecutionPlanner {
     // condition and no filter step is chained.
     info.whereClause = extraction.remainingWhere();
     info.flattenedWhereClause = null;
-    plan.chain(new FetchFromRidsStep(members, ctx, profilingEnabled));
+    // skipMissing=true: a caller-supplied IN list may name an in-class RID at a deleted
+    // position, which passes the collection-id membership filter (existence is not checked
+    // at plan time). Skipping it in the fetch preserves scan parity — a class scan never
+    // visits a dangling position — instead of the default terminate-on-first-missing that
+    // would drop every RID after the dangling one.
+    plan.chain(new FetchFromRidsStep(members, ctx, profilingEnabled, /* skipMissing= */ true));
     return true;
   }
 
@@ -2487,7 +2500,17 @@ public class SelectExecutionPlanner {
     return switch (value) {
       case null -> null;
       case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
-      case String s -> RecordIdInternal.fromString(s, false);
+      // A malformed RID string (no #/: separator, non-numeric parts) makes fromString throw.
+      // Yield null so the candidate is dropped rather than aborting the query: the scan-plus-
+      // filter this path replaces returns empty for @rid = '<garbage>' (QueryOperatorEquals
+      // swallows the conversion failure), so parity requires empty here, not a thrown error.
+      case String s -> {
+        try {
+          yield RecordIdInternal.fromString(s, false);
+        } catch (RuntimeException e) {
+          yield null;
+        }
+      }
       default -> null;
     };
   }

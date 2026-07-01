@@ -1108,6 +1108,8 @@ public class SQLWhereClause extends SimpleNode {
     if (term == null) {
       return null;
     }
+    assert !(term instanceof SQLOrBlock) && !(term instanceof SQLAndBlock)
+        : "tryExtractRidInListFromTerm: loop should have unwrapped all single-element wrappers";
     if (!(term instanceof SQLInCondition cond)) {
       return null;
     }
