@@ -77,6 +77,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -459,6 +460,60 @@ public class MatchExecutionPlanner {
     this.groupBy = stm.getGroupBy() == null ? null : stm.getGroupBy().copy();
     this.orderBy = stm.getOrderBy() == null ? null : stm.getOrderBy().copy();
     this.unwind = stm.getUnwind() == null ? null : stm.getUnwind().copy();
+  }
+
+  /**
+   * Creates a planner from pre-built post-parse inputs. Intended for non-SQL front-ends that
+   * produce the complete MATCH input set directly (currently the Gremlin-to-MATCH translator).
+   *
+   * <p>This constructor is purely additive; the three pre-existing constructors are unchanged.
+   * It field-by-field defensive-copies all mutable working maps (and shallow-copies the AST
+   * lists) so the planner can freely mutate {@code aliasClasses}, {@code aliasFilters}, and
+   * {@code aliasRids} during planning without affecting the caller's record. Both
+   * {@code aliasClasses} and {@code aliasFilters} are copied because the planner mutates
+   * both &mdash; {@code aliasClasses} during class inference into chained edges, and
+   * {@code aliasFilters} during NOT-IN anti-join detection (which strips the rewritten
+   * conditions from the per-alias filter map).
+   *
+   * <p><b>Caching precondition.</b> The inherited {@code statement} field stays {@code null}
+   * because no SQL AST is available, so callers MUST invoke
+   * {@link #createExecutionPlan(CommandContext, boolean, boolean)} with {@code useCache=false}.
+   * Otherwise the cache lookup at the start of {@code createExecutionPlan} dereferences
+   * {@code statement} and throws a {@link NullPointerException}. Plan caching for non-SQL
+   * front-ends would need a separate cache-key mechanism keyed off the front-end's own
+   * fingerprint (e.g. Gremlin bytecode), which is intentionally out of scope here.
+   *
+   * @param inputs the pre-built post-parse inputs (must not be null)
+   */
+  public MatchExecutionPlanner(MatchPlanInputs inputs) {
+    Objects.requireNonNull(inputs, "inputs must not be null");
+    this.pattern = inputs.pattern();
+    // Defensive copies of the three working maps. The planner mutates aliasClasses (for
+    // class inference into chained edges) and aliasFilters (for NOT-IN anti-join detection),
+    // so without copies a second invocation would observe mutated state from the first.
+    this.aliasClasses = new HashMap<>(inputs.aliasClasses());
+    this.aliasFilters = new HashMap<>(inputs.aliasFilters());
+    this.aliasRids = new HashMap<>(inputs.aliasRids());
+    // Shallow copies of the AST lists. Translator-built front-ends produce fresh AST
+    // elements that are not shared with anyone else, so element-level deep copy (as the
+    // (SQLMatchStatement) ctor does) is unnecessary; the list-level copy guards against
+    // the caller mutating its own list reference after construction.
+    this.matchExpressions = new ArrayList<>(inputs.matchExpressions());
+    this.notMatchExpressions = new ArrayList<>(inputs.notMatchExpressions());
+    this.returnItems = new ArrayList<>(inputs.returnItems());
+    this.returnAliases = new ArrayList<>(inputs.returnAliases());
+    this.returnNestedProjections = new ArrayList<>(inputs.returnNestedProjections());
+    // Single-value AST fields and primitive flags pass through as-is.
+    this.groupBy = inputs.groupBy();
+    this.orderBy = inputs.orderBy();
+    this.unwind = inputs.unwind();
+    this.limit = inputs.limit();
+    this.skip = inputs.skip();
+    this.returnDistinct = inputs.returnDistinct();
+    this.returnElements = inputs.returnElements();
+    this.returnPaths = inputs.returnPaths();
+    this.returnPatterns = inputs.returnPatterns();
+    this.returnPathElements = inputs.returnPathElements();
   }
 
   /**
