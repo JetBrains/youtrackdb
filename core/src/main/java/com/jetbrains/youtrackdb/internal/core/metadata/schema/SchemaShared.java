@@ -345,6 +345,26 @@ public abstract class SchemaShared implements CloseableInStorage {
     return snapshot;
   }
 
+  /**
+   * Builds a fresh immutable snapshot that is never stored in the shared {@link #snapshot} cache, so
+   * it is private to the caller. A schema- or index-changing transaction uses this to take a snapshot
+   * whose per-class index list resolves against its own tx-local index overlay (through the
+   * index-manager routing seam, which reads the session's overlay) without poisoning the shared
+   * cache other sessions read. The shared {@link #makeSnapshot} caches its result process-wide, so it
+   * cannot serve a session-scoped, overlay-dependent view. The build still reads the committed class
+   * structure (this instance is the committed {@code SchemaShared}); only the index list differs,
+   * because the seam is the sole session-scoped input to the snapshot's per-class index
+   * materialization.
+   */
+  public ImmutableSchema makeUncachedSnapshot(DatabaseSessionEmbedded session) {
+    acquireSchemaReadLock();
+    try {
+      return new ImmutableSchema(this, session);
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
   public void forceSnapshot() {
     if (snapshot == null) {
       return;
