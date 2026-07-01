@@ -12,8 +12,8 @@ import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
@@ -1025,13 +1025,15 @@ public class SelectExecutionPlanner {
    * {@code field = 'a'} and {@code 'a' = field} are recognised.
    *
    * <p>Two equality values are contradictory only when they stay distinct after coercion to the
-   * property's declared type, compared with the engine's own type-aware equality. The runtime
-   * filter coerces each literal to the stored value's type, so {@code n = '5' AND n = '05'} on an
-   * INTEGER property is satisfiable — both coerce to {@code 5} — and must not be read as empty.
-   * Comparing the raw literals ({@code Objects.equals}, or the untyped equality) would drop that
-   * row. When the property type is unknown — a schemaless field, or {@code clazz} did not resolve —
-   * the coercion cannot be reproduced, so the equality-contradiction check is skipped; the
-   * type-independent {@code = null} and {@code IS NULL} contradictions still apply.
+   * property's declared type and application of its collate, compared with the engine's own
+   * type-aware equality. The runtime filter coerces each literal to the stored value's type, so
+   * {@code n = '5' AND n = '05'} on an INTEGER property is satisfiable — both coerce to {@code 5} —
+   * and must not be read as empty; likewise it applies the property's collate, so on a
+   * case-insensitive STRING property {@code name = 'A' AND name = 'a'} is satisfiable and must not
+   * be read as empty. Comparing the raw literals ({@code Objects.equals}, or the untyped equality)
+   * would drop those rows. When the property type is unknown — a schemaless field, or {@code clazz}
+   * did not resolve — the coercion cannot be reproduced, so the equality-contradiction check is
+   * skipped; the type-independent {@code = null} and {@code IS NULL} contradictions still apply.
    */
   static boolean isUnsatisfiableAndBlock(
       SQLAndBlock block, CommandContext ctx, @Nullable SchemaClass clazz) {
@@ -1075,7 +1077,18 @@ public class SelectExecutionPlanner {
       } else {
         continue;
       }
-      Object value = valueExpr.execute((Result) null, ctx);
+      // Resolve the value operand up front. A bound parameter that is unbound or bound to null
+      // resolves to null and is recorded as an always-false `field = null` equality (matching the
+      // runtime filter). A constant fold that throws when evaluated at plan time (e.g. `1 / 0`)
+      // must not abort planning: on an empty or non-matching scan the runtime filter never
+      // evaluates it, so leave the operand to normal planning rather than turning a query that
+      // used to run into a plan-time failure.
+      Object value;
+      try {
+        value = valueExpr.execute((Result) null, ctx);
+      } catch (RuntimeException ignore) {
+        continue;
+      }
       literalEqualities.computeIfAbsent(property, k -> new ArrayList<>()).add(value);
     }
     var session = ctx.getDatabaseSession();
@@ -1084,17 +1097,23 @@ public class SelectExecutionPlanner {
       if (values.size() < 2) {
         continue;
       }
-      // The runtime filter coerces each literal to the property's stored type, so two values only
-      // prove the block empty when they stay distinct under that same coercion. Without the
-      // declared type (schemaless field, or the class did not resolve) the coercion is unknown, so
-      // the contradiction cannot be proven and the block is left to normal planning.
-      var type = propertyType(clazz, entry.getKey());
+      // The runtime filter coerces each literal to the property's stored type and applies the
+      // property's collate before comparing, so two values only prove the block empty when they
+      // stay distinct under that same coercion and collation. Without a declared type (schemaless
+      // field, or the class did not resolve) the coercion is unknown, so the contradiction cannot
+      // be proven and the block is left to normal planning.
+      var declared = clazz == null ? null : clazz.getProperty(entry.getKey());
+      if (declared == null) {
+        continue;
+      }
+      var type = PropertyTypeInternal.convertFromPublicType(declared.getType());
       if (type == null) {
         continue;
       }
+      var collate = declared.getCollate();
       var first = values.getFirst();
       for (var i = 1; i < values.size(); i++) {
-        if (literalsProvablyDistinct(session, first, values.get(i), type)) {
+        if (literalsProvablyDistinct(session, first, values.get(i), type, collate)) {
           return true;
         }
       }
@@ -1112,31 +1131,29 @@ public class SelectExecutionPlanner {
   }
 
   /**
-   * The declared type of {@code property} on {@code clazz}, or {@code null} when the class is
-   * unresolved, the property is not declared (schemaless), or the property has no type.
-   */
-  @Nullable private static PropertyTypeInternal propertyType(
-      @Nullable SchemaClass clazz, String property) {
-    if (clazz == null) {
-      return null;
-    }
-    var declared = clazz.getProperty(property);
-    if (declared == null) {
-      return null;
-    }
-    return PropertyTypeInternal.convertFromPublicType(declared.getType());
-  }
-
-  /**
-   * True when {@code a} and {@code b} stay unequal after coercion to {@code type}, so no stored
-   * value of that type can equal both. Uses the engine's type-aware equality so the plan-time test
-   * matches the runtime filter. A literal that cannot be coerced to {@code type} matches no row at
-   * runtime, but coercing it here can throw; that case is treated as "not provably distinct" so a
-   * query that used to run is never turned into a plan-time failure.
+   * True when {@code a} and {@code b} stay unequal after coercion to {@code type} and application
+   * of {@code collate}, so no stored value of that type can equal both. Mirrors the runtime filter
+   * ({@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition#evaluate}): the
+   * property's collate is applied to each operand before the engine's type-aware equality, so a
+   * case-insensitive property treats {@code 'A'} and {@code 'a'} as equal (satisfiable) rather than
+   * distinct. A literal that cannot be coerced to {@code type}, or a collate that rejects the
+   * value, matches no row at runtime, but doing that work here can throw; that case is treated as
+   * "not provably distinct" so a query that used to run is never turned into a plan-time failure.
    */
   private static boolean literalsProvablyDistinct(
-      @Nullable DatabaseSessionEmbedded session, Object a, Object b, PropertyTypeInternal type) {
+      @Nullable DatabaseSessionEmbedded session, Object a, Object b, PropertyTypeInternal type,
+      @Nullable Collate collate) {
     try {
+      if (collate != null) {
+        // Guard nulls: `equals(x, null)` is already false, and not every Collate implementation is
+        // null-safe in transform().
+        if (a != null) {
+          a = collate.transform(a);
+        }
+        if (b != null) {
+          b = collate.transform(b);
+        }
+      }
       return !QueryOperatorEquals.equals(session, a, b, type);
     } catch (RuntimeException ignore) {
       return false;
@@ -2297,10 +2314,11 @@ public class SelectExecutionPlanner {
       orderByRidAsc = false;
     }
     var className = identifier.getStringValue();
-    Schema schema = getSchemaFromContext(ctx);
 
     AbstractExecutionStep fetcher;
-    if (schema.getClass(className) != null) {
+    // Reuse the class resolved at the top of the method for the empty-WHERE check instead of
+    // looking it up again.
+    if (targetClass != null) {
       fetcher =
           new FetchFromClassExecutionStep(
               className, null, info, ctx, orderByRidAsc, profilingEnabled);

@@ -7,6 +7,8 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.math.BigDecimal;
+import java.util.Date;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
@@ -29,6 +31,9 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
     clazz.createIndex(
         className + ".indexed", SchemaClass.INDEX_TYPE.NOTUNIQUE, "indexed");
 
+    // Seed 10 rows (indexed = v0..v9) so a failed short-circuit would fall back to a scan that
+    // returns rows, rather than a vacuously-empty class that would pass an EmptyStep assertion for
+    // the wrong reason.
     session.begin();
     for (var i = 0; i < 10; i++) {
       session.newInstance(className).setProperty("indexed", "v" + i);
@@ -37,22 +42,51 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
   }
 
   /**
+   * Assert that {@code SELECT FROM <className> WHERE <where>} short-circuits to {@link EmptyStep}
+   * and returns no rows. Factors out the plan-shape-plus-empty assertion repeated across the
+   * contradiction cases.
+   */
+  private void assertShortCircuitsToEmpty(String where) {
+    assertShortCircuitsToEmpty(className, where);
+  }
+
+  /** As {@link #assertShortCircuitsToEmpty(String)} but against an arbitrary class. */
+  private void assertShortCircuitsToEmpty(String clazz, String where) {
+    try (var rs = session.query("SELECT FROM " + clazz + " WHERE " + where)) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for '" + where + "', got " + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse("'" + where + "' must return no rows", rs.hasNext());
+    }
+  }
+
+  /**
+   * Assert that {@code SELECT FROM <clazz> WHERE <where>} is satisfiable — it must not short-circuit
+   * to {@link EmptyStep} — and returns exactly one row whose {@code prop} equals {@code expected}.
+   * Used by the coercion carve-out cases, where a regression to raw {@code Objects.equals} would
+   * wrongly emit {@link EmptyStep} and drop the row.
+   */
+  private void assertSatisfiableReturns(String clazz, String where, String prop, Object expected) {
+    try (var rs = session.query("SELECT FROM " + clazz + " WHERE " + where)) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertFalse(
+          "'" + where + "' is satisfiable and must not short-circuit, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertTrue("'" + where + "' must return the matching row", rs.hasNext());
+      assertEquals(expected, rs.next().getProperty(prop));
+      assertFalse("'" + where + "' must return exactly one row", rs.hasNext());
+    }
+  }
+
+  /**
    * Contradictory literal equalities on an indexed field must emit {@link EmptyStep} and return
    * zero rows without scanning the class.
    */
   @Test
   public void contradictoryIndexedEqualities_shortCircuitsToEmptyStep() {
-    try (var rs =
-        session.query(
-            "SELECT FROM " + className + " WHERE indexed = 'v1' AND indexed = 'v2'")) {
-      var plan = rs.getExecutionPlan();
-      var firstStep = plan.getSteps().getFirst();
-      assertTrue(
-          "expected EmptyStep for contradictory predicate, got "
-              + firstStep.getClass().getSimpleName(),
-          firstStep instanceof EmptyStep);
-      assertFalse("contradictory predicate must return no rows", rs.hasNext());
-    }
+    assertShortCircuitsToEmpty("indexed = 'v1' AND indexed = 'v2'");
   }
 
   /**
@@ -156,18 +190,7 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
    */
   @Test
   public void threeDistinctValues_shortCircuitsToEmptyStep() {
-    try (var rs =
-        session.query(
-            "SELECT FROM "
-                + className
-                + " WHERE indexed = 'v1' AND indexed = 'v2' AND indexed = 'v3'")) {
-      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
-      assertTrue(
-          "expected EmptyStep for three distinct equalities, got "
-              + firstStep.getClass().getSimpleName(),
-          firstStep instanceof EmptyStep);
-      assertFalse(rs.hasNext());
-    }
+    assertShortCircuitsToEmpty("indexed = 'v1' AND indexed = 'v2' AND indexed = 'v3'");
   }
 
   /**
@@ -224,6 +247,12 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
     try (var rs =
         session.query(
             "SELECT count(*) FROM " + className + " WHERE indexed = 'v1' AND indexed = 'v2'")) {
+      // The aggregate sits above the source, so EmptyStep is not the first step; assert it is
+      // present in the chain so a regression that counted via a full scan + filter (same 0L result)
+      // would not pass silently.
+      assertTrue(
+          "count(*) over a contradiction must short-circuit to EmptyStep",
+          rs.getExecutionPlan().getSteps().stream().anyMatch(s -> s instanceof EmptyStep));
       assertTrue("count(*) with no matches must still return one row", rs.hasNext());
       assertEquals(0L, (Object) rs.next().getProperty("count(*)"));
       assertFalse(rs.hasNext());
@@ -309,16 +338,7 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
    */
   @Test
   public void leftLiteralContradiction_shortCircuitsToEmptyStep() {
-    try (var rs =
-        session.query(
-            "SELECT FROM " + className + " WHERE 'v1' = indexed AND 'v2' = indexed")) {
-      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
-      assertTrue(
-          "expected EmptyStep for left-literal contradiction, got "
-              + firstStep.getClass().getSimpleName(),
-          firstStep instanceof EmptyStep);
-      assertFalse(rs.hasNext());
-    }
+    assertShortCircuitsToEmpty("'v1' = indexed AND 'v2' = indexed");
   }
 
   /**
@@ -346,16 +366,7 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
    */
   @Test
   public void equalityAndIsNullSameField_shortCircuitsToEmptyStep() {
-    try (var rs =
-        session.query(
-            "SELECT FROM " + className + " WHERE indexed = 'v1' AND indexed IS NULL")) {
-      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
-      assertTrue(
-          "expected EmptyStep for '= literal AND IS NULL', got "
-              + firstStep.getClass().getSimpleName(),
-          firstStep instanceof EmptyStep);
-      assertFalse(rs.hasNext());
-    }
+    assertShortCircuitsToEmpty("indexed = 'v1' AND indexed IS NULL");
   }
 
   /**
@@ -465,6 +476,265 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
       assertTrue("expected the schemaless n=5 record to be returned", rs.hasNext());
       assertEquals(5, (int) rs.next().getProperty("n"));
       assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * On a case-insensitive (ci) STRING property the runtime filter lowercases both operands before
+   * comparing, so {@code name = 'A' AND name = 'a'} both reduce to 'a' and match the stored row —
+   * the predicate is satisfiable. The detector must apply the property's collate the same way;
+   * without it 'A' and 'a' look distinct and the block is wrongly emptied, silently dropping the
+   * row. Both operand orders are covered on a non-indexed field so the query runs through the
+   * filter.
+   */
+  @Test
+  public void caseInsensitiveCollation_sameValueDifferentCase_isNotContradictory() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+    session.begin();
+    session.newInstance(cn).setProperty("name", "a");
+    session.commit();
+
+    assertSatisfiableReturns(cn, "name = 'A' AND name = 'a'", "name", "a");
+    assertSatisfiableReturns(cn, "'A' = name AND 'a' = name", "name", "a");
+  }
+
+  /**
+   * The collate carve-out must also hold when the ci property is indexed: the index lowercases its
+   * keys, so {@code name = 'A' AND name = 'a'} is satisfiable and must keep the index lookup rather
+   * than short-circuiting. Exercises the collate fix through the same-field merge on a collated
+   * index.
+   */
+  @Test
+  public void caseInsensitiveCollation_indexed_sameValueDifferentCase_returnsRow() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+    clazz.createIndex(cn + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    session.begin();
+    session.newInstance(cn).setProperty("name", "a");
+    session.commit();
+
+    assertSatisfiableReturns(cn, "name = 'A' AND name = 'a'", "name", "a");
+  }
+
+  /**
+   * Genuinely distinct values on a ci property are still contradictory: {@code name = 'a' AND
+   * name = 'b'} lowercase to 'a' and 'b', which differ, so the block is provably empty and must
+   * short-circuit. Confirms the collate fix did not disable detection for real contradictions.
+   */
+  @Test
+  public void caseInsensitiveCollation_distinctValues_shortCircuitsToEmptyStep() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("name", PropertyType.STRING).setCollate("ci");
+    session.begin();
+    session.newInstance(cn).setProperty("name", "a");
+    session.commit();
+
+    assertShortCircuitsToEmpty(cn, "name = 'a' AND name = 'b'");
+    // Case variants of two distinct values remain distinct after lowercasing.
+    assertShortCircuitsToEmpty(cn, "name = 'A' AND name = 'B'");
+  }
+
+  /**
+   * BOOLEAN coercion: {@code flag = true AND flag = false} is contradictory (EmptyStep), while
+   * {@code flag = true AND flag = 'true'} is satisfiable because the string literal coerces to
+   * {@code Boolean.TRUE}. Guards the non-INTEGER coercion branch the INTEGER cases never reach.
+   */
+  @Test
+  public void booleanCoercion_contradictionShortCircuits_stringFormIsSatisfiable() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("flag", PropertyType.BOOLEAN);
+    session.begin();
+    session.newInstance(cn).setProperty("flag", true);
+    session.commit();
+
+    assertShortCircuitsToEmpty(cn, "flag = true AND flag = false");
+    assertSatisfiableReturns(cn, "flag = true AND flag = 'true'", "flag", true);
+  }
+
+  /**
+   * LONG coercion: distinct values beyond the int range short-circuit (also confirming the check
+   * does not truncate to int), while an Integer/String literal pair for the same value
+   * ({@code n = 5 AND n = '5'}) stays satisfiable.
+   */
+  @Test
+  public void longCoercion_distinctShortCircuits_mixedLiteralSatisfiable() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("n", PropertyType.LONG);
+    session.begin();
+    session.newInstance(cn).setProperty("n", 5L);
+    session.commit();
+
+    assertShortCircuitsToEmpty(cn, "n = 3000000000 AND n = 3000000001");
+    assertSatisfiableReturns(cn, "n = 5 AND n = '5'", "n", 5L);
+  }
+
+  /**
+   * DOUBLE coercion: {@code d = 5.0 AND d = 6.0} is contradictory, while {@code d = 5 AND d = 5.0}
+   * coerces the integer literal to 5.0 and stays satisfiable.
+   */
+  @Test
+  public void doubleCoercion_distinctShortCircuits_intFormSatisfiable() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("d", PropertyType.DOUBLE);
+    session.begin();
+    session.newInstance(cn).setProperty("d", 5.0);
+    session.commit();
+
+    assertShortCircuitsToEmpty(cn, "d = 5.0 AND d = 6.0");
+    assertSatisfiableReturns(cn, "d = 5 AND d = 5.0", "d", 5.0);
+  }
+
+  /**
+   * DECIMAL coercion: {@code dec = 5 AND dec = 6} is contradictory, while {@code dec = 5 AND
+   * dec = '5'} coerces both to the same BigDecimal and stays satisfiable.
+   */
+  @Test
+  public void decimalCoercion_distinctShortCircuits_stringFormSatisfiable() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("dec", PropertyType.DECIMAL);
+    session.begin();
+    session.newInstance(cn).setProperty("dec", new BigDecimal("5"));
+    session.commit();
+
+    assertShortCircuitsToEmpty(cn, "dec = 5 AND dec = 6");
+    assertSatisfiableReturns(cn, "dec = 5 AND dec = '5'", "dec", new BigDecimal("5"));
+  }
+
+  /**
+   * DATETIME coercion via bound parameters: two distinct instants short-circuit, while the same
+   * instant supplied twice (as separate Date objects) stays satisfiable. Uses parameters so the
+   * detector resolves real Date values, exercising the DATE/DATETIME branch of the coercion path
+   * without depending on date-literal syntax.
+   */
+  @Test
+  public void dateTimeCoercion_distinctShortCircuits_sameInstantSatisfiable() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("ts", PropertyType.DATETIME);
+    var instant = new Date(1_600_000_000_000L);
+    session.begin();
+    session.newInstance(cn).setProperty("ts", instant);
+    session.commit();
+
+    try (var rs =
+        session.query(
+            "SELECT FROM " + cn + " WHERE ts = :a AND ts = :b",
+            Map.of("a", instant, "b", new Date(1_700_000_000_000L)))) {
+      assertTrue(
+          "distinct instants must short-circuit to EmptyStep",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+    try (var rs =
+        session.query(
+            "SELECT FROM " + cn + " WHERE ts = :a AND ts = :b",
+            Map.of("a", instant, "b", new Date(1_600_000_000_000L)))) {
+      assertFalse(
+          "the same instant must not short-circuit",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertTrue("the matching row must be returned", rs.hasNext());
+    }
+  }
+
+  /**
+   * GROUP BY over a contradiction returns zero groups — the opposite cardinality from bare
+   * {@code count(*)}, which returns one zero row. The empty stream from the short-circuit must feed
+   * the grouping so no group is emitted.
+   */
+  @Test
+  public void groupByOverContradiction_returnsNoGroups() {
+    try (var rs =
+        session.query(
+            "SELECT indexed, count(*) FROM " + className
+                + " WHERE indexed = 'v1' AND indexed = 'v2' GROUP BY indexed")) {
+      assertTrue(
+          "GROUP BY over a contradiction must short-circuit to EmptyStep",
+          rs.getExecutionPlan().getSteps().stream().anyMatch(s -> s instanceof EmptyStep));
+      assertFalse("GROUP BY over an empty stream must emit no groups", rs.hasNext());
+    }
+  }
+
+  /** DISTINCT over a contradiction returns no rows. */
+  @Test
+  public void distinctOverContradiction_returnsNoRows() {
+    try (var rs =
+        session.query(
+            "SELECT DISTINCT indexed FROM " + className
+                + " WHERE indexed = 'v1' AND indexed = 'v2'")) {
+      assertTrue(
+          rs.getExecutionPlan().getSteps().stream().anyMatch(s -> s instanceof EmptyStep));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /** ORDER BY with LIMIT/SKIP composes with the empty stream without error and yields no rows. */
+  @Test
+  public void orderByLimitOverContradiction_returnsNoRows() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className
+                + " WHERE indexed = 'v1' AND indexed = 'v2' ORDER BY indexed LIMIT 5 SKIP 3")) {
+      assertTrue(
+          rs.getExecutionPlan().getSteps().stream().anyMatch(s -> s instanceof EmptyStep));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * A constant-fold value operand that throws when evaluated ({@code num = 1/0}) must not abort
+   * planning. On an empty class the runtime filter never evaluates the operand, so before the
+   * short-circuit the query returned no rows; the plan-time detector must preserve that by catching
+   * the evaluation failure and falling through, rather than throwing {@code ArithmeticException}
+   * out of the planner. Both the contradiction-candidate form and the single-equality form (which
+   * still evaluates the operand while populating the value map) are covered.
+   */
+  @Test
+  public void throwingEarlyCalcOperand_doesNotAbortPlanning() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("num", PropertyType.INTEGER);
+    // No rows seeded: mirrors the empty / no-row-scanned case that surfaced the regression.
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE num = 1/0 AND num = 2/0")) {
+      assertFalse("empty class must yield no rows and no exception", rs.hasNext());
+    }
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE num = 1/0")) {
+      assertFalse("empty class must yield no rows and no exception", rs.hasNext());
+    }
+  }
+
+  /**
+   * Operands the detector cannot resolve to a plan-time literal must fall through to normal
+   * planning, not be read as contradictions. {@code indexed = indexed} (a field on both sides) is
+   * always true, so combined with {@code indexed = 'v2'} the query must return the v2 row rather
+   * than short-circuiting; {@code indexed = other} (another identifier) must likewise not
+   * short-circuit.
+   */
+  @Test
+  public void nonResolvableOperand_fallsThroughWithoutShortCircuit() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed = indexed AND indexed = 'v2'")) {
+      assertFalse(
+          "field = field must not be read as a contradiction",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertTrue(rs.hasNext());
+      assertEquals("v2", rs.next().getProperty("indexed"));
+      assertFalse(rs.hasNext());
+    }
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed = other AND indexed = 'v2'")) {
+      assertFalse(
+          "field = otherField must not be read as a contradiction",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
     }
   }
 }
