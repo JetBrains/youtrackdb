@@ -22,7 +22,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-06-26T08:43Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-26T10:04Z [ctx=safe] Step 1 complete (commit 7c7a157efa)
 - [x] 2026-06-26T12:52Z [ctx=info] Step 2 complete (commit 346e87ae9d)
@@ -33,6 +33,7 @@ snapshot-first so the whole-commit write lock never becomes a read outage.
 - [x] 2026-06-30T08:07Z [ctx=info] Track-level code review iteration 1 complete (1/3 iterations) — commit 0cb16dfc71
 - [x] 2026-06-30T08:20Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations) — commit ab8f411066
 - [x] 2026-06-30T08:28Z [ctx=info] Track-level code review complete (all in-scope findings VERIFIED, 0 blockers; 2/3 iterations used)
+- [x] 2026-07-01T00:00Z [ctx=safe] Track completion — episode written, plan entry collapsed, marked [x]
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
