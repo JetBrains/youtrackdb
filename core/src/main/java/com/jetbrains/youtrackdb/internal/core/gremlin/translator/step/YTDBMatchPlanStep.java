@@ -1,9 +1,11 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
+import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.Iterator;
@@ -47,13 +49,17 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  *       the plan. The hook is idempotent.
  *   <li><b>Clone:</b> {@link #clone()} produces a step that holds its own independent
  *       {@link InternalExecutionPlan#copy(com.jetbrains.youtrackdb.internal.core.command.CommandContext)
- *       deep copy} of the plan (mirroring {@code HashJoinMatchStep}'s per-execution
- *       isolation). A {@link SelectExecutionPlan}-family plan carries mutable per-run state
- *       and must be copied before each independent execution; sharing one plan across the
- *       original and the clone would let two executions race for the same single-shot step
- *       chain. Cloning also resets the inherited {@code iterator}/{@code done} fields that
- *       {@link GraphStep} maintains privately and re-binds the iterator supplier to the
- *       clone.
+ *       deep copy} of the plan, copied against an <em>isolated child</em>
+ *       {@code CommandContext} (fresh {@code BasicCommandContext} parented to the original
+ *       plan's context, mirroring {@code HashJoinMatchStep}'s build-side isolation). A
+ *       {@link SelectExecutionPlan}-family plan carries mutable per-run state — both the
+ *       step chain and the context's variable maps ({@code $current}, {@code $matched},
+ *       step statistics), which are plain unsynchronised {@code HashMap}s. Copying against
+ *       an isolated child gives the clone its own variable maps while still resolving the
+ *       shared database session, input parameters, and timeout through the parent, so two
+ *       executions cannot race on or leak per-run context state. Cloning also resets the
+ *       inherited {@code iterator}/{@code done} fields that {@link GraphStep} maintains
+ *       privately and re-binds the iterator supplier to the clone.
  * </ul>
  *
  * @param <S> upstream traverser type (always {@code Object} for a start step)
@@ -62,22 +68,36 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  */
 public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, E> {
 
-  private final InternalExecutionPlan plan;
+  // Non-final so clone() can install the clone's independent plan copy with a plain field
+  // write. A final field would force a post-construction reflective write after
+  // super.clone() has frozen it, which voids the JMM final-field publication guarantee for
+  // any thread that later receives the clone without a happens-before edge. A normal field
+  // write inside clone() (before the clone is handed to any other thread) has no such hazard.
+  private InternalExecutionPlan plan;
   private final String boundaryAlias;
   private final BoundaryOutputType outputType;
 
   /**
-   * Tracks whether {@link #createIterator()} has already opened this instance's plan.
+   * Guards against opening this instance's plan twice within a single arming.
    * Each boundary step owns a single {@link InternalExecutionPlan} instance; the plan's
    * underlying step chain does not reset its execution state on a second {@code plan.start()}
-   * call (it would silently re-iterate against already-consumed cursors). The flag turns a
-   * second {@code createIterator} call on the same instance into an explicit
-   * {@link IllegalStateException} rather than letting the silent-divergence bug reach end
-   * users. {@link #clone()} gives the clone its own fresh plan copy and resets this flag, so
-   * each newly-cloned step starts from a clean slate; the first iteration on either side
-   * trips the flag for that side only.
+   * call (it would silently re-iterate against already-consumed cursors). Set {@code true}
+   * by {@link #createIterator()} once the plan is started; a second {@code createIterator}
+   * call without an intervening {@link #reset()} throws {@link IllegalStateException} rather
+   * than letting the silent-divergence bug reach end users. {@link #reset()} clears this flag
+   * to re-arm the step for a fresh iteration; {@link #clone()} clears it on the clone so each
+   * clone starts from a clean slate.
    */
   private boolean started;
+
+  /**
+   * Tracks whether this instance's plan has ever been started. Unlike {@link #started} (which
+   * {@link #reset()} clears), this stays {@code true} across a reset so {@link #createIterator()}
+   * knows a re-arm needs a {@code plan.reset(ctx)} before {@code plan.start()} — the plan's
+   * step chain must be rewound before it can be re-executed. A never-started plan skips the
+   * reset. {@link #clone()} clears this on the clone (its copied plan has never run).
+   */
+  private boolean everStarted;
 
   /**
    * Constructs a new boundary step backed by the given execution plan.
@@ -124,19 +144,30 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
    * projects each one to a TinkerPop element. Package-private rather than {@code private}
    * so the unit test can drive it directly with a stub plan.
    *
-   * <p>Throws {@link IllegalStateException} on a second invocation against the same step
-   * instance — this instance's plan is single-shot, and a second {@code plan.start()} on a
-   * drained plan would silently produce wrong results. Cloned steps get their own fresh
-   * plan copy and reset the flag in {@link #clone()}, so each clone gets one fresh start.
+   * <p>Throws {@link IllegalStateException} on a second invocation within a single arming —
+   * a second {@code plan.start()} on an already-open plan would silently re-iterate against
+   * consumed cursors. To re-run the plan, either {@link #reset()} the step (which re-arms it
+   * in place, rewinding the plan via {@code plan.reset(ctx)} on the next open) or
+   * {@link #clone()} it (which gives the clone its own fresh plan copy). When the step was
+   * previously opened and then reset, this method rewinds the plan with
+   * {@link InternalExecutionPlan#reset(com.jetbrains.youtrackdb.internal.core.command.CommandContext)}
+   * before re-starting it, so the second pass runs from the top of the plan's step chain.
    */
   Iterator<E> createIterator() {
     if (started) {
       throw new IllegalStateException(
-          "YTDBMatchPlanStep.createIterator() invoked twice on the same step instance; "
-              + "boundary steps own a single execution plan and are not re-iterable. "
-              + "Re-execute the traversal (or clone the step) to drive a second pass.");
+          "YTDBMatchPlanStep.createIterator() invoked twice without an intervening reset(); "
+              + "boundary steps own a single execution plan and open it once per arming. "
+              + "Call reset() to re-run the plan in place, or clone the step to drive an "
+              + "independent second pass.");
     }
     var ctx = plan.getContext();
+    // A re-arm after a prior run (reset() cleared `started` but left `everStarted` set) must
+    // rewind the plan's step chain before re-starting it — otherwise plan.start() would
+    // re-iterate against already-consumed cursors. A never-started plan needs no rewind.
+    if (everStarted) {
+      plan.reset(ctx);
+    }
     // Resolve the graph BEFORE opening the stream — getTraversal().getGraph() can throw
     // (Optional.empty().orElseThrow) or the cast to YTDBGraphInternal can throw. Opening
     // the stream first would leak it on either failure because the close hook is only
@@ -159,6 +190,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       throw e;
     }
     started = true;
+    everStarted = true;
     try {
       var rowIterator = new ResultProjectionIterator<E>(stream, graph);
       // The close hook fires both on natural exhaustion (CloseableIteratorWithCallback's
@@ -197,25 +229,44 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
   @Override
   @SuppressWarnings("unchecked")
   public YTDBMatchPlanStep<S, E> clone() {
+    // super.clone() (AbstractStep.clone) already re-arms the inherited iterator/done state
+    // and calls reset() on the clone. We must NOT call reset() again here, and reset() must
+    // not touch the plan: at this point cloned.plan still aliases the ORIGINAL's plan
+    // (super.clone() shallow-copies the reference), so resetting the plan through the clone
+    // would corrupt the original's in-flight run. reset() therefore only re-arms the
+    // per-instance guard (started) and never re-executes the plan — the plan is re-opened
+    // lazily in createIterator() when needed. See reset()'s Javadoc.
     var cloned = (YTDBMatchPlanStep<S, E>) super.clone();
-    // Reset the inherited iterator/done state on the clone so it starts fresh.
-    cloned.reset();
     // Give the clone its OWN deep copy of the plan rather than sharing the original's.
-    // A SelectExecutionPlan-family plan carries mutable per-run state and is not safe to
-    // execute concurrently or to re-run without a copy(); the plan's own Javadoc mandates
+    // A SelectExecutionPlan-family plan carries mutable per-run state (both an independent
+    // step chain AND the CommandContext's variable maps), so it is not safe to execute
+    // concurrently or to re-run without a copy(); the plan's own Javadoc mandates
     // "copied via copy() before each execution". TinkerPop clones a traversal (and thus
     // every step) once per execution, so copying here is exactly the per-execution
-    // isolation point. Mirrors HashJoinMatchStep, which copies its build-side plan against
-    // an isolated context before each start(). Copy against the original plan's context so
-    // the copy shares the same database session while owning an independent step chain.
-    var copiedPlan = plan.copy(plan.getContext());
-    // super.clone()'s shallow copy left `cloned.plan` pointing at the original plan; the
-    // field is final, so overwrite it reflectively to install the clone's independent copy.
-    setPlanField(cloned, copiedPlan);
-    // Reset the started flag so the clone can drive its own first iteration. Without this
-    // the clone would inherit the original's `started=true` (super.clone() copies primitive
-    // fields by value) and createIterator() would throw immediately.
+    // isolation point.
+    //
+    // Copy against an ISOLATED CHILD context — a fresh BasicCommandContext parented to the
+    // original plan's context — rather than the original context itself. This mirrors
+    // HashJoinMatchStep's build-side isolation (buildPlan.copy(isolatedCtx)). The child owns
+    // its own unsynchronised variable maps ($current, $matched, step statistics) so the
+    // original's and the clone's executions cannot race on or leak that state, while it still
+    // resolves the database session, input parameters, and timeout through the parent. Copying
+    // against plan.getContext() directly would leave both plans pointing at the SAME context,
+    // defeating the isolation this clone exists to provide.
+    var isolatedCtx = new BasicCommandContext();
+    isolatedCtx.setParentWithoutOverridingChild(plan.getContext());
+    var copiedPlan = plan.copy(isolatedCtx);
+    // super.clone()'s shallow copy left `cloned.plan` pointing at the original plan. The
+    // field is non-final (see the field declaration), so assign the independent copy with a
+    // plain write — no reflection, and no JMM final-field-freeze hazard because the write
+    // happens before the clone is published to any other thread.
+    cloned.plan = copiedPlan;
+    // Clear both open-tracking flags on the clone. super.clone() copies primitive fields by
+    // value, so without this the clone would inherit the original's flags: `started=true`
+    // would make the clone's first createIterator() throw, and `everStarted=true` would make
+    // it needlessly rewind its already-fresh copied plan. The clone's copy has never run.
     cloned.started = false;
+    cloned.everStarted = false;
     // Re-bind the supplier to the clone, not the original. setIteratorSupplier(this::...)
     // in the ctor captured the original instance; without re-binding here, iterating the
     // clone would call createIterator() on the original step and start the ORIGINAL's plan
@@ -226,23 +277,33 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
   }
 
   /**
-   * Overwrites the {@code final} {@link #plan} field on a freshly-cloned instance. Java's
-   * {@link Object#clone()} produces a shallow copy whose {@code final} fields already point
-   * at the original's referents; {@link #clone()} needs to install an independent plan copy,
-   * so it must bypass the final-field write barrier via reflection. This is confined to the
-   * clone path and never runs on a live, published instance.
+   * Re-arms this step for re-iteration, honouring {@link GraphStep}'s reset contract: after
+   * {@code reset()} a start step can be driven again. Besides clearing the inherited
+   * {@code done}/{@code iterator} state (via {@code super.reset()}), this clears the local
+   * {@code started} guard so the next {@link #createIterator()} may open the plan again.
+   *
+   * <p>This deliberately does <em>not</em> call {@code plan.reset(ctx)} here. {@code reset()}
+   * is invoked by {@code AbstractStep.clone()} on the freshly-cloned instance while the clone
+   * still aliases the ORIGINAL's plan (the clone's own copy is installed later in
+   * {@link #clone()}); rewinding the plan here would corrupt the original's in-flight run.
+   * The plan rewind is therefore deferred to {@code createIterator()}, which rewinds via
+   * {@code plan.reset(ctx)} only when re-arming a previously-opened plan (tracked by
+   * {@code everStarted}), by which point the instance owns the plan it will run.
+   *
+   * <p>Without this override, {@code GraphStep.reset()} would re-arm only the inherited
+   * fields and leave {@code started == true}, so a TinkerPop path that resets a start step
+   * and re-iterates it (traversal reuse rather than a fresh clone) would trip the guard in
+   * {@code createIterator()} and throw {@link IllegalStateException} instead of re-running
+   * the plan. {@link #clone()} remains the isolation point for independent/concurrent
+   * executions; {@code reset()} is the in-place re-run path on a single instance.
    */
-  private static void setPlanField(YTDBMatchPlanStep<?, ?> target, InternalExecutionPlan value) {
-    try {
-      var field = YTDBMatchPlanStep.class.getDeclaredField("plan");
-      field.setAccessible(true);
-      field.set(target, value);
-    } catch (ReflectiveOperationException e) {
-      // The field name is a compile-time constant in this class; a failure here is a
-      // programming error (field renamed without updating this reflective write), so fail
-      // loudly rather than silently leaving the clone sharing the original's plan.
-      throw new IllegalStateException("Failed to install cloned execution plan", e);
-    }
+  @Override
+  public void reset() {
+    super.reset();
+    // Only the per-arming guard is cleared here; everStarted persists so createIterator()
+    // knows a re-open needs a plan.reset(ctx). The plan itself is NOT rewound here — see the
+    // Javadoc for why (the clone-aliasing hazard during super.clone()).
+    started = false;
   }
 
   /**
