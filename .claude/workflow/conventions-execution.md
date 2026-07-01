@@ -369,10 +369,12 @@ carries no finding bodies. The block sits inside the canonical episode
 shape (`§2.2`).
 
 **Phase 4 sweep.** Review files need no dedicated cleanup step. The Phase
-4 cleanup is a blanket recursive `git rm -r _workflow/` (in `workflow.md`
+4 cleanup is a blanket recursive `git rm -rf _workflow/` followed by
+`rm -rf _workflow/` (in `workflow.md`
 § Final Artifacts and `create-final-design.md`), which removes
 `plan/track-N/reviews/` along with the rest of `_workflow/`
-automatically, the same way it sweeps `handoff-*.md`.
+automatically — the `git rm -rf` sweeps the tracked files (the same way
+it sweeps `handoff-*.md`) and the `rm -rf` clears the untracked remnants.
 
 **`plan/*` glob caution.** The `plan/track-N.md` file and the
 `plan/track-N/` directory coexist. Any consumer that walks `plan/` must
@@ -744,7 +746,8 @@ Every other lifecycle rule is the `§2.1` *Review-file lifecycle*
 sub-section's, applied unchanged — this clause does not restate them:
 each file is written **and committed** at reviewer-return as a
 Workflow-update commit (the resume precondition), and the Phase 4 cleanup's
-blanket recursive `git rm -r _workflow/` sweeps `_workflow/reviews/` along
+blanket recursive `git rm -rf _workflow/` (followed by `rm -rf _workflow/`
+for untracked remnants) sweeps `_workflow/reviews/` along
 with the rest, so no dedicated cleanup step is needed. The review files in
 every family here are ephemeral scaffolding: they die at cleanup without
 feeding either the `adr.md` fold or the `minimal` PR-description summary. For

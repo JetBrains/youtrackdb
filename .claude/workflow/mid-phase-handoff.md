@@ -490,8 +490,9 @@ orchestrator MUST:
    - **Phase 4 cleanup exception**: when the resolved handoff is
      `handoff-phase4.md` AND `adr.md` is already committed, do NOT
      produce a separate resolution commit. The Phase 4 cleanup
-     commit (Step 6 of `create-final-design.md`) `git rm -r`s
-     `_workflow/` and removes the handoff file, PAUSED marker host
+     commit (Step 6 of `create-final-design.md`) `git rm -rf`s
+     `_workflow/` (with a follow-up `rm -rf` for untracked remnants)
+     and removes the handoff file, PAUSED marker host
      (the plan file), and `MEMORY.md` entry in the same commit.
    - **Phase 4 promotion pause site** (workflow-modifying plans
      only): Phase 4 is a resumable pause site between the
