@@ -769,8 +769,11 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       if (resultOperand != null) {
         var result = new SQLBinaryCondition(-1);
         result.left = left.copy();
-        result.operator = operator.copy();
-        result.right = new SQLValueExpression(resultOperand);
+        // Unwrap the MergeResult: the merged condition uses the operator and right value the merge
+        // produced, not the current operator with the whole record as its value. mergeWithOperator
+        // can also change the operator (e.g. GE + NE -> GT), so both fields must come from it.
+        result.operator = resultOperand.operator().copy();
+        result.right = new SQLValueExpression(resultOperand.mergedRightOperand());
 
         return result;
       }

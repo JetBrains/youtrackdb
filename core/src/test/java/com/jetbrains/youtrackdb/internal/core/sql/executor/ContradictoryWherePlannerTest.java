@@ -74,15 +74,13 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
 
   /**
    * Redundant equalities with the same literal are satisfiable, so the detector must not flag them:
-   * the plan keeps the index lookup instead of short-circuiting to {@link EmptyStep}.
-   *
-   * <p>This asserts only that no short-circuit happens. Whether the index path then returns the
-   * matching row is a separate, pre-existing defect: two equalities on the same single-column index
-   * build a broken multi-key lookup that returns zero rows. That bug is outside this change (the
-   * planner never reaches it for the contradictory case, which now emits {@link EmptyStep}).
+   * the plan keeps the index lookup and returns the single matching row rather than short-circuiting
+   * to {@link EmptyStep}. Returning the row also depends on the same-field merge fix in
+   * {@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition#mergeUsingAnd}; see
+   * {@link RepeatedEqualityOnIndexTest} for the broader merge cases.
    */
   @Test
-  public void duplicateIndexedEquality_sameLiteral_isNotShortCircuited() {
+  public void duplicateIndexedEquality_sameLiteral_usesIndexAndReturnsRow() {
     try (var rs =
         session.query(
             "SELECT FROM " + className + " WHERE indexed = 'v1' AND indexed = 'v1'")) {
@@ -91,6 +89,9 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
           "duplicate same-value equalities must keep the index lookup, got "
               + firstStep.getClass().getSimpleName(),
           firstStep instanceof FetchFromIndexStep);
+      assertTrue(rs.hasNext());
+      assertEquals("v1", rs.next().getProperty("indexed"));
+      assertFalse(rs.hasNext());
     }
   }
 
@@ -122,9 +123,9 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
    * that uses strict {@code Objects.equals} instead of the engine's coercing equality — that would
    * emit {@link EmptyStep} here and drop the row.
    *
-   * <p>The field is deliberately left non-indexed so the query runs through a full scan plus filter.
-   * That keeps the assertion focused on the coercion fix and clear of the separate index-path defect
-   * (repeated equality on an indexed field returns zero rows), which is out of scope here.
+   * <p>The field is left non-indexed so the query runs through a full scan plus filter, keeping the
+   * assertion focused on the coercion fix in the detector. The indexed same-field merge path is
+   * covered separately by {@link RepeatedEqualityOnIndexTest}.
    */
   @Test
   public void numericCoercion_sameValueDifferentType_isNotContradictory() {
