@@ -278,3 +278,6 @@ flowchart TD
     Commit --> Publish["publish overlay into shared IndexManager under index-manager write lock"]
     Publish --> Snap["shares Track 4's single trailing forceSnapshot"]
 ```
+
+## Base commit
+54000d904b4daf34f9e1c3488ac1f549e2401859
