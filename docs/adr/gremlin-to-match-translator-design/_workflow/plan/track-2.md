@@ -17,6 +17,7 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 - [x] 2026-07-01T14:11Z [ctx=safe] Step 1 complete (commit 0da2d3753e)
 - [x] 2026-07-01T15:27Z [ctx=safe] Step 2 complete (commit e121bb25f6) — bugs-concurrency review iter 1: 4 findings fixed, gate-check PASS
 - [x] 2026-07-01T21:46Z [ctx=info] Step 3 complete (commit 999cea5dfe) — bugs-concurrency (BC1/BC2 fixed) + performance (0 findings), gate-check PASS
+- [x] 2026-07-01T22:53Z [ctx=info] Step 4 complete (commit 0a8d0e8044) — bugs-concurrency iter 1: 3 CONFIRMED multiset/reflection findings fixed, gate-check PASS
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -46,6 +47,13 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
   excluded) is ~2,850 lines after three steps; Steps 4–5 (walker + registry +
   registration + smoke tests) will likely push it past ~4,000. Flag for Phase C
   to review in focal chunks per the medium/high step ranges, not one pass.
+- 2026-07-01T22:53Z Step 4: bare `g.V()` must never narrow by class — the only
+  place `@class` narrowing legitimately reappears is Track 4's folded `hasLabel`.
+  Any later recogniser that adds a class filter on the bare vertex source
+  reintroduces the BC2 subclass-undercount bug. See Episodes §Step 4.
+- 2026-07-01T22:53Z Step 4: cumulative track diff is ~3,960 lines (generated +
+  `_workflow` excluded) after four steps; Step 5 crosses ~4,000. Phase C should
+  review by focal step range (Steps 2–4 high), not one pass. See Episodes §Step 4.
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
@@ -63,12 +71,6 @@ scope-downs, dependency reveals, gate-override reasons. -->
   cache key to build on. Every translated traversal re-plans in Phase 1; a
   traversal-shape-keyed cache is a later-phase addition. See Episodes §Step 1
   and §Step 5.
-- **simplification** — the recogniser registry is an ordered `StepRecogniser`
-  list, not the `Map<Class<? extends Step>, StepRecogniser>` of D9. Phase 1 has
-  one recogniser, so class-keyed O(1) dispatch buys nothing yet; `StartStep`
-  gates on `stepIndex == 0 && step instanceof GraphStep`. The class-keyed map
-  lands in Track 3, where multiple recognisers make dispatch cost real. See
-  Episodes §Step 4.
 - **review-resolution (T1 / A1, blocker)** — the recogniser gates and the D9
   registry key on the plain TinkerPop `GraphStep`, not `YTDBGraphStep`. Under D4
   the translator runs before `YTDBGraphStepStrategy` — the sole producer of
@@ -86,6 +88,19 @@ scope-downs, dependency reveals, gate-override reasons. -->
 - **review-sequencing (R3)** — the strategy's throw-safety net lands in Step 3
   with the skeleton, not Step 5: the walker runs under the strategy from Step 4,
   so a recogniser throw must never break native Gremlin before the net exists.
+- **scope-down (Step 4)** — `g.V(id1, id2, …)` with a **duplicate** id declines
+  to native. `@rid IN [...]` has set semantics (one emit per distinct rid) while
+  native `g.V(ids)` emits once per list entry, so a repeated id breaks multiset
+  equality. All-or-nothing (D3): the translator claims only distinct-id vertex
+  sources; duplicate-id shapes fall through to the native pipeline. See
+  Episodes §Step 4.
+- **exec-note / plan drift (Step 4)** — the Plan of Work Step-3 line and the
+  design say the recogniser "pins `WalkerContext.polymorphic`", but `WalkerContext`
+  has no `polymorphic` field: the flag is resolved locally in `StartStepRecogniser`.
+  After the BC2 fix (bare `g.V()` no longer narrows by class) the flag gates no
+  class filter for Track 2's shapes and remains only for the null-decline check.
+  Reconcile the design/plan wording in Phase 4; a `WalkerContext.polymorphic`
+  carrier, if a later track needs one, is additive. See Episodes §Step 4.
 - **exec-refinement (R1, Step 2)** — the R1 clone-copy copies against an
   **isolated child** `CommandContext` parented to the original plan's context
   (`setParentWithoutOverridingChild`, mirroring `HashJoinMatchStep`), not the
@@ -123,11 +138,6 @@ scope-downs, dependency reveals, gate-override reasons. -->
   all should-fix VERIFIED incorporated, suggestions deferred-accepted, no new
   findings (`plan/track-2/reviews/gate-verification-iter2.md`). The T1/A1 fix is
   verified empirically by the Step 5 smoke tests in Phase B.
-- Deferred to Phase 4 (documentation): D9 names Track 2 as the class-keyed
-  `Map<Class, StepRecogniser>` home, but the track ships the ordered
-  `StepRecogniser` list with the map deferred to Track 3; the Plan of Work prose
-  and diagram keep the original plan wording. The Decision Log and Concrete Steps
-  carry the authoritative deferrals.
 
 ## Context and Orientation
 Three YTDB half-measure `ProviderOptimizationStrategy` implementations already optimize Gremlin today: `YTDBGraphStepStrategy` (folds `hasLabel` into the start step), `YTDBGraphCountStrategy` (class-count fast path), `YTDBGraphMatchStepStrategy`. They run inside TinkerPop's optimization phase, after the structural folders (`IncidentToAdjacentStrategy`, `ConnectiveStrategy`, `LazyBarrierStrategy`). `MatchExecutionPlanner` already turns parsed MATCH IR into a `SelectExecutionPlan` via `createExecutionPlan`, which internally calls `SelectExecutionPlanner.handleProjectionsBlock`. The `Pattern` single-RID fast path resolves `aliasRids[a]` to `SELECT FROM #X:Y`.
@@ -162,7 +172,7 @@ flowchart LR
 1. Add `MatchPlanInputs` record + additive `MatchExecutionPlanner(MatchPlanInputs)` ctor — mutable defensive copies of `aliasFilters` (the planner mutates it via `detectNotInAntiJoin`), `aliasRids`, and `aliasClasses`, the final `groupBy` / `orderBy` / `unwind` fields assigned, and a `useCache=false` path so the null inherited `statement` never reaches the cache (D2; T4, R2) — `risk: medium`  [x]  commit: 0da2d3753e
 2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [x]  commit: e121bb25f6
 3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [x]  commit: 999cea5dfe
-4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [ ]
+4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [x]  commit: 0a8d0e8044
 5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check — `risk: high`  [ ]
 
 ## Episodes
@@ -291,6 +301,64 @@ in Step 5. Ephemeral-identifier gate: decision-record IDs (D1, D3, …) and
 risk-finding IDs (R3, …) are forbidden in durable Java source and Javadoc until
 restated in `adr.md` (Phase 4) — keep source comments self-contained; this binds
 every later source-touching step.
+
+### Step 4 — commit 0a8d0e804499120b19d6201335d423918612cf7e, 2026-07-01T22:53Z [ctx=info]
+**What was done:** Added the walker layer — `GremlinStepWalker` (index-driven
+walk, all-or-nothing decline per D3), `WalkerContext`, the `StepRecogniser`
+interface, and `StartStepRecogniser` — and wired the production walker into
+`GremlinToMatchTranslator.translate`, replacing the Step-3 declining facade.
+`StartStepRecogniser` gates and keys on the plain TinkerPop `GraphStep` (T1/A1),
+declines on a null `isPolymorphic`, and translates `g.V()` → single-node
+`$g2m_v0` pattern rooted at class `V` (polymorphic scan), `g.V(id)` → RID on
+`aliasRids`, `g.V(id1, id2, …)` → `@rid IN [...]` on `aliasFilters`. The registry
+is the class-keyed `Map<Class<? extends Step>, StepRecogniser>` (D9) with one entry
+(`GraphStep` → `StartStepRecogniser`); the single alias is a `$g2m_v0` constant (no
+`AnonAliasGenerator`). The strategy
+stays unregistered (dormant) — Step 5 registers it. 13 walker tests + 19 strategy
+tests.
+
+**What was discovered:** Gating `StartStepRecogniser` on `YTDBGraphStep` would
+decline every shape under the current D4 ordering (translator runs before
+`YTDBGraphStepStrategy`), so the recogniser gates on the plain `GraphStep`
+instead, with a regression guard that fails if the gate keys on `YTDBGraphStep`
+and an ordering-robustness test (a `YTDBGraphStep` is-a `GraphStep`, still
+recognized). The bugs-concurrency review then found three
+CONFIRMED multiset-equality issues, all fixed: `g.V(id, id)` with a repeated id
+emitted the vertex once vs native's once-per-entry (BC1 — now declines
+duplicate-id shapes to native per D3, value-keyed on collection id + position so
+RID-string and Vertex-handle forms collapse); non-polymorphic bare `g.V()`
+narrowed to exact `@class = 'V'`, excluding subclass instances native returns
+(BC2 — narrowing removed; the scan roots at `V` polymorphically via
+`aliasClasses`); and the `@rid IN` clause set the operator via unnecessary
+reflection with a false "no public setter" Javadoc (BC3 — replaced with the
+public `setOperator`, dead helpers removed). The `null isPolymorphic` branch is
+reachable only via a genuinely graph-less traversal; the throwing `EmptyGraph`
+case is caught by the strategy's session-resolution gate before the walker runs.
+
+**What changed from the plan:** The plan's Step-3 wording "pins
+`WalkerContext.polymorphic`" is imprecise — `WalkerContext` has no `polymorphic`
+field; the flag is resolved locally in `StartStepRecogniser` and, after the BC2
+fix, no longer gates any class filter for Track 2's shapes (it stays resolved
+only for the null-decline check). The recognized set now excludes duplicate-id
+`g.V(ids)` (declines to native).
+
+**Key files:**
+- `core/.../gremlin/translator/strategy/GremlinStepWalker.java` (new)
+- `core/.../gremlin/translator/strategy/WalkerContext.java` (new)
+- `core/.../gremlin/translator/strategy/StepRecogniser.java` (new)
+- `core/.../gremlin/translator/strategy/StartStepRecogniser.java` (new)
+- `core/.../gremlin/translator/strategy/GremlinToMatchStrategy.java` (modified)
+- `core/.../gremlin/translator/strategy/GremlinToMatchTranslator.java` (modified)
+
+**Critical context:** Bare `g.V()` must NEVER narrow by class — the only place
+`@class` narrowing legitimately reappears is Track 4's folded `hasLabel`. The
+walker's `MatchPlanInputs` populates `returnItems` / `returnAliases` /
+`returnNestedProjections` in parallel (one entry, `$g2m_v0 AS $g2m_v0`) so the
+planner takes its custom-RETURN branch; later tracks adding return modes or
+aggregations must keep this contract or set the corresponding flag. Step 5
+registration makes the strategy live; its smoke tests verify the T1/A1 fix and
+the multiset fixes end to end (auto-strategy-chain parity variant, plus the
+duplicate-id-declines and non-polymorphic-subclass cases).
 
 ## Validation and Acceptance
 - `g.V()`, `g.V(id)`, `g.V(id1, id2, …)` translate and return the same multiset as the native pipeline (translator-on vs translator-off).
