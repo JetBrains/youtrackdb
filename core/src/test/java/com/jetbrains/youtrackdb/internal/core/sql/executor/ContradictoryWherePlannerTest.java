@@ -6,6 +6,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
+import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -72,18 +73,24 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
   }
 
   /**
-   * Redundant equalities with the same literal must not be classified as unsatisfiable at plan
-   * time (no {@link EmptyStep} short-circuit).
+   * Redundant equalities with the same literal are satisfiable, so the detector must not flag them:
+   * the plan keeps the index lookup instead of short-circuiting to {@link EmptyStep}.
+   *
+   * <p>This asserts only that no short-circuit happens. Whether the index path then returns the
+   * matching row is a separate, pre-existing defect: two equalities on the same single-column index
+   * build a broken multi-key lookup that returns zero rows. That bug is outside this change (the
+   * planner never reaches it for the contradictory case, which now emits {@link EmptyStep}).
    */
   @Test
-  public void duplicateIndexedEquality_sameLiteral_doesNotShortCircuit() {
+  public void duplicateIndexedEquality_sameLiteral_isNotShortCircuited() {
     try (var rs =
         session.query(
             "SELECT FROM " + className + " WHERE indexed = 'v1' AND indexed = 'v1'")) {
       var firstStep = rs.getExecutionPlan().getSteps().getFirst();
-      assertFalse(
-          "duplicate same-value equalities must not use EmptyStep",
-          firstStep instanceof EmptyStep);
+      assertTrue(
+          "duplicate same-value equalities must keep the index lookup, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof FetchFromIndexStep);
     }
   }
 
@@ -103,6 +110,120 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
           rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
       assertTrue(rs.hasNext());
       assertEquals("v0", rs.next().getProperty("indexed"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Two equalities with the same numeric value but different literal types
+   * ({@code num = 1 AND num = 1.0}) are satisfiable, because the runtime filter coerces numbers.
+   * The planner must not treat them as contradictory: it must not short-circuit to
+   * {@link EmptyStep} and must return the {@code num = 1} row. Guards against a plan-time comparison
+   * that uses strict {@code Objects.equals} instead of the engine's coercing equality — that would
+   * emit {@link EmptyStep} here and drop the row.
+   *
+   * <p>The field is deliberately left non-indexed so the query runs through a full scan plus filter.
+   * That keeps the assertion focused on the coercion fix and clear of the separate index-path defect
+   * (repeated equality on an indexed field returns zero rows), which is out of scope here.
+   */
+  @Test
+  public void numericCoercion_sameValueDifferentType_isNotContradictory() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("num", PropertyType.INTEGER);
+    session.begin();
+    session.newInstance(cn).setProperty("num", 1);
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE num = 1 AND num = 1.0")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertFalse(
+          "num = 1 AND num = 1.0 is satisfiable under numeric coercion, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertTrue("expected the num=1 record to be returned", rs.hasNext());
+      assertEquals(1, (int) rs.next().getProperty("num"));
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Three distinct equality literals on the same field ({@code = 'v1' AND = 'v2' AND = 'v3'}) are
+   * contradictory and must short-circuit to {@link EmptyStep}. Exercises the multi-value branch of
+   * the detector (more than one comparison against the first value).
+   */
+  @Test
+  public void threeDistinctValues_shortCircuitsToEmptyStep() {
+    try (var rs =
+        session.query(
+            "SELECT FROM "
+                + className
+                + " WHERE indexed = 'v1' AND indexed = 'v2' AND indexed = 'v3'")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for three distinct equalities, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Contradiction detection is not gated on the field being indexed: a contradictory predicate on a
+   * non-indexed field must also short-circuit to {@link EmptyStep} instead of a full class scan.
+   */
+  @Test
+  public void contradictionOnNonIndexedField_shortCircuitsToEmptyStep() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("plain", PropertyType.STRING);
+    session.begin();
+    session.newInstance(cn).setProperty("plain", "x");
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE plain = 'a' AND plain = 'b'")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for contradiction on a non-indexed field, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * Contradictory equalities supplied through bound named parameters must also short-circuit to
+   * {@link EmptyStep}: parameters are known at plan time, so the detector resolves them the same way
+   * as inline literals.
+   */
+  @Test
+  public void contradictoryBoundParameters_shortCircuitsToEmptyStep() {
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed = :a AND indexed = :b",
+            Map.of("a", "v1", "b", "v2"))) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected EmptyStep for contradictory bound parameters, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
+   * {@code count(*)} over a contradictory predicate must still return exactly one row holding zero:
+   * the short-circuit feeds an empty stream to the aggregate, which is the same input the old
+   * full-scan-plus-filter path produced. Guards against the short-circuit swallowing the aggregate
+   * row.
+   */
+  @Test
+  public void countStarOverContradiction_returnsSingleZeroRow() {
+    try (var rs =
+        session.query(
+            "SELECT count(*) FROM " + className + " WHERE indexed = 'v1' AND indexed = 'v2'")) {
+      assertTrue("count(*) with no matches must still return one row", rs.hasNext());
+      assertEquals(0L, (Object) rs.next().getProperty("count(*)"));
       assertFalse(rs.hasNext());
     }
   }

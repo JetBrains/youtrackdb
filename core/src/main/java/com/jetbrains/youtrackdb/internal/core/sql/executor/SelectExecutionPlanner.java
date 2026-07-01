@@ -15,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -1006,6 +1007,12 @@ public class SelectExecutionPlanner {
    * Detects contradictory equality literals on the same property inside one AND block.
    * Non-literal equalities (parameters, per-row expressions) are ignored — they cannot be
    * resolved at plan time.
+   *
+   * <p>Two literals count as contradictory only when the engine's own equality
+   * ({@link QueryOperatorEquals#equals}) reports them unequal. That is the same comparison the
+   * runtime filter applies, so numeric and cross-type coercion is honoured: {@code field = 1 AND
+   * field = 1.0} stays satisfiable rather than being misread as empty. Using strict
+   * {@link Objects#equals} here would drop rows for such queries.
    */
   static boolean isUnsatisfiableAndBlock(SQLAndBlock block, CommandContext ctx) {
     Map<String, List<Object>> literalEqualities = new HashMap<>();
@@ -1027,13 +1034,17 @@ public class SelectExecutionPlanner {
       Object value = right.execute((Result) null, ctx);
       literalEqualities.computeIfAbsent(property, k -> new ArrayList<>()).add(value);
     }
+    var session = ctx.getDatabaseSession();
     for (var values : literalEqualities.values()) {
       if (values.size() < 2) {
         continue;
       }
       var first = values.getFirst();
       for (var i = 1; i < values.size(); i++) {
-        if (!Objects.equals(first, values.get(i))) {
+        // Compare with the engine's coercing equality, not Objects.equals: the runtime filter
+        // treats e.g. 1 and 1.0 as equal, so only a value the filter also rejects proves the
+        // block empty. Objects.equals would falsely flag mixed-type-but-equal literals.
+        if (!QueryOperatorEquals.equals(session, first, values.get(i))) {
           return true;
         }
       }
@@ -2162,6 +2173,10 @@ public class SelectExecutionPlanner {
     var identifier = from.getItem().getIdentifier();
     if (isUnsatisfiableWhere(info.flattenedWhereClause, ctx)) {
       plan.chain(new EmptyStep(ctx, profilingEnabled));
+      // The predicate is provably empty. Clear the WHERE so handleWhere() does not append a dead
+      // FilterStep over the already-empty stream, matching how the index paths consume the WHERE.
+      info.whereClause = null;
+      info.flattenedWhereClause = null;
       return;
     }
     if (handleClassAsTargetWithIndexedFunction(
