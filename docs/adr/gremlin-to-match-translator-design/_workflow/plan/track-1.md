@@ -1,4 +1,4 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 # Track 1: Shared MATCH IR builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` builder factories
 
 ## Purpose / Big Picture
@@ -250,3 +250,13 @@ pre-refactor output.
 **Out of scope:** the grammar (`YouTrackDBSql.jjt`), `MatchExecutionPlanner`, every execution step, and the text-suffix / regex AST (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) that Track 4 introduces for `endsWith` / `matchesRegex`.
 **Inter-track dependencies:** supplies the builder package + presence factories to Track 2 (strategy skeleton uses `MatchPatternBuilder`), Track 4 (`isDefined` / `isNotDefined` for `has(key)` / `hasNot(key)`), and Track 5 (`hasProperty`-based presence check shares the same entity-presence primitive).
 **Signatures:** `SQLIsDefinedCondition` / `SQLIsNotDefinedCondition` constructors and `isDefinedFor(...)` are the existing primitives the factories wrap.
+
+## Invariants & Constraints
+<!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).
+Added by workflow migration (#1145). Strategic invariants/constraints for this track remain
+in implementation-plan.md § High-level plan (Architecture Notes) and this track's ## Decision
+Log — the conservative migration retained the plan Architecture Notes rather than folding them here. -->
+
+## Base commit
+<!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
+cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->

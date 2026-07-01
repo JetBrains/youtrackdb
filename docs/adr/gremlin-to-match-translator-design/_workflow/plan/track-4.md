@@ -1,4 +1,4 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 # Track 4: Filtering — predicates + logical filters
 
 ## Purpose / Big Picture
@@ -73,3 +73,13 @@ The step-level logical filters (`AndStep` / `OrStep` / `NotStep` / `WhereTravers
 **Out of scope:** projections / labels / dedup / order / aggregates / union (Tracks 5–6); the singleton-collection schema-aware rewrite and edge-bearing OR (Phase 2 — design §"Out of scope"); grammar changes (the new operators are AST + evaluator only, reachable programmatically).
 **Inter-track dependencies:** depends on Track 3 (predicate-adapter skeleton, `GremlinPatternAssembler`, the equivalence fixture) and Track 1 (`isDefined` / `isNotDefined`, `MatchWhereBuilder`). Supplies the full predicate algebra to Track 5 (by-modulator value resolution reuses it).
 **Signatures:** `P.getBiPredicate()`; `HasContainer{key, predicate}`; `QueryOperatorEquals.equals` (lines 63-69 unbox, 71-73 null short-circuit); `MatchExecutionPlanner.manageNotPatterns` (first-NOT-alias precondition).
+
+## Invariants & Constraints
+<!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).
+Added by workflow migration (#1145). Strategic invariants/constraints for this track remain
+in implementation-plan.md § High-level plan (Architecture Notes) and this track's ## Decision
+Log — the conservative migration retained the plan Architecture Notes rather than folding them here. -->
+
+## Base commit
+<!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
+cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
