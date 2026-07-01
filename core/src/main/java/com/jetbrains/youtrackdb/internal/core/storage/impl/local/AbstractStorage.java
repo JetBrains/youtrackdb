@@ -1818,6 +1818,31 @@ public abstract class AbstractStorage
     return collections.get(collectionId).getApproximateRecordsCount();
   }
 
+  /**
+   * The lock-free commit-window analogue of {@link StorageCollection#getEntries(AtomicOperation)}:
+   * reads a collection's <em>exact</em> record count without taking {@code stateLock}, because the
+   * schema-carry commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant
+   * read lock would busy-spin. The commit-time index build uses it to confirm an approximate-zero
+   * count before it relies on the v1 empty-source-collection bound, closing the under-report hole
+   * where a stale approximate zero would let the build skip committed rows. Exact but cheap on the
+   * empty collection the caller has already pre-checked as approximately empty. Mirrors the lock-free
+   * {@link #doGetIndexEngine} precondition: the caller MUST hold {@code stateLock.writeLock()} with
+   * the commit window open, which supplies the exclusion and the happens-before edge.
+   *
+   * @param collectionId    a real (>= 0) collection id.
+   * @param atomicOperation the in-flight commit atomic operation the count reads through.
+   * @return the collection's exact record count, or 0 when the id names no live collection.
+   */
+  public final long getExactRecordsCountInCommitWindow(
+      final int collectionId, final AtomicOperation atomicOperation) {
+    if (collectionId < 0
+        || collectionId >= collections.size()
+        || collections.get(collectionId) == null) {
+      return 0;
+    }
+    return collections.get(collectionId).getEntries(atomicOperation);
+  }
+
   @Override
   public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds) {
     return count(session, iCollectionIds, false);
@@ -2519,12 +2544,16 @@ public abstract class AbstractStorage
               .resolveProvisionalCollectionIds(
                   schemaContext.txSchemaState().getResolvedCollectionIds());
           schemaContext.txLocalSchema().acquireSchemaWriteLock(session);
-          // Suppress the bidirectional-link-consistency tracker around schema serialization. The
-          // root's "classes" LINKSET is a structural internal link, not a user graph link: the
-          // per-class records carry no reverse "#classes" link-bag property, so when a drop removes
-          // a class record from the root the tracker would (incorrectly) try to decrement a
-          // non-existent back-reference on the class record and throw LinksConsistencyException. The
-          // tracker is meant for user vertex/edge links only; schema records are exempt.
+          // Suppress the bidirectional-link-consistency tracker around schema serialization AND the
+          // index-record enrollment below. The root's "classes" LINKSET and the index-manager's
+          // CONFIG_INDEXES LINKSET are structural internal links, not user graph links: the per-class
+          // and index-entity records carry no reverse back-reference link-bag property, so when a drop
+          // removes a class record from the root or unlinks a dropped index entity from the
+          // index-manager set, the tracker would (incorrectly) try to decrement a non-existent
+          // back-reference on the target record and throw LinksConsistencyException. The tracker is
+          // meant for user vertex/edge links only; schema and index-manager records are exempt. The
+          // enroll phase's indexLinkSet.remove + deleteRecordAtCommit run inside this same window so a
+          // drop of a tx-created-then-committed index (a replace) does not trip the tracker.
           //
           // Capture and restore the prior flag rather than forcing it back on: a schema-carry
           // commit can run inside an outer scope that already disabled the check (for example an
@@ -2532,38 +2561,42 @@ public abstract class AbstractStorage
           // of the outer operation.
           final var priorLinkConsistency = session.isLinkConsistencyEnabled();
           session.disableLinkConsistencyCheck();
-          // The selective write keys on the transaction's changed-class set so only changed classes'
-          // per-class records enter the working set (the write-amplification win), and on whether the
-          // root non-link payload differs from the committed schema's so the root record is rewritten
-          // exactly when a property-create, counter advance, or blob-collection change touched it.
-          // The committed schema still carries its pre-commit payload here; promotion runs later on
-          // the success path, so the comparison sees the true before-state.
-          final var changedClasses = schemaContext.txSchemaState().getChangedClasses();
-          final var writeRootPayload =
-              schemaContext.txLocalSchema().rootPayloadDiffersFrom(schemaContext.committedSchema());
           try {
-            schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
+            // The selective write keys on the transaction's changed-class set so only changed classes'
+            // per-class records enter the working set (the write-amplification win), and on whether the
+            // root non-link payload differs from the committed schema's so the root record is rewritten
+            // exactly when a property-create, counter advance, or blob-collection change touched it.
+            // The committed schema still carries its pre-commit payload here; promotion runs later on
+            // the success path, so the comparison sees the true before-state.
+            final var changedClasses = schemaContext.txSchemaState().getChangedClasses();
+            final var writeRootPayload =
+                schemaContext.txLocalSchema()
+                    .rootPayloadDiffersFrom(schemaContext.committedSchema());
+            try {
+              schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
+            } finally {
+              // Release without the save side effect: the records are enrolled in the user
+              // transaction and persist through the apply below, not through saveInternal.
+              schemaContext.txLocalSchema().releaseSchemaWriteLock(session, false);
+            }
+
+            // Index reconciliation, phase 1: enroll the changed per-index records into the transaction
+            // (the tx-created index entities and the index-manager link-set delta) so they join the
+            // working set gathered next, and enforce the v1 empty-source-collection build bound. The
+            // engine build and the shared-map publication run in later phases. Reconciliation resolves
+            // provisional collection ids on the tx-local schema above, so a deferred handle indexing a
+            // same-tx class now names the real collection. No overlay -> null plan -> the phases below
+            // are no-ops.
+            indexPlan =
+                schemaContext.indexManager()
+                    .enrollReconciledIndexRecords(
+                        session, frontendTransaction,
+                        schemaContext.txSchemaState().getIndexOverlay(), atomicOperation);
           } finally {
             if (priorLinkConsistency) {
               session.enableLinkConsistencyCheck();
             }
-            // Release without the save side effect: the records are enrolled in the user
-            // transaction and persist through the apply below, not through saveInternal.
-            schemaContext.txLocalSchema().releaseSchemaWriteLock(session, false);
           }
-
-          // Index reconciliation, phase 1: enroll the changed per-index records into the transaction
-          // (the tx-created index entities and the index-manager link-set delta) so they join the
-          // working set gathered next, and enforce the v1 empty-source-collection build bound. The
-          // engine build and the shared-map publication run in later phases. Reconciliation resolves
-          // provisional collection ids on the tx-local schema above, so a deferred handle indexing a
-          // same-tx class now names the real collection. No overlay -> null plan -> the phases below
-          // are no-ops.
-          indexPlan =
-              schemaContext.indexManager()
-                  .enrollReconciledIndexRecords(
-                      session, frontendTransaction,
-                      schemaContext.txSchemaState().getIndexOverlay());
           if (indexPlan != null) {
             // Drop the tx-created indexes' tracked key changes from both the commit's local
             // index-apply set and the transaction's own index-changes map. A same-tx insert into the
@@ -2676,6 +2709,16 @@ public abstract class AbstractStorage
           schemaContext.indexManager()
               .buildAndDropReconciledEngines(session, frontendTransaction, atomicOperation,
                   indexPlan);
+
+          // Test-only seam: fire any installed post-build hook now that engines are built/published
+          // and dropped but before the record apply commits. Tests use it to inject a fault at the
+          // engines-published-but-not-durable point so the failure-path engine undo/restore arms
+          // actually run (the pre-record-apply commitWindowTestHook fires before any engine exists, so
+          // it cannot exercise them). Null and free in production. Fired inside the open commit window.
+          final var postBuildHook = postEngineBuildTestHook;
+          if (postBuildHook != null) {
+            postBuildHook.run();
+          }
         }
       } catch (final IOException | RuntimeException | AssertionError e) {
         // AssertionError is caught so a persisted-side underflow from
@@ -2708,15 +2751,21 @@ public abstract class AbstractStorage
             undoReconciledCollections(schemaContext.committedSchema(),
                 schemaContext.txSchemaState(), droppedCollections);
             if (indexPlan != null) {
-              // Mirror for engines: the build phase published each created engine into the engine
-              // registries eagerly (like a created collection), so a failed commit must remove those
-              // phantom registrations. The engine files revert with the rolled-back atomic operation
-              // on the disk profile; the in-memory profile leaves them, so the undo also drops the
-              // surviving files. A tx-dropped index's engine deletion is committed-only (the shared
-              // lookup-map removal is deferred to the publish phase, which a failed commit skips), so
-              // no drop-restore arm is needed here. The engine ids the failed commit created are freed
-              // for reuse on the next commit.
+              // Mirror for engines, create side: the build phase published each created engine into
+              // the engine registries eagerly (like a created collection), so a failed commit must
+              // remove those phantom registrations. The engine files revert with the rolled-back
+              // atomic operation on the disk profile; the in-memory profile leaves them, so the undo
+              // also drops the surviving files. The engine ids the failed commit created are freed for
+              // reuse on the next commit.
               undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
+              // Mirror for engines, drop side: deleteIndexEngineInCommitWindow tore each dropped
+              // engine out of the in-memory registry synchronously, so a failed commit must
+              // reconstruct it — otherwise the surviving committed index points at a nulled engine
+              // slot and throws on the next read. The rolled-back atomic operation restored the engine
+              // files on the disk profile, so the reconstruction rebuilds a fresh engine from the
+              // captured durable data. Runs after the create-undo so a freed slot the create-undo
+              // nulled cannot collide with a restore.
+              restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
               // Revert the eager in-memory membership mutations the enroll phase applied (the record
               // writes revert with the atomic operation, but the in-memory collectionsToIndex sets
               // were mutated synchronously).
@@ -3189,22 +3238,40 @@ public abstract class AbstractStorage
   }
 
   /**
+   * A dropped engine captured by {@link #deleteIndexEngineInCommitWindow} at drop time, so a failed
+   * schema-carry commit can reconstruct it. The id is the dropped engine's slot; the data is the
+   * engine's durable {@link IndexEngineData} read from the storage configuration <em>before</em> the
+   * delete's irreversible in-memory teardown, so a fresh engine can be rebuilt from it on the failure
+   * path (the delete's own {@code IndexHistogramManager} teardown makes the live engine object
+   * unusable, so the failure path never re-publishes the torn object).
+   */
+  public record DroppedIndexEngine(int internalId, IndexEngineData data) {
+
+  }
+
+  /**
    * Deletes an index engine inside the schema-carry commit window: runs the WAL-reverted file delete
    * on the commit's atomic operation and removes the engine from the in-memory registries. The
    * commit-window analogue of {@link #deleteIndexEngine(int)}: it takes no {@code stateLock} (the
    * caller holds {@code stateLock.writeLock()}). Unlike the public method, the map mutation runs
-   * synchronously here — the whole commit rolls back atomically on failure, and the failure-path undo
-   * ({@link #undoReconciledIndexEngines}) is keyed on the created engines, so a dropped engine's
-   * registry entry is restored only by the commit itself failing and the caller not publishing the
-   * drop (the drop's registry removal is a committed-schema mutation the caller defers to the
-   * post-{@code commitChanges} publish step for a clean success/rollback split).
+   * synchronously here — the whole commit rolls back atomically on failure. The registry removal is
+   * therefore restored by {@link #restoreReconciledDroppedIndexEngines}: the caller records the
+   * returned {@link DroppedIndexEngine} on the plan and, on a failed commit, hands the captured list
+   * to that arm, which reconstructs a fresh engine from the captured durable data (the engine files
+   * revert with the rolled-back atomic operation on the disk profile, so the durable state the
+   * reconstruction reads is the pre-commit state again).
+   *
+   * <p>The durable {@link IndexEngineData} is captured before {@link #doDeleteIndexEngine} because the
+   * delete removes the storage-configuration entry the reconstruction reads, and the live engine
+   * object's histogram-manager teardown makes it unusable for re-publication.
    *
    * <p>Must be called with {@code stateLock.writeLock()} held and the commit window open.
    *
    * @param externalIndexId the external (API-version-tagged) id of the engine to delete.
    * @param atomicOperation the in-flight commit atomic operation that buffers the file deletes.
+   * @return the captured dropped engine (slot + durable data) for the failure-path reconstruction.
    */
-  public void deleteIndexEngineInCommitWindow(
+  public DroppedIndexEngine deleteIndexEngineInCommitWindow(
       final int externalIndexId, final AtomicOperation atomicOperation)
       throws IOException, InvalidIndexEngineIdException {
     final var internalIndexId = extractInternalId(externalIndexId);
@@ -3215,9 +3282,15 @@ public abstract class AbstractStorage
     final var engine = indexEngines.get(internalIndexId);
     assert internalIndexId == engine.getId();
 
+    // Capture the durable engine data before the delete removes the config entry it reads. The
+    // captured data (not the torn live engine) drives the failure-path reconstruction.
+    final var capturedData =
+        configuration.getIndexEngine(engine.getName(), internalIndexId, atomicOperation);
+
     doDeleteIndexEngine(atomicOperation, engine);
     indexEngines.set(internalIndexId, null);
     indexEngineNameMap.remove(engine.getName());
+    return new DroppedIndexEngine(internalIndexId, capturedData);
   }
 
   /**
@@ -3254,6 +3327,75 @@ public abstract class AbstractStorage
   }
 
   /**
+   * Restores the in-memory engine registry for every engine a failed schema-carry commit dropped, the
+   * drop-side mirror of {@link #undoReconciledCollections}'s re-register arm. {@link
+   * #deleteIndexEngineInCommitWindow} tore the engine out of {@code indexEngines} /
+   * {@code indexEngineNameMap} synchronously, so a failed commit must put it back or the surviving
+   * committed index would point at a nulled engine slot and throw on the next read. The rolled-back
+   * atomic operation reverts the engine's files on the disk profile, so the durable state this arm
+   * reads is the pre-commit state again; a fresh engine is reconstructed from the captured durable
+   * {@link IndexEngineData} through the same {@code Indexes.createIndexEngine} + {@code engine.load}
+   * path {@link #openIndexes} uses at startup, and re-registered at the original slot.
+   *
+   * <p>A fresh engine object is rebuilt rather than re-publishing the torn one: {@code
+   * deleteIndexEngineInCommitWindow} ran the engine's own {@code delete}, which for a B-tree engine
+   * permanently marks its histogram manager's rebalance flag and clears its caches, so the torn object
+   * would spin forever in the histogram rebalance CAS loop if re-published.
+   *
+   * <p>Deterministic invariant, not best-effort: after this arm runs the surviving committed index
+   * MUST be fully usable again. The only best-effort part is failure containment — this runs in the
+   * failure-path {@code finally} while the original commit exception propagates, so a reconstruction
+   * that itself hits an unexpected error is logged loudly and assert-guarded rather than thrown, so it
+   * never masks the primary commit failure with a secondary one. Runs under the held write lock.
+   *
+   * @param droppedEngines the engines the failed commit dropped (slot + captured durable data).
+   */
+  private void restoreReconciledDroppedIndexEngines(final List<DroppedIndexEngine> droppedEngines) {
+    for (final var dropped : droppedEngines) {
+      final var internalId = dropped.internalId();
+      final var engineData = dropped.data();
+      if (engineData == null) {
+        // No captured durable data means there was nothing to reconstruct (a drop whose config read
+        // returned null before the delete). Nothing to restore; the divergence self-corrects on the
+        // next reopen if it ever occurs.
+        assert false
+            : "dropped index engine at slot " + internalId + " had no captured durable data";
+        continue;
+      }
+      // Idempotent against a slot a later create-undo already left null-and-reusable: only reconstruct
+      // when the slot is actually empty, so a restore never overwrites a live registration.
+      if (internalId >= 0 && internalId < indexEngines.size()
+          && indexEngines.get(internalId) != null) {
+        continue;
+      }
+      try {
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> {
+              final var engine = Indexes.createIndexEngine(this, engineData);
+              engine.load(engineData, atomicOperation);
+              if (engine instanceof BTreeIndexEngine btreeEngine) {
+                wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+              }
+              publishIndexEngine(engineData.getIndexId(), engine);
+            });
+      } catch (final IOException | RuntimeException | AssertionError e) {
+        // Loud failure containment: the reconstruction runs while the primary commit exception is
+        // propagating, so it must not throw a secondary exception that masks the primary. Log at error
+        // and assert-guard so a -ea test surfaces the broken invariant, while production keeps the
+        // primary failure intact. A reconstruction failure is a real defect (the surviving committed
+        // index is unusable until the next reopen), never a silently shipped broken index.
+        LogManager.instance()
+            .error(this,
+                "Failed to reconstruct dropped index engine '"
+                    + engineData.getName() + "' (slot " + internalId + ") after a failed schema"
+                    + " commit; the surviving committed index is unusable until the storage reopens",
+                e);
+        assert false : "dropped index engine reconstruction failed for slot " + internalId;
+      }
+    }
+  }
+
+  /**
    * Drops the surviving files of an engine a failed schema-carry commit created, mirroring {@link
    * #revertCreatedCollectionStructure}. Runs in a fresh atomic operation because the failed commit's
    * operation is already closed by {@code rollback}. Guarded on the engine name still being present
@@ -3268,7 +3410,17 @@ public abstract class AbstractStorage
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
-            if (!configuration.indexEngines(atomicOperation).contains(engine.getName())) {
+            // The surviving engine data file is the in-memory-vs-disk discriminator, mirroring the
+            // collection arm's isComponentPresent check. The old guard tested
+            // configuration.indexEngines(...).contains(name), the storage-configuration entry — but
+            // that entry reverts with the rolled-back atomic operation on BOTH profiles (the in-memory
+            // config cache reverts its eager put too), so on the in-memory profile it returned false
+            // while the eager-installed engine files survived, and the guard skipped the cleanup that
+            // was its whole reason to exist. A physical-file-presence check is true only when the
+            // files actually survived: false on the disk profile (rollback removed them) and true on
+            // the in-memory profile (the eager cache install survived), so the cleanup runs exactly
+            // where an orphan exists.
+            if (!engineFilesPresent(engine.getName())) {
               return;
             }
             doDeleteIndexEngine(atomicOperation, engine);
@@ -3280,6 +3432,34 @@ public abstract class AbstractStorage
                   + "' after a failed schema commit; a bounded single-engine leak may remain",
               e);
     }
+  }
+
+  /**
+   * Whether any physical file of the named index engine survives in the write cache — the
+   * in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the engine analogue of
+   * the collection arm's {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. A v1 BTree
+   * engine's files are named from the engine name plus a suffix (for example {@code <name>.cbt} for
+   * the data tree and {@code <name>$null.cbt} for the null tree), so a prefix match over the write
+   * cache's file listing catches every surviving file regardless of the exact suffix, without
+   * coupling this class to a specific engine's file-extension constant. The write cache reflects the
+   * committed physical files: the eager cache install survives a rollback on the in-memory profile
+   * and is reverted on the disk profile, so a surviving prefix match is exactly an orphan to clean up.
+   *
+   * @param engineName the dropped/created engine's name.
+   * @return {@code true} when at least one file whose name starts with {@code engineName} survives.
+   */
+  private boolean engineFilesPresent(final String engineName) {
+    final var wc = writeCache;
+    if (wc == null) {
+      return false;
+    }
+    final var prefix = engineName.toLowerCase(Locale.ROOT);
+    for (final var fileName : wc.files().keySet()) {
+      if (fileName.toLowerCase(Locale.ROOT).startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -3300,6 +3480,42 @@ public abstract class AbstractStorage
    */
   public void setCommitWindowTestHook(final Runnable hook) {
     this.commitWindowTestHook = hook;
+  }
+
+  /**
+   * A test-only hook fired inside the schema-carry commit window <em>after</em> the engine build/drop
+   * phase (engines built, published, and dropped) and before the record apply commits, while {@code
+   * stateLock.writeLock()} is held and the commit window is open. Null in production. Unlike {@link
+   * #commitWindowTestHook} (which fires before any engine is created), this hook fires at the
+   * engines-published-but-not-durable point, so a fault injected here drives the failure-path engine
+   * undo and drop-restore arms over a non-empty {@code createdEngineExternalIds} / {@code
+   * droppedEngines} — the only point where those arms have work to do. {@code volatile} because the
+   * installing and committing threads may differ in a concurrent test.
+   */
+  private volatile Runnable postEngineBuildTestHook;
+
+  /**
+   * Installs (or clears, with {@code null}) the test-only post-engine-build commit hook. Test-only
+   * seam — no production code sets a hook. See {@link #postEngineBuildTestHook}.
+   */
+  public void setPostEngineBuildTestHook(final Runnable hook) {
+    this.postEngineBuildTestHook = hook;
+  }
+
+  /**
+   * Whether the named engine is registered in both {@code indexEngineNameMap} and {@code
+   * indexEngines}, read lock-free for a caller already inside the commit window. The public {@link
+   * #loadIndexEngine(String)} takes {@code stateLock.readLock()}, which busy-spins forever when the
+   * schema-carry commit already holds the non-reentrant write lock, so a test hook firing inside the
+   * commit window must use this window-aware probe instead. Test-only: it is the assertion seam that
+   * proves an engine actually exists at the fault point, so a failed-commit test cannot pass
+   * vacuously. Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   *
+   * @param engineName the engine name to probe.
+   * @return {@code true} when a registered engine of that name exists.
+   */
+  public boolean isIndexEngineRegisteredInCommitWindow(final String engineName) {
+    return indexEngineNameMap.containsKey(engineName);
   }
 
   private void commitIndexes(DatabaseSessionEmbedded db, AtomicOperation atomicOperation,

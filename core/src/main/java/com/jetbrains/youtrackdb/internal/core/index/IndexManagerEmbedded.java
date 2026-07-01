@@ -804,12 +804,16 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    *                        phase, for the failure-path revert.
    * @param createdEngineExternalIds the built engine ids, filled in during the build phase so the
    *                        failure path can revert the phantom registrations.
+   * @param droppedEngines  the dropped engines (slot + captured durable data), filled in during the
+   *                        build phase so the failure path can reconstruct each engine the drop tore
+   *                        out of the in-memory registry.
    */
   public record ReconciledIndexPlan(
       List<IndexAbstract> created,
       List<Index> dropped,
       List<AppliedMembership> appliedMembership,
-      List<Integer> createdEngineExternalIds) {
+      List<Integer> createdEngineExternalIds,
+      List<AbstractStorage.DroppedIndexEngine> droppedEngines) {
 
   }
 
@@ -834,11 +838,14 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @param session         the committing session.
    * @param transaction     the in-flight commit transaction.
    * @param overlay         the transaction's index overlay (its four delta categories).
+   * @param atomicOperation the in-flight commit atomic operation, threaded through so the v1
+   *                        empty-source bound can confirm an approximate-zero count with an exact scan.
    * @return the plan the build and publish phases consume, or {@code null} when the overlay carries
    *     no index delta.
    */
   @Nullable public ReconciledIndexPlan enrollReconciledIndexRecords(
-      DatabaseSessionEmbedded session, FrontendTransaction transaction, IndexOverlay overlay) {
+      DatabaseSessionEmbedded session, FrontendTransaction transaction, IndexOverlay overlay,
+      AtomicOperation atomicOperation) {
     if (overlay == null || overlay.isEmpty()) {
       return null;
     }
@@ -852,7 +859,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // The v1 build is bounded to an empty source collection: a populated source would hold the
       // whole collection in heap under the exclusive commit lock. Reject loudly and point at the
       // follow-up rather than stalling or silently truncating.
-      rejectNonEmptySourceCollection(session, handle);
+      rejectNonEmptySourceCollection(session, handle, atomicOperation);
       final var abstractHandle = (IndexAbstract) handle;
       abstractHandle.saveRecordAtCommit(transaction);
       indexLinkSet.add(abstractHandle.getIdentity());
@@ -905,17 +912,26 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
     }
 
-    return new ReconciledIndexPlan(created, dropped, appliedMembership, new ArrayList<>());
+    return new ReconciledIndexPlan(created, dropped, appliedMembership, new ArrayList<>(),
+        new ArrayList<>());
   }
 
   /**
    * Rejects a tx-created index whose source collection already holds committed rows (the v1
-   * v1 empty-class build bound). Reads the collection's approximate record count lock-free (the
-   * caller holds {@code stateLock.writeLock()}), so it never re-acquires the non-reentrant state
-   * lock. A same-transaction-created source collection is empty by construction and passes.
+   * empty-class build bound). Reads the collection's record count lock-free (the caller holds
+   * {@code stateLock.writeLock()}), so it never re-acquires the non-reentrant state lock. A
+   * same-transaction-created source collection is empty by construction and passes.
+   *
+   * <p>Two-stage check so the bound never silently ships an incomplete index. The approximate count
+   * is a fast pre-check: an approximate {@code > 0} rejects immediately, and because the approximate
+   * count can only over-report (a stale entry-point counter reads high, never low), an over-report
+   * only causes a false rejection, never data loss. When the approximate count reads zero the exact
+   * scan confirms it — cheap because it runs on the collection the pre-check already judged empty —
+   * closing the under-report hole where a stale zero would let the population (which scans only the
+   * transaction's own record operations) skip committed rows and build an index missing entries.
    */
   private void rejectNonEmptySourceCollection(
-      DatabaseSessionEmbedded session, Index handle) {
+      DatabaseSessionEmbedded session, Index handle, AtomicOperation atomicOperation) {
     final var definition = handle.getDefinition();
     if (definition == null) {
       return;
@@ -925,7 +941,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (collectionId < 0) {
         continue;
       }
-      if (((AbstractStorage) storage).getApproximateRecordsCountInCommitWindow(collectionId) > 0) {
+      final var abstractStorage = (AbstractStorage) storage;
+      final var nonEmpty =
+          abstractStorage.getApproximateRecordsCountInCommitWindow(collectionId) > 0
+              || abstractStorage.getExactRecordsCountInCommitWindow(collectionId, atomicOperation)
+                  > 0;
+      if (nonEmpty) {
         throw new IndexException(session.getDatabaseName(),
             "Building index '" + handle.getName() + "' inside a transaction is bounded to an empty"
                 + " source collection in this version; collection '" + collectionName + "' is not"
@@ -957,16 +978,25 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       ReconciledIndexPlan plan)
       throws IOException {
     try {
+      // Drops run before creates so a drop-then-recreate of the same name in one transaction frees
+      // the old engine's name-map entry before the new build hits the duplicate-name guard: the two
+      // deltas net to a replace (the name stays in both the tx-dropped and tx-created sets), so
+      // building the new engine first would collide with the still-registered old one.
+      for (final var droppedIndex : plan.dropped()) {
+        final var engineId = droppedIndex.getIndexId();
+        if (engineId >= 0) {
+          final var droppedEngine =
+              ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(engineId,
+                  atomicOperation);
+          // Capture the dropped engine so the failure path can reconstruct it: the delete tore the
+          // engine out of the in-memory registry synchronously, and a failed commit must put it back.
+          plan.droppedEngines().add(droppedEngine);
+        }
+      }
       for (final var handle : plan.created()) {
         final var externalId = handle.buildEngineAtCommit(transaction, atomicOperation);
         plan.createdEngineExternalIds().add(externalId);
         populateTxCreatedIndex(session, transaction, handle);
-      }
-      for (final var droppedIndex : plan.dropped()) {
-        final var engineId = droppedIndex.getIndexId();
-        if (engineId >= 0) {
-          ((AbstractStorage) storage).deleteIndexEngineInCommitWindow(engineId, atomicOperation);
-        }
       }
     } catch (final InvalidIndexEngineIdException e) {
       // Wrap the checked engine-id exception as an unchecked IndexException so the commit's
@@ -1044,15 +1074,19 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * <p>Must be called with the index-manager write lock and {@code stateLock.writeLock()} held.
    */
   public void publishReconciledIndexes(FrontendTransaction transaction, ReconciledIndexPlan plan) {
+    // Drops publish before creates, mirroring the build phase's drop-then-create order, so a
+    // drop-then-recreate of the same name in one transaction removes the old handle from the shared
+    // lookup maps before the new handle registers under the same name: publishing the create first
+    // and then the drop would evict the just-registered new handle.
+    for (final var droppedIndex : plan.dropped()) {
+      removeClassPropertyIndexInternal(droppedIndex);
+      indexes.remove(droppedIndex.getName());
+    }
     for (final var handle : plan.created()) {
       // The engine is built and the record durable, so register the handle in the shared lookup maps
       // exactly as the non-transactional create's addIndexInternalNoLock does, without re-updating the
       // index-manager entity (its link set was updated in the enroll phase and is already durable).
       addIndexInternalNoLock(handle, transaction, false);
-    }
-    for (final var droppedIndex : plan.dropped()) {
-      removeClassPropertyIndexInternal(droppedIndex);
-      indexes.remove(droppedIndex.getName());
     }
   }
 
