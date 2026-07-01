@@ -54,6 +54,17 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 - 2026-07-01T22:53Z Step 4: cumulative track diff is ~3,960 lines (generated +
   `_workflow` excluded) after four steps; Step 5 crosses ~4,000. Phase C should
   review by focal step range (Steps 2–4 high), not one pass. See Episodes §Step 4.
+- 2026-07-01T22:53Z Step 5 pre-work note (registration ordering trap): D4 requires
+  translator-first ordering, which is why Step 4 keys the recogniser on the plain
+  `GraphStep` — a translator that ran **after** `YTDBGraphStepStrategy` would
+  instead have to key on `YTDBGraphStep`. Step 5 must enforce translator-first with
+  three `applyPrior` edits (T2): **create** `applyPrior()` on `YTDBGraphStepStrategy`
+  (it has none) returning `{GremlinToMatchStrategy.class}`, and **widen**
+  `YTDBGraphCountStrategy.applyPrior()` (~line 114) and
+  `YTDBGraphMatchStepStrategy.applyPrior()` (~line 147) to add it; leave the
+  translator's own prior/post empty. Verify with a test: a real `g.V()` after
+  `applyStrategies()` holds exactly one `YTDBMatchPlanStep` (fails under the
+  opposite, translator-last ordering).
 
 ## Decision Log
 <!-- Continuous-log. Execution-time decisions: inline-replan choices,
