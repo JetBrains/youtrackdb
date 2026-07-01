@@ -459,6 +459,35 @@ Surprises §Step 1.
 - `…/staged-workflow/.claude/workflow/design-decision-escalation.md` (new staged copy)
 - `…/staged-workflow/.claude/skills/code-review/SKILL.md` (new staged copy)
 
+### Track completion — 2026-07-01T07:34Z [ctx=safe]
+Re-keyed the Phase-C track-code-review loop from a fixed three-iteration cap to a
+per-track-complexity-tag termination policy. Three rules replace the flat cap:
+blockers loop uncapped at every level; should-fix loop depth scales with the tag
+(`low` none, `medium` up to three, `high` uncapped); and no-progress detection —
+escalate on the first iteration that clears nothing — replaces the cap-3 escalation
+as the safety valve, read off the gate-check verdict stream the loop already emits.
+The change is Phase-C-only; the Phase-2 / 3A / 3B loops keep cap-3-then-escalate.
+
+The load-bearing discovery, surfaced progressively across all three review phases,
+is that a single-file restate grep structurally misses cap-3 prose scattered across
+the whole Phase-C-loading file set. Phase A risk/adversarial added two files
+(`code-review-protocol.md`, `design-decision-escalation.md`) beyond the enumerated
+three; Phase B step-level review added a seventh (`finding-synthesis-recipe.md`)
+plus two in-file residuals in `review-iteration.md` (the §Iteration flow diagram and
+the §Limits TOC summary). The durable rule the track adopts is a tree-wide restate
+authority over the Phase-C-loading file set, not one file. No decision changed —
+D2's scope stayed Phase-C behavior throughout.
+
+Phase C code review was skipped: the sole step is `risk: high` and workflow-only, so
+the Phase B step-level review already ran the full track-pass-equivalent selection
+(the five triggered workflow reviewers — consistency, context-budget, writing-style,
+prompt-design, instruction-completeness) against the identical cumulative diff. No
+unfixed findings, no deferred findings, no plan corrections. The change is staged
+under `_workflow/staged-workflow/.claude/...`; the live `.claude/` files promote at
+Phase 4.
+
+1 step, 0 failed.
+
 ## Validation and Acceptance
 Track-level behavioral acceptance (verified by the Phase-C workflow-review agents
 plus grep, not by Java tests — this is a prose-only change):
