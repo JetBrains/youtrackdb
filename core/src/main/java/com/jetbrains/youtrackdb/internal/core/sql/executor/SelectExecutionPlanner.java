@@ -2409,9 +2409,13 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    // Pull at most one RID predicate: try equality first, then the IN list.
+    // Pull at most one RID predicate: try equality first, then the IN list. Track which
+    // extractor fired: the equality path must not expand a collection-valued RID value
+    // (see the multi-value handling below), while the IN path expands all elements.
+    var fromEquality = true;
     var extraction = info.whereClause.extractAndRemoveRidEquality();
     if (extraction == null) {
+      fromEquality = false;
       extraction = info.whereClause.extractAndRemoveRidInList();
     }
     if (extraction == null) {
@@ -2425,13 +2429,29 @@ public class SelectExecutionPlanner {
     }
 
     // Evaluate the RID expression and map its result(s) to RecordIdInternal, mapping
-    // each the way SQLRid.toRecordId's switch does. A scalar result yields one
-    // candidate; a multi-value result (the IN list) yields one per element.
+    // each the way SQLRid.toRecordId's switch does.
     var evaluated = ridExpression.execute((Result) null, ctx);
     var candidates = new LinkedHashSet<RecordIdInternal>();
     if (MultiValue.isMultiValue(evaluated)) {
       var iterable = MultiValue.getMultiValueIterable(evaluated);
-      if (iterable != null) {
+      if (fromEquality) {
+        // Scalar @rid = <collection>: the scan path this replaces unwraps a collection to
+        // its element only when the collection has exactly one element (QueryOperatorEquals
+        // .equals size-1 unwrap); a size-0 or size->=2 collection never matches a scalar
+        // @rid, so the scan returns empty. To keep that parity, optimize only the size-1
+        // case (one candidate) and fall through to the scan for any other size — returning
+        // false is safe because info.whereClause is not mutated until the success branch,
+        // so the scan sees the original @rid = <collection> predicate and returns empty.
+        var single = singleElementOrNull(iterable);
+        if (single == null) {
+          return false;
+        }
+        var rid = toRecordIdCandidate(single);
+        if (rid != null) {
+          candidates.add(rid);
+        }
+      } else if (iterable != null) {
+        // IN list: expand every element into a candidate.
         for (var element : iterable) {
           var rid = toRecordIdCandidate(element);
           if (rid != null) {
@@ -2489,6 +2509,27 @@ public class SelectExecutionPlanner {
     // would drop every RID after the dangling one.
     plan.chain(new FetchFromRidsStep(members, ctx, profilingEnabled, /* skipMissing= */ true));
     return true;
+  }
+
+  /**
+   * Returns the sole element of {@code iterable} when it contains exactly one element,
+   * otherwise null (for a null iterable, an empty one, or one with two or more elements).
+   * Used on the scalar-equality path to mirror {@code QueryOperatorEquals.equals}'s size-1
+   * collection unwrap: a scalar {@code @rid} only matches a size-1 collection.
+   */
+  @Nullable private static Object singleElementOrNull(@Nullable Iterable<?> iterable) {
+    if (iterable == null) {
+      return null;
+    }
+    var it = iterable.iterator();
+    if (!it.hasNext()) {
+      return null;
+    }
+    var first = it.next();
+    if (it.hasNext()) {
+      return null;
+    }
+    return first;
   }
 
   /**

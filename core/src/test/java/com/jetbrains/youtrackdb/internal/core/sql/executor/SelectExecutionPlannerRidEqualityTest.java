@@ -20,6 +20,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.Assert;
@@ -554,6 +555,143 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     Assert.assertTrue("reversed <literal> = @rid must still use the RID fetch, plan was: " + plan,
         plan.contains("FETCH FROM RIDs"));
     Assert.assertFalse(plan.contains("FETCH FROM CLASS"));
+  }
+
+  /**
+   * A scalar {@code @rid = :param} where the param binds to a 2-or-more-element RID collection must
+   * return empty and fall through to the class scan, NOT expand into a multi-RID fetch. The scan
+   * this path replaces (QueryOperatorEquals) unwraps a collection to its element only at size 1, so
+   * a scalar @rid never matches a multi-element collection — the fast path must preserve that
+   * empty-result parity rather than wrongly fetching every element.
+   */
+  @Test
+  public void ridEqualsMultiElementCollectionParam_returnsEmpty() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(className);
+    b.setProperty("tag", "b");
+    var ridA = a.getIdentity();
+    var ridB = b.getIdentity();
+    session.commit();
+
+    // A scalar equality against a 2-element collection: the scan matches nothing.
+    Map<Object, Object> params = new HashMap<>();
+    params.put("p", List.of(ridA, ridB));
+
+    var sql = "select from " + className + " where @rid = :p";
+    var plan = explainPlanWithParams(sql, params);
+    Assert.assertTrue(
+        "a scalar @rid against a multi-element collection must fall through to the class scan, "
+            + "plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
+    Assert.assertFalse(
+        "a scalar @rid = <2-element collection> must NOT expand into a RID fetch, plan was: "
+            + plan,
+        plan.contains("FETCH FROM RIDs"));
+
+    try (var result = session.query(sql, params)) {
+      Assert.assertFalse(
+          "@rid = <2-element collection> must return empty (parity with the scan)",
+          result.hasNext());
+    }
+  }
+
+  /**
+   * A scalar {@code @rid = :param} where the param binds to a 1-element RID collection must return
+   * that record — pinning the size-1 unwrap boundary that mirrors QueryOperatorEquals: a size-1
+   * collection unwraps to its element and matches the scalar @rid, so the fast path fetches it.
+   */
+  @Test
+  public void ridEqualsSingleElementCollectionParam_returnsRecord() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    doc.setProperty("tag", "single");
+    var rid = doc.getIdentity();
+    session.commit();
+
+    Map<Object, Object> params = new HashMap<>();
+    params.put("p", List.of(rid));
+
+    var sql = "select from " + className + " where @rid = :p";
+    try (var result = session.query(sql, params)) {
+      Assert.assertTrue("a size-1 collection must unwrap and match the scalar @rid",
+          result.hasNext());
+      Assert.assertEquals("single", result.next().getProperty("tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * A negated {@code @rid NOT IN [...]} must fall through to the class scan unoptimized — the
+   * complement is a distinct AST node that never reaches the RID extractors, so it is not a direct
+   * RID fetch. Over a class with two records, {@code NOT IN [ridA]} returns every record except A.
+   */
+  @Test
+  public void ridNotInList_fallsThroughToScan() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(className);
+    b.setProperty("tag", "b");
+    var ridA = a.getIdentity();
+    session.commit();
+
+    var sql = "select from " + className + " where @rid not in [" + ridA + "]";
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "@rid NOT IN must fall through to the class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
+    Assert.assertFalse(
+        "the RID fetch fast path must not fire for a negated IN, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      // Only record b survives the NOT IN [ridA] filter.
+      Assert.assertEquals("b", result.next().getProperty("tag"));
+      Assert.assertFalse(result.hasNext());
+    }
+  }
+
+  /**
+   * When both {@code @rid = <a>} and {@code @rid IN [<a>, <b>]} appear, the equality is extracted
+   * first and drives the RID fetch; the leftover IN becomes a post-fetch FilterStep remainder. The
+   * two convergent predicates leave only record {@code a}, via a single RID fetch.
+   */
+  @Test
+  public void ridEqualsAndRidInList_equalityWinsReturnsSingle() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("tag", "a");
+    var b = session.newInstance(className);
+    b.setProperty("tag", "b");
+    var ridA = a.getIdentity();
+    var ridB = b.getIdentity();
+    session.commit();
+
+    var sql = "select from " + className
+        + " where @rid = " + ridA + " and @rid in [" + ridA + ", " + ridB + "]";
+    var plan = explainPlan(sql);
+    Assert.assertTrue(
+        "the equality must drive a RID fetch, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+    Assert.assertEquals(
+        "exactly one RID fetch (equality extracted, IN left as the filter remainder), plan was: "
+            + plan,
+        1,
+        countOccurrences(plan, "FETCH FROM RIDs"));
+
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals("a", result.next().getProperty("tag"));
+      Assert.assertFalse(
+          "only record a satisfies both @rid = a and @rid IN [a, b]", result.hasNext());
+    }
   }
 
   /** Runs EXPLAIN and returns the pretty-printed plan string. */
