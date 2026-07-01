@@ -455,7 +455,7 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > create must leave no recovery-visible stray collection, D2/D10) and the deferred
   > D6 write-amplification win plus the F59 root-omission regression.
 
-- [ ] Track 4: Commit-time reconciliation and the schema-carrying commit lock (D1, D2, D3, D6, D9, D10, D19)
+- [x] Track 4: Commit-time reconciliation and the schema-carrying commit lock (D1, D2, D3, D6, D9, D10, D19)
   > Make the commit compute the structural delta as a set difference over committed
   > versus tx-local collection-id sets, resolve provisional ids before any record
   > serializes, reconcile in the correct order through lock-free inner primitives
@@ -463,8 +463,65 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > under the four-lock order, promote the tx-local schema into the existing shared
   > instances with one `forceSnapshot`, and convert the two remaining lock-based
   > read sites to snapshot-first.
-  > **Scope:** ~15 files covering `AbstractStorage.commit`, the engine-primitive extraction, the provisional-id sites, promotion, the two read-site conversions, and commit/rollback/crash tests.
-  > **Depends on:** Track 1, Track 2, Track 3
+  >
+  > **Track episode:**
+  > Built the commit-time reconciliation core (D1/D3/D6/D9/D10) and the schema-carrying
+  > commit lock (D19) with the promotion facet (D8): a schema-carrying commit takes
+  > `stateLock.writeLock()` from the start under the four-lock order, computes the
+  > structural delta as a set difference over committed versus tx-local collection-id
+  > sets, allocates and resolves provisional ids before any record serializes, reconciles
+  > drops-then-creates through lock-free inner primitives, and promotes the tx-local schema
+  > into the shared instances with one `forceSnapshot`. Pure-data commits keep the
+  > read-lock fast path.
+  >
+  > Decomposition ran 4→5→6 steps across two mid-Phase-B splits, both forced by
+  > self-deadlock discoveries. Step 1 extracted lock-free commit-window primitives and a
+  > create/publish seam. Step 2 allocated provisional `<= -2` collection ids at both
+  > producer sites (create and the abstract→concrete alter). The original reconciliation-core
+  > step returned DESIGN_DECISION twice: the first split carved out D2 provisional-id
+  > production, the second added a lock-free commit-window record-read substrate (Step 3)
+  > after a thread dump caught `toStream`/`fromStream` re-entering `stateLock.readLock()`
+  > under the held write lock. Step 4 landed the reconciliation core on that substrate;
+  > Step 5 made the serializer selective (writes only `getChangedClasses()`, plus the F59
+  > selective root write); Step 6 converted the two hot lock-based reads
+  > (`createVertexWithClass`, `getLowerSubclass`) to snapshot-first.
+  >
+  > Cross-track hand-offs (all in Surprises): the commit-window seam and the
+  > `recordWriteTarget` proxy choke point generalize to Tracks 5/6/8. Any commit-body method
+  > that re-enters the read lock reuses the window; any de-guarded class or property
+  > mutation inherits complete change-tracking as long as it routes through
+  > `SchemaProxedResource.resolveForWrite`. A failed in-memory schema-carry commit orphans an
+  > engine file (`DirectMemoryOnlyDiskCache` never reverts eager `addFile`); Step 4 added a
+  > component-guarded create-side revert arm that Track 5/6 engine-file creates must mirror.
+  >
+  > The completion review escalated a design-level gap to inline replanning: a class, type,
+  > or rule created in an open tx is not enforced on that tx's own entities, because
+  > `EntityImpl.validate()` reads the committed-only snapshot. That became D21 (tx-aware
+  > immutable snapshot) on Track 5, alongside D15's index overlay. D21 also constrains Track
+  > 4's `computeCommitWorkingSet` read, which Track 5 must confirm sees the reconciled real
+  > id or guard against a provisional one. Three findings were deferred to Track 5 as plan
+  > corrections: TB2 (the index-engine half of the failed-commit registry-cleanliness
+  > criterion), the create-side provisional-collection index gap, and the drop-side tx-local
+  > `dropIndex` commit half.
+  >
+  > Track-level code review ran nine dimensional reviewers over `1dd9c0424f..HEAD`, returned
+  > 31 findings (1 blocker, 10 should-fix, 20 suggestions), and cleared every in-scope finding
+  > in two fix iterations (`0cb16dfc71`, `ab8f411066`), 0 blockers remaining. The blocker was
+  > a confirmed Track-4 regression proved empirically (green at base, red at HEAD): Step 5's
+  > `recordWriteTarget` recorded a class under its old name on `setName` before the rename
+  > applied, so `SchemaDeguardTest.renameClassInsideTransactionRecordsNewNameOnly` failed.
+  > `changeClassName` now calls `unmarkClassChanged(oldName)`, and the test is green. A later
+  > review-mode pass (`1c52578681`) hardened the barrier-hang tests, tightened the rename
+  > rationale, and turned the `undoReconciledCollections` silent skip into an assert-plus-log.
+  >
+  > One test stays red and un-`@Ignore`d: `MetadataWriteMutexTest.twoConcurrentSchemaTransactionsSerializeWithoutAbort`.
+  > It is not in the Track 4 diff, fails identically before and after the track, and is the
+  > pre-existing Track 3 / Track 7 tx-local-seed / mutex-handshake failure — a merge-blocker
+  > for its owning track, not this one. No full-suite or coverage run was possible (host
+  > parallel-surefire fork-start crash, environmental); every Track 4 test class is green under
+  > targeted single-class runs, and the CI coverage gate is the final arbiter.
+  >
+  > **Track file:** `plan/track-4.md` (6 steps, 0 failed)
 
 - [ ] Track 5: Tx-local index overlay, commit-time engine build, query-usability, and the tx-aware snapshot (D12, D13, D15, D21)
   > Give indexes a tx-local definition overlay (committed + tx-created − tx-dropped)
