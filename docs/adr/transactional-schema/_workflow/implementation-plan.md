@@ -522,6 +522,15 @@ invariants" blocks and in the research log's `## Invariants and Test Requirement
   > targeted single-class runs, and the CI coverage gate is the final arbiter.
   >
   > **Track file:** `plan/track-4.md` (6 steps, 0 failed)
+  >
+  > **Strategy refresh:** CONTINUE — every Track-4 discovery touching a remaining
+  > track was already folded in before this gate: D21 (tx-aware snapshot) added to
+  > Track 5 via inline replan and re-validated by the post-D21 plan review, the three
+  > deferred commit-path items (I-A4/TB2, provisional-collection index gap, drop-side
+  > `dropIndex` half) landed in Track 5's Plan of Work and Validation, and Track 4's
+  > commit-window seam / `recordWriteTarget` choke point / engine-revert arm are
+  > reusable primitives. No Component Map, Decision Record, or inter-track dependency
+  > for Tracks 5-8 changed.
 
 - [ ] Track 5: Tx-local index overlay, commit-time engine build, query-usability, and the tx-aware snapshot (D12, D13, D15, D21)
   > Give indexes a tx-local definition overlay (committed + tx-created − tx-dropped)
