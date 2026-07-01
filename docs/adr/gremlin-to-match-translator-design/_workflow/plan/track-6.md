@@ -1,4 +1,4 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 # Track 6: Advanced patterns + hardening — union, list-shaping terminators, Cucumber green + perf baseline
 
 ## Purpose / Big Picture
@@ -79,3 +79,13 @@ flowchart LR
 **Out of scope:** edge-bearing OR, `optional`, variable-depth `repeat`, and the rest of the Phase 2 long tail (design §"Out of scope"); the approximate-count mode (Phase 2).
 **Inter-track dependencies:** depends on Track 5 (all five upstream output types and the projection logic the terminators post-process). This is the last Phase 1 track; it validates every prior track via the full Cucumber re-run and the JMH baseline.
 **Signatures:** `SelectExecutionPlan.start()` (fresh `ExecutionStream` per call); `UnfoldStep.flatMap` / `ReverseStep.map` / `TailGlobalStep` (TP reference semantics); `YTDBGraphFeatureTest` / `EmbeddedGraphFeatureTest` (Cucumber runners).
+
+## Invariants & Constraints
+<!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).
+Added by workflow migration (#1145). Strategic invariants/constraints for this track remain
+in implementation-plan.md § High-level plan (Architecture Notes) and this track's ## Decision
+Log — the conservative migration retained the plan Architecture Notes rather than folding them here. -->
+
+## Base commit
+<!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
+cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->

@@ -1,4 +1,4 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 # Gremlin-to-MATCH Translator
 
 ## Design Document
@@ -449,15 +449,3 @@ Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivere
 Decision conformance: D6 (one shared builder package serving both front-ends) and D-IS-DEFINED (the presence-operator factories) are satisfied by Track 1. The remaining decisions — D1–D5, D7–D11, and D-TEXT-OPS — belong to Tracks 2–6 and are not yet implemented.
 
 Track 1 deferral: `MatchWhereBuilder.endsWith` / `matchesRegex` are not built in this track. Their AST backing (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) is introduced by Track 4's D-TEXT-OPS work; the baseline-backed `containsText` (`SQLContainsTextCondition`) and `startsWith` (half-open range) ship in Track 1. See plan/track-1.md § Decision Log.
-
-## Plan Review
-- [x] Plan review (consistency + structural) — passed at iteration 1
-
-**Auto-fixed (mechanical)**: S2 — trimmed Track 4 checklist intro to 3 sentences (detail already in plan/track-4.md); S3 — trimmed Track 6 checklist intro to 3 sentences (detail already in plan/track-6.md).
-
-**Escalated (design decisions)**: S1 — missing Decision Record for the class-`count(*)` fast-path unification (the one engine-surface change beyond the additive ctor, reversing the pre-YTDB-609 decline rationale). User approved adding D11, rationale distilled from the frozen design.md §"Aggregation barrier semantics".
-
-Consistency review: no findings (28 verification certificates, all current-state symbols confirmed). Review files: `plan/reviews/consistency-iter1.md`, `plan/reviews/structural-iter1.md`.
-
-## Final Artifacts
-- [ ] Phase 4: Final artifacts (`design-final.md`, `adr.md`)

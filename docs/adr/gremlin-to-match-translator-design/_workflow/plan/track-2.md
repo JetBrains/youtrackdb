@@ -1,4 +1,4 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
 # Track 2: Strategy skeleton + boundary step + minimal `g.V()` / `g.V(ids)` translation
 
 ## Purpose / Big Picture
@@ -150,3 +150,13 @@ flowchart LR
 **Out of scope:** every recogniser past `StartStepRecogniser` (Tracks 3–6); edge / filter / projection / aggregate / union translation; the existing MATCH execution steps and IR classes (consumed unchanged).
 **Inter-track dependencies:** depends on Track 1 (`MatchPatternBuilder`). Supplies the walker, registry, context, boundary, cache, and anon-alias generator to every later track. Track 3 adds the `polymorphic` flag's chain-target use and the first boundary output type.
 **Signatures:** `ProviderOptimizationStrategy.apply / applyPrior / applyPost`; `MatchExecutionPlanner.createExecutionPlan(ctx, prof, useCache)`; `SQLPositionalParameter.getValue(params)`; `YTDBStrategyUtil.isPolymorphic(traversal)`.
+
+## Invariants & Constraints
+<!-- Combined per-track invariants + constraints (conventions-execution.md §2.1 §14).
+Added by workflow migration (#1145). Strategic invariants/constraints for this track remain
+in implementation-plan.md § High-level plan (Architecture Notes) and this track's ## Decision
+Log — the conservative migration retained the plan Architecture Notes rather than folding them here. -->
+
+## Base commit
+<!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
+cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
