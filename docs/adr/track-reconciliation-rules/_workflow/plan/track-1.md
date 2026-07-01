@@ -30,7 +30,7 @@ Phase-B step reviews keep the canonical cap-3-then-escalate behavior.
 ## Progress
 - [x] 2026-06-30T16:33Z [ctx=info] Review + decomposition complete
 - [x] 2026-06-30T17:20Z [ctx=info] Step implementation
-- [ ] Track-level code review
+- [x] 2026-07-01T07:34Z [ctx=safe] Track-level code review (skipped — single-step track, full track-pass selection already ran at the step in Phase B)
 - [ ] Track completion
 - [x] 2026-06-30T17:20Z [ctx=safe] Step 1 complete (commit da53127753)
 
