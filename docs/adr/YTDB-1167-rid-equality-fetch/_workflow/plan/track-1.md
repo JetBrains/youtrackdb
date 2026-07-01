@@ -15,6 +15,7 @@ Today a `SELECT FROM Person WHERE @rid = #18:0` reads every record in `Person` a
 - [ ] Track completion
 - [x] 2026-07-01T13:50Z [ctx=safe] Review + decomposition complete
 - [x] 2026-07-01T14:36Z [ctx=safe] Step 1 complete (commit 08444b1fb8)
+- [x] 2026-07-01T16:30Z [ctx=info] Track-level code review iteration 1 complete
 
 ## Surprises & Discoveries
 - Step 1 leaves the defensive `toRecordIdCandidate` switch arms for a String or null/other-type evaluated RID value uncovered — the Identifiable-RID tests never reach them. Changed-code coverage is 93.6% line / 76.3% branch, above the 85/70 gate. Phase C's test-completeness review can add a `@rid = '#c:p'` string-literal test to exercise the `case String` arm, or accept the arms as defensive skips. See Episodes §Step 1.
