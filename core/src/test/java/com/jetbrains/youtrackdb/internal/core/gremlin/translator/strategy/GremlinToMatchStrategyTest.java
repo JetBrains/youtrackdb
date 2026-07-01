@@ -3,10 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
@@ -20,6 +22,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -200,31 +203,75 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Throw-safety net: a throwing translator declines cleanly; the throw never
-  // escapes apply() and the step list is left untouched.
+  // Throw-safety net: an ordinary Exception from a translator declines cleanly (the
+  // exception never escapes apply() and the step list is left untouched), but an Error
+  // or AssertionError propagates so a fatal JVM error or an -ea invariant violation
+  // surfaces loudly instead of degrading to a silent decline.
   // ---------------------------------------------------------------------------
 
   /**
-   * A translator that throws must not break the traversal: {@code apply} catches the throwable,
-   * declines to the native pipeline, and leaves the step list unchanged. Without the net a
-   * walker/recognizer bug would abort compilation for every Gremlin query (the strategy runs on
-   * the every-traversal critical path). Uses an {@link Error} to prove the net catches beyond
-   * {@link RuntimeException}.
+   * A translator that throws an ordinary {@link RuntimeException} (the realistic walker /
+   * recognizer bug) must not break the traversal: {@code apply} catches the exception, declines
+   * to the native pipeline, and leaves the step list unchanged. Without the net such a bug would
+   * abort compilation for every Gremlin query (the strategy runs on the every-traversal critical
+   * path).
    */
   @Test
-  public void apply_translatorThrows_declinesWithoutPropagating() {
+  public void apply_translatorThrowsRuntimeException_declinesWithoutPropagating() {
     var admin = graph.traversal().V().asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     var strategy =
         new GremlinToMatchStrategy(
             t -> {
-              throw new AssertionError("simulated walker/recognizer failure");
+              throw new IllegalStateException("simulated walker/recognizer failure");
             });
 
     assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
     assertThat(admin.getSteps()).isEqualTo(stepsBefore);
     assertThat(admin.getSteps()).noneMatch(GremlinToMatchStrategyTest::isBoundary);
+  }
+
+  /**
+   * An {@link Error} from the translator seam must propagate, not decline: a fatal JVM error
+   * (e.g. {@code OutOfMemoryError} / {@code StackOverflowError}) must not be swallowed and handed
+   * to the native pipeline to re-attempt in an already-exhausted JVM. The net catches {@link
+   * Exception} only; {@code Error} is re-thrown by the dedicated {@code catch (Error)} arm.
+   */
+  @Test
+  public void apply_translatorThrowsError_propagates() {
+    var admin = graph.traversal().V().asAdmin();
+
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> {
+              throw new StackOverflowError("simulated fatal JVM error");
+            });
+
+    assertThatCode(() -> strategy.apply(admin))
+        .as("a fatal Error must surface, not degrade to a silent decline")
+        .isInstanceOf(StackOverflowError.class);
+  }
+
+  /**
+   * An {@link AssertionError} (a subclass of {@link Error}) from the translator seam must
+   * propagate. Under {@code -ea} — the test / CI default — a genuine invariant violation in the
+   * walk or plan build must surface loudly so the broken invariant is visible in the suite,
+   * rather than being swallowed into a silent decline that masks a real correctness bug.
+   */
+  @Test
+  public void apply_translatorThrowsAssertionError_propagates() {
+    var admin = graph.traversal().V().asAdmin();
+
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> {
+              throw new AssertionError("simulated invariant violation");
+            });
+
+    assertThatCode(() -> strategy.apply(admin))
+        .as("an -ea invariant violation must surface, not be swallowed")
+        .isInstanceOf(AssertionError.class);
   }
 
   /**
@@ -309,6 +356,44 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
     assertThat(admin.getSteps()).isEqualTo(stepsBefore);
     assertThat(consulted[0]).as("translator consulted for a detached traversal").isZero();
+  }
+
+  /**
+   * A session whose {@code getConfiguration()} returns {@code null} (its {@code @Nullable}
+   * contract permits it) declines cleanly at the kill-switch gate instead of NPE-ing on the
+   * flag read. The graph / transaction / session chain is mocked so {@code getConfiguration()}
+   * yields {@code null}; {@code apply} must complete without throwing, leave the step list
+   * verbatim, and never consult the translator. This pins the defensive null-guard so the
+   * decline does not depend on the throw-safety net catching an NPE.
+   */
+  @Test
+  public void apply_nullSessionConfiguration_declinesWithoutNpe() {
+    var session = mock(DatabaseSessionEmbedded.class);
+    when(session.getConfiguration()).thenReturn(null);
+    var tx = mock(YTDBTransaction.class);
+    when(tx.getDatabaseSession()).thenReturn(session);
+    var ytdbGraph = mock(YTDBGraph.class);
+    when(ytdbGraph.tx()).thenReturn(tx);
+
+    // A real traversal with the mocked YTDB graph attached, so resolveSessionIfEnabled walks
+    // graph -> tx -> session and reaches the null configuration.
+    var admin = new DefaultGraphTraversal<>();
+    admin.setGraph(ytdbGraph);
+    var stepsBefore = List.copyOf(admin.getSteps());
+
+    var consulted = new int[1];
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> {
+              consulted[0]++;
+              return Optional.of(fixtureTranslation());
+            });
+
+    assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
+    assertThat(admin.getSteps()).isEqualTo(stepsBefore);
+    assertThat(consulted[0])
+        .as("translator consulted despite an unresolvable (null) configuration")
+        .isZero();
   }
 
   /**
