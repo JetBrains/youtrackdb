@@ -68,11 +68,19 @@ new `Param` IR variant carries the parameter's identity (the recommended shape:
 a nullable `name` plus `paramNumber`), and the evaluator resolves it at eval
 time by the same raw lookup the AST uses.
 - **Why:** Bind params are the single dominant lowering blocker on realistic
-  queries (LDBC: 37/64 WHEREs touch a bind param; 4 of 9 top-level FilterStep
-  WHEREs are bind-param-blocked *alone*). Folding them in moves the lowerable
-  top-level LDBC fraction from ~1/9 to ~5/9 — the difference between an analyzed
-  FilterStep path that is near-dead on production (all parameterized) queries
-  and one that actually runs. The cost is contained: S0 already built the
+  queries. The **load-bearing, always-true claim** is qualitative: production WHEREs
+  are overwhelmingly parameterized (`?` / `:name`), so a lowering subset that throws on
+  bind params runs the AST fallback on nearly every real query, leaving the analyzed
+  `FilterStep` path near-dead in production and the targeted JMH benchmark exercising
+  synthetic WHEREs only. The **magnitude** figures come from a research-time survey of
+  the LDBC SF1 query set (the production-shaped corpus this project benchmarks against;
+  see the LDBC JMH acceptance gate): ~37/64 of its WHERE clauses touch a bind param,
+  4 of the 9 top-level FilterStep WHEREs are bind-param-blocked *alone*, and folding
+  bind params in moves the lowerable top-level fraction from ~1/9 to ~5/9. These are
+  estimates from that survey, not derivable from the code; the decision rests on the
+  qualitative dominance, for which the exact fraction is corroborating evidence, not the
+  sole support — even at a lower true fraction, bind params remain the
+  highest-payoff-per-effort lowering item. The cost is contained: S0 already built the
   `AnalyzedAstAccess.inputParam` read-seam, resolution is
   `getValue(ctx.getInputParameters())`, the evaluator already holds `ctx`, and
   the `tryInPlaceComparison` fast path wants an early-calculated RHS (a resolved
@@ -101,7 +109,11 @@ time by the same raw lookup the AST uses.
 fallback; positional: number). `toParsedTree` coercion is confined to
 `bindFromInputParams`, a distinct sub-expression-position path never taken by a
 scalar comparison. So the `Param` evaluator arm resolves by the same raw lookup;
-no coercion to replicate.
+no coercion to replicate. **Parity-test guard:** because this is load-bearing, the
+D1 parity test should assert the `Param` arm resolves through the raw
+`inputParam.getValue(...)` path and *not* `bindFromInputParams`, so a future refactor
+that reroutes RHS resolution through the coercion path is caught by a red test rather
+than silently diverging the analyzed arm from the AST.
 
 ### D3: Fallback = planner-level split (Option B), single-class FilterStep (2026-07-01) [ctx=safe]
 When a WHERE cannot be lowered, S1 falls back to the AST via a planner-level
@@ -109,7 +121,11 @@ split, not a clean cutover. A single `filterStepFor(SQLBooleanExpression, ctx,
 timeout, profiling)` factory attempts the lowering and returns an analyzed
 `FilterStep` on success or the legacy `SQLWhereClause`-based step on
 `UnsupportedAnalyzedNodeException`. `FilterStep` holds *either* an `AnalyzedExpr`
-*or* a `SQLWhereClause` (never both); `filterMap` branches on which is set.
+*or* a `SQLWhereClause` **for evaluation** (never both drive `filterMap`, which
+branches on which eval carrier is set). This "never both" invariant is scoped to
+the **evaluation** carrier; it is not contradicted by D5's serialize bridge, which
+additionally retains a display/serialize-only source form on the analyzed step —
+that retained form is evaluated off neither path (see D5's reconciliation of the two).
 `ExpandStep.pushDownFilter` gets the same treatment.
 - **Why:** the S0 subset (even with AND/OR + bind params + Group-1) cannot cover
   a real WHERE — multi-segment paths, `@rid`, context vars, subqueries, and
@@ -125,8 +141,14 @@ timeout, profiling)` factory attempts the lowering and returns an analyzed
   even when analyzed; no less coupling than B and carries dead state; (C)
   escape-hatch IR node wrapping an un-lowered `SQLBooleanExpression` — the only
   option that literally removes the AST from FilterStep, but re-introduces
-  AST-inside-IR coupling (the exact thing YTDB-901 removes) and dents the S0
-  sealed-variant / I3 cleanliness; (D) widen lowering — not a fallback; LDBC
+  AST-inside-IR coupling (the exact thing YTDB-901 removes) with a **wider blast
+  radius than B**: a 6th sealed `AnalyzedExpr` variant carrying an opaque AST node
+  forces *every* `AnalyzedExprVisitor` / `AnalyzedExprTransform` implementer to grow an
+  escape-hatch arm handling "un-lowered opaque AST" (an evaluator arm, a lowerer arm, and
+  an arm in each later optimizer pass), whereas B confines the AST to a step-local
+  `SQLWhereClause` field touched only by `filterMap`'s branch. C also propagates the
+  coupling into the framework the S18/YTDB-1187 end-state audit is meant to keep AST-free;
+  (D) widen lowering — not a fallback; LDBC
   shows un-lowered cases are operand-blocked, not condition-type-blocked, so
   widening barely moves the rate.
 - **Consequence (acceptance amended):** YTDB-916's "old constructor preserved
@@ -135,11 +157,23 @@ timeout, profiling)` factory attempts the lowering and returns an analyzed
   constructor and `matchesFilters` are retained as the documented fallback,
   marked for retirement as later slices widen lowering. Noted on YTDB-916.
 - **Risks/Caveats:** two evaluation paths (analyzed vs AST) must stay
-  result-equivalent on the predicates both can run; the factory must cover both
-  the `createWhereFrom` sites and the two direct-`SQLWhereClause` sites
-  (`info.whereClause` at ~1992, `outerWhere` at ~3470) plus DeleteEdge; serialize
-  must tag which form the step carries. True fallback *rate* needs a runtime
-  probe (FilterStep sees residuals, not source WHEREs).
+  result-equivalent on the predicates both can run. This is the load-bearing risk of
+  the slice: `filterStepFor` routes the *same* predicate to either the analyzed
+  evaluator or the AST `matchesFilters(Result)` depending on lowering success, and the
+  analyzed evaluator is a genuine re-implementation (it reconstructs operators and
+  re-derives collate independently in `AnalyzedExprEvaluator.evaluateComparison` /
+  `collateFor`, not a shared call into the AST), so any drift produces **silently**
+  different row sets for logically identical WHEREs (no throw, just a different filter
+  outcome). **Mitigation — a differential parity harness (plan obligation, not just
+  per-decision unit tests):** run a corpus of lowerable WHEREs (single-segment
+  comparisons, arithmetic, `NOT`, method calls, bind params, AND/OR combinations) through
+  *both* the analyzed `FilterStep` and the AST `FilterStep` over the same rows and assert
+  identical result sets; include a `ci`-collated case so the two collate derivations are
+  compared directly. The plan must carry this as a named test invariant. Beyond parity:
+  the factory must cover both the `createWhereFrom` sites and the two
+  direct-`SQLWhereClause` sites (`info.whereClause` at ~1992, `outerWhere` at ~3470) plus
+  DeleteEdge; serialize must tag which form the step carries. True fallback *rate* needs a
+  runtime probe (FilterStep sees residuals, not source WHEREs).
 - **Implemented in:** (planning-time; carried to the S1 plan).
 
 ### D4: AND/OR IR representation — extend `BinaryOperator`, lazy short-circuit (2026-07-01) [ctx=safe]
@@ -164,11 +198,19 @@ dispatching the right when left is false (mirror for `OR`).
   correctness obligation from YTDB-916 — eager evaluation of a later operand can
   throw where the AST short-circuits past it (`SQLAndBlock`/`SQLOrBlock` stop at
   the first decisive sub-block).
-- **Edge parity:** a 1-element block lowers to its single element (no wrapper);
-  an empty `AndBlock` → `Const(true)`, empty `OrBlock` → `Const(false)`, matching
-  the AST's vacuous semantics. Operands cast to `Boolean` as `NOT` does; a
-  non-Boolean operand is a lowering-contract violation (ClassCastException, not
-  truthiness coercion).
+- **Edge parity:** a 1-element block lowers to its single element (no wrapper), so
+  the fold rarely produces a vacuous node at all. For the vacuous case, model only
+  the **reachable** shape: a non-null empty `subBlocks` list → `AndBlock` = `Const(true)`,
+  `OrBlock` = `Const(false)`, matching the AST's loop-fall-through result
+  (`SQLAndBlock`/`SQLOrBlock.evaluate` iterate the list and return the identity of the
+  fold). The AST's **null-`subBlocks`** guard is a separate case where *both* blocks
+  return `true` (`SQLOrBlock.evaluate:53` `if (subBlocks == null) return true`), but it
+  is **unreachable from parsed input** — the parser initializes `subBlocks = new
+  ArrayList<>()` (`SQLOrBlock.java:27`), so a parsed block never has a null list. The
+  lowerer need not model the null case; "matching the AST's vacuous semantics" means
+  the reachable empty-list result above, not the null-guard branch. Operands cast to
+  `Boolean` as `NOT` does; a non-Boolean operand is a lowering-contract violation
+  (ClassCastException, not truthiness coercion).
 - **Alternatives rejected:** dedicated n-ary boolean node (`BoolOp(op, List)`) —
   maps directly to the later optimizer passes that manipulate conjunct/disjunct
   lists (S4 `FlattenPass`, S12 `MergeUsingAndPass`), but costs a new sealed
@@ -212,12 +254,24 @@ step (or the fallback). No IR wire format is added.
   Mirrors the S16/S17 handling of the umbrella gap. Once it lands, S1's bridge is
   deleted with the rest of the machinery.
 - **Risks/Caveats:** the bridge means the analyzed step retains the source
-  predicate (as text or structured form) for serialize + `prettyPrint` (EXPLAIN)
-  rendering only — a display/serialize-scoped retention, NOT the D3-rejected
-  dual-carry evaluation coupling (evaluation runs off the `AnalyzedExpr`). The
-  plan picks text-vs-structured and keeps the retention display/serialize-scoped,
-  removing it with the cleanup slice. Re-lowering on deserialize relies on
-  lowering determinism (holds — pure structural recursion).
+  predicate for serialize + `prettyPrint` (EXPLAIN) rendering only — a
+  display/serialize-scoped retention, NOT the D3-rejected dual-carry evaluation
+  coupling (evaluation runs off the `AnalyzedExpr`). **Reconciliation with D3's
+  "never both" invariant:** that invariant is scoped to the *evaluation* carrier
+  (amended in D3), so the analyzed step legitimately carries the `AnalyzedExpr` (eval)
+  plus a source form (serialize/EXPLAIN) without violating it — the source form is
+  never a second eval path. **Retention form — lean text-only.** To keep the analyzed
+  step from carrying a live `SQLWhereClause` AST node at all, the plan should prefer a
+  **`String`** source form: `prettyPrint` already reads `whereClause.toString()`
+  (`FilterStep.java:78-90`), and serialize can store that string + the analyzed tag,
+  re-parsing/re-lowering it via `filterStepFor` on deserialize. Structured
+  `SQLWhereClause.serialize` retention is the fallback only if a text round-trip loses
+  fidelity the round-trip test needs. Either way the retention is deleted with the
+  cleanup slice. **Retirement path is real, not aspirational:** the companion removal
+  is **filed as YTDB-1185** (see Companion action above and the RESOLVED Open-Questions
+  entry), so the "bridge deleted with the cleanup slice" plan is backed by an issue, not
+  an unbacked promise. Re-lowering on deserialize relies on lowering determinism
+  (holds — pure structural recursion).
 - **Implemented in:** (planning-time; carried to the S1 plan + the new cleanup slice).
 
 ## Surprises & Discoveries
@@ -436,20 +490,22 @@ step (or the fallback). No IR wire format is added.
   fallback a chartered retirement path: S16 + S17 lower the shapes that today
   route to the fallback, so the "retired as later slices widen lowering" framing
   in D3 and the YTDB-916 note is now backed by real issues.
-- 2026-07-01 [ctx=safe] **Fallback strategy for un-lowerable WHERE clauses
-  (central design question).** How does `FilterStep` reach the issue's end state
-  ("constructor takes `AnalyzedExpr`, old constructor removed, `matchesFilters`
-  shim removed") when most WHERE shapes cannot lower? Candidate shapes: (A)
-  dual-carry — FilterStep holds both the lowered `AnalyzedExpr` (when it lowers)
-  and the `SQLWhereClause` (fallback + serialize); (B) planner-level split — the
-  planner tries to lower and emits an analyzed step on success, the legacy step
-  otherwise; (C) escape-hatch IR node wrapping an un-lowered `SQLBooleanExpression`
-  so `AnalyzedExpr` can represent any WHERE and FilterStep goes pure-analyzed;
-  (D) broadly extend lowering (unrealistic for one slice). Needs user steer.
-- 2026-07-01 [ctx=safe] **AND/OR IR representation.** Extend `BinaryOperator`
-  with `AND`/`OR` and left-fold the n-ary `SQLAndBlock`/`SQLOrBlock` into nested
-  `BinaryOp`, or add a dedicated (possibly n-ary) boolean IR node? Short-circuit
-  semantics must match `SQLAndBlock`/`SQLOrBlock` either way.
+- 2026-07-01 [ctx=safe] **RESOLVED (D3) — Fallback strategy for un-lowerable WHERE
+  clauses (central design question).** How does `FilterStep` reach the issue's end
+  state ("constructor takes `AnalyzedExpr`, old constructor removed, `matchesFilters`
+  shim removed") when most WHERE shapes cannot lower? Candidate shapes surveyed: (A)
+  dual-carry — FilterStep holds both the lowered `AnalyzedExpr` and the
+  `SQLWhereClause`; (B) planner-level split — the planner tries to lower and emits an
+  analyzed step on success, the legacy step otherwise; (C) escape-hatch IR node
+  wrapping an un-lowered `SQLBooleanExpression`; (D) broadly extend lowering
+  (unrealistic for one slice). **Decided in D3: Option B** (planner-level split,
+  single-class FilterStep via `filterStepFor`); A, C, D rejected there.
+- 2026-07-01 [ctx=safe] **RESOLVED (D4) — AND/OR IR representation.** Extend
+  `BinaryOperator` with `AND`/`OR` and left-fold the n-ary `SQLAndBlock`/`SQLOrBlock`
+  into nested `BinaryOp`, or add a dedicated (possibly n-ary) boolean IR node?
+  Short-circuit semantics must match `SQLAndBlock`/`SQLOrBlock` either way.
+  **Decided in D4: extend `BinaryOperator` with `AND`/`OR`, lazy short-circuit**; the
+  dedicated n-ary boolean node was rejected there.
 - 2026-07-01 [ctx=safe] **RESOLVED (D5; YTDB-1185 filed) — Serialization/plan-cache.**
   Reframed: the plan cache reuses live objects via `copy(ctx)`, not serialize, so
   the `Param`-by-reference constraint is satisfied by D1's eval-time resolution;
@@ -461,3 +517,11 @@ step (or the fallback). No IR wire format is added.
   drop the round-trip acceptance and S1 delete its bridge.
 
 ## Adversarial gate record
+
+### Adversarial review of this log (2026-07-01T15:12:30Z) — NEEDS REVISION: 0 blockers, 5 should-fix, 2 suggestions
+Iteration 1: `_workflow/reviews/research-log-adversarial-iter1.md`. All five Decision Log
+entries survive (no re-decision); the should-fixes are rationale-strengthening (A1 LDBC-figure
+attribution, A3 differential-parity harness) and internal-consistency fixes (A5 D4 vacuous-rule
+precision, A6 D3/D5 "never both" reconciliation, A7 stale Open-Questions bookkeeping). Reference
+claims PSI-verified: dead plan serialize, collation parity, raw-value bind-param parity, live-object
+plan cache. Addressed below before re-challenge.
