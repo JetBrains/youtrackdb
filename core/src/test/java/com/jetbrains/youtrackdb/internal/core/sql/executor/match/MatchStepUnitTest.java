@@ -3577,6 +3577,80 @@ public class MatchStepUnitTest extends DbTestBase {
   }
 
   /**
+   * Pins the full size-1 {@code @rid IN [#x]} promotion path at the unit level:
+   * {@link MatchExecutionPlanner#singletonPinnedRid} unwraps a one-element pinned
+   * list, {@link EdgeTraversal#setLeftRid} stores it as the reverse target's left
+   * RID, and {@link MatchReverseEdgeTraverser#targetRid} returns exactly that RID.
+   *
+   * <p>Scenario: post the aliasRids single-map consolidation, a size-1 static IN
+   * list now flows to {@code setLeftRid} and, when its alias is reached by reverse
+   * traversal, that RID becomes the target constraint validated at runtime. This is
+   * the case the reviewer flagged as newly reachable and untested.
+   *
+   * <p>Why a unit test and not EXPLAIN: an earlier investigation established that
+   * {@code leftRid} is never rendered into the execution-plan string
+   * ({@link MatchStep#prettyPrint} emits only direction, aliases, method, and
+   * intersection descriptor), and its runtime effect is redundant with the
+   * {@code FETCH FROM RIDs} prefetch that always fires for a pinned alias (the
+   * prefetch uses the full pinned list via {@code pinnedRidsForAlias}, not
+   * {@code singletonPinnedRid}). Breaking the {@code size() == 1} predicate is
+   * therefore invisible to both plan-shape and result-correctness assertions at the
+   * integration level, so this internal-state assertion is the only discriminating
+   * check: a broken predicate would make {@code singletonPinnedRid} return null and
+   * {@code targetRid()} would then yield null instead of the pinned RID.
+   */
+  @Test
+  public void testReverseEdgeTraverserTargetRid_sizeOnePinnedList_flowsToTargetRid() {
+    var rid = new SQLRid(-1);
+    // Drive the real production predicate, not a hand-picked element, so a broken
+    // size()==1 check would surface here.
+    var leftRid = MatchExecutionPlanner.singletonPinnedRid(List.of(rid));
+    assertSame("singletonPinnedRid must unwrap the sole element of a size-1 list",
+        rid, leftRid);
+
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false); // reverse
+    edgeTraversal.setLeftRid(leftRid);
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    var ctx = createCommandContext();
+    // The reverse target's RID constraint is exactly the promoted singleton RID.
+    assertSame("reverse targetRid must be the promoted size-1 pinned RID",
+        rid, traverser.targetRid(null, ctx));
+  }
+
+  /**
+   * Boundary companion to
+   * {@link #testReverseEdgeTraverserTargetRid_sizeOnePinnedList_flowsToTargetRid}:
+   * a pinned list whose size is not 1 (here a two-element list) must NOT populate
+   * the single left RID. {@link MatchExecutionPlanner#singletonPinnedRid} returns
+   * null for a multi-element list, so {@code setLeftRid(null)} leaves the reverse
+   * target's RID constraint unset and {@link MatchReverseEdgeTraverser#targetRid}
+   * returns null. This pins the other side of the {@code size() == 1} predicate: a
+   * multi-RID IN pin is enforced via prefetch / post-fetch WHERE, never via the
+   * single left-RID slot.
+   */
+  @Test
+  public void testReverseEdgeTraverserTargetRid_multiElementPinnedList_noSingleLeftRid() {
+    var leftRidTwo =
+        MatchExecutionPlanner.singletonPinnedRid(List.of(new SQLRid(-1), new SQLRid(-1)));
+    assertNull("singletonPinnedRid must return null for a two-element list", leftRidTwo);
+    var leftRidEmpty = MatchExecutionPlanner.singletonPinnedRid(List.of());
+    assertNull("singletonPinnedRid must return null for an empty list", leftRidEmpty);
+
+    var edge = createTestPatternEdge();
+    var edgeTraversal = new EdgeTraversal(edge, false); // reverse
+    edgeTraversal.setLeftRid(leftRidTwo); // null: no single-RID target constraint
+    var sourceResult = new ResultInternal(session);
+
+    var traverser = new MatchReverseEdgeTraverser(sourceResult, edgeTraversal);
+    var ctx = createCommandContext();
+    assertNull("reverse targetRid must be null when the pinned list is not size 1",
+        traverser.targetRid(null, ctx));
+  }
+
+  /**
    * Verifies that getTargetFilter delegates to edge.getLeftFilter(),
    * returning the planner-provided WHERE clause for the reverse target.
    */

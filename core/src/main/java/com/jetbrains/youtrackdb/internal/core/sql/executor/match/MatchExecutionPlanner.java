@@ -4536,7 +4536,8 @@ public class MatchExecutionPlanner {
   }
 
   /** Returns the sole pinned RID when the list has exactly one entry (for {@code setLeftRid}). */
-  @Nullable private static SQLRid singletonPinnedRid(@Nullable List<SQLRid> pinnedRids) {
+  // Visible for testing
+  @Nullable static SQLRid singletonPinnedRid(@Nullable List<SQLRid> pinnedRids) {
     return pinnedRids != null && pinnedRids.size() == 1 ? pinnedRids.get(0) : null;
   }
 
