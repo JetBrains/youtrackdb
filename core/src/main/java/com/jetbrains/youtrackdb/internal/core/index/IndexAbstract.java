@@ -238,6 +238,149 @@ public abstract class IndexAbstract implements Index {
     }
   }
 
+  /**
+   * Writes this deferred (transaction-created) handle's metadata record into the commit transaction,
+   * so the record joins the commit working set before it is gathered. The commit-window counterpart
+   * of the {@link #save(FrontendTransaction)} the non-transactional {@link #create} path runs, kept
+   * package-visible so {@link IndexManagerEmbedded} can persist the index entity for a tx-created
+   * index without going through the {@code stateLock}-taking {@code create} path. Called by the index
+   * manager at commit, before the working set is gathered and before the engine is built (the record
+   * carries only metadata, no engine dependency); {@link #buildEngineAtCommit} builds the engine
+   * after the record apply has assigned persistent RIDs.
+   */
+  void saveRecordAtCommit(final FrontendTransaction transaction) {
+    acquireExclusiveLock();
+    try {
+      save(transaction);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Adds a collection to this committed index's in-memory membership and re-writes its metadata
+   * record into the commit transaction (the commit-time membership persistence, run in the enroll
+   * phase so the record joins the working set). No emptiness check and no {@code stateLock} — the
+   * caller holds the index-manager write lock and {@code stateLock.writeLock()} in the commit window.
+   * The mutation is eager (mirroring how {@link IndexManagerEmbedded#enrollReconciledIndexRecords}
+   * enrolls other index records before {@code commitChanges}) and reverted on a failed commit through
+   * {@link #removeCollectionInMemoryAtCommit}. Returns {@code true} when the collection was actually
+   * added, so the caller can record it for the failure-path revert.
+   */
+  boolean addCollectionRecordAtCommit(
+      final FrontendTransaction transaction, final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      if (!collectionsToIndex.add(collectionName)) {
+        return false;
+      }
+      save(transaction);
+      return true;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Removes a collection from this committed index's in-memory membership and re-writes its metadata
+   * record into the commit transaction (the remove side of the commit-time membership persistence).
+   * No emptiness check and no {@code stateLock}, for the same reason as
+   * {@link #addCollectionRecordAtCommit}. Returns {@code true} when the collection was actually
+   * removed.
+   */
+  boolean removeCollectionRecordAtCommit(
+      final FrontendTransaction transaction, final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      if (!collectionsToIndex.remove(collectionName)) {
+        return false;
+      }
+      save(transaction);
+      return true;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Reverts an in-memory membership add applied by {@link #addCollectionRecordAtCommit} on a failed
+   * commit, without touching the record (the failed commit's record write reverts with the atomic
+   * operation). Package-visible for {@link IndexManagerEmbedded}'s failure-path membership revert.
+   */
+  void removeCollectionInMemoryAtCommit(final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.remove(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Restores an in-memory membership remove applied by {@link #removeCollectionRecordAtCommit} on a
+   * failed commit, without touching the record. Package-visible for the failure-path revert.
+   */
+  void addCollectionInMemoryAtCommit(final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.add(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Deletes this committed index's metadata record inside the commit transaction, so the record
+   * deletion joins the commit working set. The commit-window counterpart of the record-delete half of
+   * {@link #doDelete(FrontendTransaction)}, split out so the drop's engine deletion (which must run
+   * lock-free inside the window) and shared-map removal (deferred past {@code commitChanges}) happen
+   * in their own phases. Unlike {@code doDelete} it takes no {@code stateLock} and starts no nested
+   * transaction: it only enrols the index entity's deletion into the in-flight commit transaction.
+   * Called by {@link IndexManagerEmbedded} in the enroll phase; the engine is deleted in the build
+   * phase and the shared registry entry removed in the publish phase.
+   */
+  void deleteRecordAtCommit(final FrontendTransaction transaction) {
+    acquireExclusiveLock();
+    try {
+      if (identity != null) {
+        transaction.loadEntity(identity).delete();
+      }
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Builds this deferred (transaction-created) handle's storage engine inside the schema-carry commit
+   * window and binds the handle to it, so the handle stops being deferred and becomes a real,
+   * query-usable index. Called by {@link IndexManagerEmbedded} at commit, after reconciliation has
+   * created the source collections and after the record apply, with {@code stateLock.writeLock()}
+   * held and the commit window open. It creates the engine through the storage's commit-window
+   * primitive (which allocates a commit-local engine id and buffers the engine files as WAL-reverted
+   * intent), sets {@code indexId} to the built engine's id, and wires the engine.
+   *
+   * <p>The engine is created but not yet populated; {@link IndexManagerEmbedded} runs the final-state
+   * re-derivation that feeds the transaction's own records into it right after this returns.
+   *
+   * @param transaction     the in-flight commit transaction.
+   * @param atomicOperation the in-flight commit atomic operation.
+   * @return the external (API-version-tagged) engine id the handle bound to.
+   */
+  int buildEngineAtCommit(
+      final FrontendTransactionImpl transaction, final AtomicOperation atomicOperation)
+      throws IOException {
+    acquireExclusiveLock();
+    try {
+      final Map<String, String> engineProperties = new HashMap<>();
+      indexId = storage.createIndexEngineInCommitWindow(im, engineProperties, atomicOperation);
+      assert indexId >= 0;
+      onIndexEngineChange(transaction.getDatabaseSession(), indexId);
+      return indexId;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
   protected void doReloadIndexEngine() {
     indexId = storage.loadIndexEngine(im.getName());
     if (indexId < 0) {
