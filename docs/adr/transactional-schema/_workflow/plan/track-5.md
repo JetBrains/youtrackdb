@@ -21,10 +21,11 @@ creating transaction falls through to a correct full scan. This track also compl
 the membership-ripple overlay routing that Track 3 de-guarded.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-07-01T08:25Z [ctx=info] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -57,12 +58,16 @@ design.md D-records this track owns. -->
 #### D21: Tx-aware immutable snapshot makes same-tx schema changes visible to validation and serialization (added after Track 4)
 - **Alternatives considered**: (B) route `EntityImpl` validation and serialization through the tx-aware `SchemaProxy` — rejected: per-field proxy resolution is too slow on the data-write hot path. (A) accept the limitation and document the semantic — rejected: same-tx DDL plus DML is a real usage pattern and the silent constraint-skip is a significant DevX degradation.
 - **Rationale**: Track 4 completion review found that `EntityImpl.validate()` (`EntityImpl.java:3932`) resolves the class through the committed-only snapshot and guards every check behind `if (immutableSchemaClass != null)`, so a class, property type, or rule created in the open transaction resolves to null — strict-mode, mandatory, notnull, type, min/max, and regex are silently skipped and serialization falls back to schemaless. The snapshot is the single read tier the whole read/query/serialize/security stack consumes (174 call sites), so making it tx-aware gives consistent read-your-writes at per-operation build cost: `SchemaProxy.makeSnapshot()` resolves the tx-local `SchemaShared` during a schema or index tx, and the snapshot is refcount-pinned per operation (`MetadataDefault.makeThreadLocalSchemaSnapshot`), not resolved per field. This reuses D15's lazy force-rebuild rather than adding a mechanism and makes the snapshot's class and property view consistent with the index-list view D15 already makes tx-aware. Supersedes the committed-only-snapshot behavior (`SchemaProxy.makeSnapshot` reads the committed `delegate`, `SchemaProxy.java:78`): `design.md` §"The tx-local schema view" states reads route to the tx-local structure "not only the snapshot" (design.md:270), yet leaves the snapshot itself committed-only; the Phase 4 `design-final.md` reconciles the as-built tx-aware snapshot.
-- **Risks/Caveats**: (1) commit-path read before promotion — `computeCommitWorkingSet` (`AbstractStorage.java:2410`, reached at line 2528, after `reconcileCollections` at 2473 and before `forceSnapshot` at 2691) calls `getImmutableSchemaClass` then `getCollectionForNewInstance`; a tx-aware snapshot must hand back the reconciled real collection id, never a provisional id (`<= -2`), or `doGetAndCheckCollection` fails. Verify reconciliation re-keys the tx-local class before the working-set build, or guard the commit-path read. (2) query or MATCH against a tx-created class in the same transaction — the class now appears in the snapshot but its physical collection (provisional id, D2) and indexes and engines (built at commit, D12) do not exist yet; extend D13's skip-unbuilt treatment to provisional-collection classes so the WHERE block falls through to the merged tx scan. (3) the D15 force-rebuild trigger widens from mid-tx index changes to mid-tx class and property changes.
+- **Risks/Caveats**: (1) commit-path read before promotion — the schema-carrying commit pins its immutable snapshot from committed state (`MetadataDefault.getImmutableSchemaSnapshot` memoises `immutableSchema`) before reconciliation, then `computeCommitWorkingSet` (run after `reconcileCollections`, before the trailing `forceSnapshot`) calls `getImmutableSchemaClass` then `getCollectionForNewInstance`. Reconciliation re-keys the tx-local class object to its real id, but the pinned snapshot the working-set read consults is not rebuilt, so the read can still resolve a provisional id (`<= -2`) and `doGetAndCheckCollection` fails. The guard is definite, not conditional: after provisional-id resolution and before the working-set build, clear the pin and force-rebuild the snapshot (or resolve the working-set collection through the reconciled real id directly). (2) provisional collection id leaks past the planner — a tx-created class now appears in the tx-aware snapshot, but its physical collection (provisional id, D2), indexes, and engines (built at commit, D12) do not exist yet. D13's skip-unbuilt treatment must extend to every snapshot reader that resolves a collection for a provisional-collection class, not the planner alone: the fetch-step collection-scan setup (`FetchFromClassExecutionStep`, which adds a `<= -2` id to the scan set because `getCollectionNameById` returns null), security id→name resolution, and serialization, alongside the WHERE-block planner. (3) snapshot-cache invalidation is three-layered — the D15 force-rebuild trigger widens from mid-tx index changes to mid-tx class and property changes, and it must invalidate the whole read chain: the tx-local `SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot version (because `EntityImpl.getImmutableSchemaClass` at `EntityImpl.java:4194-4210` caches `immutableClazz` and re-resolves only when `immutableSchema.getVersion()` advances). Rebuilding the tx-local `SchemaShared` alone leaves both downstream caches stale and I-P5 silently fails. (4) `makeSnapshot` tx-awareness is a strict no-op outside a schema/index tx (no tx-local seed read), preserving the committed fast path for pure-data commits and reads.
 - **Implemented in**: this track (with D15's index overlay — shared snapshot force-rebuild)
 - **Full design**: captured in this record and this track's `## Context and Orientation` and `## Plan of Work`; `design.md` is frozen, so the as-built design reconciles in Phase 4.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 2 (3 findings — T1 should-fix + 2 suggestions; folded into D21 Risks/Caveats (2), Plan of Work, C&O, and a new Validation line).
+- [x] Risk: PASS at iteration 2 (6 findings — 4 should-fix + 2 suggestions; applied the definite commit-path guard, three-layer cache invalidation, both-profile I-A4 engine arm, settled D12 boundary, and handle-build interception; R7 self-contradiction in the populated-class Validation line caught at gate and fixed).
+- [x] Adversarial: PASS at iteration 2 (6 findings — 4 should-fix + 2 suggestions; applied the definite guard, pin + snapshot-version invalidation, non-planner-reader guard, and method-relative anchors; A6 kept as decomposition guidance = D21 is its own step cluster).
+- Accepted-suggestion residuals left for optional cleanup: D21 Rationale prose still cites `SchemaProxy.java:78` (within the `makeSnapshot` method, declaration at :75); D15 Risks/Caveats keeps the "ClassIndexManager reads a cached set" phrasing the C&O fix corrected.
 
 ## Context and Orientation
 The index manager holds two flat lookup maps — `indexes` (name → Index) and
@@ -74,8 +79,9 @@ naturally dirtied and only those are written at commit.
 
 The snapshot sources a class's index list from the index manager
 (`SchemaImmutableClass.getRawClassIndexes` → the index manager's
-`getClassRawIndexes`), and `ClassIndexManager` reads a cached `indexes` set
-materialized once at snapshot init. There is no per-session routing seam for the
+`getClassRawIndexes`), and the cached `indexes` set `ClassIndexManager` consults is
+materialized once on `SchemaImmutableClass` at snapshot init (`ClassIndexManager` is a
+static utility that reads it via `getRawIndexes()`). There is no per-session routing seam for the
 index manager today. A new index's engine does not exist until built, and reading an
 engine-less index throws; the scan fallback (`FetchFromClassExecutionStep`) already
 returns the correct merged tx view.
@@ -110,33 +116,49 @@ population scan skips RIDs in the tx's record-operation set; re-derivation contr
 final-state puts only), and publish the definition overlay into the shared index
 manager as replacement objects under the index-manager write lock, sharing Track 4's
 single trailing `forceSnapshot`. Add the planner guard that excludes unbuilt indexes.
-Settle the v1 populated-class boundary (loud reject vs documented heap envelope).
+Settle the v1 populated-class boundary: v1 builds only an empty source collection, and
+a build whose source collection is non-empty is a loud rejection pointing at YTDB-1064;
+the accept-with-documented-heap-envelope alternative is deferred to YTDB-1064.
 
 Make the snapshot tx-aware (D21): change `SchemaProxy.makeSnapshot()` to resolve the
-tx-local `SchemaShared` when a schema or index tx is active, so the snapshot's classes
-and properties — not only its index list — reflect tx-local state, and widen the D15
-force-rebuild trigger to fire on mid-tx class and property changes, not only index
-changes. Guard the commit-path read: `computeCommitWorkingSet` reads
-`getImmutableSchemaClass` then `getCollectionForNewInstance` at `AbstractStorage:2528`,
-after `reconcileCollections` (2473) and before `forceSnapshot` (2691); confirm the
-tx-local class carries its reconciled real collection id by that point, or guard the
-read so it never hands `doGetAndCheckCollection` a provisional id (`<= -2`). Extend
-the planner's skip-unbuilt treatment so a query against a tx-created (provisional-
-collection) class in the same tx falls through to the merged tx scan rather than
-resolving a collection or engine that does not exist yet.
+tx-local `SchemaShared` when a schema or index tx is active — and stay a strict no-op
+otherwise, so the committed fast path is untouched — so the snapshot's classes and
+properties, not only its index list, reflect tx-local state. Widen the D15
+force-rebuild to fire on mid-tx class and property changes, and make it invalidate the
+whole read chain: the tx-local `SchemaShared` snapshot, the pinned
+`MetadataDefault.immutableSchema`, and the snapshot version, so `EntityImpl`'s
+version-keyed `immutableClazz` cache re-resolves. Guard the commit-path read
+definitely: reconciliation re-keys the tx-local class object, but the pinned snapshot
+`computeCommitWorkingSet` reads (`getImmutableSchemaClass` then
+`getCollectionForNewInstance`, run after `reconcileCollections` and before the trailing
+`forceSnapshot`) is not rebuilt, so clear the pin and force-rebuild after provisional-id
+resolution and before the working-set build, or resolve the working-set collection
+through the reconciled real id, so the read never hands `doGetAndCheckCollection` a
+provisional id (`<= -2`). Extend the skip-unbuilt / provisional-collection treatment
+beyond the planner to every snapshot reader that resolves a collection for a tx-created
+class — the fetch-step collection-scan setup (`FetchFromClassExecutionStep`), security
+id→name, and serialization — so a same-tx query or serialization of a tx-created class
+falls through to the merged tx scan rather than resolving a collection or engine that
+does not exist yet.
 
 Three commit-path gaps the Track-4 completion review surfaced land here too.
 (1) Failed-commit engine cleanliness (I-A4 / Track-4 review finding TB2): assert
 `indexEngines` and `indexEngineNameMap` carry no entry after a failed engine-creating
 commit, and the engine ids are reused on the next commit. Track 4 tested the collection
 arm of the failed-commit registry-cleanliness criterion only; engine reconciliation at
-commit is this track's. (2) Create-time provisional-collection index gap: indexing a
+commit is this track's, and the create-side engine-file revert mirrors Track 4's
+component-guarded arm in `undoReconciledCollections` (a fresh atomic op, guarded on the
+component being present, a no-op on disk), because the default in-memory profile does
+not revert an eager engine-file `addFile` on rollback. (2) Create-time provisional-collection index gap: indexing a
 class created in the same transaction throws `IndexException("Collection with id -2 does
 not exist")` because `IndexManagerEmbedded.createIndex`'s deferred path resolves
 collection ids through `DatabaseSessionEmbedded.getCollectionNameById`, which returns null
 for any id `< 0`. Resolve provisional ids (`<= -2`) via `TxSchemaState` (it carries the
 generated collection name) so the deferred handle stores the right name and the
-commit-time engine build re-resolves it. (3) Drop-side commit half: a tx-local `dropIndex`
+commit-time engine build re-resolves it; the interception is at the deferred
+handle-build (`IndexManagerEmbedded.createIndex` resolving collection ids via
+`findCollectionsByIds`, which throws on a `<= -2` id today), not only at the
+commit-time re-resolve. (3) Drop-side commit half: a tx-local `dropIndex`
 today only calls `markClassChanged` (`IndexManagerEmbedded.java:590-600`), so the index
 stays in the shared registry, keeps indexing new records, and survives the commit — the
 planner uses it mid-tx and after commit. Beyond the tx-dropped overlay above, the commit
@@ -151,7 +173,11 @@ rows, with no double-count and none missed; the overlay publish must follow
 `commitChanges` success (Track 4's deferral rule).
 
 ## Concrete Steps
-<!-- Phase A placeholder. -->
+1. Tx-local index-definition overlay and query-side resolution (D15, D13, I-A7): introduce `IndexOverlay` (new class) over the index manager's two lookup maps with its four categories (tx-created, tx-dropped, in-place rename, collection-membership); add the per-session index-manager routing seam so the immutable snapshot and `ClassIndexManager` resolve the overlaid set during a schema/index tx; force-rebuild the tx-local snapshot lazily (O(1) null-and-rebuild) on every mid-tx `createIndex`/`dropIndex`; route the Track-3 de-guarded `addCollectionToIndex`/`removeCollectionFromIndex` through the membership category; and add the D13 planner guard that skips an unbuilt index (`getIndexId() < 0`) so a query inside the creating tx falls through to the merged tx scan. Overlay updates defer all engine work to commit and never mutate a shared `Index` object mid-tx. — risk: high (Architecture / cross-component coordination)  [ ]
+2. Commit-time engine lifecycle (D12, I-A4/TB2, create/drop commit halves): at commit, drive engine creation and drops from the changed-index set; build a tx-created index's engine through a lock-free scan of the source collection feeding `doPut` plus a final-state re-derivation (population scan skips the tx's record-operation RIDs), bounded to an empty source collection for v1 with a loud rejection pointing at YTDB-1064 beyond it; publish the overlay into the shared index manager as replacement objects under the index-manager write lock, sharing Track 4's single trailing `forceSnapshot`; remove the registry entry and delete the engine for a tx-dropped index; assert failed-commit engine cleanliness on both the in-memory and disk profiles with the create-side revert mirroring Track 4's component-guarded `undoReconciledCollections` arm; and resolve provisional collection ids (`<= -2`) via `TxSchemaState` at the deferred handle-build (`IndexManagerEmbedded.createIndex` / `findCollectionsByIds`) and the commit-time re-resolve so indexing a same-tx class does not throw. — risk: high (Crash-safety / Durability)  [ ]
+3. Tx-aware immutable snapshot (D21): make `SchemaProxy.makeSnapshot()` resolve the tx-local `SchemaShared` during a schema/index tx and stay a strict no-op otherwise; widen the D15 force-rebuild to mid-tx class and property changes and make it invalidate the whole read chain (tx-local `SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot version so `EntityImpl`'s version-keyed `immutableClazz` re-resolves); guard the commit-path read definitely (clear the pin and force-rebuild after provisional-id resolution and before the `computeCommitWorkingSet` working-set build, or resolve through the reconciled real id, so `doGetAndCheckCollection` never sees a provisional id); and guard every snapshot reader that resolves a collection for a tx-created (provisional-collection) class — the fetch-step collection-scan setup (`FetchFromClassExecutionStep`), security id→name resolution, and serialization — so a same-tx query or serialization falls through to the merged tx scan. — risk: high (Architecture / cross-component coordination)  [ ]
+
+Steps run sequentially: Step 2 and Step 3 both depend on Step 1 (Step 3 reuses the D15 force-rebuild seam), and Steps 2 and 3 both touch the `AbstractStorage` commit-under-lock path, so none are parallel. Each is one HIGH-category change kept isolated for step-level review; a self-deadlock or re-entrancy discovery under the commit write lock may force a mid-Phase-B split (as Track 4's reconciliation core did), which is expected, not a plan error.
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -171,15 +197,24 @@ rows, with no double-count and none missed; the overlay publish must follow
   category fails this while passing isolation/rollback (I-P2 positive coverage).
 - A rename, drop, and collection-membership change apply commit-only and never mutate
   a shared `Index` object mid-tx.
-- A populated-class build beyond the v1 size bound behaves per the settled boundary
-  decision (loud rejection pointing at YTDB-1064, or accept with a documented heap
-  envelope).
+- A build whose source collection is non-empty is loudly rejected with an error pointing
+  at YTDB-1064 (the settled v1 boundary); the accept-with-heap-envelope alternative is
+  deferred to YTDB-1064.
 - Create a class with a strict-mode, mandatory, notnull, type, or regex constraint
   inside a transaction, then in the same transaction validate an entity that violates
   it; validation enforces the constraint instead of silently skipping it (the same-tx
   validation gap, D21).
 - Add a property type or constraint to an existing class inside a transaction; that
   constraint is enforced on the same transaction's entities of that class.
+- Inside a transaction, create a class and validate an entity of it (so the entity caches
+  its immutable class), then add a mandatory, notnull, or type constraint to that class in
+  the same transaction and validate a second entity; the new constraint is enforced even
+  though the class was already resolved once, because the snapshot version advances on the
+  force-rebuild and `EntityImpl` re-resolves its cached `immutableClazz` (A3 / I-P5).
+- Serialize an entity of a tx-created class inside the creating transaction and resolve its
+  collection name through the id→name path; no provisional collection id (`<= -2`) leaks
+  through serialization or security id→name resolution (the tx-aware snapshot exposes the
+  class to non-planner readers, D21 risk 2).
 - Commit a transaction that creates a class and inserts an entity of it; the commit
   succeeds and the commit-path collection-id resolution does not fail on a provisional
   id (the D21 commit-path guard).
@@ -188,7 +223,9 @@ rows, with no double-count and none missed; the overlay publish must follow
   collection-not-found error (D13 extended to provisional-collection classes).
 - After a failed engine-creating commit, `indexEngines` and `indexEngineNameMap` carry no
   entry for the would-be engine, and the freed engine ids are reused on the next
-  successful commit (I-A4 engine arm; Track 4 covered the collection arm only — TB2).
+  successful commit (I-A4 engine arm; Track 4 covered the collection arm only, TB2). The
+  assertion runs on both the default in-memory profile and the disk profile; the in-memory
+  profile caught the equivalent Track-4 collection-arm leak (YTDB-1175).
 - Create a class and an index on it inside the same transaction, then commit; the deferred
   index handle resolves the provisional collection id (`<= -2`) to the real collection at
   commit instead of throwing `IndexException("Collection with id -2 does not exist")`.
