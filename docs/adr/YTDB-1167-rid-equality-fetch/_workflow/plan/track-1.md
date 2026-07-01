@@ -9,10 +9,11 @@
 Today a `SELECT FROM Person WHERE @rid = #18:0` reads every record in `Person` and post-filters on the RID, so the cost is O(class size) — on a 2M-row class it reads two million records to return one. A RID (record id, YouTrackDB's physical record address, written `#<collection-id>:<position>`) already names the exact record, so the scan is pure waste. The direct-target form `SELECT FROM #18:0` already compiles to an O(1) fetch; this track makes the class-plus-WHERE form do the same, while preserving the class-membership semantics the scan gave for free — a class scan returns only records of the target class and its subclasses, so a direct RID fetch must reject a RID that belongs to some other class. The change lives entirely in the plain-SELECT planner (`SelectExecutionPlanner`) plus one new WHERE-parsing primitive on `SQLWhereClause`; the MATCH planner already solved the same pathology for its own path (YTDB-629) and is untouched here.
 
 ## Progress
-- [ ] Review + decomposition
+- [x] Review + decomposition
 - [ ] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
+- [x] 2026-07-01T13:50Z [ctx=safe] Review + decomposition complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -54,7 +55,7 @@ When the extraction leaves a remainder (e.g. `@rid = <literal> AND <other-predic
 - **Implemented in:** this track.
 
 ## Outcomes & Retrospective
-<!-- Continuous-log. Empty at Phase 1. -->
+- [x] Technical: PASS at iteration 1 (2 findings, 2 accepted). Both suggestion-tier, folded into decomposition rather than the reviewed sections: T1 — the handler's success branch must chain **no** `FilterByClassStep` (unlike its two neighbours at `SelectExecutionPlanner.java:2106-2116`), because the D2 collection-id guard is the class filter; T2 — the handler maps an evaluated `SQLExpression` to `RecordIdInternal` (no single-arg `toRecordId(ctx)` overload exists), phrased precisely in the handler step. Tooling: grep + Read (PSI unavailable — IDE open on a different branch); all cited symbols uniquely named with no polymorphic dispatch, so grep read the correct worktree files. Review file: `plan/track-1/reviews/technical-iter1.md`.
 
 ## Context and Orientation
 **What the query compiles to today.** `SELECT FROM Person WHERE @rid = #18:0` produces `FetchFromClassExecutionStep` (a full class scan) followed by a `FilterStep` that post-filters each scanned record on `@rid = #18:0`. `EXPLAIN` confirms it:
@@ -86,16 +87,16 @@ The edits proceed bottom-up: the WHERE-parsing primitive first (so the handler h
    - Bail on the cheap O(1) guards first (see the non-optimized-path cost in D1): `info.whereClause == null`, or a WHERE that flattens to more than one OR branch.
    - Try `extractAndRemoveRidEquality` then `extractAndRemoveRidInList` to pull at most one RID predicate; if neither matches, return false (fall through to the existing chain).
    - Gate on `ridExpression.isEarlyCalculated(ctx)` — a literal or bound param resolves at plan time; a field ref or subquery cannot, so return false and fall through.
-   - Evaluate the RID expression to candidate `RecordIdInternal`s (a singleton for `=`, the list elements for `IN`, mapping each element the way `SQLRid.toRecordId` does), collect them into one local `List<RecordIdInternal>`, and **dedup**.
+   - Evaluate the extracted `ridExpression` (via `SQLExpression.execute`) to candidate `RecordIdInternal`s (a singleton for `=`, the list elements for `IN`), mapping each result the way `SQLRid.toRecordId`'s switch does — `Identifiable → getIdentity()`, `String → RecordIdInternal.fromString`, else skip. (Precision from technical-review T2: there is no single-arg `toRecordId(ctx)` overload; the handler maps an evaluated `SQLExpression`, not a parsed `SQLRid` target — see S4 in the research log.) Collect into one local `List<RecordIdInternal>`, and **dedup**.
    - Membership-filter the candidates against `resolveClassToCollectionIds(className)`: keep a candidate iff its `getCollectionId()` is in the class's polymorphic collection set.
-   - Emit: survivors present → set `info.whereClause` to the extraction remainder and null `info.flattenedWhereClause` (D5), chain `FetchFromRidsStep(members)`, return true. No survivors (wrong-class RID, empty `IN []`, or an all-non-member list) → chain `EmptyStep`, return true. Both branches return true so the caller short-circuits past the scan fallthrough.
+   - Emit: survivors present → set `info.whereClause` to the extraction remainder and null `info.flattenedWhereClause` (D5), chain `FetchFromRidsStep(members)`, return true. No survivors (wrong-class RID, empty `IN []`, or an all-non-member list) → chain `EmptyStep`, return true. Both branches return true so the caller short-circuits past the scan fallthrough. **The success branch chains no `FilterByClassStep`** (precision from technical-review T1): unlike the two neighbouring handlers at `SelectExecutionPlanner.java:2106-2116`, which append one after their fetch, this branch must not — the D2 collection-id membership guard is already the class filter, applied at plan time, whereas `FilterByClassStep` would redundantly re-filter a loaded record, exactly what D2 rejects. At the call site inside `handleClassAsTarget`, wire it as `if (handleClassAsTargetWithRidEquality(...)) { return; }` with no `FilterByClassStep`, and add a one-line comment noting why this branch differs from its neighbours.
 
 3. **Tests** — a plan-shape-plus-correctness class exercising: `EXPLAIN` asserts `FetchFromRidsStep` (not `FetchFromClassExecutionStep`) for `@rid = <literal>` and `@rid IN [...]`; wrong-class RID → empty; subclass RID under a superclass target → the record; duplicate RIDs in `IN` → single row (cardinality parity); mixed member/non-member `IN` list → only members; `@rid = <literal> AND <other-predicate>` → the other predicate applied exactly once; a non-early-calc RID (field ref / subquery) → falls through to the scan unchanged.
 
 **Ordering and invariants to preserve.** The handler builds only the *source* step; the handler must leave `info.orderApplied` false so `handleProjectionsBlock` (the downstream ORDER BY / SKIP / LIMIT / GROUP BY / DISTINCT assembler) still runs — a no-op sort for one RID, a real sort for a multi-RID `IN ... ORDER BY`. The `COUNT` hardwired optimization runs before fetch and requires a base-identifier indexed property, so it never matches an `@rid` equality and is unaffected.
 
 ## Concrete Steps
-<!-- Phase A placeholder — decomposition writes the numbered roster with risk tags. -->
+1. Add the `@rid = / IN` direct-fetch fast path to the plain-SELECT planner — new `SQLWhereClause.extractAndRemoveRidInList` primitive, new `SelectExecutionPlanner.handleClassAsTargetWithRidEquality` handler wired first in `handleClassAsTarget` (per D1–D5 and `## Plan of Work`), and a new `SelectExecutionPlannerRidEqualityTest` (package `com.jetbrains.youtrackdb.internal.core.sql.executor`) covering the `## Validation and Acceptance` lines below — risk: medium (new non-public methods change the SQL planner's observable behavior; no HIGH trigger fires — the change is plan-time only, plan-cached, and does not touch the record-read/index-read or query-execution inner loop) — size: ~3 files; the whole minimal-tier change is one interdependent unit (the primitive feeds the handler; the tests exercise both), so there is no other `low`/`medium` work to merge  [ ]
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -103,13 +104,21 @@ The edits proceed bottom-up: the WHERE-parsing primitive first (so the handler h
 ## Validation and Acceptance
 The track is done when an early-calculable `@rid = / IN` under a class target fetches directly and every other query shape behaves exactly as before. Concretely: `EXPLAIN SELECT FROM <class> WHERE @rid = <literal>` shows `FetchFromRidsStep`, not `FetchFromClassExecutionStep` with a post-filter; the same for `@rid IN [<literals>]`. Result-set parity with the old scan holds for all optimized shapes — same rows, same cardinality (including single-row output for a duplicate-RID `IN` list). Class-membership semantics are preserved: a RID whose collection is outside the target class's polymorphic set yields empty, a subclass RID under a superclass target yields the record. Any predicate left beside the RID equality (e.g. `@rid = x AND status = 'A'`) applies exactly once. A non-early-calculable RID value (field ref, subquery) falls through to the class scan with no behavior change. All of the above are backed by tests in the plan-shape-plus-correctness class named in Interfaces and Dependencies.
 
-<!-- Phase A placeholder for per-step EARS/Gherkin lines. -->
+**Acceptance criteria (Step 1 — each line maps to one test method in `SelectExecutionPlannerRidEqualityTest`):**
 
-<!-- Reserved for Move 3 — EARS or Gherkin acceptance lines used verbatim as test
-method names. Empty until Move 3 lands. -->
+1. WHEN a class-target SELECT carries `@rid = <literal>`, the planner SHALL compile it to `FetchFromRidsStep`, not `FetchFromClassExecutionStep` (asserted via EXPLAIN).
+2. WHEN a class-target SELECT carries `@rid IN [<literals>]`, the planner SHALL compile it to a single `FetchFromRidsStep` over the listed RIDs.
+3. WHEN the `@rid` names a RID whose collection is outside the target class's polymorphic set, the query SHALL return an empty result.
+4. WHEN the target is a superclass and the `@rid` names a subclass record, the query SHALL return that record.
+5. WHEN an `@rid IN [...]` list contains duplicate RIDs, the query SHALL return each matching record exactly once (cardinality parity with the old scan).
+6. WHEN an `@rid IN [...]` list mixes member and non-member RIDs, the query SHALL return only the member records.
+7. WHEN an `@rid IN []` empty list is given, the query SHALL return an empty result, not a full-class scan.
+8. WHEN a predicate accompanies the RID equality (`@rid = <literal> AND <other>`), the query SHALL apply the other predicate exactly once — neither dropped nor double-applied.
+9. WHEN the `@rid` value is not early-calculable (a field reference or subquery), the planner SHALL fall through to the class scan with no behavior change.
+10. WHEN `@rid = :param` binds an early-calculable parameter, the planner SHALL compile it to `FetchFromRidsStep`.
 
 ## Idempotence and Recovery
-<!-- Phase A placeholder. -->
+This is a plan-time-only change to the query planner. It writes no persistent state, changes no on-disk format, and needs no migration. The optimization is deterministic and idempotent: re-planning the same statement always yields the same plan, and re-executing a query re-fetches the same RIDs. Recovery from a bad implementation is a plain `git revert` of the single step commit — there is no data to roll back. The step is fully covered by the acceptance tests above, so a broken implementation is caught before commit rather than at runtime.
 
 ## Artifacts and Notes
 <!-- Continuous-log (rare). Often empty. -->
