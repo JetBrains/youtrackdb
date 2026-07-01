@@ -19,6 +19,7 @@ This track fixes the two operative command sites (the actual `git rm` commands t
 - [ ] Track completion
 - [x] 2026-07-01T13:37Z [ctx=safe] Review + decomposition complete
 - [x] 2026-07-01T14:03Z [ctx=safe] Step 1 complete (commit a989816b40)
+- [x] 2026-07-01T14:29Z [ctx=safe] Track-level code review iteration 1 complete
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
