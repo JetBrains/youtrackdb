@@ -19,6 +19,7 @@
      */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.internal.core.index.IndexOverlay;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntMaps;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -28,6 +29,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import java.util.HashSet;
 import java.util.Set;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Per-session, transaction-scoped schema state for a schema-changing transaction. While a
@@ -48,11 +50,14 @@ import javax.annotation.Nonnull;
  * schema. The names are stable across a class rename within the transaction only insofar as the same
  * mutation that renames also records the new name here.
  *
- * <p>The tx-local index-definition overlay that this state will also carry is introduced with the
- * index work and is not part of this class yet; this version holds the schema copy and the
- * changed-class set. Routing reads and writes to the copy, seeding it on the first schema write, and
- * promoting it at commit are the responsibility of the proxy-routing and commit-reconciliation work,
- * not of this holder.
+ * <p>This state also carries the tx-local {@link IndexOverlay} (see {@link #getIndexOverlay}), which
+ * holds the transaction's index-definition deltas (created, dropped, renamed, collection-membership)
+ * without copying the shared index manager's maps or any engine-backed {@code Index} object. The
+ * overlay is created lazily on the first index change, so a schema-only transaction that never
+ * touches an index never allocates one. Routing reads and writes to the schema copy, seeding it on
+ * the first schema write, and promoting both the schema and the overlay at commit are the
+ * responsibility of the proxy-routing, index-manager-routing, and commit-reconciliation work, not of
+ * this holder.
  *
  * <p>A class created inside the transaction allocates no real storage collection during the
  * transaction; it carries a provisional id drawn from the {@code <= -2} sub-range (see
@@ -77,6 +82,13 @@ public final class TxSchemaState {
 
   private final SchemaShared txLocalSchema;
   private final Set<String> changedClasses = new HashSet<>();
+
+  /**
+   * The tx-local index-definition overlay, created lazily on the first index change (see
+   * {@link #getIndexOverlay}). Stays {@code null} for a transaction that changes only the schema and
+   * never an index, so no overlay is allocated on the common schema-only path.
+   */
+  @Nullable private IndexOverlay indexOverlay;
 
   /**
    * The next provisional collection id to hand out. Starts at the ceiling
@@ -153,6 +165,28 @@ public final class TxSchemaState {
   @Nonnull
   public Set<String> getChangedClasses() {
     return changedClasses;
+  }
+
+  /**
+   * The tx-local index overlay, creating it on first use. Called on the first index change in the
+   * transaction (index create / drop / rename / collection-membership), so a schema-only transaction
+   * that never touches an index never allocates an overlay.
+   */
+  @Nonnull
+  public IndexOverlay ensureIndexOverlay() {
+    if (indexOverlay == null) {
+      indexOverlay = new IndexOverlay();
+    }
+    return indexOverlay;
+  }
+
+  /**
+   * The tx-local index overlay, or {@code null} when the transaction has changed no index yet. This
+   * is the read-only probe the index-manager routing seam uses to decide whether the transaction has
+   * any index delta to resolve against; it never creates the overlay.
+   */
+  @Nullable public IndexOverlay getIndexOverlay() {
+    return indexOverlay;
   }
 
   /**

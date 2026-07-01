@@ -34,6 +34,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.Storage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransaction;
 import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -43,6 +45,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * Manages indexes at database level. A single instance is shared among multiple databases.
@@ -132,12 +135,13 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       final String collectionName,
       final String indexName,
       boolean requireEmpty) {
-    if (recordMembershipChangeIntoTxLocalView(session, indexName)) {
+    if (recordMembershipChangeIntoTxLocalView(session, indexName, collectionName, true)) {
       // A schema transaction is in progress: the membership ripple is recorded into the tx-local
-      // changed-class set instead of being applied eagerly to the shared Index. Applying it here
-      // would mutate the shared Index.collectionsToIndex (visible to other sessions and unreverted
-      // on rollback) and could name a collection that has only a provisional id during the
-      // transaction. The commit promotes the change into the shared index later.
+      // changed-class set and the overlay's membership-added category instead of being applied
+      // eagerly to the shared Index. Applying it here would mutate the shared Index.collectionsToIndex
+      // (visible to other sessions and unreverted on rollback) and could name a collection that has
+      // only a provisional id during the transaction. The commit promotes the change into the shared
+      // index later.
       return;
     }
 
@@ -171,10 +175,10 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   public void removeCollectionFromIndex(DatabaseSessionEmbedded session,
       final String collectionName,
       final String indexName) {
-    if (recordMembershipChangeIntoTxLocalView(session, indexName)) {
+    if (recordMembershipChangeIntoTxLocalView(session, indexName, collectionName, false)) {
       // Mirror of addCollectionToIndex: a schema transaction records the membership change into the
-      // tx-local changed-class set rather than mutating the shared Index, so a rollback leaves the
-      // shared collectionsToIndex untouched.
+      // tx-local changed-class set and the overlay's membership-removed category rather than mutating
+      // the shared Index, so a rollback leaves the shared collectionsToIndex untouched.
       return;
     }
 
@@ -209,12 +213,19 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * eager shared-index apply). Returns {@code false} when no transaction is active, so the caller
    * keeps the legacy top-level apply path. A membership change is itself a schema write, so this
    * seeds the tx-local schema state on the first such change in the transaction (the read-only
-   * {@code getTxSchemaState} probe never seeds). The recorded entry is the index's owning class,
-   * whose per-class record and index membership the commit reconciles; the shared {@code Index} is
-   * left untouched until then so the change rolls back for free.
+   * {@code getTxSchemaState} probe never seeds). It records the index's owning class into the
+   * changed-class set (whose per-class record and index membership the commit reconciles) and the
+   * (index, collection) pair into the overlay's membership category, so the commit persists the
+   * {@code collectionsToIndex} delta and the parent index then covers the new subclass collection.
+   * The shared {@code Index} is left untouched until then so the change rolls back for free.
+   *
+   * @param collectionName the collection being added to or removed from the index's membership.
+   * @param isAdd          {@code true} for an add (the {@code addCollectionToIndex} ripple),
+   *                       {@code false} for a remove.
    */
   private boolean recordMembershipChangeIntoTxLocalView(
-      DatabaseSessionEmbedded session, final String indexName) {
+      DatabaseSessionEmbedded session, final String indexName, final String collectionName,
+      final boolean isAdd) {
     if (!session.getTransactionInternal().isActive()) {
       return false;
     }
@@ -257,7 +268,70 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // metadata-write mutex on the first such write) only once the change is known to be routable.
     var txState = session.ensureTxSchemaState();
     txState.markClassChanged(changedClass);
+    // Record the (index, collection) delta in the overlay's membership category so the commit
+    // persists it to the shared Index. This is a change to which collections a committed index
+    // covers, not a change to the set of indexes on the class, so it does not touch the raw index
+    // set and needs no snapshot force-rebuild here.
+    var overlay = txState.ensureIndexOverlay();
+    if (isAdd) {
+      overlay.recordMembershipAdded(indexName, collectionName);
+    } else {
+      overlay.recordMembershipRemoved(indexName, collectionName);
+    }
     return true;
+  }
+
+  /**
+   * The active tx-local index overlay for {@code session}, or {@code null} when no schema/index
+   * transaction with an index delta is in progress. A {@code null} result (no active transaction, no
+   * seeded tx-local schema state, or a seeded state that has changed no index) means every index
+   * read resolves against the committed shared maps exactly as before the overlay existed.
+   */
+  @Nullable private IndexOverlay activeOverlay(DatabaseSessionEmbedded session) {
+    if (!session.getTransactionInternal().isActive()) {
+      return null;
+    }
+    var txState = session.getTxSchemaState();
+    if (txState == null) {
+      return null;
+    }
+    var overlay = txState.getIndexOverlay();
+    return overlay != null && !overlay.isEmpty() ? overlay : null;
+  }
+
+  /**
+   * Resolves a class's raw index set against the tx-local overlay when a schema/index transaction is
+   * in progress, so the immutable snapshot (which materializes each class's index list through this
+   * method at snapshot init) and {@code ClassIndexManager} see the transaction's own view: the
+   * committed indexes minus the ones the transaction dropped, plus the ones it created on this class.
+   * Outside such a transaction it is the committed behaviour unchanged. This is the per-session
+   * routing seam the design calls for: no per-session copy of the manager, just an overlay resolution
+   * layered over the shared committed maps at the read path.
+   */
+  @Override
+  public void getClassRawIndexes(
+      DatabaseSessionEmbedded session, final String className, final Collection<Index> indexes) {
+    var overlay = activeOverlay(session);
+    if (overlay == null) {
+      super.getClassRawIndexes(session, className, indexes);
+      return;
+    }
+    final Collection<Index> committed = new ArrayList<>();
+    super.getClassRawIndexes(session, className, committed);
+    indexes.addAll(overlay.resolveClassRawIndexes(className, committed));
+  }
+
+  @Override
+  public void getClassIndexes(
+      DatabaseSessionEmbedded session, final String className, final Collection<Index> indexes) {
+    var overlay = activeOverlay(session);
+    if (overlay == null) {
+      super.getClassIndexes(session, className, indexes);
+      return;
+    }
+    final Collection<Index> committed = new ArrayList<>();
+    super.getClassIndexes(session, className, committed);
+    indexes.addAll(overlay.resolveClassRawIndexes(className, committed));
   }
 
   public void create(DatabaseSessionEmbedded session) {
@@ -440,6 +514,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       deferredHandle.markDeferred(
           new IndexMetadata(iName, indexDefinition, deferredCollections, type, algorithm, -1,
               metadata));
+      // Record the created index into the tx-local overlay so the owning class's raw index set
+      // resolves the new index during the transaction, then force-rebuild the snapshot so the next
+      // read re-materializes that set. Without the rebuild a same-transaction insert into the indexed
+      // class reads the stale cached set and silently misses the new index.
+      txState.ensureIndexOverlay().recordCreated(deferredHandle);
+      session.forceRebuildSchemaSnapshotForIndexOverlay();
       return deferredHandle;
     }
 
@@ -588,15 +668,39 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // index-definition overlay that hides the dropped index and the commit-time engine drop are
       // a later track), so a rollback leaves the index in place.
       var txState = session.ensureTxSchemaState();
-      acquireSharedLock();
-      try {
-        final var idx = indexes.get(iIndexName);
-        if (idx != null && idx.getDefinition() != null
-            && idx.getDefinition().getClassName() != null) {
-          txState.markClassChanged(idx.getDefinition().getClassName());
+      boolean recordedDrop = false;
+      // An index created earlier in this same transaction lives only in the overlay, never in the
+      // shared registry, so a drop of it must be resolved against the overlay first. recordDropped
+      // then cancels the pending create (nothing to hide at commit). The changed-class set already
+      // carries the class from the create, so no further markClassChanged is needed here.
+      var existingOverlay = txState.getIndexOverlay();
+      if (existingOverlay != null && existingOverlay.isTxCreated(iIndexName)) {
+        existingOverlay.recordDropped(iIndexName);
+        recordedDrop = true;
+      } else {
+        acquireSharedLock();
+        try {
+          final var idx = indexes.get(iIndexName);
+          if (idx != null) {
+            if (idx.getDefinition() != null && idx.getDefinition().getClassName() != null) {
+              txState.markClassChanged(idx.getDefinition().getClassName());
+            }
+            // Hide the dropped committed index from the tx-local raw index set so the planner and
+            // ClassIndexManager no longer see it during the transaction. The shared Index stays
+            // registered until commit, so a rollback keeps it; the commit removes the registry entry
+            // and deletes the engine (a later step).
+            txState.ensureIndexOverlay().recordDropped(iIndexName);
+            recordedDrop = true;
+          }
+        } finally {
+          releaseSharedLock();
         }
-      } finally {
-        releaseSharedLock();
+      }
+      // Force-rebuild the snapshot only when the drop actually changed the tx-local index set, so an
+      // unknown-name drop (a no-op that records no changed class) allocates no overlay churn and
+      // leaves the snapshot alone.
+      if (recordedDrop) {
+        session.forceRebuildSchemaSnapshotForIndexOverlay();
       }
       return;
     }

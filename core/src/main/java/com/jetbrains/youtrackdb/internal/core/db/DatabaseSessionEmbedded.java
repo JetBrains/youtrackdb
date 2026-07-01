@@ -3532,6 +3532,45 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
+   * Whether this session is in a schema- or index-changing transaction that carries a non-empty
+   * index overlay. This is the signal {@link SchemaProxy#makeSnapshot()} reads to build a
+   * session-private (uncached) snapshot whose per-class index list resolves against the overlay,
+   * instead of the process-shared cached snapshot other sessions read. It is {@code false} outside
+   * such a transaction, so the committed snapshot fast path is untouched for pure-data sessions and
+   * for a concurrent reader while another session holds an overlay.
+   */
+  public boolean hasActiveIndexOverlay() {
+    var txState = getTxSchemaState();
+    if (txState == null) {
+      return false;
+    }
+    var overlay = txState.getIndexOverlay();
+    return overlay != null && !overlay.isEmpty();
+  }
+
+  /**
+   * Force-rebuilds this session's schema snapshot after a mid-transaction index change so the next
+   * read re-materializes each class's index list against the tx-local index overlay. The immutable
+   * snapshot materializes a class's index set once, at snapshot init, and then reuses it; without
+   * this rebuild an insert or query later in the same transaction reads the stale set and silently
+   * misses an index the transaction created or dropped. Invalidation is lazy: it discards the cached
+   * snapshot so the next snapshot read rebuilds on demand, at O(1) cost here.
+   *
+   * <p>It clears only this session's thread-local pinned snapshot, not the process-shared
+   * {@code SchemaShared} snapshot. The overlay is session-scoped, so an overlay-dependent view must
+   * not be cached process-wide where a concurrent session would read it; {@link SchemaProxy#makeSnapshot()}
+   * builds a session-private uncached snapshot while the overlay is active
+   * ({@link #hasActiveIndexOverlay()}), so clearing the shared cache is both unnecessary and
+   * incorrect here (it would let this session's overlay leak into the shared snapshot a concurrent
+   * reader picks up). The thread-local clear is guarded on a zero pin count, which holds because an
+   * index DDL change is not issued from inside a pinned read-record operation; the force-clear
+   * itself asserts the count is zero and throws otherwise, surfacing a misplaced call.
+   */
+  public void forceRebuildSchemaSnapshotForIndexOverlay() {
+    getMetadata().forceClearThreadLocalSchemaSnapshot();
+  }
+
+  /**
    * Engages the storage's metadata-write mutex for the current transaction, throwing first when a
    * shared metadata lock is already held by this thread. That runtime check proves the engage sits
    * strictly above {@link SchemaShared#isWriteLockHeldByCurrentThread() the schema write lock} and

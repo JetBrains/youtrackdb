@@ -9,6 +9,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -932,5 +933,306 @@ public class SchemaDeguardTest extends DbTestBase {
         committed.existsClass("AbstractMarkerProbe"));
     assertEquals("dropping an abstract class must leave the abstract marker unmapped",
         null, committed.getClassByCollectionId(SchemaShared.ABSTRACT_COLLECTION_ID));
+  }
+
+  // Reads a class's raw index set out of a freshly taken immutable snapshot. A fresh snapshot is
+  // materialized on demand when the thread-local pin is clear, so calling this after a mid-tx index
+  // change re-materializes the class's index list through the overlay-aware routing seam. Returns
+  // the index names so the assertions read cleanly.
+  private Set<String> snapshotIndexNamesFor(String className) {
+    var snapshotClass =
+        (SchemaClassInternal) session.getMetadata().getImmutableSchemaSnapshot()
+            .getClassInternal(className);
+    assertNotNull("the class must be present in the immutable snapshot", snapshotClass);
+    var names = new HashSet<String>();
+    for (var index : snapshotClass.getIndexesInternal()) {
+      names.add(index.getName());
+    }
+    return names;
+  }
+
+  /**
+   * An index created inside a transaction becomes visible in the owning class's raw index set through
+   * the per-session routing seam, even though the shared index manager does not register it until
+   * commit. The class is committed first (so the immutable snapshot, which reads committed schema,
+   * carries it), then the index is created inside a transaction. A snapshot re-taken during the
+   * transaction lists the new index on the class because the seam resolves the class's raw index set
+   * against the tx-local overlay and the mid-tx create forced the snapshot to rebuild. This is the
+   * routing that makes the query-side and same-transaction index tracking see the new index; without
+   * the overlay resolution the class's index list would stay frozen at the pre-index committed set.
+   */
+  @Test
+  public void txCreatedIndexIsVisibleInClassRawIndexSetThroughOverlay() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("OverlayVisibleClass");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayVisibleClass.name";
+
+    session.executeInTx(
+        tx -> {
+          // Before the create the class carries no index.
+          assertFalse(
+              "the class must carry no index before the in-transaction create",
+              snapshotIndexNamesFor("OverlayVisibleClass").contains(indexName));
+
+          cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+          // The overlay routing seam surfaces the tx-created index into the class's raw index set,
+          // even though the shared manager has not registered it.
+          assertTrue(
+              "the tx-created index must appear in the class's raw index set through the overlay",
+              snapshotIndexNamesFor("OverlayVisibleClass").contains(indexName));
+          assertFalse(
+              "the shared index manager must not register the tx-created index during the tx",
+              session.getSharedContext().getIndexManager().existsIndex(indexName));
+        });
+  }
+
+  /**
+   * The index the overlay surfaces for a tx-created index is the unbuilt deferred handle: its engine
+   * is not built, so its index id is negative. This is the property the query planner keys its
+   * skip-unbuilt-index guard on, so pinning it here proves the overlay hands the planner an index it
+   * will correctly skip rather than a built one it would try to read (which would throw on the absent
+   * engine).
+   */
+  @Test
+  public void txCreatedIndexSurfacedThroughOverlayIsUnbuilt() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("OverlayUnbuiltClass");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayUnbuiltClass.name";
+
+    session.executeInTx(
+        tx -> {
+          cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+          var snapshotClass =
+              (SchemaClassInternal) session
+                  .getMetadata()
+                  .getImmutableSchemaSnapshot()
+                  .getClassInternal("OverlayUnbuiltClass");
+          Index surfaced = null;
+          for (var index : snapshotClass.getIndexesInternal()) {
+            if (indexName.equals(index.getName())) {
+              surfaced = index;
+            }
+          }
+          assertNotNull("the overlay must surface the tx-created index", surfaced);
+          assertTrue(
+              "a tx-created index has no built engine, so its index id must be negative, was "
+                  + surfaced.getIndexId(),
+              surfaced.getIndexId() < 0);
+        });
+  }
+
+  /**
+   * An index dropped inside a transaction is hidden from the owning class's raw index set through the
+   * overlay, while the shared index manager keeps it until commit. The class and index are committed
+   * first, then the index is dropped inside a transaction. A snapshot re-taken during the transaction
+   * no longer lists the index on the class, but the shared manager still has it (the drop is
+   * commit-deferred and rolls back for free). Without the overlay hiding the name the class's index
+   * list would still show the index that the transaction intends to drop.
+   */
+  @Test
+  public void txDroppedIndexIsHiddenFromClassRawIndexSetThroughOverlay() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("OverlayHiddenClass");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayHiddenClass.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertTrue(
+        "the committed index must be visible in the class's raw index set before the drop",
+        snapshotIndexNamesFor("OverlayHiddenClass").contains(indexName));
+
+    session.begin();
+    indexManager.dropIndex(session, indexName);
+
+    assertFalse(
+        "the tx-dropped index must be hidden from the class's raw index set through the overlay",
+        snapshotIndexNamesFor("OverlayHiddenClass").contains(indexName));
+    assertTrue(
+        "the shared index manager must still hold the index during the tx (drop is deferred)",
+        indexManager.existsIndex(indexName));
+    session.rollback();
+
+    // After rollback the overlay is discarded and the committed index is visible again.
+    assertTrue(
+        "after rollback the class's raw index set must show the committed index again",
+        snapshotIndexNamesFor("OverlayHiddenClass").contains(indexName));
+  }
+
+  /**
+   * A query inside the transaction that created an index returns correct results through the full
+   * class scan, not through the unbuilt index (which would throw on the absent engine). The class
+   * holds committed rows; inside a transaction an index is created on it and a WHERE query on the
+   * indexed property is run. The planner must skip the unbuilt index and fall through to the class
+   * scan, which returns the correct row. This is the query-usability guarantee: a tx-created index
+   * accelerates nothing until commit builds its engine, but the query still returns the right answer.
+   */
+  @Test
+  public void queryInsideCreatingTransactionFallsThroughToScanNotUnbuiltIndex() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("ScanFallbackClass");
+    cls.createProperty("name", PropertyType.STRING);
+    // Commit rows before the index exists, so the scan fallback has committed data to return.
+    session.executeInTx(
+        tx -> {
+          session.newEntity("ScanFallbackClass").setProperty("name", "alice");
+          session.newEntity("ScanFallbackClass").setProperty("name", "bob");
+        });
+
+    session.begin();
+    // Create the index inside the same transaction; its engine is unbuilt until commit.
+    cls.createIndex("ScanFallbackClass.name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    // The query must not throw on the engine-less index; it falls through to the class scan and
+    // returns the matching committed row.
+    long matches;
+    try (var result = session.query("SELECT FROM ScanFallbackClass WHERE name = 'alice'")) {
+      matches = result.stream().count();
+    }
+    assertEquals(
+        "a query inside the creating transaction must return the correct row via the scan"
+            + " fallback, not crash on the unbuilt index",
+        1L, matches);
+    session.rollback();
+  }
+
+  /**
+   * The tx-local index overlay does not leak into a concurrent session's snapshot. The first session
+   * creates an index inside an open transaction; a second session opened against the same database
+   * takes its own snapshot and must not see the uncommitted index in the class's raw index set,
+   * because the overlay is keyed to the first session's transaction and the seam resolves each
+   * session's reads against that session's own overlay (the concurrent session has none).
+   */
+  @Test
+  public void overlayDoesNotLeakToConcurrentSessionSnapshot() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("OverlayIsolatedClass");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayIsolatedClass.name";
+
+    session.begin();
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    // The creating session sees the index through its own overlay.
+    assertTrue(
+        "the creating session must see its own tx-created index",
+        snapshotIndexNamesFor("OverlayIsolatedClass").contains(indexName));
+
+    DatabaseSessionEmbedded other = openDatabase();
+    try {
+      var otherClass =
+          (SchemaClassInternal) other
+              .getMetadata()
+              .getImmutableSchemaSnapshot()
+              .getClassInternal("OverlayIsolatedClass");
+      assertNotNull("the committed class must be visible to the concurrent session", otherClass);
+      var otherNames = new HashSet<String>();
+      for (var index : otherClass.getIndexesInternal()) {
+        otherNames.add(index.getName());
+      }
+      assertFalse(
+          "a concurrent session must not see the first session's uncommitted tx-created index",
+          otherNames.contains(indexName));
+    } finally {
+      other.close();
+    }
+    session.rollback();
+  }
+
+  /**
+   * A collection-membership ripple inside a transaction records the (index, collection) pair into the
+   * overlay's membership-added category, so the commit can persist the {@code collectionsToIndex}
+   * delta and the parent index then covers the new subclass collection. Creating an indexed
+   * superclass at the top level and then a subclass inside a transaction ripples the subclass's
+   * collection into the superclass index; this asserts the overlay carries that membership add
+   * (beyond recording the owning class as changed, which the earlier de-guard tests already cover).
+   */
+  @Test
+  public void membershipRippleRecordsCollectionAddIntoOverlay() {
+    var schema = session.getMetadata().getSchema();
+    var superCls = schema.createClass("OverlayMemberSuper");
+    superCls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayMemberSuper.name";
+    superCls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.executeInTx(
+        tx -> {
+          var subCls = schema.createClass("OverlayMemberSub", superCls);
+          assertNotNull("the in-transaction subclass create must succeed", subCls);
+
+          var overlay = session.getTxSchemaState().getIndexOverlay();
+          assertNotNull(
+              "an in-transaction membership ripple must have created the index overlay", overlay);
+          var added = overlay.getMembershipAdded().get(indexName);
+          assertNotNull(
+              "the membership ripple must record a collection-add against the superclass index",
+              added);
+          assertFalse(
+              "the recorded membership-add must name at least the subclass's collection",
+              added.isEmpty());
+        });
+  }
+
+  /**
+   * A schema-only transaction that never touches an index allocates no index overlay. Creating a
+   * class inside a transaction seeds the tx-local schema state but must leave the overlay null,
+   * proving the overlay is created lazily only on the first index change and the common schema-only
+   * path pays nothing for it.
+   */
+  @Test
+  public void schemaOnlyTransactionAllocatesNoIndexOverlay() {
+    var schema = session.getMetadata().getSchema();
+
+    session.executeInTx(
+        tx -> {
+          schema.createClass("NoOverlayClass");
+
+          var state = session.getTxSchemaState();
+          assertNotNull("a schema write must have seeded the tx-local state", state);
+          assertEquals(
+              "a schema-only transaction must not allocate an index overlay",
+              null, state.getIndexOverlay());
+        });
+  }
+
+  /**
+   * Creating an index and then dropping it by the same name inside one transaction nets to no index:
+   * the overlay's create-then-drop resolves to nothing, so the class's raw index set carries neither
+   * the created index (it was dropped) nor a spurious drop of a committed index (none existed). This
+   * pins the create-then-drop cancellation in the overlay so a same-transaction create/drop pair does
+   * not leave a dangling deferred handle the commit would try to build.
+   */
+  @Test
+  public void createThenDropSameIndexInTransactionNetsToNoIndex() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("CreateDropNetClass");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "CreateDropNetClass.name";
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    session.executeInTx(
+        tx -> {
+          cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+          assertTrue(
+              "the tx-created index must be visible before the drop",
+              snapshotIndexNamesFor("CreateDropNetClass").contains(indexName));
+
+          indexManager.dropIndex(session, indexName);
+
+          assertFalse(
+              "a create-then-drop of the same index in one tx must leave the index absent",
+              snapshotIndexNamesFor("CreateDropNetClass").contains(indexName));
+          var overlay = session.getTxSchemaState().getIndexOverlay();
+          assertNotNull("the index changes must have created the overlay", overlay);
+          assertFalse(
+              "the cancelled create must not remain a tx-created entry",
+              overlay.isTxCreated(indexName));
+          assertFalse(
+              "a create-then-drop must not record the never-committed index as tx-dropped",
+              overlay.isTxDropped(indexName));
+        });
   }
 }
