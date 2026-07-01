@@ -607,8 +607,9 @@ into `develop`:
 
 ```bash
 # -f force-deletes the tracked-but-modified design-mutations.md; the
-# follow-up rm -rf clears the untracked cold-read output, per-round
-# params, and .pyc remnants under staged-workflow/ that git rm never reaches.
+# follow-up rm -rf clears the untracked cold-read output and per-round
+# params directly under _workflow/, plus any .pyc caches under
+# staged-workflow/, that git rm never reaches.
 git rm -rf docs/adr/<dir-name>/_workflow/
 rm -rf docs/adr/<dir-name>/_workflow/
 git commit -m "Remove workflow scaffolding"

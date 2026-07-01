@@ -768,12 +768,12 @@ message prefix live in `prompts/create-final-design.md` § Step 4.
    track files, per-track review files under `plan/track-N/reviews/`,
    design-mutations log, and the staged subtree if present). `-f`
    force-deletes the tracked-but-modified `design-mutations.md`; the
-   follow-up `rm -rf` clears the untracked cold-read output, per-round
-   params, and `.pyc` remnants under `staged-workflow/` that `git rm`
-   never reaches. The blanket recursive `git rm -rf` sweeps the tracked
-   review-file directories automatically, and the follow-up `rm -rf`
-   removes the untracked remnants; no `plan/*`-globbing removal is needed
-   (and would risk catching the `plan/track-N.md` files). Both deletions
+   follow-up `rm -rf` clears the untracked cold-read output and per-round
+   params directly under `_workflow/`, plus any `.pyc` caches under
+   `staged-workflow/`, that `git rm` never reaches. The blanket recursive
+   `git rm -rf` sweeps the tracked review-file directories automatically,
+   so no `plan/*`-globbing removal is needed (and would risk catching the
+   `plan/track-N.md` files). Both deletions
    run inside this one step, so the cleanup stays a single commit. Commit
    with a message such as `Remove workflow scaffolding`. Push. This commit
    runs for **every** change.
