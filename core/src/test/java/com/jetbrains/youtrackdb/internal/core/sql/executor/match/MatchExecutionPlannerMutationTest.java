@@ -1455,12 +1455,13 @@ public class MatchExecutionPlannerMutationTest {
   }
 
   /**
-   * bothE resets currentEdgeClass: outE('KNOWS') followed by bothE('X') followed by
-   * inV() → inV should NOT infer a class because bothE reset the state. bothE('X')
-   * itself also gets no inference (not a recognized edge-method type).
+   * bothE('X') sets currentEdgeClass like outE/inE and the alias class is the edge
+   * class itself — mirroring outE/inE inference. When X is not registered in the
+   * schema, the subsequent inV() still cannot infer its linked vertex class
+   * (lookupLinkedVertexClass returns null), so v stays uninferred.
    */
   @Test
-  public void addAliases_bothE_resetsCurrentEdgeClass() {
+  public void addAliases_bothE_inferredLikeOutE_inVUninferredWhenUnregistered() {
     registerClass("KNOWS", 500);
 
     var expr = mockExpression(
@@ -1473,7 +1474,8 @@ public class MatchExecutionPlannerMutationTest {
         expr, new HashMap<>(), aliasClasses, new HashMap<>(), new HashMap<>(),
         mockContext(), Set.of(), new java.util.HashSet<>());
 
-    assertThat(aliasClasses).containsOnly(entry("e1", "KNOWS"));
+    assertThat(aliasClasses)
+        .containsOnly(entry("e1", "KNOWS"), entry("e2", "X"));
   }
 
   /**
