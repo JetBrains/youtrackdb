@@ -225,9 +225,9 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Throw-safety net: an ordinary Exception from a translator declines cleanly (the
-  // exception never escapes apply() and the step list is left untouched), but an Error
-  // or AssertionError propagates so a fatal JVM error or an -ea invariant violation
+  // Throw-safety net: an unchecked (RuntimeException) failure from a translator declines
+  // cleanly (the exception never escapes apply() and the step list is left untouched), but an
+  // Error or AssertionError propagates so a fatal JVM error or an -ea invariant violation
   // surfaces loudly instead of degrading to a silent decline.
   // ---------------------------------------------------------------------------
 
@@ -258,7 +258,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * An {@link Error} from the translator seam must propagate, not decline: a fatal JVM error
    * (e.g. {@code OutOfMemoryError} / {@code StackOverflowError}) must not be swallowed and handed
    * to the native pipeline to re-attempt in an already-exhausted JVM. The net catches {@link
-   * Exception} only; {@code Error} is re-thrown by the dedicated {@code catch (Error)} arm.
+   * RuntimeException} only; {@code Error} is not a {@code RuntimeException}, so it propagates
+   * uncaught.
    */
   @Test
   public void apply_translatorThrowsError_propagates() {
