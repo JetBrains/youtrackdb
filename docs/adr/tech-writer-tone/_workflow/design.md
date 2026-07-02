@@ -8,9 +8,8 @@ YouTrackDB's authored documents are governed by one declarative style file,
 `house-conversation.md`. This design is for the workflow maintainer who edits that
 machinery and the review agents; it assumes the `edit-design` authoring loop and the
 `dsc-ai-tell` mechanical checks. Today the machinery carries a class of rules whose
-only job is to make text read as human-authored: bans on negative parallelism (the
-`not X, but Y` reframing), roundabout negation, closing phrases, hyphenated
-word-pair clusters, curly quotes, and a sentence-case-heading mandate. These rules
+only job is to make text read as human-authored — §"Removing the disguise-only
+style rules" names each of the six with its gloss. These rules
 fight model training and add no comprehension value, yet the plan documents stay
 hard to read and expensive to review. The writer persona is a senior engineer
 (`house-style.md:42`), the chat reader a senior engineer (`house-conversation.md:7`),
@@ -20,36 +19,33 @@ This change stops fighting training and spends the freed effort on readability. 
 makes five changes:
 
 1. Removes the six disguise-only rules at the source and every mirrored consumer.
-2. Recasts the design/track writer as a technical writer borrowing the eight voice
-   rules of the YouTrackDB internals book.
-3. Recasts the two cold review agents as named reader personas — a *target reader*
-   and a *time-constrained reviewer* — running on Sonnet as a mid-level-reader
-   proxy.
-4. Renames the per-section `TL;DR` block to a `### Summary` sub-heading, with
-   details under their own sub-headings.
+2. Recasts the design/track writer as a technical writer with the internals-book voice.
+3. Recasts the two cold review agents as named reader personas on Sonnet, a mid-level-reader proxy.
+4. Renames the per-section `TL;DR` block to a `### Summary` sub-heading.
 5. Hardens the section-level bottom-line-up-front (BLUF) lead — the lead that
    states the section's conclusion before its body — per YTDB-1163.
 
 `house-style.md` is the single source of truth for these rules. Four consumers (the
-`ai-tells` skill, the cold-read prompt, the `dsc-ai-tell` regex checker, and
-`house-conversation.md`) already cite it by section and restate no rule. Because
-those consumers hold no copy of their own, deleting a rule at the source propagates
-the removal to all of them at once. The same removal touches seven further
-artifacts; §"Class Design" lists them.
+`ai-tells` skill, the cold-read prompt in `prompts/design-review.md`, the
+`dsc-ai-tell` regex checker, and `house-conversation.md`) already cite it by section
+and restate no rule. Because those consumers hold no copy of their own, deleting a
+rule at the source propagates the removal to all of them at once. The same removal
+touches seven further artifacts; §"Class Design" lists them.
 
 The branch is workflow-modifying in `conventions.md` §1.7 staged mode: edits
 accumulate under `_workflow/staged-workflow/.claude/**` and promote only at Phase 4,
 and this design is authored under the current live rules (see §"Staging and
 promotion under §1.7"). The rest of the document covers the core vocabulary, the
-artifact and agent architecture, the runtime authoring-review loop, then one section
-each for the six changes above and for staging.
+artifact and agent architecture, the runtime authoring-review loop, then eight
+topic sections that realize the five changes above plus the cross-cutting
+dual-register guard, and one for staging.
 
 ## Core Concepts
 
 This design introduces six load-bearing ideas. Each is named and used without
 re-definition in the sections that follow. Each entry pairs the new concept with
-what it replaces, so the delta from today's style machinery is visible at a
-glance, and points at the section that elaborates it.
+what it replaces and points at the section that elaborates it. The delta from
+today's style machinery is then visible at a glance.
 
 **Disguise-only rule.** A style rule whose only benefit is making text read as
 human-authored, with no gain in comprehension and no reduction in length. These
@@ -96,37 +92,45 @@ this design edits and along which relationship.
 flowchart TD
     HS["house-style.md<br/>declarative source of truth"]
 
-    subgraph consumers["Style-rule consumers — cite house-style by section"]
+    subgraph consumers["The four consumers house-style.md names"]
         HC["house-conversation.md<br/>chat register + reader"]
         AT["ai-tells/SKILL.md<br/>always-loaded description + catalogue"]
-        RWS["review-workflow-writing-style.md<br/>Phase-C style reviewer"]
+        DR["prompts/design-review.md<br/>cold-read + comprehension gate prompt"]
         DSC["design-mechanical-checks.py<br/>dsc-ai-tell + Summary-shape regexes"]
     end
 
+    RWS["review-workflow-writing-style.md<br/>Phase-C style reviewer"]
     TEST["test_dsc_ai_tell.py<br/>+ dsc-ai-tell-fixture.md"]
     DDR["design-document-rules.md<br/>section shapes + MANDATORY_OR_FORM_SUBHEADINGS"]
-    DR["prompts/design-review.md<br/>comprehension gate prompt"]
     CL["CLAUDE.md § Writing Style"]
 
     HS -->|cited by section| HC
     HS -->|cited by section| AT
-    HS -->|cited by section| RWS
+    HS -->|cited by section| DR
     HS -->|regex subset| DSC
+    HS -->|cited by section| RWS
     DSC -->|pins the regexes| TEST
     HS -.->|shape rules| DDR
     HS -.->|register pointer| CL
     DDR -->|structural checks| DR
 ```
 
-A solid arrow reads "cites `house-style.md` by section and restates no rule": the
-four consumers in the subgraph are the ones `house-style.md § What this style
-governs` already names. The `DSC → TEST` arrow is the coupling that makes a
-removal a two-file edit — `test_dsc_ai_tell.py` and `dsc-ai-tell-fixture.md` pin
-the exact regex behavior, so deleting a regex without deleting its assertion and
-fixture lines breaks the build (see §"Removing the disguise-only style rules").
-Dashed arrows are weaker relationships: `design-document-rules.md` carries its own
-copy of the shape rules and the `dsc-ai-tell` catalogue row, and `CLAUDE.md`
-points at the register without restating it.
+A solid arrow reads "cites `house-style.md` by section": the four consumers in the
+subgraph are the four that `house-style.md § What this style governs` enumerates as
+citing the source without restating any rule. `review-workflow-writing-style.md` (the
+Phase-C style reviewer, drawn outside the subgraph) also cites `house-style.md` by
+section, but `house-style.md` does not count it among those four — it carries its own
+enforce-these-rules checklist rather than only pointing at the source.
+`prompts/design-review.md` is one of the four and also consumes the structural checks
+`design-document-rules.md` supplies (the `DDR → DR` arrow), so it appears as both a
+`house-style.md` consumer and the comprehension-gate prompt. The `DSC → TEST` arrow
+is the coupling that makes a removal a two-file edit — `test_dsc_ai_tell.py` and
+`dsc-ai-tell-fixture.md` pin the exact regex behavior, so deleting a regex without
+deleting its assertion and fixture lines breaks the build (see §"Removing the
+disguise-only style rules"). Dashed arrows are weaker relationships:
+`design-document-rules.md` carries its own copy of the shape rules and the
+`dsc-ai-tell` catalogue row, and `CLAUDE.md` points at the register without
+restating it.
 
 The review side is a roster of five agents. Two change model and gain a persona;
 one gains a pin note and the voice mandate; two are unchanged and listed so the
@@ -182,10 +186,11 @@ sequenceDiagram
 ```
 
 The `par` block is the dual-clean pairing. The target reader
-(`readability-auditor`) reads its slice plus the standing anchors cold, never the
-research log, and owns the prose AI-tell axis; the warm `absorption-check` reads
-the log and matches its load-bearing decisions against the draft's decision
-records both ways. Keeping them separate spawns is what preserves the cold read —
+(`readability-auditor`) reads its slice plus the standing anchors cold — never the
+research log. The standing anchors are the `## Overview` and `## Core Concepts`
+sections, read alongside every slice. The target reader owns the prose AI-tell
+axis. The warm `absorption-check` reads the log and matches its load-bearing
+decisions against the draft's decision records both ways. Keeping them separate spawns is what preserves the cold read —
 warmth corrupts readability judgment but not coverage matching. Each round the
 author re-drafts, re-grounding in code only for passages an auditor flagged as
 too terse. The loop converges when both agents return clean in the same round.
@@ -203,7 +208,8 @@ comprehension gate may run.
 ## Removing the disguise-only style rules
 
 **TL;DR.** Six style rules whose only benefit is disguising machine authorship
-leave `house-style.md` and every mirrored consumer: the negative-parallelism ban,
+are removed from `house-style.md` and every mirrored consumer: the
+negative-parallelism ban,
 the roundabout-negation ban, the closing-phrases ban, the hyphenated-word-pair
 rule, the curly-quotes rule, and the sentence-case-heading mandate (Title Case is
 allowed again). The removal criterion is mechanical: a rule goes if its only
@@ -308,9 +314,10 @@ bounded deliberately: a narrative issue body worsens an act-oriented surface, so
 the voice applies to design and track prose and stops there.
 
 In a track file the voice governs the prose sections only — `## Purpose / Big
-Picture`, `## Context and Orientation`, and `## Plan of Work` — while the
-structured ExecPlan surfaces stay registry-terse: the `## Concrete Steps` roster
-lines, `## Episodes` structured-field blocks, `## Decision Log` four-bullet
+Picture`, `## Context and Orientation`, and `## Plan of Work`. The structured
+surfaces of the ExecPlan — the 15-section per-track execution-plan template defined
+in `conventions-execution.md §2.1` — stay registry-terse: the `## Concrete Steps`
+roster lines, `## Episodes` structured-field blocks, `## Decision Log` four-bullet
 records, `## Invariants & Constraints` bullets, and `## Interfaces and
 Dependencies` boundary lists. Track files are read by implementer spawns under a
 context budget; narrativizing the structured fields would inflate every
@@ -320,14 +327,14 @@ Acceptance` and `## Idempotence and Recovery` — stays registry-terse.
 
 The alternative of applying the voice everywhere is rejected because it worsens
 the act-oriented surfaces. The alternative of applying it over whole track files
-without the carve is rejected because an author agent could then legitimately
+without the carve-out is rejected because an author agent could then legitimately
 narrativize rosters and episode fields, inflating implementer reads.
 
 ### Edge cases / Gotchas
 
 - The voice governs prose sections only. An author narrativizing an issue body, a
   PR description, or a track file's `## Episodes` structured fields is a finding.
-- The track-file carve is positive and exhaustive: only the three named prose
+- The track-file carve-out is positive and exhaustive: only the three named prose
   sections take the voice. `## Validation and Acceptance` and `## Idempotence and
   Recovery` are author-written but stay registry-terse.
 - The persona swap is at `house-style.md:42` (§ Voice and tone). The assumed
@@ -370,10 +377,10 @@ two contradictory targets:
 
 1. **A worked-example opener beats the section-length heuristics.** In
    mechanism-overview prose, a worked example that opens with the concrete case is
-   a template-bound exempt category under the section-length cap's exemption list,
-   so the 200-word trigger and the bias toward less text do not flag what the
-   target reader asked for. The anti-padding clause still applies *inside* the
-   example: a worked example that teaches nothing is padding.
+   on the section-length cap's exemption list. So neither the 200-word trigger nor
+   the bias toward less text flags what the target reader asked for. The
+   anti-padding clause still applies *inside* the example: a worked example that
+   teaches nothing is padding.
 2. **One-concept-per-section beats same-shape sibling consolidation when the
    siblings teach distinct concepts.** Consolidation stays for same-shape
    *reference* material (comparison tables, catalogues) where no concept is being
@@ -425,7 +432,7 @@ The user asked whether a narrative format degrades the design as a machine seed
 for track generation, and whether the research log should seed tracks instead.
 The resolution keeps the frozen design as the seed. The research log is a
 decision ledger — append-only, with superseded entries and no integrated
-mechanism — so it cannot supply the mechanism content tracks need; the frozen
+mechanism — so it cannot supply the mechanism content that tracks need; the frozen
 design is reviewed, integrated, and user-accepted. Applying the narrative voice
 uniformly to the whole document, including the records and summaries, would
 dissolve operative content into the story arc, which is the extraction hazard the
@@ -436,7 +443,7 @@ governs the mechanism prose. The machine-facing skeleton stays registry-terse:
 
 - Decision records keep the canonical four-bullet form.
 - `### Summary` blocks stay plain-claim and self-contained (the YTDB-1163
-  self-contained-lead rule doing double duty — see §"Hardening the section BLUF
+  self-contained-lead rule applies here too — see §"Hardening the section BLUF
   lead").
 - Decisions-and-invariants footers stay lists of D and S codes.
 - Diagrams stay as diagrams.
@@ -491,13 +498,14 @@ because a narrative is a whole-read property:
 
 The recast preserves axis ownership. The persona governs register and stance, not
 the checklist. The target reader keeps sole ownership of the prose AI-tell
-judgment axis — invariant S4, one owner per surface — and retains the house-style
-`§`-citation obligation for the kept judgment rules (padding, hedging, elegant
-variation, the boldface cap: the subset the `dsc-ai-tell` regexes cannot reach). A
-stumble report and a `§`-cited finding are the same artifact seen from the
-persona: "I had to re-read this" plus the verbatim quote plus the rule it breaks.
+judgment axis; this is invariant S4, one owner per surface. It also retains the
+house-style `§`-citation obligation for the kept judgment rules (padding, hedging,
+elegant variation, the boldface cap — the subset the `dsc-ai-tell` regexes cannot
+reach). A stumble report and a `§`-cited finding are the same artifact seen from
+the persona: "I had to re-read this" plus the verbatim quote plus the rule it
+breaks.
 The skeptical-veteran persona from the book's roster is not added as a third
-spawn; its skepticism toward shallow depth-dressing folds into the
+spawn; its skepticism toward shallow content dressed up to look deep folds into the
 time-constrained reviewer's mental-model verdict.
 
 The alternatives rejected:
@@ -516,8 +524,8 @@ The alternatives rejected:
   owns the prose AI-tell axis and still cites `house-style.md §` per finding.
 - The narrative half lives only on the whole-doc gate. The sliced auditor returns
   structured findings only; a per-slice narrative has no consumer.
-- No third spawn. The veteran's skepticism toward shallow depth-dressing is a facet
-  of the time-constrained reviewer's verdict, not a separate agent.
+- No third spawn. The veteran's skepticism toward shallow content dressed to look
+  deep is a facet of the time-constrained reviewer's verdict, not a separate agent.
 
 ### Decisions & invariants
 
@@ -599,10 +607,10 @@ end-to-end and regex-enforceable — where "Summary" is also self-explanatory to
 reader for whom "TL;DR" is jargon. Legacy `TL;DR` spellings stay accepted, so
 committed designs keep passing.
 
-The user asked for clear separation of summary from details and a rename to
-"Summary". A bold-prefix `**Summary.**` rename alone leaves the summary running
-into the details, which is the separation failure the user named; a `### Summary`
-sub-heading fixes it structurally. Backward compatibility follows the D11
+The goal is clear separation of summary from details, with a rename to "Summary". A
+bold-prefix `**Summary.**` rename alone leaves the summary running into the details,
+which is the separation failure at issue; a `### Summary` sub-heading fixes it
+structurally. Backward compatibility follows the D11
 References→Decisions & invariants precedent: both spellings are accepted in the
 shape regexes, so a hard rename does not break every legacy design under
 `docs/adr/**` on re-review.
@@ -630,10 +638,6 @@ the similarity score in every section, and the same-shape sibling check
 false-positives on every well-formed design. So `"summary"` must be added there
 in the same change as the shape regex.
 
-The alternatives rejected: a `**Summary.**` bold-prefix rename only (the summary
-still runs into the details); a hard rename without legacy acceptance (breaks
-every committed legacy design on re-review).
-
 ### Edge cases / Gotchas
 
 - `MANDATORY_OR_FORM_SUBHEADINGS` must gain `"summary"` alongside `"tl;dr"` or the
@@ -659,7 +663,7 @@ every committed legacy design on re-review).
 **TL;DR.** Two rules harden the section-level BLUF lead per YTDB-1163: the lead
 must be a self-contained plain claim, parseable before the body is read, and the
 body must stand as complete prose with the lead deleted. The section-level BLUF
-rule today licenses opaque forward-reference leads and bodies that read only as
+rule today permits opaque forward-reference leads and bodies that read only as
 the lead's continuation; these two rules close that gap.
 
 Today's section-level BLUF rule permits a lead like "This section establishes the
@@ -673,27 +677,49 @@ that reads only as its continuation. The two hardening rules fix each half:
    complete prose. An anaphor opener ("This", "It", "Such") that resolves only
    into the lead is a finding.
 
-Acceptance names four sites: `house-style.md § BLUF lead` and § Orientation, the
-`review-workflow-writing-style.md` BLUF criteria, the house-style self-check #9
-(`:413`), and an exemplar before/after pair beside the § Orientation worked
-exemplar at `house-style.md:70-74`. These rules also do double duty for the
-dual-register guard (see §"Dual-register design document"): a `### Summary` block
-that is self-contained is exactly a lead that satisfies rule 1, which is why the
-derivation spawn can extract summaries in isolation.
+The two rules bind every section lead on the workflow-markdown surfaces and the
+issue and PR BLUF, including surfaces that carry no `### Summary` block at all. The
+`### Summary` sub-heading is the design-doc carrier of the lead these rules govern
+(D4), not the whole of their scope.
+
+The lead-opening slot is shared with D9's connect-backward opener — the rule that a
+section opener names what it builds on. The two hardening rules rank first: the
+self-contained plain claim comes first, and the backward link rides as a subordinate
+clause of it or as the following sentence, never substituting for the claim. So every
+agent touching the section-opening slot — the writing-style reviewer and readability
+auditor on the lead rules, the comprehension reviewer on the D9 link demand — reads
+one ranked rule rather than two that contend.
+
+Acceptance names three sites:
+
+- `house-style.md` § BLUF lead and § Orientation, with an exemplar before/after
+  pair beside the § Orientation worked exemplar at `house-style.md:70-74`;
+- the `review-workflow-writing-style.md` BLUF criteria;
+- the house-style self-check item that requires the first paragraph to state the
+  decision or symptom directly (the BLUF item).
+
+The third site is anchored by name rather than ordinal because this change's D1
+and D7 removals renumber the self-check list. These rules also serve a second
+purpose: the dual-register guard (see §"Dual-register design document"). A `###
+Summary` block that is self-contained is exactly a lead that satisfies rule 1, which
+is why the derivation spawn can extract summaries in isolation.
 
 ### Edge cases / Gotchas
 
 - The two rules are distinct. A lead can be self-contained while the body still
   leans on it (an anaphor opener), and the reverse; check both.
 - An anaphor opener resolving into the lead is the canonical rule-2 violation.
-- The rules land in four sites; the exemplar pair belongs beside the existing
-  § Orientation worked exemplar so a reader sees the before/after in context.
+- The rules land in three sites; the exemplar pair belongs with the `house-style.md`
+  § Orientation site, beside the existing worked exemplar, so a reader sees the
+  before/after in context.
 
 ### Decisions & invariants
 
-- D-records: D4 (the `### Summary` shape this hardening shares), D7 (the BLUF
-  rules hardened per YTDB-1163 alongside the Summary rename, on the keep side of
-  the removal criterion)
+- D-records: D10 (adopt YTDB-1163's two BLUF-hardening rules — self-contained lead
+  and body-stands-without-the-lead; the scope across all workflow-markdown section
+  leads and the issue/PR BLUF; the composition rule ranking the plain claim ahead of
+  the D9 backward-link opener; and the three acceptance sites), D4 (the `### Summary`
+  sub-heading that carries the lead in a design doc)
 - Invariants: self-contained lead; body stands with the lead deleted.
 
 ## Staging and promotion under §1.7
