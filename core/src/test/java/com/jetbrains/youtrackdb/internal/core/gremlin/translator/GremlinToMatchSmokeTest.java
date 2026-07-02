@@ -78,7 +78,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
         countBoundarySteps(admin.getSteps()));
 
     var names =
-        admin.toList().stream().map(v -> (String) ((Vertex) v).value("name")).sorted().toList();
+        admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
     assertEquals(List.of("Alice", "Bob", "Carol"), names);
   }
 
@@ -109,7 +109,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
       on.applyStrategies();
       assertEquals(
           "translator on → exactly one boundary step", 1, countBoundarySteps(on.getSteps()));
-      var namesOn = on.toList().stream().map(v -> (String) ((Vertex) v).value("name")).sorted()
+      var namesOn = on.toList().stream().map(v -> (String) v.value("name")).sorted()
           .toList();
 
       // Translator OFF.
@@ -124,7 +124,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
           "translator off → start step must remain a YTDBGraphStep but was "
               + off.getStartStep().getClass(),
           off.getStartStep() instanceof YTDBGraphStep<?, ?>);
-      var namesOff = off.toList().stream().map(v -> (String) ((Vertex) v).value("name")).sorted()
+      var namesOff = off.toList().stream().map(v -> (String) v.value("name")).sorted()
           .toList();
 
       // Multiset equality (sorted lists preserve multiplicity — the duplicate "Alice" appears
@@ -201,10 +201,10 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     admin.applyStrategies();
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
-    var vertices = admin.toList().stream().map(v -> (Vertex) v).toList();
+    var vertices = admin.toList().stream().map(v -> v).toList();
     assertEquals(1, vertices.size());
-    assertEquals(bob.id(), vertices.get(0).id());
-    assertEquals("Bob", vertices.get(0).value("name"));
+    assertEquals(bob.id(), vertices.getFirst().id());
+    assertEquals("Bob", vertices.getFirst().value("name"));
   }
 
   /**
