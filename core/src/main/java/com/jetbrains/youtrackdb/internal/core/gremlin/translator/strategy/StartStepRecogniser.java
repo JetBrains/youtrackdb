@@ -237,7 +237,7 @@ public final class StartStepRecogniser implements StepRecogniser {
     return switch (id) {
       case Identifiable identifiable -> {
         var identity = identifiable.getIdentity();
-        yield identity instanceof RecordIdInternal ? (RecordIdInternal) identity : null;
+        yield identity instanceof RecordIdInternal recordIdInternal ? recordIdInternal : null;
       }
       case String s -> {
         if (s.isBlank()) {
