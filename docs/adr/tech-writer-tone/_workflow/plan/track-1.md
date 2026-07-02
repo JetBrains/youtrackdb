@@ -23,6 +23,9 @@ The workflow's authored documents are governed by one declarative style file, `.
 - [ ] Track-level code review
 - [ ] Track completion
 
+**PAUSED 2026-07-02 at Phase A (iter-1 reviews done) pending user decision on the §1.7 staging-surface blocker (A1/A2)**
+- Handoff: `handoff-track-1-phaseA.md`
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
