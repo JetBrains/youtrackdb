@@ -1,7 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -254,8 +255,13 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.executionPlan)
         .as("a plan-backed scan surfaces a non-null plan")
         .isNotNull();
-    org.assertj.core.api.Assertions.assertThat(
-        containsFetchFromIndexStep(listener.planStepsInCallback))
+    assertThat(listener.planStepsInCallback)
+        .as("the captured plan is the scan plan, not an empty or unrelated plan")
+        .isNotEmpty();
+    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromClassExecutionStep.class))
+        .as("an unindexed scan fetches from the class, not an index")
+        .isTrue();
+    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
         .as("an unindexed scan uses no index step")
         .isFalse();
   }
@@ -289,8 +295,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.executionPlan)
         .as("an indexed query surfaces a non-null plan")
         .isNotNull();
-    org.assertj.core.api.Assertions.assertThat(
-        containsFetchFromIndexStep(listener.planStepsInCallback))
+    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
         .as("an indexed query uses a FetchFromIndexStep")
         .isTrue();
   }
@@ -315,12 +320,65 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     }
     g.tx().commit();
 
-    org.assertj.core.api.Assertions.assertThat(listener.notified)
+    assertThat(listener.notified)
         .as("the listener was notified")
         .isTrue();
     assertThat(listener.executionPlan)
         .as("a by-id lookup runs no query, so no plan is captured")
         .isNull();
+  }
+
+  // A non-graph-rooted root traversal (g.inject) has no YTDBGraphStep at its root, so
+  // capturedExecutionPlan() finds no source step and the listener sees a null plan even though the
+  // query-finished callback still fires. Pins the documented locality contract that only the root
+  // source step's plan is captured.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void nonGraphRootedTraversalSurfacesNullPlan() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().inject(1, 2, 3)) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("a non-graph-rooted root traversal captures no source-step plan")
+        .isNull();
+  }
+
+  // A downstream limit(0) does NOT prevent the source step from running: the YTDBGraphStep source
+  // supplier executes its query as soon as the traversal is iterated, before RangeGlobalStep can
+  // short-circuit, so a non-null scan plan is still captured. This contradicts the earlier prose
+  // claim that a limit(0) short-circuit leaves the plan null; this test pins the actual observed
+  // behavior for this Gremlin traversal shape.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void downstreamLimitZeroStillCapturesSourcePlan() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().V().hasLabel("person").limit(0)) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("the source step runs before limit(0) short-circuits, so its plan is captured")
+        .isNotNull();
   }
 
   // The plan must be readable inside the queryFinished callback even though the query's result set
@@ -340,7 +398,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     }
     g.tx().commit();
 
-    org.assertj.core.api.Assertions.assertThat(listener.planStepsInCallback)
+    assertThat(listener.planStepsInCallback)
         .as("getSteps() is readable in the callback after the result set closed")
         .isNotNull()
         .isNotEmpty();
@@ -383,7 +441,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       }
       g.tx().commit();
 
-      org.assertj.core.api.Assertions.assertThat(listener.notified)
+      assertThat(listener.notified)
           .as("the listener was notified on the replay")
           .isTrue();
       assertThat(listener.executionPlan)
@@ -407,7 +465,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     final var admin = traversal.asAdmin();
 
     final var firstRun = traversal.toList();
-    org.assertj.core.api.Assertions.assertThat(firstRun)
+    assertThat(firstRun)
         .as("the first run returns the person vertices")
         .isNotEmpty();
 
@@ -423,7 +481,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         .isNull();
 
     final var secondRun = traversal.toList();
-    org.assertj.core.api.Assertions.assertThat(secondRun)
+    assertThat(secondRun)
         .as("re-iteration after reset() yields the same correct results")
         .hasSameSizeAs(firstRun);
     assertThat(graphStep.getLastExecutionPlan())
@@ -1321,14 +1379,15 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     }
   }
 
-  /// Recursively scans an execution plan's steps (and their sub-steps) for a [FetchFromIndexStep],
-  /// which marks the query as index-backed rather than a full scan.
-  private static boolean containsFetchFromIndexStep(List<ExecutionStep> steps) {
+  /// Recursively scans an execution plan's steps (and their sub-steps) for a step of the given
+  /// type. A [FetchFromIndexStep] marks the query as index-backed; a [FetchFromClassExecutionStep]
+  /// marks it as a full-class scan.
+  private static boolean containsStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
     for (var step : steps) {
-      if (step instanceof FetchFromIndexStep) {
+      if (stepType.isInstance(step)) {
         return true;
       }
-      if (containsFetchFromIndexStep(step.getSubSteps())) {
+      if (containsStepOfType(step.getSubSteps(), stepType)) {
         return true;
       }
     }

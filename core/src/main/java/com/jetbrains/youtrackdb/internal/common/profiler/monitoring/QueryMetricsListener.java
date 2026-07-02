@@ -35,17 +35,18 @@ public interface QueryMetricsListener {
     ///
     /// A plan is present when the query ran a plan-backed source query (for example a Gremlin
     /// traversal starting from `g.V()` / `g.E()`); it is {@code null} for a lookup that runs no
-    /// query (for example `g.V(id)`) and on a cache-hit replay of an identical query within the
-    /// same transaction.
+    /// query (for example `g.V(id)`) and, when the per-transaction result cache is enabled
+    /// (`QUERY_TX_RESULT_CACHE_ENABLED`, off by default), on a cache-hit replay of an identical
+    /// query within the same transaction.
     ///
     /// The plan is for read-only inspection: read [ExecutionPlan#getSteps] or
     /// [ExecutionPlan#prettyPrint], and do not call [ExecutionPlan#toResult] — it needs a live
     /// session that is no longer valid after the query closed.
     ///
-    /// The returned plan is valid only synchronously inside the [QueryMetricsListener#queryFinished]
-    /// callback, the
-    /// same window the lazily-resolved [#getQuery] accessor has: the source step resolves it and
-    /// clears it on reset, so a listener must not retain the plan past the callback.
+    /// The returned plan is valid only synchronously inside the
+    /// [QueryMetricsListener#queryFinished] callback, the same window the lazily-resolved
+    /// [#getQuery] accessor has: the source step resolves it and clears it on reset, so a listener
+    /// must not retain the plan past the callback.
     @Nullable default ExecutionPlan getExecutionPlan() {
       return null;
     }
