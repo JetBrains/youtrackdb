@@ -44,6 +44,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntRBTreeSet;
 import java.util.ArrayList;
@@ -59,6 +60,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -77,6 +79,14 @@ public abstract class SchemaClassImpl {
   protected int[] collectionIds;
   protected List<SchemaClassImpl> superClasses = new ArrayList<>();
   protected int[] polymorphicCollectionIds;
+  /**
+   * RID of the standalone record that persists this class under the per-class-record schema
+   * format. Bound at load from the schema root record's class link set, the same way
+   * {@code IndexManagerAbstract.load} binds each index to its own record. {@code null} for a
+   * class that has not been persisted yet; a new class is allocated a fresh record at save and
+   * its temporary RID becomes permanent at commit.
+   */
+  @Nullable protected RID recordId;
   protected List<SchemaClassImpl> subclasses;
   protected float overSize = 0f;
   protected boolean strictMode = false; // @SINCE v1.0rc8
@@ -566,8 +576,29 @@ public abstract class SchemaClassImpl {
 
   protected abstract SchemaPropertyImpl createPropertyInstance();
 
-  public Entity toStream(DatabaseSessionEmbedded session) {
-    var entity = session.newEmbeddedEntity();
+  @Nullable public RID getRecordId() {
+    return recordId;
+  }
+
+  public void setRecordId(@Nullable RID recordId) {
+    this.recordId = recordId;
+  }
+
+  /**
+   * Serializes this class into the supplied standalone record. The caller (the schema root's
+   * {@code toStream}) owns the record's identity and link-set membership; this method only writes
+   * the class fields into it. Properties stay embedded within the class record.
+   */
+  public Entity toStream(DatabaseSessionEmbedded session, EntityImpl entity) {
+    // No provisional collection id (<= -2) may reach durable bytes: the commit resolves every
+    // provisional id to its real id before serializing, so a provisional id here means a
+    // reconciliation/resolution regression (a missed patch site, or serialization ordered before
+    // resolution). Caught at the serialization boundary during testing rather than as a "class lost
+    // its collections" symptom at the next database open. Zero production cost (asserts disabled).
+    assert noProvisionalCollectionId()
+        : "a provisional collection id reached toStream for class " + name
+            + " (defaultCollectionId=" + defaultCollectionId
+            + ", collectionIds=" + Arrays.toString(collectionIds) + ")";
     entity.setProperty("name", name);
     entity.setProperty("description", description);
     entity.setProperty("defaultCollectionId", defaultCollectionId);
@@ -604,6 +635,29 @@ public abstract class SchemaClassImpl {
         PropertyType.EMBEDDEDMAP);
 
     return entity;
+  }
+
+  /**
+   * Whether no collection id this class carries is provisional ({@code <= -2}) — the precondition
+   * {@link #toStream} asserts before writing the ids to durable bytes. Extracted to a helper so the
+   * multi-id scan does not report phantom JaCoCo branches inside the asserted expression (per the
+   * project's JaCoCo+assert guidance). Test-time guard only; never consulted in production.
+   */
+  private boolean noProvisionalCollectionId() {
+    if (SchemaShared.isProvisionalCollectionId(defaultCollectionId)) {
+      return false;
+    }
+    for (final var id : collectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(id)) {
+        return false;
+      }
+    }
+    for (final var id : polymorphicCollectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(id)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   public int[] getCollectionIds() {
@@ -1629,6 +1683,39 @@ public abstract class SchemaClassImpl {
   protected void setCollectionIds(final int[] iCollectionIds) {
     collectionIds = iCollectionIds;
     Arrays.sort(collectionIds);
+  }
+
+  /**
+   * Replaces every provisional collection id this class carries ({@code collectionIds},
+   * {@code defaultCollectionId}, {@code polymorphicCollectionIds}) with the real id the commit
+   * resolved it to. A provisional id this class does not carry, or an id already real, is left
+   * untouched. The caller (the tx-local schema's commit-time resolution) holds the schema write
+   * lock and rebuilds the reverse map after patching every class, so this method touches only the
+   * per-class arrays. Called only on a tx-local copy at commit, before any record serializes.
+   *
+   * @param resolution maps each provisional id ({@code <= -2}) to its real id ({@code >= 0}).
+   */
+  protected void replaceProvisionalCollectionIds(@Nonnull Int2IntMap resolution) {
+    if (SchemaShared.isProvisionalCollectionId(defaultCollectionId)
+        && resolution.containsKey(defaultCollectionId)) {
+      defaultCollectionId = resolution.get(defaultCollectionId);
+    }
+    for (var i = 0; i < collectionIds.length; i++) {
+      if (SchemaShared.isProvisionalCollectionId(collectionIds[i])
+          && resolution.containsKey(collectionIds[i])) {
+        collectionIds[i] = resolution.get(collectionIds[i]);
+      }
+    }
+    Arrays.sort(collectionIds);
+    final var resolvedPolymorphic = new int[polymorphicCollectionIds.length];
+    for (var i = 0; i < polymorphicCollectionIds.length; i++) {
+      final var id = polymorphicCollectionIds[i];
+      resolvedPolymorphic[i] =
+          SchemaShared.isProvisionalCollectionId(id) && resolution.containsKey(id)
+              ? resolution.get(id)
+              : id;
+    }
+    setPolymorphicCollectionIds(resolvedPolymorphic);
   }
 
   @Nullable public static String decodeClassName(String s) {

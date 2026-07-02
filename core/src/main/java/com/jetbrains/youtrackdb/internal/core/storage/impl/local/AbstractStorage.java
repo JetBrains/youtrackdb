@@ -74,6 +74,7 @@ import com.jetbrains.youtrackdb.internal.core.index.CompositeKey;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexDefinition;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
+import com.jetbrains.youtrackdb.internal.core.index.IndexManagerEmbedded;
 import com.jetbrains.youtrackdb.internal.core.index.IndexMetadata;
 import com.jetbrains.youtrackdb.internal.core.index.Indexes;
 import com.jetbrains.youtrackdb.internal.core.index.IndexesSnapshot;
@@ -91,6 +92,8 @@ import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeMultiValueInd
 import com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeSingleValueIndexEngine;
 import com.jetbrains.youtrackdb.internal.core.metadata.MetadataDefault;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.TxSchemaState;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.impl.index.CompositeKeySerializer;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.record.RecordSerializer;
@@ -373,6 +376,25 @@ public abstract class AbstractStorage
   // Uses identity equality (MapMaker.weakKeys() default), matching TsMinHolder's inherited
   // Object.equals/hashCode.
   protected final Set<TsMinHolder> tsMins = newTsMinsSet();
+
+  // Commit-window re-entry counter, per thread. A schema-carrying commit takes
+  // stateLock.writeLock() from the start and then, while still holding it,
+  // reads records to serialize and re-parse the schema (txLocalSchema.toStream,
+  // committedSchema.fromStream reached through session.load). Those reads route
+  // back into this storage's stateLock.readLock()-taking methods. The
+  // ScalableRWLock is non-reentrant, so a read re-acquire from the write-lock
+  // holder busy-spins forever. While this counter is positive on the current
+  // thread, the readLock-taking record-read methods skip the readLock: the held
+  // write lock already excludes every concurrent registrar and supplies the
+  // happens-before edge, so the read is safe and lock-free. The counter is a
+  // depth, not a flag, so nested enter/exit pairs compose. It is set only by the
+  // commit window via enterCommitWindow()/exitCommitWindow(); a thread that does
+  // not hold the write lock never enters the window, so the pure-data read-lock
+  // fast path is unchanged. exitCommitWindow() remove()s this ThreadLocal once the
+  // depth returns to zero, so a reused pooled worker never observes leftover window
+  // state from an earlier task.
+  private final ThreadLocal<int[]> commitWindowDepth =
+      ThreadLocal.withInitial(() -> new int[1]);
 
   static Set<TsMinHolder> newTsMinsSet() {
     return Sets.newSetFromMap(new MapMaker().weakKeys().makeMap());
@@ -1372,11 +1394,22 @@ public abstract class AbstractStorage
   @Override
   public final boolean isClosed(DatabaseSessionEmbedded database) {
     try {
-      stateLock.readLock().lock();
+      // The schema-carry commit reaches this through the tx-local schema serialization: deleting a
+      // dropped class's record runs the link-consistency pre-update path, which logs via
+      // EntityImpl.toString() -> session.isClosed(). That runs while the commit holds
+      // stateLock.writeLock(), so re-acquiring the read lock busy-spins forever on the non-reentrant
+      // ScalableRWLock. The commit window self-routes to the plain status read; the held write lock
+      // already proves the storage is open and supplies the visibility edge.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
         return isClosedInternal();
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -1764,6 +1797,52 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * The lock-free commit-window analogue of {@link #getApproximateRecordsCount(int)}: reads a
+   * collection's approximate record count without taking {@code stateLock}, because the schema-carry
+   * commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant read lock
+   * would busy-spin. The commit-time index build uses it to enforce the v1 empty-source-collection
+   * bound. Mirrors the lock-free {@link #doGetIndexEngine} precondition: the caller MUST hold
+   * {@code stateLock.writeLock()} with the commit window open, which supplies the exclusion and the
+   * happens-before edge for the plain-list read.
+   *
+   * @param collectionId a real (>= 0) collection id.
+   * @return the collection's approximate record count, or 0 when the id names no live collection.
+   */
+  public final long getApproximateRecordsCountInCommitWindow(final int collectionId) {
+    if (collectionId < 0
+        || collectionId >= collections.size()
+        || collections.get(collectionId) == null) {
+      return 0;
+    }
+    return collections.get(collectionId).getApproximateRecordsCount();
+  }
+
+  /**
+   * The lock-free commit-window analogue of {@link StorageCollection#getEntries(AtomicOperation)}:
+   * reads a collection's <em>exact</em> record count without taking {@code stateLock}, because the
+   * schema-carry commit already holds {@code stateLock.writeLock()} and re-acquiring the non-reentrant
+   * read lock would busy-spin. The commit-time index build uses it to confirm an approximate-zero
+   * count before it relies on the v1 empty-source-collection bound, closing the under-report hole
+   * where a stale approximate zero would let the build skip committed rows. Exact but cheap on the
+   * empty collection the caller has already pre-checked as approximately empty. Mirrors the lock-free
+   * {@link #doGetIndexEngine} precondition: the caller MUST hold {@code stateLock.writeLock()} with
+   * the commit window open, which supplies the exclusion and the happens-before edge.
+   *
+   * @param collectionId    a real (>= 0) collection id.
+   * @param atomicOperation the in-flight commit atomic operation the count reads through.
+   * @return the collection's exact record count, or 0 when the id names no live collection.
+   */
+  public final long getExactRecordsCountInCommitWindow(
+      final int collectionId, final AtomicOperation atomicOperation) {
+    if (collectionId < 0
+        || collectionId >= collections.size()
+        || collections.get(collectionId) == null) {
+      return 0;
+    }
+    return collections.get(collectionId).getEntries(atomicOperation);
+  }
+
   @Override
   public final long count(DatabaseSessionEmbedded session, final int[] iCollectionIds) {
     return count(session, iCollectionIds, false);
@@ -2028,14 +2107,23 @@ public abstract class AbstractStorage
   @Override
   public final Set<String> getCollectionNames() {
     try {
-      stateLock.readLock().lock();
+      // The schema-carry commit can reach this through the tx-local schema fromStream promotion
+      // (the collection-counter init fallback enumerates existing collection names) while holding
+      // stateLock.writeLock(). The commit window self-routes to the lock-free read; the held write
+      // lock supplies the exclusion and the visibility edge for collectionMap.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
 
         checkOpennessAndMigration();
 
         return Collections.unmodifiableSet(collectionMap.keySet());
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2057,7 +2145,15 @@ public abstract class AbstractStorage
         throw new IllegalArgumentException("Collection name is empty");
       }
 
-      stateLock.readLock().lock();
+      // The schema-carry commit reaches this through session.newInternalInstance() while
+      // serializing the tx-local schema (toStream allocates a fresh per-class record), still
+      // holding stateLock.writeLock(). Re-acquiring the read lock there busy-spins forever on the
+      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free read. The
+      // held write lock supplies the exclusion and the visibility edge for collectionMap.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
 
         checkOpennessAndMigration();
@@ -2071,7 +2167,9 @@ public abstract class AbstractStorage
 
         return -1;
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -2229,207 +2327,32 @@ public abstract class AbstractStorage
     //
     try {
       final var session = frontendTransaction.getDatabaseSession();
-      final var indexOperations =
-          getSortedIndexOperations(frontendTransaction);
+
+      // The unified schema-or-index signal: a tx-local schema state means the transaction
+      // changed the schema (or, once the index work lands, an index), so the commit takes the write
+      // lock from the start and reconciles structure inside it. A pure-data commit keeps today's
+      // read-lock fast path and its concurrency. Both branches share the inner apply body; only the
+      // lock taken, the pre-apply reconciliation, and the post-apply promotion differ.
+      final var txSchemaState = session.getTxSchemaState();
+      final boolean schemaCarry = txSchemaState != null;
 
       session.getMetadata().makeThreadLocalSchemaSnapshot();
 
-      final var recordOperations = frontendTransaction.getRecordOperationsInternal();
-      final var collectionsToLock = new TreeMap<Integer, StorageCollection>();
-      final Map<RecordOperation, Integer> collectionOverrides = new IdentityHashMap<>(8);
-
-      final Set<RecordOperation> newRecords = new TreeSet<>(COMMIT_RECORD_OPERATION_COMPARATOR);
-      for (final var recordOperation : recordOperations) {
-        var record = recordOperation.record;
-        if (recordOperation.type == RecordOperation.CREATED
-            || recordOperation.type == RecordOperation.UPDATED) {
-
-          if (record.isUnloaded()) {
-            throw new IllegalStateException(
-                "Unloaded record " + record.getIdentity() + " cannot be committed");
-          }
-
-          if (record instanceof EntityImpl entity) {
-            entity.validate();
-          }
-        }
-
-        if (recordOperation.type == RecordOperation.UPDATED
-            || recordOperation.type == RecordOperation.DELETED) {
-          final var collectionId = recordOperation.record.getIdentity().getCollectionId();
-          collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
-        } else if (recordOperation.type == RecordOperation.CREATED) {
-          newRecords.add(recordOperation);
-
-          final RID rid = record.getIdentity();
-
-          var collectionId = rid.getCollectionId();
-
-          if (record.isDirty()
-              && collectionId == RID.COLLECTION_ID_INVALID
-              && record instanceof EntityImpl entity) {
-            // TRY TO FIX COLLECTION ID TO THE DEFAULT COLLECTION ID DEFINED IN SCHEMA CLASS
-
-            var cls = entity.getImmutableSchemaClass(session);
-            if (cls != null) {
-              collectionId = cls.getCollectionForNewInstance(entity);
-              collectionOverrides.put(recordOperation, collectionId);
-            }
-          }
-          collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
-        }
-      }
-
-      final List<RecordOperation> result = new ArrayList<>(8);
+      final var indexOperations = getSortedIndexOperations(frontendTransaction);
       final var atomicOperation = frontendTransaction.getAtomicOperation();
-      stateLock.readLock().lock();
-      try {
+      final List<RecordOperation> result = new ArrayList<>(8);
+
+      if (schemaCarry) {
+        commitSchemaCarry(frontendTransaction, session, txSchemaState, indexOperations,
+            atomicOperation, allocated, result);
+      } else {
+        stateLock.readLock().lock();
         try {
-          checkOpennessAndMigration();
-
-          makeStorageDirty();
-
-          Throwable error = null;
-          startTxCommit(atomicOperation);
-          try {
-            lockCollections(collectionsToLock, atomicOperation);
-            lockLinkBags(collectionsToLock, atomicOperation);
-            lockIndexes(indexOperations, atomicOperation);
-
-            final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
-            for (final var recordOperation : newRecords) {
-              final var rec = recordOperation.record;
-
-              if (allocated) {
-                if (rec.getIdentity().isPersistent()) {
-                  positions.put(
-                      recordOperation,
-                      new PhysicalPosition(rec.getIdentity().getCollectionPosition()));
-                } else {
-                  throw new StorageException(name,
-                      "Impossible to commit a transaction with not valid rid in pre-allocated"
-                          + " commit");
-                }
-              } else if (rec.isDirty() && !rec.getIdentity().isPersistent()) {
-                final var rid = rec.getIdentity();
-                final var oldRID = rid.copy();
-
-                final var collectionOverride = collectionOverrides.get(recordOperation);
-                final int collectionId =
-                    Optional.ofNullable(collectionOverride).orElseGet(rid::getCollectionId);
-
-                final var collection = doGetAndCheckCollection(collectionId);
-
-                var physicalPosition =
-                    collection.allocatePosition(
-                        rec.getRecordType(),
-                        atomicOperation);
-
-                if (rid.getCollectionPosition() > -1) {
-                  // CREATE EMPTY RECORDS UNTIL THE POSITION IS REACHED. THIS IS THE CASE WHEN A
-                  // SERVER IS OUT OF SYNC
-                  // BECAUSE A TRANSACTION HAS BEEN ROLLED BACK BEFORE TO SEND THE REMOTE CREATES.
-                  // SO THE OWNER NODE DELETED
-                  // RECORD HAVING A HIGHER COLLECTION POSITION
-                  while (rid.getCollectionPosition() > physicalPosition.collectionPosition) {
-                    physicalPosition =
-                        collection.allocatePosition(
-                            rec.getRecordType(),
-                            atomicOperation);
-                  }
-
-                  if (rid.getCollectionPosition() != physicalPosition.collectionPosition) {
-                    throw new ConcurrentCreateException(name,
-                        rid, new RecordId(collection.getId(),
-                            physicalPosition.collectionPosition));
-                  }
-                }
-                positions.put(recordOperation, physicalPosition);
-
-                if (rid instanceof ChangeableRecordId changeableRecordId) {
-                  changeableRecordId.setCollectionAndPosition(collection.getId(),
-
-                      physicalPosition.collectionPosition);
-                } else {
-                  throw new DatabaseException(name,
-                      "Provided record is not new and its identity cannot be changed");
-                }
-                assert frontendTransaction.assertIdentityChangedAfterCommit(oldRID, rid);
-              }
-            }
-
-            for (final var recordOperation : recordOperations) {
-              commitEntry(
-                  frontendTransaction,
-                  atomicOperation,
-                  recordOperation,
-                  positions.get(recordOperation),
-                  session.getSerializer());
-              result.add(recordOperation);
-            }
-
-            //update of b-tree based link bags
-            var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
-            recordSerializationContext.executeOperations(atomicOperation, this);
-
-            commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
-                indexOperations);
-          } catch (final IOException | RuntimeException | AssertionError e) {
-            // AssertionError is caught so a persisted-side underflow from
-            // BTree.addToApproximateEntriesCount (raised inside commitIndexes
-            // or the lifecycle persist hook later in endAtomicOperation)
-            // routes through the rollback path. Without this, the assert
-            // would escape the outer catch (Error), call setInError, and
-            // put the storage in permanent error state. Persisted-side
-            // underflow signals a structural inconsistency on the
-            // entry-point page; rolling back the WAL atomic operation
-            // reverts the offending writes and leaves the storage usable
-            // for subsequent commits.
-            error = e;
-            if (e instanceof RuntimeException runtimeException) {
-              throw runtimeException;
-            }
-            // IOException or AssertionError — wrap as StorageException so
-            // the API caller's contract stays uniform (no Error escapes).
-            throw BaseException.wrapException(
-                new StorageException(name, "Error during transaction commit"), e, name);
-          } finally {
-            if (error != null) {
-              rollback(error, atomicOperation);
-            } else {
-              // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
-              // the single lifecycle gate that now owns persist (before
-              // commitChanges) and apply (after commitChanges, before the
-              // inner-finally releaseLocks). The pre-endTxCommit catch above
-              // still owns commitIndexes failures plus any failure that
-              // escapes the lifecycle persist hook; the lifecycle apply hook
-              // logs-and-swallows its own failures, so no catch is needed
-              // around endTxCommit here. Removing the prior post-endTxCommit
-              // applyIndexCountDeltas / applyHistogramDeltas calls and their
-              // log-and-swallow catches closes the lock-window race the old
-              // apply path had: today's apply runs while the per-index lock
-              // acquired at lockIndexes is still held.
-              endTxCommit(atomicOperation);
-              try {
-                cleanupSnapshotIndex();
-              } catch (final RuntimeException | AssertionError e) {
-                // Cleanup is best-effort — its failure must never mask a successful commit.
-                // The commit is already durable (WAL flushed, pages applied). If cleanup
-                // throws, stale snapshot entries simply accumulate until the next successful
-                // cleanup pass. AssertionError caught here for symmetry with the
-                // pre-endTxCommit catch above: an `assert` regression along the cleanup
-                // path must not escape and re-open the cascade.
-                LogManager.instance()
-                    .warn(this, "Snapshot index cleanup failed after successful commit", e);
-              }
-            }
-          }
+          applyCommitOperations(frontendTransaction, session, indexOperations, atomicOperation,
+              allocated, null, result);
         } finally {
-          atomicOperationsManager.ensureThatComponentsUnlocked(atomicOperation);
-          session.getMetadata().clearThreadLocalSchemaSnapshot();
+          stateLock.readLock().unlock();
         }
-      } finally {
-        stateLock.readLock().unlock();
       }
 
       if (logger.isDebugEnabled()) {
@@ -2450,6 +2373,1149 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
+  }
+
+  /**
+   * The per-commit record working set computed up front: the record operations to apply, the
+   * collections each touched record lives in (so they are locked before any write), the new-record
+   * subset, and the per-operation collection-id overrides the default-collection fix produced. Both
+   * the pure-data and the schema-carry commit branches gather this the same way; the schema-carry
+   * branch gathers it only after the tx-local schema serializes its new per-class records, so they
+   * join the working set.
+   *
+   * @param recordOperations all record operations in commit order.
+   * @param collectionsToLock collection id to its storage collection, for every touched collection.
+   * @param newRecords the created-record subset, in the commit comparator's order.
+   * @param collectionOverrides per-operation collection-id override from the default-collection fix.
+   */
+  private record CommitWorkingSet(
+      Iterable<RecordOperation> recordOperations,
+      TreeMap<Integer, StorageCollection> collectionsToLock,
+      Set<RecordOperation> newRecords,
+      Map<RecordOperation, Integer> collectionOverrides) {
+
+  }
+
+  /**
+   * The schema-carry inputs threaded into {@link #applyCommitOperations}. Non-null only for a
+   * schema-carrying commit; the pure-data commit passes {@code null} and the apply body runs exactly
+   * its legacy sequence. Carries the committed shared schema (the promotion target), the tx-local
+   * schema (the serialization source), the tx-schema state (the provisional-id carrier and the index
+   * overlay), and the index manager (the target for the commit-time index publication).
+   */
+  private record SchemaCommitContext(
+      SchemaShared committedSchema, SchemaShared txLocalSchema, TxSchemaState txSchemaState,
+      IndexManagerEmbedded indexManager) {
+
+  }
+
+  /**
+   * Gathers the record working set the commit applies: validates created/updated records, resolves
+   * each touched collection (so {@link #lockCollections} can lock them), and applies the
+   * default-collection fix for a new record that arrived without a collection id. Must run under a
+   * held {@code stateLock} (read lock for a pure-data commit, write lock for a schema-carry commit
+   * with the commit window open), because it calls the lock-free {@link #doGetAndCheckCollection}.
+   */
+  @SuppressWarnings("IdentityHashMapUsage")
+  private CommitWorkingSet computeCommitWorkingSet(
+      final FrontendTransactionImpl frontendTransaction,
+      final DatabaseSessionEmbedded session) {
+    final var recordOperations = frontendTransaction.getRecordOperationsInternal();
+    final var collectionsToLock = new TreeMap<Integer, StorageCollection>();
+    final Map<RecordOperation, Integer> collectionOverrides = new IdentityHashMap<>(8);
+    final Set<RecordOperation> newRecords = new TreeSet<>(COMMIT_RECORD_OPERATION_COMPARATOR);
+
+    for (final var recordOperation : recordOperations) {
+      var record = recordOperation.record;
+      if (recordOperation.type == RecordOperation.CREATED
+          || recordOperation.type == RecordOperation.UPDATED) {
+
+        if (record.isUnloaded()) {
+          throw new IllegalStateException(
+              "Unloaded record " + record.getIdentity() + " cannot be committed");
+        }
+
+        if (record instanceof EntityImpl entity) {
+          entity.validate();
+        }
+      }
+
+      if (recordOperation.type == RecordOperation.UPDATED
+          || recordOperation.type == RecordOperation.DELETED) {
+        final var collectionId = recordOperation.record.getIdentity().getCollectionId();
+        collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
+      } else if (recordOperation.type == RecordOperation.CREATED) {
+        newRecords.add(recordOperation);
+
+        final RID rid = record.getIdentity();
+
+        var collectionId = rid.getCollectionId();
+
+        if (record.isDirty()
+            && collectionId == RID.COLLECTION_ID_INVALID
+            && record instanceof EntityImpl entity) {
+          // TRY TO FIX COLLECTION ID TO THE DEFAULT COLLECTION ID DEFINED IN SCHEMA CLASS
+
+          var cls = entity.getImmutableSchemaClass(session);
+          if (cls != null) {
+            collectionId = cls.getCollectionForNewInstance(entity);
+            collectionOverrides.put(recordOperation, collectionId);
+          }
+        }
+        collectionsToLock.put(collectionId, doGetAndCheckCollection(collectionId));
+      }
+    }
+
+    return new CommitWorkingSet(recordOperations, collectionsToLock, newRecords,
+        collectionOverrides);
+  }
+
+  /**
+   * Applies a commit inside the held {@code stateLock}, shared by the pure-data and schema-carry
+   * branches. The schema-carry steps fire only when {@code schemaContext} is non-null and run inside
+   * the atomic-operation window so their structural file writes are buffered as WAL-reverted intent:
+   * after {@code startTxCommit} opens the apply window it reconciles collections (set difference over
+   * committed versus tx-local real ids), resolves every provisional id, and serializes the tx-local
+   * schema, so the changed per-class records join the working set gathered next. It then locks
+   * collections, link bags, and indexes; allocates positions for new records and rewrites their temp
+   * RIDs in place; writes every record; runs the link-bag B-tree operations; and commits the index
+   * changes. On error it rolls back the atomic operation (and, for a schema-carry commit, undoes the
+   * in-memory registry publication so no phantom registration survives); on success it ends the
+   * atomic operation, cleans the snapshot index, and (for a schema-carry commit) promotes the
+   * tx-local schema into the committed shared instances with one trailing {@code forceSnapshot}. The
+   * {@code stateLock} (read lock for pure-data, write lock plus the open commit window for
+   * schema-carry) is acquired and released by the caller, not here.
+   */
+  @SuppressWarnings("IdentityHashMapUsage")
+  private void applyCommitOperations(
+      final FrontendTransactionImpl frontendTransaction,
+      final DatabaseSessionEmbedded session,
+      final SortedMap<String, FrontendTransactionIndexChanges> indexOperations,
+      final AtomicOperation atomicOperation,
+      final boolean allocated,
+      final SchemaCommitContext schemaContext,
+      final List<RecordOperation> result) throws IOException {
+    try {
+      checkOpennessAndMigration();
+
+      makeStorageDirty();
+
+      Throwable error = null;
+      boolean structurePublished = false;
+      // Collections dropped by reconciliation, captured for the failure-path restore arm. A drop
+      // removes the collection from the in-memory registries eagerly inside reconcileCollections, so
+      // a failed commit must re-register them (rollback reverts only the on-disk files). Stays empty
+      // on a pure-data commit and on a schema-carry commit that drops nothing.
+      List<DroppedCollection> droppedCollections = List.of();
+      // The transaction's index deltas (created / dropped / membership), reconciled at commit across
+      // three phases: enroll the changed per-index records before the working set, build/drop and
+      // populate the engines after the record apply, publish into the shared index maps after
+      // commitChanges. Null on a pure-data commit and on a schema-carry commit with no index delta.
+      IndexManagerEmbedded.ReconciledIndexPlan indexPlan = null;
+      startTxCommit(atomicOperation);
+      try {
+        if (schemaContext != null) {
+          // The reconciliation publishes created collections into the live registries inside its own
+          // loop and removes dropped ones eagerly. Set the published flag before the call (not after)
+          // so a throw partway through reconciliation still routes the failure finally to the undo:
+          // any collection already created/dropped in that loop must be reverted in memory.
+          structurePublished = true;
+          // Reconcile structure inside the atomic-operation window, before any record serializes:
+          // create the tx-local-only collections and drop the committed-only ones, recording each
+          // provisional->real id. The structural file writes are WAL-reverted on a rollback.
+          droppedCollections =
+              reconcileCollections(schemaContext.committedSchema(), schemaContext.txLocalSchema(),
+                  schemaContext.txSchemaState(), atomicOperation);
+
+          // Test-only seam: fire any installed in-window hook now that structure is published but
+          // before the record apply. Tests use it to inject a fault (verifying the failure-path undo
+          // leaves no phantom/lost registration) or to latch the commit thread inside the held write
+          // lock (verifying a concurrent data commit proceeds on the read-lock path). Null and free in
+          // production. Fired inside the open commit window so a hook that reads records routes through
+          // the lock-free substrate rather than re-entering the read lock.
+          final var hook = commitWindowTestHook;
+          if (hook != null) {
+            hook.run();
+          }
+
+          // Patch every provisional id in the tx-local schema to its real id, then serialize the
+          // tx-local schema so its changed per-class records and root enrol into the transaction.
+          schemaContext.txLocalSchema()
+              .resolveProvisionalCollectionIds(
+                  schemaContext.txSchemaState().getResolvedCollectionIds());
+          schemaContext.txLocalSchema().acquireSchemaWriteLock(session);
+          // Suppress the bidirectional-link-consistency tracker around schema serialization AND the
+          // index-record enrollment below. The root's "classes" LINKSET and the index-manager's
+          // CONFIG_INDEXES LINKSET are structural internal links, not user graph links: the per-class
+          // and index-entity records carry no reverse back-reference link-bag property, so when a drop
+          // removes a class record from the root or unlinks a dropped index entity from the
+          // index-manager set, the tracker would (incorrectly) try to decrement a non-existent
+          // back-reference on the target record and throw LinksConsistencyException. The tracker is
+          // meant for user vertex/edge links only; schema and index-manager records are exempt. The
+          // enroll phase's indexLinkSet.remove + deleteRecordAtCommit run inside this same window so a
+          // drop of a tx-created-then-committed index (a replace) does not trip the tracker.
+          //
+          // Capture and restore the prior flag rather than forcing it back on: a schema-carry
+          // commit can run inside an outer scope that already disabled the check (for example an
+          // import), and an unconditional re-enable would clobber that outer disable for the rest
+          // of the outer operation.
+          final var priorLinkConsistency = session.isLinkConsistencyEnabled();
+          session.disableLinkConsistencyCheck();
+          try {
+            // The selective write keys on the transaction's changed-class set so only changed classes'
+            // per-class records enter the working set (the write-amplification win), and on whether the
+            // root non-link payload differs from the committed schema's so the root record is rewritten
+            // exactly when a property-create, counter advance, or blob-collection change touched it.
+            // The committed schema still carries its pre-commit payload here; promotion runs later on
+            // the success path, so the comparison sees the true before-state.
+            final var changedClasses = schemaContext.txSchemaState().getChangedClasses();
+            final var writeRootPayload =
+                schemaContext.txLocalSchema()
+                    .rootPayloadDiffersFrom(schemaContext.committedSchema());
+            try {
+              schemaContext.txLocalSchema().toStream(session, changedClasses, writeRootPayload);
+            } finally {
+              // Release without the save side effect: the records are enrolled in the user
+              // transaction and persist through the apply below, not through saveInternal.
+              schemaContext.txLocalSchema().releaseSchemaWriteLock(session, false);
+            }
+
+            // Index reconciliation, phase 1: enroll the changed per-index records into the transaction
+            // (the tx-created index entities and the index-manager link-set delta) so they join the
+            // working set gathered next, and enforce the v1 empty-source-collection build bound. The
+            // engine build and the shared-map publication run in later phases. Reconciliation resolves
+            // provisional collection ids on the tx-local schema above, so a deferred handle indexing a
+            // same-tx class now names the real collection. No overlay -> null plan -> the phases below
+            // are no-ops.
+            indexPlan =
+                schemaContext.indexManager()
+                    .enrollReconciledIndexRecords(
+                        session, frontendTransaction,
+                        schemaContext.txSchemaState().getIndexOverlay(), atomicOperation);
+          } finally {
+            if (priorLinkConsistency) {
+              session.enableLinkConsistencyCheck();
+            }
+          }
+          if (indexPlan != null) {
+            // Drop the tx-created indexes' tracked key changes from both the commit's local
+            // index-apply set and the transaction's own index-changes map. A same-tx insert into the
+            // indexed class routed addIndexEntry to the deferred handle (indexId = -1, absent from the
+            // shared registry), so those tracked changes would (a) make lockIndexes/commitIndexes try
+            // to lock and write an unbuilt engine and (b) make assertIdentityChangedAfterCommit fail
+            // resolving the not-yet-published index by name. The commit-time population scan re-derives
+            // the tx-created index from the transaction's final record state instead, so those tracked
+            // changes are redundant. Committed indexes' tracked changes stay unchanged.
+            final var txIndexChanges = frontendTransaction.getIndexOperations();
+            for (final var created : indexPlan.created()) {
+              indexOperations.remove(created.getName());
+              txIndexChanges.remove(created.getName());
+            }
+          }
+        }
+
+        // Gather the working set after any schema serialization so the new schema records join it.
+        final var workingSet = computeCommitWorkingSet(frontendTransaction, session);
+
+        lockCollections(workingSet.collectionsToLock(), atomicOperation);
+        lockLinkBags(workingSet.collectionsToLock(), atomicOperation);
+        lockIndexes(indexOperations, atomicOperation);
+
+        final Map<RecordOperation, PhysicalPosition> positions = new IdentityHashMap<>(8);
+        for (final var recordOperation : workingSet.newRecords()) {
+          final var rec = recordOperation.record;
+
+          if (allocated) {
+            if (rec.getIdentity().isPersistent()) {
+              positions.put(
+                  recordOperation,
+                  new PhysicalPosition(rec.getIdentity().getCollectionPosition()));
+            } else {
+              throw new StorageException(name,
+                  "Impossible to commit a transaction with not valid rid in pre-allocated"
+                      + " commit");
+            }
+          } else if (rec.isDirty() && !rec.getIdentity().isPersistent()) {
+            final var rid = rec.getIdentity();
+            final var oldRID = rid.copy();
+
+            final var collectionOverride = workingSet.collectionOverrides().get(recordOperation);
+            final int collectionId =
+                Optional.ofNullable(collectionOverride).orElseGet(rid::getCollectionId);
+
+            final var collection = doGetAndCheckCollection(collectionId);
+
+            var physicalPosition =
+                collection.allocatePosition(
+                    rec.getRecordType(),
+                    atomicOperation);
+
+            if (rid.getCollectionPosition() > -1) {
+              // CREATE EMPTY RECORDS UNTIL THE POSITION IS REACHED. THIS IS THE CASE WHEN A
+              // SERVER IS OUT OF SYNC
+              // BECAUSE A TRANSACTION HAS BEEN ROLLED BACK BEFORE TO SEND THE REMOTE CREATES.
+              // SO THE OWNER NODE DELETED
+              // RECORD HAVING A HIGHER COLLECTION POSITION
+              while (rid.getCollectionPosition() > physicalPosition.collectionPosition) {
+                physicalPosition =
+                    collection.allocatePosition(
+                        rec.getRecordType(),
+                        atomicOperation);
+              }
+
+              if (rid.getCollectionPosition() != physicalPosition.collectionPosition) {
+                throw new ConcurrentCreateException(name,
+                    rid, new RecordId(collection.getId(),
+                        physicalPosition.collectionPosition));
+              }
+            }
+            positions.put(recordOperation, physicalPosition);
+
+            if (rid instanceof ChangeableRecordId changeableRecordId) {
+              changeableRecordId.setCollectionAndPosition(collection.getId(),
+
+                  physicalPosition.collectionPosition);
+            } else {
+              throw new DatabaseException(name,
+                  "Provided record is not new and its identity cannot be changed");
+            }
+            assert frontendTransaction.assertIdentityChangedAfterCommit(oldRID, rid);
+          }
+        }
+
+        for (final var recordOperation : workingSet.recordOperations()) {
+          commitEntry(
+              frontendTransaction,
+              atomicOperation,
+              recordOperation,
+              positions.get(recordOperation),
+              session.getSerializer());
+          result.add(recordOperation);
+        }
+
+        //update of b-tree based link bags
+        var recordSerializationContext = frontendTransaction.getRecordSerializationContext();
+        recordSerializationContext.executeOperations(atomicOperation, this);
+
+        commitIndexes(frontendTransaction.getDatabaseSession(), atomicOperation,
+            indexOperations);
+
+        if (indexPlan != null) {
+          // Index reconciliation, phase 2: now that the record apply has assigned the transaction's
+          // records persistent RIDs, build each tx-created index's engine and populate it from the
+          // transaction's final record state, and delete each tx-dropped index's engine. The engine
+          // files are buffered in this same atomic operation, so they revert with a rollback; the
+          // engine registry publication is eager and reverted by the failure-path undo below.
+          schemaContext.indexManager()
+              .buildAndDropReconciledEngines(session, frontendTransaction, atomicOperation,
+                  indexPlan);
+
+          // Test-only seam: fire any installed post-build hook now that engines are built/published
+          // and dropped but before the record apply commits. Tests use it to inject a fault at the
+          // engines-published-but-not-durable point so the failure-path engine undo/restore arms
+          // actually run (the pre-record-apply commitWindowTestHook fires before any engine exists, so
+          // it cannot exercise them). Null and free in production. Fired inside the open commit window.
+          final var postBuildHook = postEngineBuildTestHook;
+          if (postBuildHook != null) {
+            postBuildHook.run();
+          }
+        }
+      } catch (final IOException | RuntimeException | AssertionError e) {
+        // AssertionError is caught so a persisted-side underflow from
+        // BTree.addToApproximateEntriesCount (raised inside commitIndexes
+        // or the lifecycle persist hook later in endAtomicOperation)
+        // routes through the rollback path. Without this, the assert
+        // would escape the outer catch (Error), call setInError, and
+        // put the storage in permanent error state. Persisted-side
+        // underflow signals a structural inconsistency on the
+        // entry-point page; rolling back the WAL atomic operation
+        // reverts the offending writes and leaves the storage usable
+        // for subsequent commits.
+        error = e;
+        if (e instanceof RuntimeException runtimeException) {
+          throw runtimeException;
+        }
+        // IOException or AssertionError — wrap as StorageException so
+        // the API caller's contract stays uniform (no Error escapes).
+        throw BaseException.wrapException(
+            new StorageException(name, "Error during transaction commit"), e, name);
+      } finally {
+        if (error != null) {
+          rollback(error, atomicOperation);
+          if (schemaContext != null && structurePublished) {
+            // A failed commit must leave the in-memory registry exactly as it was before the
+            // commit. The created collections' and dropped collections' files are WAL-reverted by the
+            // rolled-back atomic operation, but reconcileCollections mutated the in-memory registries
+            // synchronously (created collections published, dropped collections removed), so undo both
+            // sides here: drop the phantom creates and restore the dropped registrations.
+            undoReconciledCollections(schemaContext.committedSchema(),
+                schemaContext.txSchemaState(), droppedCollections);
+            if (indexPlan != null) {
+              // Mirror for engines, create side: the build phase published each created engine into
+              // the engine registries eagerly (like a created collection), so a failed commit must
+              // remove those phantom registrations. The engine files revert with the rolled-back
+              // atomic operation on the disk profile; the in-memory profile leaves them, so the undo
+              // also drops the surviving files. The engine ids the failed commit created are freed for
+              // reuse on the next commit.
+              undoReconciledIndexEngines(indexPlan.createdEngineExternalIds());
+              // Mirror for engines, drop side: deleteIndexEngineInCommitWindow tore each dropped
+              // engine out of the in-memory registry synchronously, so a failed commit must
+              // reconstruct it — otherwise the surviving committed index points at a nulled engine
+              // slot and throws on the next read. The rolled-back atomic operation restored the engine
+              // files on the disk profile, so the reconstruction rebuilds a fresh engine from the
+              // captured durable data. Runs after the create-undo so a freed slot the create-undo
+              // nulled cannot collide with a restore.
+              restoreReconciledDroppedIndexEngines(indexPlan.droppedEngines());
+              // Revert the eager in-memory membership mutations the enroll phase applied (the record
+              // writes revert with the atomic operation, but the in-memory collectionsToIndex sets
+              // were mutated synchronously).
+              schemaContext.indexManager().undoAppliedMembership(indexPlan);
+            }
+          }
+        } else {
+          // endTxCommit invokes AtomicOperationsManager.endAtomicOperation,
+          // the single lifecycle gate that now owns persist (before
+          // commitChanges) and apply (after commitChanges, before the
+          // inner-finally releaseLocks). The pre-endTxCommit catch above
+          // still owns commitIndexes failures plus any failure that
+          // escapes the lifecycle persist hook; the lifecycle apply hook
+          // logs-and-swallows its own failures, so no catch is needed
+          // around endTxCommit here. Removing the prior post-endTxCommit
+          // applyIndexCountDeltas / applyHistogramDeltas calls and their
+          // log-and-swallow catches closes the lock-window race the old
+          // apply path had: today's apply runs while the per-index lock
+          // acquired at lockIndexes is still held.
+          endTxCommit(atomicOperation);
+          try {
+            cleanupSnapshotIndex();
+          } catch (final RuntimeException | AssertionError e) {
+            // Cleanup is best-effort — its failure must never mask a successful commit.
+            // The commit is already durable (WAL flushed, pages applied). If cleanup
+            // throws, stale snapshot entries simply accumulate until the next successful
+            // cleanup pass. AssertionError caught here for symmetry with the
+            // pre-endTxCommit catch above: an `assert` regression along the cleanup
+            // path must not escape and re-open the cascade.
+            LogManager.instance()
+                .warn(this, "Snapshot index cleanup failed after successful commit", e);
+          }
+
+          if (schemaContext != null) {
+            if (indexPlan != null) {
+              // Index reconciliation, phase 3: the records are durable and the engines built, so
+              // publish the transaction's index deltas into the shared lookup maps (register the
+              // tx-created indexes, remove the tx-dropped ones, apply the membership deltas). Deferring
+              // this past commitChanges keeps the committed index view unchanged on a failed commit,
+              // mirroring the schema promotion just below. Runs under the held index-manager write
+              // lock (taken at commit entry) before the single forceSnapshot the promotion fires.
+              schemaContext.indexManager()
+                  .publishReconciledIndexes(frontendTransaction, indexPlan);
+            }
+            // Promote: the records are now durable, so re-parse the just-committed root and
+            // per-class records into the committed shared instances and invalidate the shared
+            // snapshot exactly once. fromStream binds new classes to the committed owner; a dropped
+            // class drops out. Promotion runs after a successful apply only, still under the held
+            // write lock and the open commit window.
+            // The commit is already durable here (endTxCommit applied the WAL). A throw during
+            // promotion (a cache-miss load, a fromStream parse failure, a forceSnapshot assert)
+            // must not both mask the successful commit and leave the in-memory committed schema
+            // half-parsed against correct durable bytes. fromStream clears and rebuilds the in-
+            // memory schema, so a mid-parse throw corrupts it, and rebuilding the snapshot would
+            // only reflect that corruption (makeSnapshot reads the in-memory class graph, not the
+            // disk). Reloading from disk inline is unsafe (it would begin a nested transaction
+            // while this commit is still active), so on failure drop any stale snapshot and move
+            // the storage to error state: the divergence then self-corrects on the next reopen,
+            // which re-parses the schema from the durable records. The durable commit still
+            // succeeds; the failure is logged rather than rethrown.
+            try {
+              final EntityImpl committedRoot =
+                  session.load(schemaContext.committedSchema().getIdentity());
+              schemaContext.committedSchema().fromStream(session, committedRoot);
+              schemaContext.committedSchema().forceSnapshot();
+            } catch (final RuntimeException | AssertionError e) {
+              LogManager.instance()
+                  .error(this,
+                      "Schema promotion failed after a durable schema-carry commit; the in-memory"
+                          + " schema is now untrusted and the storage will reload it from disk on"
+                          + " reopen",
+                      e);
+              try {
+                schemaContext.committedSchema().forceSnapshot();
+              } catch (final RuntimeException | AssertionError ignored) {
+                // Best-effort: a forceSnapshot failure here must not mask the durable commit.
+              }
+              setInError(e);
+            }
+          }
+        }
+      }
+    } finally {
+      atomicOperationsManager.ensureThatComponentsUnlocked(atomicOperation);
+      session.getMetadata().clearThreadLocalSchemaSnapshot();
+    }
+  }
+
+  /**
+   * Commits a schema-carrying transaction: the dependency inversion's commit half. Takes the four
+   * locks in the acyclic order (the metadata-write mutex is already engaged from the first schema
+   * write; here the order is {@code SchemaShared.lock} &rarr; index-manager lock &rarr;
+   * {@code stateLock.writeLock}), opens the lock-free commit window, and delegates the apply body to
+   * {@link #applyCommitOperations} with a non-null {@link SchemaCommitContext}. That method, inside
+   * the atomic-operation window, reconciles collections, resolves provisional ids, serializes the
+   * tx-local schema, applies the working set, and on success promotes the committed schema (on
+   * failure it undoes the in-memory registry publication so no phantom registration survives).
+   * Splitting the structural reconciliation into the apply body keeps the structural file writes
+   * inside the {@code startTxCommit}/{@code endTxCommit} window, so they are buffered as WAL-reverted
+   * intent and revert atomically with the record writes on a rollback.
+   */
+  private void commitSchemaCarry(
+      final FrontendTransactionImpl frontendTransaction,
+      final DatabaseSessionEmbedded session,
+      final TxSchemaState txSchemaState,
+      final SortedMap<String, FrontendTransactionIndexChanges> indexOperations,
+      final AtomicOperation atomicOperation,
+      final boolean allocated,
+      final List<RecordOperation> result) throws IOException {
+    final var committedSchema = session.getSharedContext().getSchema();
+    final var indexManager = session.getSharedContext().getIndexManager();
+    final var schemaContext =
+        new SchemaCommitContext(committedSchema, txSchemaState.getTxLocalSchema(), txSchemaState,
+            indexManager);
+
+    // Four-lock order: the mutex is already engaged (first schema write). Take the two shared
+    // metadata write locks before stateLock so the order stays acyclic, then the storage write lock.
+    committedSchema.acquireSchemaWriteLock(session);
+    try {
+      indexManager.acquireExclusiveLockForCommit();
+      try {
+        stateLock.writeLock().lock();
+        try {
+          // Open the lock-free commit window: schema toStream/fromStream and the record-read path
+          // re-enter stateLock.readLock() through session.load, which would busy-spin forever on the
+          // non-reentrant lock the commit already holds for writing. The window makes those reads
+          // skip the read lock; the held write lock supplies the exclusion and the visibility edge.
+          enterCommitWindow();
+          try {
+            applyCommitOperations(frontendTransaction, session, indexOperations, atomicOperation,
+                allocated, schemaContext, result);
+          } finally {
+            exitCommitWindow();
+          }
+        } finally {
+          stateLock.writeLock().unlock();
+        }
+      } finally {
+        indexManager.releaseExclusiveLockForCommit();
+      }
+    } finally {
+      committedSchema.releaseSchemaWriteLock(session, false);
+    }
+  }
+
+  /**
+   * Reconciles collections as the set difference over committed versus tx-local real collection
+   * ids, inside the held {@code stateLock.writeLock()} with the commit window open. A collection id
+   * present in the tx-local schema but absent from the committed schema is a create; the reverse is
+   * a drop. Creates use the lock-free {@link #doCreateCollection} at a commit-local first-null-slot
+   * id (so a failed commit's ids free for reuse), publish into the registries, and record the
+   * provisional&rarr;real resolution on {@code txSchemaState}. Drops use {@link
+   * #dropCollectionInternal}. Diffing by collection id rather than class name keeps a rename
+   * structurally inert.
+   */
+  private List<DroppedCollection> reconcileCollections(
+      final SchemaShared committedSchema,
+      final SchemaShared txLocalSchema,
+      final TxSchemaState txSchemaState,
+      final AtomicOperation atomicOperation) {
+    try {
+      final var committedIds = committedSchema.getRealCollectionIds();
+      final var txProvisionalNames = txSchemaState.getProvisionalCollectionNames();
+
+      // Drops: a real collection id in the committed schema absent from the tx-local schema. The
+      // tx-local schema's real-id set is the committed reals minus any dropped class's ids; a
+      // provisional id (<= -2) is excluded from getRealCollectionIds, so it never reads as a drop.
+      final var txRealIds = txLocalSchema.getRealCollectionIds();
+      final List<DroppedCollection> dropped = new ArrayList<>();
+      for (final var committedId : committedIds) {
+        if (!txRealIds.contains(committedId)) {
+          // Capture the collection before it is nulled, so the failure path can re-register it.
+          final var collection =
+              committedId < collections.size() ? collections.get(committedId) : null;
+          if (!dropCollectionInternal(atomicOperation, committedId)) {
+            // A real drop happened (the collection existed). Record the dropped collection for the
+            // failure-path undo BEFORE the two structural drops below: dropCollectionInternal has
+            // already nulled the registry slot and deleted the data file, so if dropCollection or
+            // deleteComponentByCollectionId throws, the failure-path undo still needs the captured
+            // collection to re-register it. The captured `collection` is the pre-null live object, so
+            // the record is complete even when a later structural drop throws.
+            dropped.add(new DroppedCollection(committedId, collection));
+            // Mirror the public dropCollection(int): dropCollectionInternal deletes only the data
+            // files and the in-memory entry, so also drop the storage-configuration entry and the
+            // link-bag B-tree component on the same atomic operation. All three structural deletions
+            // then revert together on a rollback and become durable together on commit, keeping the
+            // drop symmetric with doCreateCollection (which writes the data file, the config entry,
+            // and the component together).
+            ((CollectionBasedStorageConfiguration) configuration)
+                .dropCollection(atomicOperation, committedId);
+            linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, committedId);
+          }
+        }
+      }
+
+      // Creates: each provisional id the transaction allocated becomes a real collection created
+      // under the carried <class>_<counter> name at a commit-local first-null-slot id. Record the
+      // resolution so the patch list can rewrite every provisional reference before serialization.
+      for (final var entry : txProvisionalNames.int2ObjectEntrySet()) {
+        final int provisionalId = entry.getIntKey();
+        final String collectionName = entry.getValue();
+        final int realId = nextFreeCollectionId();
+        // The allocator must hand back a genuinely free slot (an append at the list end or a null
+        // slot). undoReconciledCollections relies on this: a resolved id that collided with a
+        // committed live slot would make the undo skip a real cleanup and doCreateCollection would
+        // overwrite a live collection. Zero production cost; catches a slot-bookkeeping regression at
+        // create time during testing.
+        assert realId >= collections.size() || collections.get(realId) == null
+            : "commit-local allocator returned an occupied collection slot " + realId;
+        final var collection = doCreateCollection(atomicOperation, collectionName, realId);
+        registerCollection(collection);
+        txSchemaState.recordResolvedCollectionId(provisionalId, realId);
+      }
+      return dropped;
+    } catch (final IOException e) {
+      // Wrap as an unchecked StorageException so the schema-carry commit's RuntimeException/Error
+      // catch reaches the registry-undo path, mirroring how the public structural methods wrap
+      // their atomic-operation IOExceptions.
+      throw BaseException.wrapException(
+          new StorageException(name, "Error reconciling collections during schema commit"), e,
+          name);
+    }
+  }
+
+  /**
+   * The first null slot in {@code collections}, or the list size when none is free — the
+   * commit-local collection-id allocator's next id. Seeded by a direct read of the shared
+   * {@code collections} list, which is safe because the caller holds {@code stateLock.writeLock()}
+   * (the seed read sits inside the write-lock window so it excludes the non-commit
+   * engine registrars that run under {@code stateLock.write} alone). Reused between successive
+   * creates within one reconciliation because each create publishes its collection into the slot
+   * before the next call scans.
+   */
+  private int nextFreeCollectionId() {
+    for (var i = 0; i < collections.size(); i++) {
+      if (collections.get(i) == null) {
+        return i;
+      }
+    }
+    return collections.size();
+  }
+
+  /**
+   * A collection {@link #reconcileCollections} dropped, captured so a failed schema-carry commit can
+   * restore its in-memory registration. The id is the dropped collection's slot; the collection is
+   * the {@link StorageCollection} object removed from the registries (its on-disk files are reverted
+   * by the rolled-back atomic operation, so re-registering the same object restores a consistent
+   * view).
+   */
+  private record DroppedCollection(int id, StorageCollection collection) {
+
+  }
+
+  /**
+   * Restores the in-memory registry to its pre-commit state on a failed schema-carry commit. The
+   * rolled-back atomic operation already reverts every structural file (created and dropped), but
+   * {@link #reconcileCollections} mutated the in-memory registries synchronously, so this undoes both
+   * sides: it removes the phantom registration of the collections the commit created, and
+   * re-registers the collections the commit dropped. Runs under the held write lock. Idempotent
+   * against a never-published id (the map lookup misses).
+   *
+   * <p>The create side also reverts the created collection's <em>structure</em>, not just its
+   * in-memory registry entry. The disk engine's {@code readCache.addFile} buffers the file create as
+   * WAL-reverted intent, so on a rollback the created collection's data file, config entry, and
+   * link-bag B-tree component vanish with the atomic operation and only the in-memory registry needs
+   * undoing. The in-memory engine eagerly installs every new file into its cache and does <em>not</em>
+   * revert that install on rollback (see {@code AtomicOperationBinaryTracking.addFile}), so the
+   * created collection's data file and its id-named {@code global_collection_<id>.grb} component
+   * survive the rollback as orphans; the surviving component then blocks the next id-reusing create
+   * with a "file already exists" error. This arm drops that orphaned structure in a fresh atomic
+   * operation (the failed commit's operation is already closed by {@code rollback}), guarded on the
+   * orphaned component still being present so it is a no-op on the disk engine (where rollback already
+   * removed it) and the real cleanup on the in-memory engine. The fresh atomic operation commits
+   * normally, so the orphan removal is itself durable.
+   *
+   * @param dropped the collections reconciliation dropped, in drop order; restored in memory here.
+   */
+  private void undoReconciledCollections(
+      final SchemaShared committedSchema, final TxSchemaState txSchemaState,
+      final List<DroppedCollection> dropped) {
+    final var committedIds = committedSchema.getRealCollectionIds();
+    for (final var realId : txSchemaState.getResolvedCollectionIds().values()) {
+      // Only drop ids the commit created (resolved from a provisional), never a pre-existing
+      // committed id. A resolved real id that coincides with a committed id cannot happen: the
+      // commit-local allocator draws from free slots, and a committed id's slot is occupied.
+      if (committedIds.contains(realId)) {
+        continue;
+      }
+      final var collection = realId < collections.size() ? collections.get(realId) : null;
+      if (collection != null) {
+        collectionMap.remove(collection.getName().toLowerCase(Locale.ROOT));
+        collections.set(realId, null);
+        // Drop the created collection's surviving structure (in-memory engine only — see the method
+        // Javadoc). The collection was just removed from the registry above, so pass the captured
+        // object to the structural cleanup rather than re-reading the now-null slot.
+        revertCreatedCollectionStructure(realId, collection);
+      }
+    }
+    // Re-register each dropped collection: rollback restored its files, so the captured object is
+    // consistent again. This is the mirror image of the create-undo arm above; without it a failed
+    // commit that dropped a collection would leave the registry reporting it absent while it is
+    // fully present on disk and in the storage configuration. The slot guard keeps the restore
+    // idempotent if a later create somehow reused the freed slot.
+    for (final var entry : dropped) {
+      final var collection = entry.collection();
+      if (collection == null) {
+        continue;
+      }
+      if (entry.id() < collections.size() && collections.get(entry.id()) == null) {
+        registerCollection(collection);
+      } else {
+        // Unreachable by construction: the create-undo arm above ran first (freeing every id this
+        // commit created) and the whole undo holds stateLock.writeLock(), so a dropped collection's
+        // original slot is in range and null here. The assert pins that invariant at zero production
+        // cost during testing. If it is somehow violated in production, do NOT register over the slot
+        // (that would leak the occupant) and do NOT throw: undoReconciledCollections runs in the
+        // failure-path finally while the original commit exception propagates, so a throw would mask
+        // the real failure. Log loudly so the in-memory-registry inconsistency is diagnosable, then
+        // leave the slot alone, mirroring the log-and-swallow stance of the surrounding cleanup.
+        assert entry.id() < collections.size() && collections.get(entry.id()) == null
+            : "drop-restore slot " + entry.id() + " is out of range or occupied";
+        LogManager.instance()
+            .error(this,
+                "Cannot re-register dropped collection '%s' on slot %d during failed-commit undo:"
+                    + " the slot is out of range or occupied; the collection is present on disk but"
+                    + " absent from the in-memory registry",
+                null, collection.getName(), entry.id());
+      }
+    }
+  }
+
+  /**
+   * Drops the surviving structure of a collection that a failed schema-carry commit created: the
+   * link-bag B-tree component, the storage-config entry, and the collection's own data file. The
+   * mirror of {@link #doCreateCollection}, which writes exactly those three structures. Runs in a
+   * fresh atomic operation because the failed commit's operation is already closed by {@code
+   * rollback}. Guarded on the orphaned component still being present so it is a no-op on the disk
+   * engine (where rollback reverted every structure already) and the real cleanup on the in-memory
+   * engine (where the eager cache install survived the rollback). See {@link
+   * #undoReconciledCollections} for why only the in-memory engine leaves an orphan.
+   *
+   * <p>Best-effort and self-contained: this runs from the failure-path {@code finally} while the
+   * original commit exception is propagating, so any failure here is logged and swallowed rather than
+   * thrown, exactly as the success-path snapshot cleanup is. A leaked orphan is a bounded
+   * single-collection leak, not a correctness break; masking the real commit failure would be worse.
+   *
+   * @param realId     the created collection's resolved real id (its slot, already nulled by the
+   *                   caller).
+   * @param collection the captured collection object removed from the registry, used to delete its
+   *                   data file.
+   */
+  private void revertCreatedCollectionStructure(final int realId,
+      final StorageCollection collection) {
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> {
+            // The component file (global_collection_<id>.grb) is the only structure keyed by id and
+            // the one that blocks an id-reusing create, so its presence is the in-memory-vs-disk
+            // discriminator: present means the rollback did not revert the eager cache install, so
+            // this collection's structure is orphaned and must be dropped; absent means the disk
+            // engine already reverted everything and there is nothing to do.
+            if (!LinkCollectionsBTreeManagerShared.isComponentPresent(atomicOperation, realId)) {
+              return;
+            }
+            // Delete the data file, the config entry, and the component on this fresh atomic
+            // operation, mirroring doCreateCollection in reverse. The collection was already removed
+            // from the in-memory registry by the caller, so this only reclaims on-disk/in-cache
+            // structure.
+            collection.delete(atomicOperation);
+            ((CollectionBasedStorageConfiguration) configuration)
+                .dropCollection(atomicOperation, realId);
+            linkCollectionsBTreeManager.deleteComponentByCollectionId(atomicOperation, realId);
+          });
+    } catch (final IOException | RuntimeException | AssertionError e) {
+      // Best-effort: never let a cleanup failure mask the original commit exception that is
+      // propagating through the failure-path finally. AssertionError is caught for symmetry with the
+      // success-path snapshot cleanup, so a -ea-only assert along the cleanup path cannot escape and
+      // replace the real error.
+      LogManager.instance()
+          .warn(this,
+              "Failed to revert orphaned structure of collection id " + realId
+                  + " after a failed schema commit; a bounded single-collection leak may remain",
+              e);
+    }
+  }
+
+  /**
+   * The first null slot in {@code indexEngines}, or the list size when none is free — the
+   * commit-local index-engine-id allocator's next id. The index analogue of {@link
+   * #nextFreeCollectionId()}: it lets a failed engine-creating commit free its id for reuse on the
+   * next commit, so the failed-commit registry-cleanliness guarantee extends from collections to
+   * engines. Seeded by a direct read of the shared {@code indexEngines} list, which is safe because
+   * the caller holds {@code stateLock.writeLock()} inside the commit window. Reused between successive
+   * creates within one reconciliation because each create publishes its engine into the slot before
+   * the next call scans.
+   */
+  private int nextFreeIndexEngineId() {
+    for (var i = 0; i < indexEngines.size(); i++) {
+      if (indexEngines.get(i) == null) {
+        return i;
+      }
+    }
+    return indexEngines.size();
+  }
+
+  /**
+   * Creates an index engine inside the schema-carry commit window at a commit-local first-null-slot
+   * id, publishes it into the in-memory registries, and returns its external id. The commit-window
+   * analogue of {@link #addIndexEngine(IndexMetadata, Map)}: it takes no {@code stateLock} (the
+   * caller already holds {@code stateLock.writeLock()}, and re-acquiring the non-reentrant lock would
+   * busy-spin), runs inside the commit's own atomic operation so the engine files are buffered as
+   * WAL-reverted intent, and allocates from a freed slot so a failed commit reuses the id. The
+   * registry publish is eager (mirroring how {@link #reconcileCollections} publishes a created
+   * collection), and a failed commit reverts it through {@link #undoReconciledIndexEngines}.
+   *
+   * <p>Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   *
+   * @param indexMetadata   the engine's metadata (name, definition, collections, type, algorithm).
+   * @param engineProperties per-engine properties passed to the engine factory.
+   * @param atomicOperation the in-flight commit atomic operation that buffers the file creates.
+   * @return the external (API-version-tagged) index id the built engine registered under.
+   */
+  public int createIndexEngineInCommitWindow(
+      final IndexMetadata indexMetadata,
+      final Map<String, String> engineProperties,
+      final AtomicOperation atomicOperation)
+      throws IOException {
+    final var indexDefinition = indexMetadata.getIndexDefinition();
+    if (indexDefinition == null) {
+      throw new IndexException(name, "Index definition has to be provided");
+    }
+    final var keyTypes = indexDefinition.getTypes();
+    if (keyTypes == null) {
+      throw new IndexException(name, "Types of indexed keys have to be provided");
+    }
+    if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
+      throw new IndexException(name,
+          "Index with name " + indexMetadata.getName() + " already exists");
+    }
+    makeStorageDirty();
+
+    final var keySerializer = determineKeySerializer(indexDefinition, atomicOperation);
+    if (keySerializer == null) {
+      throw new IndexException(name, "Can not determine key serializer");
+    }
+    final var keySize = determineKeySize(indexDefinition);
+    final var ctxCfg = configuration.getContextConfiguration();
+    final var cfgEncryptionKey =
+        ctxCfg.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
+    // A commit-local first-null-slot id, so a failed commit's engine id frees for reuse.
+    final var generatedId = nextFreeIndexEngineId();
+    assert generatedId >= indexEngines.size() || indexEngines.get(generatedId) == null
+        : "commit-local index-engine allocator returned an occupied slot " + generatedId;
+    final var engineData =
+        new IndexEngineData(
+            generatedId,
+            indexMetadata,
+            true,
+            StreamSerializerRID.INSTANCE.getId(),
+            keySerializer.getId(),
+            keyTypes,
+            keySize,
+            null,
+            cfgEncryptionKey,
+            engineProperties);
+
+    final var engine = doAddIndexEngine(atomicOperation, engineData);
+    publishIndexEngine(engineData.getIndexId(), engine);
+    return generateIndexId(engineData.getIndexId(), engine);
+  }
+
+  /**
+   * A dropped engine captured by {@link #deleteIndexEngineInCommitWindow} at drop time, so a failed
+   * schema-carry commit can reconstruct it. The id is the dropped engine's slot; the data is the
+   * engine's durable {@link IndexEngineData} read from the storage configuration <em>before</em> the
+   * delete's irreversible in-memory teardown, so a fresh engine can be rebuilt from it on the failure
+   * path (the delete's own {@code IndexHistogramManager} teardown makes the live engine object
+   * unusable, so the failure path never re-publishes the torn object).
+   */
+  public record DroppedIndexEngine(int internalId, IndexEngineData data) {
+
+  }
+
+  /**
+   * Deletes an index engine inside the schema-carry commit window: runs the WAL-reverted file delete
+   * on the commit's atomic operation and removes the engine from the in-memory registries. The
+   * commit-window analogue of {@link #deleteIndexEngine(int)}: it takes no {@code stateLock} (the
+   * caller holds {@code stateLock.writeLock()}). Unlike the public method, the map mutation runs
+   * synchronously here — the whole commit rolls back atomically on failure. The registry removal is
+   * therefore restored by {@link #restoreReconciledDroppedIndexEngines}: the caller records the
+   * returned {@link DroppedIndexEngine} on the plan and, on a failed commit, hands the captured list
+   * to that arm, which reconstructs a fresh engine from the captured durable data (the engine files
+   * revert with the rolled-back atomic operation on the disk profile, so the durable state the
+   * reconstruction reads is the pre-commit state again).
+   *
+   * <p>The durable {@link IndexEngineData} is captured before {@link #doDeleteIndexEngine} because the
+   * delete removes the storage-configuration entry the reconstruction reads, and the live engine
+   * object's histogram-manager teardown makes it unusable for re-publication.
+   *
+   * <p>Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   *
+   * @param externalIndexId the external (API-version-tagged) id of the engine to delete.
+   * @param atomicOperation the in-flight commit atomic operation that buffers the file deletes.
+   * @return the captured dropped engine (slot + durable data) for the failure-path reconstruction.
+   */
+  public DroppedIndexEngine deleteIndexEngineInCommitWindow(
+      final int externalIndexId, final AtomicOperation atomicOperation)
+      throws IOException, InvalidIndexEngineIdException {
+    final var internalIndexId = extractInternalId(externalIndexId);
+    checkOpennessAndMigration();
+    checkIndexId(internalIndexId);
+    makeStorageDirty();
+
+    final var engine = indexEngines.get(internalIndexId);
+    assert internalIndexId == engine.getId();
+
+    // Capture the durable engine data before the delete removes the config entry it reads. The
+    // captured data (not the torn live engine) drives the failure-path reconstruction.
+    final var capturedData =
+        configuration.getIndexEngine(engine.getName(), internalIndexId, atomicOperation);
+
+    doDeleteIndexEngine(atomicOperation, engine);
+    indexEngines.set(internalIndexId, null);
+    indexEngineNameMap.remove(engine.getName());
+    return new DroppedIndexEngine(internalIndexId, capturedData);
+  }
+
+  /**
+   * Restores the in-memory engine registries to their pre-commit state on a failed schema-carry
+   * commit that created engines. The rolled-back atomic operation reverts every engine file, but
+   * {@link #createIndexEngineInCommitWindow} published the engine synchronously, so this removes each
+   * phantom registration. The mirror of {@link #undoReconciledCollections}'s create-undo arm for
+   * engines. Runs under the held write lock. Idempotent against a never-published id (the slot read
+   * misses).
+   *
+   * <p>Like the collection arm, the create side also reverts the engine's <em>files</em> on the
+   * in-memory profile, which does not revert an eager engine-file {@code addFile} on rollback: the
+   * disk engine's rollback already removed the files, but the in-memory engine leaves them, so the
+   * surviving files would block the next id-reusing create. This arm drops the surviving engine files
+   * in a fresh atomic operation, guarded on the engine still being present, so it is a no-op on the
+   * disk engine and the real cleanup on the in-memory engine.
+   *
+   * @param createdEngineExternalIds the external ids of the engines the failed commit created.
+   */
+  private void undoReconciledIndexEngines(final List<Integer> createdEngineExternalIds) {
+    for (final var externalId : createdEngineExternalIds) {
+      final var internalId = extractInternalId(externalId);
+      final var engine =
+          internalId >= 0 && internalId < indexEngines.size()
+              ? indexEngines.get(internalId)
+              : null;
+      if (engine == null) {
+        continue;
+      }
+      indexEngines.set(internalId, null);
+      indexEngineNameMap.remove(engine.getName());
+      revertCreatedIndexEngineStructure(engine);
+    }
+  }
+
+  /**
+   * Restores the in-memory engine registry for every engine a failed schema-carry commit dropped, the
+   * drop-side mirror of {@link #undoReconciledCollections}'s re-register arm. {@link
+   * #deleteIndexEngineInCommitWindow} tore the engine out of {@code indexEngines} /
+   * {@code indexEngineNameMap} synchronously, so a failed commit must put it back or the surviving
+   * committed index would point at a nulled engine slot and throw on the next read. The rolled-back
+   * atomic operation reverts the engine's files on the disk profile, so the durable state this arm
+   * reads is the pre-commit state again; a fresh engine is reconstructed from the captured durable
+   * {@link IndexEngineData} through the same {@code Indexes.createIndexEngine} + {@code engine.load}
+   * path {@link #openIndexes} uses at startup, and re-registered at the original slot.
+   *
+   * <p>A fresh engine object is rebuilt rather than re-publishing the torn one: {@code
+   * deleteIndexEngineInCommitWindow} ran the engine's own {@code delete}, which for a B-tree engine
+   * permanently marks its histogram manager's rebalance flag and clears its caches, so the torn object
+   * would spin forever in the histogram rebalance CAS loop if re-published.
+   *
+   * <p>Deterministic invariant, not best-effort: after this arm runs the surviving committed index
+   * MUST be fully usable again. The only best-effort part is failure containment — this runs in the
+   * failure-path {@code finally} while the original commit exception propagates, so a reconstruction
+   * that itself hits an unexpected error is logged loudly and assert-guarded rather than thrown, so it
+   * never masks the primary commit failure with a secondary one. Runs under the held write lock.
+   *
+   * @param droppedEngines the engines the failed commit dropped (slot + captured durable data).
+   */
+  private void restoreReconciledDroppedIndexEngines(final List<DroppedIndexEngine> droppedEngines) {
+    for (final var dropped : droppedEngines) {
+      final var internalId = dropped.internalId();
+      final var engineData = dropped.data();
+      if (engineData == null) {
+        // No captured durable data means there was nothing to reconstruct (a drop whose config read
+        // returned null before the delete). Nothing to restore; the divergence self-corrects on the
+        // next reopen if it ever occurs.
+        assert false
+            : "dropped index engine at slot " + internalId + " had no captured durable data";
+        continue;
+      }
+      // Idempotent against a slot a later create-undo already left null-and-reusable: only reconstruct
+      // when the slot is actually empty, so a restore never overwrites a live registration.
+      if (internalId >= 0 && internalId < indexEngines.size()
+          && indexEngines.get(internalId) != null) {
+        continue;
+      }
+      try {
+        atomicOperationsManager.executeInsideAtomicOperation(
+            atomicOperation -> {
+              final var engine = Indexes.createIndexEngine(this, engineData);
+              engine.load(engineData, atomicOperation);
+              if (engine instanceof BTreeIndexEngine btreeEngine) {
+                wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
+              }
+              publishIndexEngine(engineData.getIndexId(), engine);
+            });
+      } catch (final IOException | RuntimeException | AssertionError e) {
+        // Loud failure containment: the reconstruction runs while the primary commit exception is
+        // propagating, so it must not throw a secondary exception that masks the primary. Log at error
+        // and assert-guard so a -ea test surfaces the broken invariant, while production keeps the
+        // primary failure intact. A reconstruction failure is a real defect (the surviving committed
+        // index is unusable until the next reopen), never a silently shipped broken index.
+        LogManager.instance()
+            .error(this,
+                "Failed to reconstruct dropped index engine '"
+                    + engineData.getName() + "' (slot " + internalId + ") after a failed schema"
+                    + " commit; the surviving committed index is unusable until the storage reopens",
+                e);
+        assert false : "dropped index engine reconstruction failed for slot " + internalId;
+      }
+    }
+  }
+
+  /**
+   * Drops the surviving files of an engine a failed schema-carry commit created, mirroring {@link
+   * #revertCreatedCollectionStructure}. Runs in a fresh atomic operation because the failed commit's
+   * operation is already closed by {@code rollback}. Guarded on the engine name still being present
+   * in the storage configuration so it is a no-op on the disk engine (where rollback reverted the
+   * files) and the real cleanup on the in-memory engine (where the eager cache install survived).
+   * Best-effort: a failure here is logged and swallowed rather than thrown, so it never masks the
+   * original commit exception propagating through the failure-path finally.
+   *
+   * @param engine the captured engine removed from the registry, used to delete its files.
+   */
+  private void revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
+    try {
+      atomicOperationsManager.executeInsideAtomicOperation(
+          atomicOperation -> {
+            // The surviving engine data file is the in-memory-vs-disk discriminator, mirroring the
+            // collection arm's isComponentPresent check. The old guard tested
+            // configuration.indexEngines(...).contains(name), the storage-configuration entry — but
+            // that entry reverts with the rolled-back atomic operation on BOTH profiles (the in-memory
+            // config cache reverts its eager put too), so on the in-memory profile it returned false
+            // while the eager-installed engine files survived, and the guard skipped the cleanup that
+            // was its whole reason to exist. A physical-file-presence check is true only when the
+            // files actually survived: false on the disk profile (rollback removed them) and true on
+            // the in-memory profile (the eager cache install survived), so the cleanup runs exactly
+            // where an orphan exists.
+            if (!engineFilesPresent(engine.getName())) {
+              return;
+            }
+            doDeleteIndexEngine(atomicOperation, engine);
+          });
+    } catch (final IOException | RuntimeException | AssertionError e) {
+      LogManager.instance()
+          .warn(this,
+              "Failed to revert orphaned files of index engine '" + engine.getName()
+                  + "' after a failed schema commit; a bounded single-engine leak may remain",
+              e);
+    }
+  }
+
+  /**
+   * Whether any physical file of the named index engine survives in the write cache — the
+   * in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the engine analogue of
+   * the collection arm's {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. A v1 BTree
+   * engine's files are named from the engine name plus a suffix (for example {@code <name>.cbt} for
+   * the data tree and {@code <name>$null.cbt} for the null tree), so a prefix match over the write
+   * cache's file listing catches every surviving file regardless of the exact suffix, without
+   * coupling this class to a specific engine's file-extension constant. The write cache reflects the
+   * committed physical files: the eager cache install survives a rollback on the in-memory profile
+   * and is reverted on the disk profile, so a surviving prefix match is exactly an orphan to clean up.
+   *
+   * @param engineName the dropped/created engine's name.
+   * @return {@code true} when at least one file whose name starts with {@code engineName} survives.
+   */
+  private boolean engineFilesPresent(final String engineName) {
+    final var wc = writeCache;
+    if (wc == null) {
+      return false;
+    }
+    final var prefix = engineName.toLowerCase(Locale.ROOT);
+    for (final var fileName : wc.files().keySet()) {
+      if (fileName.toLowerCase(Locale.ROOT).startsWith(prefix)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * A test-only hook fired inside the schema-carry commit window, after structure is published and
+   * before the record apply, while {@code stateLock.writeLock()} is held and the commit window is
+   * open. Null in production (no production caller sets it). Tests install a hook to inject a fault
+   * at the published-but-not-applied point (so the failure-path undo runs and its registry
+   * cleanliness can be asserted) or to latch the commit thread inside the held write lock (so a
+   * concurrent pure-data commit can be observed proceeding on the read-lock path). {@code volatile}
+   * because the installing thread and the committing thread may differ in a concurrent test.
+   */
+  private volatile Runnable commitWindowTestHook;
+
+  /**
+   * Installs (or clears, with {@code null}) the test-only in-window commit hook. Test-only seam — no
+   * production code sets a hook, so production behaviour is unchanged. See {@link
+   * #commitWindowTestHook}.
+   */
+  public void setCommitWindowTestHook(final Runnable hook) {
+    this.commitWindowTestHook = hook;
+  }
+
+  /**
+   * A test-only hook fired inside the schema-carry commit window <em>after</em> the engine build/drop
+   * phase (engines built, published, and dropped) and before the record apply commits, while {@code
+   * stateLock.writeLock()} is held and the commit window is open. Null in production. Unlike {@link
+   * #commitWindowTestHook} (which fires before any engine is created), this hook fires at the
+   * engines-published-but-not-durable point, so a fault injected here drives the failure-path engine
+   * undo and drop-restore arms over a non-empty {@code createdEngineExternalIds} / {@code
+   * droppedEngines} — the only point where those arms have work to do. {@code volatile} because the
+   * installing and committing threads may differ in a concurrent test.
+   */
+  private volatile Runnable postEngineBuildTestHook;
+
+  /**
+   * Installs (or clears, with {@code null}) the test-only post-engine-build commit hook. Test-only
+   * seam — no production code sets a hook. See {@link #postEngineBuildTestHook}.
+   */
+  public void setPostEngineBuildTestHook(final Runnable hook) {
+    this.postEngineBuildTestHook = hook;
+  }
+
+  /**
+   * Whether the named engine is registered in both {@code indexEngineNameMap} and {@code
+   * indexEngines}, read lock-free for a caller already inside the commit window. The public {@link
+   * #loadIndexEngine(String)} takes {@code stateLock.readLock()}, which busy-spins forever when the
+   * schema-carry commit already holds the non-reentrant write lock, so a test hook firing inside the
+   * commit window must use this window-aware probe instead. Test-only: it is the assertion seam that
+   * proves an engine actually exists at the fault point, so a failed-commit test cannot pass
+   * vacuously. Must be called with {@code stateLock.writeLock()} held and the commit window open.
+   *
+   * @param engineName the engine name to probe.
+   * @return {@code true} when a registered engine of that name exists.
+   */
+  public boolean isIndexEngineRegisteredInCommitWindow(final String engineName) {
+    return indexEngineNameMap.containsKey(engineName);
   }
 
   private void commitIndexes(DatabaseSessionEmbedded db, AtomicOperation atomicOperation,
@@ -2783,10 +3849,12 @@ public abstract class AbstractStorage
               final var ctxCfg = configuration.getContextConfiguration();
               final var cfgEncryptionKey =
                   ctxCfg.getValueAsString(GlobalConfiguration.STORAGE_ENCRYPTION_KEY);
-              var genenrateId = indexEngines.size();
+              // The public method appends at the live registry size; the commit
+              // window passes a commit-local-allocated id instead.
+              final var generatedId = indexEngines.size();
               final var engineData =
                   new IndexEngineData(
-                      genenrateId,
+                      generatedId,
                       indexMetadata,
                       true,
                       valueSerializerId,
@@ -2797,22 +3865,9 @@ public abstract class AbstractStorage
                       cfgEncryptionKey,
                       engineProperties);
 
-              final var engine = Indexes.createIndexEngine(this, engineData);
+              final var engine = doAddIndexEngine(atomicOperation, engineData);
 
-              engine.create(atomicOperation, engineData);
-
-              // Create and wire histogram manager for B-tree engines
-              if (engine instanceof BTreeIndexEngine btreeEngine) {
-                var mgr = createAndWireHistogramManager(
-                    btreeEngine, engineData, atomicOperation);
-                mgr.createStatsFile(atomicOperation);
-              }
-
-              indexEngineNameMap.put(indexMetadata.getName(), engine);
-              indexEngines.add(engine);
-
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
+              publishIndexEngine(engineData.getIndexId(), engine);
 
               return generateIndexId(engineData.getIndexId(), engine);
             });
@@ -2830,6 +3885,82 @@ public abstract class AbstractStorage
       throw logAndPrepareForRethrow(ee);
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
+    }
+  }
+
+  /**
+   * Creates the index engine, its files, and its storage-configuration entry inside the
+   * given atomic operation, without publishing the engine into the in-memory registries
+   * ({@code indexEngineNameMap} / {@code indexEngines}). Everything this method touches is
+   * buffered as WAL-reverted intent in {@code atomicOperation}, so a rolled-back or
+   * crashed-before-commit operation leaves no engine files behind. Splitting creation from
+   * registry publication ({@link #publishIndexEngine(int, BaseIndexEngine)}) lets a caller
+   * defer the in-memory publish past commit so a failed commit leaves no phantom
+   * registration; the public {@link #addIndexEngine(IndexMetadata, Map)} wrapper still
+   * publishes inside the same atomic operation (its existing crash-safe behavior is
+   * unchanged), and the commit window that defers the publish is wired separately. This
+   * mirrors the existing {@link #deleteIndexEngine(int)} discipline, which already defers
+   * its in-memory map mutation to after the atomic operation.
+   *
+   * <p>The caller is responsible for id allocation: {@code engineData.getIndexId()} is the
+   * caller-chosen internal id. The public {@link #addIndexEngine(IndexMetadata, Map)} uses
+   * {@code indexEngines.size()}; the commit window uses a commit-local allocator seeded
+   * inside the write lock.
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file creates.
+   * @param engineData      the engine metadata, carrying the caller-allocated internal id.
+   * @return the created engine, not yet published into the in-memory registries.
+   */
+  private BaseIndexEngine doAddIndexEngine(
+      final AtomicOperation atomicOperation, final IndexEngineData engineData)
+      throws IOException {
+    final var engine = Indexes.createIndexEngine(this, engineData);
+
+    engine.create(atomicOperation, engineData);
+
+    // Create and wire histogram manager for B-tree engines
+    if (engine instanceof BTreeIndexEngine btreeEngine) {
+      var mgr = createAndWireHistogramManager(btreeEngine, engineData, atomicOperation);
+      mgr.createStatsFile(atomicOperation);
+    }
+
+    ((CollectionBasedStorageConfiguration) configuration)
+        .addIndexEngine(atomicOperation, engineData.getName(), engineData);
+
+    return engine;
+  }
+
+  /**
+   * Publishes a created engine into the in-memory registries ({@code indexEngineNameMap}
+   * and {@code indexEngines}). This is the registry-publication half of the create seam,
+   * split from {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)} so the commit
+   * window can defer it past {@code commitChanges}: a failed commit must leave no phantom
+   * in-memory registration. Grows the {@code indexEngines} list to the
+   * internal id and sets the slot, so it works for both an append at the live size (the
+   * public path) and a reused hole below the size (the commit-local allocator).
+   *
+   * @param internalId the engine's internal id (its slot in {@code indexEngines}).
+   * @param engine     the engine to publish.
+   */
+  private void publishIndexEngine(final int internalId, final BaseIndexEngine engine) {
+    indexEngineNameMap.put(engine.getName(), engine);
+    setIndexEngine(internalId, engine);
+  }
+
+  /**
+   * Sets {@code indexEngines.get(id) == engine}, growing the list with null padding when
+   * {@code id} is at or past the current size, mirroring {@link #setCollection(int,
+   * StorageCollection)}. The public append path uses {@code id == indexEngines.size()};
+   * the commit-local allocator may reuse a hole at {@code id < indexEngines.size()}.
+   */
+  private void setIndexEngine(final int id, final BaseIndexEngine engine) {
+    if (indexEngines.size() <= id) {
+      while (indexEngines.size() < id) {
+        indexEngines.add(null);
+      }
+      indexEngines.add(engine);
+    } else {
+      indexEngines.set(id, engine);
     }
   }
 
@@ -3044,11 +4175,7 @@ public abstract class AbstractStorage
         assert internalIndexId == engine.getId();
 
         atomicOperationsManager.executeInsideAtomicOperation(
-            atomicOperation -> {
-              engine.delete(atomicOperation);
-              ((CollectionBasedStorageConfiguration) configuration)
-                  .deleteIndexEngine(atomicOperation, engine.getName());
-            });
+            atomicOperation -> doDeleteIndexEngine(atomicOperation, engine));
 
         // Update in-memory maps only AFTER the atomic operation commits
         // successfully. If the atomic operation rolls back, the maps remain
@@ -3072,6 +4199,25 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t);
     }
+  }
+
+  /**
+   * Deletes the engine's files and its storage-configuration entry inside the given atomic
+   * operation, without mutating the in-memory registries ({@code indexEngines} /
+   * {@code indexEngineNameMap}). This is the atomic-op half of the delete seam, split from
+   * {@link #deleteIndexEngine(int)} so the commit window can run the WAL-reverted delete
+   * under the held write lock and defer (or revert) the in-memory map mutation itself. The
+   * public {@code deleteIndexEngine} performs the map mutation after the atomic operation
+   * commits, as it always has.
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file deletes.
+   * @param engine          the already-resolved engine to delete.
+   */
+  private void doDeleteIndexEngine(
+      final AtomicOperation atomicOperation, final BaseIndexEngine engine) throws IOException {
+    engine.delete(atomicOperation);
+    ((CollectionBasedStorageConfiguration) configuration)
+        .deleteIndexEngine(atomicOperation, engine.getName());
   }
 
   private void checkIndexId(final int indexId) throws InvalidIndexEngineIdException {
@@ -3213,14 +4359,23 @@ public abstract class AbstractStorage
     try {
       checkIndexId(indexId);
 
+      // A schema-carrying commit reaches this resolver through the index-apply path
+      // (lockIndexes -> IndexAbstract.acquireAtomicExclusiveLock) while already holding
+      // stateLock.writeLock(). Re-acquiring the read lock there would busy-spin forever on the
+      // non-reentrant ScalableRWLock, so the commit window self-routes to the lock-free body, the
+      // same seam getPhysicalCollectionNameById and readRecordInternal use. The held write lock
+      // supplies the exclusion and the happens-before edge; the pure-read fast path keeps the lock.
+      if (isCommitWindowActive()) {
+        checkOpennessAndMigration();
+        return doGetIndexEngine(indexId);
+      }
+
       stateLock.readLock().lock();
       try {
 
         checkOpennessAndMigration();
 
-        final var engine = indexEngines.get(indexId);
-        assert indexId == engine.getId();
-        return engine;
+        return doGetIndexEngine(indexId);
       } finally {
         stateLock.readLock().unlock();
       }
@@ -3235,12 +4390,124 @@ public abstract class AbstractStorage
     }
   }
 
+  /**
+   * Lock-free engine resolver for the commit window. Reads {@code indexEngines.get(id)}
+   * without taking {@code stateLock}, mirroring the lock-free {@link
+   * #doGetAndCheckCollection(int)} for collections. The schema-carrying commit already
+   * holds {@code stateLock.writeLock()} (the write-lock branch chosen at commit entry),
+   * so re-acquiring {@code stateLock.readLock()} through the public {@link
+   * #getIndexEngine(int)} would busy-spin forever on the non-reentrant {@code
+   * ScalableRWLock}. The commit-time index-apply path reaches this resolver instead.
+   *
+   * <p><b>Precondition the caller MUST satisfy:</b> this method does no in-method
+   * synchronization and reads the plain (non-{@code volatile}, non-concurrent) {@code
+   * indexEngines} list directly, so the caller MUST hold {@code stateLock} across the call:
+   * {@code writeLock()} for the commit window, {@code readLock()} for the public wrapper.
+   * That held lock is the only thing that excludes a concurrent registrar and
+   * supplies the happens-before edge making the registry read visibility-safe; off-lock
+   * use (or use under only the metadata write locks, not {@code stateLock}) is a data race
+   * on a plain {@code ArrayList} and is unsupported.
+   *
+   * @param internalId the already-extracted internal index id (not the external,
+   *                   API-version-tagged id).
+   */
+  private BaseIndexEngine doGetIndexEngine(final int internalId)
+      throws InvalidIndexEngineIdException {
+    checkIndexId(internalId);
+
+    final var engine = indexEngines.get(internalId);
+    assert internalId == engine.getId();
+    return engine;
+  }
+
+  /**
+   * Opens the lock-free commit-window read path on the current thread. The
+   * schema-carrying commit calls this immediately after taking {@code
+   * stateLock.writeLock()} and before any record read it performs while still
+   * holding that write lock (schema serialization and promotion read records via
+   * {@code session.load}, which routes back into this storage's
+   * readLock-taking record-read methods). While the window is open, {@link
+   * #getPhysicalCollectionNameById(int)} and {@link #readRecordInternal} skip
+   * {@code stateLock.readLock()} so they do not deadlock re-acquiring the
+   * non-reentrant {@link ScalableRWLock} the commit already holds for writing.
+   *
+   * <p><b>Precondition the caller MUST satisfy:</b> the current thread holds
+   * {@code stateLock.writeLock()} for the duration of the window. That held
+   * write lock is the only thing that excludes a concurrent registrar and
+   * supplies the happens-before edge that makes the lock-free reads of {@code
+   * collections} / the collection stores visibility-safe. Opening the window
+   * without the write lock is a data race and is unsupported.
+   *
+   * <p>Re-entrant: nested enter/exit pairs compose via a depth counter, so the
+   * window stays open until the outermost {@link #exitCommitWindow()} runs. Every
+   * {@code enterCommitWindow()} MUST be balanced by an {@code exitCommitWindow()}
+   * in a {@code finally}, or later reads on the same (pooled) thread would wrongly
+   * skip the read lock.
+   */
+  void enterCommitWindow() {
+    commitWindowDepth.get()[0]++;
+  }
+
+  /**
+   * Closes one nesting level of the lock-free commit-window read path opened by
+   * {@link #enterCommitWindow()}. The window stays open until the depth returns to
+   * zero. MUST be called in a {@code finally} balancing each {@code
+   * enterCommitWindow()}; a leaked open window would make later reads on the same
+   * pooled thread skip the read lock unsafely.
+   *
+   * <p>Two defenses keep the per-thread state from poisoning a reused pooled
+   * worker. The decrement is clamped at zero so a stray exit without a matching
+   * enter cannot drive the depth negative — a negative depth would let a later
+   * legitimate window read as closed ({@link #isCommitWindowActive()} tests
+   * {@code > 0}), silently re-introducing the read-lock busy-spin the window
+   * exists to avoid. Java {@code assert}s are disabled in production, so the
+   * clamp, not the assert, is the production guard; the assert still surfaces the
+   * unbalanced call loudly under {@code -ea} in tests. When the depth returns to
+   * zero the {@link ThreadLocal} is {@code remove()}'d so the next unrelated read
+   * on the same pooled thread starts from a fresh zero-depth cell rather than
+   * observing leftover window state.
+   */
+  void exitCommitWindow() {
+    final var depth = commitWindowDepth.get();
+    assert depth[0] > 0 : "exitCommitWindow without a matching enterCommitWindow";
+    if (depth[0] > 0) {
+      depth[0]--;
+    }
+    if (depth[0] == 0) {
+      commitWindowDepth.remove();
+    }
+  }
+
+  /**
+   * True when the current thread is inside a commit window opened by {@link
+   * #enterCommitWindow()} and so holds {@code stateLock.writeLock()}. The
+   * readLock-taking record-read methods consult this to decide whether to take
+   * the read lock (normal callers) or run lock-free (commit-window callers).
+   */
+  private boolean isCommitWindowActive() {
+    return commitWindowDepth.get()[0] > 0;
+  }
+
   public <T> void callIndexEngine(
       final boolean readOperation, int indexId, final IndexEngineCallback<T> callback)
       throws InvalidIndexEngineIdException {
     indexId = extractInternalId(indexId);
 
     try {
+      // The commit-time engine build reaches this through IndexAbstract.onIndexEngineChange
+      // (engine.init) while the schema-carrying commit already holds stateLock.writeLock() with the
+      // commit window open. Re-acquiring the read lock there would busy-spin forever on the
+      // non-reentrant ScalableRWLock, so the window self-routes to the lock-free body, the same seam
+      // getIndexEngine uses. The held write lock supplies the exclusion and the happens-before edge.
+      if (isCommitWindowActive()) {
+        checkOpennessAndMigration();
+        if (readOperation) {
+          makeStorageDirty();
+        }
+        doCallIndexEngine(indexId, callback);
+        return;
+      }
+
       stateLock.readLock().lock();
       try {
         checkOpennessAndMigration();
@@ -3786,18 +5053,23 @@ public abstract class AbstractStorage
   @Nullable @Override
   public final String getPhysicalCollectionNameById(final int iCollectionId) {
     try {
-      stateLock.readLock().lock();
+      // The commit window (a schema-carrying commit holding stateLock.writeLock())
+      // reaches this method through the security check in session.executeReadRecord
+      // while serializing/promoting the schema. Re-acquiring the read lock there would
+      // deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+      // already excludes registrars and supplies the visibility edge.
+      final boolean lockFree = isCommitWindowActive();
+      if (!lockFree) {
+        stateLock.readLock().lock();
+      }
       try {
         checkOpennessAndMigration();
 
-        if (iCollectionId < 0 || iCollectionId >= collections.size()) {
-          return null;
-        }
-
-        return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
-            : null;
+        return doGetPhysicalCollectionNameById(iCollectionId);
       } finally {
-        stateLock.readLock().unlock();
+        if (!lockFree) {
+          stateLock.readLock().unlock();
+        }
       }
     } catch (final RuntimeException ee) {
       throw logAndPrepareForRethrow(ee);
@@ -3806,6 +5078,22 @@ public abstract class AbstractStorage
     } catch (final Throwable t) {
       throw logAndPrepareForRethrow(t, false);
     }
+  }
+
+  /**
+   * Lock-free body of {@link #getPhysicalCollectionNameById(int)}. Reads the plain
+   * {@code collections} list directly without taking {@code stateLock}. The public
+   * wrapper holds {@code stateLock.readLock()} for normal callers; the commit window
+   * holds {@code stateLock.writeLock()} and skips the read lock. Either held lock is
+   * the precondition: off-lock use is a data race on a plain {@code ArrayList}.
+   */
+  private String doGetPhysicalCollectionNameById(final int iCollectionId) {
+    if (iCollectionId < 0 || iCollectionId >= collections.size()) {
+      return null;
+    }
+
+    return collections.get(iCollectionId) != null ? collections.get(iCollectionId).getName()
+        : null;
   }
 
   @Override
@@ -4581,7 +5869,15 @@ public abstract class AbstractStorage
               + name
               + '\'');
     }
-    stateLock.readLock().lock();
+    // The commit window (a schema-carrying commit holding stateLock.writeLock())
+    // reaches this method through session.executeReadRecord on a genuine record-cache
+    // miss while serializing/promoting the schema. Re-acquiring the read lock there
+    // would deadlock the non-reentrant ScalableRWLock, so skip it: the held write lock
+    // already excludes registrars and supplies the visibility edge.
+    final boolean lockFree = isCommitWindowActive();
+    if (!lockFree) {
+      stateLock.readLock().lock();
+    }
     try {
       checkOpennessAndMigration();
       final StorageCollection collection;
@@ -4592,7 +5888,9 @@ public abstract class AbstractStorage
       }
       return doReadRecord(collection, rid, atomicOperation);
     } finally {
-      stateLock.readLock().unlock();
+      if (!lockFree) {
+        stateLock.readLock().unlock();
+      }
     }
   }
 
@@ -5002,36 +6300,68 @@ public abstract class AbstractStorage
   private int doAddCollection(
       final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
       throws IOException {
-    final PaginatedCollection collection;
-    if (collectionName != null) {
-      collectionName = collectionName.toLowerCase(Locale.ROOT);
+    final var collection = doCreateCollection(atomicOperation, collectionName, collectionPos);
 
-      collection =
-          StorageCollectionFactory.createCollection(
-              collectionName,
-              configuration.getVersion(atomicOperation),
-              configuration
-                  .getContextConfiguration()
-                  .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
-              this);
-      collection.configure(collectionPos, collectionName);
-    } else {
-      collection = null;
+    if (collection == null) {
+      return -1;
     }
 
-    var createdCollectionId = -1;
+    return registerCollection(collection);
+  }
 
-    if (collection != null) {
-      collection.create(atomicOperation);
-      createdCollectionId = registerCollection(collection);
-
-      ((CollectionBasedStorageConfiguration) configuration)
-          .updateCollection(atomicOperation, collection.generateCollectionConfig());
-
-      linkCollectionsBTreeManager.createComponent(atomicOperation, createdCollectionId);
+  /**
+   * Creates the collection's file, its storage-configuration entry, and its
+   * link-collections B-tree component inside the given atomic operation at the
+   * caller-allocated {@code collectionPos}, without publishing the collection into the
+   * in-memory collections list and the name-keyed collection map. Everything this
+   * method touches is buffered as WAL-reverted intent in {@code atomicOperation}, so a
+   * rolled-back or crashed-before-commit operation leaves no collection file behind.
+   * Splitting creation from registry publication ({@link
+   * #registerCollection(StorageCollection)}) lets a caller defer the in-memory publish past
+   * commit so a failed commit leaves no phantom registration; the public {@link
+   * #doAddCollection(AtomicOperation, String)} wrapper still publishes inside the same
+   * atomic operation (its existing crash-safe behavior is unchanged), and the commit window
+   * that defers the publish is wired separately. This is the collection-side analogue of
+   * {@link #doAddIndexEngine(AtomicOperation, IndexEngineData)}.
+   *
+   * <p>The caller owns id allocation: the public {@link #doAddCollection(AtomicOperation,
+   * String)} scans for the first null slot; the commit window uses a commit-local
+   * allocator seeded inside the write lock. Returns {@code null} for a null
+   * {@code collectionName} (the no-op case the legacy path returned id {@code -1} for).
+   *
+   * @param atomicOperation the in-flight atomic operation that buffers the file creates.
+   * @param collectionName  the collection name, lower-cased here; {@code null} is a no-op.
+   * @param collectionPos   the caller-allocated collection id.
+   * @return the created collection, not yet published into the in-memory registries, or
+   * {@code null} when {@code collectionName} is null.
+   */
+  private StorageCollection doCreateCollection(
+      final AtomicOperation atomicOperation, String collectionName, final int collectionPos)
+      throws IOException {
+    if (collectionName == null) {
+      return null;
     }
 
-    return createdCollectionId;
+    collectionName = collectionName.toLowerCase(Locale.ROOT);
+
+    final var collection =
+        StorageCollectionFactory.createCollection(
+            collectionName,
+            configuration.getVersion(atomicOperation),
+            configuration
+                .getContextConfiguration()
+                .getValueAsInteger(GlobalConfiguration.STORAGE_COLLECTION_VERSION),
+            this);
+    collection.configure(collectionPos, collectionName);
+
+    collection.create(atomicOperation);
+
+    ((CollectionBasedStorageConfiguration) configuration)
+        .updateCollection(atomicOperation, collection.generateCollectionConfig());
+
+    linkCollectionsBTreeManager.createComponent(atomicOperation, collectionPos);
+
+    return collection;
   }
 
   @Override
@@ -5654,23 +6984,7 @@ public abstract class AbstractStorage
             continue;
           }
 
-          if (!writeCache.exists(fileId)) {
-            final var fileName = writeCache.restoreFileById(fileId);
-
-            if (fileName == null) {
-              throw new StorageException(name,
-                  "File with id "
-                      + fileId
-                      + " was deleted from storage, the rest of operations can not be restored");
-            } else {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Previously deleted file with name "
-                          + fileName
-                          + " was deleted but new empty file was added to continue restore process");
-            }
-          }
+          ensureFileForReplay(atomicUnit, fileId);
 
           final var pageIndex = updatePageRecord.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -5728,25 +7042,7 @@ public abstract class AbstractStorage
             continue;
           }
 
-          if (!writeCache.exists(fileId)) {
-            final var fileName = writeCache.restoreFileById(fileId);
-
-            if (fileName == null) {
-              throw new StorageException(name,
-                  "File with id "
-                      + fileId
-                      + " was deleted from storage, the rest of operations"
-                      + " can not be restored");
-            } else {
-              LogManager.instance()
-                  .warn(
-                      this,
-                      "Previously deleted file with name "
-                          + fileName
-                          + " was deleted but new empty file was added to continue"
-                          + " restore process");
-            }
-          }
+          ensureFileForReplay(atomicUnit, fileId);
 
           final var pageIndex = pageOp.getPageIndex();
           fileId = writeCache.externalFileId(writeCache.internalFileId(fileId));
@@ -5822,6 +7118,88 @@ public abstract class AbstractStorage
         }
       }
     }
+  }
+
+  /**
+   * Materializes a file a page-redo record references but the cache has not seen yet, so
+   * WAL replay can continue across atomic units. The open-time caller has already applied the
+   * {@code deletedNonDurableFileIds} skip, so this is only reached for a genuinely missing
+   * file on that path. The incremental-backup caller
+   * ({@code DiskStorage.restoreFromIncrementalBackup}, the other of the two {@code restoreFrom}
+   * callers) reaches this helper with {@code deletedNonDurableFileIds} as the empty no-op set
+   * left behind by open-time recovery — incremental-backup restore has no non-durable-file
+   * concept, so the skip is simply inert there rather than a universal precondition. The branch
+   * order is the lazy-consult sequence (see issue YTDB-1099):
+   *
+   * <ol>
+   *   <li><b>Pending-create consult.</b> A committed file-creating unit whose physical
+   *       {@code addFile} was lost (the crash landed between its durable end record and
+   *       the completion of its apply phase) leaves a later committed unit's page redo
+   *       pointing at a file the cache never created. Scan this unit forward for the
+   *       {@link FileCreatedWALRecord} that creates the file, matched on
+   *       {@code internalFileId} because backup/restore rewrites the external high bits,
+   *       and materialize the empty file through the same
+   *       {@code readCache.addFile(name, id, writeCache)} path the
+   *       {@code FileCreatedWALRecord} branch uses. The later {@code FileCreatedWALRecord}
+   *       then replays as an idempotent no-op. Without this, the redo would throw and
+   *       {@code restoreFrom}'s {@code catch (RuntimeException)} would discard every later
+   *       unit.</li>
+   *   <li><b>{@code restoreFileById} fallback.</b> A file deleted by a later, already-applied
+   *       unit is resurrected from its persisted negative name-id entry. Load-bearing -- kept
+   *       unchanged.</li>
+   *   <li><b>Throw.</b> Neither path recovered the file, so the unit is genuinely incomplete
+   *       (its create record was never made durable) and the rest of the restore is
+   *       abandoned, exactly as before the fix.</li>
+   * </ol>
+   */
+  private void ensureFileForReplay(final List<WALRecord> atomicUnit, final long fileId)
+      throws IOException {
+    if (writeCache.exists(fileId)) {
+      return;
+    }
+
+    final var internalId = writeCache.internalFileId(fileId);
+    for (final var record : atomicUnit) {
+      // The !exists(name) guard before addFile is the same idiom the FileCreatedWALRecord replay
+      // branch uses: it assumes the name's nameIdMap entry and its physical file are consistent.
+      // exists(name) is stronger than "no positive nameIdMap entry" -- it also requires a non-null
+      // files entry and a present on-disk file -- so an inconsistent cache state (positive nameIdMap
+      // entry but absent file) would slip past it and make addFile throw. That window is not
+      // reachable here: in the targeted scenario the physical addFile was lost, and nameIdMap.put
+      // lives inside the same addFile write section, so a lost addFile leaves no nameIdMap entry and
+      // addFile re-runs cleanly. The guard is not full collision protection; it relies on that
+      // consistency, the same assumption the sibling branch makes.
+      //
+      // The downstream WOWCache.addFile shrink(0) truncation is a no-op precisely because of the
+      // !writeCache.exists(fileId) precondition checked at the top of this method: at consult time
+      // either the FileClassic is unregistered (addFile creates a fresh file, no truncation) or the
+      // physical file is absent (shrink(0) is a no-op), so no committed file is ever truncated.
+      //
+      // The file-recycle (same-unit delete-then-recreate) shape emits no FileCreatedWALRecord,
+      // so this forward scan finds nothing for it and correctly falls through to restoreFileById.
+      if (record instanceof FileCreatedWALRecord fileCreated
+          && writeCache.internalFileId(fileCreated.getFileId()) == internalId
+          && !writeCache.exists(fileCreated.getFileName())) {
+        readCache.addFile(fileCreated.getFileName(), fileCreated.getFileId(), writeCache);
+        return;
+      }
+    }
+
+    final var fileName = writeCache.restoreFileById(fileId);
+    if (fileName != null) {
+      LogManager.instance()
+          .warn(
+              this,
+              "Previously deleted file with name "
+                  + fileName
+                  + " was deleted but new empty file was added to continue restore process");
+      return;
+    }
+
+    throw new StorageException(name,
+        "File with id "
+            + fileId
+            + " was deleted from storage, the rest of operations can not be restored");
   }
 
   @SuppressWarnings("unused")
