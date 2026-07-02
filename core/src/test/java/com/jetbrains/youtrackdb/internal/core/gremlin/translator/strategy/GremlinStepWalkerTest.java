@@ -117,7 +117,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
         .doesNotContainKey(BOUNDARY_ALIAS);
     assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
     var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
-    assertThat(rendered).contains("@rid").contains("#25:3").contains("#25:7");
+    // Pin the IN operator and both RIDs, not just token presence: an equality-OR rewrite
+    // ("@rid = #25:3 OR @rid = #25:7"), a dropped IN operator, or a NOT-IN negation would all
+    // still contain the three bare tokens the looser check accepted.
+    assertThat(rendered).contains("@rid IN ").contains("#25:3").contains("#25:7");
+    assertThat(rendered).doesNotContain("NOT IN");
   }
 
   // ---------------------------------------------------------------------------
@@ -317,14 +321,32 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * A blank / whitespace-only RID string ({@code g.V("   ")}) declines via a branch DISTINCT from
+   * the malformed-RID case above: {@code RecordIdInternal.fromString} maps a blank string to the
+   * {@code #-1:-1} changeable-RID placeholder rather than throwing, so without the recogniser's
+   * explicit {@code isBlank()} guard a blank id would translate into a degenerate lookup that
+   * diverges from native {@code g.V("")}'s empty result. This pins that guard: a blank id declines
+   * the whole walk to the native pipeline.
+   */
+  @Test
+  public void walk_blankRidString_declines() {
+    var admin = graph.traversal().V("   ").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("a blank RID string declines the whole walk").isEmpty();
+  }
+
+  /**
    * Non-polymorphic mode does NOT narrow a bare {@code g.V()} by class. Native non-polymorphic
    * {@code g.V()} still returns the full polymorphic vertex set: the no-id branch of
    * {@code YTDBGraphImplAbstract.elements} browses the class polymorphically regardless of the
    * flag, and the by-id branch applies no class filter at all. Emitting {@code @class = 'V'}
    * would exclude every subclass instance the native path keeps, so under
    * {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT = false} the recogniser must emit no filter on
-   * the boundary alias for a bare {@code g.V()}. The flag is restored in a finally block so the
-   * shared session's default is not leaked to later tests.
+   * the boundary alias for a bare {@code g.V()}. The flag is restored in a finally block so later
+   * traversals in this same test see the default; cross-test isolation is already guaranteed by
+   * the per-method database drop, not by this restore.
    */
   @Test
   public void walk_nonPolymorphicBareVertexSource_emitsNoClassFilter() {
