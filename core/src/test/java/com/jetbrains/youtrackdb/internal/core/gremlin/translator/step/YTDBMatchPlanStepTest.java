@@ -164,9 +164,10 @@ public class YTDBMatchPlanStepTest {
     var ytdbVertex2 =
         mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
 
-    // Five hasNext stubs cover the call pattern: external (T) → next defensive (T) →
-    // external (T) → next defensive (T) → external (F, triggers auto-close).
-    when(stream.hasNext(ctx)).thenReturn(true, true, true, true, false);
+    // Three hasNext stubs cover the cached-lookahead call pattern: external (T, cached and
+    // reused by next()) → external (T, cached and reused by next()) → external (F, triggers
+    // auto-close). next() no longer re-probes the stream; it consumes the cached lookahead.
+    when(stream.hasNext(ctx)).thenReturn(true, true, false);
     when(stream.next(ctx)).thenReturn(row1, row2);
     when(row1.getVertex("v")).thenReturn(ytdbVertex1);
     when(row2.getVertex("v")).thenReturn(ytdbVertex2);
@@ -221,7 +222,9 @@ public class YTDBMatchPlanStepTest {
     var row = mock(Result.class);
     var rawVertex =
         mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
-    when(stream.hasNext(ctx)).thenReturn(true, true, false);
+    // Two hasNext stubs cover the cached-lookahead pattern: external (T, cached and reused by
+    // next()) → external (F, triggers auto-close).
+    when(stream.hasNext(ctx)).thenReturn(true, false);
     when(stream.next(ctx)).thenReturn(row);
     when(row.getVertex("v")).thenReturn(rawVertex);
 
