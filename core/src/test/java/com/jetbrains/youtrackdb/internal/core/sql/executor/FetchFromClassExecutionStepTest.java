@@ -38,8 +38,9 @@ import org.junit.Test;
  *   <li>{@code serialize}/{@code deserialize} round-trips {@code className}, {@code orderByRidAsc},
  *       and {@code orderByRidDesc}; deserialization failures wrap into
  *       {@link CommandExecutionException}.
- *   <li>{@code canBeCached} always returns {@code true} (the step is plan-cache-safe: collection
- *       IDs come from the immutable schema snapshot).
+ *   <li>{@code canBeCached} returns {@code true} for a committed-state scan set (collection IDs
+ *       come from the immutable schema snapshot) and {@code false} when the scan set carries a
+ *       provisional collection id (a class created in the still-open transaction).
  *   <li>{@code copy} produces an independent, fully-initialized step carrying the same settings.
  * </ul>
  */
@@ -479,16 +480,43 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
   // =========================================================================
 
   /**
-   * The step is always plan-cache-safe because collection IDs come from the immutable schema
-   * snapshot at construction time.
+   * A step whose scan set holds only committed (real) collection ids is plan-cache-safe:
+   * collection IDs come from the immutable schema snapshot at construction time. The
+   * provisional-id counter-case is pinned by {@link #stepScanningATxCreatedClassIsNotCacheable}.
    */
   @Test
-  public void stepIsAlwaysCacheable() {
+  public void stepScanningCommittedCollectionsIsCacheable() {
     var className = createClassInstance().getName();
     var ctx = newContext();
     var step = new FetchFromClassExecutionStep(className, null, ctx, null, false);
 
     assertThat(step.canBeCached()).isTrue();
+  }
+
+  /**
+   * A scan set carrying a provisional collection id ({@code <= -2}, a class created in the
+   * still-open transaction) must not be plan-cache-safe: the statement cache is shared across
+   * sessions, and to every other session — and to this session after commit, when the reconciled
+   * real id replaces the provisional one — such a plan scans a collection that does not exist
+   * and silently misses the real rows. This {@code canBeCached() == false} branch is one of the
+   * two guards keeping tx-shaped plans out of the shared cache (the other is the cache's
+   * put-side transaction-state bypass), so it needs a direct pin.
+   */
+  @Test
+  public void stepScanningATxCreatedClassIsNotCacheable() {
+    session.begin();
+    try {
+      session.getMetadata().getSchema().createClass("TxUncacheableStep");
+      var ctx = newContext();
+      // The tx-aware snapshot exposes the tx-created class, and its polymorphic collection ids
+      // carry the provisional id, so the step's scan set is not plan-cache-safe.
+      var step = new FetchFromClassExecutionStep("TxUncacheableStep", null, ctx, null, false);
+      assertThat(step.canBeCached())
+          .as("a scan set carrying a provisional collection id must not be cacheable")
+          .isFalse();
+    } finally {
+      session.rollback();
+    }
   }
 
   // =========================================================================

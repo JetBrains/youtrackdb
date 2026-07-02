@@ -548,6 +548,33 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   /**
+   * The set of provisional collection ids ({@code <= -2}) this (tx-local) schema's classes still
+   * own. Read directly from each class's collection-id array rather than from the
+   * {@code collectionsToClasses} reverse map, because not every provisional-id producer enters the
+   * id into the map (the abstract&rarr;concrete alter re-points the class's arrays in place). The
+   * commit-time reconciliation intersects the transaction's allocated provisional ids with this
+   * set: an allocated id absent from it belongs to a class that was dropped (or made abstract
+   * again) later in the same transaction, and no real collection must be created for it.
+   */
+  @Nonnull
+  public IntSet getOwnedProvisionalCollectionIds() {
+    acquireSchemaReadLock();
+    try {
+      final var ids = new IntOpenHashSet();
+      for (final var cls : classes.values()) {
+        for (final var collectionId : cls.getCollectionIds()) {
+          if (isProvisionalCollectionId(collectionId)) {
+            ids.add(collectionId);
+          }
+        }
+      }
+      return ids;
+    } finally {
+      releaseSchemaReadLock();
+    }
+  }
+
+  /**
    * Patches every provisional collection id in this (tx-local) schema to the real id the commit
    * created for it, then rebuilds the {@code collectionsToClasses} reverse map wholesale so the
    * resolved real ids index their classes and the provisional ids are gone. Run inside the commit

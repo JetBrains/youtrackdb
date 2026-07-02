@@ -19,6 +19,7 @@
      */
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.index.IndexOverlay;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntMaps;
@@ -73,10 +74,10 @@ public final class TxSchemaState {
    * {@link Integer#MIN_VALUE} is deliberately distinct from every meaningful collection-id value: a
    * real id ({@code >= 0}), the abstract-class marker {@code -1}
    * ({@link SchemaShared#ABSTRACT_COLLECTION_ID}), and every provisional id the allocator hands out
-   * (which start at {@code -2} and decrement, so they never reach {@link Integer#MIN_VALUE} — the
-   * allocator asserts it stays in range). Using a dedicated sentinel rather than {@code -1} keeps a
-   * not-resolved result from being misread as "resolved to the abstract collection" by the
-   * commit-time consumer.
+   * (which run from {@code -2} down to the {@link Short#MIN_VALUE} floor the record id's short-width
+   * serialization imposes — the allocator fails loudly past it). Using a dedicated sentinel rather
+   * than {@code -1} keeps a not-resolved result from being misread as "resolved to the abstract
+   * collection" by the commit-time consumer.
    */
   public static final int NO_RESOLUTION = Integer.MIN_VALUE;
 
@@ -111,7 +112,9 @@ public final class TxSchemaState {
    * The next provisional collection id to hand out. Starts at the ceiling
    * ({@link SchemaShared#PROVISIONAL_COLLECTION_ID_CEILING}, {@code -2}) and decrements on each
    * allocation, so successive provisional ids are {@code -2, -3, -4, ...} — each unique within the
-   * transaction and disjoint from the abstract-class marker {@code -1}.
+   * transaction and disjoint from the abstract-class marker {@code -1}. The space ends at
+   * {@link Short#MIN_VALUE}, the floor the record id's short-width collection-id serialization
+   * imposes; {@link #allocateProvisionalCollectionId} fails loudly past it.
    */
   private int nextProvisionalCollectionId = SchemaShared.PROVISIONAL_COLLECTION_ID_CEILING;
 
@@ -241,11 +244,17 @@ public final class TxSchemaState {
   /**
    * Allocates the next provisional collection id for a class created inside this transaction,
    * carrying the {@code <class>_<counter>} name the commit creates the real collection under. The
-   * ids run {@code -2, -3, -4, ...}: each is unique within the transaction (the counter never
-   * repeats) and is disjoint from the abstract-class marker {@code -1}. The id is a placeholder a
-   * record can carry through the transaction; the commit creates the real collection (under
-   * {@code collectionName}) and resolves the provisional id to its real id before any record
-   * serializes.
+   * ids run {@code -2, -3, -4, ...} down to {@link Short#MIN_VALUE}: each is unique within the
+   * transaction (the counter never repeats) and is disjoint from the abstract-class marker
+   * {@code -1}. The id is a placeholder a record can carry through the transaction; the commit
+   * creates the real collection (under {@code collectionName}) and resolves the provisional id to
+   * its real id before any record serializes.
+   *
+   * <p>The space ends at {@link Short#MIN_VALUE} because a record id serializes its collection id
+   * as a short, and the record id carries the provisional id while the transaction is open.
+   * Allocation past that floor throws here, naming the real cause (too many collections created in
+   * one transaction); without this check the exhaustion would only surface at record insert as a
+   * misleading record-id serialization error.
    *
    * <p>The name must be carried here because the producer computes it from the tx-local collection
    * counter, which has already advanced by commit time, so the commit cannot regenerate it.
@@ -254,13 +263,16 @@ public final class TxSchemaState {
    *     under; must be non-null.
    */
   public int allocateProvisionalCollectionId(@Nonnull String collectionName) {
-    var allocated = nextProvisionalCollectionId--;
-    // Guard the (practically unreachable) wrap past Integer.MIN_VALUE: a wrapped counter would
-    // hand out a non-negative id that the downstream sign-class predicate reclassifies as a real
-    // id, silently corrupting the tx-local reverse map. The assert is zero-cost in production and
-    // mirrors the invariant recordResolvedCollectionId asserts on the resolution side.
-    assert SchemaShared.isProvisionalCollectionId(allocated)
-        : "provisional collection id space exhausted, allocator produced " + allocated;
+    final var allocated = nextProvisionalCollectionId;
+    if (allocated < Short.MIN_VALUE) {
+      throw new DatabaseException(
+          "Too many collections created in one transaction: the provisional collection id space"
+              + " (" + SchemaShared.PROVISIONAL_COLLECTION_ID_CEILING + " down to "
+              + Short.MIN_VALUE + ", the record id's short-width floor) is exhausted, so"
+              + " collection '" + collectionName + "' cannot be allocated. Split the schema"
+              + " changes across smaller transactions");
+    }
+    nextProvisionalCollectionId--;
     provisionalToName.put(allocated, collectionName);
     return allocated;
   }
