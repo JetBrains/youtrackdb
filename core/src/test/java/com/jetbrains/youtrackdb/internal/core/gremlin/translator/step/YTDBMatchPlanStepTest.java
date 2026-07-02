@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
@@ -26,6 +25,8 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionSt
 import java.lang.reflect.Field;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CyclicBarrier;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
@@ -184,14 +185,14 @@ public class YTDBMatchPlanStepTest {
 
     // Each emitted vertex wraps the corresponding raw vertex — guards against a
     // projection that ever caches/reuses a single Result.
-    assertThat(rawEntityOf(first)).isSameAs(ytdbVertex1);
-    assertThat(rawEntityOf(second)).isSameAs(ytdbVertex2);
+    assertThat(assertRawEntityOf(first)).isSameAs(ytdbVertex1);
+    assertThat(assertRawEntityOf(second)).isSameAs(ytdbVertex2);
     verify(row1).getVertex("v");
     verify(row2).getVertex("v");
 
     var order = inOrder(stream, plan);
-    order.verify(stream, atLeastOnce()).close(ctx);
-    order.verify(plan, atLeastOnce()).close();
+    order.verify(stream, times(1)).close(ctx);
+    order.verify(plan, times(1)).close();
   }
 
   /**
@@ -236,9 +237,9 @@ public class YTDBMatchPlanStepTest {
     var only = it.next();
     assertThat(it.hasNext()).isFalse(); // auto-close
 
-    assertThat(rawEntityOf(only)).isSameAs(rawVertex);
-    verify(stream, atLeastOnce()).close(ctx);
-    verify(plan, atLeastOnce()).close();
+    assertThat(assertRawEntityOf(only)).isSameAs(rawVertex);
+    verify(stream, times(1)).close(ctx);
+    verify(plan, times(1)).close();
   }
 
   /**
@@ -280,8 +281,8 @@ public class YTDBMatchPlanStepTest {
     // Each wrapper points at the raw vertex that the step's alias resolved to — not just
     // *some* distinct raw vertex. Swapping the aliases between stepA / stepB would fail
     // here.
-    assertThat(rawEntityOf(resultA)).isSameAs(vertexUnderA);
-    assertThat(rawEntityOf(resultB)).isSameAs(vertexUnderB);
+    assertThat(assertRawEntityOf(resultA)).isSameAs(vertexUnderA);
+    assertThat(assertRawEntityOf(resultB)).isSameAs(vertexUnderB);
     verify(row).getVertex("a");
     verify(row).getVertex("b");
   }
@@ -626,6 +627,93 @@ public class YTDBMatchPlanStepTest {
     verify(copiedPlan, times(1)).start();
   }
 
+  /**
+   * Concurrency guard for clone independence under real interleaving. The sequential clone tests
+   * pin the object-graph shape (distinct plan copy, isolated child context, rebound supplier); this
+   * one drives two clones on two threads that a {@link CyclicBarrier} releases together, so their
+   * {@code createIterator()} / {@code start()} / close paths overlap in time. {@code clone()}
+   * deep-copies the plan against an isolated child {@link CommandContext} so two concurrent
+   * executions cannot race on or leak per-run context state (the {@code $current} and {@code
+   * $matched} maps are plain unsynchronised HashMaps). Each clone gets its OWN plan-copy mock, so a
+   * regression that re-shared one plan across the clones — or minted one shared child context for
+   * both — shows up here as a wrong per-plan start count or a captured-context collision, instead of
+   * as a heisenbug under server load.
+   *
+   * <p>Both driver threads read the same mocked graph and session; the mock is thread-safe, and the
+   * real per-thread pooled-session rebind is covered end-to-end by the remote process suite. The
+   * value this test adds is running the two independent plan executions at the same time.
+   */
+  @Test
+  public void clone_twoClonesIteratedConcurrently_eachDrivesOwnPlanCopy() throws Exception {
+    var copyA = mock(InternalExecutionPlan.class);
+    var copyB = mock(InternalExecutionPlan.class);
+    var ctxA = mock(CommandContext.class);
+    var ctxB = mock(CommandContext.class);
+    var streamA = mock(ExecutionStream.class);
+    var streamB = mock(ExecutionStream.class);
+    // Two clone() calls make two plan.copy() calls; hand each clone its own copy so the concurrent
+    // iterations touch disjoint mocks. Capture the child contexts to prove the two clones were
+    // minted with two distinct context instances (no shared context object across the clones).
+    var childCtxCaptor = ArgumentCaptor.forClass(CommandContext.class);
+    when(plan.copy(childCtxCaptor.capture())).thenReturn(copyA, copyB);
+    when(copyA.getContext()).thenReturn(ctxA);
+    when(copyB.getContext()).thenReturn(ctxB);
+    when(copyA.start()).thenReturn(streamA);
+    when(copyB.start()).thenReturn(streamB);
+    when(streamA.hasNext(ctxA)).thenReturn(false);
+    when(streamB.hasNext(ctxB)).thenReturn(false);
+
+    var original = elementStep("v");
+    var cloneA = original.clone();
+    var cloneB = original.clone();
+    // Mirror TinkerPop's post-clone re-attachment so each clone's createIterator() can resolve the
+    // graph — AbstractStep.clone() detaches to EmptyTraversal until the host re-attaches.
+    cloneA.setTraversal(traversal);
+    cloneB.setTraversal(traversal);
+
+    // The two clones were copied against two distinct child contexts, not one shared instance.
+    var childContexts = childCtxCaptor.getAllValues();
+    assertThat(childContexts).hasSize(2);
+    assertThat(childContexts.get(0)).isNotSameAs(childContexts.get(1));
+
+    // Release both drivers at the same instant so their plan executions overlap.
+    var barrier = new CyclicBarrier(2);
+    var errors = new CopyOnWriteArrayList<Throwable>();
+    Runnable driveA =
+        () -> {
+          try {
+            barrier.await();
+            cloneA.createIterator().forEachRemaining(v -> {
+            });
+          } catch (Throwable t) {
+            errors.add(t);
+          }
+        };
+    Runnable driveB =
+        () -> {
+          try {
+            barrier.await();
+            cloneB.createIterator().forEachRemaining(v -> {
+            });
+          } catch (Throwable t) {
+            errors.add(t);
+          }
+        };
+    var tA = new Thread(driveA, "cloneA-driver");
+    var tB = new Thread(driveB, "cloneB-driver");
+    tA.start();
+    tB.start();
+    tA.join(5_000);
+    tB.join(5_000);
+
+    assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
+    // Each clone drove exactly its own plan copy once; neither touched the other's or the
+    // original's plan, so the two concurrent executions stayed independent.
+    verify(copyA, times(1)).start();
+    verify(copyB, times(1)).start();
+    verify(plan, never()).start();
+  }
+
   // ---- Re-iteration via reset() ----
 
   /**
@@ -812,12 +900,14 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
-   * Reflectively reads the {@code fastPathEntity} field on a {@link YTDBVertexImpl}. The
-   * field is the raw YTDB entity the wrapper was constructed with; comparing it via
-   * identity is how we verify a projected wrapper was built from the right raw vertex
-   * without reaching into a real graph context.
+   * Asserts the projected element is a {@link YTDBVertexImpl}, then reflectively reads and returns
+   * its {@code fastPathEntity} field: the raw YTDB entity the wrapper was built from. Comparing
+   * that entity by identity is how a test verifies a projected wrapper wraps the right raw vertex
+   * without reaching into a real graph context. The {@code assert} prefix marks that the helper
+   * fails the test when the element is not a {@code YTDBVertexImpl}, so its embedded type check
+   * does not read as a plain accessor.
    */
-  private static Object rawEntityOf(Vertex tinkerVertex) {
+  private static Object assertRawEntityOf(Vertex tinkerVertex) {
     assertThat(tinkerVertex).isInstanceOf(YTDBVertexImpl.class);
     try {
       Field f =
