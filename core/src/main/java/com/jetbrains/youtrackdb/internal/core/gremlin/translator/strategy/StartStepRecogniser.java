@@ -323,13 +323,16 @@ final class StartStepRecogniser implements StepRecogniser {
     // same logical rid, so an instance-hashCode-based set is not guaranteed to collide them.
     // The same @rid IN filter is emitted regardless of which subtype carried the value, so the
     // value key is the right identity here.
-    var seen = new HashSet<String>(rids.size());
+    var seen = new HashSet<RidKey>(rids.size());
     for (var rid : rids) {
-      if (!seen.add(rid.getCollectionId() + ":" + rid.getCollectionPosition())) {
+      if (!seen.add(new RidKey(rid.getCollectionId(), rid.getCollectionPosition()))) {
         return true;
       }
     }
     return false;
+  }
+
+  private record RidKey(int collectionId, long position) {
   }
 
   private static SQLWhereClause wrapWhere(SQLBooleanExpression expr) {
