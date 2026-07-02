@@ -69,6 +69,13 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
   assume it; whether to add a close-idempotency guard is a pre-existing design
   question. Also: `YTDBQueryMetricsStrategyTest` cannot run standalone via `-Dtest`
   (fork classloading crash), needs full-suite context. See Episodes §Step 5.
+- 2026-07-02 Follow-up (not a Track 2 step): the pre-existing
+  `YTDBQueryMetricsStep.close()` double-fire is now **fixed** on this branch
+  (commit `d594b65eab`) — a `closed` flag makes a second close a no-op, aligning
+  with the `AutoCloseable` idempotency contract; added a regression test that
+  fails without the guard. Independent of YTDB-558 (reproduces translator-off);
+  parked in the YTDB-558 PR per the user's packaging call. No longer an open item
+  for Track 6.
 - 2026-07-01T22:53Z Step 5 pre-work note (registration ordering trap): D4 requires
   translator-first ordering, which is why Step 4 keys the recogniser on the plain
   `GraphStep` — a translator that ran **after** `YTDBGraphStepStrategy` would
@@ -95,7 +102,8 @@ scope-downs, dependency reveals, gate-override reasons. -->
   `MatchExecutionPlanner(MatchPlanInputs)` ctor leaves the inherited `statement`
   field null, so the planner runs with `useCache=false` and has no SQL-text
   cache key to build on. Every translated traversal re-plans in Phase 1; a
-  traversal-shape-keyed cache is a later-phase addition. See Episodes §Step 1
+  traversal-shape-keyed cache is deferred to Track 4, where predicates first
+  carry literal values to bind as positional parameters. See Episodes §Step 1
   and §Step 5.
 - **review-resolution (T1 / A1, blocker)** — the recogniser gates and the D9
   registry key on the plain TinkerPop `GraphStep`, not `YTDBGraphStep`. Under D4
