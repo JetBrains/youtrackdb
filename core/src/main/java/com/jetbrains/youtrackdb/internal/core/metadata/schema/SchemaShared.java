@@ -53,6 +53,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import javax.annotation.Nonnull;
@@ -129,7 +130,28 @@ public abstract class SchemaShared implements CloseableInStorage {
   private final List<GlobalPropertyImpl> properties = new ArrayList<>();
   private final Map<String, GlobalPropertyImpl> propertiesByNameType = new HashMap<>();
   private IntOpenHashSet blobCollections = new IntOpenHashSet();
-  private volatile int version = 0;
+
+  /**
+   * Process-wide generator for {@link #version} values. Every schema-version advance on every
+   * {@link SchemaShared} instance draws a fresh number from this shared counter instead of
+   * incrementing a per-instance one, so no two snapshot generations in the process ever share a
+   * version number. {@code EntityImpl}'s immutable-class cache is keyed by a single cached version
+   * int compared with {@code !=} against whichever snapshot the session currently resolves
+   * (committed instance outside a transaction, tx-local copy inside one); with per-instance
+   * counters those two version spaces overlapped, and an equal-number collision made the cache
+   * silently keep a stale class, skipping a same-transaction constraint.
+   */
+  private static final AtomicInteger VERSION_GENERATOR = new AtomicInteger();
+
+  /**
+   * The version of this instance's current schema generation, advanced on every mutation window
+   * ({@link #releaseSchemaWriteLock(DatabaseSessionEmbedded, boolean)}), re-parse
+   * ({@link #fromStream}), and commit-time provisional-id resolution
+   * ({@link #resolveProvisionalCollectionIds}). Values come from {@link #VERSION_GENERATOR}, so
+   * they are unique across the committed instance and every tx-local copy; version-keyed caches
+   * may compare them only for (in)equality, never arithmetically.
+   */
+  private volatile int version = VERSION_GENERATOR.incrementAndGet();
   private volatile RecordIdInternal identity;
   protected volatile ImmutableSchema snapshot;
 
@@ -569,8 +591,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       // so without this bump the commit's own working-set read would hand the collection lookup a
       // stale provisional collection id. This method locks the write lock directly and never
       // routes through releaseSchemaWriteLock, so no other site advances the version for it.
-      //noinspection NonAtomicOperationOnVolatileField
-      version++;
+      advanceVersion();
     } finally {
       lock.writeLock().unlock();
     }
@@ -691,8 +712,7 @@ public abstract class SchemaShared implements CloseableInStorage {
         } else {
           snapshot = null;
         }
-        //noinspection NonAtomicOperationOnVolatileField
-        version++;
+        advanceVersion();
       }
     } finally {
       modificationCounter.decrement();
@@ -943,8 +963,7 @@ public abstract class SchemaShared implements CloseableInStorage {
       }
 
     } finally {
-      //noinspection NonAtomicOperationOnVolatileField
-      version++;
+      advanceVersion();
       modificationCounter.decrement();
       lock.writeLock().unlock();
     }
@@ -1288,6 +1307,18 @@ public abstract class SchemaShared implements CloseableInStorage {
   @Deprecated
   public int getVersion() {
     return version;
+  }
+
+  /**
+   * Advances {@link #version} to a fresh process-wide-unique value. Called only under this
+   * instance's write lock (all three call sites hold it), so the read-the-generator-then-store
+   * pair never races another writer of the same field; the {@code volatile} qualifier keeps the
+   * new value visible to unlocked readers.
+   */
+  private void advanceVersion() {
+    assert lock.isWriteLockedByCurrentThread()
+        : "advanceVersion must run under the schema write lock";
+    version = VERSION_GENERATOR.incrementAndGet();
   }
 
   public RecordIdInternal getIdentity() {
