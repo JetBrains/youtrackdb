@@ -1,8 +1,8 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
-import java.util.Collections;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.TraversalStrategy;
@@ -140,12 +140,14 @@ public final class YTDBGraphMatchStepStrategy
   }
 
   /**
-   * This strategy must run after {@link YTDBGraphStepStrategy} which converts the
-   * initial graph step into the YouTrackDB-specific optimized form.
+   * This strategy must run after {@link YTDBGraphStepStrategy} (which converts the initial graph
+   * step into the YouTrackDB-specific optimized form) and after the Gremlin-to-MATCH translator
+   * (which gets first refusal on the whole traversal). On a translator decline the original step
+   * list is preserved verbatim and this strategy folds label predicates as before.
    */
   @Override
   public Set<Class<? extends ProviderOptimizationStrategy>> applyPrior() {
-    return Collections.singleton(YTDBGraphStepStrategy.class);
+    return Set.of(YTDBGraphStepStrategy.class, GremlinToMatchStrategy.class);
   }
 
   /** Returns the singleton instance of this strategy. */
