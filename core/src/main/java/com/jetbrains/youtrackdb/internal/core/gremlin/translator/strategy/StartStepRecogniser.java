@@ -13,7 +13,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLevelZeroIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
@@ -172,7 +171,7 @@ public final class StartStepRecogniser implements StepRecogniser {
 
     // aliasRids carries the single-ID path; multi-ID constraints flow through aliasFilters.
     if (rids.size() == 1) {
-      ctx.aliasRids.put(BOUNDARY_ALIAS, toSqlRid(rids.getFirst()));
+      ctx.aliasRids.put(BOUNDARY_ALIAS, MatchLiteralBuilder.createLegacySqlRid(rids.getFirst()));
     }
 
     // Multi-ID sources need a WHERE @rid IN [...] filter; the single/no-ID paths carry no
@@ -253,37 +252,6 @@ public final class StartStepRecogniser implements StepRecogniser {
       }
       case null, default -> null;
     };
-  }
-
-  /**
-   * Translates one {@link RecordIdInternal} into the parser's {@link SQLRid} shape. Sets
-   * {@code legacy=true} so the AST renders as {@code #X:Y} (the canonical literal form)
-   * rather than the {@code \{"@rid": expression\}} fallback that {@link SQLRid#toString}
-   * produces when an expression is attached.
-   */
-  private static SQLRid toSqlRid(RecordIdInternal rid) {
-    return createLegacySqlRid(rid);
-  }
-
-  /**
-   * Factory method to construct and initialize a basic {@link SQLRid} node in legacy mode
-   * from a raw storage-level {@link RecordIdInternal}.
-   */
-  public static SQLRid createLegacySqlRid(RecordIdInternal rid) {
-    java.util.Objects.requireNonNull(rid);
-
-    var sqlRid = new SQLRid(-1);
-    var collection = new SQLInteger(-1);
-    collection.setValue(rid.getCollectionId());
-
-    var position = new SQLInteger(-1);
-    position.setValue(rid.getCollectionPosition());
-
-    sqlRid.setCollection(collection);
-    sqlRid.setPosition(position);
-    sqlRid.setLegacy(true);
-
-    return sqlRid;
   }
 
   /**

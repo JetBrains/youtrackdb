@@ -1,7 +1,5 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
-import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.StartStepRecogniser.createLegacySqlRid;
-
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -10,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nonnull;
 
@@ -80,5 +79,28 @@ public final class MatchLiteralBuilder {
       return expr;
     }
     throw new IllegalArgumentException("Unsupported property value type: " + value.getClass());
+  }
+
+  /**
+   * Builds an {@link SQLRid} AST node from a raw storage-level {@link RecordIdInternal}, in
+   * legacy mode. Setting {@code legacy=true} makes the AST render as {@code #X:Y} (the
+   * canonical literal form) rather than the {@code \{"@rid": expression\}} fallback that
+   * {@link SQLRid#toString} produces when an expression is attached.
+   */
+  public static SQLRid createLegacySqlRid(RecordIdInternal rid) {
+    Objects.requireNonNull(rid);
+
+    var sqlRid = new SQLRid(-1);
+    var collection = new SQLInteger(-1);
+    collection.setValue(rid.getCollectionId());
+
+    var position = new SQLInteger(-1);
+    position.setValue(rid.getCollectionPosition());
+
+    sqlRid.setCollection(collection);
+    sqlRid.setPosition(position);
+    sqlRid.setLegacy(true);
+
+    return sqlRid;
   }
 }
