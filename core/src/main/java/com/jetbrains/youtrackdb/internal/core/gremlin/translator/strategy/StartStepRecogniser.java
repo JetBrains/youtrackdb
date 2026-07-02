@@ -126,7 +126,8 @@ final class StartStepRecogniser implements StepRecogniser {
     // HasContainerHolder start step with non-empty containers ever reaches here — e.g. a
     // unit test driving the walker directly, or a future ordering change — a folded label
     // predicate must still cause a clean decline rather than being silently dropped.
-    if (step instanceof HasContainerHolder<?, ?> holder && !holder.getHasContainers().isEmpty()) {
+    if (step instanceof HasContainerHolder<?, ?> holder
+        && !holder.getHasContainers().isEmpty()) {
       return false;
     }
 
@@ -170,7 +171,7 @@ final class StartStepRecogniser implements StepRecogniser {
 
     // aliasRids carries the single-ID path; multi-ID constraints flow through aliasFilters.
     if (rids.size() == 1) {
-      ctx.aliasRids.put(BOUNDARY_ALIAS, toSqlRid(rids.get(0)));
+      ctx.aliasRids.put(BOUNDARY_ALIAS, toSqlRid(rids.getFirst()));
     }
 
     // Multi-ID sources need a WHERE @rid IN [...] filter; the single/no-ID paths carry no

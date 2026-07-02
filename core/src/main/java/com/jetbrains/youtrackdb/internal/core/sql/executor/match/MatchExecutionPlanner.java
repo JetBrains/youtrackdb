@@ -481,7 +481,8 @@ public class MatchExecutionPlanner {
    * Otherwise the cache lookup at the start of {@code createExecutionPlan} dereferences
    * {@code statement} and throws a {@link NullPointerException}. Plan caching for non-SQL
    * front-ends would need a separate cache-key mechanism keyed off the front-end's own
-   * fingerprint (e.g. Gremlin bytecode), which is intentionally out of scope here.
+   * fingerprint (e.g. Gremlin bytecode), which is intentionally
+   * out of scope here.
    *
    * @param inputs the pre-built post-parse inputs (must not be null)
    */
@@ -1142,7 +1143,7 @@ public class MatchExecutionPlanner {
     // aliases were visited by edges [0..i-1]. This lets traceBackwardBranch
     // distinguish "main path" aliases from "branch" aliases.
     var visited = new LinkedHashSet<String>();
-    visited.add(sourceAlias(scheduledEdges.get(0)));
+    visited.add(sourceAlias(scheduledEdges.getFirst()));
 
     // visitedBefore[i] = set of aliases visited before edge i is processed
     @SuppressWarnings("unchecked")
@@ -1352,7 +1353,7 @@ public class MatchExecutionPlanner {
           // First branch edge: must connect to checkSource or checkTarget
           if (prevTarget.equals(checkSource) || prevTarget.equals(checkTarget)) {
             intermediateAliases.add(prevTarget);
-            branchEdges.add(0, prevEdge);
+            branchEdges.addFirst(prevEdge);
             currentAlias = prevSource;
             if (visitedBeforeJ.contains(prevSource)) {
               break;
@@ -1361,7 +1362,7 @@ public class MatchExecutionPlanner {
         } else if (prevTarget.equals(currentAlias)) {
           // Continues the branch chain
           intermediateAliases.add(prevTarget);
-          branchEdges.add(0, prevEdge);
+          branchEdges.addFirst(prevEdge);
           currentAlias = prevSource;
           if (visitedBeforeJ.contains(prevSource)) {
             break;

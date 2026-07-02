@@ -182,7 +182,8 @@ public final class GremlinToMatchStrategy
   GremlinToMatchStrategy(
       Function<Traversal.Admin<?, ?>,
           Optional<GremlinToMatchTranslator.TranslationResult>> translator,
-      BiFunction<DatabaseSessionEmbedded, MatchPlanInputs, InternalExecutionPlan> planBuilder) {
+      BiFunction<DatabaseSessionEmbedded, MatchPlanInputs,
+          InternalExecutionPlan> planBuilder) {
     this.translator = translator;
     this.planBuilder = planBuilder;
   }
@@ -213,8 +214,8 @@ public final class GremlinToMatchStrategy
       throw e;
     } catch (Exception e) {
       // Swallow ordinary exceptions deliberately: translation is a best-effort optimization. A
-      // recognizer/planner failure declines to the native pipeline, which handles the traversal
-      // correctly. Rethrowing would break every Gremlin query, recognized or not.
+      // recognizer/planner failure declines to the native pipeline, which handles
+      // the traversal correctly. Rethrowing would break every Gremlin query, recognized or not.
       declineOnThrow(traversal, e);
     }
   }
@@ -380,16 +381,15 @@ public final class GremlinToMatchStrategy
       Traversal.Admin<?, ?> traversalRaw,
       InternalExecutionPlan plan,
       GremlinToMatchTranslator.TranslationResult translation) {
-    Traversal.Admin traversal = traversalRaw;
-    var boundary =
+      var boundary =
         new YTDBMatchPlanStep(
-            traversal,
+                traversalRaw,
             translation.returnClass(),
             plan,
             translation.boundaryAlias(),
             translation.outputType());
-    TraversalHelper.removeAllSteps(traversal);
-    traversal.addStep(boundary);
+    TraversalHelper.removeAllSteps(traversalRaw);
+    traversalRaw.addStep(boundary);
   }
 
   @Override
