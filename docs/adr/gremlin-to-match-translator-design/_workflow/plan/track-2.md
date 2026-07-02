@@ -10,7 +10,7 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
