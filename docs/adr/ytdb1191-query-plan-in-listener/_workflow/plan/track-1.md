@@ -8,6 +8,9 @@ A `QueryMetricsListener` sees the execution plan of the Gremlin query it was not
 
 YTDB-1191 asks for a way for database clients to inspect the execution plan of a finished Gremlin query. Query monitoring already fires a per-query `queryFinished` callback carrying a `QueryDetails` object; this track adds the plan to that object. The plan is produced anyway during query execution, so the track captures the already-built plan on the query's source step and hands it to the listener at reporting time — no second `EXPLAIN` round-trip and no new client-facing API surface. A draft of this change exists as a saved patch (`/workspaces/notes/claude/workspaces/youtrackdb/develop/logs/ytdb-1191-draft.patch`); this track reproduces its mechanism plus the correctness fixes the research surfaced.
 
+## Base commit
+5b073a9f6c14682b50842822fee3cb9982d164a0
+
 ## Progress
 - [x] Review + decomposition
 - [ ] Step implementation
