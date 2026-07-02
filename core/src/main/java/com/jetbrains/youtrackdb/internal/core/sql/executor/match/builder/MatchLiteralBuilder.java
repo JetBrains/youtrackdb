@@ -1,5 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
+import static com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.StartStepRecogniser.createLegacySqlRid;
+
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -52,14 +54,7 @@ public final class MatchLiteralBuilder {
         return expr;
       }
       case RecordIdInternal rid -> {
-        var sqlRid = new SQLRid(-1);
-        var collection = new SQLInteger(-1);
-        collection.setValue(rid.getCollectionId());
-        var position = new SQLInteger(-1);
-        position.setValue(rid.getCollectionPosition());
-        sqlRid.setCollection(collection);
-        sqlRid.setPosition(position);
-        sqlRid.setLegacy(true);
+        var sqlRid = createLegacySqlRid(rid);
         expr.setRid(sqlRid);
         return expr;
       }
