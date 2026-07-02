@@ -21,6 +21,7 @@ package com.jetbrains.youtrackdb.internal.core.index;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -34,6 +35,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashSet;
+import java.util.List;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -49,8 +51,9 @@ import org.junit.rules.Timeout;
  * own atomic operation, populated from the transaction's final record state, and is published into
  * the shared index manager only after the records are durable. A tx-dropped index has its engine
  * deleted and its registry entry removed at commit. A drop-then-recreate of the same name in one
- * transaction is a replace. Indexing a class created in the same transaction resolves the class's
- * provisional collection id (&lt;= -2) at commit instead of throwing. A build whose source collection
+ * transaction is a replace. A deferred index create resolves its class's collection at commit
+ * instead of throwing (the pure same-transaction provisional-id path stays forward-looking until
+ * in-transaction property creation is de-guarded). A build whose source collection
  * already holds committed rows is loudly rejected (the v1 empty-class bound). A failed engine-creating
  * commit leaves no phantom engine registration and frees the engine id for reuse; a failed
  * engine-dropping commit leaves the surviving committed index fully usable.
@@ -169,21 +172,22 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
-   * A class created earlier in the same transaction, then indexed later in that transaction, resolves
-   * its provisional collection id (<= -2) at commit through the deferred handle's collection-name
-   * carrier rather than throwing {@code IndexException("Collection with id -2 does not exist")}. The
-   * class needs a property to index; in-transaction property creation is still throw-guarded, so the
-   * class and its property are created and committed in one transaction, and the index-on-that-class
-   * is created in a second transaction whose deferred handle names the (now real) collection. This
-   * asserts the deferred create resolves the collection without throwing and the engine builds
-   * against a real collection at commit.
+   * A deferred index create on a committed class resolves the class's real collection at commit
+   * without throwing {@code IndexException("Collection with id -2 does not exist")}: the class and
+   * its property are created and committed first (in-transaction property creation is still
+   * throw-guarded), then the index is created in a second transaction whose deferred handle names
+   * the committed class's real collection, and the engine builds against that real collection at
+   * commit.
    *
-   * <p>The pure same-transaction "create class + property + index together" path is not reachable
-   * until in-transaction property creation is de-guarded (a later track); the provisional-name
-   * resolver on the deferred create is the forward-looking half that path will rely on.
+   * <p>Not covered here (forward-looking): the pure same-transaction "create class + property +
+   * index together" path, in which the deferred handle would resolve a provisional collection id
+   * ({@code <= -2}) through the tx-local name carrier. That path is unreachable until
+   * in-transaction property creation is de-guarded (a later change); the provisional-name resolver
+   * on the deferred create is the half that path will rely on, and it stays without end-to-end
+   * coverage until then.
    */
   @Test
-  public void deferredIndexCreateResolvesCollectionWithoutThrowing() {
+  public void deferredIndexCreateOnACommittedClassResolvesItsRealCollectionWithoutThrowing() {
     var schema = session.getMetadata().getSchema();
     var cls = schema.createClass("DeferredResolve");
     cls.createProperty("name", PropertyType.STRING);
@@ -360,11 +364,23 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertFalse("a failed index-building commit must leave no phantom engine registration",
         engineIsRegistered(indexName));
 
+    // The durable arm: re-parse the index manager's persisted records and reopen the session, so
+    // the no-phantom assertions are re-derived from durable state instead of the in-memory undo's
+    // leftovers. On the disk profile this catches a regression where the engine's configuration
+    // write did not revert with the rolled-back atomic operation. The full storage-restart
+    // re-derivation (hard crash plus WAL replay) stays with the ignored crash-recovery breadcrumb.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertFalse("a failed engine-creating commit must leave no phantom index in durable state",
+        session.getSharedContext().getIndexManager().existsIndex(indexName));
+    assertFalse("a failed engine-creating commit must leave no phantom engine after a reopen",
+        engineIsRegistered(indexName));
+
     // The next successful build reuses the freed engine id (the allocator finds the slot free again)
     // and publishes cleanly, proving the failed commit leaked no engine slot AND that the create-side
     // engine-file revert arm dropped the surviving in-memory-profile engine files (otherwise this
     // id-reusing rebuild would fail with a "file already exists" error).
-    var freedEngineId = storage.loadIndexEngine(indexName);
+    var freedEngineId = storage().loadIndexEngine(indexName);
     assertEquals("the failed build's engine must be fully unregistered", -1, freedEngineId);
     session.executeInTx(tx -> session.getMetadata().getSchema().getClass("FailBuildTarget")
         .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
@@ -461,6 +477,27 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         "the surviving committed index must still return its committed row after the failed"
             + " drop commit",
         1, survivorRids.size());
+
+    // The durable arm: re-parse the index manager's persisted records and reopen the session;
+    // both committed indexes must re-derive from durable state with loadable engines, and the
+    // survivor must still return its committed row. On the disk profile this catches a rollback
+    // that failed to restore the dropped engines' durable configuration entries.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedManager = session.getSharedContext().getIndexManager();
+    assertTrue("the committed indexes must survive the failed drop in durable state",
+        reloadedManager.existsIndex(keepIndexName));
+    assertTrue("the committed indexes must survive the failed drop in durable state",
+        reloadedManager.existsIndex(goneIndexName));
+    assertTrue("the surviving indexes' engines must load after a reopen",
+        engineIsRegistered(keepIndexName));
+    assertTrue("the surviving indexes' engines must load after a reopen",
+        engineIsRegistered(goneIndexName));
+    var reloadedKeep = reloadedManager.getIndex(keepIndexName);
+    var reloadedRids =
+        session.computeInTx(tx -> reloadedKeep.getRids(session, "survivor").toList());
+    assertEquals("the surviving committed index must return its row after a reopen", 1,
+        reloadedRids.size());
   }
 
   /**
@@ -816,6 +853,159 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertTrue(
         "after the create commit completes, the published index is visible in the shared maps",
         indexManager.existsIndex(indexName));
+  }
+
+  /**
+   * The commit-time build handles non-scalar and null keys: an index over an EMBEDDEDLIST
+   * property emits one entry per element of a same-tx row's list value (the collection-of-keys
+   * branch), and a row whose indexed property is null is skipped, because a deferred in-tx
+   * create leaves the definition's null handling at its ignore-nulls constructor default (the
+   * null-key skip branch). Every other build test uses a scalar non-null STRING key, so a
+   * failure on a null key or a first-element-only population would be invisible without this
+   * test.
+   */
+  @Test
+  public void commitTimeBuildIndexesMultiValueKeysAndSkipsNullKeyRows() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("MultiValueBuild");
+    cls.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
+    var indexName = "MultiValueBuild.tags";
+
+    session.begin();
+    session.getMetadata().getSchema().getClass("MultiValueBuild")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "tags");
+    var multi = (EntityImpl) session.newEntity("MultiValueBuild");
+    multi.newEmbeddedList("tags", List.of("red", "green"));
+    // A row whose indexed property is absent (a null key) must not break the build.
+    var nullRow = (EntityImpl) session.newEntity("MultiValueBuild");
+    nullRow.setProperty("unrelated", "value");
+    session.commit();
+
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertTrue("the multi-value index's engine must be built after commit",
+        engineIsRegistered(indexName));
+    var redRids = session.computeInTx(tx -> index.getRids(session, "red").toList());
+    assertEquals("each element of the list value must be indexed", 1, redRids.size());
+    var greenRids = session.computeInTx(tx -> index.getRids(session, "green").toList());
+    assertEquals("each element of the list value must be indexed", 1, greenRids.size());
+    assertEquals("the multi-value row must be indexed under both its elements",
+        multi.getIdentity(), redRids.getFirst());
+    // The deferred in-tx create leaves the definition ignoring null values (the committed-path
+    // create applies the global ignore-nulls default instead), so the null-key row is skipped
+    // by the build; pinned here as the current contract of the deferred path.
+    assertTrue("the definition created through the deferred in-tx path must ignore null values",
+        index.getDefinition().isNullValuesIgnored());
+    var nullRids = session.computeInTx(tx -> index.getRids(session, null).toList());
+    assertTrue("a null-key row must be skipped by the build when null values are ignored",
+        nullRids.isEmpty());
+  }
+
+  /**
+   * Two indexes created in one transaction both build and publish at commit: the commit-local
+   * engine-id allocator hands the second create a distinct slot because each create publishes
+   * its engine into the slot before the next scan. A regression that allocated the same id
+   * twice (or dropped the second build) only surfaces with two-or-more creates in a single
+   * commit, which no other test drives (the failed-drop test drops two, but no test creates
+   * two).
+   */
+  @Test
+  public void twoIndexesCreatedInOneTransactionBothBuildAndPublish() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("MultiCreate");
+    cls.createProperty("a", PropertyType.STRING);
+    cls.createProperty("b", PropertyType.STRING);
+    var firstIndexName = "MultiCreate.a";
+    var secondIndexName = "MultiCreate.b";
+
+    session.begin();
+    var target = session.getMetadata().getSchema().getClass("MultiCreate");
+    target.createIndex(firstIndexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
+    target.createIndex(secondIndexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "b");
+    var row = (EntityImpl) session.newEntity("MultiCreate");
+    row.setProperty("a", "left");
+    row.setProperty("b", "right");
+    session.commit();
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertTrue("the first tx-created index must be published after commit",
+        indexManager.existsIndex(firstIndexName));
+    assertTrue("the second tx-created index must be published after commit",
+        indexManager.existsIndex(secondIndexName));
+    var first = indexManager.getIndex(firstIndexName);
+    var second = indexManager.getIndex(secondIndexName);
+    assertTrue("both engines must be built and registered", engineIsRegistered(firstIndexName));
+    assertTrue("both engines must be built and registered",
+        engineIsRegistered(secondIndexName));
+    assertTrue("both built engines must carry real engine ids", first.getIndexId() >= 0);
+    assertTrue("both built engines must carry real engine ids", second.getIndexId() >= 0);
+    assertNotEquals("the two builds must occupy distinct engine slots",
+        first.getIndexId(), second.getIndexId());
+    var leftRids = session.computeInTx(tx -> first.getRids(session, "left").toList());
+    assertEquals("the same-tx row must be indexed by the first index", 1, leftRids.size());
+    var rightRids = session.computeInTx(tx -> second.getRids(session, "right").toList());
+    assertEquals("the same-tx row must be indexed by the second index", 1, rightRids.size());
+  }
+
+  /**
+   * A concurrent reader consulting a shared committed index's collection membership across a
+   * commit that applies a membership change must never crash on that read path, and once the
+   * commit completes it sees the final membership (eventual consistency). The membership read
+   * ({@code getCollections()}) takes the per-index shared lock against the commit's eager
+   * per-index-write-locked mutation; the reader deliberately probes the returned view with
+   * {@code contains} rather than iterating it, because the view is live and iteration atomicity
+   * mid-commit is part of the accepted best-effort publish boundary (YTDB-1101), not a v1
+   * guarantee. Bounded: the reader stops right after the commit returns, and the class's
+   * stuck-thread timeout backstops a wedged thread.
+   */
+  @Test
+  public void concurrentMembershipReaderNeverCrashesAcrossAMembershipCommit() throws Exception {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("MemRaceParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "MemRaceParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var child = schema.createClass("MemRaceChild");
+    child.createProperty("name", PropertyType.STRING);
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("MemRaceChild").getCollectionIds()[0]);
+
+    var readerReady = new CyclicBarrier(2);
+    var stop = new AtomicBoolean(false);
+    var readerError = new AtomicReference<Throwable>();
+    var reader = new Thread(() -> {
+      try (var other = openDatabase()) {
+        other.activateOnCurrentThread();
+        // Fetch the shared index handle once, so the loop contends only on the per-index
+        // membership read, not on the index-manager lock the whole commit window holds.
+        var sharedIndex = other.getSharedContext().getIndexManager().getIndex(indexName);
+        readerReady.await(5, TimeUnit.SECONDS);
+        while (!stop.get()) {
+          // The lock-handshake probe: getCollections acquires and releases the per-index
+          // shared lock against the commit's exclusive-locked add; contains avoids iterating
+          // the live view (see the Javadoc).
+          sharedIndex.getCollections().contains(childCollectionName);
+        }
+      } catch (final Throwable t) {
+        readerError.compareAndSet(null, t);
+      }
+    }, "membership-race-reader");
+    reader.start();
+
+    session.activateOnCurrentThread();
+    readerReady.await(5, TimeUnit.SECONDS);
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("MemRaceChild")
+            .addSuperClass(session.getMetadata().getSchema().getClass("MemRaceParent")));
+    stop.set(true);
+    reader.join(TimeUnit.SECONDS.toMillis(30));
+    assertFalse("the reader thread must terminate within the bound", reader.isAlive());
+
+    assertNull("a concurrent membership reader must never crash across a membership commit",
+        readerError.get());
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertTrue("after the commit completes the parent index must cover the child collection",
+        new HashSet<>(index.getCollections()).contains(childCollectionName));
   }
 
   /**

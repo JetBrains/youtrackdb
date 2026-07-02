@@ -218,7 +218,7 @@ public class SchemaSharedLockApiTest extends DbTestBase {
   }
 
   @Test
-  public void releaseSchemaWriteLockWithoutSaveDropsSnapshotButPreservesVersion() {
+  public void releaseSchemaWriteLockWithoutSaveDropsSnapshotButAdvancesVersion() {
     // releaseSchemaWriteLock(session, false) skips the saveInternal/reload branch and only
     // clears the cached snapshot. Pin: a fresh snapshot is rebuilt on demand AND the version
     // still advances (the advance is unconditional on the modificationCounter==1 branch

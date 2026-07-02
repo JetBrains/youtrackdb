@@ -51,6 +51,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -318,26 +319,39 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   @Override
   public void getClassRawIndexes(
       DatabaseSessionEmbedded session, final String className, final Collection<Index> indexes) {
-    var overlay = activeOverlay(session);
-    if (overlay == null) {
-      super.getClassRawIndexes(session, className, indexes);
-      return;
-    }
-    final Collection<Index> committed = new ArrayList<>();
-    super.getClassRawIndexes(session, className, committed);
-    indexes.addAll(overlay.resolveClassRawIndexes(className, committed));
+    resolveClassIndexesWithOverlay(session, className, indexes,
+        committed -> super.getClassRawIndexes(session, className, committed));
   }
 
   @Override
   public void getClassIndexes(
       DatabaseSessionEmbedded session, final String className, final Collection<Index> indexes) {
+    resolveClassIndexesWithOverlay(session, className, indexes,
+        committed -> super.getClassIndexes(session, className, committed));
+  }
+
+  /**
+   * The shared overlay-resolution step behind {@link #getClassRawIndexes} and
+   * {@link #getClassIndexes}: with no active overlay the committed reader fills the caller's
+   * collection directly (the pre-overlay behaviour, unchanged); with one, the committed set is
+   * collected first and the overlay resolves the transaction's effective view over it. The two
+   * public entry points differ only in which committed reader they pass, and the base
+   * {@code IndexManagerAbstract} bodies of the two are identical today, so one overlay
+   * resolution ({@code resolveClassRawIndexes}) intentionally serves both — extracting the
+   * dance keeps the raw and non-raw views from drifting apart silently.
+   */
+  private void resolveClassIndexesWithOverlay(
+      DatabaseSessionEmbedded session,
+      final String className,
+      final Collection<Index> indexes,
+      final Consumer<Collection<Index>> committedReader) {
     var overlay = activeOverlay(session);
     if (overlay == null) {
-      super.getClassIndexes(session, className, indexes);
+      committedReader.accept(indexes);
       return;
     }
     final Collection<Index> committed = new ArrayList<>();
-    super.getClassIndexes(session, className, committed);
+    committedReader.accept(committed);
     indexes.addAll(overlay.resolveClassRawIndexes(className, committed));
   }
 

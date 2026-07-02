@@ -19,6 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.Timeout;
@@ -99,7 +100,12 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
 
       var entity = (EntityImpl) session.newEntity("TxRegexTarget");
       entity.setProperty("code", "123");
-      assertThrows(ValidationException.class, entity::validate);
+      var thrown = assertThrows(ValidationException.class, entity::validate);
+      // Pin the violated rule: any other validation failure (a later fixture change could
+      // add more constraints) must not satisfy this assertion.
+      assertTrue("the failure must be the regexp check, got: " + thrown.getMessage(),
+          thrown.getMessage().contains("does not match the regular expression")
+              && thrown.getMessage().contains("TxRegexTarget.code"));
     } finally {
       session.rollback();
     }
@@ -470,6 +476,28 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
   }
 
   /**
+   * Breadcrumb for hard-crash recovery of the provisional-id rewrite (the durable-bytes half of
+   * the no-provisional-id-on-disk guarantee): after a crash between the schema-carry commit
+   * becoming WAL-durable and the page flush, WAL replay must land the tx-created class's record
+   * under its reconciled real collection with no provisional id ({@code <= -2}) in durable
+   * bytes — or, when the crash precedes commit durability, the record must be absent. The
+   * clean-reopen half is covered by
+   * {@code committedTxCreatedClassRecordCarriesARealCollectionIdAfterReopen}; the crash half
+   * leans on the {@code LocalPaginatedStorageRestoreFromWALIT} close-copy-restore harness and is
+   * deferred to the integration-test layer, mirroring the commit-time index-engine breadcrumb in
+   * {@code CommitTimeIndexBuildTest}. Kept as an ignored placeholder so the gap stays visible at
+   * the test surface.
+   */
+  @Test
+  @Ignore("crash recovery of the provisional-id rewrite: after a crash between the schema-carry"
+      + " commit becoming WAL-durable and the page flush, replay must land the tx-created"
+      + " class's record under its reconciled real collection; needs the"
+      + " LocalPaginatedStorageRestoreFromWALIT harness; deferred to the integration-test layer")
+  public void crashRecoveryOfProvisionalIdRewriteIsDeferredToIT() {
+    // Intentionally empty: see the Javadoc breadcrumb.
+  }
+
+  /**
    * Creating a class, inserting a row of it, and dropping the class in the same transaction
    * leaves a record operation whose provisional collection id has no resolution at commit: the
    * dropped class owns no collection in the tx-local schema, so reconciliation creates nothing
@@ -665,39 +693,73 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
    * The tx-aware snapshot exposes a tx-created class to non-planner readers, so the two named
    * resolution paths must tolerate its provisional collection id: id&rarr;name resolution answers
    * {@code null} (never a fabricated name, never an error), and serializing the transaction's own
-   * entity of that class completes. A provisional id ({@code <= -2}) must never leak out as if it
-   * were a real collection.
+   * entity of that class completes. The leak fixture then links that entity to a second
+   * tx-created-class entity, so both RIDs carry provisional ids into the commit. A provisional id
+   * ({@code <= -2}) must never leak out as if it were a real collection: after commit and reopen
+   * the persisted link must resolve to a real ({@code >= 0}) collection id — the falsifiable
+   * durable-bytes arm a link-free fixture could never exercise.
    */
   @Test
   public void serializationAndCollectionNameResolutionLeakNoProvisionalCollectionId() {
     session.begin();
-    try {
-      var schema = session.getMetadata().getSchema();
-      schema.createClass("TxSerializedClass");
-      var entity = (EntityImpl) session.newEntity("TxSerializedClass");
-      entity.setProperty("name", "payload");
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("TxSerializedClass");
+    schema.createClass("TxSerializedTarget");
+    var target = (EntityImpl) session.newEntity("TxSerializedTarget");
+    target.setProperty("name", "linked");
+    var entity = (EntityImpl) session.newEntity("TxSerializedClass");
+    entity.setProperty("name", "payload");
 
-      var snapshotClass = session.getMetadata().getImmutableSchemaSnapshot()
-          .getClass("TxSerializedClass");
-      assertNotNull("the tx-aware snapshot must expose the tx-created class", snapshotClass);
+    var snapshotClass = session.getMetadata().getImmutableSchemaSnapshot()
+        .getClass("TxSerializedClass");
+    assertNotNull("the tx-aware snapshot must expose the tx-created class", snapshotClass);
 
-      var sawProvisional = false;
-      for (var collectionId : snapshotClass.getCollectionIds()) {
-        if (SchemaShared.isProvisionalCollectionId(collectionId)) {
-          sawProvisional = true;
-          assertNull("id->name resolution must answer null for a provisional collection",
-              session.getCollectionNameById(collectionId));
-        }
+    var sawProvisional = false;
+    for (var collectionId : snapshotClass.getCollectionIds()) {
+      if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+        sawProvisional = true;
+        assertNull("id->name resolution must answer null for a provisional collection",
+            session.getCollectionNameById(collectionId));
       }
-      assertTrue("a tx-created class must carry a provisional collection id during the tx",
-          sawProvisional);
-
-      var bytes = session.getSerializer().toStream(session, entity);
-      assertNotNull("serializing the transaction's own entity must complete", bytes);
-      assertTrue(bytes.length > 0);
-    } finally {
-      session.rollback();
     }
+    assertTrue("a tx-created class must carry a provisional collection id during the tx",
+        sawProvisional);
+    assertTrue("the link target must carry a provisional collection id during the tx, got "
+        + target.getIdentity(),
+        SchemaShared.isProvisionalCollectionId(target.getIdentity().getCollectionId()));
+
+    var bytes = session.getSerializer().toStream(session, entity);
+    assertNotNull("serializing the transaction's own entity must complete", bytes);
+    assertTrue(bytes.length > 0);
+
+    // The link into a second tx-created class is the leak fixture: both RIDs carry provisional
+    // collection ids during the transaction (a manual mid-tx serialization of a non-persistent
+    // link is refused, so the link rides only the commit's own serialization), and a commit
+    // that persisted the provisional id would land it in durable bytes.
+    entity.setProperty("ref", target);
+    session.commit();
+
+    // The durable arm: after the commit resolved the provisional ids and a reopen discarded
+    // every session-level cache, the persisted link must carry a real collection id. A rewrite
+    // that missed link values (or a serialization that persisted the provisional id) surfaces
+    // here as a negative collection id or an unresolvable link.
+    reOpen("admin", ADMIN_PASSWORD);
+    session.begin();
+    try (var rs = session.query("select from TxSerializedClass")) {
+      var rows = rs.stream().toList();
+      assertEquals("the committed row must be readable after the reopen", 1, rows.size());
+      var sourceRid = rows.getFirst().getIdentity();
+      assertTrue("the persisted record must carry a real collection id, got " + sourceRid,
+          sourceRid.getCollectionId() >= 0);
+      var loaded = (EntityImpl) session.load(sourceRid);
+      var linkedRid = loaded.getLink("ref");
+      assertNotNull("the persisted link must survive the commit", linkedRid);
+      assertTrue("the persisted link must carry a real collection id, got " + linkedRid,
+          linkedRid.getCollectionId() >= 0);
+      assertEquals("the link must resolve to the committed target row", "linked",
+          ((EntityImpl) session.load(linkedRid)).getProperty("name"));
+    }
+    session.commit();
   }
 
   /**

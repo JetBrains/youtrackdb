@@ -1233,9 +1233,25 @@ public class SchemaDeguardTest extends DbTestBase {
           assertNotNull(
               "the membership ripple must record a collection-add against the superclass index",
               added);
-          assertFalse(
-              "the recorded membership-add must name at least the subclass's collection",
-              added.isEmpty());
+          // Exact-set assertion over the current recording semantics: the tx-local
+          // inheritance rebuild re-records the parent's own committed collection names
+          // (idempotent re-adds at commit), and the tx-created subclass's provisional
+          // collection ids collapse into one deduplicated null placeholder, because mid-tx
+          // id->name resolution deliberately answers null for a provisional id. The
+          // subclass's real names enter the parent index's membership only for a committed
+          // child (the end-to-end membership tests); resolving provisional membership at
+          // commit is a documented gap of the membership persistence. A wrong-collection or
+          // extra-entry regression fails this exact-set check where a bare non-empty check
+          // stayed green.
+          var expectedNames = new HashSet<String>();
+          for (var parentCollectionId : superCls.getCollectionIds()) {
+            expectedNames.add(session.getCollectionNameById(parentCollectionId));
+          }
+          expectedNames.add(null);
+          assertEquals(
+              "the recorded membership-add must carry exactly the parent's committed names"
+                  + " plus the provisional-subclass null placeholder",
+              expectedNames, added);
         });
   }
 
