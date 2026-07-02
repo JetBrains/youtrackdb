@@ -18,6 +18,7 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 - [x] 2026-07-01T15:27Z [ctx=safe] Step 2 complete (commit e121bb25f6) — bugs-concurrency review iter 1: 4 findings fixed, gate-check PASS
 - [x] 2026-07-01T21:46Z [ctx=info] Step 3 complete (commit 999cea5dfe) — bugs-concurrency (BC1/BC2 fixed) + performance (0 findings), gate-check PASS
 - [x] 2026-07-01T22:53Z [ctx=info] Step 4 complete (commit 0a8d0e8044) — bugs-concurrency iter 1: 3 CONFIRMED multiset/reflection findings fixed, gate-check PASS
+- [x] 2026-07-02T00:50Z [ctx=warning] Step 5 complete (commit 8bc9b76479) — strategy live; bugs-concurrency review 0 findings; +1 integration edit (YTDBGraphStepStrategy boundary guard)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -54,6 +55,20 @@ Wires `GremlinToMatchStrategy` into the optimization chain and establishes the e
 - 2026-07-01T22:53Z Step 4: cumulative track diff is ~3,960 lines (generated +
   `_workflow` excluded) after four steps; Step 5 crosses ~4,000. Phase C should
   review by focal step range (Steps 2–4 high), not one pass. See Episodes §Step 4.
+- 2026-07-02T00:50Z Step 5 (cross-track invariant): `YTDBMatchPlanStep` is-a
+  `GraphStep`, so any half-measure `ProviderOptimizationStrategy` in Tracks 3–6
+  that pattern-matches `GraphStep` and rewrites it MUST exclude `YTDBMatchPlanStep`
+  first, or it clobbers a translated traversal (as `YTDBGraphStepStrategy` did
+  until the Step-5 guard). Count/match folders are safe (they key on
+  `CountGlobalStep` / `MatchStep`). See Episodes §Step 5.
+- 2026-07-02T00:50Z Step 5: query monitoring under translation is empirically
+  verified (metrics smoke test) — `getQuerySummary` / `getQuery` / count all hold.
+  Separately surfaced a pre-existing, feature-independent quirk: `YTDBQueryMetricsStep.close()`
+  is not idempotent, so a monitored `toList()` + try-with-resources double-fires the
+  listener on both native and translated paths. Track 6 / any metrics work should
+  assume it; whether to add a close-idempotency guard is a pre-existing design
+  question. Also: `YTDBQueryMetricsStrategyTest` cannot run standalone via `-Dtest`
+  (fork classloading crash), needs full-suite context. See Episodes §Step 5.
 - 2026-07-01T22:53Z Step 5 pre-work note (registration ordering trap): D4 requires
   translator-first ordering, which is why Step 4 keys the recogniser on the plain
   `GraphStep` — a translator that ran **after** `YTDBGraphStepStrategy` would
@@ -124,6 +139,15 @@ scope-downs, dependency reveals, gate-override reasons. -->
   Concrete Step and in R1 above is the shape; the isolated-child context is the
   correct `ctx`. See Episodes §Step 2. (Reconcile the design's clone note in
   Phase 4.)
+- **dependency-reveal (D4, Step 5)** — D4 translator-first ordering needs a
+  **fourth** edit beyond registration + the three `applyPrior` entries: an
+  early-return guard in `YTDBGraphStepStrategy.apply` for a `YTDBMatchPlanStep`
+  start step. Because the boundary step extends `GraphStep`, the graph-step folder
+  runs after the translator and re-wraps the boundary into a `YTDBGraphStep`,
+  silently undoing the translation. The guard makes D4 actually translate; the
+  count/match half-measures need none (they key on `CountGlobalStep` / `MatchStep`).
+  This generalizes to a cross-track invariant (see Surprises §Step 5). Phase 4
+  should fold this into the D4 narrative. See Episodes §Step 5.
 - **analysis / no-change (query metrics, pre-Step-5)** — the design is silent on
   `QueryMetricsListener`, and it stays intact by construction: `QueryDetails` has
   a single producer (`YTDBQueryMetricsStep`), and both its fields are decoupled
@@ -201,7 +225,7 @@ flowchart LR
 2. Add `YTDBMatchPlanStep` boundary step (extends `GraphStep`) + `BoundaryOutputType` enum — lazy stream open, `AutoCloseable` close on exhaustion / exception / abandonment, and `clone()` that copies the plan per execution (`plan.copy(ctx)`, not a shared instance — `SelectExecutionPlan` thread-safety contract; R1) — `risk: high`  [x]  commit: e121bb25f6
 3. Add `GremlinToMatchStrategy` skeleton with its throw-safety net in place from the start (a recogniser throw must not break native Gremlin; R3): idempotency scan (D7), D4 translator-first ordering (empty `applyPrior` / `applyPost` on the translator), structural gating cascade, kill-switch knob, and a `GremlinToMatchTranslator` facade that declines every shape — `risk: high`  [x]  commit: 999cea5dfe
 4. Add the walker + recogniser registry — `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` interface + `StartStepRecogniser` gating and keying on the plain TinkerPop `GraphStep` (not `YTDBGraphStep`, which `YTDBGraphStepStrategy` produces only after the translator runs; T1, A1), declining on a null `isPolymorphic`, translating `g.V()` / `g.V(ids)` into `MatchPlanInputs` (D9) — `risk: high`  [x]  commit: 0a8d0e8044
-5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check, plus a **query-metrics-under-translation** check: with query monitoring on and `querySummary` set via `with(...)`, a translated `g.V()` records exactly one `QueryDetails` whose `getQuerySummary()` returns the config value, whose `getQuery()` renders the original Gremlin (proving `getBytecode()` survives the boundary splice), with a non-zero duration and the correct count — `risk: high`  [ ]
+5. Register `GremlinToMatchStrategy` in `registerOptimizationStrategies` and wire D4 ordering as three distinct edits — create an `applyPrior` on `YTDBGraphStepStrategy` (it has none), widen `YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s (T2) — add the minimal-prefix (size-1) gate, and end-to-end smoke tests including a translator-on-vs-off parity and timing check, plus a **query-metrics-under-translation** check: with query monitoring on and `querySummary` set via `with(...)`, a translated `g.V()` records exactly one `QueryDetails` whose `getQuerySummary()` returns the config value, whose `getQuery()` renders the original Gremlin (proving `getBytecode()` survives the boundary splice), with a non-zero duration and the correct count — `risk: high`  [x]  commit: 8bc9b76479
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -387,6 +411,63 @@ aggregations must keep this contract or set the corresponding flag. Step 5
 registration makes the strategy live; its smoke tests verify the T1/A1 fix and
 the multiset fixes end to end (auto-strategy-chain parity variant, plus the
 duplicate-id-declines and non-polymorphic-subclass cases).
+
+### Step 5 — commit 8bc9b76479fb6efbb66e7ef073ae29f620ed064a, 2026-07-02T00:50Z [ctx=warning]
+**What was done:** Made the translator live. Registered
+`GremlinToMatchStrategy.instance()` in `registerOptimizationStrategies` and wired
+translator-first ordering as three `applyPrior` edits — created `applyPrior()` on
+`YTDBGraphStepStrategy` returning `{GremlinToMatchStrategy.class}`, and widened
+`YTDBGraphCountStrategy`'s and `YTDBGraphMatchStepStrategy`'s to include it
+(switching both from `Collections.singleton` to `Set.of`). The translator's own
+prior/post stay empty. Added the minimal-prefix (size-1) gate in
+`GremlinStepWalker`. Added `GremlinToMatchSmokeTest` (13 tests: parity, timing,
+one-boundary-step engagement, declines, subclass polymorphism, kill-switch,
+idempotency, and query-metrics-under-translation) plus a walker size-1-gate test.
+210 core Gremlin tests green; the step-level bugs-concurrency review returned zero
+findings.
+
+**What was discovered:** The three `applyPrior` edits were necessary but not
+sufficient. Because `YTDBMatchPlanStep extends GraphStep`, `YTDBGraphStepStrategy`
+(running after the translator) re-wrapped the boundary back into a `YTDBGraphStep`,
+leaving `applyStrategies()` with `[YTDBGraphStep]` instead of `[YTDBMatchPlanStep]`
+— silently destroying the translation. Fixed with an early-return guard in
+`YTDBGraphStepStrategy.apply` when the start step is a `YTDBMatchPlanStep` (the
+count/match half-measures need no guard — they key on `CountGlobalStep` /
+`MatchStep`, which a translated `g.V()` lacks). This trap is specific to
+translator-first ordering, where the graph-step folder runs after the boundary is
+spliced in. The query-metrics smoke
+test empirically confirms the metrics mechanism survives translation —
+`getQuerySummary()` round-trips the config value, `getQuery()` renders the original
+`g.V()` Gremlin (so `getBytecode()` survives the splice), one record when closed
+once, correct count. A transient two-record reading was root-caused to a
+pre-existing, path-independent `YTDBQueryMetricsStep.close()` non-idempotency under
+`toList()` + try-with-resources (reproduces identically translator-off), not a
+translation double-count; the test avoids the trap.
+
+**What changed from the plan:** A fourth production edit beyond the planned three
+`applyPrior` edits — the `YTDBGraphStepStrategy.apply` early-return guard — was
+required for D4 ordering to actually translate. Integration fix, not scope
+expansion; no downstream step impact.
+
+**Key files:**
+- `core/.../gremlin/YTDBGraphImplAbstract.java` (modified — registration)
+- `core/.../traversal/strategy/optimization/YTDBGraphStepStrategy.java` (modified — `applyPrior` + boundary guard)
+- `core/.../traversal/strategy/optimization/YTDBGraphCountStrategy.java` (modified — `applyPrior` widen)
+- `core/.../traversal/strategy/optimization/YTDBGraphMatchStepStrategy.java` (modified — `applyPrior` widen)
+- `core/.../gremlin/translator/strategy/GremlinStepWalker.java` (modified — size-1 gate)
+- `core/.../gremlin/translator/GremlinToMatchSmokeTest.java` (new)
+- `core/.../gremlin/translator/strategy/GremlinStepWalkerTest.java` (modified)
+
+**Critical context:** `YTDBMatchPlanStep` is-a `GraphStep`, so ANY current or
+future half-measure `ProviderOptimizationStrategy` that pattern-matches on
+`GraphStep` and rewrites it MUST exclude `YTDBMatchPlanStep` first, or it clobbers a
+translated traversal. `YTDBGraphStepStrategy` now guards this; count/match folders
+are safe by construction. Separately, `YTDBQueryMetricsStep.close()` is not
+idempotent — a monitored `toList()` + try-with-resources double-fires the listener
+on both native and translated paths (pre-existing; a design question independent of
+this feature). `YTDBQueryMetricsStrategyTest` cannot run standalone via `-Dtest`
+(pre-existing fork classloading crash on `AbstractGremlinTest`); it needs the
+full-suite context.
 
 ## Validation and Acceptance
 - `g.V()`, `g.V(id)`, `g.V(id1, id2, …)` translate and return the same multiset as the native pipeline (translator-on vs translator-off).
