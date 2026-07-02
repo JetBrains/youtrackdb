@@ -5,15 +5,13 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCollection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLevelZeroIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -78,7 +76,7 @@ import org.jspecify.annotations.NonNull;
  * and from {@code MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX} so neither inline-named
  * user aliases nor the planner's internal auto-generation can collide.
  */
-public final class StartStepRecogniser implements StepRecogniser {
+final class StartStepRecogniser implements StepRecogniser {
 
   /** Singleton — the recogniser is stateless and cheap to share across walker instances. */
   static final StartStepRecogniser INSTANCE = new StartStepRecogniser();
@@ -267,21 +265,15 @@ public final class StartStepRecogniser implements StepRecogniser {
     ridAttr.setName("@rid");
     var leftExpr = new SQLExpression(ridAttr, null);
 
-    var collection = new SQLCollection(-1);
+    var values = new ArrayList<SQLExpression>(rids.size());
     for (var rid : rids) {
       // Each RID becomes an SQLExpression-wrapped SQLRid via the literal builder.
-      collection.add(MatchLiteralBuilder.toLiteral(rid));
+      values.add(MatchLiteralBuilder.toLiteral(rid));
     }
-    // The right side mirrors the parser's representation of a literal list: collection
-    // wrapped in level-zero identifier wrapped in a base identifier wrapped in a base
-    // expression. Without this wrapping, SQLInCondition.evaluateRight cannot reach the
-    // collection's element expressions.
-    var levelZero = new SQLLevelZeroIdentifier(-1);
-    levelZero.setCollection(collection);
-    var ident = new SQLBaseIdentifier(-1);
-    ident.setLevelZero(levelZero);
-    var rightBase = new SQLBaseExpression(-1);
-    rightBase.setIdentifier(ident);
+    // Wrap the element list in the parser's literal-list AST chain (collection → level-zero →
+    // base identifier → base expression) so SQLInCondition.evaluateRight can reach the elements.
+    // Shared with MatchWhereBuilder.in via literalCollectionExpression to keep a single copy.
+    var rightBase = MatchWhereBuilder.literalCollectionExpression(values);
 
     return getSqlInCondition(leftExpr, rightBase);
   }
