@@ -86,6 +86,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    */
   @Test
   public void walk_singleId_landsOnAliasRids() {
+    // #25:3 is an arbitrary well-formed RID literal: the walker only renders it into MATCH SQL and
+    // never dereferences it against storage, so no record with this RID need exist.
     var admin = graph.traversal().V("#25:3").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
@@ -107,6 +109,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    */
   @Test
   public void walk_multipleIds_buildsRidInFilter() {
+    // #25:3 and #25:7 are arbitrary well-formed RID literals used only to check IN-filter
+    // rendering; the walker never dereferences them against storage.
     var admin = graph.traversal().V("#25:3", "#25:7").asAdmin();
 
     var result = GremlinStepWalker.production().walk(admin);
