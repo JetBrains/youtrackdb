@@ -175,7 +175,7 @@ flowchart TB
 - **Risks/Caveats**: structural-vs-value classification must be correct — a
   value leaking into the key thrashes the cache; a structural token bound as a
   param serves a wrong plan. Schema changes reuse the YQL invalidation hook.
-- **Implemented in**: Track 2
+- **Implemented in**: Track 4
 - **Full design**: design.md §"Parameter binding"
 
 #### D6: Shared MATCH IR builder package; GQL refactor in Phase 1
@@ -354,15 +354,15 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > cross-cutting scaffolding every later track extends: the `MatchPlanInputs`
   > record + the single additive `MatchExecutionPlanner` ctor (D2), the
   > `GremlinStepWalker` + `WalkerContext` + `StepRecogniser` registry (D9) +
-  > `StartStepRecogniser`, idempotency (D7), `GremlinPlanCache` (D5), the
+  > `StartStepRecogniser`, idempotency (D7), the
   > anonymous-alias generator, and the `YTDBMatchPlanStep` boundary; registers
   > the strategy and reorders the three half-measure strategies' `applyPrior()`
   > (D4).
   > **Scope:** ~19 files covering the record + planner ctor, strategy skeleton
   > with structural gating + ordering + idempotency, walker + context +
-  > recogniser registry + start recogniser, plan cache, anon-alias generator,
+  > recogniser registry + start recogniser, anon-alias generator,
   > boundary step, registration + half-measure edits, minimal `g.V()` /
-  > `g.V(ids)` translator, and strategy / cache / boundary tests + a Cucumber
+  > `g.V(ids)` translator, and strategy / boundary tests + a Cucumber
   > smoke check.
   > **Depends on:** Track 1.
 
@@ -388,7 +388,9 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > operators per D-TEXT-OPS), `has` / `hasLabel` / `hasId`, the bare
   > presence forms `has(key)` / `hasNot(key)` (`IS DEFINED` / `IS NOT
   > DEFINED`, D-IS-DEFINED), and the asymmetric `AndStep` / `OrStep` /
-  > `NotStep` sub-walker rules (D9). Detail in plan/track-4.md.
+  > `NotStep` sub-walker rules (D9), and the `GremlinPlanCache` (D5) — predicates
+  > are the first steps carrying literal values, so they bind as positional
+  > parameters and one cached plan serves every value. Detail in plan/track-4.md.
   > **Scope:** ~20 files covering the predicate adapter (full `P` set),
   > `HasStep` / `HasLabelStep` / `HasIdStep` + presence-form recognisers, the
   > two new SQL operators plus the `SQLContainsTextCondition` collate change,
