@@ -794,18 +794,23 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * The plan a schema-carrying commit executes for the transaction's index deltas, carried across
    * the three commit phases (record enrollment before the working set, engine build/drop and
    * population after the record apply, shared-map publication after {@code commitChanges} success).
-   * Built once by {@link #enrollReconciledIndexRecords} and consumed by
+   * Created empty by {@link #newReconciledIndexPlan} and assigned to the commit BEFORE enrollment
+   * runs, then filled by {@link #enrollReconciledIndexRecords} and consumed by
    * {@link #buildAndDropReconciledEngines} and {@link #publishReconciledIndexes}. The failure path
    * reads {@link #createdEngineExternalIds} to undo phantom engine registrations and
-   * {@link #appliedMembership} to revert the eager membership mutations.
+   * {@link #appliedMembership} to revert the eager membership mutations; the plan exists before
+   * any eager mutation runs, so a throw mid-enrollment or mid-build still leaves every recorded
+   * mutation reachable to the revert arms.
    *
    * @param created         tx-created deferred handles to build engines for and publish.
    * @param dropped         committed indexes the transaction dropped, to delete engines for and
    *                        unpublish.
    * @param appliedMembership the committed-index membership changes applied eagerly in the enroll
    *                        phase, for the failure-path revert.
-   * @param createdEngineExternalIds the built engine ids, filled in during the build phase so the
-   *                        failure path can revert the phantom registrations.
+   * @param createdEngineExternalIds the built engine ids, recorded by
+   *                        {@code IndexAbstract#buildEngineAtCommit} immediately after each engine
+   *                        publishes (before its wiring), so the failure path reverts every
+   *                        published engine even when the build throws mid-engine.
    * @param droppedEngines  the dropped engines (slot + captured durable data), filled in during the
    *                        build phase so the failure path can reconstruct each engine the drop tore
    *                        out of the in-memory registry.
@@ -842,18 +847,16 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @param overlay         the transaction's index overlay (its four delta categories).
    * @param atomicOperation the in-flight commit atomic operation, threaded through so the v1
    *                        empty-source bound can confirm an approximate-zero count with an exact scan.
-   * @return the plan the build and publish phases consume, or {@code null} when the overlay carries
-   *     no index delta.
+   * @param plan            the pre-created plan (from {@link #newReconciledIndexPlan}) this phase
+   *                        fills. The caller assigns the plan before this method runs so a throw
+   *                        mid-enrollment (after eager membership mutations were applied) still
+   *                        leaves the failure path a reachable plan to revert through; a plan
+   *                        returned from here instead would be null exactly when the revert is
+   *                        needed.
    */
-  @Nullable public ReconciledIndexPlan enrollReconciledIndexRecords(
+  public void enrollReconciledIndexRecords(
       DatabaseSessionEmbedded session, FrontendTransaction transaction, IndexOverlay overlay,
-      AtomicOperation atomicOperation) {
-    if (overlay == null || overlay.isEmpty()) {
-      return null;
-    }
-    final List<IndexAbstract> created = new ArrayList<>();
-    final List<Index> dropped = new ArrayList<>();
-
+      AtomicOperation atomicOperation, ReconciledIndexPlan plan) {
     var indexManagerEntity = transaction.loadEntity(indexManagerIdentity);
     var indexLinkSet = indexManagerEntity.getOrCreateLinkSet(CONFIG_INDEXES);
 
@@ -865,7 +868,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       final var abstractHandle = (IndexAbstract) handle;
       abstractHandle.saveRecordAtCommit(transaction);
       indexLinkSet.add(abstractHandle.getIdentity());
-      created.add(abstractHandle);
+      plan.created().add(abstractHandle);
     }
 
     for (final var droppedName : overlay.getTxDroppedNames()) {
@@ -882,7 +885,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // publish phase after commitChanges succeeds.
       indexLinkSet.remove(committed.getIdentity());
       ((IndexAbstract) committed).deleteRecordAtCommit(transaction);
-      dropped.add(committed);
+      plan.dropped().add(committed);
     }
 
     // Persist the committed-index membership deltas here too: the membership change re-writes the
@@ -892,13 +895,13 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // commit through the captured AppliedMembership list. The parent index then covers the new
     // subclass collection, so a later insert into that collection tracks the parent index and a
     // polymorphic lookup returns the subclass rows.
-    final List<AppliedMembership> appliedMembership = new ArrayList<>();
     for (final var entry : overlay.getMembershipAdded().entrySet()) {
       final var committed = indexes.get(entry.getKey());
       if (committed instanceof IndexAbstract abstractIndex) {
         for (final var collectionName : entry.getValue()) {
           if (abstractIndex.addCollectionRecordAtCommit(transaction, collectionName)) {
-            appliedMembership.add(new AppliedMembership(abstractIndex, collectionName, true));
+            plan.appliedMembership()
+                .add(new AppliedMembership(abstractIndex, collectionName, true));
           }
         }
       }
@@ -908,14 +911,27 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (committed instanceof IndexAbstract abstractIndex) {
         for (final var collectionName : entry.getValue()) {
           if (abstractIndex.removeCollectionRecordAtCommit(transaction, collectionName)) {
-            appliedMembership.add(new AppliedMembership(abstractIndex, collectionName, false));
+            plan.appliedMembership()
+                .add(new AppliedMembership(abstractIndex, collectionName, false));
           }
         }
       }
     }
+  }
 
-    return new ReconciledIndexPlan(created, dropped, appliedMembership, new ArrayList<>(),
-        new ArrayList<>());
+  /**
+   * Creates the empty {@link ReconciledIndexPlan} for a commit whose overlay carries an index
+   * delta, or returns {@code null} when there is nothing to reconcile. Split from
+   * {@link #enrollReconciledIndexRecords} so the commit assigns the plan BEFORE enrollment runs:
+   * enrollment mutates shared committed indexes eagerly as it goes, and the failure-path revert
+   * arms read the plan, so it must be reachable even when enrollment itself throws mid-way.
+   */
+  @Nullable public ReconciledIndexPlan newReconciledIndexPlan(IndexOverlay overlay) {
+    if (overlay == null || overlay.isEmpty()) {
+      return null;
+    }
+    return new ReconciledIndexPlan(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
+        new ArrayList<>(), new ArrayList<>());
   }
 
   /**
@@ -996,8 +1012,10 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         }
       }
       for (final var handle : plan.created()) {
-        final var externalId = handle.buildEngineAtCommit(transaction, atomicOperation);
-        plan.createdEngineExternalIds().add(externalId);
+        // buildEngineAtCommit records the published engine id on the plan itself, immediately
+        // after the engine publishes and before it is wired, so a throw anywhere inside the
+        // build still leaves the failure path every published id to revert.
+        handle.buildEngineAtCommit(transaction, atomicOperation, plan.createdEngineExternalIds());
         populateTxCreatedIndex(session, transaction, handle);
       }
     } catch (final InvalidIndexEngineIdException e) {

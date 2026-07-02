@@ -1810,6 +1810,9 @@ public abstract class AbstractStorage
    * @return the collection's approximate record count, or 0 when the id names no live collection.
    */
   public final long getApproximateRecordsCountInCommitWindow(final int collectionId) {
+    assert isCommitWindowActive()
+        : "commit-window primitive called outside the commit window (stateLock.writeLock() not"
+            + " held)";
     if (collectionId < 0
         || collectionId >= collections.size()
         || collections.get(collectionId) == null) {
@@ -1835,6 +1838,9 @@ public abstract class AbstractStorage
    */
   public final long getExactRecordsCountInCommitWindow(
       final int collectionId, final AtomicOperation atomicOperation) {
+    assert isCommitWindowActive()
+        : "commit-window primitive called outside the commit window (stateLock.writeLock() not"
+            + " held)";
     if (collectionId < 0
         || collectionId >= collections.size()
         || collections.get(collectionId) == null) {
@@ -2651,12 +2657,17 @@ public abstract class AbstractStorage
             // engine build and the shared-map publication run in later phases. Reconciliation resolves
             // provisional collection ids on the tx-local schema above, so a deferred handle indexing a
             // same-tx class now names the real collection. No overlay -> null plan -> the phases below
-            // are no-ops.
-            indexPlan =
-                schemaContext.indexManager()
-                    .enrollReconciledIndexRecords(
-                        session, frontendTransaction,
-                        schemaContext.txSchemaState().getIndexOverlay(), atomicOperation);
+            // are no-ops. The plan is created and assigned BEFORE enrollment runs: enrollment
+            // applies eager membership mutations to shared committed indexes as it goes, so a
+            // throw mid-enrollment must still leave the failure path a non-null plan whose
+            // recorded mutations it can revert.
+            final var indexOverlay = schemaContext.txSchemaState().getIndexOverlay();
+            indexPlan = schemaContext.indexManager().newReconciledIndexPlan(indexOverlay);
+            if (indexPlan != null) {
+              schemaContext.indexManager()
+                  .enrollReconciledIndexRecords(
+                      session, frontendTransaction, indexOverlay, atomicOperation, indexPlan);
+            }
           } finally {
             if (priorLinkConsistency) {
               session.enableLinkConsistencyCheck();
@@ -3288,6 +3299,9 @@ public abstract class AbstractStorage
       final Map<String, String> engineProperties,
       final AtomicOperation atomicOperation)
       throws IOException {
+    assert isCommitWindowActive()
+        : "commit-window primitive called outside the commit window (stateLock.writeLock() not"
+            + " held)";
     final var indexDefinition = indexMetadata.getIndexDefinition();
     if (indexDefinition == null) {
       throw new IndexException(name, "Index definition has to be provided");
@@ -3369,6 +3383,9 @@ public abstract class AbstractStorage
   public DroppedIndexEngine deleteIndexEngineInCommitWindow(
       final int externalIndexId, final AtomicOperation atomicOperation)
       throws IOException, InvalidIndexEngineIdException {
+    assert isCommitWindowActive()
+        : "commit-window primitive called outside the commit window (stateLock.writeLock() not"
+            + " held)";
     final var internalIndexId = extractInternalId(externalIndexId);
     checkOpennessAndMigration();
     checkIndexId(internalIndexId);
@@ -3610,6 +3627,9 @@ public abstract class AbstractStorage
    * @return {@code true} when a registered engine of that name exists.
    */
   public boolean isIndexEngineRegisteredInCommitWindow(final String engineName) {
+    assert isCommitWindowActive()
+        : "commit-window primitive called outside the commit window (stateLock.writeLock() not"
+            + " held)";
     return indexEngineNameMap.containsKey(engineName);
   }
 
