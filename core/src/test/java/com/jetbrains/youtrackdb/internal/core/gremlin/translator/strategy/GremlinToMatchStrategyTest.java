@@ -55,6 +55,11 @@ import org.junit.Test;
  * kill-switch read exercise the production path; only the translation and plan-building seams
  * are stubbed.
  */
+// Test-scoped IDE-inspection noise, suppressed class-wide the way the rest of the core test suite
+// does: unchecked (generic mocks / raw assertj isInstanceOf), resource (detached traversals and the
+// session handle that the test never iterates or closes), and DataFlowIssue (the nullable-inferred
+// getConfiguration() that is non-null on a live session).
+@SuppressWarnings({"unchecked", "resource", "DataFlowIssue"})
 public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   /**
