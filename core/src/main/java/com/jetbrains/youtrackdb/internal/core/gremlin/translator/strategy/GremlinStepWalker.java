@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -151,27 +150,19 @@ final class GremlinStepWalker {
     Map<String, SQLWhereClause> finalAliasFilters = new LinkedHashMap<>(ir.aliasFilters());
     finalAliasFilters.putAll(ctx.aliasFilters);
 
+    // Only the fields a single-node g.V() translation actually carries are set; the rest keep
+    // their null/false defaults (matchExpressions/notMatchExpressions normalise to empty lists in
+    // the compact constructor). The builder names each field so a future track adding one cannot
+    // silently transpose a positional argument.
     var inputs =
-        new MatchPlanInputs(
-            ir.pattern(),
-            ir.aliasClasses(),
-            finalAliasFilters,
-            ctx.aliasRids,
-            List.of(),
-            List.of(),
-            ctx.returnItems,
-            ctx.returnAliases,
-            ctx.returnNestedProjections,
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            false,
-            false,
-            false,
-            false);
+        MatchPlanInputs.builder(ir.pattern())
+            .aliasClasses(ir.aliasClasses())
+            .aliasFilters(finalAliasFilters)
+            .aliasRids(ctx.aliasRids)
+            .returnItems(ctx.returnItems)
+            .returnAliases(ctx.returnAliases)
+            .returnNestedProjections(ctx.returnNestedProjections)
+            .build();
 
     return new GremlinToMatchTranslator.TranslationResult(
         inputs,
