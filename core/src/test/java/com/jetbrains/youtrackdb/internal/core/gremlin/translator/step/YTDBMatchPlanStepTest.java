@@ -52,10 +52,11 @@ import org.mockito.InOrder;
  * {@code g.V().toList()}.
  *
  * <p>Stubs on the shared {@code traversal} mock are installed with {@link
- * org.mockito.Mockito#lenient()} because the ctor-only tests do not exercise
- * {@code getGraph} / {@code getTraverserSetSupplier} / {@code getTraverserGenerator}; with
- * default-strict stubbing those would surface as {@code UnnecessaryStubbingException} once
- * the suite adopts a Mockito JUnit runner.
+ * org.mockito.Mockito#lenient()}. This class runs plain {@code mock()} with no Mockito runner, so
+ * strict-stub detection is not active today and {@code lenient()} is inert; it is applied
+ * pre-emptively so adopting {@code MockitoJUnitRunner} later would not surface {@code
+ * UnnecessaryStubbingException} on the ctor-only tests, which do not exercise {@code getGraph} /
+ * {@code getTraverserSetSupplier} / {@code getTraverserGenerator}.
  */
 public class YTDBMatchPlanStepTest {
 
@@ -418,6 +419,35 @@ public class YTDBMatchPlanStepTest {
     order.verify(plan).close();
   }
 
+  /**
+   * When BOTH {@code stream.close} and {@code plan.close} throw during the close hook, the
+   * stream-close failure is the primary exception and the plan-close failure is attached via
+   * {@code addSuppressed} — the plan-close exception must not mask the stream error. This mirrors
+   * the {@code plan.start()} failure handler; a plain try/finally would let the finally-block
+   * plan-close exception replace (and hide) the stream-close exception the operator needs to see.
+   */
+  @Test
+  public void close_bothStreamAndPlanCloseThrow_streamErrorPrimary_planErrorSuppressed() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+    doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
+    doThrow(new RuntimeException("plan close failed")).when(plan).close();
+
+    var step = elementStep("v");
+    var it = openIterator(step);
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(it::hasNext) // false → auto-close → both closes throw
+        .withMessageContaining("stream close failed")
+        .satisfies(
+            e -> assertThat(e.getSuppressed())
+                .anySatisfy(s -> assertThat(s).hasMessageContaining("plan close failed")));
+
+    // Both closes were still attempted, stream first.
+    InOrder order = inOrder(stream, plan);
+    order.verify(stream).close(ctx);
+    order.verify(plan).close();
+  }
+
   // ---- createIterator failure-path close ----
 
   /**
@@ -666,6 +696,40 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
+   * A partially-consumed arming that is {@code reset()} before exhaustion must release the open
+   * stream's cursor. {@code GraphStep.reset()} overwrites the inherited {@code iterator} WITHOUT
+   * closing it, so before the fix the stream leaked on every reset-then-reuse. {@code reset()}
+   * closes ONLY the stream (the plan is re-run in place on the next open), so this asserts the
+   * first stream is closed on reset, the plan is NOT closed, and the second open re-runs the same
+   * plan (rewind + start).
+   */
+  @Test
+  public void reset_afterPartialConsume_closesStreamButNotPlan_thenReRuns() {
+    // First arming yields one row so the stream is opened but left un-exhausted.
+    var rawVertex =
+        mock(com.jetbrains.youtrackdb.internal.core.db.record.record.Vertex.class);
+    var row = mock(Result.class);
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenReturn(row);
+    when(row.getVertex("v")).thenReturn(rawVertex);
+
+    var step = elementStep("v");
+    var it = openIterator(step);
+    it.next(); // open the stream, consume one row, leave it un-exhausted
+
+    step.reset();
+
+    // reset() released the open cursor but kept the plan alive for the in-place re-run.
+    verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+
+    // Second open re-runs the SAME plan (rewind + start), proving reset kept it usable.
+    step.createIterator();
+    verify(plan, times(2)).start();
+    verify(plan, times(1)).reset(ctx);
+  }
+
+  /**
    * Cloning must not rewind the ORIGINAL's plan. {@code AbstractStep.clone()} invokes
    * {@code reset()} on the freshly-cloned instance while the clone still aliases the
    * original's plan reference (the clone's own copy is installed later in {@code clone()}).
@@ -686,6 +750,28 @@ public class YTDBMatchPlanStepTest {
 
     // The original's plan must never be rewound by the clone path.
     verify(plan, never()).reset(any());
+  }
+
+  /**
+   * Cloning an original that has an OPEN stream must NOT close that stream. {@code
+   * AbstractStep.clone()} triggers {@code reset()} on the fresh clone while it still aliases the
+   * original's {@code openStream} field, so the {@code cloning} guard must make that reset a
+   * no-op on the stream. Without the guard, cloning a mid-iteration traversal would tear down the
+   * original's in-flight cursor. This drives the original to an open stream, clones it, and
+   * asserts the original's stream was never closed as a side effect of the clone.
+   */
+  @Test
+  public void clone_whileOriginalStreamOpen_doesNotCloseOriginalStream() {
+    var copiedPlan = mock(InternalExecutionPlan.class);
+    when(plan.copy(any())).thenReturn(copiedPlan);
+
+    var original = elementStep("v");
+    original.createIterator(); // opens the plan → openStream set, stream un-exhausted
+
+    original.clone(); // AbstractStep.clone() calls reset() on the clone mid-construction
+
+    // The clone-triggered reset must NOT close the original's still-open stream (cloning guard).
+    verify(stream, never()).close(ctx);
   }
 
   // ---- Clone field-write (no reflection) ----

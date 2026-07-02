@@ -15,6 +15,8 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.id.RecordId;
+import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -163,6 +165,28 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
+   * A translated bare {@code g.V()} on an EMPTY graph returns empty end-to-end. This exercises the
+   * class-scan path (no RID hint, no filter — {@code SELECT FROM V}), which is structurally
+   * different from the by-RID fast path covered by
+   * {@code translatedSingleIdLookup_nonExistentRid_returnsEmpty}: it proves the real class-scan
+   * plan produces an empty stream on a class with no rows rather than throwing or emitting a
+   * phantom row. The mocked {@code iterator_emptyStream} unit only pins the boundary iterator's
+   * empty-stream handling, not the real plan's output.
+   */
+  @Test
+  public void translatedBareVertexSource_emptyGraph_returnsEmpty() {
+    var admin = graph.traversal().V().asAdmin();
+    admin.applyStrategies();
+    assertEquals(
+        "a bare g.V() must still translate to one boundary step on an empty graph",
+        1,
+        countBoundarySteps(admin.getSteps()));
+
+    assertTrue(
+        "translated bare g.V() on an empty graph must return empty", admin.toList().isEmpty());
+  }
+
+  /**
    * Single-id lookup {@code g.V(id)} translates and returns exactly the addressed vertex, with
    * its property intact.
    */
@@ -180,6 +204,35 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     assertEquals(1, vertices.size());
     assertEquals(bob.id(), vertices.get(0).id());
     assertEquals("Bob", vertices.get(0).value("name"));
+  }
+
+  /**
+   * A single-id lookup {@code g.V(id)} where {@code id} is a syntactically valid RID that
+   * addresses no stored record still TRANSLATES (the recogniser accepts any convertible,
+   * non-duplicate id) and returns an empty result end-to-end, matching native {@code g.V(id)}.
+   * The mocked {@code iterator_emptyStream} unit only proves the boundary iterator handles an
+   * empty stream; this proves the real {@code SELECT FROM #missing:rid} MATCH plan actually
+   * produces an empty stream against live storage — it does not throw or emit a phantom row.
+   */
+  @Test
+  public void translatedSingleIdLookup_nonExistentRid_returnsEmpty() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+
+    // Same collection as a real vertex, but a position no record occupies.
+    var aliceRid = (RecordIdInternal) alice.id();
+    var missing = new RecordId(aliceRid.getCollectionId(), 999_999L);
+
+    var admin = graph.traversal().V(missing).asAdmin();
+    admin.applyStrategies();
+    assertEquals(
+        "a well-formed non-existent RID must still translate to one boundary step",
+        1,
+        countBoundarySteps(admin.getSteps()));
+
+    assertTrue(
+        "translated g.V(missingRid) must return empty, matching native g.V(missingRid)",
+        admin.toList().isEmpty());
   }
 
   /**
@@ -446,6 +499,9 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     // close, one fire, so the exactly-once assertion below actually tests the translation path.
     var q = gs.V();
     var rowCount = q.toList().size();
+    // toList() leaves the compiled (translated) step list in place, so the post-drain count still
+    // reflects whether the boundary step was spliced. It is read after draining only because the
+    // traversal must run to fire the metrics listener exactly once (see the note above).
     var boundaryEngaged = countBoundarySteps(q.asAdmin().getSteps()) == 1;
     graph.tx().commit();
 
@@ -457,13 +513,16 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
         "querySummary must round-trip through the OptionsStrategy unaffected by translation",
         summary,
         listener.querySummary);
-    // getQuery() renders the ORIGINAL Gremlin bytecode (fixed at construction), so it must still
-    // describe the g.V() source — not the spliced boundary step.
+    // getQuery() renders the ORIGINAL bytecode via the Groovy translator, so a bare g.V() source
+    // renders the `.V()` step call. Assert that specific step token — a loose `V(` also matches
+    // addV(/hasV( — and separately assert the spliced boundary step did not leak into the render.
     assertTrue(
-        "getQuery() must render the original g.V() Gremlin, not the boundary step; was: "
+        "getQuery() must render the original g.V() step, not the boundary step; was: "
             + listener.query,
-        listener.query.contains("V(")
-            && !listener.query.contains("YTDBMatchPlanStep"));
+        listener.query.contains(".V()"));
+    assertFalse(
+        "the boundary step must not leak into the recorded query; was: " + listener.query,
+        listener.query.contains("YTDBMatchPlanStep"));
     assertTrue("execution duration must be non-negative", listener.executionTimeNanos >= 0);
     assertEquals("recorded result count must match the fixture", 3, rowCount);
   }
@@ -491,6 +550,17 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
         "explain() of a translated g.V() must surface the YTDBMatchPlanStep marker; was: "
             + translatedExplain,
         translatedExplain.contains("YTDBMatchPlanStep"));
+    // The FINAL (post-strategy) traversal must be collapsed to the boundary marker alone, with no
+    // native vertex step surviving. Scope the check to the "Final Traversal" section: a GraphStep
+    // always appears in the explanation's "Original Traversal" (and pre-translation strategy) rows,
+    // so a whole-string "no GraphStep" assertion would be vacuously false-proof against a spliced-
+    // but-not-collapsed regression.
+    var finalSection =
+        translatedExplain.substring(translatedExplain.lastIndexOf("Final Traversal"));
+    assertFalse(
+        "the translated final traversal must not retain a native GraphStep box; was: "
+            + finalSection,
+        finalSection.contains("GraphStep"));
 
     // hasLabel(...) is unrecognised in this track, so the whole traversal declines to the native
     // pipeline: no boundary step, and the native vertex step (a GraphStep) is still rendered.
