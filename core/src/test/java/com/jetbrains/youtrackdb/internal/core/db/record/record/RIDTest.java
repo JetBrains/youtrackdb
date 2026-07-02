@@ -229,13 +229,21 @@ public class RIDTest {
     RID.of("#0:abc");
   }
 
-  /** collectionId below {@code -2} is rejected by {@code checkCollectionLimits}. */
+  /**
+   * collectionId below the serialized short floor is rejected by
+   * {@code checkCollectionLimits}; ids of {@code -2} and below down to that floor are
+   * provisional collection ids (a class created inside a still-open transaction) and parse
+   * normally.
+   */
   @Test
   public void ofStringCollectionIdTooLowRejected() {
-    var ex = assertThrows(DatabaseException.class, () -> RID.of("#-3:0"));
+    var ex = assertThrows(DatabaseException.class, () -> RID.of("#-32769:0"));
     assertTrue(
         "actual: " + ex.getMessage(),
-        ex.getMessage().contains("negative collection id") && ex.getMessage().contains("-3"));
+        ex.getMessage().contains("smaller than") && ex.getMessage().contains("-32769"));
+
+    var provisional = RID.of("#-3:0");
+    assertEquals(-3, provisional.getCollectionId());
   }
 
   /** collectionId above {@link RID#COLLECTION_MAX} is rejected. */

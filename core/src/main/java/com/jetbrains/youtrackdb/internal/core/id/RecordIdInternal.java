@@ -59,7 +59,6 @@ public sealed interface RecordIdInternal extends RID permits ChangeableRecordId,
     return PatternConst.PATTERN_RID.matcher(iString).matches();
   }
 
-
   boolean isValidPosition();
 
   @Override
@@ -109,7 +108,6 @@ public sealed interface RecordIdInternal extends RID permits ChangeableRecordId,
 
     return new RecordId(collectionId, collectionPosition);
   }
-
 
   int toStream(final OutputStream iStream) throws IOException;
 
@@ -163,17 +161,25 @@ public sealed interface RecordIdInternal extends RID permits ChangeableRecordId,
 
   String next();
 
-
   @Override
   @Nonnull
   default RID getIdentity() {
     return this;
   }
 
+  /**
+   * A collection id must fit the serialized short width. Real collections are non-negative,
+   * {@code -1} is the invalid/abstract sentinel, and every id {@code <= -2} is a provisional
+   * collection id: a class created inside a still-open transaction carries one until the commit
+   * reconciliation assigns the real id, so a record id of such a class legitimately carries the
+   * provisional id while the transaction is open (the commit rewrites it to the real id before
+   * any record serializes).
+   */
   static void checkCollectionLimits(int collectionId) {
-    if (collectionId < -2) {
+    if (collectionId < Short.MIN_VALUE) {
       throw new DatabaseException(
-          "RecordId cannot support negative collection id. Found: " + collectionId);
+          "RecordId cannot support collection id smaller than " + Short.MIN_VALUE + ". Found: "
+              + collectionId);
     }
 
     if (collectionId > COLLECTION_MAX) {
@@ -181,7 +187,6 @@ public sealed interface RecordIdInternal extends RID permits ChangeableRecordId,
           "RecordId cannot support collection id major than 32767. Found: " + collectionId);
     }
   }
-
 
   static void serialize(RID id, DataOutput output) throws IOException {
     if (id == null) {
@@ -193,8 +198,7 @@ public sealed interface RecordIdInternal extends RID permits ChangeableRecordId,
     }
   }
 
-  @Nullable
-  static RecordIdInternal deserialize(DataInput input) throws IOException {
+  @Nullable static RecordIdInternal deserialize(DataInput input) throws IOException {
     var collection = input.readInt();
     var pos = input.readLong();
     if (collection == -2 && pos == -2) {
