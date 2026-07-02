@@ -22,7 +22,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 /**
  * Coverage for the de-guarded schema- and index-mutation entry points. The throw-guards (the
@@ -41,6 +43,20 @@ import org.junit.Test;
  * {@code collectionsToIndex} during the transaction would survive a rollback.
  */
 public class SchemaDeguardTest extends DbTestBase {
+
+  /**
+   * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock}
+   * would busy-spin forever rather than throw, hanging the whole surefire fork with no signal.
+   * These tests drive schema-carrying commits (and cross-thread readers) through that substrate,
+   * so a per-method stuck-thread timeout converts such a hang into a fast, diagnosable failure
+   * naming the stuck thread, matching the sibling CommitTimeIndexBuildTest guard.
+   */
+  @Rule
+  public Timeout globalTimeout =
+      Timeout.builder()
+          .withTimeout(120, TimeUnit.SECONDS)
+          .withLookingForStuckThread(true)
+          .build();
 
   /**
    * A class created inside a transaction no longer throws: the de-guarded save path routes the

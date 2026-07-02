@@ -19,7 +19,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 
 /**
  * Coverage for the tx-aware immutable schema snapshot. During a schema- or index-changing
@@ -38,6 +40,20 @@ import org.junit.Test;
  * to the reconciled real id before the working set is gathered.
  */
 public class TxAwareSchemaSnapshotTest extends DbTestBase {
+
+  /**
+   * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock}
+   * would busy-spin forever rather than throw, hanging the whole surefire fork with no signal.
+   * These tests drive schema-carrying commits (and cross-thread readers) through that substrate,
+   * so a per-method stuck-thread timeout converts such a hang into a fast, diagnosable failure
+   * naming the stuck thread, matching the sibling CommitTimeIndexBuildTest guard.
+   */
+  @Rule
+  public Timeout globalTimeout =
+      Timeout.builder()
+          .withTimeout(120, TimeUnit.SECONDS)
+          .withLookingForStuckThread(true)
+          .build();
 
   /**
    * A strict-mode constraint set on a class created inside the same transaction must be enforced
@@ -90,6 +106,116 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
 
     assertNull("the rolled-back constraint must not survive into the committed schema",
         schema.getClass("TxRegexTarget").getProperty("code").getRegexp());
+  }
+
+  /**
+   * Mandatory, not-null, min, and max constraints added inside a transaction to an existing
+   * committed class's committed property must each be enforced on the same transaction's own
+   * entities (the remaining constraint kinds next to the strict-mode and regexp siblings). Each
+   * kind reads a distinct attribute off the immutable property the tx-local snapshot
+   * materializes, so a snapshot build that dropped one attribute would silently skip that one
+   * constraint while the others still pass. The violating entities stay in a rolled-back
+   * transaction, and the rollback must discard all four constraints.
+   */
+  @Test
+  public void mandatoryNotNullAndMinMaxAddedInTxAreEnforcedInsideTheSameTransaction() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("TxConstraintKinds");
+    cls.createProperty("age", PropertyType.INTEGER);
+
+    session.begin();
+    try {
+      var property = schema.getClass("TxConstraintKinds").getProperty("age");
+      property.setMandatory(true);
+      property.setNotNull(true);
+      property.setMin("1");
+      property.setMax("120");
+
+      // Mandatory: the property is absent entirely.
+      var missing = (EntityImpl) session.newEntity("TxConstraintKinds");
+      var thrownMandatory = assertThrows(ValidationException.class, missing::validate);
+      assertTrue("the failure must be the mandatory check, got: " + thrownMandatory.getMessage(),
+          thrownMandatory.getMessage().contains("mandatory"));
+
+      // Not-null: the property exists but carries a null value.
+      var nullValued = (EntityImpl) session.newEntity("TxConstraintKinds");
+      nullValued.setProperty("age", null);
+      var thrownNotNull = assertThrows(ValidationException.class, nullValued::validate);
+      assertTrue("the failure must be the not-null check, got: " + thrownNotNull.getMessage(),
+          thrownNotNull.getMessage().contains("cannot be null"));
+
+      // Min: below the same-tx lower bound.
+      var belowMin = (EntityImpl) session.newEntity("TxConstraintKinds");
+      belowMin.setProperty("age", 0);
+      var thrownMin = assertThrows(ValidationException.class, belowMin::validate);
+      assertTrue("the failure must be the min check, got: " + thrownMin.getMessage(),
+          thrownMin.getMessage().contains("less than"));
+
+      // Max: above the same-tx upper bound.
+      var aboveMax = (EntityImpl) session.newEntity("TxConstraintKinds");
+      aboveMax.setProperty("age", 999);
+      var thrownMax = assertThrows(ValidationException.class, aboveMax::validate);
+      assertTrue("the failure must be the max check, got: " + thrownMax.getMessage(),
+          thrownMax.getMessage().contains("greater than"));
+
+      // A conforming entity passes every same-tx constraint (guards against over-enforcement).
+      var valid = (EntityImpl) session.newEntity("TxConstraintKinds");
+      valid.setProperty("age", 42);
+      valid.validate();
+    } finally {
+      session.rollback();
+    }
+
+    var committedProperty = schema.getClass("TxConstraintKinds").getProperty("age");
+    assertFalse("the rolled-back mandatory flag must not survive into the committed schema",
+        committedProperty.isMandatory());
+    assertFalse("the rolled-back not-null flag must not survive into the committed schema",
+        committedProperty.isNotNull());
+    assertNull("the rolled-back min must not survive into the committed schema",
+        committedProperty.getMin());
+    assertNull("the rolled-back max must not survive into the committed schema",
+        committedProperty.getMax());
+  }
+
+  /**
+   * A property type changed inside a transaction must drive the same transaction's value
+   * conversion through the tx-aware snapshot (the type constraint kind): after a committed
+   * INTEGER property is widened to LONG mid-transaction (an allowed type change), a numeric
+   * value set on a same-tx entity converts to a Long, where the committed INTEGER type would
+   * have stored an Integer. The rollback must restore the committed type, and a post-rollback
+   * write must convert through the committed INTEGER type again.
+   */
+  @Test
+  public void propertyTypeChangedInTxDrivesSameTxValueConversion() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("TxTypeChanged");
+    cls.createProperty("flexible", PropertyType.INTEGER);
+
+    session.begin();
+    try {
+      schema.getClass("TxTypeChanged").getProperty("flexible").setType(PropertyType.LONG);
+
+      var entity = (EntityImpl) session.newEntity("TxTypeChanged");
+      entity.setProperty("flexible", 17);
+      assertEquals("the same-tx LONG type must drive the value conversion",
+          Long.valueOf(17L), entity.getProperty("flexible"));
+    } finally {
+      session.rollback();
+    }
+
+    assertEquals("the rolled-back type change must not survive into the committed schema",
+        PropertyType.INTEGER, schema.getClass("TxTypeChanged").getProperty("flexible").getType());
+
+    session.begin();
+    try {
+      // Back outside the schema transaction the committed INTEGER type drives the conversion.
+      var committedEntity = (EntityImpl) session.newEntity("TxTypeChanged");
+      committedEntity.setProperty("flexible", 17L);
+      assertEquals("the committed INTEGER type must drive the conversion after the rollback",
+          Integer.valueOf(17), committedEntity.getProperty("flexible"));
+    } finally {
+      session.rollback();
+    }
   }
 
   /**
@@ -190,9 +316,17 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
             1L, rs.stream().count());
       }
 
+      // The planner maps ORDER BY @rid DESC onto the reverse collection iterator with no
+      // re-sort step, so the iterator's own order IS the result order: pin the descending RID
+      // order over the transaction's two rows instead of only counting them.
+      var expectedDescending =
+          first.getIdentity().compareTo(second.getIdentity()) > 0
+              ? List.of("pending-1", "pending-2")
+              : List.of("pending-2", "pending-1");
       try (var rs = session.query("select from TxQueriedClass order by @rid desc")) {
-        assertEquals("a rid-ordered (backward-scan) query must serve the same rows", 2L,
-            rs.stream().count());
+        var names = rs.stream().map(r -> (String) r.getProperty("name")).toList();
+        assertEquals("the backward provisional scan must serve rows in descending RID order",
+            expectedDescending, names);
       }
     } finally {
       session.rollback();

@@ -58,6 +58,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -274,7 +275,17 @@ public abstract class IndexAbstract implements Index {
       if (!collectionsToIndex.add(collectionName)) {
         return false;
       }
-      save(transaction);
+      try {
+        save(transaction);
+      } catch (final RuntimeException | Error e) {
+        // The shared in-memory set is mutated before the record write, but the caller records the
+        // failure-path revert entry only after this method returns true. A save that throws (for
+        // example a record-load failure) would otherwise leave the eager add in place with no
+        // revert entry reachable, so the shared committed membership would diverge from the
+        // rolled-back record write. Revert locally and rethrow.
+        collectionsToIndex.remove(collectionName);
+        throw e;
+      }
       return true;
     } finally {
       releaseExclusiveLock();
@@ -295,7 +306,14 @@ public abstract class IndexAbstract implements Index {
       if (!collectionsToIndex.remove(collectionName)) {
         return false;
       }
-      save(transaction);
+      try {
+        save(transaction);
+      } catch (final RuntimeException | Error e) {
+        // The mirror of the add-side revert: restore the eagerly-removed collection when the
+        // record write throws, so no unrecorded mutation survives on the shared committed index.
+        collectionsToIndex.add(collectionName);
+        throw e;
+      }
       return true;
     } finally {
       releaseExclusiveLock();
@@ -364,18 +382,26 @@ public abstract class IndexAbstract implements Index {
    *
    * @param transaction     the in-flight commit transaction.
    * @param atomicOperation the in-flight commit atomic operation.
-   * @return the external (API-version-tagged) engine id the handle bound to.
+   * @param createdEngineExternalIds the plan's created-engine id list; the published engine id is
+   *                        recorded here before the engine is wired, so the failure-path undo can
+   *                        revert it even when the wiring throws.
    */
-  int buildEngineAtCommit(
-      final FrontendTransactionImpl transaction, final AtomicOperation atomicOperation)
+  void buildEngineAtCommit(
+      final FrontendTransactionImpl transaction, final AtomicOperation atomicOperation,
+      final List<Integer> createdEngineExternalIds)
       throws IOException {
     acquireExclusiveLock();
     try {
       final Map<String, String> engineProperties = new HashMap<>();
       indexId = storage.createIndexEngineInCommitWindow(im, engineProperties, atomicOperation);
       assert indexId >= 0;
+      // Record the published id before wiring the engine: the in-memory registries already carry
+      // it, and onIndexEngineChange can fail with an exception the build loop's
+      // InvalidIndexEngineIdException catch does not cover. The failure-path undo reverts exactly
+      // the recorded ids, so recording only after a fully-successful build would leave such a
+      // failure's engine behind as a phantom registration no revert arm ever removes.
+      createdEngineExternalIds.add(indexId);
       onIndexEngineChange(transaction.getDatabaseSession(), indexId);
-      return indexId;
     } finally {
       releaseExclusiveLock();
     }

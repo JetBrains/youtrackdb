@@ -435,4 +435,51 @@ public class GqlExecutionPlanCacheTest extends GraphBaseTest {
       tx.commit();
     }
   }
+
+  /**
+   * During a schema- or index-changing transaction the shared cross-session cache is bypassed on
+   * both sides, mirroring the YQL statement cache: the get side must not serve a committed-state
+   * plan that can be stale against the tx-local schema view, and the put side must not publish a
+   * tx-shaped plan (for example a scan set carrying a provisional collection id) where it would
+   * outlive the transaction's rollback. Outside the transaction the same statements flow through
+   * the cache normally, which is the control proving the cache is live.
+   */
+  @Test
+  public void schemaTransactionBypassesTheSharedCacheOnGetAndPut() {
+    var graphInternal = (YTDBGraphInternal) graph;
+    var tx = graphInternal.tx();
+    tx.readWrite();
+    try {
+      var session = tx.getDatabaseSession();
+      var ctx = new GqlExecutionContext(session);
+      var cache = GqlExecutionPlanCache.instance(session);
+
+      // Control outside any schema transaction: the shared cache stores and serves the entry.
+      var committedQuery = "MATCH (n:OUser) WHERE n.bypassControl = 1";
+      GqlExecutionPlanCache.put(committedQuery, GqlExecutionPlan.empty(), session);
+      Assert.assertTrue("the control entry must enter the shared cache outside a schema tx",
+          cache.contains(committedQuery));
+      Assert.assertNotNull("the control entry must be served outside a schema tx",
+          GqlExecutionPlanCache.get(committedQuery, ctx, session));
+
+      // Enter a schema transaction: the first schema write seeds the tx-local schema state.
+      session.getMetadata().getSchema().createClass("GqlBypass_" + System.nanoTime());
+      Assert.assertNotNull("the schema write must seed the tx-local schema state",
+          session.getTxSchemaState());
+
+      // Get side: a committed-state plan can be stale against the tx-local schema view, so the
+      // shared cache must not serve it during the transaction.
+      Assert.assertNull("the shared cache must not serve plans during a schema transaction",
+          GqlExecutionPlanCache.get(committedQuery, ctx, session));
+
+      // Put side: a plan built during the schema transaction must never enter the shared cache.
+      var txQuery = "MATCH (n:OUser) WHERE n.bypassTx = 1";
+      GqlExecutionPlanCache.put(txQuery, GqlExecutionPlan.empty(), session);
+      Assert.assertFalse(
+          "a plan built during a schema transaction must not enter the shared cache",
+          cache.contains(txQuery));
+    } finally {
+      tx.rollback();
+    }
+  }
 }

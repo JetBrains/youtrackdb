@@ -26,6 +26,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -520,6 +521,185 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
+   * A committed membership removal (the removeSuperClass ripple) must make the parent index stop
+   * covering the ex-subclass collection at commit: the remove side has its own mutator and
+   * overlay category, so an error that left the collection in the parent index's membership
+   * would keep indexing ex-subclass rows and keep returning them from polymorphic lookups. The
+   * add side is covered by the sibling test above; this is the end-to-end remove half.
+   */
+  @Test
+  public void committedMembershipRemovalMakesParentIndexStopCoveringExSubclassRows() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("MemRemParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "MemRemParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    // A committed subclass: creating it under the parent ripples its collection into the parent
+    // index's membership through the committed (non-transactional) path.
+    schema.createClass("MemRemChild", schema.getClass("MemRemParent"));
+
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("MemRemChild").getCollectionIds()[0]);
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertTrue("the subclass collection must be covered before the membership removal",
+        new HashSet<>(index.getCollections()).contains(childCollectionName));
+
+    // Remove the superclass inside a transaction: the ripple records a membership removal into
+    // the overlay, persisted in the enroll phase and applied to the shared index at commit.
+    session.executeInTx(
+        tx -> session.getMetadata().getSchema().getClass("MemRemChild")
+            .removeSuperClass(session.getMetadata().getSchema().getClass("MemRemParent")));
+
+    assertFalse(
+        "after commit the parent index must no longer cover the ex-subclass collection",
+        new HashSet<>(index.getCollections()).contains(childCollectionName));
+
+    // A row inserted into the ex-subclass afterwards must not be indexed under the parent index:
+    // the index no longer tracks that collection, so a lookup through it misses the row.
+    session.begin();
+    var exChildRow = (EntityImpl) session.newEntity("MemRemChild");
+    exChildRow.setProperty("name", "afterRemoval");
+    session.commit();
+    var exChildRids =
+        session.computeInTx(tx -> index.getRids(session, "afterRemoval").toList());
+    assertTrue("a lookup through the parent index must not return ex-subclass rows",
+        exChildRids.isEmpty());
+  }
+
+  /**
+   * Failed-commit membership cleanliness (the third failure arm next to the create-side and
+   * drop-side engine arms): a commit that ripples a membership add into a shared committed index
+   * and then fails after the eager in-memory apply must revert the mutation. Otherwise the shared
+   * committed index would keep covering a collection whose membership record write rolled back,
+   * and later data commits would write durable index entries under that phantom membership. The
+   * fault fires through the post-engine-build hook, which runs after the enroll phase applied the
+   * eager membership mutation; the hook's precondition assert proves the mutation was applied at
+   * the fault point, so the revert arm has real work and the test cannot pass vacuously.
+   */
+  @Test
+  public void failedCommitRevertsEagerMembershipMutation() {
+    var storage = storage();
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("MemFailParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "MemFailParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    // An independent committed child with a real collection, so the addSuperClass ripple records
+    // a plain committed-collection membership add.
+    var child = schema.createClass("MemFailChild");
+    child.createProperty("name", PropertyType.STRING);
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("MemFailChild").getCollectionIds()[0]);
+
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var membershipBefore = new HashSet<>(index.getCollections());
+    assertFalse("the child collection must not be covered before the failed commit",
+        membershipBefore.contains(childCollectionName));
+
+    storage.setPostEngineBuildTestHook(
+        () -> {
+          assertTrue(
+              "the eager membership mutation must be applied before the fault so the revert arm"
+                  + " has real work",
+              index.getCollections().contains(childCollectionName));
+          throw new CommandInterruptedException(
+              session.getDatabaseName(), "injected post-membership index-commit fault");
+        });
+    try {
+      session.begin();
+      session.getMetadata().getSchema().getClass("MemFailChild")
+          .addSuperClass(session.getMetadata().getSchema().getClass("MemFailParent"));
+      try {
+        session.commit();
+        fail("the membership-changing commit must fail when the post-build fault hook throws");
+      } catch (final RuntimeException expected) {
+        // Routed through rollback + the membership revert arm, as intended.
+      }
+    } finally {
+      storage.setPostEngineBuildTestHook(null);
+    }
+
+    assertEquals("a failed commit must revert the eager in-memory membership mutation",
+        membershipBefore, new HashSet<>(index.getCollections()));
+    // The revert agrees with durable state: the membership record write rolled back with the
+    // atomic operation, so a reload must not resurrect the collection.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedIndex = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertFalse("the rolled-back membership must not reappear after a reload",
+        new HashSet<>(reloadedIndex.getCollections()).contains(childCollectionName));
+  }
+
+  /**
+   * A tx-created UNIQUE index whose engine is unbuilt during the transaction first meets
+   * uniqueness at the commit-time build: the transaction's tracked entries are stripped before
+   * the working set and re-derived into the fresh engine, so two same-tx rows carrying the same
+   * key must fail the commit through the natural duplicated-key rejection (not an injected
+   * fault), route through the failure-path undo, and leave no phantom index, no phantom engine,
+   * and a rebuildable slot behind. A build that silently accepted the duplicate would corrupt
+   * the unique invariant on durable bytes.
+   */
+  @Test
+  public void uniqueIndexBuildRejectsSameTxDuplicateKeyAndLeavesNoPhantomEngine() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("UniqueBuildTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "UniqueBuildTarget.name";
+
+    session.begin();
+    session.getMetadata().getSchema().getClass("UniqueBuildTarget")
+        .createIndex(indexName, SchemaClass.INDEX_TYPE.UNIQUE, "name");
+    var firstDuplicate = (EntityImpl) session.newEntity("UniqueBuildTarget");
+    firstDuplicate.setProperty("name", "dup");
+    var secondDuplicate = (EntityImpl) session.newEntity("UniqueBuildTarget");
+    secondDuplicate.setProperty("name", "dup");
+    try {
+      session.commit();
+      fail("a UNIQUE build over same-tx duplicate keys must fail the commit");
+    } catch (final RuntimeException expected) {
+      assertTrue("the failure must be the natural duplicated-key rejection, got: " + expected,
+          chainContainsDuplicatedKey(expected));
+    }
+
+    // The natural (non-injected) failure must route through the same undo arms the injected
+    // fault tests exercise: no phantom index and no phantom engine registration survive, and the
+    // transaction's rows rolled back with the commit.
+    assertFalse("a rejected UNIQUE build must leave no phantom index in the shared manager",
+        session.getSharedContext().getIndexManager().existsIndex(indexName));
+    assertFalse("a rejected UNIQUE build must leave no phantom engine registration",
+        engineIsRegistered(indexName));
+    // Explicit begin/commit around the query: a bare query would leave its implicit read-only
+    // transaction active, and the recovery-class DDL below would run inside it.
+    session.begin();
+    try (var rs = session.query("select from UniqueBuildTarget")) {
+      assertEquals("the duplicate rows must roll back with the failed commit", 0L,
+          rs.stream().count());
+    }
+    session.commit();
+
+    // A later UNIQUE build over a distinct key succeeds, proving the failed build left the index
+    // manager and the engine allocator usable. The build targets a fresh class: the failed
+    // commit's rollback reverts the rows but not the source collection's in-heap approximate
+    // record counter, and the v1 empty-source bound accepts that over-report as a false
+    // rejection, so an immediate same-class rebuild would be bounced by the stale counter.
+    var recoveryClass = schema.createClass("UniqueBuildRecovery");
+    recoveryClass.createProperty("name", PropertyType.STRING);
+    var recoveryIndexName = "UniqueBuildRecovery.name";
+    session.begin();
+    session.getMetadata().getSchema().getClass("UniqueBuildRecovery")
+        .createIndex(recoveryIndexName, SchemaClass.INDEX_TYPE.UNIQUE, "name");
+    var distinctRow = (EntityImpl) session.newEntity("UniqueBuildRecovery");
+    distinctRow.setProperty("name", "distinct");
+    session.commit();
+    assertTrue("the post-failure build must succeed and publish the index",
+        session.getSharedContext().getIndexManager().existsIndex(recoveryIndexName));
+    assertTrue("the post-failure build's engine must be registered",
+        engineIsRegistered(recoveryIndexName));
+  }
+
+  /**
    * A transaction that drops a committed index and recreates one of the same name is a replace: the
    * old committed engine is deleted and a new engine (with the new type) is built and published under
    * the same name, in one commit, without a "already exists" collision. The old committed index is
@@ -654,5 +834,20 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
       + "LocalPaginatedStorageRestoreFromWALIT harness; deferred to the integration-test layer")
   public void crashRecoveryOfCommitTimeIndexEngineIsDeferredToIT() {
     // Intentionally empty: see the Javadoc breadcrumb.
+  }
+
+  /**
+   * Walks the cause chain looking for the duplicated-key failure. The commit path may rethrow
+   * the rejection as-is or wrapped, so the assertion accepts either shape without pinning the
+   * wrapper type.
+   */
+  private static boolean chainContainsDuplicatedKey(Throwable thrown) {
+    for (var cause = thrown; cause != null;
+        cause = cause.getCause() == cause ? null : cause.getCause()) {
+      if (cause instanceof RecordDuplicatedException) {
+        return true;
+      }
+    }
+    return false;
   }
 }

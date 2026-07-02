@@ -60,6 +60,15 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
   @Nullable public static GqlExecutionPlan get(
       @Nonnull String statement, @Nonnull GqlExecutionContext ctx,
       @Nonnull DatabaseSessionEmbedded db) {
+    if (db.getTxSchemaState() != null) {
+      // An open schema- or index-changing transaction plans against its tx-local schema view
+      // (tx-created classes with provisional collection ids, tx-dropped classes and indexes). A
+      // plan cached from committed state can be stale against that view (for example a pre-cached
+      // polymorphic scan that misses a tx-created subclass), so the shared cache is bypassed for
+      // the transaction's duration, mirroring the YqlExecutionPlanCache guard. Schema
+      // transactions are rare, so the extra planning cost is negligible.
+      return null;
+    }
     var resource = db.getSharedContext().getGqlExecutionPlanCache();
     return resource.getInternal(statement, ctx);
   }
@@ -73,12 +82,21 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    */
   public static void put(@Nonnull String statement, @Nonnull GqlExecutionPlan plan,
       @Nonnull DatabaseSessionEmbedded db) {
+    if (db.getTxSchemaState() != null) {
+      // The mirror of the get-side bypass: a plan built during a schema- or index-changing
+      // transaction is shaped by the tx-local schema view and must not be published to other
+      // sessions through the shared cache. A leaked entry would outlive the transaction's
+      // rollback, because only a schema commit invalidates this cache.
+      return;
+    }
     var resource = db.getSharedContext().getGqlExecutionPlanCache();
     resource.putInternal(statement, plan);
   }
 
   /**
-   * Internal method to store a plan in cache.
+   * Internal method to store a plan in cache. The schema-transaction bypass is applied by the
+   * static {@link #put(String, GqlExecutionPlan, DatabaseSessionEmbedded)} wrapper (the
+   * production entry point); this primitive implements only the cache mechanics.
    */
   public void putInternal(@Nonnull String statement, @Nonnull GqlExecutionPlan plan) {
     if (capacity == 0) {
@@ -93,6 +111,8 @@ public class GqlExecutionPlanCache implements MetadataUpdateListener {
    * @param statement a GQL query string
    * @param ctx       execution context
    * @return the corresponding execution plan from cache, or null if not found
+   * @see #get(String, GqlExecutionContext, DatabaseSessionEmbedded) the static wrapper that
+   *     applies the schema-transaction bypass before delegating here
    */
   @SuppressWarnings("unused")
   @Nullable public GqlExecutionPlan getInternal(@Nonnull String statement, @Nonnull GqlExecutionContext ctx) {
