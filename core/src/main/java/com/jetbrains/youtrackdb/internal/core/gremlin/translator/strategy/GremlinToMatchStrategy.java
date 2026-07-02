@@ -88,20 +88,21 @@ import org.slf4j.LoggerFactory;
  * traversals. An uncaught exception in {@code apply} would abort compilation for that
  * traversal, and the blast radius of a translator / walker bug would be every Gremlin query
  * the server runs, not only the recognized shapes. The whole body therefore runs inside a
- * {@code try} that catches {@link Exception} and turns any ordinary failure — a walker bug, a
+ * {@code try} that catches {@link RuntimeException} and turns any ordinary failure — a walker bug, a
  * recognizer NPE, a malformed {@code MatchPlanInputs}, a planner exception — into a clean
  * decline: the method returns and the original step list is preserved for the native pipeline
  * (which, under the all-or-nothing rule, is at least as well-served as before). The net
  * degrades a translator bug to native execution rather than a broken query, and it exists from
  * the skeleton so the invariant holds before any recognizer runs under the strategy.
  *
- * <p>{@link Error} — including {@link AssertionError} — is deliberately <em>not</em> swallowed:
- * a separate {@code catch (Error)} arm re-throws it. Under {@code -ea} (the test/CI default) a
- * genuine invariant violation in the walk or plan build must surface loudly instead of
- * degrading to a silent decline that masks a real bug, and a fatal {@code OutOfMemoryError} /
- * {@code StackOverflowError} must not be handed to the native pipeline to re-attempt in an
- * already-exhausted JVM. This mirrors the codebase convention in {@code Streams#composedClose},
- * which rethrows {@code Error} from a {@code catch (Throwable)} before wrapping the rest.
+ * <p>The catch is narrowed to {@link RuntimeException}, so {@link Error} — including {@link
+ * AssertionError} — is never swallowed: it is not a {@code RuntimeException} and propagates
+ * untouched. Under {@code -ea} (the test/CI default) a genuine invariant violation in the walk
+ * or plan build must surface loudly instead of degrading to a silent decline that masks a real
+ * bug, and a fatal {@code OutOfMemoryError} / {@code StackOverflowError} must not be handed to
+ * the native pipeline to re-attempt in an already-exhausted JVM. The body throws only unchecked
+ * exceptions — its calls go through {@code Function} / {@code BiFunction} and TinkerPop APIs —
+ * so {@code RuntimeException} covers every failure that can actually occur.
  *
  * <p>The net catches during the walk and the plan build; the actual step-list mutation happens
  * only after both succeed (see {@link #applyTranslation}), so a caught exception always leaves
@@ -195,27 +196,22 @@ public final class GremlinToMatchStrategy
 
   @Override
   public void apply(Traversal.Admin<?, ?> traversal) {
-    // Throw-safety net: the whole body runs on every Gremlin compilation and the
-    // strategy is registered globally, so any recognizer/planner Exception here must degrade
-    // to a decline (leave the native step list untouched), never abort compilation. Error and
-    // AssertionError are deliberately re-thrown, not swallowed (see the catch arms below and
-    // the class Javadoc "Throw-safety net"). The mutation in applyTranslation runs only after
-    // the walk and the plan build both succeed, so a caught Exception always leaves the step
-    // list unmodified.
+    // Throw-safety net: the whole body runs on every Gremlin compilation and the strategy is
+    // registered globally, so any recognizer/planner RuntimeException here must degrade to a
+    // decline (leave the native step list untouched), never abort compilation. The catch is
+    // narrowed to RuntimeException so Error and AssertionError are NOT caught — they propagate,
+    // surfacing JVM errors and -ea invariant violations instead of masking them (see the class
+    // Javadoc "Throw-safety net"). The mutation in applyTranslation runs only after the walk and
+    // the plan build both succeed, so a caught exception always leaves the step list unmodified.
     try {
       applyOrDecline(traversal);
-    } catch (Error e) {
-      // Never swallow a JVM Error. AssertionError (an Error subclass) also lands here: under
-      // -ea (the test/CI default) a genuine invariant violation in the walk or plan build must
-      // surface loudly rather than degrade to a silent decline. OutOfMemoryError /
-      // StackOverflowError must not be handed to the native pipeline to re-attempt in an
-      // already-exhausted JVM. This mirrors the codebase convention in Streams#composedClose,
-      // which rethrows Error from a catch(Throwable) before wrapping the rest.
-      throw e;
-    } catch (Exception e) {
-      // Swallow ordinary exceptions deliberately: translation is a best-effort optimization. A
-      // recognizer/planner failure declines to the native pipeline, which handles
-      // the traversal correctly. Rethrowing would break every Gremlin query, recognized or not.
+    } catch (RuntimeException e) {
+      // Swallow unchecked exceptions deliberately: translation is a best-effort optimization. A
+      // recognizer/planner failure declines to the native pipeline, which handles the traversal
+      // correctly. Rethrowing would break every Gremlin query, recognized or not. Error and
+      // AssertionError are not RuntimeExceptions, so they are intentionally not caught here — a
+      // JVM Error or an -ea invariant violation must surface loudly, never degrade to a silent
+      // decline.
       declineOnThrow(traversal, e);
     }
   }
@@ -245,8 +241,8 @@ public final class GremlinToMatchStrategy
 
   /**
    * Hook for the throw-safety net so a caught exception has a single, greppable landing point.
-   * Only ordinary {@link Exception}s reach here — {@link Error} (including {@link
-   * AssertionError}) is re-thrown by {@link #apply} rather than declined. The decline itself is
+   * Only {@link RuntimeException}s reach here — {@link Error} (including {@link AssertionError})
+   * and checked exceptions are not caught by {@link #apply} and propagate. The decline itself is
    * the absence of a mutation (the traversal is already unmodified because the step-list swap
    * runs last); this hook additionally records the swallowed exception at {@code DEBUG} so an
    * operator diagnosing "why is nothing being translated?" has a signal. {@code DEBUG} rather
@@ -254,7 +250,7 @@ public final class GremlinToMatchStrategy
    * matching traversal — from flooding the log, while staying discoverable when the level is
    * raised.
    */
-  private static void declineOnThrow(Traversal.Admin<?, ?> traversal, Exception cause) {
+  private static void declineOnThrow(Traversal.Admin<?, ?> traversal, RuntimeException cause) {
     LogManager.instance()
         .debug(
             GremlinToMatchStrategy.class,
