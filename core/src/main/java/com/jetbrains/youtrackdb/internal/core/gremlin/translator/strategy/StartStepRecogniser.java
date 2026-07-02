@@ -235,7 +235,10 @@ public final class StartStepRecogniser implements StepRecogniser {
    */
   @Nullable private static RecordIdInternal toRecordId(@Nullable Object id) {
     return switch (id) {
-      case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
+      case Identifiable identifiable -> {
+        var identity = identifiable.getIdentity();
+        yield identity instanceof RecordIdInternal ? (RecordIdInternal) identity : null;
+      }
       case String s -> {
         if (s.isBlank()) {
           // Empty / whitespace-only strings are not meaningful RIDs — see Javadoc.
