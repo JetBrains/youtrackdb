@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.iterator.RecordIteratorCollections;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
@@ -107,6 +108,13 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     var filteredClassCollections = new IntArrayList();
 
     for (var collectionId : classCollections) {
+      if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+        // A provisional collection id (<= -2) belongs to a class created in the still-open
+        // transaction; no physical collection backs it until commit, so scanning it would fail on
+        // a missing collection. Skipping it lets a same-tx query of the tx-created class complete
+        // through the remaining committed collections (none, for a brand-new class) without error.
+        continue;
+      }
       var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
       if (collections == null || collections.contains(collectionName)) {
         filteredClassCollections.add(collectionId);
@@ -152,8 +160,7 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     final var iter = new RecordIteratorCollections<>(
         ctx.getDatabaseSession(),
         collectionIds,
-        !orderByRidDesc
-    );
+        !orderByRidDesc);
 
     var set = ExecutionStream.loadIterator(iter);
 

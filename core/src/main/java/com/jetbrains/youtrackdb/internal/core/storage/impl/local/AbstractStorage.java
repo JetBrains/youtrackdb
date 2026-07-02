@@ -2612,6 +2612,18 @@ public abstract class AbstractStorage
               txIndexChanges.remove(created.getName());
             }
           }
+
+          if (!schemaContext.txSchemaState().getResolvedCollectionIds().isEmpty()) {
+            // The snapshot pinned at commit entry was built from the tx-local schema while it
+            // still carried provisional collection ids. resolveProvisionalCollectionIds patched
+            // the schema itself above, but the pinned snapshot is a separate immutable copy, and
+            // the session-private memo still serves the stale build. Invalidate the memo first
+            // (or the rebuild below would just return it), then rebuild the pin in place, so the
+            // working-set read below resolves each tx-created class to its reconciled real
+            // collection id and never hands doGetAndCheckCollection a provisional one.
+            schemaContext.txSchemaState().invalidateOverlaySnapshot();
+            session.getMetadata().rebuildThreadLocalSchemaSnapshot();
+          }
         }
 
         // Gather the working set after any schema serialization so the new schema records join it.

@@ -351,10 +351,11 @@ public abstract class SchemaShared implements CloseableInStorage {
    * whose per-class index list resolves against its own tx-local index overlay (through the
    * index-manager routing seam, which reads the session's overlay) without poisoning the shared
    * cache other sessions read. The shared {@link #makeSnapshot} caches its result process-wide, so it
-   * cannot serve a session-scoped, overlay-dependent view. The build still reads the committed class
-   * structure (this instance is the committed {@code SchemaShared}); only the index list differs,
-   * because the seam is the sole session-scoped input to the snapshot's per-class index
-   * materialization.
+   * cannot serve a session-scoped, tx-dependent view. Invoked on the committed instance it reads
+   * the committed class structure (only the index list differs, through the seam); invoked on a
+   * tx-local copy it reads that copy's classes, property rules, and provisional collection ids,
+   * which is how the tx-aware snapshot makes same-tx schema changes visible to validation and
+   * serialization.
    */
   public ImmutableSchema makeUncachedSnapshot(DatabaseSessionEmbedded session) {
     acquireSchemaReadLock();
@@ -562,6 +563,14 @@ public abstract class SchemaShared implements CloseableInStorage {
       assert allCollectionIdsResolved()
           : "a provisional collection id survived resolveProvisionalCollectionIds; a producer "
               + "allocated an id never recorded into the resolution map";
+      // Advance the schema version so version-keyed caches re-resolve. An entity that resolved its
+      // immutable class against the pre-resolution snapshot cached it under the old version
+      // (EntityImpl.getImmutableSchemaClass re-resolves only when the snapshot version advances),
+      // so without this bump the commit's own working-set read would hand the collection lookup a
+      // stale provisional collection id. This method locks the write lock directly and never
+      // routes through releaseSchemaWriteLock, so no other site advances the version for it.
+      //noinspection NonAtomicOperationOnVolatileField
+      version++;
     } finally {
       lock.writeLock().unlock();
     }

@@ -3532,48 +3532,31 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
   }
 
   /**
-   * Whether this session is in a schema- or index-changing transaction that carries a non-empty
-   * index overlay. This is the signal {@link SchemaProxy#makeSnapshot()} reads to build a
-   * session-private (uncached) snapshot whose per-class index list resolves against the overlay,
-   * instead of the process-shared cached snapshot other sessions read. It is {@code false} outside
-   * such a transaction, so the committed snapshot fast path is untouched for pure-data sessions and
-   * for a concurrent reader while another session holds an overlay.
-   */
-  public boolean hasActiveIndexOverlay() {
-    var txState = getTxSchemaState();
-    if (txState == null) {
-      return false;
-    }
-    var overlay = txState.getIndexOverlay();
-    return overlay != null && !overlay.isEmpty();
-  }
-
-  /**
-   * Force-rebuilds this session's schema snapshot after a mid-transaction index change so the next
-   * read re-materializes each class's index list against the tx-local index overlay. The immutable
-   * snapshot materializes a class's index set once, at snapshot init, and then reuses it; without
-   * this rebuild an insert or query later in the same transaction reads the stale set and silently
-   * misses an index the transaction created or dropped. Invalidation is lazy: it discards the cached
-   * snapshot so the next snapshot read rebuilds on demand, at O(1) cost here.
+   * Force-rebuilds this session's schema snapshot after a mid-transaction schema or index change so
+   * the next read re-materializes the classes, property constraint rules, and per-class index lists
+   * against the tx-local schema state. The immutable snapshot materializes once and is then reused;
+   * without this rebuild a validation, serialization, insert, or query later in the same
+   * transaction reads the stale snapshot and silently misses a class, rule, or index the
+   * transaction changed. Invalidation is lazy: it discards the cached snapshot so the next snapshot
+   * read rebuilds on demand, at O(1) cost here.
    *
    * <p>It clears only this session's thread-local pinned snapshot, not the process-shared
-   * {@code SchemaShared} snapshot. The overlay is session-scoped, so an overlay-dependent view must
+   * {@code SchemaShared} snapshot. The tx-local state is session-scoped, so a tx-dependent view must
    * not be cached process-wide where a concurrent session would read it; {@link SchemaProxy#makeSnapshot()}
-   * builds a session-private uncached snapshot while the overlay is active
-   * ({@link #hasActiveIndexOverlay()}), so clearing the shared cache is both unnecessary and
-   * incorrect here (it would let this session's overlay leak into the shared snapshot a concurrent
-   * reader picks up). The thread-local clear is guarded on a zero pin count. On the supported paths
-   * the count is expected to be zero because an index DDL change is not issued from inside a pinned
-   * read-record operation; the force-clear itself throws when the count is non-zero, surfacing a
-   * misplaced call (a DDL issued while a read pin is held) rather than treating such a call as
-   * impossible.
+   * builds a session-private uncached snapshot while a schema/index transaction is active, so
+   * clearing the shared cache is both unnecessary and incorrect here (it would let this session's
+   * tx-local view leak into the shared snapshot a concurrent reader picks up). The thread-local
+   * clear is guarded on a zero pin count. On the supported paths the count is expected to be zero
+   * because a schema or index DDL change is not issued from inside a pinned read-record operation;
+   * the force-clear itself throws when the count is non-zero, surfacing a misplaced call (a DDL
+   * issued while a read pin is held) rather than treating such a call as impossible.
    *
-   * <p>It also invalidates the session-private overlay snapshot memoized on {@code TxSchemaState}
+   * <p>It also invalidates the session-private snapshot memoized on {@code TxSchemaState}
    * (see {@link TxSchemaState#invalidateOverlaySnapshot()}), so the next snapshot read on the
-   * overlay-active branch of {@link SchemaProxy#makeSnapshot()} rebuilds once against the changed
-   * overlay while intervening unpinned reads between index changes reuse the built snapshot.
+   * tx-aware branch of {@link SchemaProxy#makeSnapshot()} rebuilds once against the changed
+   * tx-local state while intervening unpinned reads between changes reuse the built snapshot.
    */
-  public void forceRebuildSchemaSnapshotForIndexOverlay() {
+  public void forceRebuildTxSchemaSnapshot() {
     getMetadata().forceClearThreadLocalSchemaSnapshot();
     var txState = getTxSchemaState();
     if (txState != null) {
@@ -4061,7 +4044,16 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                     + " and cannot be saved");
           }
 
-          return schemaClass.getCollectionForNewInstance(entity);
+          var collectionForNew = schemaClass.getCollectionForNewInstance(entity);
+          if (SchemaShared.isProvisionalCollectionId(collectionForNew)) {
+            // The class was created inside this still-open transaction, so its collection id is
+            // provisional (<= -2) and backs no physical collection yet; a RID cannot carry it.
+            // Defer the record's collection to commit: the commit-time reconciliation creates the
+            // real collection and rebuilds the pinned snapshot, so the commit working set
+            // re-resolves this record's collection through the reconciled real id.
+            return RID.COLLECTION_ID_INVALID;
+          }
+          return collectionForNew;
         } else {
           throw new DatabaseException(getDatabaseName(),
               "Cannot save (1) entity " + record + ": no class or collection defined");

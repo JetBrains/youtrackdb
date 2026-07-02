@@ -101,7 +101,9 @@ public abstract class SchemaProxedResource<T> extends ProxedResource<T> {
    * record fires unconditionally on every routed write, including the read-free predicates that
    * happen to share a write resolution; under-recording is the durability bug. Marking happens only
    * on this write path, never through {@link #resolve()}, so a read never spuriously records a
-   * change.
+   * change. The same choke point also force-rebuilds the session's snapshot read chain
+   * ({@link DatabaseSessionEmbedded#forceRebuildTxSchemaSnapshot()}), so a snapshot read later in
+   * the transaction reflects this write.
    */
   protected final T resolveForWrite() {
     if (!session.getTransactionInternal().isActive()) {
@@ -112,6 +114,12 @@ public abstract class SchemaProxedResource<T> extends ProxedResource<T> {
     var txState = session.ensureTxSchemaState();
     var resolved = rebindToTxLocal(txState.getTxLocalSchema());
     recordWriteTarget(txState, resolved);
+    // Any routed schema write can change what the immutable snapshot must show (a class, a property
+    // type, a constraint rule), so invalidate this session's snapshot read chain at the same choke
+    // point that records the write target. The commit never routes through the proxies (it calls
+    // toStream on the tx-local copy directly), so this fires only for in-transaction user DDL,
+    // where no thread-local snapshot pin is held.
+    session.forceRebuildTxSchemaSnapshot();
     return resolved;
   }
 

@@ -529,14 +529,15 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // Record the created index into the tx-local overlay so the owning class's raw index set
       // resolves the new index during the transaction, then force-rebuild the snapshot so the next
       // read re-materializes that set from the overlay. The rebuild refreshes the session's
-      // snapshot; it does not by itself restore per-operation same-transaction index tracking off an
-      // already-resolved entity, because a cached entity re-resolves its per-class index set only
-      // when the snapshot version advances, which this force-rebuild does not do (the snapshot-version
-      // invalidation of the whole read chain is a later step). Same-transaction index tracking is
-      // instead guaranteed end-to-end by the commit-time index population scan, which re-derives the
-      // tx-created index from the final collection state regardless of per-operation tracking.
+      // snapshot (the pinned copy and the tx-state memo); it does not by itself restore
+      // per-operation same-transaction index tracking off an already-resolved entity, because a
+      // cached entity re-resolves its per-class index set only when the snapshot version advances,
+      // and an overlay-only index change does not mutate the tx-local schema, so the version stays
+      // put (class and property mutations do advance it). Same-transaction index tracking is
+      // instead guaranteed end-to-end by the commit-time index population scan, which re-derives
+      // the tx-created index from the final collection state regardless of per-operation tracking.
       txState.ensureIndexOverlay().recordCreated(deferredHandle);
-      session.forceRebuildSchemaSnapshotForIndexOverlay();
+      session.forceRebuildTxSchemaSnapshot();
       return deferredHandle;
     }
 
@@ -749,11 +750,12 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // Force-rebuild the snapshot only when the drop actually changed the tx-local index set, so an
       // unknown-name drop (a no-op that records no changed class) allocates no overlay churn and
       // leaves the snapshot alone. As on the create path, the rebuild refreshes the session's
-      // snapshot but does not re-resolve an already-cached entity's per-class index set (that
-      // depends on the snapshot-version invalidation added in a later step); the committed index's
-      // removal is instead guaranteed at commit, which drops the engine and the registry entry.
+      // snapshot but does not re-resolve an already-cached entity's per-class index set (an
+      // overlay-only index change does not advance the tx-local schema version); the committed
+      // index's removal is instead guaranteed at commit, which drops the engine and the registry
+      // entry.
       if (recordedDrop) {
-        session.forceRebuildSchemaSnapshotForIndexOverlay();
+        session.forceRebuildTxSchemaSnapshot();
       }
       return;
     }
