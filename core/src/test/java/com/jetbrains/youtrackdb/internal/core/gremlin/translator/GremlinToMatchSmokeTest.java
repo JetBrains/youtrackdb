@@ -15,8 +15,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
-import com.jetbrains.youtrackdb.internal.core.id.RecordId;
-import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -217,14 +215,19 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    */
   @Test
   public void translatedSingleIdLookup_nonExistentRid_returnsEmpty() {
-    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    // Build a RID that provably addresses no stored record: add a throwaway vertex, commit so it is
+    // assigned a real persisted collection:position, capture that RID, then delete the vertex. A
+    // deleted record's RID makes the non-existence structural — it holds however many vertices the
+    // fixture has, because nothing is inserted after the delete to reoccupy the freed slot. A
+    // hardcoded high position (the earlier 999_999L) was empty only by luck of the fixture size,
+    // and a negative position is worse: that is the #-1:-1 new-record placeholder the recogniser
+    // treats as a degenerate lookup whose result diverges from the native path.
+    var doomed = graph.addVertex(T.label, "Person", "name", "Doomed");
     graph.tx().commit();
-
-    // Reuse Alice's collection so the RID is well-formed, then point at cluster position 999_999L —
-    // an arbitrary high position that no record occupies — so this is a valid RID resolving to
-    // nothing. The literal is chosen for that shape alone; nothing dereferences it to a record.
-    var aliceRid = (RecordIdInternal) alice.id();
-    var missing = new RecordId(aliceRid.getCollectionId(), 999_999L);
+    var missing = doomed.id();
+    doomed.remove();
+    graph.tx().commit();
 
     var admin = graph.traversal().V(missing).asAdmin();
     admin.applyStrategies();
