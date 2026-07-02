@@ -348,9 +348,9 @@ of the changes.
    signal: a whole-file copy of a live file inflates the line count
    without adding proportional review surface (the `diff <live> <staged>`
    delta from step 8 is the truer measure of what a reviewer reads). A
-   NEW staged file with no live counterpart has no such delta, and its
-   whole-file content is the real review surface, so its line count is
-   genuine burden, not noise.
+   NEW staged file with no live counterpart has no such delta; its
+   whole-file content is the real review surface, so its whole line count
+   is genuine review burden.
 
 ---
 

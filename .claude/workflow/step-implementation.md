@@ -877,7 +877,7 @@ order-of-magnitude signal, not a precise bound — a freshly-staged
 whole-file copy of a live file inflates the line count without adding
 review surface. A NEW staged file with no live counterpart is the
 exception: its whole-file content is the real review surface, so its
-line count is genuine burden, not inflation.
+whole line count is genuine review burden.
 
 **Sub-step 7 — Episode finalisation and track-file write.** Merge
 `result.EPISODE_DRAFT` with cross-track-impact observations from
