@@ -22,13 +22,15 @@ the membership-ripple overlay routing that Track 3 de-guarded.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-01T08:25Z [ctx=info] Review + decomposition complete
 - [x] 2026-07-01T11:22Z [ctx=safe] Step 1 complete (commit 08dca19c71)
 - [x] 2026-07-01T17:37Z [ctx=info] Step 2 complete (commit 9288956334)
 - [x] 2026-07-02T07:56Z [ctx=safe] Step 3 complete (commit 8443418ae3)
+- [x] 2026-07-02T09:56Z [ctx=info] Step 4 complete (commit 751e4c76c0)
+- [x] 2026-07-02T09:56Z [ctx=info] Step implementation complete (4 steps, 0 failed)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -81,6 +83,25 @@ the membership-ripple overlay routing that Track 3 de-guarded.
   `EntityImpl.getGlobalPropertyById` pin leak (Step 1 BC2) has a wider trigger surface.
   Still pre-existing, still deferred; relevant to Track 7 concurrency hardening.
   See Episodes §Step 3.
+- **Gremlin plan cache lacks the schema-tx bypass; one latent RID setter guard (Step 4
+  residuals).** `YqlExecutionPlanCache` now bypasses get and put while a schema/index tx
+  is active, but the Gremlin `GqlExecutionPlanCache` has the same staleness shape and no
+  bypass — a follow-up for whichever track (or issue) touches Gremlin-versus-schema-tx.
+  Separately, `ChangeableRecordId.setCollectionId` has a latent wrong-field early-return
+  guard (compares `collectionId` to `collectionPosition`); Step 4 avoided it via
+  `setCollectionAndPosition` and left it untouched. Follow-up candidates for track
+  completion. See Episodes §Step 4.
+- **`setAbstractInternal` never enters its provisional id into the `collectionsToClasses`
+  reverse map.** Reconciliation now reads ownership from class id-arrays, so the
+  alter-commit path works, but `getClassByCollectionId` cannot resolve an altered class's
+  provisional id mid-tx — any future consumer relying on reverse-map resolution of
+  provisional ids will miss the alter path. See Episodes §Step 4.
+- **The disk-profile promotion-read race family now includes
+  `SchemaCommitReconciliationTest` parallel-run flakes** (a reload/index-load racer with
+  "schema link set is damaged", or a getClass-null NPE right after a committed create) —
+  present with and without the Step 4 diff, isolated runs pass. Same YTDB-1101 /
+  committer-side promotion-read boundary recorded after Step 2, relevant to Track 7
+  alongside the known-red `MetadataWriteMutexTest`. See Episodes §Step 4.
 - **Pre-existing failed-commit undo bypass shared with Track 4 (CS2).** An `endTxCommit`
   failure after the reconcile phases (a throw from `endAtomicOperation` in the no-error
   branch of the commit finally) propagates uncaught, so neither the index undo/restore arms
@@ -245,7 +266,7 @@ rows, with no double-count and none missed; the overlay publish must follow
 1. Tx-local index-definition overlay and query-side resolution (D15, D13, I-A7): introduce `IndexOverlay` (new class) over the index manager's two lookup maps with its four categories (tx-created, tx-dropped, in-place rename, collection-membership); add the per-session index-manager routing seam so the immutable snapshot and `ClassIndexManager` resolve the overlaid set during a schema/index tx; force-rebuild the tx-local snapshot lazily (O(1) null-and-rebuild) on every mid-tx `createIndex`/`dropIndex`; route the Track-3 de-guarded `addCollectionToIndex`/`removeCollectionFromIndex` through the membership category; and add the D13 planner guard that skips an unbuilt index (`getIndexId() < 0`) so a query inside the creating tx falls through to the merged tx scan. Overlay updates defer all engine work to commit and never mutate a shared `Index` object mid-tx. — risk: high (Architecture / cross-component coordination)  [x]  commit: 08dca19c71
 2. Commit-time engine lifecycle (D12, I-A4/TB2, create/drop commit halves): at commit, drive engine creation and drops from the changed-index set; build a tx-created index's engine through a lock-free scan of the source collection feeding `doPut` plus a final-state re-derivation (population scan skips the tx's record-operation RIDs), bounded to an empty source collection for v1 with a loud rejection pointing at YTDB-1064 beyond it; publish the overlay into the shared index manager as replacement objects under the index-manager write lock, sharing Track 4's single trailing `forceSnapshot`; remove the registry entry and delete the engine for a tx-dropped index; assert failed-commit engine cleanliness on both the in-memory and disk profiles with the create-side revert mirroring Track 4's component-guarded `undoReconciledCollections` arm; and resolve provisional collection ids (`<= -2`) via `TxSchemaState` at the deferred handle-build (`IndexManagerEmbedded.createIndex` / `findCollectionsByIds`) and the commit-time re-resolve so indexing a same-tx class does not throw. — risk: high (Crash-safety / Durability)  [x]  commit: 9288956334
 3. Tx-aware immutable snapshot (D21): make `SchemaProxy.makeSnapshot()` resolve the tx-local `SchemaShared` during a schema/index tx and stay a strict no-op otherwise; widen the D15 force-rebuild to mid-tx class and property changes and make it invalidate the whole read chain (tx-local `SchemaShared` snapshot, the pinned `MetadataDefault.immutableSchema`, and the snapshot version so `EntityImpl`'s version-keyed `immutableClazz` re-resolves); guard the commit-path read definitely (clear the pin and force-rebuild after provisional-id resolution and before the `computeCommitWorkingSet` working-set build, or resolve through the reconciled real id, so `doGetAndCheckCollection` never sees a provisional id); and guard every snapshot reader that resolves a collection for a tx-created (provisional-collection) class — the fetch-step collection-scan setup (`FetchFromClassExecutionStep`), security id→name resolution, and serialization — so a same-tx query or serialization falls through to the merged tx scan. Entity path defers the record collection to commit (INVALID during the tx, per the Step 3 mid-Phase-B fork); a same-tx query of the tx-created class is no-error, and its rows arrive with Step 4. — risk: high (Architecture / cross-component coordination)  [x]  commit: 8443418ae3
-4. Provisional-id-in-RID query support (D2, D21 follow-through): carry the provisional collection id (`<= -2`) in a tx-created-class entity's RID so a same-tx query returns the transaction's own rows — relax `RecordIdInternal.checkCollectionLimits` to admit provisional ids, key the tx's record operations under the provisional collection id and make `RecordIteratorCollection` skip the physical-storage phase for a provisional collection, and make the commit working-set rewrite map provisional record-collection ids to the reconciled real ids (alongside the existing INVALID re-resolution) so no provisional id reaches durable bytes (I-A2). — risk: high (Crash-safety / Durability)  [ ]
+4. Provisional-id-in-RID query support (D2, D21 follow-through): carry the provisional collection id (`<= -2`) in a tx-created-class entity's RID so a same-tx query returns the transaction's own rows — relax `RecordIdInternal.checkCollectionLimits` to admit provisional ids, key the tx's record operations under the provisional collection id and make `RecordIteratorCollection` skip the physical-storage phase for a provisional collection, and make the commit working-set rewrite map provisional record-collection ids to the reconciled real ids (alongside the existing INVALID re-resolution) so no provisional id reaches durable bytes (I-A2). — risk: high (Crash-safety / Durability)  [x]  commit: 751e4c76c0
 
 Steps run sequentially: Steps 2 and 3 both depend on Step 1 (Step 3 reuses the D15 force-rebuild seam), Step 4 depends on Step 3 (it rides the tx-aware snapshot and the defer-to-commit entity path), and Steps 2–4 all touch the `AbstractStorage` commit-under-lock path, so none are parallel. Each is one HIGH-category change kept isolated for step-level review; a self-deadlock or re-entrancy discovery under the commit write lock may force a mid-Phase-B split (as Track 4's reconciliation core did), which is expected, not a plan error.
 
@@ -478,6 +499,103 @@ version-keyed caches must follow it. The `resolveForWrite` hook assumes no
 proxy-routed DDL runs under a held snapshot pin — the same blast surface the
 index-only trigger already had; the known pre-existing
 `getGlobalPropertyById` pin leak is unchanged.
+
+### Step 4 — commit 751e4c76c0, 2026-07-02T09:56Z [ctx=info]
+**What was done:** Made a tx-created-class entity's RID carry the class's
+provisional collection id end to end, so a same-tx query returns the
+transaction's own rows. `assignAndCheckCollection`'s defer branch now returns
+the provisional id and the transaction keys its record operations under it;
+`RecordIdInternal.checkCollectionLimits`'s floor moved from `-2` to
+`Short.MIN_VALUE` (the serialized short width); `FetchFromClassExecutionStep`
+includes provisional ids in the scan set and `RecordIteratorCollection` skips
+the physical-storage phase for a provisional collection in both scan
+directions. At commit, `AbstractStorage.rewriteProvisionalRecordCollectionIds`
+rewrites every provisional record-collection id to the reconciled real id
+through the `ChangeableRecordId` identity-change machinery — after
+provisional-id resolution and the pinned-snapshot rebuild, before
+`computeCommitWorkingSet`, which now asserts no provisional id survives
+(I-A2). Plans shaped by tx-local schema stay out of the shared statement
+cache: `canBeCached()` returns false on a provisional scan set and
+`YqlExecutionPlanCache` bypasses get and put while a schema/index tx is
+active. The step-level review ran five dimensions; crash-safety (I-A2 traced
+across all durable surfaces) and performance (no-tx fast path unaffected)
+were clean at iteration 1, and the seven routed findings from the other three
+dimensions were fixed in one `Review fix:` commit and all VERIFIED at
+iteration 2 — among them a real product bug behind BC2 (below), the TX1
+plan-cache anti-leak membership test, the TY1 durable read-back test, the TY3
+mixed real+provisional working-set test, and the BC1 allocator floor check.
+
+**What was discovered:** BC2's investigation found the create loop in
+`reconcileCollections` iterated every allocated provisional name
+unconditionally, so a class created and dropped in the same transaction still
+got a real collection at commit — an orphan collection no schema path can
+reach, with the class's rows silently committed into it. Fixed by
+intersecting allocated provisional ids with the collections the tx-local
+schema still owns (`SchemaShared.getOwnedProvisionalCollectionIds`); the
+ownership probe must enumerate class id-arrays, not the
+`collectionsToClasses` reverse map, because `setAbstractInternal` re-points
+its arrays in place and never enters the reverse map. The shared YQL plan
+cache was the step's hidden correctness surface: a plan with a baked-in
+provisional id, or a pre-tx polymorphic plan missing a tx-created subclass,
+silently returns wrong rows, and the Gremlin `GqlExecutionPlanCache` did NOT
+get the same schema-tx bypass (residual follow-up). A leaked tx-shaped
+polymorphic plan is row-observably benign in a foreign session, so the
+anti-leak test probes cache membership directly instead of asserting rows.
+A bare `session.query()` outside an explicit tx leaves an implicit read-only
+tx active and a later `begin()` nests into it — tests priming the plan cache
+must wrap the primer in explicit begin/commit. The `(-2,-2)` null sentinel in
+`RecordIdInternal.serialize/deserialize` is inert (PSI: zero production
+callers; BC3, episode note). One below-bar edge: create+insert+delete+drop
+of the same class in one tx fails loudly but with a misleading
+"delete the class's records" hint — fail-closed, diagnosability only.
+`SchemaCommitReconciliationTest` is flaky under disk-profile parallel runs
+with and without this diff (promotion-read race family; isolated runs pass).
+The cumulative code-scope track diff is now ~6,200 insertions — the Phase C
+review-split advisory from Steps 2 and 3 stands, reinforced.
+
+**What changed from the plan:** The commit working-set rewrite landed
+slightly upstream of `computeCommitWorkingSet` as an explicit RID rewrite
+through the identity-change listeners rather than extending the
+`collectionOverrides` map — one site covers CREATED, UPDATED, and
+create-then-delete DELETED entries plus link serialization, and
+`computeCommitWorkingSet` gained a no-provisional assert; semantics exactly
+as prescribed. The plan-cache work (the `canBeCached` guard and the
+schema-tx bypass) was not on the roster line but is required for the step's
+semantic to hold beyond a statement's first execution. The
+created-then-dropped-class reconciliation arm was likewise unprescribed and
+was fixed under the D9 set-difference semantic the Decision Log already
+documents, with no design escalation. The initial implementer spawn parked
+on a background coverage build and was resumed by the orchestrator via a
+follow-up message; the same spawn then completed normally (audit note).
+
+**Key files:**
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/id/RecordIdInternal.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/db/DatabaseSessionEmbedded.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/iterator/RecordIteratorCollection.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/iterator/RecordIteratorUtil.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/executor/FetchFromClassExecutionStep.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/parser/YqlExecutionPlanCache.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/storage/impl/local/AbstractStorage.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/TxSchemaState.java` (modified)
+- `core/src/main/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaShared.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/TxAwareSchemaSnapshotTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/metadata/schema/SchemaDeguardTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/sql/executor/FetchFromClassExecutionStepTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/id/RecordIdTest.java` (modified)
+- `core/src/test/java/com/jetbrains/youtrackdb/internal/core/db/record/record/RIDTest.java` (modified)
+
+**Critical context:** The dropped-or-re-abstracted-class loud failure is
+enforced by the `NO_RESOLUTION` throw in
+`rewriteProvisionalRecordCollectionIds`; the reconciliation ownership skip is
+what makes it reachable. If a later change wants drop-discards-rows semantics
+instead, it must purge the class's record operations at drop time, not relax
+the throw. Only the collection half of a provisional RID is rewritten at
+reconcile time; the negative generator position stays until the allocation
+loop assigns the real position, so the existing temp-RID machinery handles
+re-keying and link rewrites unchanged. The provisional floor is
+`Short.MIN_VALUE`. A plan whose scan set carries a provisional id must never
+enter the shared statement cache — future execution steps that resolve
+collections at construction should follow the same `canBeCached` pattern.
 
 ## Validation and Acceptance
 - Create an index mid-transaction, insert rows into the indexed class in the same
