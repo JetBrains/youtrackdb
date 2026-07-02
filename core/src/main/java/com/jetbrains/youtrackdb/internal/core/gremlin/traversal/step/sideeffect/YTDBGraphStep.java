@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphQueryBuilder;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBSchemaClassImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBLabelMatcher;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
 import java.util.ArrayList;
@@ -36,6 +37,13 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
   private final List<HasContainer> hasContainers = new ArrayList<>();
   private boolean polymorphic;
+
+  /// Execution plan of the most recent plan-backed query this step ran, or {@code null} if it has
+  /// not run one (for example a by-id lookup, or after [#reset]). Exposed through
+  /// [#getLastExecutionPlan] for read-only diagnostics such as query monitoring. Capturing it does
+  /// not depend on whether any diagnostics are enabled, so this step holds no reference to the
+  /// monitoring machinery.
+  @Nullable private ExecutionPlan lastExecutionPlan;
 
   public YTDBGraphStep(final GraphStep<S, E> originalGraphStep) {
     super(
@@ -141,7 +149,14 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
       }
 
       final var query = builder.build(session);
-      var stream = query.execute(session).stream().map(getElement);
+      final var resultSet = query.execute(session);
+
+      // Retain the already-built execution plan so diagnostics (for example query monitoring) can
+      // inspect it later without running a second EXPLAIN. This is a read-only capture: the plan is
+      // never used to drive execution, and this step does not know or care whether anyone reads it.
+      this.lastExecutionPlan = resultSet.getExecutionPlan();
+
+      var stream = resultSet.stream().map(getElement);
 
       if (!polymorphic) {
         // this must be optimized in the future. in the case of non-polymorphic queries,
@@ -207,5 +222,21 @@ public class YTDBGraphStep<S, E extends Element> extends GraphStep<S, E>
 
   public void setPolymorphic(boolean polymorphic) {
     this.polymorphic = polymorphic;
+  }
+
+  /// The execution plan of the most recent plan-backed query this step ran, or {@code null} if it
+  /// has not run one. Read-only accessor for diagnostics; the step does not interpret the plan.
+  @Nullable public ExecutionPlan getLastExecutionPlan() {
+    return lastExecutionPlan;
+  }
+
+  @Override
+  public void reset() {
+    // Re-arm the base GraphStep iterator first: super.reset() clears the exhausted-iterator and
+    // `done` state so this step can be iterated again. Only then drop the retained plan, so a
+    // re-run does not surface the previous run's plan. Order matters — skipping super.reset()
+    // would leave the step unable to re-iterate.
+    super.reset();
+    this.lastExecutionPlan = null;
   }
 }
