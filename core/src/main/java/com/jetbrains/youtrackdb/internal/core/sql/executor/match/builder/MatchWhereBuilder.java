@@ -350,7 +350,7 @@ public final class MatchWhereBuilder {
    * this via {@code rightMathExpression.execute(...)}, which recurses into the collection's element
    * expressions.
    */
-  private static SQLBaseExpression literalCollectionExpression(List<SQLExpression> values) {
+  public static SQLBaseExpression literalCollectionExpression(List<SQLExpression> values) {
     var coll = new SQLCollection(-1);
     for (var v : values) {
       coll.add(v);
