@@ -1,4 +1,4 @@
-<!-- workflow-sha: 06ad8fb1591437e13f0a5cfbefe5c38af9939baa -->
+<!-- workflow-sha: 3c57672e9b12b504d5feb5134ca96be891b3ffbc -->
 # Track 1: Style-machinery rework — disguise-rule removal, technical-writer voice, persona readers, Summary rename, BLUF hardening
 
 ## Purpose / Big Picture

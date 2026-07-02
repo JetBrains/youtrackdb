@@ -1,4 +1,4 @@
-<!-- workflow-sha: 38bd7a0b1539ec1b3529e077fa0fba57df312574 -->
+<!-- workflow-sha: 3c57672e9b12b504d5feb5134ca96be891b3ffbc -->
 # Technical-writer voice for design and plan documents — Design
 
 ## Overview
