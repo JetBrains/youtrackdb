@@ -13,7 +13,7 @@ YTDB-1191 asks for a way for database clients to inspect the execution plan of a
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 - [x] 2026-07-02T14:12Z [ctx=unknown] Review + decomposition complete
