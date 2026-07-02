@@ -35,6 +35,9 @@ the membership-ripple overlay routing that Track 3 de-guarded.
 - [x] 2026-07-02T11:51Z [ctx=info] Track-level code review iteration 2 complete (2/3 iterations)
 - [x] 2026-07-02T11:57Z [ctx=info] Track-level code review PASS (2/3 iterations used; all verdicts VERIFIED, 0 blockers)
 
+**PAUSED 2026-07-02 at Phase C track-completion approval pending user review (user pre-selected Review mode)**
+- Handoff: ../handoff-track-5-phaseC.md
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
 - **Pre-existing pin leak surfaced by Step 1's new assertion (BC2).**
