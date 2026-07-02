@@ -381,9 +381,9 @@ public final class GremlinToMatchStrategy
       Traversal.Admin<?, ?> traversalRaw,
       InternalExecutionPlan plan,
       GremlinToMatchTranslator.TranslationResult translation) {
-      var boundary =
+    var boundary =
         new YTDBMatchPlanStep(
-                traversalRaw,
+            traversalRaw,
             translation.returnClass(),
             plan,
             translation.boundaryAlias(),
