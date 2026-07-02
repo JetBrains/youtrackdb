@@ -275,10 +275,17 @@ final class StartStepRecogniser implements StepRecogniser {
     // Shared with MatchWhereBuilder.in via literalCollectionExpression to keep a single copy.
     var rightBase = MatchWhereBuilder.literalCollectionExpression(values);
 
-    return getSqlInCondition(leftExpr, rightBase);
+    return buildRidInCondition(leftExpr, rightBase);
   }
 
-  private static @NonNull SQLInCondition getSqlInCondition(SQLExpression leftExpr,
+  /**
+   * Assembles the {@link SQLInCondition} for {@code @rid IN [...]} from the pre-built left
+   * ({@code @rid} attribute) and right (literal-list) expressions, populating the {@code IN}
+   * operator so {@code toString} and the plan-time {@code supportsBasicCalculation} path see a
+   * well-formed condition. Named with a verb prefix because it constructs a fresh node each call
+   * (it is a factory, not an accessor).
+   */
+  private static @NonNull SQLInCondition buildRidInCondition(SQLExpression leftExpr,
       SQLBaseExpression rightBase) {
     var condition = new SQLInCondition(-1);
     condition.setLeft(leftExpr);

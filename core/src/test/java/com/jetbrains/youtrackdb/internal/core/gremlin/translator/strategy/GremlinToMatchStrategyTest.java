@@ -58,10 +58,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * single-alias {@link MatchPlanInputs} over an empty {@link Pattern} is sufficient.
    */
   private static GremlinToMatchTranslator.TranslationResult fixtureTranslation() {
-    var inputs =
-        new MatchPlanInputs(
-            new Pattern(), null, null, null, null, null, null, null, null, null, null, null, null,
-            null, false, false, false, false, false);
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
     return new GremlinToMatchTranslator.TranslationResult(
         inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class);
   }
@@ -492,26 +489,11 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
     var ir = new MatchPatternBuilder().addNode("v", "V", null, false).build();
     var inputs =
-        new MatchPlanInputs(
-            ir.pattern(),
-            ir.aliasClasses(),
-            ir.aliasFilters(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            true,
-            false,
-            false,
-            false);
+        MatchPlanInputs.builder(ir.pattern())
+            .aliasClasses(ir.aliasClasses())
+            .aliasFilters(ir.aliasFilters())
+            .returnElements(true)
+            .build();
     var translation =
         new GremlinToMatchTranslator.TranslationResult(
             inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class);
@@ -540,10 +522,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    */
   @Test
   public void translationResult_rejectsNullFields() {
-    var inputs =
-        new MatchPlanInputs(
-            new Pattern(), null, null, null, null, null, null, null, null, null, null, null, null,
-            null, false, false, false, false, false);
+    var inputs = MatchPlanInputs.builder(new Pattern()).build();
 
     assertThatCode(
         () -> new GremlinToMatchTranslator.TranslationResult(
@@ -579,7 +558,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * {@code @class = 'V'} would drop every {@code Person} row and diverge. Under
    * {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT = false} the translated plan must emit no
    * {@code @class} filter and therefore return the identical id set. Both flags are restored in
-   * a finally block so the shared session's defaults are not leaked to later tests.
+   * a finally block so later traversals in this same test see the defaults; cross-test isolation
+   * is already guaranteed by the per-method database drop, not by this restore.
    */
   @Test
   public void nonPolymorphicBareVertexSource_returnsSameVerticesAsNative() {

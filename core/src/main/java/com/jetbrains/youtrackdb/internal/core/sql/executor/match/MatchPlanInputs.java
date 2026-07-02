@@ -71,4 +71,163 @@ public record MatchPlanInputs(
     returnNestedProjections =
         returnNestedProjections == null ? List.of() : returnNestedProjections;
   }
+
+  /**
+   * Starts a {@link Builder} for the given (required) {@code pattern}. Every other field
+   * defaults to {@code null} / {@code false}; the compact constructor normalises null
+   * collections to empty. A front-end sets only the fields its shape actually carries — e.g. a
+   * single-node Gremlin {@code g.V()} translation sets the pattern, alias classes/filters/rids,
+   * and the return items, leaving the projection, ordering, and return-mode fields at defaults.
+   */
+  public static Builder builder(Pattern pattern) {
+    return new Builder(pattern);
+  }
+
+  /**
+   * Fluent builder for {@link MatchPlanInputs}. Exists so callers name each field they set
+   * instead of threading nineteen positional arguments: a long run of bare {@code null} /
+   * {@code false} literals is unreadable, and a transposed value would compile silently and
+   * misplan. Unset fields keep their {@code null} / {@code false} defaults, which the compact
+   * constructor normalises.
+   */
+  public static final class Builder {
+
+    private final Pattern pattern;
+    private Map<String, String> aliasClasses;
+    private Map<String, SQLWhereClause> aliasFilters;
+    private Map<String, SQLRid> aliasRids;
+    private List<SQLMatchExpression> matchExpressions;
+    private List<SQLMatchExpression> notMatchExpressions;
+    private List<SQLExpression> returnItems;
+    private List<SQLIdentifier> returnAliases;
+    private List<SQLNestedProjection> returnNestedProjections;
+    private SQLGroupBy groupBy;
+    private SQLOrderBy orderBy;
+    private SQLUnwind unwind;
+    private SQLLimit limit;
+    private SQLSkip skip;
+    private boolean returnDistinct;
+    private boolean returnElements;
+    private boolean returnPaths;
+    private boolean returnPatterns;
+    private boolean returnPathElements;
+
+    private Builder(Pattern pattern) {
+      this.pattern = pattern;
+    }
+
+    public Builder aliasClasses(Map<String, String> aliasClasses) {
+      this.aliasClasses = aliasClasses;
+      return this;
+    }
+
+    public Builder aliasFilters(Map<String, SQLWhereClause> aliasFilters) {
+      this.aliasFilters = aliasFilters;
+      return this;
+    }
+
+    public Builder aliasRids(Map<String, SQLRid> aliasRids) {
+      this.aliasRids = aliasRids;
+      return this;
+    }
+
+    public Builder matchExpressions(List<SQLMatchExpression> matchExpressions) {
+      this.matchExpressions = matchExpressions;
+      return this;
+    }
+
+    public Builder notMatchExpressions(List<SQLMatchExpression> notMatchExpressions) {
+      this.notMatchExpressions = notMatchExpressions;
+      return this;
+    }
+
+    public Builder returnItems(List<SQLExpression> returnItems) {
+      this.returnItems = returnItems;
+      return this;
+    }
+
+    public Builder returnAliases(List<SQLIdentifier> returnAliases) {
+      this.returnAliases = returnAliases;
+      return this;
+    }
+
+    public Builder returnNestedProjections(List<SQLNestedProjection> returnNestedProjections) {
+      this.returnNestedProjections = returnNestedProjections;
+      return this;
+    }
+
+    public Builder groupBy(SQLGroupBy groupBy) {
+      this.groupBy = groupBy;
+      return this;
+    }
+
+    public Builder orderBy(SQLOrderBy orderBy) {
+      this.orderBy = orderBy;
+      return this;
+    }
+
+    public Builder unwind(SQLUnwind unwind) {
+      this.unwind = unwind;
+      return this;
+    }
+
+    public Builder limit(SQLLimit limit) {
+      this.limit = limit;
+      return this;
+    }
+
+    public Builder skip(SQLSkip skip) {
+      this.skip = skip;
+      return this;
+    }
+
+    public Builder returnDistinct(boolean returnDistinct) {
+      this.returnDistinct = returnDistinct;
+      return this;
+    }
+
+    public Builder returnElements(boolean returnElements) {
+      this.returnElements = returnElements;
+      return this;
+    }
+
+    public Builder returnPaths(boolean returnPaths) {
+      this.returnPaths = returnPaths;
+      return this;
+    }
+
+    public Builder returnPatterns(boolean returnPatterns) {
+      this.returnPatterns = returnPatterns;
+      return this;
+    }
+
+    public Builder returnPathElements(boolean returnPathElements) {
+      this.returnPathElements = returnPathElements;
+      return this;
+    }
+
+    /** Builds the record; the compact constructor validates {@code pattern} and normalises. */
+    public MatchPlanInputs build() {
+      return new MatchPlanInputs(
+          pattern,
+          aliasClasses,
+          aliasFilters,
+          aliasRids,
+          matchExpressions,
+          notMatchExpressions,
+          returnItems,
+          returnAliases,
+          returnNestedProjections,
+          groupBy,
+          orderBy,
+          unwind,
+          limit,
+          skip,
+          returnDistinct,
+          returnElements,
+          returnPaths,
+          returnPatterns,
+          returnPathElements);
+    }
+  }
 }
