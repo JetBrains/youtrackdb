@@ -350,6 +350,14 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
     private final ExecutionStream stream;
     private final YTDBGraphInternal graph;
 
+    // Lookahead cache for hasNext(): null means "not yet probed since the last row was
+    // consumed". The hasNext()-then-next() pattern probes the stream chain once (in hasNext()),
+    // caches the answer, and next() reuses it — halving the per-row stream-chain walks the
+    // earlier "probe in both hasNext() and next()" shape incurred. A stream is monotonic (once
+    // exhausted it stays exhausted), so caching a false answer is safe, and a cached false
+    // spares the (possibly already-closed) stream any post-exhaustion probe.
+    private Boolean hasNextCache;
+
     ResultProjectionIterator(ExecutionStream stream, YTDBGraphInternal graph) {
       this.stream = stream;
       this.graph = graph;
@@ -357,21 +365,23 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
 
     @Override
     public boolean hasNext() {
-      return stream.hasNext(plan.getContext());
+      if (hasNextCache == null) {
+        hasNextCache = stream.hasNext(plan.getContext());
+      }
+      return hasNextCache;
     }
 
     @Override
     public T next() {
-      // The defensive hasNext call on the next() path lets callers invoke next()
-      // directly without a paired hasNext() and still get the standard
-      // NoSuchElementException on past-end calls (the test
-      // iterator_nextOnExhaustedStream_throwsNoSuchElement and the repeated-call
-      // sibling test pin this contract). The cost is one extra stream-chain walk per
-      // row when callers do hasNext()-then-next() — a small constant that later phases
-      // can revisit (e.g. a cached-hasNext shape) once there is a perf baseline.
-      if (!stream.hasNext(plan.getContext())) {
+      // Route through hasNext() so a direct next() (no paired hasNext()) still probes the
+      // stream once and throws the standard NoSuchElementException on a past-end call — the
+      // contract pinned by iterator_nextOnExhaustedStream_throwsNoSuchElement and its
+      // repeated-call sibling. Clearing the cache before pulling the row re-arms the lookahead
+      // so the next hasNext() probes afresh.
+      if (!hasNext()) {
         throw new NoSuchElementException();
       }
+      hasNextCache = null;
       Result row = stream.next(plan.getContext());
       return project(row);
     }
