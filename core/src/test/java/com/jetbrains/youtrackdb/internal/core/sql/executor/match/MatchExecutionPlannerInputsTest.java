@@ -150,10 +150,7 @@ public class MatchExecutionPlannerInputsTest {
   @Test
   public void plannerCtor_smoke_emptyInputs() {
     var pattern = new Pattern();
-    var inputs =
-        new MatchPlanInputs(
-            pattern, null, null, null, null, null, null, null, null, null, null, null, null, null,
-            false, false, false, false, false);
+    var inputs = MatchPlanInputs.builder(pattern).build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
@@ -182,27 +179,7 @@ public class MatchExecutionPlannerInputsTest {
     var aliasClasses = new HashMap<String, String>();
     aliasClasses.put("v", "Person");
 
-    var inputs =
-        new MatchPlanInputs(
-            pattern,
-            aliasClasses,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            false,
-            false,
-            false,
-            false);
+    var inputs = MatchPlanInputs.builder(pattern).aliasClasses(aliasClasses).build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
@@ -220,26 +197,16 @@ public class MatchExecutionPlannerInputsTest {
     var notExpr = new SQLMatchExpression(-1);
 
     var inputs =
-        new MatchPlanInputs(
-            pattern,
-            Map.of("a", "Person"),
-            Map.of("a", new SQLWhereClause(-1)),
-            Map.of("a", new SQLRid(-1)),
-            List.of(new SQLMatchExpression(-1)),
-            List.of(notExpr),
-            List.of(new SQLExpression(-1)),
-            List.of(new SQLIdentifier("ret")),
-            new ArrayList<>(Arrays.asList((SQLNestedProjection) null)),
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            false,
-            false,
-            false,
-            false);
+        MatchPlanInputs.builder(pattern)
+            .aliasClasses(Map.of("a", "Person"))
+            .aliasFilters(Map.of("a", new SQLWhereClause(-1)))
+            .aliasRids(Map.of("a", new SQLRid(-1)))
+            .matchExpressions(List.of(new SQLMatchExpression(-1)))
+            .notMatchExpressions(List.of(notExpr))
+            .returnItems(List.of(new SQLExpression(-1)))
+            .returnAliases(List.of(new SQLIdentifier("ret")))
+            .returnNestedProjections(new ArrayList<>(Arrays.asList((SQLNestedProjection) null)))
+            .build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
@@ -308,6 +275,26 @@ public class MatchExecutionPlannerInputsTest {
     assertThat(getAliasRids(planner)).containsEntry("a", rid);
   }
 
+  /**
+   * Same defensive-copy contract but for a caller-supplied LIST field ({@code matchExpressions}):
+   * the planner ctor does {@code new ArrayList<>(inputs.matchExpressions())}, so mutating the
+   * caller's list after construction must not affect the planner's copy. The map tests above
+   * cover the maps; this covers the list copies the same additive ctor makes.
+   */
+  @Test
+  public void plannerCtor_matchExpressions_callerMutationDoesNotAffectPlanner() {
+    var caller = new ArrayList<SQLMatchExpression>();
+    var expr = new SQLMatchExpression(-1);
+    caller.add(expr);
+    var planner =
+        new MatchExecutionPlanner(
+            MatchPlanInputs.builder(new Pattern()).matchExpressions(caller).build());
+
+    caller.clear(); // caller mutates its own reference after construction
+
+    assertThat(planner.matchExpressions).containsExactly(expr);
+  }
+
   // ─────────────────────── Planner ctor — list / flag propagation ───────────────────────
 
   /**
@@ -322,27 +309,7 @@ public class MatchExecutionPlannerInputsTest {
     var expr2 = new SQLMatchExpression(-1);
     var matchExprs = Arrays.asList(expr1, expr2);
 
-    var inputs =
-        new MatchPlanInputs(
-            pattern,
-            null,
-            null,
-            null,
-            matchExprs,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            false,
-            false,
-            false,
-            false);
+    var inputs = MatchPlanInputs.builder(pattern).matchExpressions(matchExprs).build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
@@ -355,27 +322,7 @@ public class MatchExecutionPlannerInputsTest {
     var pattern = new Pattern();
     var item = new SQLExpression(-1);
 
-    var inputs =
-        new MatchPlanInputs(
-            pattern,
-            null,
-            null,
-            null,
-            null,
-            null,
-            List.of(item),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            false,
-            false,
-            false,
-            false);
+    var inputs = MatchPlanInputs.builder(pattern).returnItems(List.of(item)).build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
@@ -384,26 +331,55 @@ public class MatchExecutionPlannerInputsTest {
 
   /**
    * Verifies the four return-mode boolean flags ({@code returnElements}, {@code returnPaths},
-   * {@code returnPatterns}, {@code returnPathElements}) and {@code returnDistinct} all
-   * propagate. These map onto the SQL {@code RETURN $elements} / {@code $paths} /
-   * {@code $patterns} / {@code $pathElements} variants and the {@code RETURN DISTINCT}
-   * keyword respectively.
+   * {@code returnPatterns}, {@code returnPathElements}) and {@code returnDistinct} each propagate
+   * INDEPENDENTLY to their own destination field. The five flags occupy five adjacent record
+   * components and the planner maps them positionally, so an all-true / all-false test cannot
+   * detect a transposed mapping (e.g. {@code returnPaths} landing in {@code returnPatterns}).
+   * This drives one flag true at a time and asserts exactly that field is true and the other
+   * four are false, so a permutation surfaces as a mismatched assertion.
    */
   @Test
   public void plannerCtor_propagatesReturnFlags() {
-    var pattern = new Pattern();
-    var inputs =
-        new MatchPlanInputs(
-            pattern, null, null, null, null, null, null, null, null, null, null, null, null, null,
-            true, true, true, true, true);
+    // returnDistinct only
+    assertReturnFlags(
+        MatchPlanInputs.builder(new Pattern()).returnDistinct(true).build(),
+        true, false, false, false, false);
+    // returnElements only
+    assertReturnFlags(
+        MatchPlanInputs.builder(new Pattern()).returnElements(true).build(),
+        false, true, false, false, false);
+    // returnPaths only
+    assertReturnFlags(
+        MatchPlanInputs.builder(new Pattern()).returnPaths(true).build(),
+        false, false, true, false, false);
+    // returnPatterns only
+    assertReturnFlags(
+        MatchPlanInputs.builder(new Pattern()).returnPatterns(true).build(),
+        false, false, false, true, false);
+    // returnPathElements only
+    assertReturnFlags(
+        MatchPlanInputs.builder(new Pattern()).returnPathElements(true).build(),
+        false, false, false, false, true);
+  }
 
+  /**
+   * Builds the planner from {@code inputs} and asserts each of the five return-mode flags reads
+   * back its expected value. Centralises the check so each one-hot case above is a single call
+   * and a field-to-field transposition in the planner ctor fails right here.
+   */
+  private static void assertReturnFlags(
+      MatchPlanInputs inputs,
+      boolean expectDistinct,
+      boolean expectElements,
+      boolean expectPaths,
+      boolean expectPatterns,
+      boolean expectPathElements) {
     var planner = new MatchExecutionPlanner(inputs);
-
-    assertThat(planner.returnElements).isTrue();
-    assertThat(planner.returnPaths).isTrue();
-    assertThat(planner.returnPatterns).isTrue();
-    assertThat(planner.returnPathElements).isTrue();
-    assertThat(getReturnDistinct(planner)).isTrue();
+    assertThat(getReturnDistinct(planner)).as("returnDistinct").isEqualTo(expectDistinct);
+    assertThat(planner.returnElements).as("returnElements").isEqualTo(expectElements);
+    assertThat(planner.returnPaths).as("returnPaths").isEqualTo(expectPaths);
+    assertThat(planner.returnPatterns).as("returnPatterns").isEqualTo(expectPatterns);
+    assertThat(planner.returnPathElements).as("returnPathElements").isEqualTo(expectPathElements);
   }
 
   /**
@@ -421,26 +397,13 @@ public class MatchExecutionPlannerInputsTest {
     var unwind = new SQLUnwind(-1);
 
     var inputs =
-        new MatchPlanInputs(
-            pattern,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-            groupBy,
-            orderBy,
-            unwind,
-            limit,
-            skip,
-            false,
-            false,
-            false,
-            false,
-            false);
+        MatchPlanInputs.builder(pattern)
+            .groupBy(groupBy)
+            .orderBy(orderBy)
+            .unwind(unwind)
+            .limit(limit)
+            .skip(skip)
+            .build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
@@ -454,72 +417,15 @@ public class MatchExecutionPlannerInputsTest {
   // ──────────────────────────────────── Test helpers ────────────────────────────────────
 
   private static MatchPlanInputs inputsWithAliasClasses(Map<String, String> aliasClasses) {
-    return new MatchPlanInputs(
-        new Pattern(),
-        aliasClasses,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false);
+    return MatchPlanInputs.builder(new Pattern()).aliasClasses(aliasClasses).build();
   }
 
   private static MatchPlanInputs inputsWithAliasFilters(Map<String, SQLWhereClause> aliasFilters) {
-    return new MatchPlanInputs(
-        new Pattern(),
-        null,
-        aliasFilters,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false);
+    return MatchPlanInputs.builder(new Pattern()).aliasFilters(aliasFilters).build();
   }
 
   private static MatchPlanInputs inputsWithAliasRids(Map<String, SQLRid> aliasRids) {
-    return new MatchPlanInputs(
-        new Pattern(),
-        null,
-        null,
-        aliasRids,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        false,
-        false,
-        false,
-        false,
-        false);
+    return MatchPlanInputs.builder(new Pattern()).aliasRids(aliasRids).build();
   }
 
   /// Reflective field access — used because the working maps and the three final AST fields

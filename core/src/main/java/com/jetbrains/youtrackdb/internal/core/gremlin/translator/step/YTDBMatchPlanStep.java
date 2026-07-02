@@ -50,7 +50,8 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  *   <li><b>Close:</b> exhaustion of the iterator (auto-detected by
  *       {@link CloseableIteratorWithCallback}) and explicit {@code GraphStep.close()} both
  *       trigger the close hook, which closes the {@link ExecutionStream} first and then
- *       the plan. The hook is idempotent.
+ *       the plan. The hook is idempotent. A {@link #reset()} between armings closes only the
+ *       previous arming's stream (the plan is re-run in place, so it stays alive).
  *   <li><b>Clone:</b> {@link #clone()} produces a step that holds its own independent
  *       {@link InternalExecutionPlan#copy(com.jetbrains.youtrackdb.internal.core.command.CommandContext)
  *       deep copy} of the plan, copied against an <em>isolated child</em>
@@ -104,6 +105,26 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
   private boolean everStarted;
 
   /**
+   * The {@link ExecutionStream} opened by the current arming, or {@code null} when none is open.
+   * Tracked separately from the inherited {@code GraphStep.iterator} so {@link #reset()} can
+   * release the consumer cursor of a partially-consumed run before {@code super.reset()} drops
+   * the iterator reference (which {@code GraphStep.reset()} does WITHOUT closing it).
+   * {@link #createIterator()} sets it after a successful {@code plan.start()}; the close hook and
+   * {@link #reset()} clear it once the stream is closed.
+   */
+  private ExecutionStream openStream;
+
+  /**
+   * Set to {@code true} only for the duration of {@link #clone()}'s {@code super.clone()} call.
+   * {@code AbstractStep.clone()} invokes {@link #reset()} on the fresh clone while the clone
+   * still aliases THIS instance's {@link #openStream} (the shallow copy is fixed up afterwards),
+   * so a {@code reset()} that closed the stream there would tear down the ORIGINAL's in-flight
+   * run. The guard makes that clone-triggered reset a no-op; a genuine in-place {@code reset()}
+   * (outside cloning) closes the stream normally.
+   */
+  private boolean cloning;
+
+  /**
    * Constructs a new boundary step backed by the given execution plan.
    *
    * @param traversal     the host traversal (must not be null)
@@ -121,7 +142,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       InternalExecutionPlan plan,
       String boundaryAlias,
       BoundaryOutputType outputType) {
-    super(traversal, returnClass, /*isStart*/ true /*ids*/);
+    super(traversal, returnClass, /* isStart */ true /* no ids */);
     this.plan = Objects.requireNonNull(plan, "plan must not be null");
     this.boundaryAlias = Objects.requireNonNull(boundaryAlias, "boundaryAlias must not be null");
     this.outputType = Objects.requireNonNull(outputType, "outputType must not be null");
@@ -226,6 +247,9 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
     everStarted = true;
     try {
       var rowIterator = new ResultProjectionIterator<E>(stream, graph);
+      // Track the open stream so reset() can release its cursor if this arming is reset before
+      // exhaustion. Set only on the success path — the catch below closes `stream` directly.
+      openStream = stream;
       // The close hook fires both on natural exhaustion (CloseableIteratorWithCallback's
       // hasNext-based auto-close) and on explicit GraphStep.close (which TinkerPop invokes
       // when the traversal terminates early — e.g. a downstream LimitStep cuts iteration
@@ -234,13 +258,26 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       return new CloseableIteratorWithCallback<>(
           rowIterator,
           () -> {
+            // This arming is done: clear the tracking field first so a later reset() does not
+            // re-close this stream.
+            openStream = null;
             try {
               stream.close(ctx);
-            } finally {
-              plan.close();
+            } catch (RuntimeException | Error e) {
+              // Keep the stream-close failure as the primary exception: close the plan too, but
+              // record its failure via addSuppressed rather than letting a finally-block
+              // plan.close() mask the stream error (mirrors the plan.start() handler above).
+              try {
+                plan.close();
+              } catch (RuntimeException | Error suppressed) {
+                e.addSuppressed(suppressed);
+              }
+              throw e;
             }
+            plan.close();
           });
     } catch (RuntimeException | Error e) {
+      openStream = null;
       // Anything that fails between plan.start() and the wrapper's construction (OOM,
       // unexpected NPE, etc.) must close the just-opened stream and the plan to avoid
       // leaking the consumer-side cursor. The throw is preserved so callers see the
@@ -268,7 +305,17 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
     // would corrupt the original's in-flight run. reset() therefore only re-arms the
     // per-instance guard (started) and never re-executes the plan — the plan is re-opened
     // lazily in createIterator() when needed. See reset()'s Javadoc.
-    var cloned = (YTDBMatchPlanStep<S, E>) super.clone();
+    // Guard the reset() that AbstractStep.clone() triggers on the fresh clone: while super.clone()
+    // runs, the clone still aliases THIS instance's openStream (the shallow copy is fixed up
+    // below), so an unguarded reset() there would close the original's in-flight stream. The flag
+    // is copied onto the clone by the shallow copy and cleared on both instances afterwards.
+    cloning = true;
+    final YTDBMatchPlanStep<S, E> cloned;
+    try {
+      cloned = (YTDBMatchPlanStep<S, E>) super.clone();
+    } finally {
+      cloning = false;
+    }
     // Give the clone its OWN deep copy of the plan rather than sharing the original's.
     // A SelectExecutionPlan-family plan carries mutable per-run state (both an independent
     // step chain AND the CommandContext's variable maps), so it is not safe to execute
@@ -298,6 +345,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
     // it needlessly rewind its already-fresh copied plan. The clone's copy has never run.
     cloned.started = false;
     cloned.everStarted = false;
+    // The clone's copied plan has never run and owns no open stream; drop the references the
+    // shallow copy aliased from the original. cloning was copied as true by super.clone() — clear
+    // it so the clone's own future reset()s close its stream normally.
+    cloned.openStream = null;
+    cloned.cloning = false;
     // Re-bind the supplier to the clone, not the original. setIteratorSupplier(this::...)
     // in the ctor captured the original instance; without re-binding here, iterating the
     // clone would call createIterator() on the original step and start the ORIGINAL's plan
@@ -330,6 +382,17 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
    */
   @Override
   public void reset() {
+    // Release the consumer cursor of a partially-consumed arming before super.reset() drops the
+    // iterator reference (GraphStep.reset() overwrites `iterator` with an empty one WITHOUT
+    // closing it, which would otherwise leak the open stream on a reset-then-reuse). Close ONLY
+    // the stream, not the plan: reset() is the in-place re-run path and createIterator() re-runs
+    // THIS SAME plan instance (plan.reset(ctx) + plan.start()), so the plan must stay alive.
+    // Skipped while cloning (see the `cloning` field): there the clone still aliases the
+    // original's open stream and closing it would tear down the original's in-flight run.
+    if (!cloning && openStream != null) {
+      openStream.close(plan.getContext());
+      openStream = null;
+    }
     super.reset();
     // Only the per-arming guard is cleared here; everStarted persists so createIterator()
     // knows a re-open needs a plan.reset(ctx). The plan itself is NOT rewound here — see the
