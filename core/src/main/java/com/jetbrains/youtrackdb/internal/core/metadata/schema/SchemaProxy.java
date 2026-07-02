@@ -44,8 +44,9 @@ import javax.annotation.Nullable;
  * <p>Reads route through {@link #resolve()} and writes through {@link #resolveForWrite()} (see
  * {@link SchemaProxedResource}), so during a schema transaction every method sees and mutates the
  * transaction's private tx-local {@link SchemaShared} copy rather than the committed shared
- * instance. The immutable snapshot read ({@link #makeSnapshot()}) is a separate tier-1 family kept
- * on the committed instance.
+ * instance. The immutable snapshot read ({@link #makeSnapshot()}) is tx-aware too: during a schema
+ * or index transaction it builds a session-private snapshot from the tx-local copy; outside one it
+ * stays on the committed instance's shared cache.
  */
 public final class SchemaProxy extends SchemaProxedResource<SchemaShared>
     implements SchemaInternal {
@@ -75,34 +76,33 @@ public final class SchemaProxy extends SchemaProxedResource<SchemaShared>
   @Override
   public ImmutableSchema makeSnapshot() {
     assert session.assertIfNotActive();
-    if (session.hasActiveIndexOverlay()) {
-      // A schema/index transaction with a tx-local index overlay is in progress. Build a
-      // session-private, uncached snapshot: its per-class index list resolves against this session's
-      // overlay through the index-manager routing seam, and it is never stored in the process-shared
-      // snapshot cache, so a concurrent session still reads the committed index set. The class and
-      // property structure still comes from the committed instance here; the tx-aware class/property
-      // view is a later step and rides this same session-private-snapshot seam.
+    var txState = session.getTxSchemaState();
+    if (txState != null) {
+      // A schema- or index-changing transaction is in progress. Build a session-private, uncached
+      // snapshot from the tx-local SchemaShared copy: its classes, property types, and constraint
+      // rules reflect the transaction's own uncommitted schema (so validation and serialization
+      // enforce a same-tx schema change), and its per-class index list resolves against this
+      // session's index overlay through the index-manager routing seam. The snapshot is never
+      // stored in the process-shared snapshot cache, so a concurrent session still reads the
+      // committed view.
       //
-      // Memoize the built snapshot on the transaction state for the lifetime of the current overlay
-      // generation. This branch is reached unpinned per record on the same-tx DDL-then-DML path
-      // (getImmutableSchemaClass reads unpinned, executeReadRecord pins per record), so without the
-      // memo an operation touching N records would rebuild the whole ImmutableSchema up to N times.
-      // The memo stays session-scoped (it lives on TxSchemaState, never in the shared cache) and is
-      // invalidated on every mid-tx index change through forceRebuildSchemaSnapshotForIndexOverlay,
-      // so a change still forces exactly one rebuild.
-      var txState = session.getTxSchemaState();
-      // txState is non-null here: hasActiveIndexOverlay() is true only when the state carries a
-      // non-empty overlay, and the overlay lives on the state.
+      // Memoize the built snapshot on the transaction state for the lifetime of the current
+      // tx-local schema generation. This branch is reached unpinned per record on the same-tx
+      // DDL-then-DML path (getImmutableSchemaClass reads unpinned, executeReadRecord pins per
+      // record), so without the memo an operation touching N records would rebuild the whole
+      // ImmutableSchema up to N times. The memo stays session-scoped (it lives on TxSchemaState,
+      // never in the shared cache) and is invalidated on every mid-tx schema or index change
+      // through forceRebuildTxSchemaSnapshot, so a change still forces exactly one rebuild.
       var memoized = txState.getOverlaySnapshot();
       if (memoized != null) {
         return memoized;
       }
-      var built = delegate.makeUncachedSnapshot(session);
+      var built = txState.getTxLocalSchema().makeUncachedSnapshot(session);
       txState.setOverlaySnapshot(built);
       return built;
     }
-    // Tier 1: the immutable snapshot is taken from the committed instance's shared cache, not the
-    // tx-local copy.
+    // The committed fast path is strictly unchanged from the pre-tx-aware behavior: outside a
+    // schema/index transaction the snapshot is taken from the committed instance's shared cache.
     return delegate.makeSnapshot(session);
   }
 

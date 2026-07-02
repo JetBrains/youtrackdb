@@ -91,18 +91,19 @@ public final class TxSchemaState {
   @Nullable private IndexOverlay indexOverlay;
 
   /**
-   * The session-private immutable snapshot built for the current overlay generation, or {@code null}
-   * when none has been built since the overlay last changed. While an index overlay is active,
-   * {@link SchemaProxy#makeSnapshot()} builds an uncached snapshot that is never stored in the shared
-   * {@link SchemaShared#snapshot} cache; without this memo every unpinned read
-   * ({@code EntityImpl.getImmutableSchemaClass} reads unpinned, and {@code executeReadRecord} opens
-   * and closes its pin per record) would rebuild the whole {@link ImmutableSchema}, so a same-tx
-   * DDL-then-DML touching N records would rebuild it up to N times. Memoizing here reuses the built
-   * snapshot across intervening unpinned reads while keeping it session-scoped: it lives on this
-   * per-transaction state, never in the process-shared cache, so a concurrent session never observes
-   * it, and it is dropped with this {@code TxSchemaState} when the transaction ends (commit or
-   * rollback). A mid-transaction index change still forces exactly one rebuild by nulling this memo
-   * through {@link #invalidateOverlaySnapshot()} in {@code forceRebuildSchemaSnapshotForIndexOverlay}.
+   * The session-private immutable snapshot built for the current tx-local schema generation, or
+   * {@code null} when none has been built since the tx-local state last changed. While a
+   * schema/index transaction is active, {@link SchemaProxy#makeSnapshot()} builds an uncached
+   * snapshot that is never stored in the shared {@link SchemaShared#snapshot} cache; without this
+   * memo every unpinned read ({@code EntityImpl.getImmutableSchemaClass} reads unpinned, and
+   * {@code executeReadRecord} opens and closes its pin per record) would rebuild the whole
+   * {@link ImmutableSchema}, so a same-tx DDL-then-DML touching N records would rebuild it up to N
+   * times. Memoizing here reuses the built snapshot across intervening unpinned reads while keeping
+   * it session-scoped: it lives on this per-transaction state, never in the process-shared cache, so
+   * a concurrent session never observes it, and it is dropped with this {@code TxSchemaState} when
+   * the transaction ends (commit or rollback). A mid-transaction schema or index change still forces
+   * exactly one rebuild by nulling this memo through {@link #invalidateOverlaySnapshot()} in
+   * {@code forceRebuildTxSchemaSnapshot}.
    */
   @Nullable private ImmutableSchema overlaySnapshot;
 
@@ -206,29 +207,32 @@ public final class TxSchemaState {
   }
 
   /**
-   * The memoized session-private snapshot for the current overlay generation, or {@code null} when
-   * none has been built since the overlay last changed. {@link SchemaProxy#makeSnapshot()} calls this
-   * on the overlay-active branch and builds-then-{@link #setOverlaySnapshot memoizes} on a miss, so
-   * intervening unpinned reads reuse the built snapshot instead of rebuilding it per call.
+   * The memoized session-private snapshot for the current tx-local schema generation, or
+   * {@code null} when none has been built since the tx-local state last changed.
+   * {@link SchemaProxy#makeSnapshot()} calls this on the tx-aware branch and
+   * builds-then-{@link #setOverlaySnapshot memoizes} on a miss, so intervening unpinned reads
+   * reuse the built snapshot instead of rebuilding it per call.
    */
   @Nullable public ImmutableSchema getOverlaySnapshot() {
     return overlaySnapshot;
   }
 
   /**
-   * Memoizes the session-private snapshot built for the current overlay generation. The snapshot is
-   * session-scoped (it lives only here, never in the shared {@link SchemaShared#snapshot} cache), so
-   * memoizing it does not make an overlay-dependent view visible to a concurrent session.
+   * Memoizes the session-private snapshot built for the current tx-local schema generation. The
+   * snapshot is session-scoped (it lives only here, never in the shared
+   * {@link SchemaShared#snapshot} cache), so memoizing it does not make a tx-dependent view
+   * visible to a concurrent session.
    */
   public void setOverlaySnapshot(@Nonnull ImmutableSchema snapshot) {
     this.overlaySnapshot = snapshot;
   }
 
   /**
-   * Drops the memoized overlay snapshot so the next {@link SchemaProxy#makeSnapshot()} on the
-   * overlay-active branch rebuilds it. Called from {@code forceRebuildSchemaSnapshotForIndexOverlay}
-   * on every mid-transaction index change, so a change to the overlay's contents forces exactly one
-   * rebuild while unpinned reads between changes reuse the built snapshot.
+   * Drops the memoized snapshot so the next {@link SchemaProxy#makeSnapshot()} on the tx-aware
+   * branch rebuilds it. Called from {@code forceRebuildTxSchemaSnapshot} on every mid-transaction
+   * schema or index change, and by the commit after it resolves provisional collection ids, so a
+   * change to the tx-local state forces exactly one rebuild while unpinned reads between changes
+   * reuse the built snapshot.
    */
   public void invalidateOverlaySnapshot() {
     this.overlaySnapshot = null;

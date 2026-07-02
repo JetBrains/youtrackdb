@@ -102,8 +102,29 @@ public class MetadataDefault implements MetadataInternal {
     }
   }
 
-  @Nullable
-  public ImmutableSchema getImmutableSchemaSnapshot() {
+  /**
+   * Rebuilds the pinned thread-local snapshot in place, preserving the pin count. The schema-carry
+   * commit pins its snapshot once at entry and holds that pin across the whole commit; after the
+   * commit resolves provisional collection ids inside the transaction-local schema, the pinned
+   * snapshot still serves the stale provisional view, and
+   * {@link #forceClearThreadLocalSchemaSnapshot()} cannot refresh it (it throws while a pin is
+   * held, by design). This method is that refresh: it requires a held pin and swaps the pinned
+   * snapshot for a freshly built one.
+   *
+   * @throws IllegalStateException when no snapshot pin is held; with a zero count there is nothing
+   *     to rebuild, and the caller should pin normally instead.
+   */
+  public void rebuildThreadLocalSchemaSnapshot() {
+    if (this.immutableCount == 0) {
+      throw new IllegalStateException(
+          "Attempted to rebuild the thread-local schema snapshot for thread "
+              + Thread.currentThread().getName()
+              + " but no snapshot pin is held (usage count is zero)");
+    }
+    this.immutableSchema = schema.makeSnapshot();
+  }
+
+  @Nullable public ImmutableSchema getImmutableSchemaSnapshot() {
     if (immutableSchema == null) {
       if (schema == null) {
         return null;
@@ -116,7 +137,6 @@ public class MetadataDefault implements MetadataInternal {
   public Security getSecurity() {
     return security;
   }
-
 
   public SharedContext init(SharedContext shared) {
     schemaCollectionId = database.getCollectionIdByName(COLLECTION_INTERNAL_NAME);
