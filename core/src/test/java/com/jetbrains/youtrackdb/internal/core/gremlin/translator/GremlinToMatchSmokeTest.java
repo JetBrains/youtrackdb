@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
@@ -465,6 +466,42 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
             && !listener.query.contains("YTDBMatchPlanStep"));
     assertTrue("execution duration must be non-negative", listener.executionTimeNanos >= 0);
     assertEquals("recorded result count must match the fixture", 3, rowCount);
+  }
+
+  /**
+   * A translated traversal must surface the translation in {@code explain()}, and a declined one
+   * must not. {@code explain()} applies the full strategy chain (including the globally
+   * registered {@link GremlinToMatchStrategy}) to a clone, so a recognised {@code g.V()} shows
+   * its native step chain collapsed to a single {@link YTDBMatchPlanStep} marker, while a
+   * declined {@code g.V().hasLabel(...)} keeps its native vertex step. This is the signal the
+   * per-track e2e tests assert on to pin "this shape translates / this shape declines". The
+   * negative case also asserts the declined explain still renders a native vertex step, so the
+   * "no boundary step" assertion is not vacuously true on an empty or errored explanation.
+   */
+  @Test
+  public void explainReflectsTranslation() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    // Recognised bare g.V(): the strategy replaces the whole step list with one boundary step,
+    // so its toString() marker appears in the final traversal of the explanation.
+    var translatedExplain = graph.traversal().V().explain().toString();
+    assertTrue(
+        "explain() of a translated g.V() must surface the YTDBMatchPlanStep marker; was: "
+            + translatedExplain,
+        translatedExplain.contains("YTDBMatchPlanStep"));
+
+    // hasLabel(...) is unrecognised in this track, so the whole traversal declines to the native
+    // pipeline: no boundary step, and the native vertex step (a GraphStep) is still rendered.
+    var declinedExplain = graph.traversal().V().hasLabel("Person").explain().toString();
+    assertFalse(
+        "explain() of a declined traversal must not contain a boundary step; was: "
+            + declinedExplain,
+        declinedExplain.contains("YTDBMatchPlanStep"));
+    assertTrue(
+        "declined explain must still render a native vertex step; was: " + declinedExplain,
+        declinedExplain.contains("GraphStep"));
   }
 
   /**

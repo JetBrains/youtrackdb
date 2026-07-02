@@ -1942,16 +1942,19 @@ not pin element order; pinning order would force MATCH's planner into
 the native walking strategy and erase the optimization we are trying
 to win.
 
-**`.explain()` output looks different.** Calling
-`traversal.explain()` on a translated traversal returns
-`YTDBMatchPlanStep`'s view of its underlying plan — the
-`SelectExecutionPlan.prettyPrint(0, 2)` output, which is the YQL
-`MATCH` execution plan tree (`MatchFirstStep`, `MatchStep`, `Prefetch`
-boxes, etc.). Operators reading EXPLAIN expecting TinkerPop-style step
-boxes (one box per Gremlin step) will see the MATCH plan instead.
-This is a visible diagnostic change but not a behavior change; a
-single explanatory sentence in the EXPLAIN header would help operators
-orient. Phase 1 keeps it as-is.
+**`.explain()` surfaces the translation.** `YTDBMatchPlanStep` overrides
+`toString()` to render a one-line marker —
+`YTDBMatchPlanStep(<alias>,<outputType>)`. So `traversal.explain()` on a
+translated traversal shows the native step chain collapsed to that single
+boundary step, while a declined traversal shows its native step boxes
+unchanged. The query runs identically; only the EXPLAIN rendering changes.
+The marker lets an operator see at a glance that a query was translated, and
+it is the assertion vehicle the per-track end-to-end tests use to pin which
+shapes translate and which decline
+(`GremlinToMatchSmokeTest#explainReflectsTranslation`). It stays deliberately
+concise and does not inline the MATCH plan tree
+(`SelectExecutionPlan.prettyPrint(0, 2)`), which remains reachable through
+`YTDBMatchPlanStep#getPlan()` and YQL's existing EXPLAIN tooling.
 
 **Profiling (`profile()`) declines.** TinkerPop's `profile()` step is
 unrecognized in Phase 1 — any traversal containing it declines and runs

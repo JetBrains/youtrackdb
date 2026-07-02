@@ -15,6 +15,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 /**
  * Boundary step that bridges the YTDB MATCH execution stream to TinkerPop's traverser-driven
@@ -140,6 +141,21 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
   /** The compiled execution plan the step iterates over. */
   public InternalExecutionPlan getPlan() {
     return plan;
+  }
+
+  /**
+   * Renders a stable, one-line marker identifying this as a translated MATCH boundary step,
+   * e.g. {@code YTDBMatchPlanStep(node,ELEMENT)}. Because the strategy replaces a recognised
+   * traversal's entire native step chain with this single step, {@code traversal.explain()}
+   * shows this marker in place of the native step boxes — the visible signal that translation
+   * happened. Per-track end-to-end tests assert on the presence of this marker to pin which
+   * shapes translate and which decline (see {@code GremlinToMatchSmokeTest}). The marker is
+   * deliberately concise: it does not inline the MATCH plan tree, which stays reachable via
+   * {@link #getPlan()} and YQL's EXPLAIN tooling.
+   */
+  @Override
+  public String toString() {
+    return StringFactory.stepString(this, boundaryAlias, outputType);
   }
 
   /**
