@@ -9,10 +9,10 @@ import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
-import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,11 +28,12 @@ import org.junit.Test;
  * cache, byte-for-byte the pre-existing fast path.
  *
  * <p>The tests also pin the commit-path behavior for a class created inside the transaction: its
- * collection id is provisional ({@code <= -2}) until commit, so the entity's record collection is
- * deferred (the record id carries the invalid-collection sentinel), a same-transaction query skips
- * the provisional collection instead of failing, id&rarr;name resolution answers {@code null}
- * without fabricating a name, and the commit resolves the real collection and rebuilds the pinned
- * snapshot before the working set is gathered.
+ * collection id is provisional ({@code <= -2}) until commit and the entity's record id carries
+ * the provisional id, so a same-transaction query serves the transaction's own rows from the
+ * transaction phase of the collection scan (no physical collection exists yet), id&rarr;name
+ * resolution answers {@code null} without fabricating a name, and the commit resolves the real
+ * collection, rebuilds the pinned snapshot, and rewrites every provisional record-collection id
+ * to the reconciled real id before the working set is gathered.
  */
 public class TxAwareSchemaSnapshotTest extends DbTestBase {
 
@@ -120,11 +121,11 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
 
   /**
    * A transaction that creates a class and inserts an entity of it must commit successfully.
-   * During the transaction the class's collection is provisional, so the record's collection
-   * assignment is deferred (the record id carries the invalid-collection sentinel). At commit the
-   * reconciliation creates the real collection, resolves the provisional id, and rebuilds the
-   * pinned snapshot before the working set is gathered, so the working-set read resolves the
-   * reconciled real collection id and the record lands in it.
+   * During the transaction the class's collection is provisional and the record id carries the
+   * provisional id. At commit the reconciliation creates the real collection, resolves the
+   * provisional id, rebuilds the pinned snapshot, and rewrites the record's provisional
+   * collection id to the reconciled real id before the working set is gathered, so the record
+   * lands in the real collection and no provisional id reaches durable bytes.
    */
   @Test
   public void commitSucceedsWhenTheTransactionCreatesAClassAndInsertsAnEntityOfIt() {
@@ -133,8 +134,9 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
     schema.createClass("TxCommittedClass");
     var entity = (EntityImpl) session.newEntity("TxCommittedClass");
     entity.setProperty("name", "first");
-    assertEquals("during the transaction the record's collection must be deferred",
-        RID.COLLECTION_ID_INVALID, entity.getIdentity().getCollectionId());
+    assertTrue("during the transaction the record id must carry the provisional collection id,"
+        + " got " + entity.getIdentity(),
+        SchemaShared.isProvisionalCollectionId(entity.getIdentity().getCollectionId()));
     session.commit();
 
     var committedClass = session.getSharedContext().getSchema().getClass("TxCommittedClass");
@@ -154,29 +156,175 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
   }
 
   /**
-   * A query against a tx-created class inside the creating transaction must complete without a
-   * collection-not-found or engine-not-found error: the scan setup skips the provisional
-   * collection id instead of trying to resolve a collection that does not exist yet. The
-   * transaction's own row is not returned, because its record id carries no collection until
-   * commit, so the merged scan has nothing to merge it into; surfacing those rows is a separate
-   * record-id mechanism.
+   * A query against a tx-created class inside the creating transaction must return the
+   * transaction's own rows: the record ids carry the class's provisional collection id, the
+   * scan set includes that id, and the collection iterator serves the rows from its
+   * transaction phase (no physical collection exists until commit, so the storage phase is
+   * skipped). The WHERE and rid-descending variants pin the filter path and the backward
+   * iterator branch over the same transaction-phase rows.
    */
   @Test
-  public void sameTransactionQueryOfATxCreatedClassCompletesWithoutError() {
+  public void sameTransactionQueryOfATxCreatedClassReturnsTheTransactionsOwnRows() {
     session.begin();
     try {
       var schema = session.getMetadata().getSchema();
       schema.createClass("TxQueriedClass");
-      var entity = (EntityImpl) session.newEntity("TxQueriedClass");
-      entity.setProperty("name", "pending");
+      var first = (EntityImpl) session.newEntity("TxQueriedClass");
+      first.setProperty("name", "pending-1");
+      var second = (EntityImpl) session.newEntity("TxQueriedClass");
+      second.setProperty("name", "pending-2");
+      assertTrue("the record id must carry the provisional collection id, got "
+          + first.getIdentity(),
+          SchemaShared.isProvisionalCollectionId(first.getIdentity().getCollectionId()));
 
       try (var rs = session.query("select from TxQueriedClass")) {
-        assertEquals("the accepted semantic is no-error with zero rows until commit", 0L,
+        var names = rs.stream().map(r -> (String) r.getProperty("name")).sorted().toList();
+        assertEquals("both uncommitted rows must be served from the transaction phase",
+            List.of("pending-1", "pending-2"), names);
+      }
+
+      try (var rs = session.query("select from TxQueriedClass where name = 'pending-2'")) {
+        assertEquals("a WHERE filter must evaluate against the transaction-phase rows",
+            1L, rs.stream().count());
+      }
+
+      try (var rs = session.query("select from TxQueriedClass order by @rid desc")) {
+        assertEquals("a rid-ordered (backward-scan) query must serve the same rows", 2L,
             rs.stream().count());
       }
     } finally {
       session.rollback();
     }
+  }
+
+  /**
+   * Insert, update, and delete rows of a tx-created class in one transaction: the
+   * same-transaction query must reflect exactly the surviving final state, and the commit must
+   * land exactly those rows. The deleted row's record operation still carries the provisional
+   * collection id at commit time, so the commit-time rewrite must map it to the reconciled real
+   * collection (where the never-persisted delete is a no-op) instead of failing on it.
+   */
+  @Test
+  public void sameTransactionQueryAndCommitReflectUpdatesAndDeletesOfTxCreatedClassRows() {
+    session.begin();
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("TxMutatedClass");
+    var kept = (EntityImpl) session.newEntity("TxMutatedClass");
+    kept.setProperty("name", "kept");
+    var updated = (EntityImpl) session.newEntity("TxMutatedClass");
+    updated.setProperty("name", "before-update");
+    var deleted = (EntityImpl) session.newEntity("TxMutatedClass");
+    deleted.setProperty("name", "doomed");
+
+    updated.setProperty("name", "after-update");
+    session.delete(deleted);
+
+    try (var rs = session.query("select from TxMutatedClass")) {
+      var names = rs.stream().map(r -> (String) r.getProperty("name")).sorted().toList();
+      assertEquals("the same-tx query must reflect the update and the delete",
+          List.of("after-update", "kept"), names);
+    }
+    session.commit();
+
+    try (var rs = session.query("select from TxMutatedClass")) {
+      var names = rs.stream().map(r -> (String) r.getProperty("name")).sorted().toList();
+      assertEquals("the commit must land exactly the surviving final state",
+          List.of("after-update", "kept"), names);
+    }
+  }
+
+  /**
+   * A plan built inside the creating transaction bakes the provisional collection id into its
+   * scan set, so it must not be served from the shared statement cache after the commit
+   * replaces the provisional id with the real collection: the post-commit query must re-plan
+   * and return the committed row instead of scanning a collection that no longer exists.
+   */
+  @Test
+  public void queryPlanBuiltInsideTheCreatingTransactionIsNotReusedAfterCommit() {
+    session.begin();
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("TxPlanCacheClass");
+    var entity = (EntityImpl) session.newEntity("TxPlanCacheClass");
+    entity.setProperty("name", "row");
+    try (var rs = session.query("select from TxPlanCacheClass")) {
+      assertEquals("the uncommitted row must be visible to the same-tx query", 1L,
+          rs.stream().count());
+    }
+    session.commit();
+
+    try (var rs = session.query("select from TxPlanCacheClass")) {
+      assertEquals("the committed row must be visible after commit; a stale plan carrying the"
+          + " provisional collection id would return zero rows", 1L, rs.stream().count());
+    }
+  }
+
+  /**
+   * A polymorphic scan plan cached from committed state must not hide a subclass created in a
+   * later transaction: during that transaction the shared plan cache is bypassed, so the
+   * parent query re-plans against the tx-aware snapshot and merges the committed parent rows
+   * with the tx-created subclass's transaction-phase rows (its collection id is still
+   * provisional, so the scan set mixes real and provisional collection ids).
+   */
+  @Test
+  public void polymorphicQueryCachedBeforeTheTransactionSeesATxCreatedSubclassRows() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("TxPolyParent");
+    session.begin();
+    var parentRow = (EntityImpl) session.newEntity("TxPolyParent");
+    parentRow.setProperty("name", "committed-parent-row");
+    session.commit();
+
+    // Prime the shared statement cache with the committed-state plan for the parent scan. The
+    // explicit surrounding transaction keeps the session's transaction state clean: a bare
+    // query would leave its implicit read-only transaction active and the begin() below would
+    // nest into it instead of opening a writable one.
+    session.begin();
+    try (var rs = session.query("select from TxPolyParent")) {
+      assertEquals(1L, rs.stream().count());
+    }
+    session.commit();
+
+    session.begin();
+    try {
+      schema.createClass("TxPolyChild", schema.getClass("TxPolyParent"));
+      var childRow = (EntityImpl) session.newEntity("TxPolyChild");
+      childRow.setProperty("name", "tx-child-row");
+
+      try (var rs = session.query("select from TxPolyParent")) {
+        var names = rs.stream().map(r -> (String) r.getProperty("name")).sorted().toList();
+        assertEquals("the mid-tx parent scan must merge committed parent rows with the"
+            + " tx-created subclass's rows",
+            List.of("committed-parent-row", "tx-child-row"), names);
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * After the creating transaction rolls back, its class is gone: the same statement text must
+   * fail with class-not-found instead of silently executing a cached plan that was built
+   * against the transaction's provisional scan set (such a plan must never enter the shared
+   * statement cache).
+   */
+  @Test
+  public void rolledBackTxCreatedClassLeavesNoReusablePlanBehind() {
+    session.begin();
+    try {
+      session.getMetadata().getSchema().createClass("TxRolledBackQueried");
+      var entity = (EntityImpl) session.newEntity("TxRolledBackQueried");
+      entity.setProperty("name", "gone");
+      try (var rs = session.query("select from TxRolledBackQueried")) {
+        assertEquals(1L, rs.stream().count());
+      }
+    } finally {
+      session.rollback();
+    }
+
+    var thrown = assertThrows(RuntimeException.class,
+        () -> session.query("select from TxRolledBackQueried").close());
+    assertTrue("the rolled-back class must not resolve, got: " + thrown.getMessage(),
+        thrown.getMessage() != null && thrown.getMessage().contains("TxRolledBackQueried"));
   }
 
   /**

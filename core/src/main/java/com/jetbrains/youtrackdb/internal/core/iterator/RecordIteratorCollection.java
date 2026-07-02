@@ -22,6 +22,7 @@ package com.jetbrains.youtrackdb.internal.core.iterator;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.record.RecordAbstract;
 import com.jetbrains.youtrackdb.internal.core.storage.RawBuffer;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.CollectionBrowseEntry;
@@ -50,8 +51,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   public RecordIteratorCollection(
       DatabaseSessionEmbedded session,
       int collectionId,
-      boolean forwardDirection
-  ) {
+      boolean forwardDirection) {
     this(session, collectionId, forwardDirection, true);
   }
 
@@ -59,8 +59,7 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
       DatabaseSessionEmbedded session,
       int collectionId,
       boolean forwardDirection,
-      boolean checkAccess
-  ) {
+      boolean checkAccess) {
     if (checkAccess) {
       RecordIteratorUtil.checkCollectionAccess(session, collectionId);
     }
@@ -79,9 +78,8 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
       // already initialized
       return;
     }
-    currentTx = requireActiveTx ?
-        session.getActiveTransaction() :
-        session.getActiveTransactionOrNull();
+    currentTx =
+        requireActiveTx ? session.getActiveTransaction() : session.getActiveTransactionOrNull();
 
     if (currentTx == null) {
       // no active transaction at the moment, we will initialize it on the first call to hasNext()
@@ -101,14 +99,20 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
       // ignore all records with lower RID positions (created after this call).
       final var lowestTxRid = currentTx.getNextRidInCollection(
           new RecordId(collectionId, Long.MIN_VALUE),
-          0
-      );
+          0);
       if (lowestTxRid != null) {
         minTxPosition = lowestTxRid.getCollectionPosition();
       }
 
-      // starting from storage iteration
-      initStorageIterator();
+      if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+        // No physical collection backs a provisional collection id (<= -2), so there is no
+        // storage phase to run first: start the backward iteration directly on the records
+        // created in the current transaction (see initStorageIterator).
+        moveTxIdBackward();
+      } else {
+        // starting from storage iteration
+        initStorageIterator();
+      }
     }
   }
 
@@ -211,6 +215,13 @@ public class RecordIteratorCollection<REC extends RecordAbstract>
   }
 
   private void initStorageIterator() {
+    if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+      // A provisional collection id (<= -2) belongs to a class created in the still-open
+      // transaction: no physical collection backs it until commit, so the storage phase is
+      // skipped (storageIterator stays null) and the transaction phase is the only record
+      // source for this collection.
+      return;
+    }
     storageIterator =
         session.getStorage().browseCollection(collectionId, forwardDirection,
             () -> session.getActiveTransaction().getAtomicOperation());

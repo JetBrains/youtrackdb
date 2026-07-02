@@ -110,9 +110,14 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     for (var collectionId : classCollections) {
       if (SchemaShared.isProvisionalCollectionId(collectionId)) {
         // A provisional collection id (<= -2) belongs to a class created in the still-open
-        // transaction; no physical collection backs it until commit, so scanning it would fail on
-        // a missing collection. Skipping it lets a same-tx query of the tx-created class complete
-        // through the remaining committed collections (none, for a brand-new class) without error.
+        // transaction. No physical collection backs it until commit, but the transaction keys
+        // its own record operations under it, so it joins the scan set and the collection
+        // iterator serves those rows from its transaction phase (the physical-storage phase is
+        // skipped). A named-collection filter can never select it: the collection has no name
+        // until commit.
+        if (collections == null) {
+          filteredClassCollections.add(collectionId);
+        }
         continue;
       }
       var collectionName = ctx.getDatabaseSession().getCollectionNameById(collectionId);
@@ -202,9 +207,22 @@ public class FetchFromClassExecutionStep extends AbstractExecutionStep {
     }
   }
 
-  /** Cacheable: collection IDs are resolved from the immutable schema snapshot at construction. */
+  /**
+   * Cacheable unless the scan set carries a provisional collection id ({@code <= -2}). Collection
+   * IDs are resolved from the immutable schema snapshot at construction, and a provisional id is
+   * meaningful only inside the transaction that created its class: to every other session, and to
+   * this session after commit (when the reconciled real id replaces it), a plan carrying one
+   * scans a collection that does not exist and silently misses the real rows.
+   */
   @Override
   public boolean canBeCached() {
+    if (collectionIds != null) {
+      for (var collectionId : collectionIds) {
+        if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+          return false;
+        }
+      }
+    }
     return true;
   }
 

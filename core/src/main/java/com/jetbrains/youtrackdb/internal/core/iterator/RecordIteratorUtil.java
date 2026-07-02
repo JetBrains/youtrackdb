@@ -20,6 +20,7 @@
 package com.jetbrains.youtrackdb.internal.core.iterator;
 
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 
@@ -29,6 +30,12 @@ public class RecordIteratorUtil {
   public static void checkCollectionAccess(
       final DatabaseSessionEmbedded session,
       final int collectionId) {
+    if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+      // A provisional collection id (<= -2) belongs to a class created in the still-open
+      // transaction; it backs no physical collection yet, so it cannot be a system collection
+      // (and the storage lookup below would reject the id as nonexistent).
+      return;
+    }
     if (session.getStorage().isSystemCollection(collectionId)) {
       checkSystemCollectionAccess(session);
     }
@@ -37,9 +44,12 @@ public class RecordIteratorUtil {
   /// Check whether the current user is allowed to access the specified collections.
   public static void checkCollectionsAccess(
       final DatabaseSessionEmbedded session,
-      final int[] collectionIds
-  ) {
+      final int[] collectionIds) {
     for (var collectionId : collectionIds) {
+      if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+        // See checkCollectionAccess: a provisional id backs no physical collection yet.
+        continue;
+      }
       if (session.getStorage().isSystemCollection(collectionId)) {
         checkSystemCollectionAccess(session);
         break;

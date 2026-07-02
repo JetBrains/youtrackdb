@@ -4044,16 +4044,14 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
                     + " and cannot be saved");
           }
 
-          var collectionForNew = schemaClass.getCollectionForNewInstance(entity);
-          if (SchemaShared.isProvisionalCollectionId(collectionForNew)) {
-            // The class was created inside this still-open transaction, so its collection id is
-            // provisional (<= -2) and backs no physical collection yet; a RID cannot carry it.
-            // Defer the record's collection to commit: the commit-time reconciliation creates the
-            // real collection and rebuilds the pinned snapshot, so the commit working set
-            // re-resolves this record's collection through the reconciled real id.
-            return RID.COLLECTION_ID_INVALID;
-          }
-          return collectionForNew;
+          // For a class created inside this still-open transaction the id below is provisional
+          // (<= -2): it backs no physical collection until commit. The record id carries the
+          // provisional id anyway. The transaction keys its record operations under it, so a
+          // same-transaction scan of the tx-created class serves the rows from the transaction
+          // phase, and the commit rewrites every provisional record-collection id to the
+          // reconciled real id before any record locks a collection, allocates a position, or
+          // serializes.
+          return schemaClass.getCollectionForNewInstance(entity);
         } else {
           throw new DatabaseException(getDatabaseName(),
               "Cannot save (1) entity " + record + ": no class or collection defined");

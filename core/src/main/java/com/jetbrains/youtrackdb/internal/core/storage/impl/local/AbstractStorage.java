@@ -2427,6 +2427,12 @@ public abstract class AbstractStorage
 
     for (final var recordOperation : recordOperations) {
       var record = recordOperation.record;
+      // A provisional collection id (<= -2) must never reach the working set: the schema-carry
+      // commit rewrites every provisional record-collection id to its reconciled real id before
+      // gathering the working set, and a pure-data commit cannot produce one (a tx-created
+      // class exists only inside a schema-changing transaction).
+      assert !SchemaShared.isProvisionalCollectionId(record.getIdentity().getCollectionId())
+          : "provisional collection id reached the commit working set: " + record.getIdentity();
       if (recordOperation.type == RecordOperation.CREATED
           || recordOperation.type == RecordOperation.UPDATED) {
 
@@ -2468,6 +2474,46 @@ public abstract class AbstractStorage
 
     return new CommitWorkingSet(recordOperations, collectionsToLock, newRecords,
         collectionOverrides);
+  }
+
+  /**
+   * Rewrites each record id that carries a provisional collection id ({@code <= -2}, allocated
+   * for a class created inside the still-open transaction) to the real collection id the
+   * commit's reconciliation assigned. New records of a tx-created class carry the provisional
+   * id from creation so a same-transaction scan finds them under it; by this point every
+   * provisional id must have a recorded resolution, because the id participates in collection
+   * locking, position allocation, and record serialization right after. The rewrite goes
+   * through {@link ChangeableRecordId#setCollectionAndPosition} so the transaction's rid-keyed
+   * maps re-key through the identity-change listeners, exactly like the temp-position rewrite
+   * the allocation loop applies later.
+   */
+  private void rewriteProvisionalRecordCollectionIds(
+      final FrontendTransactionImpl frontendTransaction, final TxSchemaState txSchemaState) {
+    // Copy first: the identity-change listeners re-key the transaction's record-operation map
+    // mid-iteration, and getRecordOperationsInternal() is a live view over that map.
+    final var recordOperations =
+        new ArrayList<>(frontendTransaction.getRecordOperationsInternal());
+    for (final var recordOperation : recordOperations) {
+      final var rid = recordOperation.record.getIdentity();
+      final var collectionId = rid.getCollectionId();
+      if (!SchemaShared.isProvisionalCollectionId(collectionId)) {
+        continue;
+      }
+      final var realCollectionId = txSchemaState.getResolvedCollectionId(collectionId);
+      if (realCollectionId == TxSchemaState.NO_RESOLUTION) {
+        throw new StorageException(name,
+            "Record " + rid + " references provisional collection " + collectionId
+                + " but the commit reconciliation resolved no real collection for it");
+      }
+      if (rid instanceof ChangeableRecordId changeableRecordId) {
+        changeableRecordId.setCollectionAndPosition(realCollectionId,
+            rid.getCollectionPosition());
+      } else {
+        throw new StorageException(name,
+            "Record " + rid + " carries a provisional collection id but its identity cannot be"
+                + " rewritten");
+      }
+    }
   }
 
   /**
@@ -2624,6 +2670,14 @@ public abstract class AbstractStorage
             schemaContext.txSchemaState().invalidateOverlaySnapshot();
             session.getMetadata().rebuildThreadLocalSchemaSnapshot();
           }
+
+          // Rewrite every record id that still carries a provisional collection id (<= -2) to
+          // the real id reconciliation assigned above, so the working set gathered below locks,
+          // allocates, and serializes against real collections only and no provisional id can
+          // reach durable bytes. Runs after the pinned-snapshot rebuild so the record ids and
+          // the snapshot agree on the reconciled ids.
+          rewriteProvisionalRecordCollectionIds(frontendTransaction,
+              schemaContext.txSchemaState());
         }
 
         // Gather the working set after any schema serialization so the new schema records join it.
