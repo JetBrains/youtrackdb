@@ -15,7 +15,7 @@ YTDB-1191 asks for a way for database clients to inspect the execution plan of a
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 - [x] 2026-07-02T14:12Z [ctx=unknown] Review + decomposition complete
 - [x] 2026-07-02T15:06Z [ctx=unknown] Step 1 complete (commit 48177a5ea79bf1831ab78cf736fb7720e03a43e2)
 - [x] 2026-07-02T15:21Z [ctx=safe] Track-level code review complete (PASS iteration 1)
@@ -109,6 +109,13 @@ Ordering constraint: step 3 depends on the accessor from step 2 and the interfac
 **What changed from the plan:** All tests landed in `YTDBQueryMetricsStrategyTest`; the plan allowed either that file or `YTDBTransactionMetricsListenerTest`, and the latter was used only as an unmodified regression check. The cache-replay test additionally toggles `QUERY_TX_RESULT_CACHE_ENABLED`, which D5 did not note was required. D5's Risks/Caveats is updated below to record the cache-enabled precondition.
 
 **Key files:** `QueryMetricsListener.java`, `YTDBGraphStep.java`, `YTDBQueryMetricsStep.java`, `YTDBQueryMetricsStrategyTest.java` (all in `core`).
+
+### Track completion — 2026-07-02T15:39Z [ctx=safe]
+A registered `QueryMetricsListener` can now inspect the execution plan of the query it was notified about. `QueryDetails` exposes a `@Nullable default ExecutionPlan getExecutionPlan()`; `YTDBGraphStep` captures the already-built plan in the query branch and clears it on `reset()` (after `super.reset()`); `YTDBQueryMetricsStep` resolves the root source step and wires the plan into the anonymous `QueryDetails`. Capture stays a single unconditional field write, so the source step holds no monitoring dependency. Embedded-only, no public-API or storage surface.
+
+Phase C code review passed (0 blockers, 0 should-fix, 8 suggestions), and all eight suggestions were applied on the user's request in a review-mode round (`Review fix:` commit `01b67d3a7c`): a stronger positive scan-plan assertion, the cache-enabled precondition on the accessor javadoc, an `assertThat` import unification, two new limitation-guard tests, and a house-style fix. The `limit(0)` guard test corrected a factual error in decision record **D2** — the plan is captured even with a downstream `limit(0)` because the `YTDBGraphStep` source supplier runs its query eagerly on iteration, before `RangeGlobalStep` can short-circuit; D2's prose and the test now record the true behavior. A follow-up gate-check caught and fixed a contradiction (WC1) the D2 reconciliation briefly introduced. No cross-track impact (single-track change); nothing downstream consumes this track.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 The track lands when a registered `QueryMetricsListener` can inspect the plan of the query it was notified about, and the documented limitations hold. Behavioral acceptance criteria:
