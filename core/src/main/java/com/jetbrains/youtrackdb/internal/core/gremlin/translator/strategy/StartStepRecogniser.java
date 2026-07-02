@@ -26,6 +26,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.jspecify.annotations.NonNull;
 
 /**
  * Recogniser for the start step of a vertex-rooted traversal — the bare {@code g.V()}
@@ -78,7 +79,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * and from {@code MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX} so neither inline-named
  * user aliases nor the planner's internal auto-generation can collide.
  */
-final class StartStepRecogniser implements StepRecogniser {
+public final class StartStepRecogniser implements StepRecogniser {
 
   /** Singleton — the recogniser is stateless and cheap to share across walker instances. */
   static final StartStepRecogniser INSTANCE = new StartStepRecogniser();
@@ -234,7 +235,6 @@ final class StartStepRecogniser implements StepRecogniser {
    */
   @Nullable private static RecordIdInternal toRecordId(@Nullable Object id) {
     return switch (id) {
-      case null -> null;
       case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
       case String s -> {
         if (s.isBlank()) {
@@ -248,7 +248,7 @@ final class StartStepRecogniser implements StepRecogniser {
           yield null;
         }
       }
-      default -> null;
+      case null, default -> null;
     };
   }
 
@@ -259,14 +259,27 @@ final class StartStepRecogniser implements StepRecogniser {
    * produces when an expression is attached.
    */
   private static SQLRid toSqlRid(RecordIdInternal rid) {
+    return createLegacySqlRid(rid);
+  }
+
+  /**
+   * Factory method to construct and initialize a basic {@link SQLRid} node in legacy mode
+   * from a raw storage-level {@link RecordIdInternal}.
+   */
+  public static SQLRid createLegacySqlRid(RecordIdInternal rid) {
+    java.util.Objects.requireNonNull(rid);
+
     var sqlRid = new SQLRid(-1);
     var collection = new SQLInteger(-1);
     collection.setValue(rid.getCollectionId());
+
     var position = new SQLInteger(-1);
     position.setValue(rid.getCollectionPosition());
+
     sqlRid.setCollection(collection);
     sqlRid.setPosition(position);
     sqlRid.setLegacy(true);
+
     return sqlRid;
   }
 
@@ -299,6 +312,11 @@ final class StartStepRecogniser implements StepRecogniser {
     var rightBase = new SQLBaseExpression(-1);
     rightBase.setIdentifier(ident);
 
+    return getSqlInCondition(leftExpr, rightBase);
+  }
+
+  private static @NonNull SQLInCondition getSqlInCondition(SQLExpression leftExpr,
+      SQLBaseExpression rightBase) {
     var condition = new SQLInCondition(-1);
     condition.setLeft(leftExpr);
     condition.setRightMathExpression(rightBase);
