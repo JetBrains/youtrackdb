@@ -268,8 +268,11 @@ of the changes.
    hides the real change: only the delta against the live counterpart is
    worth review. Enumerate the new-file adds under the anchored staged
    prefix in the cumulative range, derive each live counterpart by
-   stripping that prefix, and when the live file exists write
-   `diff <live> <staged>` to a per-track delta temp file:
+   stripping that prefix, then record each add in a per-track delta temp
+   file — a `diff <live> <staged>` when the live counterpart exists, or a
+   `=== NEW staged file (no live counterpart): … ===` marker when it does
+   not (a genuinely new `.claude/**` file with no `develop` version, whose
+   whole-file content is itself the change to review):
 
    ```bash
    : > /tmp/claude-code-track-{N}-delta-$PPID.txt
@@ -286,13 +289,18 @@ of the changes.
                  diff "$live" "$staged"
                  printf '\n'
              } >> /tmp/claude-code-track-{N}-delta-$PPID.txt
+         else
+             printf '=== NEW staged file (no live counterpart): %s ===\n\n' "$staged" \
+                 >> /tmp/claude-code-track-{N}-delta-$PPID.txt
          fi
        done
    ```
 
-   The trigger is precise: it fires only on a new-file add
-   (`--diff-filter=A`) under the anchored staged prefix that has a live
-   counterpart. A later edit to an already-restaged file is an ordinary
+   The trigger is precise: it fires on every new-file add
+   (`--diff-filter=A`) under the anchored staged prefix — recorded as a
+   `diff <live> <staged>` delta when a live counterpart exists, and under
+   a `=== NEW staged file (no live counterpart): … ===` marker when it
+   does not. A later edit to an already-restaged file is an ordinary
    diff, stages no delta, and the reviewer sees the ordinary diff
    unchanged. The delta file is empty when no freshly-created staged copy
    is in range — the scope note in the canonical context block points
@@ -337,9 +345,12 @@ of the changes.
    these execution-time measurements rather than pinned hard. On a
    workflow-only track whose diff is dominated by freshly-staged
    `.claude/**` whole-file copies, read the count as an order-of-magnitude
-   signal: a whole-file staged copy inflates the line count without adding
-   proportional review surface (the `diff <live> <staged>` delta from
-   step 8 is the truer measure of what a reviewer reads).
+   signal: a whole-file copy of a live file inflates the line count
+   without adding proportional review surface (the `diff <live> <staged>`
+   delta from step 8 is the truer measure of what a reviewer reads). A
+   NEW staged file with no live counterpart has no such delta, and its
+   whole-file content is the real review surface, so its line count is
+   genuine burden, not noise.
 
 ---
 
@@ -453,16 +464,21 @@ branch already rewrote and report a phantom mismatch.
 
 ## Review-target delta for freshly-created staged copies
 When a changed file is a staged copy first created in this
-reviewed range, the diff shows a whole-file add even though the
-file is a copy of an already-live, already-reviewed file plus a
-small edit. The delta file at
+reviewed range, the diff shows a whole-file add. The delta file at
   /tmp/claude-code-track-{N}-delta-{PPID}.txt
-lists, per such file, the `diff <live> <staged>` against its live
-counterpart. When that file is non-empty, scope your findings to
-the delta: the rest of each whole-file add is verbatim-copied,
-already-live, already-reviewed content and is out of scope. When
-it is empty (no freshly-created staged copy in range, or an
-ordinary plan), review the diff as usual.
+records one entry per such file, keyed on a marker that tells you
+how to scope it:
+  - `=== delta: <live> vs <staged> ===` — the staged file is a copy
+    of an already-live, already-reviewed file plus a small edit.
+    Scope your findings to the `diff <live> <staged>` that follows;
+    the rest of the whole-file add is verbatim-copied, already-live,
+    already-reviewed content and is out of scope.
+  - `=== NEW staged file (no live counterpart): <staged> ===` — the
+    staged file is genuinely new, with no `develop` counterpart and
+    so no already-reviewed baseline. Review it in full; its whole-file
+    add in the diff is the real change.
+When the delta file is empty (no freshly-created staged copy in
+range, or an ordinary plan), review the diff as usual.
 
 ## Diff
 The full cumulative track diff is at:
