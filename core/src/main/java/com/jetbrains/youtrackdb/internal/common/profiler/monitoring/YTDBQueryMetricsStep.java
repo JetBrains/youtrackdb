@@ -129,6 +129,10 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
   @Override
   public void close() throws Exception {
+    // Guard against a second close: close() is not naturally idempotent, and a started
+    // traversal can be closed more than once (e.g. toList() closes it, then an enclosing
+    // try-with-resources closes it again). Set the flag before queryFinished(...) so that
+    // even if the listener throws (the body catches and logs), a later close is still a no-op.
     if (!hasStarted || closed) {
       return;
     }
