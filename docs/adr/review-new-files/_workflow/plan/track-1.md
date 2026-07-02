@@ -19,6 +19,10 @@ A brand-new staged `.claude/**` file ships unreviewed while the review machinery
 
 - [x] 2026-07-01T17:02Z [ctx=safe] Review + decomposition complete
 
+## Base commit
+
+0aaf4e7c61dee2475d30e77a05f77f19dfb515fa (Phase B startup, before the first implementer spawn).
+
 ## Surprises & Discoveries
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
