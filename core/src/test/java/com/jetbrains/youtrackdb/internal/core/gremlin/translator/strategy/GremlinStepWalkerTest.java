@@ -196,6 +196,27 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * The minimal-prefix (size-1) gate declines any traversal larger than the single vertex source
+   * the Phase 1 registry can translate whole, without walking a single step. {@code g.V().count()}
+   * has two steps; the walker's up-front size check declines it (the recognizer for the second
+   * step does not exist yet, so the all-or-nothing loop would decline anyway, but the size gate is
+   * the direct, greppable bound on the recognized set). The traversal's native step list is left
+   * untouched.
+   */
+  @Test
+  public void walk_multiStepTraversal_declinesUnderMinimalPrefixGate() {
+    var admin = graph.traversal().V().count().asAdmin();
+    var stepsBefore = List.copyOf(admin.getSteps());
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("a multi-step traversal declines under the size-1 gate").isEmpty();
+    assertThat(admin.getSteps())
+        .as("the size gate never mutates the traversal's native step list")
+        .isEqualTo(stepsBefore);
+  }
+
+  /**
    * An edge start ({@code g.E()}) declines: the start-step recognizer accepts only vertex-rooted
    * ({@code returnsVertex()}) sources.
    */
