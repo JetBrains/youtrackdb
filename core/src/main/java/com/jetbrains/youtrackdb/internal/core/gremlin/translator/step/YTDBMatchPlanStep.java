@@ -120,7 +120,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       InternalExecutionPlan plan,
       String boundaryAlias,
       BoundaryOutputType outputType) {
-    super(traversal, returnClass, /*isStart*/ true, /*ids*/ new Object[0]);
+    super(traversal, returnClass, /*isStart*/ true /*ids*/);
     this.plan = Objects.requireNonNull(plan, "plan must not be null");
     this.boundaryAlias = Objects.requireNonNull(boundaryAlias, "boundaryAlias must not be null");
     this.outputType = Objects.requireNonNull(outputType, "outputType must not be null");
@@ -244,7 +244,6 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
   }
 
   @Override
-  @SuppressWarnings("unchecked")
   public YTDBMatchPlanStep<S, E> clone() {
     // super.clone() (AbstractStep.clone) already re-arms the inherited iterator/done state
     // and calls reset() on the clone. We must NOT call reset() again here, and reset() must
@@ -272,12 +271,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
     // defeating the isolation this clone exists to provide.
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(plan.getContext());
-    var copiedPlan = plan.copy(isolatedCtx);
     // super.clone()'s shallow copy left `cloned.plan` pointing at the original plan. The
     // field is non-final (see the field declaration), so assign the independent copy with a
     // plain write — no reflection, and no JMM final-field-freeze hazard because the write
     // happens before the clone is published to any other thread.
-    cloned.plan = copiedPlan;
+    cloned.plan = plan.copy(isolatedCtx);
     // Clear both open-tracking flags on the clone. super.clone() copies primitive fields by
     // value, so without this the clone would inherit the original's flags: `started=true`
     // would make the clone's first createIterator() throw, and `everStarted=true` would make
