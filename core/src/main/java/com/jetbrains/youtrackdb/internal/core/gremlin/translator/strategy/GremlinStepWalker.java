@@ -67,6 +67,17 @@ final class GremlinStepWalker {
   private static final GremlinStepWalker PRODUCTION_INSTANCE =
       new GremlinStepWalker(PRODUCTION_RECOGNISERS);
 
+  /**
+   * Largest traversal the current recogniser registry can translate whole. Phase 1 recognises
+   * only the single vertex-source step, so a traversal with any follow-up step is a shape this
+   * registry cannot cover. The walker declines such traversals up front rather than walking them:
+   * the all-or-nothing loop below would decline anyway (a follow-up step has no recogniser), but
+   * an explicit size gate makes the recognised-set bound a single, greppable constant and guards
+   * against a future recogniser regression that would otherwise let a multi-step traversal slip
+   * through. Later tracks that widen the recognised set raise this bound.
+   */
+  private static final int MAX_RECOGNISED_STEPS = 1;
+
   private final Map<Class<?>, StepRecogniser> recognisers;
 
   /**
@@ -90,6 +101,14 @@ final class GremlinStepWalker {
    */
   Optional<GremlinToMatchTranslator.TranslationResult> walk(
       Traversal.Admin<?, ?> traversal) {
+    // Minimal-prefix gate: decline any traversal larger than the current recognised set can
+    // translate whole. See MAX_RECOGNISED_STEPS — this bounds Phase 1 to the bare vertex source
+    // and keeps a follow-up step (out/has/match/…) on the native pipeline. The size check is
+    // cheap and runs before any per-step work.
+    if (traversal.getSteps().size() > MAX_RECOGNISED_STEPS) {
+      return Optional.empty();
+    }
+
     var ctx = new WalkerContext(traversal);
 
     for (Step<?, ?> step : traversal.getSteps()) {
