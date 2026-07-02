@@ -56,6 +56,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   private final Ticker ticker;
   private final boolean isLightweight;
   private boolean hasStarted = false;
+  private boolean closed = false;
   private long startMillis;
   private long nano;
   private long endNano;
@@ -128,9 +129,14 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
   @Override
   public void close() throws Exception {
-    if (!hasStarted) {
+    // Guard against a second close: close() is not naturally idempotent, and a started
+    // traversal can be closed more than once (e.g. toList() closes it, then an enclosing
+    // try-with-resources closes it again). Set the flag before queryFinished(...) so that
+    // even if the listener throws (the body catches and logs), a later close is still a no-op.
+    if (!hasStarted || closed) {
       return;
     }
+    closed = true;
 
     final var duration = isLightweight ? endNano - nano : nano;
     try {
