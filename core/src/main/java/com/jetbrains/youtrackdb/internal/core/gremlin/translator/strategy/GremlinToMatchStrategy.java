@@ -275,6 +275,10 @@ public final class GremlinToMatchStrategy
    * {@code @Nullable}; a null result is treated as "decline" (returns {@code null}) so the
    * kill-switch read never dereferences a null configuration.
    */
+  // The Graph (and the Transaction from graph.tx()) are borrowed from the traversal — the
+  // caller's long-lived database graph — not opened here. try-with-resources would close them,
+  // tearing down the user's graph mid-compilation, so the resource inspection is suppressed.
+  @SuppressWarnings("resource")
   @Nullable private static DatabaseSessionEmbedded resolveSessionIfEnabled(
       Traversal.Admin<?, ?> traversal) {
     var graph = traversal.getGraph().orElse(null);
