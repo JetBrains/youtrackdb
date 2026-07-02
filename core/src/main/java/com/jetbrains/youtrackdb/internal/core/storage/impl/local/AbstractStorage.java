@@ -2501,10 +2501,29 @@ public abstract class AbstractStorage
       }
       final var realCollectionId = txSchemaState.getResolvedCollectionId(collectionId);
       if (realCollectionId == TxSchemaState.NO_RESOLUTION) {
+        // Reconciliation records a resolution for every provisional collection the tx-local
+        // schema still owns at commit, so a miss means the record's class stopped owning it
+        // later in the same transaction (the class was dropped, or altered back to abstract,
+        // after the record was written). Failing loudly is deliberate: silently discarding the
+        // record operation would hide a data-losing commit, and letting the provisional id
+        // continue would corrupt durable bytes.
         throw new StorageException(name,
             "Record " + rid + " references provisional collection " + collectionId
-                + " but the commit reconciliation resolved no real collection for it");
+                + " (collection name '"
+                + txSchemaState.getProvisionalCollectionNames().get(collectionId)
+                + "'), but its class was dropped or made abstract later in the same"
+                + " transaction, so the commit reconciliation resolved no real collection for"
+                + " it. Delete the class's records before dropping the class in the same"
+                + " transaction");
       }
+      // Reconciliation must resolve a provisional id to a real (non-negative) collection: -1 is
+      // the abstract/invalid sentinel, and a -1 that slipped through here would be silently
+      // re-resolved by the working-set CREATED-branch collection fix-up, masking the
+      // reconciliation bug and possibly landing the record in a different collection than the
+      // one reconciliation built.
+      assert realCollectionId >= 0
+          : "reconciliation resolved provisional collection " + collectionId
+              + " to non-real id " + realCollectionId + " for record " + rid;
       if (rid instanceof ChangeableRecordId changeableRecordId) {
         changeableRecordId.setCollectionAndPosition(realCollectionId,
             rid.getCollectionPosition());
@@ -3030,8 +3049,18 @@ public abstract class AbstractStorage
       // Creates: each provisional id the transaction allocated becomes a real collection created
       // under the carried <class>_<counter> name at a commit-local first-null-slot id. Record the
       // resolution so the patch list can rewrite every provisional reference before serialization.
+      final var ownedProvisionalIds = txLocalSchema.getOwnedProvisionalCollectionIds();
       for (final var entry : txProvisionalNames.int2ObjectEntrySet()) {
         final int provisionalId = entry.getIntKey();
+        if (!ownedProvisionalIds.contains(provisionalId)) {
+          // The tx-local schema no longer owns this provisional collection at commit: the class
+          // that allocated it was dropped (or made abstract again) later in the same transaction.
+          // Creating its collection would publish an orphan no schema path can ever reach, so it
+          // is skipped and no resolution is recorded. A record operation still carrying the id
+          // then fails loudly in the provisional-id rewrite, which keeps the drop from silently
+          // committing the class's rows into an unreachable collection.
+          continue;
+        }
         final String collectionName = entry.getValue();
         final int realId = nextFreeCollectionId();
         // The allocator must hand back a genuinely free slot (an append at the list end or a null

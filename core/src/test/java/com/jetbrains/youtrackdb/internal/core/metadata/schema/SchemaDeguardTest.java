@@ -10,6 +10,7 @@ import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
 import com.jetbrains.youtrackdb.internal.core.index.IndexException;
 import com.jetbrains.youtrackdb.internal.core.index.PropertyIndexDefinition;
@@ -905,6 +906,44 @@ public class SchemaDeguardTest extends DbTestBase {
           assertEquals("the live resolution map must carry exactly the one recorded mapping",
               1, state.getResolvedCollectionIds().size());
         });
+  }
+
+  /**
+   * The provisional-id allocator fails loudly at the {@link Short#MIN_VALUE} floor the record id's
+   * short-width collection-id serialization imposes, naming the real cause (too many collections
+   * created in one transaction). Without the explicit floor check the exhaustion would only
+   * surface later, at record insert, as a misleading record-id serialization error. The last id
+   * before the floor must still allocate normally, so the check does not shrink the usable space.
+   */
+  @Test
+  public void provisionalIdAllocatorFailsLoudlyAtTheRecordIdShortFloor() {
+    session.begin();
+    try {
+      // Seed the tx-local state by routing one schema write through the proxy; the create itself
+      // consumes a few provisional ids, so the drain below starts wherever the counter stands.
+      session.getMetadata().getSchema().createClass("AllocatorFloorSeed");
+      var state = session.getTxSchemaState();
+      assertNotNull("a routed schema write must have seeded the tx-local state", state);
+
+      // Drain the allocator down to the floor. Each allocation is a counter decrement plus a map
+      // put, so the ~32K iterations stay cheap.
+      var last = state.allocateProvisionalCollectionId("allocatorfloorseed_drain");
+      while (last > Short.MIN_VALUE) {
+        last = state.allocateProvisionalCollectionId("allocatorfloorseed_drain");
+      }
+      assertEquals("the floor id itself must still be allocatable", Short.MIN_VALUE, last);
+
+      var thrown = assertThrows(DatabaseException.class,
+          () -> state.allocateProvisionalCollectionId("allocatorfloorseed_over"));
+      assertTrue("the exhaustion error must name the too-many-collections-in-one-transaction"
+          + " cause, got: " + thrown.getMessage(),
+          thrown.getMessage().contains("in one transaction"));
+      // The allocator must stay exhausted (and keep failing loudly) instead of wrapping around.
+      assertThrows(DatabaseException.class,
+          () -> state.allocateProvisionalCollectionId("allocatorfloorseed_again"));
+    } finally {
+      session.rollback();
+    }
   }
 
   /**
