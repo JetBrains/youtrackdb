@@ -16,7 +16,9 @@ import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
+import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphInternal;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBVertexImpl;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
@@ -58,6 +60,8 @@ import org.mockito.InOrder;
 public class YTDBMatchPlanStepTest {
 
   private YTDBGraphInternal graph;
+  private YTDBTransaction tx;
+  private DatabaseSessionEmbedded threadSession;
   private Traversal.Admin<Object, Vertex> traversal;
   private InternalExecutionPlan plan;
   private CommandContext ctx;
@@ -70,6 +74,15 @@ public class YTDBMatchPlanStepTest {
     plan = mock(InternalExecutionPlan.class);
     ctx = mock(CommandContext.class);
     stream = mock(ExecutionStream.class);
+    // createIterator() rebinds the plan to the session active on the iteration thread before
+    // running it (see YTDBMatchPlanStep.createIterator). Stub that chain — graph.tx() →
+    // YTDBTransaction, readWrite() a no-op, getDatabaseSession() the thread session — so the
+    // iteration tests exercise the real rebind path. Lenient because ctor-only tests never
+    // reach createIterator.
+    tx = mock(YTDBTransaction.class);
+    threadSession = mock(DatabaseSessionEmbedded.class);
+    lenient().when(graph.tx()).thenReturn(tx);
+    lenient().when(tx.getDatabaseSession()).thenReturn(threadSession);
     // Default plan stubs used by every iteration test. Lenient because ctor-only tests
     // never invoke them.
     lenient().when(plan.getContext()).thenReturn(ctx);
@@ -107,6 +120,33 @@ public class YTDBMatchPlanStepTest {
   }
 
   // ---- Iterator construction & projection ----
+
+  /**
+   * Regression for the remote-path {@code SessionNotActivatedException}: the boundary step must
+   * rebind its plan to the session active on the current (iteration) thread before running it.
+   * The plan is built at strategy-application time, which on the server can run on a different
+   * thread than iteration; each server worker thread owns its own pooled session, and running
+   * the plan against the compile-time session throws {@code SessionNotActivatedException} because
+   * YouTrackDB record reads require the session to be active on the reading thread. This test
+   * pins the rebind order: {@code createIterator()} opens the transaction ({@code readWrite}) and
+   * pushes the thread session onto the plan's context before {@code plan.start()}, so the plan
+   * always runs against the thread-active session. The cross-thread reproduction (compile on one
+   * thread, iterate on another) is covered end-to-end by the remote TinkerPop process suite
+   * ({@code GraphBinaryRemoteGraphProcessExtendedTest}) that CI runs; this unit test pins only the
+   * rebind order, since a mock session asserts nothing about the active thread.
+   */
+  @Test
+  public void createIterator_rebindsThreadSessionOntoPlanContext_beforeStart() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.createIterator();
+
+    var order = inOrder(tx, ctx, plan);
+    order.verify(tx).readWrite();
+    order.verify(ctx).setDatabaseSession(threadSession);
+    order.verify(plan).start();
+  }
 
   /**
    * Drives a stream of two rows through the iterator and asserts each emitted vertex wraps
@@ -580,6 +620,28 @@ public class YTDBMatchPlanStepTest {
     // The re-arm rewinds the plan's step chain before the second start so the second pass
     // runs from the top rather than against consumed cursors.
     verify(plan, times(1)).reset(ctx);
+  }
+
+  /**
+   * The session rebind must run on every arming, not only the first. TinkerPop may {@code reset()}
+   * a start step and re-iterate it on a different thread than the first pass (traversal reuse), so
+   * a second {@code createIterator()} must re-resolve and re-push the thread-active session before
+   * the second {@code plan.start()}. This pins the rebind as unconditional: a refactor that hoisted
+   * it behind the {@code everStarted} guard would rebind only once and reintroduce the remote-path
+   * {@code SessionNotActivatedException} on the re-run.
+   */
+  @Test
+  public void reset_thenCreateIterator_rebindsSessionAgainBeforeSecondStart() {
+    when(stream.hasNext(ctx)).thenReturn(false);
+
+    var step = elementStep("v");
+    step.createIterator(); // first arming
+    step.reset(); // re-arm in place
+    step.createIterator(); // second arming
+
+    // Two full armings → two rebinds, each opening the transaction and pushing the thread session.
+    verify(tx, times(2)).readWrite();
+    verify(ctx, times(2)).setDatabaseSession(threadSession);
   }
 
   /**

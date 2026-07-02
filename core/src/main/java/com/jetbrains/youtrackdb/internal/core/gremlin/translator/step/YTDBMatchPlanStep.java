@@ -38,7 +38,10 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * <ul>
  *   <li><b>Construction:</b> the strategy assembles the plan via
  *       {@code MatchExecutionPlanner} and constructs this step. No execution work runs yet.
- *   <li><b>Iteration:</b> on first {@code processNextStart}, the supplier fires:
+ *   <li><b>Iteration:</b> on first {@code processNextStart}, the supplier fires. It first
+ *       rebinds the plan's context to the session active on the current (iteration) thread —
+ *       the plan was built on a possibly-different thread, and YouTrackDB record reads require
+ *       the session to be active on the reading thread (see {@code createIterator}). Then
  *       {@code plan.start()} produces an {@link ExecutionStream}; each call pulls one
  *       {@link Result} row, projects it per {@link BoundaryOutputType}, and emits a
  *       traverser. Wrapping happens via {@link YTDBVertexImpl} (using the graph from the
@@ -162,17 +165,31 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
               + "independent second pass.");
     }
     var ctx = plan.getContext();
+    // Resolve the graph first — getTraversal().getGraph() can throw (Optional.empty().orElseThrow)
+    // or the cast to YTDBGraphInternal can throw. Doing it before plan.start() means a failure
+    // here leaks nothing: the plan has not been started and the close hook is only installed once
+    // CloseableIteratorWithCallback has been constructed.
+    var graph = (YTDBGraphInternal) getTraversal().getGraph().orElseThrow();
+    // Rebind the plan to the session active on the CURRENT (iteration) thread before running it.
+    // The plan was built at strategy-application time against the session active then. On the
+    // server each worker thread owns its own pooled session (the graph's underlying session is
+    // thread-local), and traversal compilation can run on a different thread than iteration.
+    // Running the plan against the compile-time session throws SessionNotActivatedException:
+    // YouTrackDB record reads assert the session is active on the current thread, and only the
+    // iteration thread's own session is. Re-resolving here, the same way the native YTDBGraphStep
+    // does in elements(), keeps the plan bound to the thread-active session. Both sessions belong
+    // to the same database and share the schema and statistics the plan was compiled against, so
+    // the swap is execution-safe. This must precede plan.reset()/plan.start() so the rewind and
+    // the run both see the correct session.
+    var tx = graph.tx();
+    tx.readWrite();
+    ctx.setDatabaseSession(tx.getDatabaseSession());
     // A re-arm after a prior run (reset() cleared `started` but left `everStarted` set) must
     // rewind the plan's step chain before re-starting it — otherwise plan.start() would
     // re-iterate against already-consumed cursors. A never-started plan needs no rewind.
     if (everStarted) {
       plan.reset(ctx);
     }
-    // Resolve the graph BEFORE opening the stream — getTraversal().getGraph() can throw
-    // (Optional.empty().orElseThrow) or the cast to YTDBGraphInternal can throw. Opening
-    // the stream first would leak it on either failure because the close hook is only
-    // installed once CloseableIteratorWithCallback has been constructed.
-    var graph = (YTDBGraphInternal) getTraversal().getGraph().orElseThrow();
     // `plan.start()` is itself non-trivial work — it walks the plan's step chain and
     // each step's `internalStart(ctx)` may open cursors, prefetch rows, or otherwise
     // claim resources before throwing. Wrap it in its own try so that a partial start
