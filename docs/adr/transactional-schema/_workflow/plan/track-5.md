@@ -105,6 +105,22 @@ the membership-ripple overlay routing that Track 3 de-guarded.
   present with and without the Step 4 diff, isolated runs pass. Same YTDB-1101 /
   committer-side promotion-read boundary recorded after Step 2, relevant to Track 7
   alongside the known-red `MetadataWriteMutexTest`. See Episodes §Step 4.
+- **A tx-created (deferred) index never applies `ignoreNullValues` config (track-review
+  iteration 2 discovery).** `IndexManagerEmbedded`'s `setNullValuesIgnored` block (metadata
+  value, else `GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT`, default false) runs only
+  on the non-transactional create branch, so a tx-created index keeps
+  `AbstractIndexDefinition`'s constructor default `nullValuesIgnored = true` and silently
+  skips null keys, while an identical committed-path create indexes them. The TC5 build test
+  pins the deferred-path behavior and documents the divergence. Follow-up issue candidate;
+  blast radius widens when property-create de-guards.
+- **Provisional-subclass membership rides a null placeholder into the committed index
+  (track-review iteration 2 discovery).** The membership ripple for a tx-created subclass
+  under an indexed parent records one deduped null (all provisional ids resolve to null via
+  `getCollectionNameById` mid-tx) plus idempotent re-adds of the parent's committed names,
+  and the null lands in the committed index's `collectionsToIndex` on commit — the same
+  family as the documented provisional-membership resolution limitation, pinned exactly by
+  the strengthened TB2 assertion. Relevant when same-tx subclass creation under an indexed
+  parent becomes a mainstream path.
 - **Pre-existing failed-commit undo bypass shared with Track 4 (CS2).** An `endTxCommit`
   failure after the reconcile phases (a throw from `endAtomicOperation` in the no-error
   branch of the commit finally) propagates uncaught, so neither the index undo/restore arms
@@ -161,6 +177,26 @@ design.md D-records this track owns. -->
 - [x] Risk: PASS at iteration 2 (6 findings — 4 should-fix + 2 suggestions; applied the definite commit-path guard, three-layer cache invalidation, both-profile I-A4 engine arm, settled D12 boundary, and handle-build interception; R7 self-contradiction in the populated-class Validation line caught at gate and fixed).
 - [x] Adversarial: PASS at iteration 2 (6 findings — 4 should-fix + 2 suggestions; applied the definite guard, pin + snapshot-version invalidation, non-planner-reader guard, and method-relative anchors; A6 kept as decomposition guidance = D21 is its own step cluster).
 - Accepted-suggestion residuals left for optional cleanup: D21 Rationale prose still cites `SchemaProxy.java:78` (within the `makeSnapshot` method, declaration at :75); D15 Risks/Caveats keeps the "ClassIndexManager reads a cached set" phrasing the C&O fix corrected.
+- [x] Track-level code review: PASS at iteration 2 of 3. Nine dimensional reviewers over
+  `54000d904b..HEAD` returned 33 findings (0 blockers, 10 should-fix, 23 suggestions).
+  Iteration 1 (`cd50c1ed16`) fixed the 12-finding should-fix set: Gremlin plan-cache
+  schema-tx bypass (BC1/CQ1), two commit-failure undo gaps — phantom engine registration on
+  wiring throw and unreverted eager membership on enrollment throw (CS1/CS2, I-A4) — five
+  commit-window out-of-window asserts (TY1), and five test-gap closures (TC1–TC4, TS1/TX2,
+  TB1). Iteration 2 (`5ff107dd8a`) applied the 14 suggestion items (test falsifiability,
+  O(R) provisional-rewrite guard PF1, exact engine-file-stem match BC4, honest names/Javadoc,
+  crash breadcrumb TY2, durable reload arms TY3, TC5/TC6 build tests, TX3 concurrent reader,
+  CQ2 dedupe). Every gate-check verdict VERIFIED; zero new findings. Not applied, with
+  reasons: CS3 (crash+WAL-replay IT — deferred via the two in-code `@Ignore` breadcrumbs),
+  TX1 (deterministic mid-publish reader — accepted D19 best-effort, YTDB-1101/Track 7
+  boundary), BC2/BC3/CQ3/CQ4/CQ5/PF2 (pre-existing latents or accepted shapes; CQ4's rename
+  category is consumed by Track 6). Pre-PR IntelliJ inspection pass scoped to changed ranges:
+  nothing actionable (2 DataFlowIssue hits are invariant-guarded commit-path arguments; rest
+  test-idiom noise and cosmetic casts). Review burden recorded per the >4,000 advisory: the
+  reviewed cumulative diff reached ~7,000 insertions (~4,200 code-only at review start),
+  flagged after Steps 2, 3, and 4 — retroactive split candidate, calibrates future planning.
+  No plan corrections. Track completion awaits user approval (session ended at the approval
+  gate with no response).
 
 ## Context and Orientation
 The index manager holds two flat lookup maps — `indexes` (name → Index) and
