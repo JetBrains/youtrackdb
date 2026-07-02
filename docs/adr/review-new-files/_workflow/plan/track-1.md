@@ -15,11 +15,12 @@ A brand-new staged `.claude/**` file ships unreviewed while the review machinery
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-07-01T17:02Z [ctx=safe] Review + decomposition complete
 - [x] 2026-07-02T05:46Z [ctx=safe] Step 1 complete (commit c310214714)
 - [x] 2026-07-02T06:19Z [ctx=safe] Track-level code review complete — reviews PASS (iter 1)
+- [x] 2026-07-02T06:27Z [ctx=safe] Track complete
 
 ## Base commit
 
@@ -64,6 +65,7 @@ summary at Phase C. -->
 
 - [x] Technical: PASS at iteration 2 (2 findings, 2 accepted). T1 (diff-range divergence not named in the cross-file-consistency claims) and T2 (Inv 5 grep target caught two inert `rm -f` teardown lines) — both suggestions, both applied. Gate-verification VERIFIED both, no regression.
 - [x] Adversarial: PASS at iteration 2 (5 findings, 4 accepted). A1 (context block's outer non-empty gate would route a NEW-only delta into scope-to-nothing — should-fix, applied), A2 (record that reviewer dispatch already works, so the two-file footprint is provably complete — should-fix, applied), A3 (step-9 burden-measure prose false for a NEW file — should-fix, brought in scope), A4 (single-commit survival test — suggestion, folded into D1 + decomposition). A5 (Inv 1 stage-then-delete edge, THEORETICAL/safe) — no change. Gate-verification VERIFIED A1–A4, REJECTED A5, whole-file regression read clean.
+- [x] Phase C track-level code review: PASS at iteration 1. Workflow-only diff → 4 workflow-review agents; consistency / context-budget / instruction-completeness returned 0 findings, writing-style returned 1 suggestion (WS1). WS1 — a negative-parallelism `not X` tail in the burden-measure prose, mirrored in both files — was applied at track completion via `Review fix: fd6bb219ec`. No blockers, no should-fix, no deferred findings.
 
 ## Context and Orientation
 
@@ -130,6 +132,11 @@ Empty at Phase 1. -->
 **What changed from the plan:** None. Ten edits as specified; no scope change, no design decision, no risk upgrade.
 
 **Key files:** `.claude/workflow/track-code-review.md`, `.claude/workflow/step-implementation.md` — both edited live under the §1.7(k) opt-out (D3).
+
+### Track completion — 2026-07-02T06:27Z [ctx=safe]
+Closed a review-scope gap where a genuinely-new staged `.claude/**` file (no `develop` counterpart) shipped unreviewed in Phase B/C: the delta-staging loop recorded a `diff <live> <staged>` entry only when a live counterpart existed, and the reviewer-facing context block routed on the delta file being non-empty, so a NEW-only file (non-empty delta, zero diff lines) was scoped to nothing. The fix (single commit `c310214714`) adds a NEW-file `else` branch emitting `=== NEW staged file (no live counterpart): <staged> ===`, rewrites the context block from a file-level non-empty gate to per-marker routing (delta-scoped ⇒ scope to the delta; NEW ⇒ review in full), and qualifies the burden-measure prose — across both mirror files (`track-code-review.md` Phase C step 8 and `step-implementation.md` Phase B step-level review). Track-level review passed at iteration 1 (4 workflow-review agents on the workflow-only diff); the one writing-style suggestion (WS1) was applied as `Review fix: fd6bb219ec`. No cross-track impact — single-track plan.
+
+1 step, 0 failed.
 
 ## Validation and Acceptance
 
