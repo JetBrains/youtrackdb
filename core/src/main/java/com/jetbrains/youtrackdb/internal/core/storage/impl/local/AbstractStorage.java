@@ -2705,9 +2705,15 @@ public abstract class AbstractStorage
           // the real id reconciliation assigned above, so the working set gathered below locks,
           // allocates, and serializes against real collections only and no provisional id can
           // reach durable bytes. Runs after the pinned-snapshot rebuild so the record ids and
-          // the snapshot agree on the reconciled ids.
-          rewriteProvisionalRecordCollectionIds(frontendTransaction,
-              schemaContext.txSchemaState());
+          // the snapshot agree on the reconciled ids. Guarded on the allocation map (not the
+          // resolution map): only a class create allocates a provisional id, so a schema commit
+          // that created no class skips the O(record-operations) copy-and-scan entirely, while
+          // a create-then-drop-with-rows transaction (allocated but unresolved) still reaches
+          // the rewrite's loud data-loss failure.
+          if (!schemaContext.txSchemaState().getProvisionalCollectionNames().isEmpty()) {
+            rewriteProvisionalRecordCollectionIds(frontendTransaction,
+                schemaContext.txSchemaState());
+          }
         }
 
         // Gather the working set after any schema serialization so the new schema records join it.
@@ -3550,24 +3556,32 @@ public abstract class AbstractStorage
    * Whether any physical file of the named index engine survives in the write cache — the
    * in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the engine analogue of
    * the collection arm's {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. A v1 BTree
-   * engine's files are named from the engine name plus a suffix (for example {@code <name>.cbt} for
-   * the data tree and {@code <name>$null.cbt} for the null tree), so a prefix match over the write
-   * cache's file listing catches every surviving file regardless of the exact suffix, without
-   * coupling this class to a specific engine's file-extension constant. The write cache reflects the
-   * committed physical files: the eager cache install survives a rollback on the in-memory profile
-   * and is reverted on the disk profile, so a surviving prefix match is exactly an orphan to clean up.
+   * engine's file names are an engine-derived stem plus an extension: the data-tree and
+   * histogram files use the engine name itself as the stem and the null-tree files append
+   * {@link #NULL_TREE_SUFFIX} to it, so the check strips each file name's extension and
+   * matches the remaining stem exactly against the engine name or its null-tree variant. An
+   * exact stem match cannot false-positive across sibling index names that share a prefix (an
+   * engine must not report a longer-named sibling's files as its own), which a bare prefix
+   * match did. The write cache reflects the committed physical files: the eager cache install
+   * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
+   * surviving stem match is exactly an orphan to clean up.
    *
    * @param engineName the dropped/created engine's name.
-   * @return {@code true} when at least one file whose name starts with {@code engineName} survives.
+   * @return {@code true} when at least one file of the named engine survives.
    */
   private boolean engineFilesPresent(final String engineName) {
     final var wc = writeCache;
     if (wc == null) {
       return false;
     }
-    final var prefix = engineName.toLowerCase(Locale.ROOT);
+    final var stem = engineName.toLowerCase(Locale.ROOT);
+    final var nullTreeStem = stem + NULL_TREE_SUFFIX;
     for (final var fileName : wc.files().keySet()) {
-      if (fileName.toLowerCase(Locale.ROOT).startsWith(prefix)) {
+      final var lowerCaseName = fileName.toLowerCase(Locale.ROOT);
+      final var extensionStart = lowerCaseName.lastIndexOf('.');
+      final var fileStem =
+          extensionStart > 0 ? lowerCaseName.substring(0, extensionStart) : lowerCaseName;
+      if (fileStem.equals(stem) || fileStem.equals(nullTreeStem)) {
         return true;
       }
     }
