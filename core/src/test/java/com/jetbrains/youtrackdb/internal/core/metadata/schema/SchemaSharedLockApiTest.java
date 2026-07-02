@@ -221,8 +221,10 @@ public class SchemaSharedLockApiTest extends DbTestBase {
   public void releaseSchemaWriteLockWithoutSaveDropsSnapshotButPreservesVersion() {
     // releaseSchemaWriteLock(session, false) skips the saveInternal/reload branch and only
     // clears the cached snapshot. Pin: a fresh snapshot is rebuilt on demand AND the version
-    // counter still advances (the increment is unconditional on the modificationCounter==1
-    // branch regardless of iSave).
+    // still advances (the advance is unconditional on the modificationCounter==1 branch
+    // regardless of iSave). Version values are drawn from a process-wide generator shared by
+    // every SchemaShared instance in the JVM, so only the advance is pinned, not an exact +1
+    // delta (concurrently running test classes draw from the same generator).
     var schemaShared = session.getSharedContext().getSchema();
     var snapshotBefore = session.getMetadata().getImmutableSchemaSnapshot();
     int versionBefore = schemaShared.getVersion();
@@ -235,8 +237,8 @@ public class SchemaSharedLockApiTest extends DbTestBase {
     }
 
     int versionAfter = schemaShared.getVersion();
-    assertEquals("version must advance even on the iSave=false branch",
-        versionBefore + 1, versionAfter);
+    assertTrue("version must advance even on the iSave=false branch: before="
+        + versionBefore + " after=" + versionAfter, versionAfter > versionBefore);
 
     var snapshotAfter = session.getMetadata().getImmutableSchemaSnapshot();
     // If the cached snapshot was not invalidated, the snapshot reference would be the same.

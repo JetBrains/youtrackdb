@@ -13,6 +13,10 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.ValidationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
 
 /**
@@ -286,6 +290,134 @@ public class TxAwareSchemaSnapshotTest extends DbTestBase {
     }
     assertFalse("the failed commit must leave the committed schema unchanged",
         schema.getClass("TxStrictExisting").isStrictMode());
+  }
+
+  /**
+   * An entity that resolved (and cached) its immutable class outside any transaction must
+   * re-resolve inside a later schema transaction and observe a constraint that transaction added,
+   * even when the transaction's schema version walks onto the very number the entity cached from
+   * the committed version space. The cache is keyed by a single version int compared with
+   * {@code !=} across both spaces; a tx-local version counter restarting near zero could collide
+   * with the cached committed number and silently serve the stale pre-constraint class. Version
+   * values come from a process-wide monotonic generator, so the two spaces are disjoint and the
+   * padding loop below exits immediately; under the per-instance-counter regression the loop
+   * walks the tx-local version exactly onto the cached committed number and the final assertion
+   * catches the stale class.
+   */
+  @Test
+  public void entityClassCachedOutsideTheTxReResolvesDespiteAVersionNumberReplay() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("TxVersionDisjoint");
+    // Extra committed schema activity, so the committed version number sits comfortably above
+    // the low values a freshly re-parsed tx-local copy's counter would restart from.
+    schema.createClass("TxVersionDisjointFillerA");
+    schema.createClass("TxVersionDisjointFillerB");
+
+    session.begin();
+    var entity = (EntityImpl) session.newEntity("TxVersionDisjoint");
+    session.commit();
+
+    // Resolve and cache the entity's immutable class with no transaction active: the cached
+    // version number comes from the committed version space. Read the committed version from
+    // the same snapshot generation the resolution consults.
+    var committedVersion = session.getMetadata().getImmutableSchemaSnapshot().getVersion();
+    var cachedOutsideTx = entity.getImmutableSchemaClass(session);
+    assertNotNull("the committed class must resolve outside a transaction", cachedOutsideTx);
+    assertFalse("strict mode must not be set before the transaction",
+        cachedOutsideTx.isStrictMode());
+
+    session.begin();
+    try {
+      schema.getClass("TxVersionDisjoint").setStrictMode(true);
+      // Walk the tx snapshot version toward the entity's cached committed number. With disjoint
+      // version spaces the tx version is already beyond it and the loop never iterates; with a
+      // per-instance counter (the regression) each pad advances the tx-local version by one
+      // until it lands exactly on the cached number.
+      var pad = 0;
+      while (session.getMetadata().getImmutableSchemaSnapshot().getVersion() < committedVersion
+          && pad <= committedVersion) {
+        schema.getClass("TxVersionDisjointFillerA").setDescription("pad-" + pad++);
+      }
+      var reResolved = entity.getImmutableSchemaClass(session);
+      assertNotNull("the entity must resolve its class through the tx-aware snapshot",
+          reResolved);
+      assertTrue("the entity must re-resolve its cached class and see the same-tx strict-mode"
+          + " constraint instead of serving the stale pre-transaction class",
+          reResolved.isStrictMode());
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * The tx-aware snapshot is session-private: a genuinely concurrent reader on another thread
+   * must never observe a class created in a foreign open transaction, nor any provisional
+   * collection id, in its own snapshot. The single-threaded sibling tests prove the memoized tx
+   * snapshot never lands in the process-shared cache, but sessions are thread-bound, so only a
+   * second thread with its own session can catch a regression that publishes the tx-local
+   * snapshot (or its provisional collection ids) into shared state — a leak that would corrupt
+   * an unrelated session's collection resolution.
+   */
+  @Test
+  public void concurrentSessionSnapshotNeverSeesATxCreatedClassOrProvisionalId()
+      throws Exception {
+    var txSnapshotBuilt = new CountDownLatch(1);
+    var readerDone = new CountDownLatch(1);
+    var sawTxClass = new AtomicBoolean(false);
+    var sawProvisionalId = new AtomicBoolean(false);
+    var readerError = new AtomicReference<Throwable>();
+
+    // The reader runs on its own thread with its own session (sessions are thread-bound). It
+    // waits until the writer has built and memoized its session-private tx snapshot, then takes
+    // its own snapshot: the tx-created class and every provisional collection id must be absent.
+    var reader = new Thread(() -> {
+      try (var other = openDatabase()) {
+        other.activateOnCurrentThread();
+        if (!txSnapshotBuilt.await(10, TimeUnit.SECONDS)) {
+          throw new IllegalStateException("the writer never signalled its tx snapshot");
+        }
+        var snap = other.getMetadata().getImmutableSchemaSnapshot();
+        if (snap.getClass("TxConcurrentNewClass") != null) {
+          sawTxClass.set(true);
+        }
+        for (var cls : snap.getClasses()) {
+          for (var collectionId : cls.getCollectionIds()) {
+            if (SchemaShared.isProvisionalCollectionId(collectionId)) {
+              sawProvisionalId.set(true);
+            }
+          }
+        }
+      } catch (Throwable t) {
+        readerError.set(t);
+      } finally {
+        readerDone.countDown();
+      }
+    }, "tx-created-class-concurrent-reader");
+    reader.start();
+
+    // openDatabase() on the reader thread activates that session there; reassert the main
+    // session on this thread before driving the transaction.
+    session.activateOnCurrentThread();
+    session.begin();
+    try {
+      session.getMetadata().getSchema().createClass("TxConcurrentNewClass");
+      // Build (and memoize) the creating session's tx-aware snapshot before the reader looks,
+      // so the reader races an actually-built session-private snapshot rather than nothing.
+      assertNotNull("the creating session must see its own tx-created class",
+          session.getMetadata().getImmutableSchemaSnapshot().getClass("TxConcurrentNewClass"));
+      txSnapshotBuilt.countDown();
+      assertTrue("the concurrent reader must finish", readerDone.await(10, TimeUnit.SECONDS));
+    } finally {
+      txSnapshotBuilt.countDown();
+      session.rollback();
+    }
+    reader.join(TimeUnit.SECONDS.toMillis(10));
+
+    assertNull("the concurrent reader must not fail", readerError.get());
+    assertFalse("a concurrent session must never see a foreign tx-created class",
+        sawTxClass.get());
+    assertFalse("a provisional collection id must never reach a concurrent session's snapshot",
+        sawProvisionalId.get());
   }
 
   /**
