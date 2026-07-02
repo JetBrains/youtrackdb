@@ -13,11 +13,12 @@ A brand-new staged `.claude/**` file ships unreviewed while the review machinery
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
 - [x] 2026-07-01T17:02Z [ctx=safe] Review + decomposition complete
+- [x] 2026-07-02T05:46Z [ctx=safe] Step 1 complete (commit c310214714)
 
 ## Base commit
 
@@ -27,6 +28,8 @@ A brand-new staged `.claude/**` file ships unreviewed while the review machinery
 <!-- Continuous-log. Promoted by the orchestrator from per-step "What was
 discovered" when the finding affects future steps or other tracks. Empty
 at Phase 1. -->
+
+- Inv 5 / D1 / Idempotence acceptance grep — run it as the bare substring `delta: %s vs %s`, not the quote-adjacent `'delta: %s vs %s'` the track file writes. The source marker is `=== delta: %s vs %s ===`, so a literal-single-quote reading of the pattern matches nothing; the shell-quoting reading matches. Phase C's consistency review should use the bare-substring form to confirm the loop and context block live in exactly the two named files. See Episodes §Step 1.
 
 ## Decision Log
 <!-- The track-canonical live decision carrier (D7). Phase 1 seeds the full
@@ -111,11 +114,21 @@ The `step-implementation.md` copy is identical except for the temp-file path (`s
 
 ## Concrete Steps
 
-1. Add NEW-staged-file handling to the Phase C (step 8, `track-code-review.md`) and Phase B (step-level review, `step-implementation.md`) delta-staging setup — one commit covering all ten edits per D1/A4: (a) preamble names the NEW-file marker, (b) loop `else` branch emits `=== NEW staged file (no live counterpart): <staged> ===`, (c) post-loop narration drops the "has a live counterpart" restriction, (d) context block rewritten to per-marker routing (delta-scoped ⇒ scope to delta, NEW ⇒ review in full) with the file-level non-empty gate removed, (e) burden-measure prose qualified so a NEW file's whole-file count is not treated as review-free noise — risk: medium (workflow machinery: behavioral but bounded — changes agent-observable review scope across two phase docs; no auto-running script, no load-bearing gate/schema/enum edit) — size: ~2 files; the whole track is this one coherent fix and the eight scoping edits must ship together (A4), so no other low/medium work exists to merge — end of track  [ ]
+1. Add NEW-staged-file handling to the Phase C (step 8, `track-code-review.md`) and Phase B (step-level review, `step-implementation.md`) delta-staging setup — one commit covering all ten edits per D1/A4: (a) preamble names the NEW-file marker, (b) loop `else` branch emits `=== NEW staged file (no live counterpart): <staged> ===`, (c) post-loop narration drops the "has a live counterpart" restriction, (d) context block rewritten to per-marker routing (delta-scoped ⇒ scope to delta, NEW ⇒ review in full) with the file-level non-empty gate removed, (e) burden-measure prose qualified so a NEW file's whole-file count is not treated as review-free noise — risk: medium (workflow machinery: behavioral but bounded — changes agent-observable review scope across two phase docs; no auto-running script, no load-bearing gate/schema/enum edit) — size: ~2 files; the whole track is this one coherent fix and the eight scoping edits must ship together (A4), so no other low/medium work exists to merge — end of track  [x] commit: c310214714
 
 ## Episodes
 <!-- Continuous-log. Phase B sub-step 7 appends one block per completed step.
 Empty at Phase 1. -->
+
+### Step 1 — commit c310214714, 2026-07-02T05:46Z [ctx=safe]
+
+**What was done:** Applied all ten edits in one commit (D1/A4), five per file in `track-code-review.md` (Phase C step 8) and `step-implementation.md` (Phase B step-level review). Per file: the preamble names the NEW-file marker; an `else` branch on `if [ -f "$live" ]` emits `=== NEW staged file (no live counterpart): <staged> ===` (D2, staged path); the post-loop narration describes both the delta and NEW outcomes instead of restricting the trigger to adds with a live counterpart; the context block moves from a file-level non-empty routing gate to per-marker routing (delta-scoped ⇒ scope to the delta, NEW ⇒ review in full), with the non-empty gate removed so a NEW-only non-empty/zero-delta file is no longer routed into scoping-to-nothing; the burden-measure prose distinguishes a copy-of-live file (line count inflated, the delta is the truer measure) from a NEW file (whole-file content is the real review surface). The added else branch and the rewritten context block stay byte-identical across the two files except for the temp-file path (`track-{N}-delta` vs `step-{N}-{M}-delta`) and indentation (Inv 3).
+
+**What was discovered:** The Inv 5 / D1 acceptance grep as written — `` `'delta: %s vs %s'` `` — is ambiguous. The source marker is `=== delta: %s vs %s ===`, so a literal-single-quote reading of the pattern matches nothing; only the shell-quoting reading (`grep 'delta: %s vs %s'`) or the bare substring `delta: %s vs %s` matches. Under the bare substring, the loop marker and the "Review-target delta for freshly-created staged copies" heading resolve to exactly the two named files — Inv 5 holds, no third stale copy.
+
+**What changed from the plan:** None. Ten edits as specified; no scope change, no design decision, no risk upgrade.
+
+**Key files:** `.claude/workflow/track-code-review.md`, `.claude/workflow/step-implementation.md` — both edited live under the §1.7(k) opt-out (D3).
 
 ## Validation and Acceptance
 
