@@ -176,6 +176,35 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.query).isNull();
   }
 
+  // Regression test for the non-idempotent close(): a started traversal that is closed twice
+  // (toList() closes it once, then the enclosing try-with-resources closes it again) must report
+  // the query to the listener EXACTLY ONCE. Before the `closed` guard was added, close() only
+  // checked `hasStarted`, so the second close re-fired queryFinished(...) and double-counted the
+  // query. Without the fix this asserts callCount == 2 and fails.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void testCloseIsIdempotentAndFiresListenerOnceOnDoubleClose() throws Exception {
+    final var listener = new RememberingListener();
+
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+
+    // toList() drives iteration (hasStarted becomes true) and closes the traversal once;
+    // the try-with-resources on `q` closes it a second time when the block exits.
+    try (var q = g.V().hasLabel("person")) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.query).as("listener should have been notified").isNotNull();
+    assertThat(listener.callCount)
+        .as("close() must fire queryFinished exactly once even when closed twice")
+        .isEqualTo(1);
+  }
+
   // Buggy query listener must not break the traversal or transaction.
   @Test
   @LoadGraphWith(MODERN)
@@ -1042,6 +1071,9 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     String transactionTrackingId;
     long startedAtMillis;
     long executionTimeNanos;
+    // Counts every queryFinished invocation. Existing tests assert the last captured value;
+    // the double-close regression test asserts this count equals exactly 1.
+    int callCount;
 
     @Override
     public void queryFinished(
@@ -1049,6 +1081,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
         long startedAtMillis,
         long executionTimeNanos) {
 
+      this.callCount++;
       this.startedAtMillis = startedAtMillis;
       this.executionTimeNanos = executionTimeNanos;
       this.query = queryDetails.getQuery();
@@ -1062,6 +1095,7 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       transactionTrackingId = null;
       startedAtMillis = 0;
       executionTimeNanos = 0;
+      callCount = 0;
     }
   }
 
