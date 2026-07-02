@@ -195,6 +195,8 @@ public class MatchExecutionPlannerInputsTest {
   public void plannerCtor_fullyPopulatedInputs() {
     var pattern = new Pattern();
     var notExpr = new SQLMatchExpression(-1);
+    var proj1 = new SQLNestedProjection(-1);
+    var proj2 = new SQLNestedProjection(-1);
 
     var inputs =
         MatchPlanInputs.builder(pattern)
@@ -205,14 +207,17 @@ public class MatchExecutionPlannerInputsTest {
             .notMatchExpressions(List.of(notExpr))
             .returnItems(List.of(new SQLExpression(-1)))
             .returnAliases(List.of(new SQLIdentifier("ret")))
-            .returnNestedProjections(new ArrayList<>(Arrays.asList((SQLNestedProjection) null)))
+            .returnNestedProjections(List.of(proj1, proj2))
             .build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
     assertThat(planner.notMatchExpressions).containsExactly(notExpr);
     assertThat(planner.returnAliases).hasSize(1);
-    assertThat(planner.returnNestedProjections).hasSize(1).containsOnlyNulls();
+    // Two distinct non-null projections in declared order — a copy that dropped, duplicated, or
+    // reordered a non-null nested projection fails here, which the earlier null-only case (a size
+    // check only) could not catch.
+    assertThat(planner.returnNestedProjections).containsExactly(proj1, proj2);
     assertThat(getAliasFilters(planner)).hasSize(1);
     assertThat(getAliasRids(planner)).hasSize(1);
   }

@@ -140,9 +140,11 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
-   * Timing: a translated {@code g.V()} that engages the boundary step must still execute and
-   * return results in a finite, non-negative wall-clock window. This is a coarse liveness check
-   * (the translated path terminates and produces output), not a performance assertion — the
+   * Liveness: a translated {@code g.V()} that engages the boundary step must run to completion and
+   * return every vertex. Termination is the evidence here — a translated path that hung would never
+   * reach the count assertion — so the test pins the full result count rather than a wall-clock
+   * bound. A ceiling would be flaky under CI load, and {@code @Test(timeout=…)} does not fit: it
+   * runs the body on a fresh thread where the thread-bound YouTrackDB session is inactive. The
    * translator-vs-native performance comparison is a later hardening task.
    */
   @Test
@@ -156,12 +158,11 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     admin.applyStrategies();
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
-    var start = System.nanoTime();
     var count = admin.toList().size();
-    var elapsedNanos = System.nanoTime() - start;
 
+    // toList() returning all 50 rows is itself the finite-time evidence: a hung translation would
+    // never reach this line. See the method Javadoc for why there is no wall-clock ceiling.
     assertEquals("translated g.V() must return every vertex", 50, count);
-    assertTrue("elapsed time must be non-negative", elapsedNanos >= 0);
   }
 
   /**
@@ -219,7 +220,9 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     graph.tx().commit();
 
-    // Same collection as a real vertex, but a position no record occupies.
+    // Reuse Alice's collection so the RID is well-formed, then point at cluster position 999_999L —
+    // an arbitrary high position that no record occupies — so this is a valid RID resolving to
+    // nothing. The literal is chosen for that shape alone; nothing dereferences it to a record.
     var aliceRid = (RecordIdInternal) alice.id();
     var missing = new RecordId(aliceRid.getCollectionId(), 999_999L);
 
@@ -466,7 +469,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    *       one assumption this test nails: the boundary splice does not leak into the recorded
    *       query;</li>
    *   <li>callback fires exactly once (no double-count from the MATCH execution path);</li>
-   *   <li>duration is non-negative and the result count matches the fixture.</li>
+   *   <li>the result count matches the fixture.</li>
    * </ul>
    *
    * <p>The metrics step is a {@code FinalizationStrategy}, so it is appended <em>after</em> the
@@ -489,20 +492,24 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var gs = graph.traversal().with(YTDBQueryConfigParam.querySummary, summary);
 
-    // Run the monitored traversal exactly once. toList() both compiles the traversal (translating
-    // g.V() to the boundary step and appending the metrics step) and drains-then-closes it, which
-    // fires the metrics listener once. The traversal is intentionally NOT wrapped in
-    // try-with-resources: a monitored toList() already closes the traversal, so an additional
-    // close() on block exit would close (and re-fire) the metrics step a second time — a benign
-    // framework double-close that is identical on the native pipeline and unrelated to
-    // translation, but it would mask a real double-count here. Running toList() alone gives one
-    // close, one fire, so the exactly-once assertion below actually tests the translation path.
-    var q = gs.V();
+    // Compile the monitored traversal without draining it. applyStrategies() runs the translator
+    // (rewriting g.V() to the boundary step) and appends the metrics step, so the boundary-step
+    // count below is read off the freshly compiled step list rather than off state left behind by a
+    // drain. applyStrategies() sets up steps only; the metrics listener fires when the traversal
+    // runs and closes.
+    var q = gs.V().asAdmin();
+    q.applyStrategies();
+    var boundaryEngaged = countBoundarySteps(q.getSteps()) == 1;
+
+    // Drain exactly once. toList() runs the already-compiled traversal and closes it, firing the
+    // metrics listener a single time. The traversal is intentionally NOT wrapped in
+    // try-with-resources: a monitored toList() already closes the traversal, so an extra close() on
+    // block exit would re-fire the metrics step — a benign framework double-close, identical on the
+    // native pipeline and unrelated to translation, but it would mask a real double-count here.
+    // applyStrategies() above already locked the strategy chain, so toList() neither re-translates
+    // nor re-appends the metrics step. One drain, one close, one fire — so the exactly-once
+    // assertion below actually tests the translation path.
     var rowCount = q.toList().size();
-    // toList() leaves the compiled (translated) step list in place, so the post-drain count still
-    // reflects whether the boundary step was spliced. It is read after draining only because the
-    // traversal must run to fire the metrics listener exactly once (see the note above).
-    var boundaryEngaged = countBoundarySteps(q.asAdmin().getSteps()) == 1;
     graph.tx().commit();
 
     assertTrue(
@@ -523,7 +530,6 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     assertFalse(
         "the boundary step must not leak into the recorded query; was: " + listener.query,
         listener.query.contains("YTDBMatchPlanStep"));
-    assertTrue("execution duration must be non-negative", listener.executionTimeNanos >= 0);
     assertEquals("recorded result count must match the fixture", 3, rowCount);
   }
 

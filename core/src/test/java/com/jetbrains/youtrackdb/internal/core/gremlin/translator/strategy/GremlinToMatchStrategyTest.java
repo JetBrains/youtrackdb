@@ -19,7 +19,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPa
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.DefaultGraphTraversal;
@@ -77,6 +82,50 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     session()
         .getConfiguration()
         .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, enabled);
+  }
+
+  /**
+   * Runs {@code action} with a capturing handler attached to the strategy's DEBUG logger and
+   * returns every {@link LogRecord} it emitted. {@code declineOnThrow} records the swallowed cause
+   * at DEBUG only — an operator's sole "why is nothing translating?" signal — and the SLF4J facade
+   * gates that call behind {@code isDebugEnabled()}, which is false at JUL's default INFO level. So
+   * this helper raises the strategy logger to {@code FINE} (SLF4J DEBUG maps to JUL FINE under the
+   * slf4j-jdk14 binding on the test classpath) and attaches a collector, restoring the level and
+   * handler in a finally so no global logging state leaks to sibling tests in the fork.
+   */
+  private static List<LogRecord> captureStrategyDebugLogs(Runnable action) {
+    var julLogger = Logger.getLogger(GremlinToMatchStrategy.class.getName());
+    List<LogRecord> records = new CopyOnWriteArrayList<>();
+    var handler =
+        new Handler() {
+          @Override
+          public void publish(LogRecord record) {
+            records.add(record);
+          }
+
+          @Override
+          public void flush() {
+          }
+
+          @Override
+          public void close() {
+          }
+        };
+    handler.setLevel(Level.ALL);
+    var savedLevel = julLogger.getLevel();
+    var savedUseParent = julLogger.getUseParentHandlers();
+    julLogger.addHandler(handler);
+    julLogger.setLevel(Level.FINE);
+    // Keep our FINE records off the root handlers, which sit at INFO and would drop them anyway.
+    julLogger.setUseParentHandlers(false);
+    try {
+      action.run();
+    } finally {
+      julLogger.removeHandler(handler);
+      julLogger.setLevel(savedLevel);
+      julLogger.setUseParentHandlers(savedUseParent);
+    }
+    return records;
   }
 
   // ---------------------------------------------------------------------------
@@ -246,9 +295,21 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
               throw new IllegalStateException("simulated walker/recognizer failure");
             });
 
-    assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
+    var logs =
+        captureStrategyDebugLogs(
+            () -> assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException());
+
     assertThat(admin.getSteps()).isEqualTo(stepsBefore);
     assertThat(admin.getSteps()).noneMatch(GremlinToMatchStrategyTest::isBoundary);
+    // declineOnThrow records the swallowed cause at DEBUG — an operator's only signal that a
+    // translator bug is silently declining. Pin that the record fired and carries the originating
+    // exception, so dropping the log turns this test red instead of letting it go dark unnoticed.
+    assertThat(logs)
+        .anySatisfy(
+            r -> {
+              assertThat(r.getMessage()).contains("translation declined");
+              assertThat(r.getThrown()).isInstanceOf(IllegalStateException.class);
+            });
   }
 
   /**
@@ -312,9 +373,20 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
               throw new IllegalStateException("simulated planner failure");
             });
 
-    assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
+    var logs =
+        captureStrategyDebugLogs(
+            () -> assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException());
+
     assertThat(admin.getSteps()).isEqualTo(stepsBefore);
     assertThat(admin.getSteps()).noneMatch(GremlinToMatchStrategyTest::isBoundary);
+    // The same net catches a plan-builder throw and logs it at DEBUG. Pin that the record fired
+    // and carries the originating exception, so the decline stays observable to an operator.
+    assertThat(logs)
+        .anySatisfy(
+            r -> {
+              assertThat(r.getMessage()).contains("translation declined");
+              assertThat(r.getThrown()).isInstanceOf(IllegalStateException.class);
+            });
   }
 
   // ---------------------------------------------------------------------------
