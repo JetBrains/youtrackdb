@@ -1,0 +1,58 @@
+/**
+ * Slate — thread-weaving agent architecture for pi.
+ *
+ * Implements the Slate architecture (see slate-dev/reference/slate-blog.md)
+ * per slate-dev/EXECPLAN.md. An orchestrator (the main pi session) dispatches
+ * bounded actions to persistent worker threads via the `thread` tool; each
+ * completed action returns an episode — a compressed, structured record that
+ * the orchestrator composes into further dispatches.
+ *
+ * Modules:
+ *   state.ts    — thread/episode records, session-scoped persistence
+ *   worker.ts   — in-process worker AgentSessions (recursion-guarded)
+ *   episodes.ts — episode compression (Sonnet-default, D5)
+ *   threads.ts  — ThreadManager: queueing, dispatch lifecycle
+ *   tools.ts    — thread / threads / episode tools
+ *
+ * Optional config at .pi/slate.json:
+ *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4 }
+ */
+
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerSlateMode } from "./mode.ts";
+import { SlateStore, type SlateConfig } from "./state.ts";
+import { ThreadManager } from "./threads.ts";
+import { registerSlateTools } from "./tools.ts";
+
+function loadConfig(cwd: string): SlateConfig {
+	const file = join(cwd, ".pi", "slate.json");
+	try {
+		if (existsSync(file)) return JSON.parse(readFileSync(file, "utf8")) as SlateConfig;
+	} catch {
+		/* invalid config → defaults */
+	}
+	return {};
+}
+
+export default function (pi: ExtensionAPI) {
+	const store = new SlateStore(pi);
+	let manager = new ThreadManager(store, {});
+
+	registerSlateTools(pi, store, () => manager);
+
+	pi.on("session_start", async (_event, ctx) => {
+		manager.disposeAll();
+		manager = new ThreadManager(store, loadConfig(ctx.cwd));
+		store.restore(ctx);
+	});
+
+	pi.on("session_shutdown", async () => {
+		manager.disposeAll();
+	});
+
+	// Registered AFTER the session_start handler above so that mode restoration
+	// (which re-applies tool restrictions) runs after store.restore().
+	registerSlateMode(pi, store);
+}
