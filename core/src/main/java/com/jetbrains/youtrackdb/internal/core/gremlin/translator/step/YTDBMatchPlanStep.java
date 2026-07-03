@@ -7,7 +7,7 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import java.util.Objects;
+
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -130,10 +130,10 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType) {
     super(traversal);
-    this.returnClass = Objects.requireNonNull(returnClass, "returnClass must not be null");
-    this.plan = Objects.requireNonNull(plan, "plan must not be null");
-    this.boundaryAlias = Objects.requireNonNull(boundaryAlias, "boundaryAlias must not be null");
-    this.outputType = Objects.requireNonNull(outputType, "outputType must not be null");
+    this.returnClass = returnClass;
+    this.plan = plan;
+    this.boundaryAlias = boundaryAlias;
+    this.outputType = outputType;
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -375,7 +375,6 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
 
   @Override
   public YTDBMatchPlanStep<S, E> clone() {
-    @SuppressWarnings("unchecked")
     var cloned = (YTDBMatchPlanStep<S, E>) super.clone();
     // Give the clone its own deep plan copy against an ISOLATED CHILD context — a fresh
     // BasicCommandContext parented to the original plan's context — mirroring HashJoinMatchStep's

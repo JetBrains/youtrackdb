@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
-import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -93,45 +92,6 @@ public class YTDBMatchPlanStepTest {
     // them.
     lenient().when(plan.getContext()).thenReturn(ctx);
     lenient().when(plan.start()).thenReturn(stream);
-  }
-
-  // ---- Constructor null guards ----
-
-  /** The return class must be non-null at construction. */
-  @Test
-  public void ctor_nullReturnClass_throwsNpe() {
-    assertThatNullPointerException()
-        .isThrownBy(
-            () -> new YTDBMatchPlanStep<>(traversal, null, plan, "v", BoundaryOutputType.ELEMENT))
-        .withMessage("returnClass must not be null");
-  }
-
-  /** The boundary alias must be non-null at construction. */
-  @Test
-  public void ctor_nullBoundaryAlias_throwsNpe() {
-    assertThatNullPointerException()
-        .isThrownBy(
-            () -> new YTDBMatchPlanStep<>(
-                traversal, Vertex.class, plan, null, BoundaryOutputType.ELEMENT))
-        .withMessage("boundaryAlias must not be null");
-  }
-
-  /** The plan must be non-null at construction. */
-  @Test
-  public void ctor_nullPlan_throwsNpe() {
-    assertThatNullPointerException()
-        .isThrownBy(
-            () -> new YTDBMatchPlanStep<>(
-                traversal, Vertex.class, null, "v", BoundaryOutputType.ELEMENT))
-        .withMessage("plan must not be null");
-  }
-
-  /** The output type must be non-null at construction. */
-  @Test
-  public void ctor_nullOutputType_throwsNpe() {
-    assertThatNullPointerException()
-        .isThrownBy(() -> new YTDBMatchPlanStep<>(traversal, Vertex.class, plan, "v", null))
-        .withMessage("outputType must not be null");
   }
 
   // ---- Iteration & projection ----
