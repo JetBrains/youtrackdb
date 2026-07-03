@@ -463,7 +463,7 @@ public class MatchExecutionPlannerInputsTest {
   }
 
   private static boolean getReturnDistinct(MatchExecutionPlanner planner) {
-    return (Boolean) readField(planner, "returnDistinct");
+    return readField(planner, "returnDistinct");
   }
 
   private static SQLGroupBy getGroupBy(MatchExecutionPlanner planner) {
