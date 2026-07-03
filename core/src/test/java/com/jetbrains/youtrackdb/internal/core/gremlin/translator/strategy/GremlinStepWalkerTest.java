@@ -325,6 +325,23 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * A numeric id ({@code g.V(1L)}) declines via a branch DISTINCT from the malformed-String case:
+   * {@code toRecordId} takes its {@code case null, default -> null} arm for a non-String,
+   * non-{@code Identifiable} id, so the recogniser returns the decline sentinel and the whole walk
+   * declines. Numeric ids are a common Gremlin shape (upstream TinkerPop suites lean on them), and
+   * the all-or-nothing parity contract depends on declining every id the recogniser cannot convert
+   * so the native pipeline resolves it.
+   */
+  @Test
+  public void walk_numericId_declines() {
+    var admin = graph.traversal().V(1L).asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("a numeric (non-RID) id declines the whole walk").isEmpty();
+  }
+
+  /**
    * A blank / whitespace-only RID string ({@code g.V("   ")}) declines via a branch DISTINCT from
    * the malformed-RID case above: {@code RecordIdInternal.fromString} maps a blank string to the
    * {@code #-1:-1} changeable-RID placeholder rather than throwing, so without the recogniser's

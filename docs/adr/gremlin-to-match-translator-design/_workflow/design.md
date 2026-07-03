@@ -1887,12 +1887,29 @@ the same risk class).
 
 **Plan reuse on `clone()`.** TinkerPop clones traversals for
 sub-traversal reuse and parallel execution. The boundary step's
-`clone()` returns a copy that **shares the compiled plan** but resets
-its `started` flag and supplies a fresh `ExecutionStream` on first
-`processNextStart`. Original and clone iterate independently through
-the same plan, each with their own stream. This is safe because
-`SelectExecutionPlan.start()` returns a fresh `ExecutionStream`
-on every call.
+`clone()` gives the clone its own deep `plan.copy()` taken against an
+**isolated child `CommandContext`** — a fresh `BasicCommandContext`
+parented to the original plan's context — and resets the clone's
+per-arming state so it opens a fresh `ExecutionStream` on first
+`processNextStart`. The child owns its own unsynchronised `$current` /
+`$matched` / statistics maps, so the original and the clone iterate
+independently with no shared per-run state, mirroring
+`HashJoinMatchStep`'s build-side isolation.
+
+*Isolation invariant (revisit in later tracks).* The isolation holds
+only while the parent (template) context stays **free of per-run
+variables**. A child write propagates up to the parent only for a key
+the parent already holds (`BasicCommandContext.setVariable` /
+`setSystemVariable`), so as long as the template context carries no
+`$current` / `$matched` / alias / `LET` bindings, each clone writes
+those to its own child map and concurrent clones never touch the shared
+parent. Track 2's single-node `g.V()` pattern seeds no such variables,
+so the invariant holds. A later track that seeds alias or `LET`
+variables onto the plan's context at **build** time would break it — the
+shared parent would then be written concurrently through its
+unsynchronised maps. That track must copy against a detached
+(parent-less) context, or assert the template context stays free of
+per-run variables, before it relies on clone isolation.
 
 ### `MultiPlanMatchStep` (union concatenation)
 

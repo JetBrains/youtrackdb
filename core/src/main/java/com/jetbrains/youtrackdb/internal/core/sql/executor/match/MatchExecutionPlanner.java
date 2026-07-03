@@ -1146,7 +1146,6 @@ public class MatchExecutionPlanner {
     visited.add(sourceAlias(scheduledEdges.getFirst()));
 
     // visitedBefore[i] = set of aliases visited before edge i is processed
-    @SuppressWarnings("unchecked")
     var visitedBefore = new Set[scheduledEdges.size()];
     for (int i = 0; i < scheduledEdges.size(); i++) {
       visitedBefore[i] = Set.copyOf(visited);
@@ -1328,7 +1327,6 @@ public class MatchExecutionPlanner {
    * @return the traced branch edges, intermediate aliases, and branch root; or
    *         {@code null} if no valid branch was found
    */
-  @SuppressWarnings("unchecked")
   @Nullable private static BranchTrace traceBackwardEdges(
       List<EdgeTraversal> scheduledEdges,
       int checkIdx,
@@ -1520,7 +1518,7 @@ public class MatchExecutionPlanner {
     var branchEdgeSet = new HashSet<>(branchEdges);
 
     // Find the scan root alias (source of the first scheduled edge)
-    var rootAlias = sourceAlias(scheduledEdges.get(0));
+    var rootAlias = sourceAlias(scheduledEdges.getFirst());
     long rows = estimateAliasCardinality(
         rootAlias, aliasClasses, aliasFilters, aliasPinnedRids, context);
 
@@ -2855,25 +2853,31 @@ public class MatchExecutionPlanner {
       @Nullable DatabaseSessionEmbedded session) {
     var base = classCount > 0 ? filter.getBaseExpression() : null;
     var condition = base != null ? unwrapSingleCondition(base) : null;
-    if (condition == null) {
-      return -1.0;
-    }
+      switch (condition) {
+          case null -> {
+              return -1.0;
+          }
 
-    // Compound AND: multiply individual selectivities (independence assumption).
-    // For example, creationDate >= X AND creationDate < Y → sel(>=X) * sel(<Y).
-    if (condition instanceof SQLAndBlock andBlock && andBlock.getSubBlocks().size() > 1) {
-      return estimateCompoundAndSelectivity(
-          andBlock, classCount, schemaClass, session);
-    }
 
-    // Compound OR: inclusion-exclusion (independence assumption).
-    // sel(A OR B) = 1 - (1 - sel(A)) * (1 - sel(B))
-    if (condition instanceof SQLOrBlock orBlock && orBlock.getSubBlocks().size() > 1) {
-      return estimateCompoundOrSelectivity(
-          orBlock, classCount, schemaClass, session);
-    }
+          // Compound AND: multiply individual selectivities (independence assumption).
+          // For example, creationDate >= X AND creationDate < Y → sel(>=X) * sel(<Y).
+          case SQLAndBlock andBlock when andBlock.getSubBlocks().size() > 1 -> {
+              return estimateCompoundAndSelectivity(
+                      andBlock, classCount, schemaClass, session);
+          }
 
-    if (!(condition instanceof SQLBinaryCondition binary)) {
+
+          // Compound OR: inclusion-exclusion (independence assumption).
+          // sel(A OR B) = 1 - (1 - sel(A)) * (1 - sel(B))
+          case SQLOrBlock orBlock when orBlock.getSubBlocks().size() > 1 -> {
+              return estimateCompoundOrSelectivity(
+                      orBlock, classCount, schemaClass, session);
+          }
+          default -> {
+          }
+      }
+
+      if (!(condition instanceof SQLBinaryCondition binary)) {
       return -1.0;
     }
     return estimateSingleConditionSelectivity(
@@ -4210,7 +4214,6 @@ public class MatchExecutionPlanner {
    * can be replaced with a correlated hash lookup. The pattern is:
    * {@code .out('LABEL'){where: (@rid = $matched.ALIAS.@rid), optional: true}}
    *
-   * @return descriptor or null if the pattern is not detected
    */
   record CorrelatedOptionalDesc(
       String correlatedAlias, String probeAlias, String targetAlias,
@@ -4274,7 +4277,7 @@ public class MatchExecutionPlanner {
       return null;
     }
     var direction = getEdgeDirection(edge);
-    if (direction == null || (!"out".equals(direction) && !"in".equals(direction))) {
+    if ((!"out".equals(direction) && !"in".equals(direction))) {
       return null;
     }
 
@@ -5079,8 +5082,10 @@ public class MatchExecutionPlanner {
   @Nullable private static String lookupLinkedVertexClass(
       String edgeClassName, String propName, CommandContext context) {
     var session = context.getDatabaseSession();
-    var schema = session.getMetadata().getImmutableSchemaSnapshot();
-    var edgeClass = schema.getClassInternal(edgeClassName);
+      assert session != null;
+      var schema = session.getMetadata().getImmutableSchemaSnapshot();
+      assert schema != null;
+      var edgeClass = schema.getClassInternal(edgeClassName);
     if (edgeClass == null) {
       return null;
     }

@@ -1,9 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
@@ -16,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchP
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -71,14 +69,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V().asAdmin();
     admin.applyStrategies();
 
-    assertEquals(
-        "a recognized g.V() must contain exactly one YTDBMatchPlanStep after applyStrategies()",
-        1,
-        countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("a recognized g.V() must contain exactly one YTDBMatchPlanStep after applyStrategies()")
+        .isEqualTo(1);
 
     var names =
         admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
-    assertEquals(List.of("Alice", "Bob", "Carol"), names);
+    assertThat(names).isEqualTo(List.of("Alice", "Bob", "Carol"));
   }
 
   /**
@@ -107,8 +104,9 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
           .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
       var on = graph.traversal().V().asAdmin();
       on.applyStrategies();
-      assertEquals(
-          "translator on → exactly one boundary step", 1, countBoundarySteps(on.getSteps()));
+      assertThat(countBoundarySteps(on.getSteps()))
+          .as("translator on → exactly one boundary step")
+          .isEqualTo(1);
       var namesOn = on.toList().stream().map(v -> (String) v.value("name")).sorted()
           .toList();
 
@@ -118,19 +116,21 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
           .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
       var off = graph.traversal().V().asAdmin();
       off.applyStrategies();
-      assertEquals(
-          "translator off → no boundary step", 0, countBoundarySteps(off.getSteps()));
-      assertTrue(
-          "translator off → start step must remain a YTDBGraphStep but was "
-              + off.getStartStep().getClass(),
-          off.getStartStep() instanceof YTDBGraphStep<?, ?>);
+      assertThat(countBoundarySteps(off.getSteps()))
+          .as("translator off → no boundary step")
+          .isEqualTo(0);
+      assertThat(off.getStartStep())
+          .as("translator off → start step must remain a YTDBGraphStep")
+          .isInstanceOf(YTDBGraphStep.class);
       var namesOff = off.toList().stream().map(v -> (String) v.value("name")).sorted()
           .toList();
 
       // Multiset equality (sorted lists preserve multiplicity — the duplicate "Alice" appears
       // twice in both).
-      assertEquals("translator-on and translator-off multisets must match", namesOff, namesOn);
-      assertEquals(List.of("Alice", "Alice", "Bob", "Carol"), namesOn);
+      assertThat(namesOn)
+          .as("translator-on and translator-off multisets must match")
+          .isEqualTo(namesOff);
+      assertThat(namesOn).isEqualTo(List.of("Alice", "Alice", "Bob", "Carol"));
     } finally {
       session
           .getConfiguration()
@@ -156,13 +156,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V().asAdmin();
     admin.applyStrategies();
-    assertEquals(1, countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps())).isEqualTo(1);
 
     var count = admin.toList().size();
 
     // toList() returning all 50 rows is itself the finite-time evidence: a hung translation would
     // never reach this line. See the method Javadoc for why there is no wall-clock ceiling.
-    assertEquals("translated g.V() must return every vertex", 50, count);
+    assertThat(count).as("translated g.V() must return every vertex").isEqualTo(50);
   }
 
   /**
@@ -178,13 +178,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   public void translatedBareVertexSource_emptyGraph_returnsEmpty() {
     var admin = graph.traversal().V().asAdmin();
     admin.applyStrategies();
-    assertEquals(
-        "a bare g.V() must still translate to one boundary step on an empty graph",
-        1,
-        countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("a bare g.V() must still translate to one boundary step on an empty graph")
+        .isEqualTo(1);
 
-    assertTrue(
-        "translated bare g.V() on an empty graph must return empty", admin.toList().isEmpty());
+    assertThat(admin.toList())
+        .as("translated bare g.V() on an empty graph must return empty")
+        .isEmpty();
   }
 
   /**
@@ -199,12 +199,12 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V(bob.id()).asAdmin();
     admin.applyStrategies();
-    assertEquals(1, countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps())).isEqualTo(1);
 
     var vertices = admin.toList().stream().toList();
-    assertEquals(1, vertices.size());
-    assertEquals(bob.id(), vertices.getFirst().id());
-    assertEquals("Bob", vertices.getFirst().value("name"));
+    assertThat(vertices).hasSize(1);
+    assertThat(vertices.getFirst().id()).isEqualTo(bob.id());
+    assertThat((String) vertices.getFirst().value("name")).isEqualTo("Bob");
   }
 
   /**
@@ -233,14 +233,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V(missing).asAdmin();
     admin.applyStrategies();
-    assertEquals(
-        "a well-formed non-existent RID must still translate to one boundary step",
-        1,
-        countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("a well-formed non-existent RID must still translate to one boundary step")
+        .isEqualTo(1);
 
-    assertTrue(
-        "translated g.V(missingRid) must return empty, matching native g.V(missingRid)",
-        admin.toList().isEmpty());
+    assertThat(admin.toList())
+        .as("translated g.V(missingRid) must return empty, matching native g.V(missingRid)")
+        .isEmpty();
   }
 
   /**
@@ -256,14 +255,45 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V(alice.id(), carol.id()).asAdmin();
     admin.applyStrategies();
-    assertEquals(1, countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps())).isEqualTo(1);
 
     var returned = admin.toList().stream().toList();
     var idsReturned = returned.stream().map(Vertex::id).collect(Collectors.toSet());
     var namesReturned =
         returned.stream().map(v -> (String) v.value("name")).collect(Collectors.toSet());
-    assertEquals(Set.of(alice.id(), carol.id()), idsReturned);
-    assertEquals(Set.of("Alice", "Carol"), namesReturned);
+    assertThat(idsReturned).isEqualTo(Set.of(alice.id(), carol.id()));
+    assertThat(namesReturned).isEqualTo(Set.of("Alice", "Carol"));
+  }
+
+  /**
+   * Multi-id lookup mixing an existing and a non-existent RID {@code g.V(existing, missing)}
+   * translates (both ids are distinct and convertible) and returns only the existing vertex,
+   * matching native. The single-id non-existent case is covered by {@code
+   * translatedSingleIdLookup_nonExistentRid_returnsEmpty}; this pins the multi-id {@code @rid IN
+   * [...]} path against a partially-satisfiable list — a plan that emitted a phantom row for the
+   * missing RID, or dropped the existing one, would surface only here.
+   */
+  @Test
+  public void translatedMultiIdLookup_mixedExistingAndMissing_returnsOnlyExisting() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    // A RID that provably addresses no stored record: add a vertex, commit so it is assigned a real
+    // collection:position, capture that RID, then delete the vertex (see the single-id variant).
+    var doomed = graph.addVertex(T.label, "Person", "name", "Doomed");
+    graph.tx().commit();
+    var missing = doomed.id();
+    doomed.remove();
+    graph.tx().commit();
+
+    var admin = graph.traversal().V(alice.id(), missing).asAdmin();
+    admin.applyStrategies();
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("a distinct existing+missing id pair must still translate to one boundary step")
+        .isEqualTo(1);
+
+    var ids = admin.toList().stream().map(Vertex::id).collect(Collectors.toSet());
+    assertThat(ids)
+        .as("translated g.V(existing, missing) must return only the existing vertex")
+        .isEqualTo(Set.of(alice.id()));
   }
 
   /**
@@ -282,14 +312,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     // recognizer refuses it because @rid IN cannot reproduce the once-per-occurrence multiset.
     var admin = graph.traversal().V(alice.id(), alice.id()).asAdmin();
     admin.applyStrategies();
-    assertEquals(
-        "duplicate-id source must decline (no boundary step)",
-        0,
-        countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("duplicate-id source must decline (no boundary step)")
+        .isEqualTo(0);
 
     // The declined shape runs natively and emits the vertex once per list entry: two emissions.
     var native2 = admin.toList();
-    assertEquals("native g.V(id, id) emits the vertex once per list entry", 2, native2.size());
+    assertThat(native2).as("native g.V(id, id) emits the vertex once per list entry").hasSize(2);
   }
 
   /**
@@ -306,12 +335,14 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().E().asAdmin();
     admin.applyStrategies();
-    assertEquals("g.E() must decline (no boundary step)", 0, countBoundarySteps(admin.getSteps()));
-    assertTrue(
-        "g.E() must remain on a YTDBGraphStep but was " + admin.getStartStep().getClass(),
-        admin.getStartStep() instanceof YTDBGraphStep<?, ?>);
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("g.E() must decline (no boundary step)")
+        .isEqualTo(0);
+    assertThat(admin.getStartStep())
+        .as("g.E() must remain on a YTDBGraphStep")
+        .isInstanceOf(YTDBGraphStep.class);
     var graphStep = (YTDBGraphStep<?, ?>) admin.getStartStep();
-    assertEquals(Edge.class, graphStep.getReturnClass());
+    assertThat(graphStep.getReturnClass()).isEqualTo(Edge.class);
   }
 
   /**
@@ -328,15 +359,14 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V().out("knows").asAdmin();
     admin.applyStrategies();
-    assertEquals(
-        "a multi-step traversal must decline under the minimal-prefix gate",
-        0,
-        countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("a multi-step traversal must decline under the minimal-prefix gate")
+        .isEqualTo(0);
 
     // The declined shape still executes correctly on the native pipeline: Alice -knows-> Bob.
     var names =
         admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
-    assertEquals(List.of("Bob"), names);
+    assertThat(names).isEqualTo(List.of("Bob"));
   }
 
   /**
@@ -355,12 +385,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V().has("name", "Alice").asAdmin();
     admin.applyStrategies();
-    assertEquals(
-        "g.V().has(...) must decline (no boundary step)", 0, countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps()))
+        .as("g.V().has(...) must decline (no boundary step)")
+        .isEqualTo(0);
 
     var names =
         admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
-    assertEquals(List.of("Alice"), names);
+    assertThat(names).isEqualTo(List.of("Alice"));
   }
 
   /**
@@ -385,20 +416,21 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
           .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
       var off = graph.traversal().V().asAdmin();
       off.applyStrategies();
-      assertEquals(
-          "kill-switch off → no boundary step", 0, countBoundarySteps(off.getSteps()));
-      assertTrue(
-          "kill-switch off → start step must remain a YTDBGraphStep but was "
-              + off.getStartStep().getClass(),
-          off.getStartStep() instanceof YTDBGraphStep<?, ?>);
+      assertThat(countBoundarySteps(off.getSteps()))
+          .as("kill-switch off → no boundary step")
+          .isEqualTo(0);
+      assertThat(off.getStartStep())
+          .as("kill-switch off → start step must remain a YTDBGraphStep")
+          .isInstanceOf(YTDBGraphStep.class);
 
       session
           .getConfiguration()
           .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, true);
       var on = graph.traversal().V().asAdmin();
       on.applyStrategies();
-      assertEquals(
-          "kill-switch back on → exactly one boundary step", 1, countBoundarySteps(on.getSteps()));
+      assertThat(countBoundarySteps(on.getSteps()))
+          .as("kill-switch back on → exactly one boundary step")
+          .isEqualTo(1);
     } finally {
       session
           .getConfiguration()
@@ -426,17 +458,17 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     GremlinToMatchStrategy.instance().apply(admin);
 
-    assertEquals(
-        "step list must be identical after re-applying the strategy",
-        stepsAfterFirst,
-        new ArrayList<>(admin.getSteps()));
-    assertEquals(
-        "start step instance must be unchanged", startAfterFirst, admin.getStartStep());
-    assertEquals(1, countBoundarySteps(admin.getSteps()));
+    assertThat(new ArrayList<>(admin.getSteps()))
+        .as("step list must be identical after re-applying the strategy")
+        .isEqualTo(stepsAfterFirst);
+    assertThat(admin.getStartStep())
+        .as("start step instance must be unchanged")
+        .isEqualTo(startAfterFirst);
+    assertThat(countBoundarySteps(admin.getSteps())).isEqualTo(1);
 
     var names =
         admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
-    assertEquals(List.of("Alice", "Bob"), names);
+    assertThat(names).isEqualTo(List.of("Alice", "Bob"));
   }
 
   /**
@@ -455,10 +487,10 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     var admin = graph.traversal().V().asAdmin();
     admin.applyStrategies();
-    assertEquals(1, countBoundarySteps(admin.getSteps()));
+    assertThat(countBoundarySteps(admin.getSteps())).isEqualTo(1);
 
     var labels = admin.toList().stream().map(Element::label).sorted().toList();
-    assertEquals(List.of("Person", "Place"), labels);
+    assertThat(labels).isEqualTo(List.of("Person", "Place"));
   }
 
   /**
@@ -518,25 +550,25 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var rowCount = q.toList().size();
     graph.tx().commit();
 
-    assertTrue(
-        "monitored g.V() must still be translated to exactly one boundary step", boundaryEngaged);
-    assertEquals("exactly one QueryDetails must be recorded", 1, listener.callCount);
-    assertNotNull("a query string must be captured", listener.query);
-    assertEquals(
-        "querySummary must round-trip through the OptionsStrategy unaffected by translation",
-        summary,
-        listener.querySummary);
+    assertThat(boundaryEngaged)
+        .as("monitored g.V() must still be translated to exactly one boundary step")
+        .isTrue();
+    assertThat(listener.callCount).as("exactly one QueryDetails must be recorded").isEqualTo(1);
+    assertThat(listener.query).as("a query string must be captured").isNotNull();
+    assertThat(listener.querySummary)
+        .as("querySummary must round-trip through the OptionsStrategy unaffected by translation")
+        .isEqualTo(summary);
     // getQuery() renders the ORIGINAL bytecode via the Groovy translator, so a bare g.V() source
     // renders the `.V()` step call. Assert that specific step token — a loose `V(` also matches
     // addV(/hasV( — and separately assert the spliced boundary step did not leak into the render.
-    assertTrue(
-        "getQuery() must render the original g.V() step, not the boundary step; was: "
-            + listener.query,
-        listener.query.contains(".V()"));
-    assertFalse(
-        "the boundary step must not leak into the recorded query; was: " + listener.query,
-        listener.query.contains("YTDBMatchPlanStep"));
-    assertEquals("recorded result count must match the fixture", 3, rowCount);
+    assertThat(listener.query)
+        .as("getQuery() must render the original g.V() step, not the boundary step; was: "
+            + listener.query)
+        .contains(".V()");
+    assertThat(listener.query)
+        .as("the boundary step must not leak into the recorded query; was: " + listener.query)
+        .doesNotContain("YTDBMatchPlanStep");
+    assertThat(rowCount).as("recorded result count must match the fixture").isEqualTo(3);
   }
 
   /**
@@ -558,10 +590,10 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     // Recognised bare g.V(): the strategy replaces the whole step list with one boundary step,
     // so its toString() marker appears in the final traversal of the explanation.
     var translatedExplain = graph.traversal().V().explain().toString();
-    assertTrue(
-        "explain() of a translated g.V() must surface the YTDBMatchPlanStep marker; was: "
-            + translatedExplain,
-        translatedExplain.contains("YTDBMatchPlanStep"));
+    assertThat(translatedExplain)
+        .as("explain() of a translated g.V() must surface the YTDBMatchPlanStep marker; was: "
+            + translatedExplain)
+        .contains("YTDBMatchPlanStep");
     // The FINAL (post-strategy) traversal must be collapsed to the boundary marker alone, with no
     // native vertex step surviving. Scope the check to the "Final Traversal" section: a GraphStep
     // always appears in the explanation's "Original Traversal" (and pre-translation strategy) rows,
@@ -569,21 +601,71 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     // but-not-collapsed regression.
     var finalSection =
         translatedExplain.substring(translatedExplain.lastIndexOf("Final Traversal"));
-    assertFalse(
-        "the translated final traversal must not retain a native GraphStep box; was: "
-            + finalSection,
-        finalSection.contains("GraphStep"));
+    assertThat(finalSection)
+        .as("the translated final traversal must not retain a native GraphStep box; was: "
+            + finalSection)
+        .doesNotContain("GraphStep");
 
     // hasLabel(...) is unrecognised in this track, so the whole traversal declines to the native
     // pipeline: no boundary step, and the native vertex step (a GraphStep) is still rendered.
     var declinedExplain = graph.traversal().V().hasLabel("Person").explain().toString();
-    assertFalse(
-        "explain() of a declined traversal must not contain a boundary step; was: "
-            + declinedExplain,
-        declinedExplain.contains("YTDBMatchPlanStep"));
-    assertTrue(
-        "declined explain must still render a native vertex step; was: " + declinedExplain,
-        declinedExplain.contains("GraphStep"));
+    assertThat(declinedExplain)
+        .as("explain() of a declined traversal must not contain a boundary step; was: "
+            + declinedExplain)
+        .doesNotContain("YTDBMatchPlanStep");
+    assertThat(declinedExplain)
+        .as("declined explain must still render a native vertex step; was: " + declinedExplain)
+        .contains("GraphStep");
+  }
+
+  /**
+   * A translated boundary step re-iterates correctly on the same instance after {@code reset()},
+   * over a REAL execution plan. Exhaustion closes only the arming's stream and leaves the plan open,
+   * so {@code reset()} + a second drive rewinds and re-runs the plan and returns the same rows; the
+   * plan is closed only by the final {@code close()}. A regression that closed the plan at
+   * exhaustion would leave the second pass re-running an already-closed plan (its steps' close guard
+   * is sticky), leaking the re-run's cursors. The mock-plan reset unit test cannot catch this
+   * because a mock plan has no real cursors; this drives a real {@code SelectExecutionPlan}.
+   */
+  @Test
+  public void translatedBoundaryStep_reIteratesAfterReset_overRealPlan() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+
+    var admin = graph.traversal().V().asAdmin();
+    admin.applyStrategies();
+    assertThat(countBoundarySteps(admin.getSteps())).isEqualTo(1);
+    var boundary = (YTDBMatchPlanStep<?, ?>) admin.getSteps().getFirst();
+
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    try {
+      var firstPass = drainNames(boundary);
+      // Re-arm the SAME instance and drive it again — the path that a bad exhaustion-closes-plan
+      // would break.
+      boundary.reset();
+      var secondPass = drainNames(boundary);
+
+      assertThat(firstPass).isEqualTo(List.of("Alice", "Bob"));
+      assertThat(secondPass)
+          .as("a reset boundary step must re-run its real plan and return the same rows")
+          .isEqualTo(firstPass);
+    } finally {
+      boundary.close();
+      tx.commit();
+    }
+  }
+
+  /** Drains a boundary step to exhaustion, returning the matched vertices' names, sorted. */
+  private static List<String> drainNames(YTDBMatchPlanStep<?, ?> boundary) {
+    var names = new ArrayList<String>();
+    while (boundary.hasNext()) {
+      Object vertex = boundary.next().get();
+      names.add((String) ((Vertex) vertex).value("name"));
+    }
+    Collections.sort(names);
+    return names;
   }
 
   /**

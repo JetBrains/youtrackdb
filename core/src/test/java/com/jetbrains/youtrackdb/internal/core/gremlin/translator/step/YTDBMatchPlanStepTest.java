@@ -46,8 +46,10 @@ import org.mockito.InOrder;
  * <p>The step extends {@code AbstractStep}; iteration is driven through its {@code protected
  * processNextStart()} (package-visible to this same-package test), which opens the plan's stream on
  * first call, projects one row per call, and throws {@link NoSuchElementException} (a {@code
- * FastNoSuchElementException}) once the stream is exhausted, closing the stream and plan as it does
- * so.
+ * FastNoSuchElementException}) once the stream is exhausted, closing the arming's stream as it does
+ * so. The plan itself is closed by {@code close()}, which TinkerPop fires on exhaustion; these
+ * tests drive {@code processNextStart()} directly, so they call {@code close()} explicitly to
+ * observe the plan close.
  *
  * <p>The graph is mocked: the projection helper wraps a YTDB raw vertex into a {@link
  * YTDBVertexImpl}, whose ctor only dereferences the identifiable's {@code getIdentity()} (null for a
@@ -162,9 +164,9 @@ public class YTDBMatchPlanStepTest {
   /**
    * Drives two rows through the step and asserts each generated traverser carries the matching raw
    * vertex in order. Verifies (a) {@code row.getVertex("v")} is read once per row, (b) wrappers
-   * point at distinct raw entities, and (c) the stream and plan are closed once when the stream
-   * signals exhaustion. Pulling two rows confirms each call pulls a fresh {@link Result} rather than
-   * caching the first.
+   * point at distinct raw entities, and (c) exhaustion closes the arming's stream once but leaves
+   * the plan open, and the explicit {@code close()} then closes the plan. Pulling two rows confirms
+   * each call pulls a fresh {@link Result} rather than caching the first.
    */
   @Test
   public void processNextStart_pullsTwoRowsThenExhausts_andClosesStream() {
@@ -195,15 +197,23 @@ public class YTDBMatchPlanStepTest {
     verify(row1).getVertex("v");
     verify(row2).getVertex("v");
 
+    // Exhaustion closes the arming's STREAM but leaves the plan open (so a reset before close could
+    // re-iterate); the plan is closed by close(), which TinkerPop fires on exhaustion — here driven
+    // explicitly because the test calls processNextStart directly rather than through a traversal.
+    verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+
+    step.close();
     var order = inOrder(stream, plan);
-    order.verify(stream, times(1)).close(ctx);
+    order.verify(stream, times(1)).close(ctx); // close() does not re-close the released stream
     order.verify(plan, times(1)).close();
   }
 
   /**
    * Empty stream (zero rows): the first {@code processNextStart()} probes {@code hasNext} once, gets
-   * false, closes the stream and plan, and throws. This is the canonical "no matches" case (e.g.
-   * {@code g.V(missingId)}). The row is never pulled.
+   * false, closes the arming's stream, and throws. This is the canonical "no matches" case (e.g.
+   * {@code g.V(missingId)}). The row is never pulled; the plan is closed by the explicit
+   * {@code close()}, not by exhaustion.
    */
   @Test
   public void processNextStart_emptyStream_closesImmediately() {
@@ -212,15 +222,19 @@ public class YTDBMatchPlanStepTest {
     var step = elementStep("v");
     assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
 
+    // Exhaustion closes the stream but leaves the plan open; close() closes the plan.
     verify(stream, times(1)).close(ctx);
-    verify(plan, times(1)).close();
+    verify(plan, never()).close();
     verify(stream, never()).next(ctx);
+
+    step.close();
+    verify(plan, times(1)).close();
   }
 
   /**
    * Single-row stream: stresses the exhaustion/close trigger immediately after the first row.
    * Off-by-one regressions where exhaustion is detected on the wrong boundary would surface here but
-   * not in the multi-row test.
+   * not in the multi-row test. Exhaustion closes the stream; the plan is closed by {@code close()}.
    */
   @Test
   public void processNextStart_singleRow_emitsThenCloses() {
@@ -235,10 +249,13 @@ public class YTDBMatchPlanStepTest {
 
     var only = step.processNextStart().get();
     assertThatExceptionOfType(NoSuchElementException.class)
-        .isThrownBy(step::processNextStart); // exhaustion → close
+        .isThrownBy(step::processNextStart); // exhaustion → stream close
 
     assertThat(assertRawEntityOf(only)).isSameAs(rawVertex);
     verify(stream, times(1)).close(ctx);
+    verify(plan, never()).close();
+
+    step.close();
     verify(plan, times(1)).close();
   }
 
@@ -364,8 +381,8 @@ public class YTDBMatchPlanStepTest {
   }
 
   /**
-   * {@code close()} is idempotent: a second call after the first is a no-op (the {@code done} guard),
-   * so the stream and plan are each closed exactly once.
+   * {@code close()} is idempotent: a second call after the first is a no-op (the {@code closed}
+   * guard), so the stream and plan are each closed exactly once.
    */
   @Test
   public void close_isIdempotent() {
@@ -490,6 +507,30 @@ public class YTDBMatchPlanStepTest {
     // Terminal: the next pull ends without re-opening the closed plan (started exactly once).
     assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
     verify(plan, times(1)).start();
+  }
+
+  /**
+   * When iteration throws AND the release triggered by that failure also throws (here {@code
+   * stream.next()} blows up and {@code stream.close()} then fails during release), the iteration
+   * failure stays the primary exception and the release failure is attached via {@code
+   * addSuppressed}. This exercises the {@code addSuppressed} arm of {@code processNextStart}'s
+   * own catch block — a distinct site from the {@code close()} both-throw path, which suppresses a
+   * plan-close error onto a stream-close error rather than onto an iteration error.
+   */
+  @Test
+  public void processNextStart_streamThrows_andReleaseAlsoThrows_suppressesReleaseError() {
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenThrow(new RuntimeException("iteration blew up"));
+    doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
+
+    var step = elementStep("v");
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("iteration blew up")
+        .satisfies(
+            e -> assertThat(e.getSuppressed())
+                .anySatisfy(s -> assertThat(s).hasMessageContaining("stream close failed")));
   }
 
   // ---- Clone semantics ----
@@ -642,6 +683,14 @@ public class YTDBMatchPlanStepTest {
     tB.start();
     tA.join(5_000);
     tB.join(5_000);
+
+    // A timed join returns whether the thread finished OR the timeout elapsed. Assert both threads
+    // actually terminated: a regression that made forEachRemaining hang would otherwise leave the
+    // errors list empty (the thread is stuck, not throwing) and leak two live threads into the
+    // shared surefire fork while the test still went green. A completed join is also what
+    // establishes the happens-before edge the verify() calls below rely on.
+    assertThat(tA.isAlive()).as("driver A must terminate, not hang").isFalse();
+    assertThat(tB.isAlive()).as("driver B must terminate, not hang").isFalse();
 
     assertThat(errors).as("no driver thread threw during concurrent iteration").isEmpty();
     verify(copyA, times(1)).start();

@@ -43,12 +43,21 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  *       one {@link Result} row, projects it per {@link BoundaryOutputType}, and generates a
  *       traverser. Wrapping goes through {@link YTDBVertexImpl} so downstream native steps see
  *       TinkerPop element types.
- *   <li><b>Exhaustion / close:</b> when the stream runs dry, when iterating it throws, or on an
- *       explicit {@link #close()}
- *       (which TinkerPop invokes on early termination — e.g. a downstream limit cuts iteration
- *       short — via {@code Traversal.close()} closing every {@link AutoCloseable} step), the stream
- *       is closed first, then the plan. A stream-close failure is the primary exception; a
- *       plan-close failure is attached with {@code addSuppressed}. Close is idempotent.
+ *   <li><b>Exhaustion:</b> when the stream runs dry the arming's <em>stream</em> is closed but the
+ *       plan is kept open, so a {@link #reset()} + reopen can rewind and re-run it — a closed
+ *       {@link SelectExecutionPlan} cannot be cleanly restarted (its steps' close guard is sticky,
+ *       so a re-run's cursors would leak). The plan itself is closed by the {@link #close()}
+ *       TinkerPop fires on exhaustion (via {@code DefaultTraversal.hasNext()} closing the traversal
+ *       through {@code CloseableIterator.closeIterator} once the boundary signals no more rows).
+ *   <li><b>Iteration failure:</b> when iterating it throws, the stream <em>and</em> the plan are
+ *       released immediately before the exception propagates. TinkerPop auto-closes the traversal
+ *       only on normal exhaustion, never on a thrown exception, so deferring the plan close would
+ *       leak the cursor. The iteration failure stays the primary exception; a release failure is
+ *       attached with {@code addSuppressed}.
+ *   <li><b>Close:</b> {@link #close()} (which TinkerPop invokes on exhaustion and on early
+ *       termination — e.g. a downstream limit cuts iteration short — via {@code Traversal.close()}
+ *       closing every {@link AutoCloseable} step) closes the stream first, then the plan. It is
+ *       idempotent.
  *   <li><b>Reset:</b> {@link #reset()} re-arms the step for a fresh pass on the same instance. It
  *       does not close the open stream directly (see the field notes); the next open closes a
  *       lingering cursor and rewinds the plan.
@@ -95,6 +104,12 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   // This arming is finished — exhausted or explicitly closed, resources released. processNextStart
   // ends immediately while set; reset() clears it to re-arm.
   private boolean done;
+
+  // The plan has been closed for good. Set by close() and by the terminal iteration-failure path,
+  // and distinct from `done`: exhaustion sets `done` (and reset() clears it to re-arm) but leaves
+  // the plan open, so a reset() before close() can re-iterate. Once `closed` is set the plan is
+  // never re-run and further close() calls are no-ops.
+  private boolean closed;
 
   /**
    * Constructs a boundary step backed by the given execution plan.
@@ -154,9 +169,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
 
   /**
    * Pulls the next matched element as a traverser, opening the plan's stream on the first call.
-   * Throws {@link FastNoSuchElementException} once the stream is exhausted, closing the stream and
-   * plan as it does so. A failure while iterating the stream also closes the stream and plan before
-   * propagating, so a stream that threw part-way does not leak until traversal teardown.
+   * Throws {@link FastNoSuchElementException} once the stream is exhausted, closing the arming's
+   * stream as it does so; the plan stays open for a possible {@link #reset()} and is closed by the
+   * {@link #close()} TinkerPop fires on exhaustion. A failure while iterating the stream closes both
+   * the stream and the plan before propagating — TinkerPop does not auto-close on a thrown exception
+   * — so a stream that threw part-way does not leak until traversal teardown.
    */
   @Override
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -177,14 +194,16 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
         element = (E) project(openStream.next(ctx));
       }
     } catch (RuntimeException | Error e) {
-      // A failure while iterating the open stream (hasNext / next / projection) releases this
-      // arming — stream then plan — before propagating, matching the design's boundary-step
-      // lifecycle: an exception must not leave the cursor open until traversal teardown. The
-      // iteration failure stays primary; a close failure is attached with addSuppressed. The arming
-      // is marked done so a retry does not reopen the just-closed plan.
+      // A failure while iterating the open stream (hasNext / next / projection) is terminal: release
+      // the stream AND the plan before propagating. TinkerPop auto-closes the traversal only on
+      // normal exhaustion (DefaultTraversal.hasNext -> closeIterator), never on a thrown exception,
+      // so deferring the plan close here would leak the cursor until traversal teardown. The
+      // iteration failure stays primary; a release failure is attached with addSuppressed. `done`
+      // ends iteration and `closed` marks the plan closed so the just-closed plan is never re-run.
       done = true;
+      closed = true;
       try {
-        releaseArming();
+        releaseStreamAndClosePlan();
       } catch (RuntimeException | Error suppressed) {
         e.addSuppressed(suppressed);
       }
@@ -196,9 +215,14 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       // source), so the generic self-reference cannot be expressed without erasure.
       return getTraversal().getTraverserGenerator().generate(element, (Step) this, 1L);
     }
-    // Stream drained: release this arming (stream then plan) and signal end.
+    // Stream drained: close only this arming's STREAM and keep the plan open, so a reset() + reopen
+    // can rewind and re-run it — a closed SelectExecutionPlan cannot be cleanly restarted (its
+    // steps' close guard is sticky, so a re-run's cursors would leak). The plan is closed by the
+    // close() TinkerPop fires right after this signals no more rows (DefaultTraversal.hasNext ->
+    // CloseableIterator.closeIterator), and on early termination. `done` stops further iteration
+    // until a reset re-arms.
     done = true;
-    releaseArming();
+    releaseStream();
     throw FastNoSuchElementException.instance();
   }
 
@@ -262,10 +286,26 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   }
 
   /**
+   * Closes the current arming's stream without touching the plan. Used on normal exhaustion, where
+   * the plan must stay open so a {@link #reset()} + reopen can rewind and re-run it; the plan is
+   * closed later by {@link #close()}.
+   */
+  private void releaseStream() {
+    var stream = openStream;
+    openStream = null;
+    armingGraph = null;
+    if (stream != null) {
+      stream.close(plan.getContext());
+    }
+  }
+
+  /**
    * Closes the current arming's stream and then the plan. The stream-close failure is the primary
    * exception; a plan-close failure is attached with {@code addSuppressed} rather than masking it.
+   * Used on the terminal paths — an iteration failure and {@link #close()} — where the plan is not
+   * re-run.
    */
-  private void releaseArming() {
+  private void releaseStreamAndClosePlan() {
     var ctx = plan.getContext();
     var stream = openStream;
     openStream = null;
@@ -306,19 +346,27 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   }
 
   /**
-   * Closes the plan's resources. Called by TinkerPop on early traversal termination (through {@code
-   * Traversal.close()}, which closes every {@link AutoCloseable} step) and internally on stream
-   * exhaustion. Idempotent: once the step is finished, further calls are no-ops.
+   * Closes the plan's resources. Called by TinkerPop on stream exhaustion and on early traversal
+   * termination (both through {@code Traversal.close()}, which closes every {@link AutoCloseable}
+   * step). This is where the plan is closed on the normal path: exhaustion closes only the stream
+   * (so a reset before close can re-iterate) and leaves the plan for this call to close. Idempotent
+   * via the {@code closed} flag. Gating on {@code closed} rather than {@code done} is deliberate —
+   * exhaustion sets {@code done} but leaves the plan open, so a {@code done}-gated close would skip
+   * the plan close and leak the cursor.
    */
   @Override
   public void close() {
-    if (done) {
+    if (closed) {
       return;
     }
+    closed = true;
     done = true;
-    if (armed || openStream != null) {
-      releaseArming();
+    if (openStream != null) {
+      // A stream is still open (partial consume, or a reset that deferred its close): release the
+      // stream and the plan.
+      releaseStreamAndClosePlan();
     } else if (everStarted) {
+      // Exhaustion already closed the stream; close the still-open plan now.
       plan.close();
     }
     // Never opened and never started: nothing to release.
@@ -335,6 +383,16 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     // while database session, input parameters, and timeout still resolve through the parent.
     // Copying against plan.getContext() directly would leave both plans on the same context,
     // defeating the isolation this clone exists to provide.
+    //
+    // INVARIANT the isolation depends on: the parent (template) context must stay free of per-run
+    // variables. A child write propagates UP to the parent only for a key the parent already holds
+    // (BasicCommandContext.setVariable / setSystemVariable), so as long as the template context
+    // carries no $current / $matched / alias / LET bindings, each clone writes those to its own
+    // child map and concurrent clones never touch the shared parent. Track 2's single-node g.V()
+    // pattern seeds no such variables, so the invariant holds. A later track that seeds alias or LET
+    // variables onto the plan's context at BUILD time would break it — the shared parent would then
+    // be written concurrently through its unsynchronised maps. See the clone-isolation note in the
+    // design doc.
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(plan.getContext());
     // Plain field write: the field is non-final (see its declaration), the copy is independent, and
@@ -351,11 +409,7 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
     return cloned;
   }
 
-  /**
-   * Projects one result row onto the configured output payload. Package-private accessors ({@link
-   * #projectElement}) let unit tests exercise projection without driving the full iterator
-   * lifecycle.
-   */
+  /** Projects one result row onto the configured output payload. */
   private Object project(Result row) {
     return switch (outputType) {
       case ELEMENT -> projectElement(row, armingGraph);
