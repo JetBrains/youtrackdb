@@ -19,7 +19,7 @@ The workflow's authored documents are governed by one declarative style file, `.
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
