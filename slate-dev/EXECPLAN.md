@@ -28,7 +28,7 @@ This implements the architecture from the Slate technical report (Random Labs): 
 - [x] (2026-07-03 07:05Z) M1: Core — ThreadManager, episode compression, `thread`/`threads`/`episode` tools, registry persistence, failure episodes. Completed: modules `state.ts`, `worker.ts`, `episodes.ts`, `threads.ts`, `tools.ts`, `index.ts` under `.pi/extensions/slate/`; all six M1 acceptance criteria verified headlessly (see M1 evidence in Artifacts and Notes): episode with 6 contract sections + file on disk; cross-process registry restore via `pi -c`; composition from injected episode only (no tools); parallel threads started same-millisecond; FAILED episode with diagnostics (`nope/nope` model); same-thread FIFO with retained context (41→42).
 - [x] (2026-07-03 07:20Z) M2: Orchestrator mode — `/slate` command, tool restriction, doctrine system prompt, status widget. Completed: `mode.ts` (+ `store.onDidChange` hook in `state.ts`, wiring in `index.ts`); headless acceptance passed: with `/slate on` the orchestrator reports exactly `read, grep, find, ls, thread, threads, episode` (no bash/edit/write); a compound request produced two parallel thread dispatches (episodes t1.e1, t2.e1 on disk) and correct synthesis; mode persisted across process restart (`pi -c` → bash still absent); `/slate off` restored bash. Remaining: widget appearance is TUI-only — verify interactively during M3/M4.
 - [x] (2026-07-03 07:30Z) M3: Rendering — collapsed/expanded TUI rendering for thread dispatches, usage stats. Completed: `render.ts` (renderCall: thread/task/context-refs preview; renderResult: live progress lines while streaming, Key-Findings digest + usage collapsed, full episode Markdown + usage expanded; FAILED shows Open Issues digest) wired into the `thread` tool in `tools.ts`; extension load + tool execution smoke-tested headlessly. Remaining (user, interactive): visual confirmation of rendering, live widget, streaming progress, and Esc-abort — folded into M4 dogfood.
-- [ ] M4: Validation — scripted print-mode acceptance scenario; dogfood run on a real ytdb task; retrospective written.
+- [ ] M4: Validation — scripted print-mode acceptance scenario; dogfood run on a real ytdb task; retrospective written. (completed: `slate-dev/validate/scenario.sh` written and PASSING — "PASS: 3 episodes, combined answer BLUEFIN:9944, composition proven"; remaining: interactive visual checks — rendering, widget, streaming progress, Esc-abort — and the ytdb dogfood task, both require the user's interactive session; then Outcomes & Retrospective.)
 
 ## Surprises & Discoveries
 
@@ -220,13 +220,24 @@ M2 run (DONE — headless, scratch ws /tmp/slate-m2-ws, 2026-07-03):
     pi -c -p -e $EXT "/slate off" "Is bash among your tools right now? yes/no only."  # -> Yes
     # widget: TUI-only, verify interactively
 
-M4 scripted scenario (write this as slate-dev/validate/scenario.sh):
+M4 scripted scenario (DONE — `slate-dev/validate/scenario.sh`, executable, idempotent):
 
-    TMP=$(mktemp -d)
-    # seed a toy repo: three small files with planted facts (e.g. a "secret" constant in one file)
-    # run: pi -p --no-session -e "$PWD/.pi/extensions/slate/index.ts" -C "$TMP" "<weaving task prompt>"   # check pi --help for the cwd flag; else cd "$TMP"
-    # assert: exit 0; output contains facts from BOTH planted files; .pi/slate/episodes in $TMP (or recorded episode paths) contain >= 2 episodes; one episode id appears as context input of a later dispatch
-    echo PASS
+    slate-dev/validate/scenario.sh
+    # -> PASS: 3 episodes, combined answer BLUEFIN:9944, composition proven
+    # Asserts: exit 0 + combined answer; >= 3 episodes each with all 6 contract sections;
+    # "Context from prior episodes" present in a worker session file (composition evidence).
+    # Fixture wording must stay innocuous (see Surprises: safety refusal on "launch code").
+
+M4 remaining — interactive checklist (user, in a pi TUI session in this repo after /reload):
+
+    # 1. /slate           -> notification + widget appears above the editor
+    # 2. dispatch: "create a thread to count .md files in the repo root"
+    #    -> observe: renderCall line (thread new:"..."), live ⏳ progress lines, then ✓ digest + usage
+    # 3. Ctrl+O on the result -> full episode markdown rendered
+    # 4. dispatch a long action and press Esc mid-run -> FAILED episode, worker actually stops
+    # 5. /slate            -> widget clears, tools restored
+    # 6. dogfood: /slate on, task "investigate issue-perf-eager-pricing-load.md and produce a fix
+    #    proposal" -> orchestrator weaves threads; verify orchestrator context stays clean of raw file dumps
 
 Update this section with the exact final commands and observed transcripts as work proceeds.
 
