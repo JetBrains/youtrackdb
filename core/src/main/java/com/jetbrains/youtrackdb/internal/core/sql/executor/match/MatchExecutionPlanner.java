@@ -1362,7 +1362,7 @@ public class MatchExecutionPlanner {
         } else if (prevTarget.equals(currentAlias)) {
           // Continues the branch chain
           intermediateAliases.add(prevTarget);
-          branchEdges.addFirst(prevEdge);
+          branchEdges.add(0, prevEdge);
           currentAlias = prevSource;
           if (visitedBeforeJ.contains(prevSource)) {
             break;
