@@ -25,7 +25,7 @@ This implements the architecture from the Slate technical report (Random Labs): 
 - [x] (2026-07-03 06:40Z) This ExecPlan created. AGENTS.md updated to point future sessions at this plan.
 - [x] (2026-07-03 07:00Z) Workflow tooling: `.pi/extensions/handoff-guard.ts` added (live ctx% in footer, 40% warning, `/handoff` command). Activate with `/reload`.
 - [x] (2026-07-03 06:50Z) M0: Prototype — in-process worker `AgentSession` spawned from an extension tool, with recursion guard and session persistence proven. Completed: `.pi/extensions/slate/index.ts` with `slate_proto`; `.gitignore` entry for `.pi/slate/`; automated print-mode tests passed (task execution, cross-process resume with retained memory, worker tool list free of slate tools). Remaining (fold into M3 acceptance): interactive-TUI observation of streaming progress lines and Esc-abort — mechanics are wired via `onUpdate` and `signal` → `session.abort()`.
-- [ ] M1: Core — ThreadManager, episode compression, `thread`/`threads`/`episode` tools, registry persistence, failure episodes.
+- [x] (2026-07-03 07:05Z) M1: Core — ThreadManager, episode compression, `thread`/`threads`/`episode` tools, registry persistence, failure episodes. Completed: modules `state.ts`, `worker.ts`, `episodes.ts`, `threads.ts`, `tools.ts`, `index.ts` under `.pi/extensions/slate/`; all six M1 acceptance criteria verified headlessly (see M1 evidence in Artifacts and Notes): episode with 6 contract sections + file on disk; cross-process registry restore via `pi -c`; composition from injected episode only (no tools); parallel threads started same-millisecond; FAILED episode with diagnostics (`nope/nope` model); same-thread FIFO with retained context (41→42).
 - [ ] M2: Orchestrator mode — `/slate` command, tool restriction, doctrine system prompt, status widget.
 - [ ] M3: Rendering — collapsed/expanded TUI rendering for thread dispatches, usage stats.
 - [ ] M4: Validation — scripted print-mode acceptance scenario; dogfood run on a real ytdb task; retrospective written.
@@ -43,8 +43,19 @@ This implements the architecture from the Slate technical report (Random Labs): 
 - Observation (M0): Cross-process thread persistence works: a second `pi -p` process resumed the worker via `SessionManager.open(file)` and the worker answered "what word did you write earlier" correctly **without tools**, purely from its restored context.
   Evidence: reply `I wrote \`alpha\` to \`check.txt\` in /tmp/slate-m0-ws.`
 
-- Observation (M0): Reliable headless test pattern: run from a scratch dir with `pi -p --no-session -e <abs path to .pi/extensions/slate/index.ts> "<prompt instructing a slate_proto call>"`. Running from a temp cwd avoids project-trust prompts and double-loading the project-local extension.
+- Observation (M0): Reliable headless test pattern: run from a scratch dir with `pi -p --no-session -e <abs path to .pi/extensions/slate/index.ts> "<prompt instructing a slate_proto call>"`. Running from a temp cwd avoids project-trust prompts and double-loading the project-local extension. For registry-persistence tests, drop `--no-session` and use `pi -c -p` to continue the previous print-mode session in the scratch dir.
   Evidence: three passing test transcripts in Artifacts and Notes.
+
+- Observation (M1): Safety refusal as harness failure mode — a planted test fact phrased "The launch code is BLUEFIN-7" made the orchestrator model refuse outright (empty stdout, exit 1, stderr note about refusals). Test fixtures must use innocuous wording ("project codename").
+  Evidence: first M1 test run produced only "API integrators: you can reduce refusals…" on stderr.
+
+- Observation (M1): D5 compressor resolution works as designed — with no config, the registry picked `anthropic/claude-sonnet-5` (newest available Sonnet) automatically.
+  Evidence: episode header line `> date: … | compressor: anthropic/claude-sonnet-5`.
+
+- Observation (M1): Parallel dispatch is real concurrency — two threads dispatched from one assistant message started at the same millisecond (first message timestamp 1783061838745 in both worker session files) with overlapping execution windows.
+
+- Observation (M1): The episode compressor sees only the current action's messages, so it flagged a correct cross-action recall (thread remembered "41" from its prior action) as possible "confabulation". Fixed by extending the compressor prompt: the transcript covers only this action; prior-thread-context use is legitimate. Keep this in mind when tuning episode prompts.
+  Evidence: t1.e3 episode text contained a spurious confabulation warning; answer 42 was nonetheless correct.
 
 ## Decision Log
 
@@ -278,6 +289,19 @@ Acceptance is phrased as observable behavior:
     7. Keep your own messages strategic: goals, task routing, synthesis.
 
 Transcripts, diffs, and evidence snippets are added here as milestones complete.
+
+**M1 evidence (2026-07-03, scratch ws /tmp/slate-m1-ws, planted facts: `a.txt` "project codename: BLUEFIN, favorite color: teal"; `src/b.txt` "the demo port number is 9944"):**
+
+    # A: single dispatch → episode t1.e1, STATUS OK, 6 sections, compressor anthropic/claude-sonnet-5,
+    #    file .pi/slate/episodes/t1.e1.md, worker session .pi/slate/threads/*.jsonl
+    # B+C: pi -c -p (new process) → threads tool listed t1; new thread 'synth' with context ['t1.e1']
+    #    answered "codename BLUEFIN, color teal" using NO tools — registry restore + composition proven
+    # D: new thread with model 'nope/nope' → "[episode t3.e1 | thread t3 \"broken\" | STATUS: FAILED]",
+    #    failure line: Unknown model "nope/nope" — not found in the model registry
+    # E: two new threads in ONE message → t4.e1 + t5.e1 both OK; worker session first-message
+    #    timestamps identical (1783061838745) — concurrent execution
+    # F: two actions to SAME thread t1 in one message → t1.e2 ("remember 41") then t1.e3 ("42") —
+    #    FIFO order and retained thread context
 
 ## Interfaces and Dependencies
 
