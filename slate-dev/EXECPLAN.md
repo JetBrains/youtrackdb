@@ -26,7 +26,7 @@ This implements the architecture from the Slate technical report (Random Labs): 
 - [x] (2026-07-03 07:00Z) Workflow tooling: `.pi/extensions/handoff-guard.ts` added (live ctx% in footer, 40% warning, `/handoff` command). Activate with `/reload`.
 - [x] (2026-07-03 06:50Z) M0: Prototype — in-process worker `AgentSession` spawned from an extension tool, with recursion guard and session persistence proven. Completed: `.pi/extensions/slate/index.ts` with `slate_proto`; `.gitignore` entry for `.pi/slate/`; automated print-mode tests passed (task execution, cross-process resume with retained memory, worker tool list free of slate tools). Remaining (fold into M3 acceptance): interactive-TUI observation of streaming progress lines and Esc-abort — mechanics are wired via `onUpdate` and `signal` → `session.abort()`.
 - [x] (2026-07-03 07:05Z) M1: Core — ThreadManager, episode compression, `thread`/`threads`/`episode` tools, registry persistence, failure episodes. Completed: modules `state.ts`, `worker.ts`, `episodes.ts`, `threads.ts`, `tools.ts`, `index.ts` under `.pi/extensions/slate/`; all six M1 acceptance criteria verified headlessly (see M1 evidence in Artifacts and Notes): episode with 6 contract sections + file on disk; cross-process registry restore via `pi -c`; composition from injected episode only (no tools); parallel threads started same-millisecond; FAILED episode with diagnostics (`nope/nope` model); same-thread FIFO with retained context (41→42).
-- [ ] M2: Orchestrator mode — `/slate` command, tool restriction, doctrine system prompt, status widget.
+- [x] (2026-07-03 07:20Z) M2: Orchestrator mode — `/slate` command, tool restriction, doctrine system prompt, status widget. Completed: `mode.ts` (+ `store.onDidChange` hook in `state.ts`, wiring in `index.ts`); headless acceptance passed: with `/slate on` the orchestrator reports exactly `read, grep, find, ls, thread, threads, episode` (no bash/edit/write); a compound request produced two parallel thread dispatches (episodes t1.e1, t2.e1 on disk) and correct synthesis; mode persisted across process restart (`pi -c` → bash still absent); `/slate off` restored bash. Remaining: widget appearance is TUI-only — verify interactively during M3/M4.
 - [ ] M3: Rendering — collapsed/expanded TUI rendering for thread dispatches, usage stats.
 - [ ] M4: Validation — scripted print-mode acceptance scenario; dogfood run on a real ytdb task; retrospective written.
 
@@ -211,10 +211,14 @@ M1 run (after `/reload` or restarting pi):
     # parallel:             > in ONE step create two threads: one counting .md files in repo root, one reporting the pom.xml artifactId; do both in parallel
     # failure:              > dispatch an action that cannot succeed ("run the command /nonexistent-binary-xyz and report output") and observe a STATUS: FAILED episode
 
-M2 run:
+M2 run (DONE — headless, scratch ws /tmp/slate-m2-ws, 2026-07-03):
 
-    # /slate  → notice + widget appears; ask "run git status" → model must explain it can only dispatch threads or use read-only tools (bash absent)
-    # /slate  → toggles off; bash works again
+    pi -p -e $EXT "/slate on" "First: list the exact names of the tools you currently have; do you have bash, edit, or write? Second: find the demo port number somewhere in this project AND the project codename — get both done and report them."
+    #  -> tools: read, grep, find, ls, thread, threads, episode; "do NOT have bash, edit, write";
+    #     both facts found via two parallel thread dispatches (episodes t1.e1 + t2.e1 on disk)
+    pi -c -p -e $EXT "Is bash among your tools right now? yes/no only."   # -> No   (mode restored across restart)
+    pi -c -p -e $EXT "/slate off" "Is bash among your tools right now? yes/no only."  # -> Yes
+    # widget: TUI-only, verify interactively
 
 M4 scripted scenario (write this as slate-dev/validate/scenario.sh):
 

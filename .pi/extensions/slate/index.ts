@@ -21,6 +21,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
 import { registerSlateTools } from "./tools.ts";
@@ -50,4 +51,8 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_shutdown", async () => {
 		manager.disposeAll();
 	});
+
+	// Registered AFTER the session_start handler above so that mode restoration
+	// (which re-applies tool restrictions) runs after store.restore().
+	registerSlateMode(pi, store);
 }

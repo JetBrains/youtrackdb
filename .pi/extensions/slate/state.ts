@@ -48,6 +48,8 @@ export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	orchestratorMode = false;
+	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
+	onDidChange?: () => void;
 
 	constructor(private pi: ExtensionAPI) {}
 
@@ -70,6 +72,7 @@ export class SlateStore {
 
 	save(): void {
 		this.pi.appendEntry("slate-state", this.snapshot() as unknown as Record<string, unknown>);
+		this.onDidChange?.();
 	}
 
 	/** Rebuild from the last slate-state entry on the current branch; drop records whose files vanished. */
@@ -110,5 +113,6 @@ export class SlateStore {
 		if (dropped.length > 0 && ctx.hasUI) {
 			ctx.ui.notify(`slate: dropped stale records:\n${dropped.join("\n")}`, "warning");
 		}
+		this.onDidChange?.();
 	}
 }
