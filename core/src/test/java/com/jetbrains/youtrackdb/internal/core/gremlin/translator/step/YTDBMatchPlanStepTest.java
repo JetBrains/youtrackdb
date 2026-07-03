@@ -58,6 +58,7 @@ import org.mockito.InOrder;
  * UnnecessaryStubbingException} on the ctor-only tests, which do not exercise {@code getGraph} /
  * {@code getTraverserSetSupplier} / {@code getTraverserGenerator}.
  */
+@SuppressWarnings({"unchecked", "rawtypes", "resource"})
 public class YTDBMatchPlanStepTest {
 
   private YTDBGraphInternal graph;
@@ -383,6 +384,7 @@ public class YTDBMatchPlanStepTest {
    * removing the guard fails this test.
    */
   @Test
+  @SuppressWarnings("ResultOfMethodCallIgnored")
   public void close_isIdempotent() {
     when(stream.hasNext(ctx)).thenReturn(false);
 
@@ -402,6 +404,7 @@ public class YTDBMatchPlanStepTest {
    * that, every stream-close failure would leak the plan's resources.
    */
   @Test
+  @SuppressWarnings("ResultOfMethodCallIgnored")
   public void close_streamCloseThrows_planStillClosed() {
     when(stream.hasNext(ctx)).thenReturn(false);
     doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
@@ -427,6 +430,7 @@ public class YTDBMatchPlanStepTest {
    * plan-close exception replace (and hide) the stream-close exception the operator needs to see.
    */
   @Test
+  @SuppressWarnings("ResultOfMethodCallIgnored")
   public void close_bothStreamAndPlanCloseThrow_streamErrorPrimary_planErrorSuppressed() {
     when(stream.hasNext(ctx)).thenReturn(false);
     doThrow(new RuntimeException("stream close failed")).when(stream).close(ctx);
