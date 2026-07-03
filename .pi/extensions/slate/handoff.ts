@@ -52,9 +52,12 @@ function lastAssistantText(ctx: ExtensionCommandContext): string {
 		};
 		if (e.type !== "message" || e.message?.role !== "assistant") continue;
 		const content = e.message.content;
+		// Entries come from JSON on disk; content may not match the declared
+		// shape. Skip anything that is neither string nor block array.
+		if (typeof content !== "string" && !Array.isArray(content)) continue;
 		const t = (typeof content === "string"
 			? content
-			: (content ?? [])
+			: content
 					.filter((c) => c.type === "text")
 					.map((c) => c.text ?? "")
 					.join("\n")
@@ -88,7 +91,12 @@ export function registerSlateHandoff(
 		if (!store.orchestratorMode || store.paused) return;
 		const percent = ctx.getContextUsage()?.percent;
 		if (percent == null) return;
-		const threshold = getConfig().pauseThresholdPercent ?? DEFAULT_PAUSE_THRESHOLD_PERCENT;
+		// .pi/slate.json is user-edited: accept only finite (0, 100] thresholds.
+		const configured = getConfig().pauseThresholdPercent;
+		const threshold =
+			typeof configured === "number" && Number.isFinite(configured) && configured > 0 && configured <= 100
+				? configured
+				: DEFAULT_PAUSE_THRESHOLD_PERCENT;
 		if (percent < threshold) return;
 
 		store.paused = true;
@@ -172,19 +180,45 @@ export function registerSlateHandoff(
 		writeFileSync(file, `${JSON.stringify(pending, null, 2)}\n`, "utf8");
 
 		const kickoff = buildKickoff(ctx.cwd, brief, focus);
-		const { cancelled } = await ctx.newSession({
-			parentSession,
-			withSession: async (fresh) => {
-				await fresh.sendUserMessage(kickoff);
-			},
-		});
-		if (cancelled) {
-			// Left behind, the pending file could be adopted by an unintended fork
-			// or session sharing this parent within the 15-min window.
-			rmSync(file, { force: true });
-			store.paused = false;
-			store.save();
-			if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared, pending state removed.", "warning");
+		// catch, NOT finally: on success the NEW session's adoption handler has
+		// already consumed and deleted the pending file (session_start fires
+		// inside newSession) — cleaning up there would be wrong.
+		try {
+			const { cancelled } = await ctx.newSession({
+				parentSession,
+				withSession: async (fresh) => {
+					await fresh.sendUserMessage(kickoff);
+				},
+			});
+			if (cancelled) {
+				// Left behind, the pending file could be adopted by an unintended fork
+				// or session sharing this parent within the 15-min window.
+				rmSync(file, { force: true });
+				store.paused = false;
+				store.save();
+				if (ctx.hasUI) ctx.ui.notify("slate: handoff cancelled — pause cleared, pending state removed.", "warning");
+			}
+		} catch (error) {
+			try {
+				rmSync(file, { force: true });
+			} catch {
+				/* ignore */
+			}
+			// Best-effort: if the replacement partially happened, the old pi/ctx
+			// are stale and these calls themselves throw.
+			try {
+				store.paused = false;
+				store.save();
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						`slate: handoff failed — ${error instanceof Error ? error.message : String(error)}. Pause cleared; pending state removed.`,
+						"error",
+					);
+				}
+			} catch {
+				/* stale pi/ctx after partial replacement */
+			}
+			throw error;
 		}
 	};
 
