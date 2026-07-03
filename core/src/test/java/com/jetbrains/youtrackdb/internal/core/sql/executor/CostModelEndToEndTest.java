@@ -352,11 +352,11 @@ public class CostModelEndToEndTest {
 
     var aliasClasses = new LinkedHashMap<String, String>();
     aliasClasses.put("c", "City");
-    var aliasRids = new HashMap<String, SQLRid>();
-    aliasRids.put("r", mock(SQLRid.class));
+    var aliasPinnedRids = new HashMap<String, List<SQLRid>>();
+    aliasPinnedRids.put("r", List.of(mock(SQLRid.class)));
 
     var result = invokeEstimateRootEntries(
-        aliasClasses, aliasRids, Map.of());
+        aliasClasses, aliasPinnedRids, Map.of());
 
     assertEquals(1L, (long) result.get("r"));
     assertTrue(
@@ -723,11 +723,11 @@ public class CostModelEndToEndTest {
   @SuppressWarnings("unchecked")
   private Map<String, Long> invokeEstimateRootEntries(
       Map<String, String> aliasClasses,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       Map<String, SQLWhereClause> aliasFilters) throws Exception {
     try {
       return (Map<String, Long>) estimateRootEntries.invoke(
-          null, aliasClasses, aliasRids, aliasFilters, ctx);
+          null, aliasClasses, aliasPinnedRids, aliasFilters, ctx);
     } catch (InvocationTargetException e) {
       if (e.getCause() instanceof RuntimeException re) {
         throw re;

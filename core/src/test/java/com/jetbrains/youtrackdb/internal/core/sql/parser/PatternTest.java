@@ -675,6 +675,65 @@ public class PatternTest extends ParserTestAbstract {
     assertNull("findRidEquality should return null for @rid <>", result);
   }
 
+  /** @rid in [#23:1, #24:2] → findRidInList detects the IN condition */
+  @Test
+  public void testFindRidInList_literalList() throws ParseException {
+    var where = parseWhere("@rid in [#23:1, #24:2]");
+    var result = where.findRidInList();
+    assertRidInListOnLeft(result);
+    assertNull("literal list must not use a subquery RHS", result.getRightStatement());
+    assertNotNull("literal list RHS must be a math expression", result.getRightMathExpression());
+  }
+
+  /** @rid in [#23:1, #24:2] AND name = 'x' → still finds the IN condition */
+  @Test
+  public void testFindRidInList_compound() throws ParseException {
+    var where = parseWhere("@rid in [#23:1, #24:2] AND name = 'x'");
+    var result = where.findRidInList();
+    assertRidInListOnLeft(result);
+  }
+
+  /** name in ['x'] → not @rid IN, must return null */
+  @Test
+  public void testFindRidInList_nonRidField() throws ParseException {
+    var where = parseWhere("name in ['x', 'y']");
+    var result = where.findRidInList();
+    assertNull("findRidInList must ignore IN on non-@rid fields", result);
+  }
+
+  /** name = 'x' → no @rid IN */
+  @Test
+  public void testFindRidInList_noRid() throws ParseException {
+    var where = parseWhere("name = 'x'");
+    var result = where.findRidInList();
+    assertNull("findRidInList should return null when no @rid IN", result);
+  }
+
+  /**
+   * MATCH-style nested filter wrapping (as produced by {@code addAliases}) must
+   * still expose {@code @rid IN <expr>} to {@link SQLWhereClause#findRidInList}.
+   */
+  @Test
+  public void testFindRidInList_matchStyleFilter() throws ParseException {
+    var innerWhere = parseWhere("@rid in [#23:1, #24:2]");
+
+    var outerWhere = new SQLWhereClause(-1);
+    var andBlock = new SQLAndBlock(-1);
+    andBlock.getSubBlocks().add(innerWhere.getBaseExpression());
+    outerWhere.setBaseExpression(andBlock);
+
+    var result = outerWhere.findRidInList();
+    assertRidInListOnLeft(result);
+  }
+
+  private static void assertRidInListOnLeft(SQLInCondition inCond) {
+    assertNotNull("expected @rid IN condition", inCond);
+    assertNotNull("IN condition must have a left expression", inCond.getLeft());
+    assertTrue(
+        "left side must be bare @rid, got: " + inCond.getLeft().toString(""),
+        inCond.getLeft().toString("").toLowerCase().contains("@rid"));
+  }
+
   /**
    * Tests the aliasFilter-style WHERE clause that the MATCH planner constructs.
    * The MATCH planner creates a WHERE clause with:
@@ -742,6 +801,17 @@ public class PatternTest extends ParserTestAbstract {
         "findRidEquality should detect @rid equality when filters are "
             + "added as separate sub-blocks",
         result);
+  }
+
+  /**
+   * OR condition: @rid in [#1:1, #2:2] OR @rid in [#3:3, #4:4]. Multi-element
+   * OrBlocks must NOT be unwrapped — findRidInList should return null.
+   */
+  @Test
+  public void testFindRidInList_orConditionNotUnwrapped() throws ParseException {
+    var where = parseWhere("@rid in [#1:1, #2:2] OR @rid in [#3:3, #4:4]");
+    var result = where.findRidInList();
+    assertNull("findRidInList should return null for OR conditions", result);
   }
 
   /**
