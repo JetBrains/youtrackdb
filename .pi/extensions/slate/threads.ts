@@ -96,6 +96,15 @@ export class ThreadManager {
 		signal: AbortSignal | undefined,
 		onProgress?: (p: DispatchProgress) => void,
 	): Promise<DispatchResult> {
+		// Pause blocks only NEW dispatches — in-flight ones already hold their
+		// queue slot and are allowed to finish (their episodes still get written).
+		if (this.store.paused) {
+			throw new Error(
+				"Slate is paused for handoff: the context budget was exceeded and new dispatches are rejected. " +
+					"Reply to the user with a handoff brief (overall goal, per-thread state with episode ids, immediate next actions) " +
+					"and ask them to run /slate handoff [focus] to continue in a fresh session.",
+			);
+		}
 		const thread = this.resolveThread(opts);
 
 		// Per-thread FIFO: chain onto the previous dispatch for this thread.
@@ -207,10 +216,10 @@ export class ThreadManager {
 
 			unsubscribe = session.subscribe((event: { type: string; [k: string]: unknown }) => {
 				if (event.type === "tool_execution_start") {
-					lines.push(`→ ${(event as { toolName: string }).toolName}`);
+					lines.push(`→ ${(event as unknown as { toolName: string }).toolName}`);
 					emit(false);
 				} else if (event.type === "message_end") {
-					const msg = (event as { message: { role: string; content?: Array<{ type: string; text?: string }>; usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } }; stopReason?: string; errorMessage?: string } }).message;
+					const msg = (event as unknown as { message: { role: string; content?: Array<{ type: string; text?: string }>; usage?: { input?: number; output?: number; totalTokens?: number; cost?: { total?: number } }; stopReason?: string; errorMessage?: string } }).message;
 					if (msg.role !== "assistant") return;
 					usage.turns++;
 					usage.input += msg.usage?.input ?? 0;

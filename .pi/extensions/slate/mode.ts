@@ -7,9 +7,13 @@
  *   - the thread-weaving doctrine is appended to the system prompt each turn;
  *   - a widget above the editor shows live thread status;
  *   - the mode persists in slate state and is re-applied on session restore.
+ *
+ * `/slate handoff [focus]` / `/slate resume` interact with the auto-pause
+ * machinery in handoff.ts (context budget → paused → fresh-session handoff).
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { SlateHandoffHooks } from "./handoff.ts";
 import type { SlateStore } from "./state.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
@@ -36,7 +40,16 @@ threads execute. Rules:
    require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.`;
 
-export function registerSlateMode(pi: ExtensionAPI, store: SlateStore): void {
+const PAUSED_ADDENDUM = `
+
+# PAUSED — context budget exceeded
+
+Slate is paused for handoff: thread dispatches are REJECTED. Do not start new
+work. Reply with a concise handoff brief (overall goal, per-thread state with
+episode ids, immediate next actions) and direct the user to run
+/slate handoff [optional focus].`;
+
+export function registerSlateMode(pi: ExtensionAPI, store: SlateStore, hooks: SlateHandoffHooks): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
 
@@ -51,6 +64,7 @@ export function registerSlateMode(pi: ExtensionAPI, store: SlateStore): void {
 		const threads = [...store.threads.values()];
 		const lines = [
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
+			...(store.paused ? ["  ⛔ PAUSED (context budget) — run /slate handoff"] : []),
 			...threads.map(
 				(t) =>
 					`  ${t.status === "running" ? "⏳" : "·"} ${t.id} ${t.name} [${t.status}] ${t.episodeIds.length} episode${t.episodeIds.length === 1 ? "" : "s"}`,
@@ -67,6 +81,7 @@ export function registerSlateMode(pi: ExtensionAPI, store: SlateStore): void {
 			pi.setActiveTools(savedTools ?? [...pi.getAllTools().map((t) => t.name)]);
 			savedTools = undefined;
 		}
+		if (!on) store.paused = false; // a pause is meaningless outside orchestrator mode
 		store.orchestratorMode = on;
 		if (persist) store.save();
 		updateWidget();
@@ -76,10 +91,26 @@ export function registerSlateMode(pi: ExtensionAPI, store: SlateStore): void {
 	store.onDidChange = updateWidget;
 
 	pi.registerCommand("slate", {
-		description: "Toggle Slate orchestrator mode (on/off; no arg toggles)",
+		description: "Slate orchestrator mode: on | off | handoff [focus] | resume (no arg toggles)",
 		handler: async (args, ctx) => {
 			uiCtx = ctx;
-			const arg = args?.trim().toLowerCase();
+			const trimmed = args?.trim() ?? "";
+			const [verb, ...rest] = trimmed.split(/\s+/);
+			const arg = verb?.toLowerCase();
+			if (arg === "handoff") {
+				if (!store.orchestratorMode) {
+					if (ctx.hasUI) ctx.ui.notify("slate: orchestrator mode is not active — nothing to hand off.", "warning");
+					return;
+				}
+				await hooks.startHandoff(ctx, rest.join(" ") || undefined);
+				return;
+			}
+			if (arg === "resume") {
+				store.paused = false;
+				store.save();
+				if (ctx.hasUI) ctx.ui.notify("slate: pause cleared — dispatches allowed again.", "info");
+				return;
+			}
 			const target = arg === "on" ? true : arg === "off" ? false : !store.orchestratorMode;
 			setMode(target, true);
 			if (ctx.hasUI) {
@@ -95,13 +126,15 @@ export function registerSlateMode(pi: ExtensionAPI, store: SlateStore): void {
 
 	pi.on("before_agent_start", async (event) => {
 		if (!store.orchestratorMode) return;
-		return { systemPrompt: event.systemPrompt + DOCTRINE };
+		const doctrine = store.paused ? DOCTRINE + PAUSED_ADDENDUM : DOCTRINE;
+		return { systemPrompt: event.systemPrompt + doctrine };
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
 		uiCtx = ctx;
-		// store.restore() ran in index.ts before this handler is invoked in
-		// registration order; re-apply the persisted mode to the fresh runtime.
+		// store.restore() (index.ts) and pending-handoff adoption (handoff.ts)
+		// ran before this handler in registration order; re-apply the persisted
+		// mode to the fresh runtime.
 		if (store.orchestratorMode) {
 			const active = pi.getActiveTools();
 			const alreadyRestricted =

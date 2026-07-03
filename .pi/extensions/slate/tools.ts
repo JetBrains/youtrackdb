@@ -100,7 +100,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 		async execute() {
 			const threads = [...store.threads.values()];
 			if (threads.length === 0) {
-				return { content: [{ type: "text", text: "No threads yet. Use the thread tool to create one." }], details: {} };
+				return { content: [{ type: "text", text: "No threads yet. Use the thread tool to create one." }], details: { count: 0 } };
 			}
 			const lines = threads.map((t) => {
 				const episodes = t.episodeIds.length > 0 ? t.episodeIds.join(", ") : "(none)";
