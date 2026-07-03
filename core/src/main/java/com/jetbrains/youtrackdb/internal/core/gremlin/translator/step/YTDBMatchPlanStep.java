@@ -7,134 +7,104 @@ import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
-import com.jetbrains.youtrackdb.internal.core.util.CloseableIteratorWithCallback;
-import java.util.Iterator;
-import java.util.NoSuchElementException;
 import java.util.Objects;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
+import org.apache.tinkerpop.gremlin.process.traversal.util.FastNoSuchElementException;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
 
 /**
- * Boundary step that bridges the YTDB MATCH execution stream to TinkerPop's traverser-driven
- * iteration model.
+ * Boundary step that bridges a compiled YTDB MATCH plan to TinkerPop's traverser-driven iteration.
  *
- * <p>When the Gremlin-to-MATCH strategy translates a fully-recognised traversal end-to-end,
- * it replaces the entire step list with a single {@code YTDBMatchPlanStep} carrying the
- * compiled {@link InternalExecutionPlan}, the alias under which the matched element appears
- * in the result row, and the {@link BoundaryOutputType} that dictates how each row is
- * projected onto a TinkerPop traverser payload. Translation is all-or-nothing — any
- * unrecognised step in the traversal causes the strategy to decline the whole traversal,
- * so the boundary step is always the only step in the resulting traversal.
+ * <p>When the Gremlin-to-MATCH strategy recognises a traversal end-to-end it replaces the entire
+ * step list with a single {@code YTDBMatchPlanStep} carrying the compiled {@link
+ * InternalExecutionPlan}, the alias under which the matched element appears in a result row, and the
+ * {@link BoundaryOutputType} that dictates how each row projects onto a traverser payload.
+ * Translation is all-or-nothing, so the boundary step is always the traversal's only step.
  *
- * <p>This step extends {@link GraphStep} (rather than the more generic {@code AbstractStep})
- * so it inherits the start-step traverser-spawning semantics that other YTDB graph-step
- * subclasses (notably {@code YTDBGraphStep}) rely on. The actual element source is wired
- * via {@link GraphStep#setIteratorSupplier(java.util.function.Supplier)}; the supplier
- * lazily opens the plan's {@link ExecutionStream} on first iteration.
+ * <p>The step extends {@link AbstractStep} directly, mirroring the fork's own element-emitting start
+ * steps ({@code AddVertexStartStep}, {@code AddEdgeStartStep}). It is deliberately <em>not</em> a
+ * {@code GraphStep}: it carries none of that class's id / has-container / {@code Configuring}
+ * surface, and staying off the {@code GraphStep} hierarchy keeps {@code YTDBGraphStepStrategy}'s
+ * rebuild loop from ever folding the boundary into a {@code YTDBGraphStep}.
  *
  * <h2>Lifecycle</h2>
  * <ul>
- *   <li><b>Construction:</b> the strategy assembles the plan via
- *       {@code MatchExecutionPlanner} and constructs this step. No execution work runs yet.
- *   <li><b>Iteration:</b> on first {@code processNextStart}, the supplier fires. It first
- *       rebinds the plan's context to the session active on the current (iteration) thread —
- *       the plan was built on a possibly-different thread, and YouTrackDB record reads require
- *       the session to be active on the reading thread (see {@code createIterator}). Then
- *       {@code plan.start()} produces an {@link ExecutionStream}; each call pulls one
- *       {@link Result} row, projects it per {@link BoundaryOutputType}, and emits a
- *       traverser. Wrapping happens via {@link YTDBVertexImpl} (using the graph from the
- *       traversal) so downstream native steps see TinkerPop element types.
- *   <li><b>Close:</b> exhaustion of the iterator (auto-detected by
- *       {@link CloseableIteratorWithCallback}) and explicit {@code GraphStep.close()} both
- *       trigger the close hook, which closes the {@link ExecutionStream} first and then
- *       the plan. The hook is idempotent. A {@link #reset()} between armings closes only the
- *       previous arming's stream (the plan is re-run in place, so it stays alive).
- *   <li><b>Clone:</b> {@link #clone()} produces a step that holds its own independent
- *       {@link InternalExecutionPlan#copy(com.jetbrains.youtrackdb.internal.core.command.CommandContext)
- *       deep copy} of the plan, copied against an <em>isolated child</em>
- *       {@code CommandContext} (fresh {@code BasicCommandContext} parented to the original
- *       plan's context, mirroring {@code HashJoinMatchStep}'s build-side isolation). A
- *       {@link SelectExecutionPlan}-family plan carries mutable per-run state — both the
- *       step chain and the context's variable maps ({@code $current}, {@code $matched},
- *       step statistics), which are plain unsynchronised {@code HashMap}s. Copying against
- *       an isolated child gives the clone its own variable maps while still resolving the
- *       shared database session, input parameters, and timeout through the parent, so two
- *       executions cannot race on or leak per-run context state. Cloning also resets the
- *       inherited {@code iterator}/{@code done} fields that {@link GraphStep} maintains
- *       privately and re-binds the iterator supplier to the clone.
+ *   <li><b>Construction:</b> the strategy builds the plan and constructs the step. No execution
+ *       work runs yet.
+ *   <li><b>Iteration:</b> the first {@link #processNextStart()} opens the plan's {@link
+ *       ExecutionStream}. It rebinds the plan's context to the session active on the current
+ *       (iteration) thread first — the plan may have been compiled on a different thread, and YTDB
+ *       record reads require the session active on the reading thread. Each subsequent call pulls
+ *       one {@link Result} row, projects it per {@link BoundaryOutputType}, and generates a
+ *       traverser. Wrapping goes through {@link YTDBVertexImpl} so downstream native steps see
+ *       TinkerPop element types.
+ *   <li><b>Exhaustion / close:</b> when the stream runs dry, or on an explicit {@link #close()}
+ *       (which TinkerPop invokes on early termination — e.g. a downstream limit cuts iteration
+ *       short — via {@code Traversal.close()} closing every {@link AutoCloseable} step), the stream
+ *       is closed first, then the plan. A stream-close failure is the primary exception; a
+ *       plan-close failure is attached with {@code addSuppressed}. Close is idempotent.
+ *   <li><b>Reset:</b> {@link #reset()} re-arms the step for a fresh pass on the same instance. It
+ *       does not close the open stream directly (see the field notes); the next open closes a
+ *       lingering cursor and rewinds the plan.
+ *   <li><b>Clone:</b> {@link #clone()} gives the clone its own deep {@link
+ *       InternalExecutionPlan#copy(com.jetbrains.youtrackdb.internal.core.command.CommandContext)
+ *       plan copy} against an isolated child context. A {@link SelectExecutionPlan}-family plan
+ *       carries mutable per-run state (its step chain and the context's {@code $current} /
+ *       {@code $matched} / statistics maps, all plain {@code HashMap}s), so two executions must not
+ *       share it. TinkerPop clones a traversal once per execution, so cloning is the per-execution
+ *       isolation point (mirroring {@code HashJoinMatchStep}).
  * </ul>
  *
  * @param <S> upstream traverser type (always {@code Object} for a start step)
- * @param <E> emitted element type (currently always a TinkerPop {@link Vertex} per the
- *            single supported output type; later tracks parameterise this)
+ * @param <E> emitted element type (a TinkerPop {@link Vertex} under the single supported output
+ *            type; later tracks parameterise this)
  */
-public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, E> {
+public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<S, E>
+    implements AutoCloseable {
 
-  // Non-final so clone() can install the clone's independent plan copy with a plain field
-  // write. A final field would force a post-construction reflective write after
-  // super.clone() has frozen it, which voids the JMM final-field publication guarantee for
-  // any thread that later receives the clone without a happens-before edge. A normal field
-  // write inside clone() (before the clone is handed to any other thread) has no such hazard.
+  // Non-final so clone() installs the clone's own plan copy with a plain field write. A final field
+  // would force a reflective write after super.clone() froze it, voiding the JMM final-field
+  // publication guarantee for any thread that later receives the clone without a happens-before
+  // edge. A plain write inside clone(), before the clone is published, has no such hazard.
   private InternalExecutionPlan plan;
+  private final Class<E> returnClass;
   private final String boundaryAlias;
   private final BoundaryOutputType outputType;
 
-  /**
-   * Guards against opening this instance's plan twice within a single arming.
-   * Each boundary step owns a single {@link InternalExecutionPlan} instance; the plan's
-   * underlying step chain does not reset its execution state on a second {@code plan.start()}
-   * call (it would silently re-iterate against already-consumed cursors). Set {@code true}
-   * by {@link #createIterator()} once the plan is started; a second {@code createIterator}
-   * call without an intervening {@link #reset()} throws {@link IllegalStateException} rather
-   * than letting the silent-divergence bug reach end users. {@link #reset()} clears this flag
-   * to re-arm the step for a fresh iteration; {@link #clone()} clears it on the clone so each
-   * clone starts from a clean slate.
-   */
-  private boolean started;
-
-  /**
-   * Tracks whether this instance's plan has ever been started. Unlike {@link #started} (which
-   * {@link #reset()} clears), this stays {@code true} across a reset so {@link #createIterator()}
-   * knows a re-arm needs a {@code plan.reset(ctx)} before {@code plan.start()} — the plan's
-   * step chain must be rewound before it can be re-executed. A never-started plan skips the
-   * reset. {@link #clone()} clears this on the clone (its copied plan has never run).
-   */
-  private boolean everStarted;
-
-  /**
-   * The {@link ExecutionStream} opened by the current arming, or {@code null} when none is open.
-   * Tracked separately from the inherited {@code GraphStep.iterator} so {@link #reset()} can
-   * release the consumer cursor of a partially-consumed run before {@code super.reset()} drops
-   * the iterator reference (which {@code GraphStep.reset()} does WITHOUT closing it).
-   * {@link #createIterator()} sets it after a successful {@code plan.start()}; the close hook and
-   * {@link #reset()} clear it once the stream is closed.
-   */
+  // The current arming's open stream, or null before the first open / after close. Single source of
+  // truth — there is no inherited iterator to shadow.
   private ExecutionStream openStream;
 
-  /**
-   * Set to {@code true} only for the duration of {@link #clone()}'s {@code super.clone()} call.
-   * {@code AbstractStep.clone()} invokes {@link #reset()} on the fresh clone while the clone
-   * still aliases THIS instance's {@link #openStream} (the shallow copy is fixed up afterwards),
-   * so a {@code reset()} that closed the stream there would tear down the ORIGINAL's in-flight
-   * run. The guard makes that clone-triggered reset a no-op; a genuine in-place {@code reset()}
-   * (outside cloning) closes the stream normally.
-   */
-  private boolean cloning;
+  // The graph resolved for the current arming; used to wrap projected vertices.
+  private YTDBGraphInternal armingGraph;
+
+  // false means openStream (if any) belongs to a superseded arming and must be closed and replaced
+  // on the next open. This is how a reopen after reset() is told apart from continued iteration of
+  // the current stream.
+  private boolean armed;
+
+  // The plan has run at least once, so it must be rewound (plan.reset) before it can run again.
+  private boolean everStarted;
+
+  // This arming is finished — exhausted or explicitly closed, resources released. processNextStart
+  // ends immediately while set; reset() clears it to re-arm.
+  private boolean done;
 
   /**
-   * Constructs a new boundary step backed by the given execution plan.
+   * Constructs a boundary step backed by the given execution plan.
    *
    * @param traversal     the host traversal (must not be null)
-   * @param returnClass   the TinkerPop element class the step emits (currently
-   *                      {@link Vertex}{@code .class})
+   * @param returnClass   the TinkerPop element class the step emits (currently {@link
+   *                      Vertex}{@code .class})
    * @param plan          the compiled MATCH plan (must not be null)
-   * @param boundaryAlias the alias under which the matched element appears in each
-   *                      {@link Result} row (must not be null)
-   * @param outputType    how each row is projected onto a traverser payload (must not be
-   *                      null)
+   * @param boundaryAlias the alias under which the matched element appears in each {@link Result}
+   *                      row (must not be null)
+   * @param outputType    how each row projects onto a traverser payload (must not be null)
    */
   public YTDBMatchPlanStep(
       Traversal.Admin<S, E> traversal,
@@ -142,11 +112,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       InternalExecutionPlan plan,
       String boundaryAlias,
       BoundaryOutputType outputType) {
-    super(traversal, returnClass, /* isStart */ true /* no ids */);
+    super(traversal);
+    this.returnClass = Objects.requireNonNull(returnClass, "returnClass must not be null");
     this.plan = Objects.requireNonNull(plan, "plan must not be null");
     this.boundaryAlias = Objects.requireNonNull(boundaryAlias, "boundaryAlias must not be null");
     this.outputType = Objects.requireNonNull(outputType, "outputType must not be null");
-    setIteratorSupplier(this::createIterator);
   }
 
   /** The alias the step uses to look up the matched element in each row. */
@@ -164,15 +134,17 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
     return plan;
   }
 
+  /** The TinkerPop element class the step emits. */
+  public Class<E> getReturnClass() {
+    return returnClass;
+  }
+
   /**
-   * Renders a stable, one-line marker identifying this as a translated MATCH boundary step,
-   * e.g. {@code YTDBMatchPlanStep(node,ELEMENT)}. Because the strategy replaces a recognised
-   * traversal's entire native step chain with this single step, {@code traversal.explain()}
-   * shows this marker in place of the native step boxes — the visible signal that translation
-   * happened. Per-track end-to-end tests assert on the presence of this marker to pin which
-   * shapes translate and which decline (see {@code GremlinToMatchSmokeTest}). The marker is
-   * deliberately concise: it does not inline the MATCH plan tree, which stays reachable via
-   * {@link #getPlan()} and YQL's EXPLAIN tooling.
+   * Renders a one-line marker identifying this as a translated MATCH boundary, e.g. {@code
+   * YTDBMatchPlanStep(node,ELEMENT)}. Because the strategy replaces a recognised traversal's whole
+   * native chain with this single step, {@code traversal.explain()} shows this marker in place of
+   * the native step boxes — the visible signal that translation happened. The marker stays concise;
+   * the MATCH plan tree is reachable via {@link #getPlan()} and YQL's EXPLAIN tooling.
    */
   @Override
   public String toString() {
@@ -180,62 +152,82 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
   }
 
   /**
-   * Produces a fresh iterator that pulls rows from the plan's {@link ExecutionStream} and
-   * projects each one to a TinkerPop element. Package-private rather than {@code private}
-   * so the unit test can drive it directly with a stub plan.
-   *
-   * <p>Throws {@link IllegalStateException} on a second invocation within a single arming —
-   * a second {@code plan.start()} on an already-open plan would silently re-iterate against
-   * consumed cursors. To re-run the plan, either {@link #reset()} the step (which re-arms it
-   * in place, rewinding the plan via {@code plan.reset(ctx)} on the next open) or
-   * {@link #clone()} it (which gives the clone its own fresh plan copy). When the step was
-   * previously opened and then reset, this method rewinds the plan with
-   * {@link InternalExecutionPlan#reset(com.jetbrains.youtrackdb.internal.core.command.CommandContext)}
-   * before re-starting it, so the second pass runs from the top of the plan's step chain.
+   * Pulls the next matched element as a traverser, opening the plan's stream on the first call.
+   * Throws {@link FastNoSuchElementException} once the stream is exhausted, closing the stream and
+   * plan as it does so.
    */
-  Iterator<E> createIterator() {
-    if (started) {
-      throw new IllegalStateException(
-          "YTDBMatchPlanStep.createIterator() invoked twice without an intervening reset(); "
-              + "boundary steps own a single execution plan and open it once per arming. "
-              + "Call reset() to re-run the plan in place, or clone the step to drive an "
-              + "independent second pass.");
+  @Override
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  protected Traverser.Admin<E> processNextStart() {
+    if (done) {
+      throw FastNoSuchElementException.instance();
+    }
+    if (!armed) {
+      openStream = openArming();
+      armed = true;
     }
     var ctx = plan.getContext();
-    // Resolve the graph first — getTraversal().getGraph() can throw (Optional.empty().orElseThrow)
-    // or the cast to YTDBGraphInternal can throw. Doing it before plan.start() means a failure
-    // here leaks nothing: the plan has not been started and the close hook is only installed once
-    // CloseableIteratorWithCallback has been constructed.
-    var graph = (YTDBGraphInternal) getTraversal().getGraph().orElseThrow();
-    // Rebind the plan to the session active on the CURRENT (iteration) thread before running it.
-    // The plan was built at strategy-application time against the session active then. On the
-    // server each worker thread owns its own pooled session (the graph's underlying session is
-    // thread-local), and traversal compilation can run on a different thread than iteration.
-    // Running the plan against the compile-time session throws SessionNotActivatedException:
-    // YouTrackDB record reads assert the session is active on the current thread, and only the
-    // iteration thread's own session is. Re-resolving here, the same way the native YTDBGraphStep
-    // does in elements(), keeps the plan bound to the thread-active session. Both sessions belong
-    // to the same database and share the schema and statistics the plan was compiled against, so
-    // the swap is execution-safe. This must precede plan.reset()/plan.start() so the rewind and
-    // the run both see the correct session.
-    var tx = graph.tx();
+    if (openStream.hasNext(ctx)) {
+      E element = (E) project(openStream.next(ctx));
+      // Start-step traverser generation, as AddVertexStartStep does it. The raw Step cast is
+      // needed because generate() expects Step<E, ?> but this is Step<S, E> (S != E for an element
+      // source), so the generic self-reference cannot be expressed without erasure.
+      return getTraversal().getTraverserGenerator().generate(element, (Step) this, 1L);
+    }
+    // Stream drained: release this arming (stream then plan) and signal end.
+    done = true;
+    releaseArming();
+    throw FastNoSuchElementException.instance();
+  }
+
+  /**
+   * Opens the plan's stream for a fresh arming. Closes any stream left open by a superseded arming
+   * (a reset after a partial consume), rebinds the plan to the thread-active session, rewinds the
+   * plan if it has run before, then starts it.
+   *
+   * <p>The graph is resolved before {@code plan.start()} so a resolution failure leaks nothing: the
+   * plan has not been started. A missing graph throws {@link IllegalStateException} rather than the
+   * {@link java.util.NoSuchElementException} of a bare {@code orElseThrow()} — the latter is the
+   * iteration-end signal that {@link AbstractStep#hasNext()} swallows, which would turn a genuine
+   * "no attached graph" bug into a silent empty result.
+   */
+  private ExecutionStream openArming() {
+    if (openStream != null) {
+      // Stale cursor from a prior arming. Close it, but keep the plan alive — the same plan
+      // instance re-runs. Deferred from reset() (see reset()'s note) so cloning cannot tear down
+      // the original's still-aliased stream.
+      openStream.close(plan.getContext());
+      openStream = null;
+    }
+    armingGraph =
+        (YTDBGraphInternal) getTraversal()
+            .getGraph()
+            .orElseThrow(
+                () -> new IllegalStateException(
+                    "YTDBMatchPlanStep cannot iterate: the host traversal has no attached"
+                        + " graph. The boundary step is only installed on YTDB-backed"
+                        + " traversals, so this indicates the step was driven after being"
+                        + " detached from its graph."));
+    var ctx = plan.getContext();
+    // Rebind to the session active on THIS (iteration) thread before running. The plan may have
+    // been compiled on another thread, and each server worker thread owns its own pooled session;
+    // running against the compile-time session throws SessionNotActivatedException because YTDB
+    // record reads require the session active on the reading thread. Both sessions belong to the
+    // same database and share the schema/statistics the plan was compiled against, so the swap is
+    // execution-safe. Unconditional (every arming): a re-iteration after reset() may run on a
+    // different thread than the first pass.
+    var tx = armingGraph.tx();
     tx.readWrite();
     ctx.setDatabaseSession(tx.getDatabaseSession());
-    // A re-arm after a prior run (reset() cleared `started` but left `everStarted` set) must
-    // rewind the plan's step chain before re-starting it — otherwise plan.start() would
-    // re-iterate against already-consumed cursors. A never-started plan needs no rewind.
     if (everStarted) {
       plan.reset(ctx);
     }
-    // `plan.start()` is itself non-trivial work — it walks the plan's step chain and
-    // each step's `internalStart(ctx)` may open cursors, prefetch rows, or otherwise
-    // claim resources before throwing. Wrap it in its own try so that a partial start
-    // still gets the plan released. If start succeeds, we mark the step as started and
-    // hand the stream to the wrapper's close hook (which then owns the cleanup).
     ExecutionStream stream;
     try {
       stream = plan.start();
     } catch (RuntimeException | Error e) {
+      // A partial start may have claimed cursors before throwing — release the plan before
+      // propagating so nothing leaks. The original failure stays primary.
       try {
         plan.close();
       } catch (RuntimeException | Error suppressed) {
@@ -243,50 +235,26 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       }
       throw e;
     }
-    started = true;
     everStarted = true;
+    return stream;
+  }
+
+  /**
+   * Closes the current arming's stream and then the plan. The stream-close failure is the primary
+   * exception; a plan-close failure is attached with {@code addSuppressed} rather than masking it.
+   */
+  private void releaseArming() {
+    var ctx = plan.getContext();
+    var stream = openStream;
+    openStream = null;
+    armingGraph = null;
+    if (stream == null) {
+      plan.close();
+      return;
+    }
     try {
-      var rowIterator = new ResultProjectionIterator<E>(stream, graph);
-      // Track the open stream so reset() can release its cursor if this arming is reset before
-      // exhaustion. Set only on the success path — the catch below closes `stream` directly.
-      openStream = stream;
-      // The close hook fires both on natural exhaustion (CloseableIteratorWithCallback's
-      // hasNext-based auto-close) and on explicit GraphStep.close (which TinkerPop invokes
-      // when the traversal terminates early — e.g. a downstream LimitStep cuts iteration
-      // short — or when an exception aborts the run). It closes the stream first so the
-      // plan's last step can flush before the plan itself releases resources.
-      return new CloseableIteratorWithCallback<>(
-          rowIterator,
-          () -> {
-            // This arming is done: clear the tracking field first so a later reset() does not
-            // re-close this stream.
-            openStream = null;
-            try {
-              stream.close(ctx);
-            } catch (RuntimeException | Error e) {
-              // Keep the stream-close failure as the primary exception: close the plan too, but
-              // record its failure via addSuppressed rather than letting a finally-block
-              // plan.close() mask the stream error (mirrors the plan.start() handler above).
-              try {
-                plan.close();
-              } catch (RuntimeException | Error suppressed) {
-                e.addSuppressed(suppressed);
-              }
-              throw e;
-            }
-            plan.close();
-          });
+      stream.close(ctx);
     } catch (RuntimeException | Error e) {
-      openStream = null;
-      // Anything that fails between plan.start() and the wrapper's construction (OOM,
-      // unexpected NPE, etc.) must close the just-opened stream and the plan to avoid
-      // leaking the consumer-side cursor. The throw is preserved so callers see the
-      // original failure.
-      try {
-        stream.close(ctx);
-      } catch (RuntimeException | Error suppressed) {
-        e.addSuppressed(suppressed);
-      }
       try {
         plan.close();
       } catch (RuntimeException | Error suppressed) {
@@ -294,178 +262,91 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends GraphStep<S, 
       }
       throw e;
     }
+    plan.close();
+  }
+
+  /**
+   * Re-arms the step for re-iteration on the same instance, honouring TinkerPop's reset contract
+   * (a reset start step can be driven again). Besides clearing the inherited state via {@code
+   * super.reset()}, it marks any open stream as belonging to a superseded arming.
+   *
+   * <p>The open stream is deliberately not closed here. {@code AbstractStep.clone()} calls {@code
+   * reset()} on the freshly-cloned instance while that clone still aliases THIS stream (the clone's
+   * own references are cleared afterwards in {@link #clone()}); closing here would tear down the
+   * original's in-flight cursor. Deferring the close to the next open (in {@link #openArming()})
+   * removes that hazard without a guard flag.
+   */
+  @Override
+  public void reset() {
+    super.reset();
+    done = false;
+    armed = false;
+  }
+
+  /**
+   * Closes the plan's resources. Called by TinkerPop on early traversal termination (through {@code
+   * Traversal.close()}, which closes every {@link AutoCloseable} step) and internally on stream
+   * exhaustion. Idempotent: once the step is finished, further calls are no-ops.
+   */
+  @Override
+  public void close() {
+    if (done) {
+      return;
+    }
+    done = true;
+    if (armed || openStream != null) {
+      releaseArming();
+    } else if (everStarted) {
+      plan.close();
+    }
+    // Never opened and never started: nothing to release.
   }
 
   @Override
   public YTDBMatchPlanStep<S, E> clone() {
-    // super.clone() (AbstractStep.clone) already re-arms the inherited iterator/done state
-    // and calls reset() on the clone. We must NOT call reset() again here, and reset() must
-    // not touch the plan: at this point cloned.plan still aliases the ORIGINAL's plan
-    // (super.clone() shallow-copies the reference), so resetting the plan through the clone
-    // would corrupt the original's in-flight run. reset() therefore only re-arms the
-    // per-instance guard (started) and never re-executes the plan — the plan is re-opened
-    // lazily in createIterator() when needed. See reset()'s Javadoc.
-    // Guard the reset() that AbstractStep.clone() triggers on the fresh clone: while super.clone()
-    // runs, the clone still aliases THIS instance's openStream (the shallow copy is fixed up
-    // below), so an unguarded reset() there would close the original's in-flight stream. The flag
-    // is copied onto the clone by the shallow copy and cleared on both instances afterwards.
-    cloning = true;
-    final YTDBMatchPlanStep<S, E> cloned;
-    try {
-      cloned = (YTDBMatchPlanStep<S, E>) super.clone();
-    } finally {
-      cloning = false;
-    }
-    // Give the clone its OWN deep copy of the plan rather than sharing the original's.
-    // A SelectExecutionPlan-family plan carries mutable per-run state (both an independent
-    // step chain AND the CommandContext's variable maps), so it is not safe to execute
-    // concurrently or to re-run without a copy(); the plan's own Javadoc mandates
-    // "copied via copy() before each execution". TinkerPop clones a traversal (and thus
-    // every step) once per execution, so copying here is exactly the per-execution
-    // isolation point.
-    //
-    // Copy against an ISOLATED CHILD context — a fresh BasicCommandContext parented to the
-    // original plan's context — rather than the original context itself. This mirrors
-    // HashJoinMatchStep's build-side isolation (buildPlan.copy(isolatedCtx)). The child owns
-    // its own unsynchronised variable maps ($current, $matched, step statistics) so the
-    // original's and the clone's executions cannot race on or leak that state, while it still
-    // resolves the database session, input parameters, and timeout through the parent. Copying
-    // against plan.getContext() directly would leave both plans pointing at the SAME context,
+    @SuppressWarnings("unchecked")
+    var cloned = (YTDBMatchPlanStep<S, E>) super.clone();
+    // Give the clone its own deep plan copy against an ISOLATED CHILD context — a fresh
+    // BasicCommandContext parented to the original plan's context — mirroring HashJoinMatchStep's
+    // build-side isolation. The child owns its own unsynchronised $current / $matched / statistics
+    // maps, so the original's and the clone's executions cannot race on or leak that per-run state,
+    // while database session, input parameters, and timeout still resolve through the parent.
+    // Copying against plan.getContext() directly would leave both plans on the same context,
     // defeating the isolation this clone exists to provide.
     var isolatedCtx = new BasicCommandContext();
     isolatedCtx.setParentWithoutOverridingChild(plan.getContext());
-    // super.clone()'s shallow copy left `cloned.plan` pointing at the original plan. The
-    // field is non-final (see the field declaration), so assign the independent copy with a
-    // plain write — no reflection, and no JMM final-field-freeze hazard because the write
-    // happens before the clone is published to any other thread.
+    // Plain field write: the field is non-final (see its declaration), the copy is independent, and
+    // the write happens before the clone is published to any other thread.
     cloned.plan = plan.copy(isolatedCtx);
-    // Clear both open-tracking flags on the clone. super.clone() copies primitive fields by
-    // value, so without this the clone would inherit the original's flags: `started=true`
-    // would make the clone's first createIterator() throw, and `everStarted=true` would make
-    // it needlessly rewind its already-fresh copied plan. The clone's copy has never run.
-    cloned.started = false;
-    cloned.everStarted = false;
-    // The clone's copied plan has never run and owns no open stream; drop the references the
-    // shallow copy aliased from the original. cloning was copied as true by super.clone() — clear
-    // it so the clone's own future reset()s close its stream normally.
+    // Drop the per-arming references super.clone() copied by value. The clone's plan copy has never
+    // run and owns no open stream; without this it would inherit the original's open cursor and
+    // "already started" flags.
     cloned.openStream = null;
-    cloned.cloning = false;
-    // Re-bind the supplier to the clone, not the original. setIteratorSupplier(this::...)
-    // in the ctor captured the original instance; without re-binding here, iterating the
-    // clone would call createIterator() on the original step and start the ORIGINAL's plan
-    // instead of the clone's copy. Pointing the supplier at the clone keeps the two
-    // executions independent — each starts its own plan copy on its own demand.
-    cloned.setIteratorSupplier(cloned::createIterator);
+    cloned.armingGraph = null;
+    cloned.armed = false;
+    cloned.everStarted = false;
+    cloned.done = false;
     return cloned;
   }
 
   /**
-   * Re-arms this step for re-iteration, honouring {@link GraphStep}'s reset contract: after
-   * {@code reset()} a start step can be driven again. Besides clearing the inherited
-   * {@code done}/{@code iterator} state (via {@code super.reset()}), this clears the local
-   * {@code started} guard so the next {@link #createIterator()} may open the plan again.
-   *
-   * <p>This deliberately does <em>not</em> call {@code plan.reset(ctx)} here. {@code reset()}
-   * is invoked by {@code AbstractStep.clone()} on the freshly-cloned instance while the clone
-   * still aliases the ORIGINAL's plan (the clone's own copy is installed later in
-   * {@link #clone()}); rewinding the plan here would corrupt the original's in-flight run.
-   * The plan rewind is therefore deferred to {@code createIterator()}, which rewinds via
-   * {@code plan.reset(ctx)} only when re-arming a previously-opened plan (tracked by
-   * {@code everStarted}), by which point the instance owns the plan it will run.
-   *
-   * <p>Without this override, {@code GraphStep.reset()} would re-arm only the inherited
-   * fields and leave {@code started == true}, so a TinkerPop path that resets a start step
-   * and re-iterates it (traversal reuse rather than a fresh clone) would trip the guard in
-   * {@code createIterator()} and throw {@link IllegalStateException} instead of re-running
-   * the plan. {@link #clone()} remains the isolation point for independent/concurrent
-   * executions; {@code reset()} is the in-place re-run path on a single instance.
+   * Projects one result row onto the configured output payload. Package-private accessors ({@link
+   * #projectElement}) let unit tests exercise projection without driving the full iterator
+   * lifecycle.
    */
-  @Override
-  public void reset() {
-    // Release the consumer cursor of a partially-consumed arming before super.reset() drops the
-    // iterator reference (GraphStep.reset() overwrites `iterator` with an empty one WITHOUT
-    // closing it, which would otherwise leak the open stream on a reset-then-reuse). Close ONLY
-    // the stream, not the plan: reset() is the in-place re-run path and createIterator() re-runs
-    // THIS SAME plan instance (plan.reset(ctx) + plan.start()), so the plan must stay alive.
-    // Skipped while cloning (see the `cloning` field): there the clone still aliases the
-    // original's open stream and closing it would tear down the original's in-flight run.
-    if (!cloning && openStream != null) {
-      openStream.close(plan.getContext());
-      openStream = null;
-    }
-    super.reset();
-    // Only the per-arming guard is cleared here; everStarted persists so createIterator()
-    // knows a re-open needs a plan.reset(ctx). The plan itself is NOT rewound here — see the
-    // Javadoc for why (the clone-aliasing hazard during super.clone()).
-    started = false;
+  private Object project(Result row) {
+    return switch (outputType) {
+      case ELEMENT -> projectElement(row, armingGraph);
+    };
   }
 
   /**
-   * Lazily-projecting iterator over the plan's row stream. Each {@code next} pulls one
-   * {@link Result} and projects it to the configured TinkerPop element type. Looping the
-   * projection logic into a separate inner class (rather than computing it inline in
-   * {@code createIterator}) makes the {@link CloseableIteratorWithCallback} wrapping
-   * trivial — the wrapper's hasNext-based auto-close hook only needs to inspect a stable
-   * underlying iterator, not a stream that might be in mid-projection.
-   */
-  private final class ResultProjectionIterator<T> implements Iterator<T> {
-
-    private final ExecutionStream stream;
-    private final YTDBGraphInternal graph;
-
-    // Lookahead cache for hasNext(): null means "not yet probed since the last row was
-    // consumed". The hasNext()-then-next() pattern probes the stream chain once (in hasNext()),
-    // caches the answer, and next() reuses it — halving the per-row stream-chain walks the
-    // earlier "probe in both hasNext() and next()" shape incurred. A stream is monotonic (once
-    // exhausted it stays exhausted), so caching a false answer is safe, and a cached false
-    // spares the (possibly already-closed) stream any post-exhaustion probe.
-    private Boolean hasNextCache;
-
-    ResultProjectionIterator(ExecutionStream stream, YTDBGraphInternal graph) {
-      this.stream = stream;
-      this.graph = graph;
-    }
-
-    @Override
-    public boolean hasNext() {
-      if (hasNextCache == null) {
-        hasNextCache = stream.hasNext(plan.getContext());
-      }
-      return hasNextCache;
-    }
-
-    @Override
-    public T next() {
-      // Route through hasNext() so a direct next() (no paired hasNext()) still probes the
-      // stream once and throws the standard NoSuchElementException on a past-end call — the
-      // contract pinned by iterator_nextOnExhaustedStream_throwsNoSuchElement and its
-      // repeated-call sibling. Clearing the cache before pulling the row re-arms the lookahead
-      // so the next hasNext() probes afresh.
-      if (!hasNext()) {
-        throw new NoSuchElementException();
-      }
-      hasNextCache = null;
-      Result row = stream.next(plan.getContext());
-      return project(row);
-    }
-
-    @SuppressWarnings("unchecked")
-    private T project(Result row) {
-      return switch (outputType) {
-        case ELEMENT -> (T) projectElement(row, graph);
-      };
-    }
-  }
-
-  /**
-   * Extracts the matched vertex from {@code row} under {@link #boundaryAlias} and wraps it
-   * as a TinkerPop {@link Vertex}. Returns {@code null} when the row does not bind the
-   * alias to a vertex (e.g. the alias was an optional node that did not match) — downstream
-   * native steps treat null as "absent" the same way they would for any other null
-   * traverser payload.
+   * Extracts the matched vertex from {@code row} under {@link #boundaryAlias} and wraps it as a
+   * TinkerPop {@link Vertex}. Returns {@code null} when the row does not bind the alias to a vertex
+   * (e.g. an optional node that did not match) — downstream native steps treat a null payload as
+   * "absent", the same as any other null.
    *
-   * <p>Package-private so unit tests can exercise the projection logic without going
-   * through the full iterator lifecycle.
+   * <p>Package-private so unit tests can exercise projection directly.
    */
   Vertex projectElement(Result row, YTDBGraphInternal graph) {
     var rawVertex = row.getVertex(boundaryAlias);
