@@ -463,6 +463,35 @@ public class YTDBMatchPlanStepTest {
     verify(stream, never()).close(ctx); // no stream was opened
   }
 
+  /**
+   * A failure while iterating the open stream (here {@code stream.next()} throws mid-iteration) must
+   * close the stream and then the plan before propagating, so a stream that blew up part-way does
+   * not leak until traversal teardown. This is the design's boundary-step lifecycle contract for
+   * exceptions during iteration. Also asserts the failed arming is terminal: a subsequent {@code
+   * processNextStart()} ends (throws {@link NoSuchElementException}) without re-opening the
+   * already-closed plan, proving {@code done} was set on the failure path.
+   */
+  @Test
+  public void processNextStart_streamThrowsMidIteration_closesStreamThenPlan_andArmingIsTerminal() {
+    when(stream.hasNext(ctx)).thenReturn(true);
+    when(stream.next(ctx)).thenThrow(new RuntimeException("stream blew up mid-iteration"));
+
+    var step = elementStep("v");
+
+    assertThatExceptionOfType(RuntimeException.class)
+        .isThrownBy(step::processNextStart)
+        .withMessageContaining("stream blew up mid-iteration");
+
+    // The failing arming released the stream first, then the plan.
+    InOrder order = inOrder(stream, plan);
+    order.verify(stream).close(ctx);
+    order.verify(plan).close();
+
+    // Terminal: the next pull ends without re-opening the closed plan (started exactly once).
+    assertThatExceptionOfType(NoSuchElementException.class).isThrownBy(step::processNextStart);
+    verify(plan, times(1)).start();
+  }
+
   // ---- Clone semantics ----
 
   /**
