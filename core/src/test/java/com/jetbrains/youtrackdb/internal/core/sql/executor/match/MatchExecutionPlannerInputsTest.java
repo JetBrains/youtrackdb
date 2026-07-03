@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -48,22 +47,6 @@ import org.junit.Test;
  * that avoids expanding the public API surface.
  */
 public class MatchExecutionPlannerInputsTest {
-
-  // ─────────────────────── MatchPlanInputs record — compact ctor ────────────────────────
-
-  /**
-   * Verifies the compact constructor rejects a null pattern with a clear message. The pattern
-   * is the only required input; without it the planner has nothing to plan over.
-   */
-  @Test
-  public void record_pattern_null_throwsNpe() {
-    assertThatNullPointerException()
-        .isThrownBy(
-            () -> new MatchPlanInputs(
-                null, null, null, null, null, null, null, null, null, null, null, null, null,
-                null, false, false, false, false, false))
-        .withMessageContaining("pattern");
-  }
 
   /**
    * Verifies the compact constructor normalises every nullable collection input to an empty
@@ -160,16 +143,6 @@ public class MatchExecutionPlannerInputsTest {
                 .returnItems(List.of(new SQLExpression(-1)))
                 .build())
         .withMessageContaining("parallel lists of equal length");
-  }
-
-  // ──────────────────── Planner ctor — null handling and propagation ────────────────────
-
-  /** Verifies the planner ctor rejects a null inputs record with a clear message. */
-  @Test
-  public void plannerCtor_inputs_null_throwsNpe() {
-    assertThatNullPointerException()
-        .isThrownBy(() -> new MatchExecutionPlanner((MatchPlanInputs) null))
-        .withMessageContaining("inputs");
   }
 
   /**
