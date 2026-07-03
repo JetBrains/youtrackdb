@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan
 import com.jetbrains.youtrackdb.internal.core.sql.executor.SelectExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.resultset.ExecutionStream;
 import java.util.Objects;
+import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.Traverser;
@@ -123,11 +124,11 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
    * @param outputType    how each row projects onto a traverser payload (must not be null)
    */
   public YTDBMatchPlanStep(
-      Traversal.Admin<S, E> traversal,
-      Class<E> returnClass,
-      InternalExecutionPlan plan,
-      String boundaryAlias,
-      BoundaryOutputType outputType) {
+      @Nonnull Traversal.Admin<S, E> traversal,
+      @Nonnull Class<E> returnClass,
+      @Nonnull InternalExecutionPlan plan,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType) {
     super(traversal);
     this.returnClass = Objects.requireNonNull(returnClass, "returnClass must not be null");
     this.plan = Objects.requireNonNull(plan, "plan must not be null");

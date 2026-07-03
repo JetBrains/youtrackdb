@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import java.util.Objects;
 import java.util.Optional;
+import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
@@ -64,25 +66,17 @@ final class GremlinToMatchTranslator {
    *     Vertex.class} for a {@code g.V()} traversal)
    */
   record TranslationResult(
-      MatchPlanInputs inputs,
-      String boundaryAlias,
-      BoundaryOutputType outputType,
-      Class<? extends Element> returnClass) {
+      @Nonnull MatchPlanInputs inputs,
+      @Nonnull String boundaryAlias,
+      @Nonnull BoundaryOutputType outputType,
+      @Nonnull Class<? extends Element> returnClass) {
 
     /** Compact constructor enforces the non-null invariants on every field. */
     public TranslationResult {
-      if (inputs == null) {
-        throw new NullPointerException("inputs must not be null");
-      }
-      if (boundaryAlias == null) {
-        throw new NullPointerException("boundaryAlias must not be null");
-      }
-      if (outputType == null) {
-        throw new NullPointerException("outputType must not be null");
-      }
-      if (returnClass == null) {
-        throw new NullPointerException("returnClass must not be null");
-      }
+      Objects.requireNonNull(inputs, "inputs must not be null");
+      Objects.requireNonNull(boundaryAlias, "boundaryAlias must not be null");
+      Objects.requireNonNull(outputType, "outputType must not be null");
+      Objects.requireNonNull(returnClass, "returnClass must not be null");
     }
   }
 }
