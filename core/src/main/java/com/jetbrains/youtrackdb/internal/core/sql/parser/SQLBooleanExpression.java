@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
@@ -375,6 +376,17 @@ public abstract class SQLBooleanExpression extends SimpleNode {
   @Nullable
   public abstract SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
       @Nonnull CommandContext ctx);
+
+  /// As {@link #mergeUsingAnd(SQLBooleanExpression, CommandContext)}, but with the collate of the
+  /// property under test. It lets equality operands that are equal only under that collate (e.g.
+  /// `name = 'A'` and `name = 'a'` on a case-insensitive property) merge into one index lookup
+  /// instead of falling back to a full scan. The default ignores the collate and delegates to the
+  /// two-argument form; only conditions that compare operand values override this.
+  @Nullable
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other, @Nonnull CommandContext ctx,
+      @Nullable Collate collate) {
+    return mergeUsingAnd(other, ctx);
+  }
 
   @Nullable
   public IndexCandidate findIndex(IndexFinder info, CommandContext ctx) {

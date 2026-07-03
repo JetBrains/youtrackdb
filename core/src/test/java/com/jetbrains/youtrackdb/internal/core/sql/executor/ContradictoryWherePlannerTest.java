@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.math.BigDecimal;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
@@ -370,6 +371,30 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
   }
 
   /**
+   * The IS NULL / equality cross-check must also fire when the equality's value is a parameter bound
+   * to {@code null}. {@code indexed IS NULL AND indexed = :p} with {@code :p = null} records a
+   * {@code field = null} equality in the value map, which combined with {@code IS NULL} still cannot
+   * match: IS NULL forces the field null, and {@code = null} matches nothing. This covers the
+   * null-parameter arm of the cross-check that the inline {@code = null} literal
+   * ({@link #equalityAndIsNullSameField_shortCircuitsToEmptyStep}) never reaches, because the
+   * literal form short-circuits earlier via {@code isEqualityWithNullLiteral}, before the value map
+   * is built.
+   */
+  @Test
+  public void isNullPlusNullBoundParameter_shortCircuitsToEmptyStep() {
+    var params = new HashMap<String, Object>();
+    params.put("p", null);
+    try (var rs =
+        session.query(
+            "SELECT FROM " + className + " WHERE indexed IS NULL AND indexed = :p", params)) {
+      assertTrue(
+          "IS NULL plus a null-bound parameter on the same field must short-circuit to EmptyStep",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertFalse(rs.hasNext());
+    }
+  }
+
+  /**
    * Two {@code IS NULL} conditions on the same field are satisfiable — the field is simply null —
    * so the detector must not treat them as contradictory. With a null-valued row present the plan
    * must stay non-empty and return that row, proving the "satisfiable" claim against real data
@@ -501,10 +526,13 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
   }
 
   /**
-   * The collate carve-out must also hold when the ci property is indexed: the index lowercases its
-   * keys, so {@code name = 'A' AND name = 'a'} is satisfiable and must keep the index lookup rather
-   * than short-circuiting. Exercises the collate fix through the same-field merge on a collated
-   * index.
+   * The collate carve-out must also hold when the ci property is indexed: {@code name = 'A' AND
+   * name = 'a'} is satisfiable — the values are equal under the collate — and must keep the index
+   * lookup. The same-field merge
+   * ({@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition#mergeUsingAnd})
+   * applies the property collate to the two equality operands, so both reduce to {@code 'a'} and
+   * fold into a single index key. Asserts {@link FetchFromIndexStep} so a regression that dropped
+   * the collated merge back to a full scan, while still returning the row, would fail the test.
    */
   @Test
   public void caseInsensitiveCollation_indexed_sameValueDifferentCase_returnsRow() {
@@ -516,7 +544,16 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
     session.newInstance(cn).setProperty("name", "a");
     session.commit();
 
-    assertSatisfiableReturns(cn, "name = 'A' AND name = 'a'", "name", "a");
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE name = 'A' AND name = 'a'")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "ci-collated 'A'/'a' must keep the index lookup, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof FetchFromIndexStep);
+      assertTrue("expected the collated row to be returned", rs.hasNext());
+      assertEquals("a", rs.next().getProperty("name"));
+      assertFalse(rs.hasNext());
+    }
   }
 
   /**
@@ -711,6 +748,32 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
   }
 
   /**
+   * Two non-null equality literals that cannot be coerced to the declared type
+   * ({@code num = 'abc' AND num = 'def'} on an INTEGER field) make the type-aware comparison in
+   * {@code literalsProvablyDistinct} throw while coercing. That failure must be swallowed and read
+   * as "not provably distinct", so the block falls through to normal planning instead of aborting
+   * the plan or short-circuiting to {@link EmptyStep}. Exercises the coercion-throws catch that the
+   * satisfiable coercion cases, where coercion succeeds, never reach. The class is empty, so the
+   * runtime filter never evaluates the uncoercible operands either: the query plans and runs to zero
+   * rows without throwing.
+   */
+  @Test
+  public void uncoercibleEqualityLiterals_coercionThrows_fallsThroughWithoutShortCircuit() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("num", PropertyType.INTEGER); // non-indexed: full scan + filter
+    // No rows seeded: the empty scan keeps the runtime filter from evaluating 'abc' / 'def' too.
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE num = 'abc' AND num = 'def'")) {
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertFalse(
+          "an uncoercible-literal contradiction candidate must not short-circuit, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof EmptyStep);
+      assertFalse("empty class must yield no rows and no exception", rs.hasNext());
+    }
+  }
+
+  /**
    * Operands the detector cannot resolve to a plan-time literal must fall through to normal
    * planning, not be read as contradictions. {@code indexed = indexed} (a field on both sides) is
    * always true, so combined with {@code indexed = 'v2'} the query must return the v2 row rather
@@ -735,6 +798,36 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
       assertFalse(
           "field = otherField must not be read as a contradiction",
           rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+    }
+  }
+
+  /**
+   * The detector groups equality candidates by property, so equalities on two different fields never
+   * contradict each other: {@code a = 'x' AND b = 'y'} is satisfiable and must plan normally and
+   * return the matching row. Guards against a future change that mis-keys the value map and
+   * cross-fires across properties.
+   */
+  @Test
+  public void distinctFieldsEachSatisfiable_doesNotShortCircuit() {
+    var clazz = createClassInstance();
+    var cn = clazz.getName();
+    clazz.createProperty("a", PropertyType.STRING);
+    clazz.createProperty("b", PropertyType.STRING);
+    session.begin();
+    var e = session.newInstance(cn);
+    e.setProperty("a", "x");
+    e.setProperty("b", "y");
+    session.commit();
+
+    try (var rs = session.query("SELECT FROM " + cn + " WHERE a = 'x' AND b = 'y'")) {
+      assertFalse(
+          "equalities on distinct fields must not short-circuit to empty",
+          rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
+      assertTrue("the matching row must be returned", rs.hasNext());
+      var row = rs.next();
+      assertEquals("x", row.getProperty("a"));
+      assertEquals("y", row.getProperty("b"));
+      assertFalse(rs.hasNext());
     }
   }
 }

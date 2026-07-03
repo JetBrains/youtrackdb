@@ -3293,10 +3293,17 @@ public class SelectExecutionPlanner {
         //try to mere first condition with the rest of the conditions too
         var resultingExpressions = new ArrayList<SQLBooleanExpression>(2);
 
+        // The merge collapses two equalities on the same property into one index key. Pass the
+        // property collate so values that are equal only under it (e.g. 'A' and 'a' on a
+        // case-insensitive property) still merge and keep using the index instead of dropping to a
+        // full scan.
+        var mergeProperty = clazz.getProperty(indexPropertyName);
+        var mergeCollate = mergeProperty == null ? null : mergeProperty.getCollate();
+
         var firstExpression = expressions.getFirst();
         var expressionToMerge = expressions.get(1);
 
-        var mergedExpression = firstExpression.mergeUsingAnd(expressionToMerge, ctx);
+        var mergedExpression = firstExpression.mergeUsingAnd(expressionToMerge, ctx, mergeCollate);
         if (mergedExpression != null) {
           expressionToMerge = mergedExpression;
         } else {
@@ -3306,7 +3313,8 @@ public class SelectExecutionPlanner {
         if (expressions.size() > 2) {
           for (var i = 2; i < expressions.size(); i++) {
             var nextBlockToMerge = expressions.get(i);
-            expressionToMerge = expressionToMerge.mergeUsingAnd(nextBlockToMerge, ctx);
+            expressionToMerge =
+                expressionToMerge.mergeUsingAnd(nextBlockToMerge, ctx, mergeCollate);
 
             //unable to merge expressions
             if (expressionToMerge == null) {

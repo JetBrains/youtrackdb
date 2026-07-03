@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -758,6 +759,13 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   @Override
   public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
       @Nonnull CommandContext ctx) {
+    return mergeUsingAnd(other, ctx, null);
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx, @Nullable Collate collate) {
     if (other instanceof SQLBinaryCondition otherCondition) {
       if (!left.isBaseIdentifier() && !right.isEarlyCalculated(ctx)) {
         return null;
@@ -771,6 +779,27 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
 
       var otherRightValue = otherCondition.right.execute((Result) null, ctx);
       var rightValue = right.execute((Result) null, ctx);
+
+      // Apply the property collate to both equality operands so values that are equal only under the
+      // collate (e.g. 'A' and 'a' on a case-insensitive property) merge into one index lookup rather
+      // than leaving two conditions that no index key can express, which drops the plan to a full
+      // scan. Only equality operands are collated: a range merge keeps its raw bound so the ordering
+      // that picks the tighter bound is unchanged. transform() may reject a value, so a failure
+      // leaves the raw operands and the merge simply may not collapse them.
+      if (collate != null
+          && operator instanceof SQLEqualsOperator
+          && otherCondition.operator instanceof SQLEqualsOperator) {
+        try {
+          if (rightValue != null) {
+            rightValue = collate.transform(rightValue);
+          }
+          if (otherRightValue != null) {
+            otherRightValue = collate.transform(otherRightValue);
+          }
+        } catch (RuntimeException ignore) {
+          // leave the raw values untouched
+        }
+      }
 
       var resultOperand = operator.mergeWithOperator(ctx.getDatabaseSession(),
           otherCondition.operator,

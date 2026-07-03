@@ -131,6 +131,12 @@ public class RepeatedEqualityOnIndexTest extends TestUtilsFixture {
   @Test
   public void emptyRange_returnsNoRows() {
     try (var rs = session.query("SELECT FROM " + className + " WHERE n >= 5 AND n <= 4")) {
+      // The bounds stay a real index range scan, not a silent full-scan fallback.
+      var firstStep = rs.getExecutionPlan().getSteps().getFirst();
+      assertTrue(
+          "expected FetchFromIndexStep for an empty range, got "
+              + firstStep.getClass().getSimpleName(),
+          firstStep instanceof FetchFromIndexStep);
       assertFalse("an empty range must return no rows", rs.hasNext());
     }
   }
