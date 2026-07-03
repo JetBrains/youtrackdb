@@ -31,7 +31,6 @@ import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
-import org.apache.tinkerpop.gremlin.structure.Graph;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.apache.tinkerpop.gremlin.structure.util.CloseableIterator;
 import org.junit.Before;
@@ -923,7 +922,7 @@ public class YTDBMatchPlanStepTest {
   @SuppressWarnings("unchecked")
   private static Traversal.Admin<Object, Vertex> freshTraversal(YTDBGraphInternal graph) {
     var traversal = (Traversal.Admin<Object, Vertex>) mock(Traversal.Admin.class);
-    lenient().when(traversal.getGraph()).thenReturn(Optional.of((Graph) graph));
+    lenient().when(traversal.getGraph()).thenReturn(Optional.of(graph));
     lenient()
         .when(traversal.getTraverserGenerator())
         .thenReturn(B_O_TraverserGenerator.instance());
@@ -932,7 +931,7 @@ public class YTDBMatchPlanStepTest {
     // NPE on the mock's default-null return. Typed Supplier (no raw cast) so signature
     // changes surface at compile time.
     Supplier<TraverserSet<Object>> traverserSetSupplier = TraverserSet::new;
-    lenient().when(traversal.getTraverserSetSupplier()).thenReturn((Supplier) traverserSetSupplier);
+    lenient().when(traversal.getTraverserSetSupplier()).thenReturn(traverserSetSupplier);
     return traversal;
   }
 }
