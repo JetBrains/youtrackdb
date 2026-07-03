@@ -1,153 +1,159 @@
 <!-- MANIFEST
-findings: 2   severity: {blocker: 0, should-fix: 1, suggestion: 1}
+reviewer: reviewer-technical   track: "Track 1: Style-machinery rework"   iteration: 1
+findings: 3   severity: {blocker: 0, should-fix: 3, suggestion: 0}
 index:
-  - {id: T1, sev: should-fix, loc: "docs/adr/tech-writer-tone/_workflow/plan/track-1.md:178", anchor: "### T1 ", cert: C4, basis: "track collapses one lowercase \"summary\" literal onto both sets; SHAPE_EXEMPT_SECTION_NAMES compares raw display-case titles, so a Part-level `## Summary` would not be exempted"}
-  - {id: T2, sev: suggestion, loc: "docs/adr/tech-writer-tone/_workflow/plan/track-1.md:124", anchor: "### T2 ", cert: C1, basis: "\"three regex removals\" / singular \"the regex\" understates that negative parallelism is two regex objects (leading + trailing); trailing test/fixture could be left behind"}
-evidence_base: {section: "## Evidence base", certs: 14, matches: 13}
+  - {id: T1, sev: should-fix, loc: "docs/adr/tech-writer-tone/_workflow/plan/track-1.md:151", anchor: "### T1 ", cert: P13, basis: "R1/A3 rationale states fixture resolves 'relative to __file__'; it resolves via REPO_ROOT=parents[3] like the corpus — wrong mechanism, correct conclusion, repeated 3x"}
+  - {id: T2, sev: should-fix, loc: "docs/adr/tech-writer-tone/_workflow/plan/track-1.md:143", anchor: "### T2 ", cert: P14, basis: "literal six-removed-rule-NAMES grep does not hit line 185 (removed rule named only by exemplar); stated method won't reproduce recorded snapshot; 185/188 mislabeled as § Plain language"}
+  - {id: T3, sev: should-fix, loc: "docs/adr/tech-writer-tone/_workflow/plan/track-1.md:215", anchor: "### T3 ", cert: P15, basis: "D10 BLUF add anchored only at review-workflow-writing-style.md § Key-rules summary bullet (28); enforcement criteria live in ### BLUF lead (78-80), unaddressed → reviewer won't enforce D10"}
+evidence_base: {section: "## Evidence base", certs: 16, matches: 13}
 cert_index:
-  - {id: C4, verdict: PARTIAL, anchor: "#### C4 "}
+  - {id: P13, verdict: WRONG,   anchor: "#### P13 "}
+  - {id: P14, verdict: PARTIAL, anchor: "#### P14 "}
+  - {id: P15, verdict: PARTIAL, anchor: "#### P15 "}
 flags: [CONTRACT_OK]
 -->
 
 Reference-accuracy caveat: this track's in-scope surface is Markdown + Python under
-`.claude/**` plus `CLAUDE.md`; there are no Java production classes. mcp-steroid PSI
-`findClass` is Java-only and returns null for Python identifiers and Markdown
-anchors, so every named reference below was verified as a file path, a `§`-anchor, or
-a Python symbol via `grep`/`sed`/`Read` against the LIVE tree (the staged subtree
-`_workflow/staged-workflow/` does not exist yet, so every `.claude/**` read resolves
-to the live file per §1.7(d)). A grep-based verification can in principle miss a
-reference hidden by unusual formatting; none of the certificates below depends on a
-polymorphic-dispatch or name-collision case where that risk is material.
-
-Workflow-machinery criteria applied (branch is §1.7(b) staged, ledger `s17=staged`):
-the five prose criteria supersede the Java WAL/crash/migration/hot-caller lens for
-all workflow prose. The Python script and its tests are behavior-bearing, so they
-carry both lenses; findings on them are stated against the code as read.
+`.claude/**` plus root `CLAUDE.md`; it names no Java production classes. mcp-steroid
+was NOT reachable this session, and PSI `findClass` is Java-only regardless, so every
+named reference below was verified as a workflow file path, a `§`-anchor, or a Python
+identifier via grep + Read (the correct tool for these referents). No finding hinges
+on a Java-symbol search, so the grep fallback carries no reference-accuracy risk here.
 
 ## Findings
 
 ### T1 [should-fix]
-**Certificate**: C4 (Premise — `SHAPE_EXEMPT_SECTION_NAMES` gains `"summary"`).
-**Location**: track-1.md:178 (in-scope file item 7: "`SHAPE_EXEMPT_SECTION_NAMES` and `MANDATORY_OR_FORM_SUBHEADINGS` gain `"summary"` (D4)"); design.md:624; `.claude/scripts/design-mechanical-checks.py:49-55`, `:737`, `:62-73`, `:1335`.
-**Issue**: The track item names one lowercase literal, `"summary"`, and applies it to both sets in the same clause. The two sets compare at different case. `is_shape_exempt` (`:737`) tests `section["title"] in SHAPE_EXEMPT_SECTION_NAMES` against the raw heading title, and the existing entries are display-case (`"Overview"`, `"Core Concepts"`, `"TL;DR"`). The sibling-similarity filter (`:1335`) tests `sub.lower() not in MANDATORY_OR_FORM_SUBHEADINGS`, and those entries are lowercase (`"tl;dr"`). A literal `"summary"` (lowercase) added to `SHAPE_EXEMPT_SECTION_NAMES` therefore does not match a Part-level section whose title is `Summary` — the whole-section shape exemption silently fails, and a well-formed Part-level `## Summary` (itself just a short summary blurb under a `# Part N`) would trip the per-section `tldr`/footer shape checks as a false blocker. This is the exact backward-compat break D4 exists to prevent, mirrored from the Part-level `"TL;DR"` entry the design cites at `:54`. None of the track's named test invariants covers it: "Both-spellings acceptance" and the `MANDATORY_OR_FORM_SUBHEADINGS` invariant both target the per-section shape regexes and the sibling check, not the `SHAPE_EXEMPT` Part-level path, so the case bug would slip through green tests.
-**Proposed fix**: Split the literal by set in item 7 and in D4: add `"Summary"` (display case, alongside the retained `"TL;DR"`) to `SHAPE_EXEMPT_SECTION_NAMES`, and `"summary"` (lowercase, alongside `"tl;dr"`) to `MANDATORY_OR_FORM_SUBHEADINGS`. Add one shape test that feeds a Part-level `## Summary` section under a `# Part N` heading and asserts no per-section-shape finding, so the exemption is pinned the way the D11 precedent pins the footer rename.
+**Certificate**: P13 (Premise — R1/A3 staged-path corpus-dangling rationale)
+**Location**: track-1.md `## Plan of Work` line 151 ("resolve their fixture relative to `__file__`"); repeated in `## Validation and Acceptance` line 168 and `## Idempotence and Recovery` line 199.
+**Issue**: The track justifies why the `dsc-ai-tell` fixture assertions stay green while staged but the corpus assertions dangle with a false mechanism. It says the fixture assertions "resolve their fixture relative to `__file__`". In the actual code, `test_dsc_ai_tell.py:59` sets `REPO_ROOT = Path(__file__).resolve().parents[3]`, and both `FIXTURE` (line 61) and `SCRIPT` (line 60) resolve *through `REPO_ROOT`* — the exact same base the corpus (`CALIBRATION_ADRS`, lines 64-68) uses. Nothing resolves "relative to `__file__`" independently of `REPO_ROOT`. The real reason the split works: from the staged path `_workflow/staged-workflow/.claude/scripts/tests/`, `parents[3]` is `staged-workflow/`, and the `.claude/**` mirror (fixture + script) *is* present under `staged-workflow/` while `docs/adr/**` is *not* mirrored there — so `REPO_ROOT/.claude/...` resolves and `REPO_ROOT/docs/adr/...` does not. The conclusion (fixture-green-in-place, corpus-verified-at-Phase-4) is correct; the stated mechanism is wrong and could misdirect decomposition (e.g., an implementer refactoring `REPO_ROOT` for the staged run, believing the fixture path is `__file__`-anchored and therefore unaffected). Corollary the wrong framing hides: the test's `main()` runs *both* groups together (`fixture_findings` at line 314 plus `assert_calibration_adrs()` at line 321), so running the whole file while staged fails on the corpus group (line 290 `CALIBRATION ADR missing on disk`) — the Phase-B run must select the fixture assertions only, which the accurate mechanism makes obvious and the current wording does not.
+**Proposed fix**: Reword lines 151/168/199 to: "Both the fixture and corpus paths resolve through `REPO_ROOT = parents[3]`; while staged that base is `staged-workflow/`, under which the `.claude/**` mirror (script + fixture) exists so the fixture assertions run green in place, while `docs/adr/**` is not mirrored so the corpus-calibration assertions cannot resolve and are verified at Phase-4 promotion against the live tree. Because `test_dsc_ai_tell.py` `main()` runs both groups, the Phase-B run selects the fixture assertions only." No approach change; accuracy only.
 
-### T2 [suggestion]
-**Certificate**: C1 (Premise — the named dsc regexes and their coupling) and C7 (the regex/test/fixture one-unit coupling).
-**Location**: track-1.md:124 (Plan of Work: "Three of the six removals ... have a `dsc-ai-tell` regex, so each of those deletes the regex ... in one change"), track-1.md:147 (acceptance: "green after the three regex removals"), track-1.md:160 (Idempotence). Item 7 (`:178`) enumerates all four objects correctly.
-**Issue**: The count is loose. Negative parallelism is two distinct regex objects — `NEGATIVE_PARALLELISM_RE` (`:103`, leading-negation copula) and `NEGATIVE_PARALLELISM_TRAILING_RE` (`:127`, trailing `X, not just Y` frame) — each with its own fixture block and assertion (fixture `### Trailing negative parallelism` at `:67-74`, test id `negative-parallelism-trailing` at `test_dsc_ai_tell.py:90-91`). The Plan of Work's singular "the regex" for negative parallelism and the "three regex removals" phrasing in Validation/Idempotence could lead an implementer reading only those sections to delete `NEGATIVE_PARALLELISM_RE` and leave the trailing regex — or its fixture/assertion — in place. The Removal-completeness invariant is behavior-based ("no removed-pattern regex, fixture line, or assertion remains") and would catch a leftover, and item 7 lists both objects, so this is a wording tightening, not a correctness gap.
-**Proposed fix**: In Plan of Work and Validation, say "three removed rules / four regex objects" and make the negative-parallelism = leading + trailing pair explicit (as item 7 already does), so no single section under-counts the deletion.
+### T2 [should-fix]
+**Certificate**: P14 (Premise — grep-derived drop-site snapshot for `review-workflow-writing-style.md`)
+**Location**: track-1.md `## Plan of Work` line 143 and `## Interfaces and Dependencies` item 6 (line 215): "a case-insensitive grep of the six removed-rule names … hits lines 29, 34, 38, 71, 89, 185, 188, and 200".
+**Issue**: A literal case-insensitive grep of the six removed-rule *names* (`negative parallelism`, `roundabout negation`, `closing phrase`, `hyphenat`, `curly`, `title case`/`sentence case`) over the develop-state file hits `{29, 34, 38, 71, 89, 188, 200}` — it does **not** hit line 185. Line 185 (`[Hard violations — "It's not X — it's Y" anti-pattern in load-bearing position, …]`, the `#### Critical` finding-format bucket) names the removed negative-parallelism rule *only by its exemplar phrase* `"It's not X — it's Y"`, never by the literal name, so a name-only grep skips it. The recorded snapshot is right to *include* 185 (it is a genuine drop-site — a Critical-severity example citing a removed rule, which R4's "the drop must reach every hit" logic requires retargeting), but the stated derivation method won't reproduce it. An implementer who follows the track's own instruction ("the definitive drop-site set is whatever a case-insensitive grep of the six removed-rule names returns") literally gets 7 lines, misses 185, and leaves a Critical-bucket example enforcing a removed rule — the exact R4 failure the track warns against. Secondary inaccuracy: lines 185/188 are labeled "§ Plain language Critical/Recommended criteria", but 185 is under `#### Critical` and 188 under `#### Recommended` — the output finding-format template's severity buckets — not the `§ Plain language` section (lines 30, 73-76, which is *not* a drop-site because it names no removed rule). The mislabel could send an implementer trusting the label to edit the wrong section.
+**Proposed fix**: Broaden the recorded derivation to "a case-insensitive grep of the six removed-rule names **and their exemplar phrases** (`It's not X`, `In conclusion`, …)" so line 185 is reproducibly caught (lines 71 and 200 already carry both name and exemplar, so they survive either way; 185 is the sole name-free exemplar site). Correct the 185/188 labels to "the `#### Critical` / `#### Recommended` finding-format buckets". The set itself stays `{29, 34, 38, 71, 89, 185, 188, 200}`.
+
+### T3 [should-fix]
+**Certificate**: P15 (Premise — D10 BLUF-hardening acceptance site in `review-workflow-writing-style.md`)
+**Location**: track-1.md `## Interfaces and Dependencies` item 6 (line 215): "add the D10 BLUF criteria (at the kept BLUF-lead rule, develop-state line 28)"; D10 Decision Log line 103 and Validation line 172 ("the `review-workflow-writing-style.md` BLUF criteria").
+**Issue**: The track anchors D10's two new rules (self-contained plain-claim lead; body stands with the lead deleted) at review-workflow-writing-style.md **line 28** — the one-line `## Key rules` *summary* bullet ("**BLUF lead** — first sentence states the conclusion, not background."). The file's actual BLUF *enforcement criteria* live in the `### BLUF lead` section at **lines 78-80** ("Every section's first sentence should state the section's conclusion…" plus the skill/agent-body opener rule), which item 6 does not name. If only line 28 is edited, the Phase-C style reviewer's detailed criteria section still enforces only "state the conclusion" and will not catch an anaphor-opener body resolving into the lead (D10 rule 2) or a non-self-contained lead (D10 rule 1). This is the same "the add must reach the enforcement site" failure family as R4, inverted: an *addition* that lands in the summary but not the enforcer produces a reviewer that does not actually enforce D10.
+**Proposed fix**: Add the two D10 rules to the `### BLUF lead` criteria section (develop-state lines 78-80), the enforcement site, in addition to the line-28 summary bullet. Update item 6 and the D10 Validation criterion to name lines 78-80 as the acceptance site.
 
 ## Evidence base
 
-#### C1 Premise: the four named dsc-ai-tell regexes/checks exist at the claimed lines
-- **Track claim**: item 7 (`:178`) and design.md:256-261 name `NEGATIVE_PARALLELISM_RE` (`:103`), `NEGATIVE_PARALLELISM_TRAILING_RE` (`:127`), `HYPHENATED_PAIR_CLUSTER_RE` (`:191`), and the Title-Case check `_title_case_violation` (`:1734`) for deletion.
-- **Search performed**: `grep -nE` over `design-mechanical-checks.py` for each symbol; `Read` of the definitions.
-- **Code location**: `NEGATIVE_PARALLELISM_RE` @ `:103`; `NEGATIVE_PARALLELISM_TRAILING_RE` @ `:127`; `HYPHENATED_PAIR_CLUSTER_RE` @ `:191`; `_title_case_violation` @ `:1734`. Firing sites: `:1874` (title), `:1942` (hyphenated), `:1962` (neg-par), `:1980` (neg-par trailing).
-- **Actual behavior**: All four resolve at exactly the cited lines. `NEGATIVE_PARALLELISM_RE = re.compile(r"\bit'?s not\b.*\bit'?s\b", ...)`; `NEGATIVE_PARALLELISM_TRAILING_RE = re.compile(r",\s+not\s+(?:just|merely|simply)\s+[a-z]", ...)`.
+#### P1 — All 21 in-scope files plus the four supporting files named by the track exist at their stated live paths
+- **Track claim**: `## Interfaces and Dependencies` lists 21 in-scope files; the track also names `absorption-check.md`, `fidelity-check.md`, `test_design_mechanical_checks_d11.py`, `conventions-execution.md`, and the frozen `design.md`.
+- **Search performed**: `test -f` over all 25 paths (mcp-steroid unreachable; these are file-path referents, so `test -f` is exact).
+- **Code location**: all 25 present (e.g., `.claude/output-styles/house-style.md`, `.claude/output-styles/house-conversation.md`, `.claude/scripts/design-mechanical-checks.py`, `.claude/scripts/tests/test_dsc_ai_tell.py`, `.claude/scripts/tests/fixtures/dsc-ai-tell-fixture.md`, `.claude/scripts/tests/test_design_mechanical_checks_d11.py`, the five agent files, `CLAUDE.md`, `.claude/workflow/implementer-rules.md`, `.claude/skills/create-plan/SKILL.md`).
+- **Actual behavior**: EXISTS for every path; `staged-workflow/` absent (correct — implementation not started, so reads resolve to live files).
 - **Verdict**: CONFIRMED
-- **Detail**: Line citations exact. Negative parallelism is two regex objects, not one (feeds T2).
+- **Detail**: file-path referents; no Java-symbol reference-accuracy exposure.
 
-#### C2 Premise: MANDATORY_OR_FORM_SUBHEADINGS holds "tl;dr" and drives the same-shape sibling check (D4 concern)
-- **Track claim**: D4 / design.md:632-639 — if `### Summary` sections appear but `"summary"` is not added to `MANDATORY_OR_FORM_SUBHEADINGS`, the shared heading counts toward the similarity score and false-positives on every well-formed design.
-- **Search performed**: `Read` of `:62-73` (definition) and `:1310-1339` (`check_same_shape_siblings`).
-- **Code location**: `MANDATORY_OR_FORM_SUBHEADINGS` @ `:62`, contains `"tl;dr"` @ `:63`; used @ `:1335` inside the `custom_subs` construction.
-- **Actual behavior**: `custom_subs = frozenset(sub.lower() for sub in s["sub_headings"] if sub.lower() not in MANDATORY_OR_FORM_SUBHEADINGS)`; the set feeds the Jaccard union-find at `:1341+`. A sub-heading not in the set contributes to every section's similarity.
+#### P2 — Every named Python identifier resolves in the two script/test files
+- **Track claim**: `NEGATIVE_PARALLELISM_RE`, `NEGATIVE_PARALLELISM_TRAILING_RE`, `HYPHENATED_PAIR_CLUSTER_RE`, the Title-Case check, `section_has_tldr`, `SHAPE_EXEMPT_SECTION_NAMES`, `MANDATORY_OR_FORM_SUBHEADINGS`, `ANCHORED_REGRESSION_CASES`, `NEGATIVE_RANGES`, `REPO_ROOT = Path(__file__).resolve().parents[3]`.
+- **Search performed**: grep over `design-mechanical-checks.py` and `test_dsc_ai_tell.py`.
+- **Code location**: `NEGATIVE_PARALLELISM_RE` @ dmc.py:103; `NEGATIVE_PARALLELISM_TRAILING_RE` @ 127; `HYPHENATED_PAIR_CLUSTER_RE` @ 191; `_title_case_violation` @ 1734; `section_has_tldr` @ 708; `SHAPE_EXEMPT_SECTION_NAMES` @ 49; `MANDATORY_OR_FORM_SUBHEADINGS` @ 62 (compared lowercased @ 1335); `ANCHORED_REGRESSION_CASES` @ test:138; `NEGATIVE_RANGES` @ test:115; `REPO_ROOT` @ test:59.
+- **Actual behavior**: all present; `SHAPE_EXEMPT_SECTION_NAMES` compares raw `section["title"]` (dmc.py:737) while `MANDATORY_OR_FORM_SUBHEADINGS` compares `sub.lower()` (dmc.py:1335), confirming the display-case-vs-lowercase distinction the folded T1/R2/A5 relies on.
 - **Verdict**: CONFIRMED
-- **Detail**: D4's mechanism is exact — without `"summary"` in the set, a `### Summary` heading in every section inflates pairwise Jaccard and clusters 3+ siblings. Concern well-founded.
 
-#### C3 Premise: section_has_tldr recognises only TL;DR spellings today (D4 needs Summary)
-- **Track claim**: item 7 — `section_has_tldr` gains `### Summary`; both spellings stay accepted.
-- **Search performed**: `Read` of `:708-716`.
-- **Code location**: `section_has_tldr` @ `:708`.
-- **Actual behavior**: Matches `(^|\n)\*\*TL;DR\.\*\*` and `(^|\n)### TL;DR\b` only; no `Summary` branch. The per-section shape check at `:778` calls it and emits a `per-section-shape:tldr` blocker when absent.
+#### P3 — §1.7 subsections (a)-(f) all exist in `conventions.md`
+- **Track claim** (D12): the extension touches §1.7(a) mirror layout, (b) marker enumeration, (c)/(d)/(e)/(f) path lists.
+- **Search performed**: grep `^### \([a-z]\)` in the §1.7 region.
+- **Code location**: (a) @ 968, (b) @ 1005, (c) @ 1064, (d) @ 1108, (e) @ 1154, (f) @ 1207 (plus (g)-(l) @ 1231-1446).
+- **Actual behavior**: all six named subsections present; §1.7(a):991 states "No other prefixes participate" over the four-prefix set, confirming the out-of-surface gap D12 addresses. §1.7(g) I6-invariant prose (1242) and (i) worked example (1279-1294) use illustrative single-file / non-exhaustive wording, not load-bearing prefix enumerations, so D12's omission of them from its edit list is sound.
 - **Verdict**: CONFIRMED
-- **Detail**: The rename must add a `### Summary` (and `**Summary.**`) branch here, keeping the two TL;DR branches for backward-compat. Matches the track's both-spellings requirement.
 
-#### C4 Premise: SHAPE_EXEMPT_SECTION_NAMES gains "summary" — case sensitivity
-- **Track claim**: item 7 (`:178`) — `SHAPE_EXEMPT_SECTION_NAMES` and `MANDATORY_OR_FORM_SUBHEADINGS` both gain `"summary"`.
-- **Search performed**: `Read` of `:49-55` (set), `:735-737` (`is_shape_exempt`).
-- **Code location**: `SHAPE_EXEMPT_SECTION_NAMES` @ `:49`; `"TL;DR"` entry @ `:54`; comparison @ `:737`.
-- **Actual behavior**: `is_shape_exempt` returns `section["title"] in SHAPE_EXEMPT_SECTION_NAMES` — a case-sensitive comparison against the raw heading title. Entries are display-case (`"Overview"`, `"TL;DR"`). `MANDATORY_OR_FORM_SUBHEADINGS` instead compares `sub.lower()`, so its entries are lowercase.
+#### P4 — `create-final-design.md` Step 4 runs `cp -r "$STAGED_DIR/.claude/." .claude/` and a four-prefix `git add` + divergence check
+- **Track claim** (D12): the live promotion copies staged output-styles into the tree but `git add`s only four prefixes (so a staged `house-style.md` edit drops silently), and root `CLAUDE.md` is never `cp`'d.
+- **Search performed**: grep Step 4 promotion block.
+- **Code location**: divergence `git log … -- .claude/workflow .claude/skills .claude/agents .claude/scripts` @ 541; `cp -r "$STAGED_DIR/.claude/." .claude/` @ 547; `git add .claude/workflow .claude/skills .claude/agents .claude/scripts` @ 548; `git diff --cached --quiet || git commit` @ 549.
+- **Actual behavior**: `cp -r` copies `.claude/output-styles/**` (it is under `.claude/`) but the four-prefix `git add` and divergence check both omit output-styles and root `CLAUDE.md`. D12's premise is exactly correct, including that root `CLAUDE.md` is never reached by the `cp -r`.
+- **Verdict**: CONFIRMED
+
+#### P5 — `implementer-rules.md` carries the four-prefix write-routing rule and the pre-commit `git diff --cached --name-only` gate
+- **Track claim** (D12): both need `.claude/output-styles/**` and root `CLAUDE.md` added.
+- **Search performed**: grep write-routing and gate lines.
+- **Code location**: write-routing four-prefix map @ 257-295; pre-commit gate `git diff --cached --name-only -- .claude/workflow/ .claude/skills/ .claude/agents/ .claude/scripts/` @ 412.
+- **Actual behavior**: both are four-prefix only; neither watches output-styles or root `CLAUDE.md`. D12's premise correct.
+- **Verdict**: CONFIRMED
+
+#### P6 — `create-plan` Step 4b pins a bounded inline comprehension-gate return (A4)
+- **Track claim** (A4): Step-4b pins a bounded inline-gate return that the D2 hybrid narrative-plus-findings output would contradict, so the consumer contract needs a matching edit.
+- **Search performed**: grep + Read Step 4b comprehension-gate block.
+- **Code location**: SKILL.md:951-955 — "The Step-4b gate omits the `output_path` file-write … deliberately: its return is the bounded comprehension verdict plus a … so the inline return stays small"; spawn @ 942-943; bounded by `iteration_budget` @ 963.
+- **Actual behavior**: the bounded inline verdict return exists as claimed; D2's hybrid narrative would enlarge/contradict it, so A4's consumer-side edit is real.
+- **Verdict**: CONFIRMED
+
+#### P7 — The five-agent roster and model pins match the track (three Opus that change, two already Sonnet)
+- **Track claim** (D3/D6): `readability-auditor`, `comprehension-review`, `design-author` are Opus (the three that change: two move to Sonnet, the author stays Opus with a pin note + voice mandate); `absorption-check`, `fidelity-check` are already Sonnet, unchanged.
+- **Search performed**: grep `^model:` / `^name:` in the five agent files.
+- **Code location**: readability-auditor model:opus; comprehension-review model:opus; design-author model:opus; absorption-check model:sonnet; fidelity-check model:sonnet.
+- **Actual behavior**: exactly as claimed. The two reader agents are Opus today (target for the Sonnet move); the author is Opus (stays); the two coverage cross-checks are already Sonnet.
+- **Verdict**: CONFIRMED
+
+#### P8 — `test_design_mechanical_checks_d11.py` is a both-spellings precedent test
+- **Track claim** (D4): the Summary rename follows the References→Decisions & invariants both-spellings precedent, pinned by tests modeled on `test_design_mechanical_checks_d11.py`.
+- **Search performed**: grep the d11 test.
+- **Code location**: test:5-6 (rename `### References` → `### Decisions & invariants`, backward-compatible both-spellings); fixtures `d11-footer-newname-pass.md` @ 30, `d11-footer-legacy-pass.md` @ 37.
+- **Actual behavior**: the file pins both spellings passing the shape regex — a valid model for the TL;DR/Summary both-spellings acceptance.
+- **Verdict**: CONFIRMED
+
+#### P9 — `house-style.md` carries the six removed-rule sites and the §Voice/BLUF/Orientation/Navigability/Self-check sections the track edits
+- **Track claim** (D1/D4/D5/D7/D10): remove six rules at their sites; swap §Voice-and-tone persona; rename §Navigability TL;DR shape; add §BLUF/§Orientation hardening; renumber §Self-check.
+- **Search performed**: grep the rule names and section headers.
+- **Code location**: Negative parallelism @ 100, Roundabout negation @ 101, Closing phrases @ 103, Hyphenated word-pair overuse @ 262, Curly quotes @ 273, Title Case headings forbidden @ 304; §BLUF lead @ 22, §Voice and tone @ 40, §Orientation @ 54, §Navigability @ 379, §Self-check @ 401 (items 405/406/408/409 cite the removed rules).
+- **Actual behavior**: every removal site and target section exists; the §Title-Case carve-out (308) documents the `dsc-ai-tell` "3+ title-case words" behavior, consistent with `_title_case_violation`.
+- **Verdict**: CONFIRMED
+
+#### P10 — Every design.md §-anchor the Decision Log cites resolves
+- **Track claim**: D1/D7→§"Removing the disguise-only style rules"; D5→§"The technical-writer voice"; D9→§"Transferring the internals-book voice rules"; D8→§"Dual-register design document"; D2/D6→§"Persona readers…"; D3→§"Reader-proxy model pins…"; D4→§"Renaming TL;DR to Summary"; D10→§"Hardening the section BLUF lead"; D12→§"Staging and promotion under §1.7" (superseded).
+- **Search performed**: grep `^## ` anchors in `design.md`.
+- **Code location**: @ 208, 300, 350, 420, 473, 539, 601, 661, 725 respectively.
+- **Actual behavior**: all nine anchors present; the Class Design table (design.md:141) records `design-author` "Opus → Opus (pinned, never Fable)", consistent with D3/P7.
+- **Verdict**: CONFIRMED
+
+#### P11 — The D1 mirrored-consumer surfaces name the removed rules as claimed
+- **Track claim** (D1): `ai-tells/SKILL.md` `description:` names three removals (negative parallelism, Title Case, closing phrases) while "adjective triads" stays; `design-document-rules.md` has a `dsc-ai-tell` catalogue row; `house-conversation.md` lists banned patterns; root `CLAUDE.md` §Writing Style has the negative-parallelism parenthetical.
+- **Search performed**: grep the four files.
+- **Code location**: ai-tells/SKILL.md:3 (negative parallelism, Title Case headings, adjective triads, closing phrases); design-document-rules.md:289 (`dsc-ai-tell` row naming "seven" patterns incl. the removed ones; the count/entries need updating, which item 12 covers); house-conversation.md:23 (negative parallelism, roundabout negation, closing connectives); CLAUDE.md:93 ("It's not X — it's Y" negative parallelism).
+- **Actual behavior**: all four consumers present and naming the removed rules as claimed; no missing consumer detected.
+- **Verdict**: CONFIRMED
+
+#### P12 — §1.7(b) stable-prefix marker property supports D12's enumeration growth
+- **Track claim** (D12): the stable-prefix marker property keeps develop-era markers matching while the staged definition adds prefixes, so the branch keeps its develop-state marker verbatim.
+- **Search performed**: Read §1.7(b).
+- **Code location**: conventions.md:1031-1042 — consumers match the stable prefix `This plan is workflow-modifying:`; "growing the canonical enumeration never deactivates the gate … load-bearing for the bootstrap that lets a workflow-modifying plan keep its develop-state marker verbatim while the staged definition adds prefixes."
+- **Actual behavior**: the property exists and its own text names exactly the bootstrap D12 relies on. D12's rationale is accurate.
+- **Verdict**: CONFIRMED
+
+#### P13 — R1/A3 staged-path corpus-dangling rationale — stated mechanism is wrong
+- **Track claim**: "The fixture-based fire/no-fire assertions resolve their fixture relative to `__file__` and stay green while staged; the corpus-calibration assertions cannot" (track-1.md:151, 168, 199).
+- **Search performed**: Read `test_dsc_ai_tell.py` lines 55-110 (`REPO_ROOT`, `SCRIPT`, `FIXTURE`, `CALIBRATION_ADRS`, `main`, `assert_calibration_adrs`).
+- **Code location**: test:59 `REPO_ROOT = Path(__file__).resolve().parents[3]`; test:60 `SCRIPT = REPO_ROOT/.claude/…`; test:61 `FIXTURE = REPO_ROOT/.claude/…`; test:64-68 `CALIBRATION_ADRS = REPO_ROOT/docs/adr/…`; both groups run from `main` (314 + 321); missing-ADR failure path @ 290.
+- **Actual behavior**: FIXTURE and SCRIPT resolve through `REPO_ROOT` (= `parents[3]`), the same base as the corpus — not "relative to `__file__`" independently. While staged, `parents[3]` = `staged-workflow/`; `.claude/**` is mirrored there (fixture/script resolve → green) but `docs/adr/**` is not (corpus dangles). Conclusion correct; mechanism wrong.
+- **Verdict**: WRONG
+- **Detail**: produces T1.
+
+#### P14 — Drop-site derivation method for `review-workflow-writing-style.md` does not reproduce the recorded snapshot
+- **Track claim**: "a case-insensitive grep of the six removed-rule names … hits lines 29, 34, 38, 71, 89, 185, 188, and 200" (track-1.md:143, item 6:215).
+- **Search performed**: case-insensitive grep of the six removed-rule names over the develop-state file; Read of lines 178-210 to classify 185/188.
+- **Code location**: name-grep hits `{29, 34, 38, 71, 89, 188, 200}`; line 185 = `#### Critical` bucket (`"It's not X — it's Y" anti-pattern`), line 188 = `#### Recommended` bucket ("…Title Case headings…"); the `§ Plain language` section is at 30 and 73-76.
+- **Actual behavior**: line 185 names the removed rule only by exemplar, so the name-grep misses it though 185 is a genuine drop-site; the recorded snapshot is right to include 185 but the stated method won't yield it. 185/188 are the finding-format Critical/Recommended buckets, not `§ Plain language` criteria.
 - **Verdict**: PARTIAL
-- **Detail**: The codebase mechanism is exactly as described, but the two sets require different case for the added literal: `SHAPE_EXEMPT` needs `"Summary"` (display case) and `MANDATORY_OR_FORM_SUBHEADINGS` needs `"summary"` (lowercase). The track collapses both onto one lowercase literal → T1.
+- **Detail**: produces T2. The set is correct; the derivation method and the 185/188 label are not.
 
-#### C5 Premise: the five review agents' current model pins match the track's "before" states
-- **Track claim**: design.md:139-145 roster — `design-author` Opus, `readability-auditor` Opus→Sonnet, `comprehension-review` Opus→Sonnet, `absorption-check` Sonnet, `fidelity-check` Sonnet.
-- **Search performed**: `sed -n '1,12p'` of each `.claude/agents/*.md` frontmatter; `grep` for `model:`.
-- **Code location**: `design-author.md:5` `model: opus`; `readability-auditor.md:5` `model: opus`; `comprehension-review.md:5` `model: opus`; `absorption-check.md:5` `model: sonnet`; `fidelity-check.md:5` `model: sonnet`.
-- **Actual behavior**: All five pins match the roster's "before" column exactly.
-- **Verdict**: CONFIRMED
-- **Detail**: The three agents the track re-pins are all currently Opus; the two unchanged agents are already Sonnet.
+#### P15 — D10 BLUF-hardening add is anchored at the summary bullet, not the enforcement criteria section
+- **Track claim**: "add the D10 BLUF criteria (at the kept BLUF-lead rule, develop-state line 28)" (item 6:215); D10 acceptance names "the `review-workflow-writing-style.md` BLUF criteria" (line 103, 172).
+- **Search performed**: grep `BLUF` over the file; Read the `### BLUF lead` section.
+- **Code location**: line 28 = `## Key rules` summary bullet ("**BLUF lead** — first sentence states the conclusion, not background."); lines 78-80 = `### BLUF lead` enforcement criteria; line 119 process spot-check; 188/200/209 references.
+- **Actual behavior**: the enforcement criteria the Phase-C reviewer applies live at 78-80; item 6 names only line 28. Editing only the summary leaves the enforcer without D10's two rules.
+- **Verdict**: PARTIAL
+- **Detail**: produces T3.
 
-#### C6 Premise: S4 (single prose-AI-tell-axis owner) holds live and the recast preserves it
-- **Track claim**: D6 / design.md:147-149 — the target reader keeps sole ownership of the prose AI-tell axis (invariant S4); the recast must preserve exactly one owner.
-- **Search performed**: `grep -rniE 'own.*prose AI-tell|prose AI-tell axis'` over `.claude/agents/*.md`.
-- **Code location**: `readability-auditor.md:68` (and description `:3`); `comprehension-review.md:39` (and description `:3`); `fidelity-check.md:25`.
-- **Actual behavior**: `readability-auditor.md:68` — "You own the prose AI-tell axis on every surface ... one-owner-per-surface invariant (S4)". `comprehension-review.md:39` — "you run it nowhere. This is the one-owner-per-surface invariant (S4)". `fidelity-check.md:25` — "The auditor owns the prose axis". `absorption-check.md` makes no claim.
+#### P16 — Branch is in §1.7(b) staging mode with no staged copies yet
+- **Track claim**: `s17=staged`; reads resolve to live files because `staged-workflow/` is absent pre-implementation.
+- **Search performed**: `cat` phase-ledger; `ls` staged-workflow.
+- **Code location**: phase-ledger last line `[2026-07-03T09:20Z] phase=A`, earlier line carries `s17=staged`; `staged-workflow/` does not exist.
+- **Actual behavior**: staging mode active; no staged mirror on disk, so every `.claude/**` read this review resolved to the live develop-state file, which is correct.
 - **Verdict**: CONFIRMED
-- **Detail**: Exactly one agent claims the axis today. S4 is realizable and the "preserve S4" acceptance criterion is checkable by the grep the track names.
-
-#### C7 Premise: the dsc-ai-tell regex/test/fixture "one unit" coupling is real
-- **Track claim**: design.md:263-270, items 8-9 — a regex, its assertion, and its fixture line are one unit; deleting the regex alone breaks the build.
-- **Search performed**: `ls`/`grep` over `test_dsc_ai_tell.py` and `dsc-ai-tell-fixture.md`.
-- **Code location**: fixture (5924 B): negative parallelism @ `:41`, Title Case demo @ `:46-48`, hyphenated cluster @ `:60-64`, trailing negation @ `:67-74`. test (14747 B): Title Case assertions @ `:79`/`:237-240`, trailing-negation id @ `:90-91`.
-- **Actual behavior**: Every removed regex has both a positive fixture block and a test assertion that the fixture line produces a finding. Removing the regex leaves the assertion expecting a finding that never appears → build-time failure.
-- **Verdict**: CONFIRMED
-- **Detail**: Coupling holds for all four objects, including the trailing variant (feeds T2's precision point).
-
-#### C8 Premise: the disguise-rule mirror sites exist where the track enumerates them
-- **Track claim**: D1 / design.md:254-261 / items 6,11,12,19 — the removed rules are mirrored in `ai-tells/SKILL.md` description + catalogue, `house-conversation.md`, `review-workflow-writing-style.md`, `design-document-rules.md`, and `CLAUDE.md § Writing Style`.
-- **Search performed**: `sed`/`grep` over each file.
-- **Code location**: `ai-tells/SKILL.md:3` (description names negative parallelism, Title Case headings, closing phrases; keeps adjective triads), `:24` (catalogue); `house-conversation.md:7` (senior-engineer reader), `:23` (banned list: negative parallelism, roundabout negation, closing connectives); `review-workflow-writing-style.md:29,34,71` (removed-rule criteria), `:111` (`### Adjective triads`, kept), `:28/78` (BLUF); `design-document-rules.md:289` (dsc catalogue row, "seven patterns"); `CLAUDE.md:93` (negative-parallelism parenthetical).
-- **Actual behavior**: Every named mirror site resolves. `ai-tells/SKILL.md` description names exactly the three removed rules the track validates and keeps "adjective triads". `review-workflow-writing-style.md` carries both removed-rule criteria (to drop) and BLUF criteria (to extend for D10) and the kept adjective-triads rule.
-- **Verdict**: CONFIRMED
-- **Detail**: The `design-document-rules.md:289` row currently says "seven patterns"; after removing four regex objects it must read "three" (persuasive authority tropes, fragmented-header chains, inflated-abstraction labels remain) — captured by item 12.
-
-#### C9 Premise: the TL;DR rename sites exist at the claimed locations and counts
-- **Track claim**: D4 / design.md:618-630 / items 12-18 — TL;DR is hard-coded in `planning.md:774`, `create-final-design.md:187`, `review-workflow-pr/SKILL.md:114`, `conventions.md:149`, `edit-design/SKILL.md` (~5 sites), `design-review.md` (structural finding + TOC row), `comprehension-review.md:34`, and `house-style.md § Navigability`.
-- **Search performed**: `sed -n` at each cited line; `grep -niE 'TL;DR'` over `edit-design/SKILL.md`, `design-review.md`, `house-style.md`.
-- **Code location**: `planning.md:774`, `create-final-design.md:187`, `review-workflow-pr/SKILL.md:114`, `conventions.md:149` — all carry TL;DR at the exact cited line. `edit-design/SKILL.md`: `:223,306,372,634,1239` (five sites). `design-review.md`: TOC rows `:26`/`:308`, structural sites `:131,134,296,323,407`. `comprehension-review.md:34`. `house-style.md § Navigability`: `:377,381,395` (+ `:284`).
-- **Actual behavior**: All exact-line citations resolve; `edit-design` has exactly five TL;DR sites, matching "~5".
-- **Verdict**: CONFIRMED
-- **Detail**: No stale line citation found among the TL;DR sites.
-
-#### C10 Premise: the D11 both-spellings precedent test exists (model for the D4 shape tests)
-- **Track claim**: items 10, and Validation — new shape tests modeled on `test_design_mechanical_checks_d11.py`.
-- **Search performed**: `ls`/`find` under `.claude/scripts/tests/`.
-- **Code location**: `.claude/scripts/tests/test_design_mechanical_checks_d11.py` (9790 B); fixtures `d11-footer-legacy-pass.md`, `d11-footer-newname-pass.md`, `d11-footer-nested-code-pass.md`, `d11-decision-bare-fail.md`.
-- **Actual behavior**: The D11 footer-rename test with legacy + new-name pass fixtures is exactly the both-spellings precedent D4 cites (References → Decisions & invariants).
-- **Verdict**: CONFIRMED
-- **Detail**: The precedent is a viable model; placement (new file vs extension) is a Phase A decision the track defers, which is fine.
-
-#### C11 Premise: BOOK_BRIEF.md carries eight voice rules matching D9's transfer split
-- **Track claim**: D9 / design.md:363-372 — five transfer verbatim, two adapted, one already present.
-- **Search performed**: `find -iname BOOK_BRIEF.md`; `grep` the "Voice and pacing rules" list.
-- **Code location**: `workflow-book-builder/BOOK_BRIEF.md:29-38` (§ Voice and pacing rules, non-negotiable).
-- **Actual behavior**: Exactly eight numbered rules: (1) Narrative not reference, (2) Concrete before abstract, (3) One concept per section, (4) Earn every name, (5) Connect forward and backward, (6) Source citations stay precise, (7) Diagrams must teach, (8) No bullet-point fact dumps. D9's split maps cleanly: verbatim = #2,#3,#4,#7,#8; adapted = #1,#5; already-present = #6.
-- **Verdict**: CONFIRMED
-- **Detail**: The eight-rule source and its 5/2/1 disposition are accurate.
-
-#### C12 Premise: edit-design mutation kinds section-move/remove/rename exist (D9 reminder hook)
-- **Track claim**: D9 / item 14 — add the link-staleness re-read reminder to the `edit-design` mutation discipline on section-move/remove/rename.
-- **Search performed**: `grep -niE` over `edit-design/SKILL.md`.
-- **Code location**: mutation-kind table @ `:136` (`section-remove`), `:137` (`section-rename`), `:138` (`section-move`); also enumerated at `:81-82`, `:196-197`.
-- **Actual behavior**: All three are first-class mutation kinds with defined design/mechanics + scope columns. No neighbor-re-read reminder is present yet — that is the new addition D9 makes (planned by this track).
-- **Verdict**: CONFIRMED
-- **Detail**: The hook point exists; the reminder is a net-new addition, correctly framed as this track's work.
-
-#### C13 Premise: D1/D7 removals renumber the self-check list (D10 anchor-by-name rationale)
-- **Track claim**: D10 / design.md:701 / item 1 — the self-check BLUF item is anchored by name because the removals renumber the list.
-- **Search performed**: `Read` of `house-style.md § Self-check` (`:401-440`).
-- **Code location**: `house-style.md:401` (§ Self-check), items 1-10.
-- **Actual behavior**: Item 1 = "Negative parallelism and roundabout negation" (both removed) → the item is deleted, shifting items 2-10 up by one. Item 2 loses "closing phrases"; item 4 loses hyphenated clusters + curly quotes; item 5 loses "sentence case on H2+". The BLUF item is currently #9 and shifts to #8.
-- **Verdict**: CONFIRMED
-- **Detail**: The renumber is real and non-trivial (a whole item deleted, three items edited), so anchoring the BLUF self-check item by name rather than ordinal is sound.
-
-#### C14 Premise: house-style.md line citations and D10 acceptance-site headings resolve
-- **Track claim**: design.md:16, :256-261, :696 / item 1 — `:6` reader floor, `:42` writer persona, `:70-74` orientation exemplar, `:100/:101/:103` banned patterns, `:262/:273/:304` removed-rule sections; D10 sites § BLUF lead, § Orientation, § Self-check.
-- **Search performed**: `sed -n` at each line; `grep -nE '^#{2,3} '` for headings.
-- **Code location**: `:6` (mid-level reader floor), `:42` ("senior engineer writing to peers"), `:70-74` (before/after orientation exemplar), `:100` (Negative parallelism), `:101` (Roundabout negation), `:103` (Closing phrases), `:262` (§ Hyphenated word-pair overuse), `:273` (§ Curly quotes), `:304` (§ Title Case headings forbidden). Headings: § BLUF lead `:22`, § Orientation `:54`, § Self-check `:401`.
-- **Actual behavior**: Every cited line and heading resolves exactly as the design/track states.
-- **Verdict**: CONFIRMED
-- **Detail**: No stale citation. The D10 exemplar-pair site (§ Orientation, beside the `:70-74` worked exemplar) exists as claimed.
