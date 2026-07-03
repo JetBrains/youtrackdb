@@ -76,9 +76,8 @@ import org.slf4j.LoggerFactory;
  *       would decline every recognized shape. The check is also ordering-robust, since a
  *       {@code YTDBGraphStep} <em>is</em> a {@code GraphStep}.</li>
  *   <li><b>Empty translation.</b> {@link GremlinToMatchTranslator#translate} returns {@link
- *       Optional#empty()} — no whole-traversal translation is available (always the case in
- *       the current skeleton). Replacing zero steps would be a no-op, so the strategy
- *       returns.</li>
+ *       Optional#empty()} — no whole-traversal translation is available because the walker
+ *       declined a step. Replacing zero steps would be a no-op, so the strategy returns.</li>
  * </ol>
  *
  * <h2>Throw-safety net</h2>
@@ -115,8 +114,9 @@ import org.slf4j.LoggerFactory;
  * each half-measure strategy lists {@code GremlinToMatchStrategy} in its <em>own</em> {@code
  * applyPrior()}, so TinkerPop's topological sort runs this strategy first and the
  * half-measures become the decline fallback. Those half-measure {@code applyPrior()} edits and
- * the registration into the optimization chain land in a follow-up step; this skeleton only
- * declares its own (empty) ordering constraints.
+ * the registration into the optimization chain are in place — see {@code YTDBGraphImplAbstract}
+ * and each half-measure strategy's {@code applyPrior()}; this strategy only declares its own
+ * (empty) ordering constraints.
  *
  * <h2>Plan caching</h2>
  *
@@ -226,10 +226,15 @@ public final class GremlinToMatchStrategy
     if (session == null) {
       return;
     }
-    if (containsBoundaryStep(traversal)) {
+    // Run the O(1) start-step gate before the O(steps) boundary scan, so a traversal that does not
+    // start at a vertex GraphStep declines without walking the whole step list. Idempotency still
+    // holds: an already-translated traversal's start step is a YTDBMatchPlanStep (not a GraphStep),
+    // so hasVertexGraphStart declines it here anyway; the boundary scan below stays as the guard for
+    // the defensive case where an ordinary step is prepended in front of the boundary.
+    if (!hasVertexGraphStart(traversal)) {
       return;
     }
-    if (!hasVertexGraphStart(traversal)) {
+    if (containsBoundaryStep(traversal)) {
       return;
     }
     var translation = translator.apply(traversal);
@@ -251,14 +256,35 @@ public final class GremlinToMatchStrategy
    * raised.
    */
   private static void declineOnThrow(Traversal.Admin<?, ?> traversal, RuntimeException cause) {
+    // Log the step-class SHAPE, not traversal.toString(): the latter renders inline literal
+    // predicate values (e.g. has("ssn", "...")), so logging the shape keeps sensitive query values
+    // — and any newline / control characters that could forge log lines — out of the log while
+    // still identifying which traversal shape declined.
     LogManager.instance()
         .debug(
             GremlinToMatchStrategy.class,
             "Gremlin-to-MATCH translation declined after an unexpected exception;"
-                + " falling back to native execution for traversal: %s",
+                + " falling back to native execution for traversal shape: %s",
             LOGGER,
             cause,
-            traversal);
+            stepShape(traversal));
+  }
+
+  /**
+   * Renders the traversal as its ordered list of step class simple names, e.g. {@code [GraphStep,
+   * HasStep]}. A diagnostic shape that omits the inline literal values {@code Traversal.toString()}
+   * would include; see {@link #declineOnThrow}.
+   */
+  private static String stepShape(Traversal.Admin<?, ?> traversal) {
+    var shape = new StringBuilder("[");
+    var steps = traversal.getSteps();
+    for (int i = 0; i < steps.size(); i++) {
+      if (i > 0) {
+        shape.append(", ");
+      }
+      shape.append(steps.get(i).getClass().getSimpleName());
+    }
+    return shape.append("]").toString();
   }
 
   /**

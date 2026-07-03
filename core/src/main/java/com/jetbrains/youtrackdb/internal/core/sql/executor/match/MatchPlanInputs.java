@@ -33,9 +33,12 @@ import java.util.Objects;
  * consumes this record performs its own defensive copies on the mutable working maps so
  * the planner can mutate them during planning without affecting the caller's record.
  *
- * <p>{@code returnAliases} and {@code returnNestedProjections} may legitimately contain
- * {@code null} entries (one per return item; null = no alias / no nested projection),
- * so they are stored as-is rather than rejected.
+ * <p>{@code returnItems}, {@code returnAliases}, and {@code returnNestedProjections} are
+ * <b>parallel</b> lists: entry {@code i} of each describes return item {@code i}, and the planner
+ * reads them positionally in lockstep. They must have equal length &mdash; the compact constructor
+ * rejects unequal lengths. {@code returnAliases} and {@code returnNestedProjections} may
+ * legitimately contain {@code null} entries (null = no alias / no nested projection), so those are
+ * stored as-is rather than rejected.
  */
 public record MatchPlanInputs(
     Pattern pattern,
@@ -58,7 +61,10 @@ public record MatchPlanInputs(
     boolean returnPatterns,
     boolean returnPathElements) {
 
-  /** Compact constructor: validates {@code pattern} non-null and normalises null collections. */
+  /**
+   * Compact constructor: validates {@code pattern} non-null, normalises null collections to empty,
+   * and requires the three return lists to be parallel (equal length).
+   */
   public MatchPlanInputs {
     Objects.requireNonNull(pattern, "pattern must not be null");
     aliasClasses = aliasClasses == null ? Map.of() : aliasClasses;
@@ -70,6 +76,23 @@ public record MatchPlanInputs(
     returnAliases = returnAliases == null ? List.of() : returnAliases;
     returnNestedProjections =
         returnNestedProjections == null ? List.of() : returnNestedProjections;
+    // returnItems[i], returnAliases[i], and returnNestedProjections[i] together describe return
+    // item i, and the planner reads them positionally in lockstep — one branch iterates
+    // returnItems.size(), another iterates returnAliases.size(), and both read .get(i) from all
+    // three (MatchExecutionPlanner). Unequal lengths would throw IndexOutOfBoundsException deep in
+    // planning, so reject them here with a clear message instead.
+    if (returnItems.size() != returnAliases.size()
+        || returnItems.size() != returnNestedProjections.size()) {
+      throw new IllegalArgumentException(
+          "returnItems, returnAliases, and returnNestedProjections must be parallel lists of equal"
+              + " length (one entry per return item; use a null entry for a missing alias or nested"
+              + " projection), but got sizes "
+              + returnItems.size()
+              + ", "
+              + returnAliases.size()
+              + ", "
+              + returnNestedProjections.size());
+    }
   }
 
   /**

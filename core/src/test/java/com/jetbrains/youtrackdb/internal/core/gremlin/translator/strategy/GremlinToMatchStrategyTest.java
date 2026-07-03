@@ -37,12 +37,13 @@ import org.junit.Test;
  * Unit tests for {@link GremlinToMatchStrategy}, the skeleton of the Gremlin-to-MATCH
  * provider-optimization strategy.
  *
- * <p>The strategy is a structural no-op in its current state — the production {@link
- * GremlinToMatchTranslator} facade declines every shape — so the tests fall into two groups:
+ * <p>The production facade recognizes the vertex source ({@code g.V()} / {@code g.V(ids)}) and
+ * declines every other shape, so the tests fall into two groups:
  *
  * <ul>
  *   <li><b>Production-facade tests</b> run {@code GremlinToMatchStrategy.instance().apply(...)}
- *       against a real {@link GraphBaseTest} graph and assert the traversal is left untouched
+ *       against a real {@link GraphBaseTest} graph and assert the outcome: a recognized {@code
+ *       g.V()} is replaced by a single boundary step, and an unrecognized shape is left untouched
  *       (the whole-traversal decline).
  *   <li><b>Fixture-injection tests</b> construct a strategy with a fixture translator (and,
  *       where the splice path is exercised, a fixture plan builder returning a stub plan) so
@@ -56,10 +57,11 @@ import org.junit.Test;
  * are stubbed.
  */
 // Test-scoped IDE-inspection noise, suppressed class-wide the way the rest of the core test suite
-// does: unchecked (generic mocks / raw assertj isInstanceOf), resource (detached traversals and the
-// session handle that the test never iterates or closes), and DataFlowIssue (the nullable-inferred
-// getConfiguration() that is non-null on a live session).
-@SuppressWarnings({"unchecked", "resource", "DataFlowIssue"})
+// does: unchecked (generic mocks / raw assertj isInstanceOf) and resource (detached traversals and
+// the session handle that the test never iterates or closes). DataFlowIssue is NOT class-wide: it is
+// narrowed to the methods that dereference the @Nullable getConfiguration(), so a genuine
+// null-dereference in a future test added to this class is not silenced.
+@SuppressWarnings({"unchecked", "resource"})
 public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   /**
@@ -83,6 +85,8 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     return tx.getDatabaseSession();
   }
 
+  // getConfiguration() is @Nullable-inferred but non-null on a live session.
+  @SuppressWarnings("DataFlowIssue")
   private void setKillSwitch(boolean enabled) {
     session()
         .getConfiguration()
@@ -396,16 +400,17 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // Splice path (all-or-nothing) — a non-empty translation replaces the ENTIRE
-  // step list with a single boundary step. Unreachable via the production facade
-  // (it declines); driven here through the fixture seams.
+  // step list with a single boundary step. Driven here through the fixture seams
+  // so the splice is isolated from the production walker.
   // ---------------------------------------------------------------------------
 
   /**
    * A fixture translator returning a non-empty result, paired with a stub plan builder, drives
    * the replace-all-steps splice: after {@code apply}, the traversal contains exactly one step —
    * a {@link YTDBMatchPlanStep} carrying the stub plan and the translation's boundary metadata.
-   * This exercises the {@code applyTranslation} / {@code replaceAllStepsWithBoundary} path that
-   * is dead code until the facade starts recognizing shapes.
+   * This exercises the {@code applyTranslation} / {@code replaceAllStepsWithBoundary} path with a
+   * stub plan, isolating the splice from the production planner; the production path is covered by
+   * {@code apply_productionVertexSource_translatesToSingleBoundary}.
    */
   @Test
   public void apply_nonEmptyTranslation_replacesAllStepsWithSingleBoundary() {
@@ -464,6 +469,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * decline does not depend on the throw-safety net catching an NPE.
    */
   @Test
+  @SuppressWarnings("DataFlowIssue") // deliberately stubs the @Nullable getConfiguration() to null
   public void apply_nullSessionConfiguration_declinesWithoutNpe() {
     var session = mock(DatabaseSessionEmbedded.class);
     when(session.getConfiguration()).thenReturn(null);
@@ -639,6 +645,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * is already guaranteed by the per-method database drop, not by this restore.
    */
   @Test
+  @SuppressWarnings("DataFlowIssue") // getConfiguration() is @Nullable-inferred but non-null here
   public void nonPolymorphicBareVertexSource_returnsSameVerticesAsNative() {
     // Person extends V; create the subclass before any data transaction is active — schema
     // changes are non-transactional. Use the base-class session so no graph write tx is open.
@@ -659,7 +666,20 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
       graph.addVertex(); // a plain V instance too, so the native set spans both classes.
       graph.tx().commit();
 
-      var nativeIds = vertexIds(graph.traversal().V().asAdmin(), false);
+      // The baseline must run WITHOUT the translator so it exercises the native pipeline. The
+      // kill-switch is read per-session off this same config, so flip it off for the baseline run
+      // and restore it — otherwise applyStrategies() would translate g.V() and the parity check
+      // would compare translated against translated (tautological).
+      var previousKill =
+          config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+      final java.util.List<Object> nativeIds;
+      try {
+        nativeIds = vertexIds(graph.traversal().V().asAdmin(), false);
+      } finally {
+        config.setValue(
+            GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, previousKill);
+      }
 
       var translatedAdmin = graph.traversal().V().asAdmin();
       GremlinToMatchStrategy.instance().apply(translatedAdmin);
