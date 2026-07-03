@@ -80,6 +80,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -486,8 +487,7 @@ public class MatchExecutionPlanner {
    *
    * @param inputs the pre-built post-parse inputs (must not be null)
    */
-  public MatchExecutionPlanner(MatchPlanInputs inputs) {
-    Objects.requireNonNull(inputs, "inputs must not be null");
+  public MatchExecutionPlanner(@Nonnull MatchPlanInputs inputs) {
     this.pattern = inputs.pattern();
     // Defensive copies of the three working maps. The planner mutates aliasClasses (for
     // class inference into chained edges) and aliasFilters (for NOT-IN anti-join detection),
