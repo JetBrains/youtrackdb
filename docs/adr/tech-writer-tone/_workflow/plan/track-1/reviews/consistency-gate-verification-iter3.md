@@ -1,46 +1,64 @@
 <!-- MANIFEST
 findings: 1   severity: {blocker: 0, should-fix: 1, suggestion: 0}
 index:
-  - {id: CR4, sev: should-fix, loc: docs/adr/tech-writer-tone/_workflow/plan/track-1.md:38, anchor: "### CR4 ", cert: "verify-CR3", basis: "D1 Rationale still asserts all four consumers hold no copy and removal propagates for free, contradicting the CR3-corrected Context and D1's own follow-up list"}
+  - {id: CR5, sev: should-fix, loc: "docs/adr/tech-writer-tone/_workflow/plan/track-1.md:143,215", anchor: "### CR5 ", cert: "#### C1", basis: "grep of live .claude/agents/review-workflow-writing-style.md"}
 verdicts:
+  - {id: CR1, verdict: REJECTED}
+  - {id: CR2, verdict: VERIFIED}
   - {id: CR3, verdict: VERIFIED}
+  - {id: CR4, verdict: VERIFIED}
 overall: PASS
 flags: [CONTRACT_OK]
 -->
 
-# Consistency gate-verification — Track 1, iteration 3
+# Consistency gate verification — track-1, iteration 3 (final)
 
-CR3 is VERIFIED: the Purpose and Context rewrites correctly drop the false "inherits for free" claim for `ai-tells/SKILL.md` and `house-conversation.md`, and the new one-free / three-copy classification matches the live files. The re-scan surfaces one new should-fix finding (CR4): the same false-propagation claim CR3 removed from Purpose and Context still lives verbatim in the D1 Decision Record's Rationale, so the track file now contradicts itself. No blockers — overall PASS.
+Overall PASS. CR4 (the finding under re-check) is VERIFIED, CR2/CR3 stay VERIFIED, CR1's rejection holds with a clean downstream check, and no blocker surfaced. The independent exhaustiveness re-check surfaced one new should-fix (`CR5`): the removed-rule drop enumeration for `review-workflow-writing-style.md` is still incomplete after CR4 — two further sites (line 38, line 200 Cost examples) name removed rules and sit outside the enumerated set. It is a mechanical completeness gap, not a blocker, so PASS holds per the final-iteration "no new blockers" rule.
 
-#### Verify CR3: consumer classification in Purpose and Context (ai-tells / house-conversation no longer "inherit for free")
-- **Original issue**: The CR1 fix carved `dsc-ai-tell` out of the "inherit for free" group in `## Purpose` and `## Context`, but left `ai-tells/SKILL.md` and `house-conversation.md` inside it, wrongly implying they inherit a D1 rule deletion for free.
-- **Fix applied**: Native edits to `track-1.md`. `## Purpose` (:15) now says the docs are governed by `house-style.md` "plus a handful of surfaces that name or mirror individual rules" and the track "deletes the disguise-only rules at `house-style.md` and at every surface that names or mirrors them." `## Context` (:111) now says of the four named consumers "only one inherits a rule deletion for free" (`design-review.md`), while "the other three name or mirror specific rules and take an explicit same-change edit," enumerating the `dsc-ai-tell` checker, `ai-tells/SKILL.md`, and `house-conversation.md`.
+## Verification certificates
+
+#### Verify CR4: sixth removed-rule drop-site (line 89) added to the enumeration
+- **Original issue**: the track's drop-site list for `review-workflow-writing-style.md` cited "all five sites (29, 34, 71, 185, 188)" and omitted line 89 (`### Heading style` → "Sentence case for headings"), a third restatement of the removed sentence-case heading mandate (the R4 leftover-site failure mode).
+- **Fix applied**: `## Plan of Work` (track-1.md:143) and `## Interfaces and Dependencies` item 6 (track-1.md:215) now say "six sites … 29, 34, 71, 89, 185, 188", name line 89 as the § Heading style sentence-case bullet, and add the line-200 axis retarget note.
 - **Re-check**:
-  - Search/trace performed: Grep over the live tree (workflow-machinery change; Read/Grep, no PSI, no grep caveat per the spawn note). Confirmed which surfaces cite by pointer vs. hold a named copy.
-  - Code location: same references as the finding.
-    - `.claude/workflow/prompts/design-review.md` — cites `house-style.md` only by section heading (`§ Navigability`, `§ Audience-fit`, `§ Edge cases`, `§ References footer shape`, `§ Same-shape sibling consolidation`, `§ Overview concept-first`); grep for every removed-rule name returned no match (exit 1). It restates no removed rule → genuinely inherits a D1 deletion for free.
-    - `.claude/skills/ai-tells/SKILL.md:3` — `description:` names "negative parallelism", "Title Case headings", and "closing phrases" (removed) plus "adjective triads" (kept); `:24` catalogue names "closing phrases." Holds a named copy → needs an explicit edit.
-    - `.claude/output-styles/house-conversation.md:23` — AI-tell subset lists "negative parallelism", "roundabout negation", and "closing connectives" by name. Holds a named copy → needs an explicit edit.
-    - `.claude/scripts/design-mechanical-checks.py` — `NEGATIVE_PARALLELISM_RE` (:103), `NEGATIVE_PARALLELISM_TRAILING_RE` (:127), `HYPHENATED_PAIR_CLUSTER_RE` (:191), and the Title-Case check (`_title_case_violation`, :1734) are hard-coded regexes for removed rules → needs an explicit edit.
-  - Current state: `## Purpose` and `## Context` no longer claim `ai-tells/SKILL.md` or `house-conversation.md` inherit a D1 deletion for free (Verify item 1 — pass). The classification is factually correct against the live files: exactly one pointer-citer (`design-review.md`) plus three named/mirrored-copy consumers (Verify item 2 — pass).
-- **Regression check**: The rewrite's consumer accounting is internally coherent — one free-inheritor + three named-copy consumers + three further copy-holders (`review-workflow-writing-style.md`, `design-document-rules.md`, `CLAUDE.md`) — and it agrees with the in-scope list (items 2, 6, 7, 8, 9, 11, 12, 13, 19; note item 13 edits `design-review.md` for D4/D2 only, consistent with "free" scoped to D1 deletions), the Plan of Work (:124), and Validation (:150). It does **not** agree with the D1 Decision Record's Rationale (:38), which still carries the pre-fix false claim — surfaced below as CR4 rather than reverting the correct rewrite.
+  - Search/trace performed: `grep -niE` over the live file for each of the six removed rules (negative parallelism, roundabout negation, closing phrases, hyphenated pair, curly quotes, sentence-case heading). Tool: Grep (mcp-steroid unreachable; target is Markdown line anchors, so grep is authoritative).
+  - Code location: `.claude/agents/review-workflow-writing-style.md` — restatement sites confirmed at 29 (neg-parallelism + roundabout + closing phrases), 34 (Title Case), 71 (neg-parallelism + closing phrase), 89 (sentence-case heading), 185 (neg-parallelism), 188 (Title Case). The track cites exactly {29, 34, 71, 89, 185, 188} at both 143 and 215.
+  - Current state: line 89 is in the track's list at both required locations; the six-site set matches the six criterion/bullet restatements the grep finds.
+- **Exhaustiveness note**: the grep also hits line 38 ("negative-parallelism markers", ## Tooling) and line 200 (Cost examples "negative parallelism …", "closing-phrase filler") — two removed-rule references the enumeration does not cover. These are new relative to CR4's specific fix and are captured as `CR5` below; they do not invalidate CR4's line-89 correction.
+- **Regression check**: line 28 (`**BLUF lead**`, the kept rule item 6 targets for the D10 addition) is correctly excluded from the removal list; hyphenated-pair and curly-quotes rules have zero restatement sites in this file (consistent — they live in the dsc/prose consumers, not this reviewer's checklist). The R4/D10 prose at 143 and 215 reads consistently. Clean.
 - **Verdict**: VERIFIED
+
+#### Verify CR2 (folded into CR4): drop-site list correctness
+- **Original issue**: the drop-site enumeration was incomplete (undercounted the restatement sites).
+- **Fix applied**: folded into CR4's six-site list at 143 and 215.
+- **Re-check**: the six-site list {29, 34, 71, 89, 185, 188} is present at both locations and matches the criterion restatements the grep finds. Tool: Grep.
+- **Regression check**: no shifted inconsistency; the line-200 axis retarget is separately noted. Clean.
+- **Verdict**: VERIFIED
+
+#### Verify CR3: `ANCHORED_REGRESSION_CASES` identifier cited in full and declared
+- **Original issue**: the anchored-assertion identifier was cited imprecisely.
+- **Fix applied**: the track cites `ANCHORED_REGRESSION_CASES` and `NEGATIVE_RANGES` at 139, 168, 217, 242.
+- **Re-check**: `grep -nE` of `.claude/scripts/tests/test_dsc_ai_tell.py` shows `NEGATIVE_RANGES` declared at line 115 and `ANCHORED_REGRESSION_CASES` at line 138, both iterated by the anchored-assertion tests (217, 243). Bonus confirmation: `REPO_ROOT = Path(__file__).resolve().parents[3]` at line 59 matches the track's R1/A3 corpus-reach claim (track-1.md:151). Tool: Grep.
+- **Regression check**: identifiers used consistently across `## Plan of Work`, `## Validation and Acceptance`, item 8, and the removal-completeness invariant. Clean.
+- **Verdict**: VERIFIED
+
+#### Verify CR1 (REJECTED): frozen design.md § Overview consumer-count inaccuracy
+- **Rejection reason**: the inaccuracy lives in the frozen `design.md` (§ Overview claims all four consumers "already cite it by section and restate no rule"), which is design-scoped and deferred to Phase 4; the track carries the accurate statement.
+- **Downstream check**: `design.md` § Overview does state "Four consumers (the `ai-tells` skill, the cold-read prompt in `prompts/design-review.md`, the `dsc-ai-tell` regex checker, and `house-conversation.md`) already cite it by section and restate no rule" — inaccurate, since three of the four mirror rules. The track's `## Context and Orientation` (track-1.md:124) carries the correct split: only `design-review.md` inherits a deletion for free; the other three "name or mirror specific rules and take an explicit same-change edit". The track does not propagate the design.md error. Checked track § Context, D1, and § Interfaces items 7/11/12 — no downstream contradiction. Clean.
+- **Verdict**: REJECTED (no action needed for the track; the design.md correction stays a Phase-4 reconciliation)
 
 ## Findings
 
-### CR4 [should-fix] D1 Rationale still asserts free propagation to all four consumers, contradicting the CR3-corrected Context
-- **Location**: `docs/adr/tech-writer-tone/_workflow/plan/track-1.md:38` (`#### D1` → **Rationale**, first sentence); secondary lower-confidence site at `:17` (the `> **Scope:**` blockquote's "its four mirrored consumers").
+### CR5 [should-fix] Removed-rule drop enumeration for `review-workflow-writing-style.md` still omits two sites (line 38, line 200 Cost examples)
+
 - **Classification**: mechanical
-- **Justification**: The Rationale asserts a factual claim about which surfaces hold copies. It is contradicted three ways inside the same track file and once by the live tree, so it is a stale fact to reconcile, not a design choice — it passes the intent-axis pre-screen as a mechanical inconsistency.
-- **Issue**: D1's Rationale (:38) still reads: "because the four citing consumers hold no copy of their own, deleting a rule at the source propagates to all of them." That is the exact false-propagation claim CR3 removed from Purpose and Context. It now contradicts:
-  1. the CR3-corrected `## Context` (:111), which says only `design-review.md` inherits a deletion for free and the other three hold copies requiring an explicit edit;
-  2. D1's own next sentence, which lists `dsc-ai-tell`, `ai-tells/SKILL.md`, `house-conversation.md`, `review-workflow-writing-style.md`, `design-document-rules.md`, and `CLAUDE.md` as "mirrored consumers touched in the same change" — i.e., copies that must be edited, not free inheritors;
-  3. D1's own Risks/Caveats (:39), "The `ai-tells/SKILL.md` description is loaded into every session, so three of the six removals keep costing context until it is edited";
-  4. the live files (grep evidence in the CR3 certificate above).
-  The `:17` Scope blockquote's "its four mirrored consumers" applies the same all-four-uniform framing (it collectively labels `design-review.md`, the pointer-citer, as "mirrored"), so it drifts from the corrected Context's precise use of "mirror" = holds-a-copy.
-- **Root cause and disposition**: The claim originates in the FROZEN `design.md` Overview (:28-33), which is itself already contradicted by `design.md`'s own Class Design table (:251-259) that lists these consumers as copies each removal must "land" in. The `design.md` correction is a Phase-4 reconciliation item (it aligns with the previously-deferred CR2) and is not a Phase-2 regression. But `track-1.md` is a mutable Phase-2 artifact: D1's Rationale first sentence (and, optionally, the "mirrored" wording at :17) should be corrected now so the track file is internally consistent with its own CR3-corrected Context, D1's follow-up list, and D1's Risks. Correcting the track copy introduces no new design↔track divergence beyond the one CR1/CR3 already created for the Context section and CR2 already owns for `design.md`.
-- **Severity rationale (why should-fix, not blocker)**: The actionable surfaces an implementer follows — the in-scope file list (items 7, 8, 9, 11 list ai-tells / dsc / house-conversation as edited), the Plan of Work, and Validation — are all correct, and D1's own follow-up list plus Risks contradict the stale sentence within the same record, so implementation is not misdirected. The defect is a self-contradiction in the track-canonical decision carrier (D7), a comprehension/consistency wart rather than an execution hazard.
+- **Justification**: D1's stated intent is to remove the six rules "at every surface that names or mirrors them", and R4's criterion is "the reviewer restates the removed rules at every site it names them". A case-insensitive grep of the live `.claude/agents/review-workflow-writing-style.md` finds two removed-rule references the track's enumeration ({29, 34, 71, 89, 185, 188} plus the line-200 "heading style" axis retarget) does not reach. This is a factual completeness gap measured against the track's own intent, not a judgment call — the same class of miss CR4 fixed for line 89, so it passes the intent-axis pre-screen as a mechanical inconsistency.
+- **Site A (fully omitted) — line 38, ## Tooling**: `Use Grep for sentence- and analysis-pattern phrase sweeps (negative-parallelism markers, hedge stacks, signpost phrases).` names `negative-parallelism markers` as a phrase-sweep target. Negative parallelism is on the remove list (D1), so this tooling example is a stale reference that keeps directing the reviewer to sweep for a pattern house-style no longer bans. It sits between edited lines 34 and 71 but is neither in {29, 34, 71, 89, 185, 188} nor the line-200 note. (`hedge stacks` and `signpost phrases` map to kept rules — hedge stacking and throat-clearing — so only the negative-parallelism token is stale here.)
+- **Site B (under-scoped) — line 200, finding-format template**: the track flags line 200 only for the `heading style` axis-token retarget. The same line's Cost-field examples `"negative parallelism in always-loaded skill description"` and `"closing-phrase filler"` name two other removed rules (negative parallelism, closing phrases) and should be dropped or replaced in the same edit. The `banned sentence patterns` axis token itself stays (the category is kept), but these specific examples are stale.
+- **Fix**: extend the track's item-6 enumeration and Plan-of-Work drop list to include line 38 (retarget the tooling example to a kept pattern) and widen the line-200 edit beyond the `heading style` axis to also drop the removed-rule Cost examples. Confirmed via grep that line 200 is the only finding-format surface naming `heading style` as an axis token (line 88 `### Heading style` is a section title, not an axis token), so CR4's axis-only claim for line 200 is accurate as far as it goes.
+- **Blocker?**: No. The consequence is the Phase-C reviewer over-flagging removed rules after promotion — a soft degradation, not a build or execution failure, and an implementer editing the enumerated sites is adjacent to both misses. Per the final-iteration "no new blockers" rule this is reported as a should-fix; PASS holds.
 
-## Summary
+## Evidence base
 
-PASS. CR3 VERIFIED — the Purpose and Context rewrites correctly drop the false "inherit for free" claim for `ai-tells/SKILL.md` and `house-conversation.md`, and the one-free / three-copy classification is factually accurate against the live files. One new should-fix finding (CR4): the identical false-propagation claim survives verbatim in D1's Rationale (`:38`), contradicting the corrected Context, D1's own follow-up list and Risks, and the live tree; its root in frozen `design.md` (:28-33) is a Phase-4 reconciliation item, but the mutable track-1.md copy should be corrected in Phase 2. No blockers.
+#### C1: exhaustiveness grep of the six removed rules over the live WS agent file
+Case-insensitive grep over `.claude/agents/review-workflow-writing-style.md` for each removed rule. Restatement/criterion sites: 29, 34, 71, 89, 185, 188 (matches the track's list). Additional removed-rule references outside the list: line 38 (`negative-parallelism markers`, tooling example) and line 200 (`negative parallelism …` / `closing-phrase filler` Cost examples). Roundabout negation → only line 29; hyphenated-pair and curly-quotes → zero sites (consistent). `heading style` as a finding axis token → only line 200. Tool: Grep (mcp-steroid unreachable; Markdown line-anchor target, grep authoritative — reference-accuracy caveat: a match hidden by unusual spelling or casing is unlikely given the case-insensitive sweep of every rule name and its gloss).
