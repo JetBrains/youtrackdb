@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -87,6 +88,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * two runs — a boundary step on, a {@code YTDBGraphStep} off.
    */
   @Test
+  @SuppressWarnings("DataFlowIssue")
   public void translatorOnVsOffReturnsSameMultiset() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
@@ -368,6 +370,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * registration.
    */
   @Test
+  @SuppressWarnings("DataFlowIssue")
   public void killSwitchRoundTripOffThenOn() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.tx().commit();
@@ -454,7 +457,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     admin.applyStrategies();
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
-    var labels = admin.toList().stream().map(v -> v.label()).sorted().toList();
+    var labels = admin.toList().stream().map(Element::label).sorted().toList();
     assertEquals(List.of("Person", "Place"), labels);
   }
 
