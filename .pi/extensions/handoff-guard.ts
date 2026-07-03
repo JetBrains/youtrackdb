@@ -1,5 +1,5 @@
 /**
- * Handoff guard — context-budget discipline for the slate-pi ExecPlan workflow.
+ * Handoff guard — context-budget discipline for long-running agent work.
  *
  * Mechanisms (in order of importance):
  *
@@ -14,18 +14,19 @@
  *
  * 2. One-time in-band notice: when usage crosses the threshold (default 40%),
  *    a message is queued to the agent itself (deliverAs "steer") instructing it
- *    to flush state into slate-dev/EXECPLAN.md and propose /handoff.
+ *    to persist durable state to files and propose /handoff.
  *    (No footer status — pi's built-in footer already shows context usage.)
  *
- * /handoff [focus...] — starts a fresh session whose kickoff message points at
- * AGENTS.md + slate-dev/EXECPLAN.md. No LLM summarization needed: all durable
- * state lives in the ExecPlan and the frozen research log.
+ * /handoff [focus...] — starts a fresh session. The kickoff message comes from
+ * `.pi/handoff.md` when present (project-specific resumption instructions),
+ * else a generic fallback; the optional [focus...] argument is appended.
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 
 const THRESHOLD_PERCENT = 40;
 const CTX_DIR = join(tmpdir(), "pi-context");
@@ -65,7 +66,7 @@ export default function (pi: ExtensionAPI) {
 			warned = true;
 			ctx.ui.notify(
 				`Context at ${pct}% (threshold ${THRESHOLD_PERCENT}%). ` +
-					`Agent has been told in-band to flush state into slate-dev/EXECPLAN.md; then run /handoff.`,
+					`Ask the agent to persist durable state (plans, progress notes), then run /handoff.`,
 				"warning",
 			);
 			pi.sendMessage(
@@ -73,8 +74,8 @@ export default function (pi: ExtensionAPI) {
 					customType: "handoff-guard",
 					content:
 						`[handoff-guard] Context usage is ${pct}%, over the ${THRESHOLD_PERCENT}% budget. ` +
-						`Finish the current step only. Then: (1) update slate-dev/EXECPLAN.md living sections ` +
-						`(Progress, Decision Log, Surprises & Discoveries) so the plan is fully self-contained, ` +
+						`Finish the current step only. Then: (1) persist all durable state to files ` +
+						`(plans, progress, decisions) so work can resume from files alone, ` +
 						`(2) tell the user it is time to run /handoff. Do not start new work in this session.`,
 					display: true,
 				},
@@ -99,20 +100,18 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerCommand("handoff", {
-		description: "Fresh session that resumes work from slate-dev/EXECPLAN.md (context hygiene)",
+		description: "Fresh session that resumes work from persisted state (context hygiene)",
 		handler: async (args, ctx) => {
 			await ctx.waitForIdle();
 			const focus = args?.trim();
-			const kickoff = [
-				"Fresh-session handoff (context hygiene, previous session neared its context budget).",
-				"1. Read AGENTS.md section 'Slate-pi development'.",
-				"2. Read slate-dev/EXECPLAN.md in full — it is the single source of truth.",
-				"3. Consult slate-dev/RESEARCH_LOG.md as needed (frozen; never edit).",
-				"Then continue implementation from the first unchecked item in the ExecPlan's Progress section.",
-				focus ? `Immediate focus: ${focus}` : "",
-			]
-				.filter(Boolean)
-				.join("\n");
+			const template = join(ctx.cwd, CONFIG_DIR_NAME, "handoff.md");
+			const base = existsSync(template)
+				? readFileSync(template, "utf8").trim()
+				: [
+						"Fresh-session handoff (context hygiene; the previous session neared its context budget).",
+						"Read the project instructions (AGENTS.md and linked documents), locate the current plan/progress notes, and continue from the persisted state.",
+					].join("\n");
+			const kickoff = focus ? `${base}\nImmediate focus: ${focus}` : base;
 
 			const parentSession = ctx.sessionManager.getSessionFile();
 			await ctx.newSession({
