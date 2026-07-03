@@ -38,7 +38,11 @@ threads execute. Rules:
    anything substantial goes to a thread.
 6. After every episode, update your strategy. Episodes marked STATUS: FAILED
    require adaptation, not blind retry.
-7. Keep your own messages strategic: goals, task routing, synthesis.`;
+7. Keep your own messages strategic: goals, task routing, synthesis.
+8. Every non-trivial change gets reviewed before it is declared done.
+   Before dispatching review threads, read
+   .pi/extensions/slate/review-rules.md (skip the read if it is already
+   in your context) and follow it.`;
 
 const PAUSED_ADDENDUM = `
 
