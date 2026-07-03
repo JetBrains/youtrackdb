@@ -210,3 +210,6 @@ __pycache__/
 
 # Gremlin test case data
 **/test-case-data/
+
+# slate runtime data (thread sessions, episodes)
+.pi/slate/
