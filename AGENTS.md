@@ -201,6 +201,10 @@ For TinkerPop Cucumber feature-test details (~1900 scenarios), Docker tests, LDB
 
 The JaCoCo+`assert` coverage trap and the Gremlin annotation-processor build details are in `.claude/docs/architecture.md`.
 
+### Load Guidance Documents on Demand
+
+When designing agents or extensions in this repo (e.g., the slate extension's review rules), load guidance/rules documents on demand instead of injecting them into every prompt. Keep the always-loaded surface to a short pointer naming the trigger condition and the document path.
+
 ## Documentation Sync
 
 ### When to Update Documentation
