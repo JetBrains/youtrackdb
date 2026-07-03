@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { renderThreadCall, renderThreadResult } from "./render.ts";
 import type { SlateStore } from "./state.ts";
 import type { DispatchProgress, ThreadManager } from "./threads.ts";
 
@@ -78,6 +79,13 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 					done: true,
 				},
 			};
+		},
+
+		renderCall(args, theme) {
+			return renderThreadCall(args as never, theme as never);
+		},
+		renderResult(result, options, theme) {
+			return renderThreadResult(result as never, options as never, theme as never);
 		},
 	});
 
