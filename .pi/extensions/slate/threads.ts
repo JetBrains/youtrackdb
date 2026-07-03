@@ -58,13 +58,19 @@ class Semaphore {
 			this.active++;
 			return;
 		}
+		// Wait for a slot transferred directly by release(); do NOT increment
+		// here — the releasing side keeps `active` unchanged when handing over.
 		await new Promise<void>((r) => this.waiters.push(r));
-		this.active++;
 	}
 	release(): void {
-		this.active--;
 		const next = this.waiters.shift();
-		if (next) next();
+		if (next) {
+			// Transfer the slot to the next waiter without decrementing:
+			// the slot never becomes observable as free.
+			next();
+		} else {
+			this.active--;
+		}
 	}
 }
 

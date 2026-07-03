@@ -103,7 +103,12 @@ export function registerSlateMode(pi: ExtensionAPI, store: SlateStore): void {
 		// store.restore() ran in index.ts before this handler is invoked in
 		// registration order; re-apply the persisted mode to the fresh runtime.
 		if (store.orchestratorMode) {
-			savedTools = pi.getActiveTools();
+			const active = pi.getActiveTools();
+			const alreadyRestricted =
+				active.length === ORCHESTRATOR_TOOLS.length && ORCHESTRATOR_TOOLS.every((t) => active.includes(t));
+			// Never capture the restricted set as the thing to restore later —
+			// that would make /slate off a no-op forever.
+			if (!alreadyRestricted) savedTools = active;
 			pi.setActiveTools(ORCHESTRATOR_TOOLS);
 		}
 		updateWidget();
