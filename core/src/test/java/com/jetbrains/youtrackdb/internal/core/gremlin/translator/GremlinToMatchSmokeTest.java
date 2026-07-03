@@ -199,7 +199,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     admin.applyStrategies();
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
-    var vertices = admin.toList().stream().map(v -> v).toList();
+    var vertices = admin.toList().stream().toList();
     assertEquals(1, vertices.size());
     assertEquals(bob.id(), vertices.getFirst().id());
     assertEquals("Bob", vertices.getFirst().value("name"));
@@ -256,7 +256,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     admin.applyStrategies();
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
-    var returned = admin.toList().stream().map(v -> (Vertex) v).toList();
+    var returned = admin.toList().stream().toList();
     var idsReturned = returned.stream().map(Vertex::id).collect(Collectors.toSet());
     var namesReturned =
         returned.stream().map(v -> (String) v.value("name")).collect(Collectors.toSet());
@@ -333,7 +333,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
 
     // The declined shape still executes correctly on the native pipeline: Alice -knows-> Bob.
     var names =
-        admin.toList().stream().map(v -> (String) ((Vertex) v).value("name")).sorted().toList();
+        admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
     assertEquals(List.of("Bob"), names);
   }
 
@@ -357,7 +357,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
         "g.V().has(...) must decline (no boundary step)", 0, countBoundarySteps(admin.getSteps()));
 
     var names =
-        admin.toList().stream().map(v -> (String) ((Vertex) v).value("name")).sorted().toList();
+        admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
     assertEquals(List.of("Alice"), names);
   }
 
@@ -432,7 +432,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
     var names =
-        admin.toList().stream().map(v -> (String) ((Vertex) v).value("name")).sorted().toList();
+        admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
     assertEquals(List.of("Alice", "Bob"), names);
   }
 
@@ -454,7 +454,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     admin.applyStrategies();
     assertEquals(1, countBoundarySteps(admin.getSteps()));
 
-    var labels = admin.toList().stream().map(v -> ((Vertex) v).label()).sorted().toList();
+    var labels = admin.toList().stream().map(v -> v.label()).sorted().toList();
     assertEquals(List.of("Person", "Place"), labels);
   }
 
@@ -606,7 +606,6 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     private int callCount;
     private String query;
     private String querySummary;
-    private long executionTimeNanos;
 
     @Override
     public void queryFinished(
@@ -614,7 +613,6 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
       this.callCount++;
       this.query = queryDetails.getQuery();
       this.querySummary = queryDetails.getQuerySummary();
-      this.executionTimeNanos = executionTimeNanos;
     }
   }
 }
