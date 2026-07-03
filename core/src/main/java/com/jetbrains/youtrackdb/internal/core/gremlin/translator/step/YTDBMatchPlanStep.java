@@ -43,7 +43,8 @@ import org.apache.tinkerpop.gremlin.structure.util.StringFactory;
  *       one {@link Result} row, projects it per {@link BoundaryOutputType}, and generates a
  *       traverser. Wrapping goes through {@link YTDBVertexImpl} so downstream native steps see
  *       TinkerPop element types.
- *   <li><b>Exhaustion / close:</b> when the stream runs dry, or on an explicit {@link #close()}
+ *   <li><b>Exhaustion / close:</b> when the stream runs dry, when iterating it throws, or on an
+ *       explicit {@link #close()}
  *       (which TinkerPop invokes on early termination — e.g. a downstream limit cuts iteration
  *       short — via {@code Traversal.close()} closing every {@link AutoCloseable} step), the stream
  *       is closed first, then the plan. A stream-close failure is the primary exception; a
@@ -154,7 +155,8 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
   /**
    * Pulls the next matched element as a traverser, opening the plan's stream on the first call.
    * Throws {@link FastNoSuchElementException} once the stream is exhausted, closing the stream and
-   * plan as it does so.
+   * plan as it does so. A failure while iterating the stream also closes the stream and plan before
+   * propagating, so a stream that threw part-way does not leak until traversal teardown.
    */
   @Override
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -167,8 +169,28 @@ public final class YTDBMatchPlanStep<S, E extends Element> extends AbstractStep<
       armed = true;
     }
     var ctx = plan.getContext();
-    if (openStream.hasNext(ctx)) {
-      E element = (E) project(openStream.next(ctx));
+    boolean hasRow;
+    E element = null;
+    try {
+      hasRow = openStream.hasNext(ctx);
+      if (hasRow) {
+        element = (E) project(openStream.next(ctx));
+      }
+    } catch (RuntimeException | Error e) {
+      // A failure while iterating the open stream (hasNext / next / projection) releases this
+      // arming — stream then plan — before propagating, matching the design's boundary-step
+      // lifecycle: an exception must not leave the cursor open until traversal teardown. The
+      // iteration failure stays primary; a close failure is attached with addSuppressed. The arming
+      // is marked done so a retry does not reopen the just-closed plan.
+      done = true;
+      try {
+        releaseArming();
+      } catch (RuntimeException | Error suppressed) {
+        e.addSuppressed(suppressed);
+      }
+      throw e;
+    }
+    if (hasRow) {
       // Start-step traverser generation, as AddVertexStartStep does it. The raw Step cast is
       // needed because generate() expects Step<E, ?> but this is Step<S, E> (S != E for an element
       // source), so the generic self-reference cannot be expressed without erasure.
