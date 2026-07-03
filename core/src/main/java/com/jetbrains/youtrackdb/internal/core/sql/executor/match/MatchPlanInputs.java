@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import javax.annotation.Nonnull;
 
 /**
  * Pre-built post-parse inputs for {@link MatchExecutionPlanner}, used by non-SQL front-ends
@@ -41,7 +42,7 @@ import java.util.Objects;
  * stored as-is rather than rejected.
  */
 public record MatchPlanInputs(
-    Pattern pattern,
+    @Nonnull Pattern pattern,
     Map<String, String> aliasClasses,
     Map<String, SQLWhereClause> aliasFilters,
     Map<String, SQLRid> aliasRids,
