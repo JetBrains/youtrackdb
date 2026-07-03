@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatNullPointerException;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -94,6 +95,14 @@ public class MatchExecutionPlannerInputsTest {
    */
   @Test
   public void record_returnAliases_nullEntriesPreserved() {
+    // The three return lists are parallel and must be equal-length, so build a returnItems list
+    // that matches the aliases / nested-projections lists (three return items, one with a null
+    // alias, all with null nested projections).
+    var items = new ArrayList<SQLExpression>();
+    items.add(new SQLExpression(-1));
+    items.add(new SQLExpression(-1));
+    items.add(new SQLExpression(-1));
+
     var aliases = new ArrayList<SQLIdentifier>();
     aliases.add(new SQLIdentifier("a"));
     aliases.add(null);
@@ -104,32 +113,53 @@ public class MatchExecutionPlannerInputsTest {
     nestedProjections.add(null);
     nestedProjections.add(null);
 
+    // Positional ctor (the builder normalises nulls, so null-entry lists must use it): the three
+    // varying arguments are returnItems (7th), returnAliases (8th), returnNestedProjections (9th).
     var inputs =
         new MatchPlanInputs(
             new Pattern(),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
+            /* aliasClasses */ null,
+            /* aliasFilters */ null,
+            /* aliasRids */ null,
+            /* matchExpressions */ null,
+            /* notMatchExpressions */ null,
+            items,
             aliases,
             nestedProjections,
-            null,
-            null,
-            null,
-            null,
-            null,
-            false,
-            false,
-            false,
-            false,
-            false);
+            /* groupBy */ null,
+            /* orderBy */ null,
+            /* unwind */ null,
+            /* limit */ null,
+            /* skip */ null,
+            /* returnDistinct */ false,
+            /* returnElements */ false,
+            /* returnPaths */ false,
+            /* returnPatterns */ false,
+            /* returnPathElements */ false);
 
+    assertThat(inputs.returnItems()).hasSize(3);
     assertThat(inputs.returnAliases()).hasSize(3);
     assertThat(inputs.returnAliases().get(1)).isNull();
     assertThat(inputs.returnNestedProjections()).hasSize(3);
     assertThat(inputs.returnNestedProjections()).containsOnlyNulls();
+  }
+
+  /**
+   * The compact constructor rejects return lists of unequal length: {@code returnItems},
+   * {@code returnAliases}, and {@code returnNestedProjections} are parallel (entry {@code i} of
+   * each describes return item {@code i}) and the planner reads them positionally, so a mismatch
+   * would throw {@link IndexOutOfBoundsException} deep in planning. The record fails loudly at
+   * construction instead. Here {@code returnItems} has one entry while the other two default to
+   * empty.
+   */
+  @Test
+  public void record_unequalReturnListLengths_throwsIllegalArgument() {
+    assertThatIllegalArgumentException()
+        .isThrownBy(
+            () -> MatchPlanInputs.builder(new Pattern())
+                .returnItems(List.of(new SQLExpression(-1)))
+                .build())
+        .withMessageContaining("parallel lists of equal length");
   }
 
   // ──────────────────── Planner ctor — null handling and propagation ────────────────────
@@ -160,6 +190,15 @@ public class MatchExecutionPlannerInputsTest {
     assertThat(planner.returnItems).isEmpty();
     assertThat(planner.returnAliases).isEmpty();
     assertThat(planner.returnNestedProjections).isEmpty();
+    // The three working maps default to empty and the single-value AST fields to null — the "and
+    // default values for everything else" half of this test's contract, which the flag / limit /
+    // skip assertions alone did not pin.
+    assertThat(getAliasClasses(planner)).isEmpty();
+    assertThat(getAliasFilters(planner)).isEmpty();
+    assertThat(getAliasRids(planner)).isEmpty();
+    assertThat(getGroupBy(planner)).isNull();
+    assertThat(getOrderBy(planner)).isNull();
+    assertThat(getUnwind(planner)).isNull();
     assertThat(planner.limit).isNull();
     assertThat(planner.skip).isNull();
     assertThat(planner.returnElements).isFalse();
@@ -205,15 +244,17 @@ public class MatchExecutionPlannerInputsTest {
             .aliasRids(Map.of("a", new SQLRid(-1)))
             .matchExpressions(List.of(new SQLMatchExpression(-1)))
             .notMatchExpressions(List.of(notExpr))
-            .returnItems(List.of(new SQLExpression(-1)))
-            .returnAliases(List.of(new SQLIdentifier("ret")))
+            // Two parallel return items so the three return lists are equal-length (the record
+            // enforces this); proj1/proj2 exercise the ordered non-null nested-projection copy.
+            .returnItems(List.of(new SQLExpression(-1), new SQLExpression(-1)))
+            .returnAliases(List.of(new SQLIdentifier("ret1"), new SQLIdentifier("ret2")))
             .returnNestedProjections(List.of(proj1, proj2))
             .build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
     assertThat(planner.notMatchExpressions).containsExactly(notExpr);
-    assertThat(planner.returnAliases).hasSize(1);
+    assertThat(planner.returnAliases).hasSize(2);
     // Two distinct non-null projections in declared order — a copy that dropped, duplicated, or
     // reordered a non-null nested projection fails here, which the earlier null-only case (a size
     // check only) could not catch.
@@ -327,7 +368,15 @@ public class MatchExecutionPlannerInputsTest {
     var pattern = new Pattern();
     var item = new SQLExpression(-1);
 
-    var inputs = MatchPlanInputs.builder(pattern).returnItems(List.of(item)).build();
+    // Parallel null-entry alias / nested-projection lists keep the three return lists equal-length
+    // (the record enforces this); a single return item with no alias and no nested projection is
+    // the minimal valid shape.
+    var inputs =
+        MatchPlanInputs.builder(pattern)
+            .returnItems(List.of(item))
+            .returnAliases(Arrays.asList((SQLIdentifier) null))
+            .returnNestedProjections(Arrays.asList((SQLNestedProjection) null))
+            .build();
 
     var planner = new MatchExecutionPlanner(inputs);
 
