@@ -91,7 +91,10 @@ build {
       # 4. Create virtual environment for testflows
       "python3 -m venv /opt/testflows-runners",
       "/opt/testflows-runners/bin/pip install --upgrade pip",
-      "/opt/testflows-runners/bin/pip install testflows.github.hetzner.runners",
+      # Floor pinned to the build that migrated off the removed Hetzner `datacenter`
+      # server field (removed after 2026-07-01) to `server.location`; older builds
+      # crash every scale cycle on the current API. Newer builds still flow in.
+      "/opt/testflows-runners/bin/pip install 'testflows.github.hetzner.runners>=1.10.260702'",
 
       # 5. Create symlink for easy access
       "ln -sf /opt/testflows-runners/bin/github-hetzner-runners /usr/local/bin/github-hetzner-runners",
