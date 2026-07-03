@@ -20,6 +20,12 @@
  * /handoff [focus...] — starts a fresh session. The kickoff message comes from
  * `.pi/handoff.md` when present (project-specific resumption instructions),
  * else a generic fallback; the optional [focus...] argument is appended.
+ *
+ * Slate awareness: when the slate extension's orchestrator mode is active
+ * (detected via the active tool set), the in-band notice and /handoff are
+ * deferred to slate's own pause/handoff flow (/slate handoff), which also
+ * carries thread/episode state into the new session. The snapshot file is
+ * still written.
  */
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -31,6 +37,12 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 const THRESHOLD_PERCENT = 40;
 const CTX_DIR = join(tmpdir(), "pi-context");
 const CTX_FILE = join(CTX_DIR, `${process.pid}.json`);
+
+/** Slate orchestrator mode restricts tools to read-only + slate's `thread` family. */
+function slateOrchestratorActive(pi: ExtensionAPI): boolean {
+	const tools = pi.getActiveTools();
+	return tools.includes("thread") && !tools.includes("bash") && !tools.includes("edit");
+}
 
 export default function (pi: ExtensionAPI) {
 	let warned = false;
@@ -62,7 +74,8 @@ export default function (pi: ExtensionAPI) {
 		const snap = writeSnapshot(ctx);
 		if (snap.percent == null) return;
 		const pct = Math.round(snap.percent);
-		if (snap.overThreshold && !warned) {
+		// Slate's auto-pause owns the over-budget response in orchestrator mode.
+		if (snap.overThreshold && !warned && !slateOrchestratorActive(pi)) {
 			warned = true;
 			ctx.ui.notify(
 				`Context at ${pct}% (threshold ${THRESHOLD_PERCENT}%). ` +
@@ -102,6 +115,13 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("handoff", {
 		description: "Fresh session that resumes work from persisted state (context hygiene)",
 		handler: async (args, ctx) => {
+			if (slateOrchestratorActive(pi)) {
+				ctx.ui.notify(
+					"Slate orchestrator mode is active — use /slate handoff instead (it carries thread/episode state into the new session).",
+					"warning",
+				);
+				return;
+			}
 			await ctx.waitForIdle();
 			const focus = args?.trim();
 			const template = join(ctx.cwd, CONFIG_DIR_NAME, "handoff.md");

@@ -36,18 +36,22 @@ export interface SlateSnapshot {
 	threads: ThreadRecord[];
 	episodes: EpisodeRecord[];
 	orchestratorMode: boolean;
+	paused: boolean;
 }
 
 export interface SlateConfig {
 	episodeModel?: string; // "provider/id" for the episode compressor (D5)
 	workerTools?: string[];
 	maxConcurrent?: number;
+	pauseThresholdPercent?: number; // orchestrator context budget for auto-pause (default 40)
 }
 
 export class SlateStore {
 	threads = new Map<string, ThreadRecord>();
 	episodes = new Map<string, EpisodeRecord>();
 	orchestratorMode = false;
+	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
+	paused = false;
 	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
 	onDidChange?: () => void;
 
@@ -67,6 +71,7 @@ export class SlateStore {
 			threads: [...this.threads.values()].map((t) => ({ ...t, status: "idle" as const })),
 			episodes: [...this.episodes.values()],
 			orchestratorMode: this.orchestratorMode,
+			paused: this.paused,
 		};
 	}
 
@@ -75,7 +80,7 @@ export class SlateStore {
 		this.onDidChange?.();
 	}
 
-	/** Rebuild from the last slate-state entry on the current branch; drop records whose files vanished. */
+	/** Rebuild from the last slate-state entry on the current branch. */
 	restore(ctx: ExtensionContext): void {
 		let latest: SlateSnapshot | undefined;
 		for (const entry of ctx.sessionManager.getBranch()) {
@@ -84,12 +89,23 @@ export class SlateStore {
 				latest = e.data as SlateSnapshot;
 			}
 		}
+		this.adoptSnapshot(latest, ctx);
+	}
+
+	/**
+	 * Replace all state with a snapshot (undefined clears), dropping records
+	 * whose files vanished. Shared by restore() and the cross-session handoff
+	 * adoption in handoff.ts.
+	 */
+	adoptSnapshot(latest: SlateSnapshot | undefined, ctx: ExtensionContext): void {
 		this.threads.clear();
 		this.episodes.clear();
 		this.orchestratorMode = false;
+		this.paused = false;
 		if (!latest) return;
 
 		this.orchestratorMode = latest.orchestratorMode ?? false;
+		this.paused = latest.paused ?? false;
 		const dropped: string[] = [];
 		for (const t of latest.threads ?? []) {
 			if (t.sessionFile && !existsSync(t.sessionFile)) {

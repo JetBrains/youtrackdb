@@ -13,14 +13,17 @@
  *   episodes.ts — episode compression (Sonnet-default, D5)
  *   threads.ts  — ThreadManager: queueing, dispatch lifecycle
  *   tools.ts    — thread / threads / episode tools
+ *   handoff.ts  — context-budget auto-pause + fresh-session handoff
  *
  * Optional config at .pi/slate.json:
- *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4 }
+ *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4,
+ *     "pauseThresholdPercent": 40 }
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { registerSlateHandoff } from "./handoff.ts";
 import { registerSlateMode } from "./mode.ts";
 import { SlateStore, type SlateConfig } from "./state.ts";
 import { ThreadManager } from "./threads.ts";
@@ -52,7 +55,11 @@ export default function (pi: ExtensionAPI) {
 		manager.disposeAll();
 	});
 
-	// Registered AFTER the session_start handler above so that mode restoration
-	// (which re-applies tool restrictions) runs after store.restore().
-	registerSlateMode(pi, store);
+	// session_start ordering (registration order): restore → adopt pending
+	// handoff → re-apply mode tools. registerSlateHandoff must therefore sit
+	// between the restore handler above and registerSlateMode below.
+	// getConfig reads the CURRENT `manager` (reassigned on session_start).
+	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig());
+
+	registerSlateMode(pi, store, handoff);
 }
