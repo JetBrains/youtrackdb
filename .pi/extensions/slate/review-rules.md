@@ -7,11 +7,12 @@ them. Worker threads do not automatically load this document. When
 dispatching a reviewer, either embed in the task text the perspective's
 charter (§3), the reasoning obligations (§7), and the output contract
 (§4: the perspective's ID prefix, the severity vocabulary
-blocker/should-fix/suggestion, and a closing compact findings block of
-ID | severity | location | one-line summary | counterexample gist —
-see §5), or direct the reviewer to read the relevant sections of this
-file itself (worker threads can read files; they just do not receive
-this one automatically).
+blocker/should-fix/suggestion, and a closing compact findings block —
+one `ID` | `severity` | `location` | `one-line summary` |
+`counterexample gist` line per finding, see §5), or direct the
+reviewer to read the relevant sections of this file itself (worker
+threads can read files; they just do not receive this one
+automatically).
 
 ## 1. When to review
 
@@ -95,20 +96,22 @@ bullet below is that perspective's charter:
   repeatedly failing). The orchestrator never edits files itself.
 - Episodes are compressed summaries (~300–800 words), so full finding
   prose does not reliably survive them. Reviewers must therefore end
-  their final response with a self-contained compact findings block
-  (ID, severity, location, one-line summary, counterexample gist)
-  sized to survive episode compression. Route fixes by passing the
-  reviewer's episode reference (`context`) plus the orchestrator's
-  finding index; fixers re-read the affected code themselves instead
-  of relying on reviewer prose.
+  their final response with a self-contained compact findings block —
+  one `ID` | `severity` | `location` | `one-line summary` |
+  `counterexample gist` line per finding — sized to survive episode
+  compression. Route fixes by passing the reviewer's episode reference
+  (`context`) plus the compact finding index (the orchestrator's
+  synthesized list of all open findings, one `ID` | `severity` |
+  `location` | `one-line summary` line each); fixers re-read the
+  affected code themselves instead of relying on reviewer prose.
 
 ## 6. Iteration and termination
 
 - After fixes, re-verify each addressed finding — in a gate thread,
   not by trusting the fixer's claim. A gate thread is a fresh thread
-  whose sole job is verdicts; it receives the finding index and the
-  fix diff, but not the fixer's or implementer's episodes. Verdict per
-  finding:
+  whose sole job is verdicts; it receives the compact finding index
+  (§5) and the fix diff, but not the fixer's or implementer's
+  episodes. Verdict per finding:
   - **VERIFIED** — the fix resolves the finding;
   - **REJECTED** — the change claimed as the fix does not address the
     finding;
