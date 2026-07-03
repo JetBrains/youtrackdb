@@ -1,7 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy.GremlinToMatchStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.filter.YTDBHasLabelStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
@@ -32,15 +31,10 @@ public final class YTDBGraphStepStrategy
 
   @Override
   public void apply(final Admin<?, ?> traversal) {
-    // The Gremlin-to-MATCH translator runs before this strategy (see applyPrior). When it
-    // recognized the traversal it replaced the whole step list with a single YTDBMatchPlanStep.
-    // That boundary step extends GraphStep, so the rebuild loop below would otherwise wrap it in a
-    // YTDBGraphStep and destroy the translation. A translated traversal is already fully handled,
-    // so leave it untouched.
-    if (traversal.getStartStep() instanceof YTDBMatchPlanStep<?, ?>) {
-      return;
-    }
-
+    // A traversal the Gremlin-to-MATCH translator recognised (translator runs before this strategy,
+    // see applyPrior) has its whole step list replaced by a single YTDBMatchPlanStep. That boundary
+    // step extends AbstractStep, not GraphStep, so the rebuildTraversal loop below skips it on its
+    // `instanceof GraphStep` check and leaves the translation intact — no explicit guard needed.
     final var polymorphic = YTDBStrategyUtil.isPolymorphic(traversal);
     if (polymorphic == null) {
       // means we couldn't access the graph from the traversal
