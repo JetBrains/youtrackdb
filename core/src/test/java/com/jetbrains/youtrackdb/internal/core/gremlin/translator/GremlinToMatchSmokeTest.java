@@ -662,7 +662,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var names = new ArrayList<String>();
     while (boundary.hasNext()) {
       Object vertex = boundary.next().get();
-      names.add((String) ((Vertex) vertex).value("name"));
+      names.add(((Vertex) vertex).value("name"));
     }
     Collections.sort(names);
     return names;

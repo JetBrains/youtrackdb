@@ -469,7 +469,6 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
    * decline does not depend on the throw-safety net catching an NPE.
    */
   @Test
-  @SuppressWarnings("DataFlowIssue") // deliberately stubs the @Nullable getConfiguration() to null
   public void apply_nullSessionConfiguration_declinesWithoutNpe() {
     var session = mock(DatabaseSessionEmbedded.class);
     when(session.getConfiguration()).thenReturn(null);
