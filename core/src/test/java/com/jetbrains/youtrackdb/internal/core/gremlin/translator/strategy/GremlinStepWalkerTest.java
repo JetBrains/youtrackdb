@@ -360,27 +360,25 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result).as("a blank RID string declines the whole walk").isEmpty();
   }
 
+  // ---------------------------------------------------------------------------
+  // Polymorphism invariant — g.V() / g.V(ids) never narrow by @class, so the
+  // polymorphicQuery flag cannot change their translation. Later tracks that add
+  // new node aliases (out()/in() chain hops, hasLabel) WILL honour the flag and
+  // add @class narrowing; these tests pin the current-scope invariant.
+  // ---------------------------------------------------------------------------
+
   /**
    * Non-polymorphic mode does NOT narrow a bare {@code g.V()} by class. Native non-polymorphic
    * {@code g.V()} still returns the full polymorphic vertex set: the no-id branch of
    * {@code YTDBGraphImplAbstract.elements} browses the class polymorphically regardless of the
-   * flag, and the by-id branch applies no class filter at all. Emitting {@code @class = 'V'}
-   * would exclude every subclass instance the native path keeps, so under
-   * {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT = false} the recogniser must emit no filter on
-   * the boundary alias for a bare {@code g.V()}. The flag is restored in a finally block so later
-   * traversals in this same test see the default; cross-test isolation is already guaranteed by
-   * the per-method database drop, not by this restore.
+   * flag. Emitting {@code @class = 'V'} would exclude every subclass instance the native path
+   * keeps, so under {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT = false} the recogniser must emit
+   * no boundary-alias filter for a bare {@code g.V()}; the {@code V} scan stays pinned via
+   * {@code aliasClasses} (polymorphic by MATCH default).
    */
   @Test
   public void walk_nonPolymorphicBareVertexSource_emitsNoClassFilter() {
-    var tx = (YTDBTransaction) graph.tx();
-    tx.readWrite();
-    var config = tx.getDatabaseSession().getConfiguration();
-    Assert.assertNotNull(config);
-    var previous =
-        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
-    config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
-    try {
+    withNonPolymorphicDefault(() -> {
       var admin = graph.traversal().V().asAdmin();
 
       var result = GremlinStepWalker.production().walk(admin);
@@ -392,9 +390,62 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
           .doesNotContainKey(BOUNDARY_ALIAS);
       // The single-node polymorphic V-class scan is still pinned via aliasClasses.
       assertThat(result.get().inputs().aliasClasses()).containsEntry(BOUNDARY_ALIAS, "V");
-    } finally {
-      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
-    }
+    });
+  }
+
+  /**
+   * Non-polymorphic mode does NOT narrow {@code g.V(id)} either. The by-id path resolves purely by
+   * RID — {@code YTDBGraphImplAbstract.elements} applies no class filter on the by-id branch — so
+   * the RID's class is irrelevant and the {@code polymorphicQuery} flag is inert. The single RID
+   * still lands on {@code aliasRids} (the {@code SELECT FROM #X:Y} fast path) with no {@code @class}
+   * filter on {@code aliasFilters}, exactly as under the default mode.
+   */
+  @Test
+  public void walk_nonPolymorphicSingleId_landsOnAliasRidsWithoutClassFilter() {
+    withNonPolymorphicDefault(() -> {
+      // #25:3 is an arbitrary well-formed RID literal; the walker only renders it.
+      var admin = graph.traversal().V("#25:3").asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isPresent();
+      var inputs = result.get().inputs();
+      assertThat(inputs.aliasRids()).containsKey(BOUNDARY_ALIAS);
+      assertThat(inputs.aliasRids().get(BOUNDARY_ALIAS).toString()).isEqualTo("#25:3");
+      // No @class filter added to the alias even under non-poly: the by-id lookup is RID-only.
+      assertThat(inputs.aliasFilters())
+          .as("non-poly g.V(id) must not narrow by @class")
+          .doesNotContainKey(BOUNDARY_ALIAS);
+    });
+  }
+
+  /**
+   * Non-polymorphic mode does NOT narrow {@code g.V(id1, id2)} either. The multi-id path emits an
+   * {@code @rid IN [...]} filter and, like the single-id path, resolves by RID alone — no
+   * {@code @class} predicate is ANDed onto the filter under {@code polymorphic=false}. The rendered
+   * filter carries the IN operator and both RIDs and nothing about {@code @class}.
+   */
+  @Test
+  public void walk_nonPolymorphicMultipleIds_buildsRidInFilterWithoutClassFilter() {
+    withNonPolymorphicDefault(() -> {
+      // #25:3 and #25:7 are arbitrary well-formed RID literals used only for filter rendering.
+      var admin = graph.traversal().V("#25:3", "#25:7").asAdmin();
+
+      var result = GremlinStepWalker.production().walk(admin);
+
+      assertThat(result).isPresent();
+      var inputs = result.get().inputs();
+      assertThat(inputs.aliasRids())
+          .as("multi-ID uses an IN filter, not the single-RID hint")
+          .doesNotContainKey(BOUNDARY_ALIAS);
+      assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
+      var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
+      assertThat(rendered).contains("@rid IN ").contains("#25:3").contains("#25:7");
+      // The key assertion: no @class narrowing ANDed in under non-poly.
+      assertThat(rendered)
+          .as("non-poly g.V(ids) must not narrow by @class")
+          .doesNotContain("@class");
+    });
   }
 
   /**
@@ -414,5 +465,27 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result)
         .as("a repeated id cannot be expressed exactly by @rid IN, so the walk declines")
         .isEmpty();
+  }
+
+  /**
+   * Runs {@code body} with {@code QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT} forced to false, restoring
+   * the previous value in a finally block. The non-polymorphic tests share this so each asserts
+   * only its translation outcome, not the config plumbing. The restore keeps later traversals in
+   * the SAME test on the default; cross-test isolation is already guaranteed by the per-method
+   * database drop, not by this restore.
+   */
+  private void withNonPolymorphicDefault(Runnable body) {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    var config = tx.getDatabaseSession().getConfiguration();
+    Assert.assertNotNull(config);
+    var previous =
+        config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
+    config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
+    try {
+      body.run();
+    } finally {
+      config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, previous);
+    }
   }
 }
