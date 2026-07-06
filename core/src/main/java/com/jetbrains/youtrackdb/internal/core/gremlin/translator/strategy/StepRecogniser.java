@@ -39,14 +39,16 @@ interface StepRecogniser {
 
   /**
    * Inspects a single step from the traversal. Returns {@code true} when the step has
-   * been fully consumed and its effect appended to {@code ctx}; otherwise the walker
-   * tries the next recogniser, and if no recogniser claims the step the walk declines.
+   * been fully consumed and its effect appended to {@code ctx}. A {@code false} return
+   * declines the whole traversal: dispatch is class-keyed, so this recogniser is the only
+   * one registered for the step's class and there is no next recogniser to try.
    *
    * @param step the current step under consideration; never {@code null}
-   * @param ctx  the in-progress walker state — recognisers read traversal-level fields
-   *             (graph, polymorphism) and append their contribution to the pattern
-   *             builder, alias maps, and return-projection lists. Recognisers MUST NOT
-   *             mutate {@code ctx} unless they are committing to return {@code true}.
+   * @param ctx  the in-progress walker state — recognisers read traversal-level
+   *             information (attached graph, polymorphism resolution) and append their
+   *             contribution to the pattern builder, alias maps, and return-projection
+   *             lists. Recognisers MUST NOT mutate {@code ctx} unless they are committing
+   *             to return {@code true}.
    * @return {@code true} iff the step was recognised and the context was updated.
    */
   boolean recognize(Step<?, ?> step, WalkerContext ctx);

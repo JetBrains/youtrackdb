@@ -15,7 +15,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.step;
  *       aggregation, and label-set propagation.
  * </ul>
  *
- * <p>Future modes (scaffolding-only at this point):
+ * <p>Planned future modes (documented here only; not yet implemented):
  * <ul>
  *   <li>{@code MAP} — emit a {@code Map<String, Object>} carrying multiple bound aliases
  *       (when the prefix ends in {@code select(l1, l2, ...)} or {@code project(...)}).

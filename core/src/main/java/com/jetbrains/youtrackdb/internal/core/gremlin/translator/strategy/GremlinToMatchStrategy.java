@@ -61,20 +61,22 @@ import org.slf4j.LoggerFactory;
  *       GlobalConfiguration#QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED} is {@code false} for the
  *       traversal's session. Reading the flag per-session gives operators a runtime kill-switch
  *       without a redeploy; an unresolvable configuration declines rather than throwing.</li>
- *   <li><b>Idempotency.</b> The traversal already contains a {@link YTDBMatchPlanStep}
- *       anywhere in its step list. A traversal's strategy chain can be applied more than once
- *       (clone-for-reuse, test-harness re-application, lazy first-iteration apply); leaving an
- *       already-translated traversal alone keeps rewriting deterministic and avoids discarding
- *       a built plan.</li>
  *   <li><b>Non-graph / non-vertex start.</b> The first step is not a start-emitting {@link
  *       GraphStep}, or it is an edge start ({@code g.E()}). The current translator only models
- *       vertex-rooted patterns; edge starts are a later milestone. Gating on the plain TinkerPop
+ *       vertex-rooted patterns; edge starts are a later milestone. This O(1) start-shape gate
+ *       runs before the O(steps) idempotency scan below, so a non-vertex traversal declines
+ *       without walking its whole step list. Gating on the plain TinkerPop
  *       {@link GraphStep} (not {@code
  *       YTDBGraphStep}) is deliberate: this strategy runs <em>before</em> {@code
  *       YTDBGraphStepStrategy} — the sole producer of {@code YTDBGraphStep} — so at translator
  *       time the start step is still a plain {@code GraphStep}. Keying on {@code YTDBGraphStep}
  *       would decline every recognized shape. The check is also ordering-robust, since a
  *       {@code YTDBGraphStep} <em>is</em> a {@code GraphStep}.</li>
+ *   <li><b>Idempotency.</b> The traversal already contains a {@link YTDBMatchPlanStep}
+ *       anywhere in its step list. A traversal's strategy chain can be applied more than once
+ *       (clone-for-reuse, test-harness re-application, lazy first-iteration apply); leaving an
+ *       already-translated traversal alone keeps rewriting deterministic and avoids discarding
+ *       a built plan.</li>
  *   <li><b>Empty translation.</b> {@link GremlinToMatchTranslator#translate} returns {@link
  *       Optional#empty()} — no whole-traversal translation is available because the walker
  *       declined a step. Replacing zero steps would be a no-op, so the strategy returns.</li>
