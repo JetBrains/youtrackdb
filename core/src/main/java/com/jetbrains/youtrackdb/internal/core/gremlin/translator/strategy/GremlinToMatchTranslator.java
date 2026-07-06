@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
-import java.util.Objects;
 import java.util.Optional;
 import javax.annotation.Nonnull;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -70,13 +69,5 @@ final class GremlinToMatchTranslator {
       @Nonnull String boundaryAlias,
       @Nonnull BoundaryOutputType outputType,
       @Nonnull Class<? extends Element> returnClass) {
-
-    /** Compact constructor enforces the non-null invariants on every field. */
-    public TranslationResult {
-      Objects.requireNonNull(inputs, "inputs must not be null");
-      Objects.requireNonNull(boundaryAlias, "boundaryAlias must not be null");
-      Objects.requireNonNull(outputType, "outputType must not be null");
-      Objects.requireNonNull(returnClass, "returnClass must not be null");
-    }
   }
 }
