@@ -63,9 +63,10 @@ import org.jspecify.annotations.NonNull;
  * <h2>Single-vs-multi-ID handling</h2>
  *
  * <ul>
- *   <li>The empty-ID case ({@code g.V()}) and the single-ID case ({@code g.V(id)}) land
- *       on {@code aliasRids} — the planner's optimised path that resolves to
- *       {@code SELECT FROM #X:Y}.</li>
+ *   <li>The single-ID case ({@code g.V(id)}) lands on {@code aliasRids} — the planner's
+ *       optimised path that resolves to {@code SELECT FROM #X:Y}. The empty-ID case
+ *       ({@code g.V()}) carries no RID hint and no filter, so the node resolves to a bare
+ *       {@code SELECT FROM V} (the full polymorphic class scan).</li>
  *   <li>The multi-ID case ({@code g.V(id1, id2, …)}) lands on {@code aliasFilters} as
  *       {@code WHERE @rid IN [#X1:Y1, #X2:Y2, …]}. The planner's
  *       {@code createSelectStatement} falls through to {@code SELECT FROM Class WHERE …}
@@ -94,7 +95,7 @@ final class StartStepRecogniser implements StepRecogniser {
 
   /**
    * Default schema class for {@code g.V()}-rooted traversals — the abstract vertex root.
-   * Same convention {@code GqlMatchStatement.effectiveType} uses when no explicit label
+   * Same convention {@code GqlMatchPatternAssembler.effectiveType} uses when no explicit label
    * is supplied.
    */
   private static final String DEFAULT_VERTEX_CLASS = "V";
@@ -162,7 +163,7 @@ final class StartStepRecogniser implements StepRecogniser {
     //
     // Only the NULL result is load-bearing in the current scope: a null (no attached
     // graph) declines the whole traversal cleanly. The resolved boolean itself is
-    // deliberately discarded here, because Track 2's shapes (bare g.V() / g.V(ids)) never
+    // deliberately discarded here, because Phase 1's shapes (bare g.V() / g.V(ids)) never
     // narrow by @class — see the no-@class-narrowing note below and the design doc's
     // "Schema polymorphism" section. Later recognisers that introduce a new node alias
     // (the vertex-step chain hops and the hasLabel recognisers) DO consume the flag: under
