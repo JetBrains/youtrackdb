@@ -154,15 +154,15 @@ final class StartStepRecogniser implements StepRecogniser {
       return false;
     }
 
-    // Polymorphism resolution intentionally lives here, not in the walker pre-check:
-    // YTDBStrategyUtil.isPolymorphic calls graph.tx() unconditionally, which throws
-    // UnsupportedOperationException on graphs that do not support transactions
-    // (anonymous traversals attached to TinkerPop's EmptyGraph, non-YTDB graphs).
-    // Doing it here means the structural gates above filter those traversals out
-    // before we ever reach the unsafe call.
+    // Polymorphism resolution lives in the recogniser (not a walker pre-check) so each recogniser
+    // owns the traversal-level reads its own shape needs. YTDBStrategyUtil.isPolymorphic is
+    // null-safe: it returns null (never throws) when the traversal has no attached YTDB graph — a
+    // detached EmptyGraph traversal or a non-YTDB graph — or when its configuration is
+    // unresolvable. The structural gates above still run first so a non-vertex shape declines
+    // cheaply before any config read.
     //
-    // Only the NULL result is load-bearing in the current scope: a null (no attached
-    // graph) declines the whole traversal cleanly. The resolved boolean itself is
+    // Only the NULL result is load-bearing in the current scope: a null (no attached YTDB
+    // graph or unresolvable config) declines the whole traversal cleanly. The resolved boolean itself is
     // deliberately discarded here, because Phase 1's shapes (bare g.V() / g.V(ids)) never
     // narrow by @class — see the no-@class-narrowing note below and the design doc's
     // "Schema polymorphism" section. Later recognisers that introduce a new node alias
