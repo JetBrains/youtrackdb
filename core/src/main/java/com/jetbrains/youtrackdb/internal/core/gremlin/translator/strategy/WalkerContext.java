@@ -35,7 +35,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 final class WalkerContext {
 
   /** Traversal currently being walked. Recognisers read traversal-level information
-   *  (graph attachment, polymorphism flag, strategies) directly from this reference;
+   *  (the attached graph and the polymorphism setting) directly from this reference;
    *  the walker does not pre-resolve any of those values because each requires a
    *  graph-supporting subgraph to evaluate, and recogniser-local structural gates
    *  must run first. */

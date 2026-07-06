@@ -24,7 +24,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
  * recognised or the traversal is declined whole and stays on the native TinkerPop
  * pipeline.
  *
- * <h2>Per-step gates only — no walker-level pre-check</h2>
+ * <h2>Recognition gates live in recognisers, not the walker</h2>
  *
  * Every gate (start-step shape, vertex-vs-edge, ID convertibility, hasContainer
  * presence, polymorphism resolution, predicate well-formedness, …) lives inside the
