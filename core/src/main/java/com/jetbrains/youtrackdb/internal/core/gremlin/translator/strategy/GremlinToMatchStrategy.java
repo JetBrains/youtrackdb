@@ -5,8 +5,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraph;
-import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphCountStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphMatchStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
@@ -293,31 +293,19 @@ public final class GremlinToMatchStrategy
    * Returns the traversal's session iff a YouTrackDB graph is attached and the kill-switch is
    * on, or {@code null} to signal "decline".
    *
-   * <p>The {@code instanceof YTDBGraph} gate decides at the graph level so {@code tx()} is
-   * never called on a graph that does not support transactions: a detached anonymous
-   * traversal ({@code __.V()}) reports TinkerPop's {@code EmptyGraph}, whose {@code tx()}
-   * throws {@code UnsupportedOperationException}, and a non-YTDB graph would fail the cast on
-   * {@code graph.tx()}. Reading the flag from the session's {@code ContextConfiguration}
-   * (rather than the JVM-global {@link GlobalConfiguration}) lets operators — and tests — flip
-   * it per-session without mutating global state. The session's {@code getConfiguration()} is
-   * {@code @Nullable}; a null result is treated as "decline" (returns {@code null}) so the
-   * kill-switch read never dereferences a null configuration.
+   * <p>Session resolution is delegated to {@link YTDBStrategyUtil#resolveYtdbSession}, which
+   * returns {@code null} (never throws) on a detached, {@code EmptyGraph}, or non-YTDB traversal.
+   * Reading the flag from the session's {@code ContextConfiguration} (rather than the JVM-global
+   * {@link GlobalConfiguration}) lets operators — and tests — flip it per-session without mutating
+   * global state. That {@code getConfiguration()} is {@code @Nullable}; a null result is treated
+   * as "decline" so the kill-switch read never dereferences a null configuration.
    */
-  // The Graph (and the Transaction from graph.tx()) are borrowed from the traversal — the
-  // caller's long-lived database graph — not opened here. try-with-resources would close them,
-  // tearing down the user's graph mid-compilation, so the resource inspection is suppressed.
-  @SuppressWarnings("resource")
   @Nullable private static DatabaseSessionEmbedded resolveSessionIfEnabled(
       Traversal.Admin<?, ?> traversal) {
-    var graph = traversal.getGraph().orElse(null);
-    if (!(graph instanceof YTDBGraph)) {
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    if (session == null) {
       return null;
     }
-    if (!(graph.tx() instanceof YTDBTransaction tx)) {
-      return null;
-    }
-    tx.readWrite();
-    var session = tx.getDatabaseSession();
     // getConfiguration() is @Nullable (it delegates to storage.getContextConfiguration()). A
     // null ContextConfiguration cannot be dereferenced for the flag, so treat it as "not
     // enabled" and decline explicitly rather than relying on the throw-safety net to catch an
