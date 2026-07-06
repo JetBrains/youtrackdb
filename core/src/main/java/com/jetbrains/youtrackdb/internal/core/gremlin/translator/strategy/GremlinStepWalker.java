@@ -10,9 +10,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 
 /**
- * Iterates a {@link Traversal.Admin}'s step list in order and dispatches each step to a
- * fixed-order list of {@link StepRecogniser} instances. The walker is the entry point
- * the {@link GremlinToMatchTranslator} delegates to; recognisers carry the per-step
+ * Iterates a {@link Traversal.Admin}'s step list in order and dispatches each step to the
+ * {@link StepRecogniser} registered for its concrete runtime class in a class-keyed
+ * registry ({@code Map<Class<?>, StepRecogniser>}). The walker is the entry point the
+ * {@link GremlinToMatchTranslator} delegates to; recognisers carry the per-step
  * recognition logic so the walker itself stays a thin orchestration loop.
  *
  * <h2>All-or-nothing translation</h2>

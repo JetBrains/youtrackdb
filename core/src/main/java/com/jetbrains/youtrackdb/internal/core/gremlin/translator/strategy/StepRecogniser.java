@@ -10,25 +10,22 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  *
  * <h2>Contract</h2>
  *
- * The walker tries the registered recognisers in declaration order. The first recogniser
- * whose {@link #recognize} call returns {@code true} owns the step; the walker advances
- * to the next step. If no recogniser claims a step, the walker treats the entire
- * traversal as unrecognised and declines under the all-or-nothing translation rule — one
- * unrecognised step declines the whole traversal, which stays on the native TinkerPop
- * pipeline verbatim.
+ * The walker dispatches each step to at most one recogniser, selected by the step's
+ * concrete runtime class through a class-keyed registry ({@code Map<Class<?>,
+ * StepRecogniser>}). Exactly one recogniser is registered per step class, so the lookup
+ * either finds that single recogniser or finds none — there is no ordered scan and no
+ * first-match-wins. Two outcomes decline the whole traversal under the all-or-nothing
+ * rule: no registry entry for the step's class, or a registered recogniser that returns
+ * {@code false}. A declined traversal stays on the native TinkerPop pipeline verbatim.
  *
- * <p>{@code recognize} is therefore the union of two questions:
- * <ol>
- *   <li><b>Is this my step shape?</b> — a recogniser starts with a {@code instanceof}
- *       check (or whichever discriminator names the step type it handles) and returns
- *       {@code false} immediately on a non-match so the walker can try the next one.</li>
- *   <li><b>If yes, is it well-formed?</b> — when the recogniser does handle the step
- *       type but the step's payload does not encode a translatable shape (e.g. an
- *       unconvertible ID, an unsupported predicate variant), the recogniser returns
- *       {@code false} as well. The walker treats both negative outcomes the same — the
- *       traversal declines — so the boolean is unambiguous to the caller without an
- *       intermediate "not mine" / "mine but malformed" distinction.</li>
- * </ol>
+ * <p>Because dispatch keys on the exact runtime class, a recogniser is only ever handed a
+ * step of the class it was registered under, so {@link #recognize} answers a single
+ * well-formedness question: does this step's payload encode a translatable shape? When it
+ * does not (an unconvertible ID, an unsupported predicate variant), the recogniser returns
+ * {@code false} and the traversal declines. A {@code false} return is never a "not mine,
+ * try the next one" signal — the registry has already selected the sole recogniser for the
+ * class. A recogniser MAY still re-assert its step type with an {@code instanceof} check as
+ * defence-in-depth, but that check is not the routing mechanism.
  *
  * <h2>Discipline</h2>
  *
