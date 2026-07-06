@@ -17,6 +17,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.junit.Assert;
 import org.junit.Test;
 
 /**
@@ -375,6 +376,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var tx = (YTDBTransaction) graph.tx();
     tx.readWrite();
     var config = tx.getDatabaseSession().getConfiguration();
+    Assert.assertNotNull(config);
     var previous =
         config.getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT);
     config.setValue(GlobalConfiguration.QUERY_GREMLIN_POLYMORPHIC_BY_DEFAULT, false);
