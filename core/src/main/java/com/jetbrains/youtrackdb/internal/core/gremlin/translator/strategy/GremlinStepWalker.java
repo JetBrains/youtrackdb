@@ -47,7 +47,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 final class GremlinStepWalker {
 
   /**
-   * Production recogniser registry, keyed on the concrete step class (D9). Phase 1 registers
+   * Production recogniser registry, keyed on the concrete step class. Phase 1 registers
    * one entry — {@link StartStepRecogniser} under {@link GraphStep}; later tracks add one entry
    * per step class they translate. Class-keyed dispatch is O(1) and fails safe: a step whose
    * runtime class has no entry — an unregistered type, or an unexpected subclass — finds no
@@ -111,7 +111,7 @@ final class GremlinStepWalker {
     var ctx = new WalkerContext(traversal);
 
     for (Step<?, ?> step : traversal.getSteps()) {
-      // Class-keyed dispatch (D9): the recogniser registered for this step's concrete runtime
+      // Class-keyed dispatch: the recogniser registered for this step's concrete runtime
       // class owns it. No entry — an unregistered type or an unexpected subclass — declines the
       // whole traversal (all-or-nothing), as does a registered recogniser that rejects the step
       // as malformed.
