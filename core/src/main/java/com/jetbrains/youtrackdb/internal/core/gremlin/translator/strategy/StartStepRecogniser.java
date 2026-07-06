@@ -46,8 +46,12 @@ import org.jspecify.annotations.NonNull;
  * YTDBGraphStepStrategy} — the sole producer of {@code YTDBGraphStep} — so at translator
  * time the start step is still a plain {@code GraphStep}. Keying on {@code YTDBGraphStep}
  * here would decline every recognised shape and the translator would translate nothing.
- * Gating on {@code GraphStep} is also ordering-robust: a {@code YTDBGraphStep} is-a
- * {@code GraphStep}, so the recogniser keeps working even if the ordering ever changes.
+ * The walker's dispatch is a class-keyed lookup on the step's <em>exact</em> runtime class,
+ * so this key is fail-safe under an ordering change rather than merely robust: if the
+ * translator ever ran after {@code YTDBGraphStepStrategy} folded the start step into a
+ * {@code YTDBGraphStep}, that subclass has no registry entry and the traversal declines
+ * cleanly — an {@code instanceof}-based gate would instead accept the subclass and risk
+ * mis-recognising a shape the translator never validated for.
  *
  * <h2>Why these checks belong here, not in the walker</h2>
  *
@@ -154,8 +158,18 @@ final class StartStepRecogniser implements StepRecogniser {
     // UnsupportedOperationException on graphs that do not support transactions
     // (anonymous traversals attached to TinkerPop's EmptyGraph, non-YTDB graphs).
     // Doing it here means the structural gates above filter those traversals out
-    // before we ever reach the unsafe call. A null result (no attached graph) declines
-    // the whole traversal cleanly.
+    // before we ever reach the unsafe call.
+    //
+    // Only the NULL result is load-bearing in the current scope: a null (no attached
+    // graph) declines the whole traversal cleanly. The resolved boolean itself is
+    // deliberately discarded here, because Track 2's shapes (bare g.V() / g.V(ids)) never
+    // narrow by @class — see the no-@class-narrowing note below and the design doc's
+    // "Schema polymorphism" section. Later recognisers that introduce a new node alias
+    // (the vertex-step chain hops and the hasLabel recognisers) DO consume the flag: under
+    // polymorphic=false they augment the new alias with a @class = '<class>' predicate.
+    // When such a recogniser lands it will carry the flag forward (e.g. a WalkerContext
+    // field) so every alias honours one setting; until a consumer exists the value is
+    // dropped rather than stored on a field nothing reads.
     Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(ctx.traversal);
     if (polymorphic == null) {
       return false;
