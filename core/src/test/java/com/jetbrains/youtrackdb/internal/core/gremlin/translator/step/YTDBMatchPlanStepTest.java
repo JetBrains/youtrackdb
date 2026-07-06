@@ -30,6 +30,8 @@ import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.B_O_TraverserGenerator;
 import org.apache.tinkerpop.gremlin.process.traversal.traverser.util.TraverserSet;
+import org.apache.tinkerpop.gremlin.structure.Edge;
+import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Before;
 import org.junit.Test;
@@ -312,6 +314,39 @@ public class YTDBMatchPlanStepTest {
     assertThat(assertRawEntityOf(resultB)).isSameAs(vertexUnderB);
     verify(row).getVertex("a");
     verify(row).getVertex("b");
+  }
+
+  /**
+   * Projection dispatches on the configured {@code returnClass}. An edge boundary is reserved but
+   * not yet translated, so projecting one throws {@link UnsupportedOperationException} rather than
+   * silently emitting a vertex. This pins that only vertex projection is wired in the current scope
+   * and documents the arm the edge track later fills in; the message names the offending class.
+   */
+  @Test
+  public void projectElement_edgeReturnClass_throwsUnsupportedUntilEdgeTrack() {
+    var row = mock(Result.class);
+    var step =
+        new YTDBMatchPlanStep(traversal, Edge.class, plan, "e", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(UnsupportedOperationException.class)
+        .isThrownBy(() -> step.projectElement(row, graph))
+        .withMessageContaining("edge projection");
+  }
+
+  /**
+   * A return class that is neither a {@link Vertex} nor an {@link Edge} subtype is a translator bug,
+   * not a runtime condition, so projection fails fast with {@link IllegalStateException} naming the
+   * offending class. {@code Element.class} is neither subtype, so it exercises the fall-through arm.
+   */
+  @Test
+  public void projectElement_nonVertexNonEdgeReturnClass_throwsIllegalState() {
+    var row = mock(Result.class);
+    var step =
+        new YTDBMatchPlanStep(traversal, Element.class, plan, "x", BoundaryOutputType.ELEMENT);
+
+    assertThatExceptionOfType(IllegalStateException.class)
+        .isThrownBy(() -> step.projectElement(row, graph))
+        .withMessageContaining("Vertex or Edge");
   }
 
   // ---- Close lifecycle ----
