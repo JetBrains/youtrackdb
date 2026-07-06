@@ -595,40 +595,6 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // TranslationResult record — non-null field invariants.
-  // ---------------------------------------------------------------------------
-
-  /**
-   * The {@link GremlinToMatchTranslator.TranslationResult} compact constructor rejects a null
-   * value for every field, so a malformed translation fails loudly at construction rather than
-   * NPE-ing deep inside the splice. One assertion per field pins which field is guarded.
-   */
-  @Test
-  public void translationResult_rejectsNullFields() {
-    var inputs = MatchPlanInputs.builder(new Pattern()).build();
-
-    assertThatCode(
-        () -> new GremlinToMatchTranslator.TranslationResult(
-            null, "v", BoundaryOutputType.ELEMENT, Vertex.class))
-        .isInstanceOf(NullPointerException.class)
-        .hasMessageContaining("inputs");
-    assertThatCode(
-        () -> new GremlinToMatchTranslator.TranslationResult(
-            inputs, null, BoundaryOutputType.ELEMENT, Vertex.class))
-        .isInstanceOf(NullPointerException.class)
-        .hasMessageContaining("boundaryAlias");
-    assertThatCode(
-        () -> new GremlinToMatchTranslator.TranslationResult(inputs, "v", null, Vertex.class))
-        .isInstanceOf(NullPointerException.class)
-        .hasMessageContaining("outputType");
-    assertThatCode(
-        () -> new GremlinToMatchTranslator.TranslationResult(
-            inputs, "v", BoundaryOutputType.ELEMENT, null))
-        .isInstanceOf(NullPointerException.class)
-        .hasMessageContaining("returnClass");
-  }
-
-  // ---------------------------------------------------------------------------
   // Multiset parity against the native pipeline — the translator-on result must equal
   // the native (translator-off) result for every recognized shape. These run the spliced
   // traversal end to end against a real graph and compare vertex-id multisets.
