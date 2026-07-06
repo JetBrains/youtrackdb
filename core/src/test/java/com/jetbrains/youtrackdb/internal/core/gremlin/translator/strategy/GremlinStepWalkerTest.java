@@ -159,9 +159,10 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * {@code GraphStep} into a {@code YTDBGraphStep}, the walker would see a step whose runtime
    * class ({@code YTDBGraphStep}) has no registry entry — {@code map.get(YTDBGraphStep.class)}
    * returns {@code null} — so it declines the whole traversal rather than misrouting the
-   * unexpected subclass through the {@code GraphStep} recogniser (D9). Under D4 this never
-   * happens: the translator runs first and sees the plain {@code GraphStep}. The decline is the
-   * safe default for a shape we did not expect.
+   * unexpected subclass through the {@code GraphStep} recogniser. Under the production strategy
+   * ordering this never happens: the translator runs before {@code YTDBGraphStepStrategy}, so it
+   * sees the plain {@code GraphStep}. The decline is the safe default for a shape we did not
+   * expect.
    */
   @Test
   public void walk_ytdbGraphStepStart_declinesAsUnexpectedSubclass() {
