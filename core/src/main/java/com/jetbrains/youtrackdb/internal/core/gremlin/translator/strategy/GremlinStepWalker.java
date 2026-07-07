@@ -4,7 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Optional;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
@@ -19,10 +19,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
  * <h2>All-or-nothing translation</h2>
  *
  * The walker enforces all-or-nothing translation mechanically: any step the registered
- * recognisers cannot claim causes the entire walk to decline (returning {@link
- * Optional#empty()}). There is no "partial prefix" mechanism — either every step is
- * recognised or the traversal is declined whole and stays on the native TinkerPop
- * pipeline.
+ * recognisers cannot claim causes the entire walk to decline (returning {@code null}). There is
+ * no "partial prefix" mechanism — either every step is recognised or the traversal is declined
+ * whole and stays on the native TinkerPop pipeline.
  *
  * <h2>Recognition gates live in recognisers, not the walker</h2>
  *
@@ -95,12 +94,11 @@ final class GremlinStepWalker {
   }
 
   /**
-   * Attempts to translate {@code traversal} by walking its steps in order. Returns a
-   * non-empty {@link GremlinToMatchTranslator.TranslationResult} when every step was
-   * recognised, otherwise {@link Optional#empty()}.
+   * Attempts to translate {@code traversal} by walking its steps in order. Returns the
+   * {@link GremlinToMatchTranslator.TranslationResult} when every step was recognised, otherwise
+   * {@code null}.
    */
-  Optional<GremlinToMatchTranslator.TranslationResult> walk(
-      Traversal.Admin<?, ?> traversal) {
+  @Nullable GremlinToMatchTranslator.TranslationResult walk(Traversal.Admin<?, ?> traversal) {
     // Size gate, before any per-step work. An empty traversal has nothing to translate and could
     // never pin a boundary, so decline it here rather than let it fall through to the invariant
     // assert below — an empty traversal is a normal shape, not a recogniser bug. The upper bound
@@ -109,7 +107,7 @@ final class GremlinStepWalker {
     // step (out/has/match/…) on the native pipeline.
     var steps = traversal.getSteps();
     if (steps.isEmpty() || steps.size() > MAX_RECOGNISED_STEPS) {
-      return Optional.empty();
+      return null;
     }
 
     var ctx = new WalkerContext(traversal);
@@ -121,7 +119,7 @@ final class GremlinStepWalker {
       // as malformed.
       var recogniser = recognisers.get(step.getClass());
       if (recogniser == null || !recogniser.recognize(step, ctx)) {
-        return Optional.empty();
+        return null;
       }
       ctx.stepIndex++;
     }
@@ -141,10 +139,10 @@ final class GremlinStepWalker {
     assert ctx.boundaryAlias != null && ctx.outputType != null && ctx.returnClass != null
         : "walk recognised all " + steps.size() + " step(s) but left the boundary unpinned";
     if (ctx.boundaryAlias == null || ctx.outputType == null || ctx.returnClass == null) {
-      return Optional.empty();
+      return null;
     }
 
-    return Optional.of(buildResult(ctx));
+    return buildResult(ctx);
   }
 
   /**
