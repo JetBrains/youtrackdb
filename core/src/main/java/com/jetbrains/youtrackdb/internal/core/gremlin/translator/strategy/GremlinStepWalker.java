@@ -101,17 +101,20 @@ final class GremlinStepWalker {
    */
   Optional<GremlinToMatchTranslator.TranslationResult> walk(
       Traversal.Admin<?, ?> traversal) {
-    // Minimal-prefix gate: decline any traversal larger than the current recognised set can
-    // translate whole. See MAX_RECOGNISED_STEPS — this bounds Phase 1 to the bare vertex source
-    // and keeps a follow-up step (out/has/match/…) on the native pipeline. The size check is
-    // cheap and runs before any per-step work.
-    if (traversal.getSteps().size() > MAX_RECOGNISED_STEPS) {
+    // Size gate, before any per-step work. An empty traversal has nothing to translate and could
+    // never pin a boundary, so decline it here rather than let it fall through to the invariant
+    // assert below — an empty traversal is a normal shape, not a recogniser bug. The upper bound
+    // declines any traversal larger than the current recognised set can translate whole; see
+    // MAX_RECOGNISED_STEPS, which holds Phase 1 to the bare vertex source and keeps a follow-up
+    // step (out/has/match/…) on the native pipeline.
+    var steps = traversal.getSteps();
+    if (steps.isEmpty() || steps.size() > MAX_RECOGNISED_STEPS) {
       return Optional.empty();
     }
 
     var ctx = new WalkerContext(traversal);
 
-    for (Step<?, ?> step : traversal.getSteps()) {
+    for (Step<?, ?> step : steps) {
       // Class-keyed dispatch: the recogniser registered for this step's concrete runtime
       // class owns it. No entry — an unregistered type or an unexpected subclass — declines the
       // whole traversal (all-or-nothing), as does a registered recogniser that rejects the step
@@ -123,16 +126,21 @@ final class GremlinStepWalker {
       ctx.stepIndex++;
     }
 
-    // A successful walk must pin the terminator metadata — boundary alias, output
-    // type, and return class — via one of the recognisers. A zero-step traversal
-    // (the for-loop never runs) or a registry of recognisers that all claim their
-    // step without pinning the boundary fields would otherwise reach buildResult
-    // with null fields, where TranslationResult's compact ctor throws NPE. Decline
-    // cleanly instead so the strategy's outer try/catch is not the primary
-    // surfacing path for this contract violation.
-    if (ctx.boundaryAlias == null
-        || ctx.outputType == null
-        || ctx.returnClass == null) {
+    // Invariant: a fully-recognised non-empty traversal has its terminator metadata pinned —
+    // boundary alias, output type, and return class — by the recogniser that owns its terminator
+    // (in Phase 1, the start-step recogniser). Empty traversals are gated out above, so reaching
+    // here with a null field is not a normal decline: it means a recogniser returned true without
+    // pinning the boundary, a recogniser-logic bug.
+    //
+    // The assert surfaces that bug loudly under -ea (the test/CI default): an AssertionError is an
+    // Error, so GremlinToMatchStrategy's RuntimeException-only throw-safety net does not swallow it
+    // and the bug fails the test instead of hiding as a silent decline. Under -da (production) the
+    // assert is a no-op, so the decline below is the safety net: rather than build a null-bearing
+    // TranslationResult the strategy would splice over the traversal as a broken boundary step, the
+    // walk declines here and the traversal stays on the native pipeline unchanged.
+    assert ctx.boundaryAlias != null && ctx.outputType != null && ctx.returnClass != null
+        : "walk recognised all " + steps.size() + " step(s) but left the boundary unpinned";
+    if (ctx.boundaryAlias == null || ctx.outputType == null || ctx.returnClass == null) {
       return Optional.empty();
     }
 
