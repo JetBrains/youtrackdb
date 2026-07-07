@@ -694,6 +694,55 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     }
   }
 
+  /**
+   * Regression (YTDB-1167): a {@code @rid IN (subquery)} predicate under a class target must fall
+   * through to the class scan. Before the fast path runs, extractSubQueries() rewrites the inline
+   * subquery into {@code @rid IN $$$SUBQUERY$$_N} — a reference to an internal LET variable. That
+   * reference reports {@code isEarlyCalculated() == true} (it is an internal alias), but its value
+   * is bound only when the LET step runs during execution, so evaluating it at plan time yields an
+   * empty candidate set. Optimizing it would wrongly collapse the outer query to an EmptyStep and
+   * return zero rows; the planner must instead keep a class scan whose post-filter runs after the
+   * LET step. The plan does still contain a {@code FETCH FROM RIDs}, but it belongs to the
+   * subquery's own {@code from [rid]} RID-list target, not to the outer class-target query — so the
+   * assertion checks the outer predicate survives as a runtime filter over the scan, not the
+   * absence of any RID fetch. Both the {@code select @rid} and the {@code select *} subquery
+   * projections are covered, mirroring the two forms in
+   * {@code UpdateStatementExecutionTest.testUpdateWhereSubquery}.
+   */
+  @Test
+  public void ridInSubquery_fallsThroughToScan() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    doc.setProperty("tag", "s");
+    var rid = doc.getIdentity();
+    session.commit();
+
+    // Both projections resolve the subquery to the single record's @rid at execution time.
+    for (var subProjection : List.of("@rid", "*")) {
+      var sql = "select from " + className
+          + " where @rid in (select " + subProjection + " from [" + rid + "])";
+      var plan = explainPlan(sql);
+      Assert.assertTrue(
+          "a subquery-valued @rid IN must fall through to the class scan, plan was: " + plan,
+          plan.contains("FETCH FROM CLASS"));
+      Assert.assertTrue(
+          "the subquery predicate must survive as a post-LET runtime filter — the fast path must "
+              + "neither consume it nor collapse the outer query to an EmptyStep, plan was: "
+              + plan,
+          plan.contains("@rid IN $$$SUBQUERY$$"));
+
+      // Correctness: the scan-plus-filter must still return the one record the subquery names.
+      // The pre-fix bug collapsed the outer query to an EmptyStep, so this returned zero rows.
+      try (var result = session.query(sql)) {
+        Assert.assertTrue(
+            "the subquery names exactly the one record, which must be returned", result.hasNext());
+        Assert.assertEquals("s", result.next().getProperty("tag"));
+        Assert.assertFalse(result.hasNext());
+      }
+    }
+  }
+
   /** Runs EXPLAIN and returns the pretty-printed plan string. */
   private String explainPlan(String sql) {
     // Delegate to the params variant with an empty map so the EXPLAIN assertion contract

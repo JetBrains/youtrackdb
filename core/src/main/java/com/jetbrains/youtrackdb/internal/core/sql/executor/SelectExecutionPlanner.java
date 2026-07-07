@@ -2261,15 +2261,17 @@ public class SelectExecutionPlanner {
    * Central entry point for class-based data fetch. Tries optimizations in this order:
    *
    * <pre>
-   *   1. handleClassAsTargetWithIndexedFunction  -- indexed function in WHERE
-   *   2. handleClassAsTargetWithIndex            -- regular index lookup
-   *   3. handleClassWithIndexForSortOnly         -- index used only for ORDER BY
-   *   4. FetchFromClassExecutionStep             -- full class scan (fallback)
+   *   1. handleClassAsTargetWithRidEquality       -- early-calculable @rid = / @rid IN
+   *   2. handleClassAsTargetWithIndexedFunction   -- indexed function in WHERE
+   *   3. handleClassAsTargetWithIndex             -- regular index lookup
+   *   4. handleClassWithIndexForSortOnly          -- index used only for ORDER BY
+   *   5. FetchFromClassExecutionStep              -- full class scan (fallback)
    * </pre>
    *
-   * <p>After the fetch step, a {@link FilterByClassStep} is always appended when an
-   * index was used, because the index may cover a superclass and return records from
-   * sibling classes that must be filtered out.
+   * <p>After the fetch step, a {@link FilterByClassStep} is appended when an index was
+   * used, because the index may cover a superclass and return records from sibling
+   * classes that must be filtered out. The RID-equality fast path is the exception: it
+   * filters class membership at plan time and chains no {@link FilterByClassStep}.
    *
    * <p>For the full-scan fallback, RID ordering (ASC/DESC) is pushed down to the
    * fetch step when the ORDER BY is simply {@code ORDER BY @rid}.
@@ -2422,9 +2424,15 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    // Only optimize a plan-time-resolvable RID value (literal or bound param).
+    // Only optimize a plan-time-resolvable RID value (literal or bound param). By the time
+    // this runs, extractSubQueries() has rewritten `@rid IN (subquery)` into
+    // `@rid IN $$$SUBQUERY$$_N` — a reference to an internal LET variable. That reference
+    // reports isEarlyCalculated() == true (it is an internal alias) but is bound only when
+    // the LET step runs during execution; evaluating it here yields empty and would wrongly
+    // collapse the plan to EmptyStep. refersToInternalAlias() rejects it so the query falls
+    // through to the scan + filter, which runs after the LET step.
     var ridExpression = extraction.ridExpression();
-    if (!ridExpression.isEarlyCalculated(ctx)) {
+    if (!ridExpression.isEarlyCalculated(ctx) || ridExpression.refersToInternalAlias()) {
       return false;
     }
 

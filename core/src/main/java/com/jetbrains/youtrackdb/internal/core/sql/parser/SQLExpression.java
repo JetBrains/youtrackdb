@@ -243,6 +243,27 @@ public class SQLExpression extends SimpleNode {
     return false;
   }
 
+  /**
+   * Returns true when this expression is a bare reference to an internal (synthesized) alias
+   * — a variable produced by inline-subquery extraction ({@code $$$SUBQUERY$$_N}) or
+   * aggregate-projection splitting. {@link #isEarlyCalculated} reports true for such a
+   * reference because the alias is internal, but its value is bound by a LET step only at
+   * execution time. A plan-time evaluator (the class-target {@code @rid} direct-fetch fast
+   * path) must therefore treat it as non-resolvable and fall through to the scan, where the
+   * LET step runs before the filter is applied.
+   */
+  public boolean refersToInternalAlias() {
+    if (!(mathExpression instanceof SQLBaseExpression base)) {
+      return false;
+    }
+    var baseIdentifier = base.getIdentifier();
+    if (baseIdentifier == null || baseIdentifier.getSuffix() == null) {
+      return false;
+    }
+    var identifier = baseIdentifier.getSuffix().getIdentifier();
+    return identifier != null && identifier.isInternalAlias();
+  }
+
   public SQLIdentifier getDefaultAlias() {
     SQLIdentifier identifier;
     if (isBaseIdentifier()) {
