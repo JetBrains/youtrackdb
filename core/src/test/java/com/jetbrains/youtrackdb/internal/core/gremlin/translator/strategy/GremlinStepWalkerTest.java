@@ -67,10 +67,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   public void walk_bareVertexSource_translatesToSingleNodePattern() {
     var admin = graph.traversal().V().asAdmin();
 
-    var result = GremlinStepWalker.production().walk(admin);
+    var translation = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isPresent();
-    var translation = result.get();
+    assertThat(translation).isNotNull();
     assertThat(translation.boundaryAlias()).isEqualTo(BOUNDARY_ALIAS);
     assertThat(translation.outputType()).isEqualTo(BoundaryOutputType.ELEMENT);
     assertThat(translation.returnClass()).isEqualTo(Vertex.class);
@@ -95,8 +94,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isPresent();
-    var inputs = result.get().inputs();
+    assertThat(result).isNotNull();
+    var inputs = result.inputs();
     assertThat(inputs.aliasRids()).containsKey(BOUNDARY_ALIAS);
     SQLRid rid = inputs.aliasRids().get(BOUNDARY_ALIAS);
     assertThat(rid.toString()).isEqualTo("#25:3");
@@ -118,8 +117,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isPresent();
-    var inputs = result.get().inputs();
+    assertThat(result).isNotNull();
+    var inputs = result.inputs();
     assertThat(inputs.aliasRids()).as("multi-ID uses an IN filter, not the single-RID hint")
         .doesNotContainKey(BOUNDARY_ALIAS);
     assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
@@ -153,7 +152,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("plain GraphStep start must be recognized, not declined").isPresent();
+    assertThat(result).as("plain GraphStep start must be recognized, not declined").isNotNull();
   }
 
   /**
@@ -180,7 +179,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result)
         .as("a YTDBGraphStep has no registry entry, so class-keyed dispatch declines it")
-        .isEmpty();
+        .isNull();
   }
 
   // ---------------------------------------------------------------------------
@@ -201,7 +200,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("a step past the vertex source declines the whole walk").isEmpty();
+    assertThat(result).as("a step past the vertex source declines the whole walk").isNull();
     assertThat(admin.getSteps())
         .as("the walker never mutates the traversal's native step list")
         .isEqualTo(stepsBefore);
@@ -222,7 +221,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("a multi-step traversal declines under the size-1 gate").isEmpty();
+    assertThat(result).as("a multi-step traversal declines under the size-1 gate").isNull();
     assertThat(admin.getSteps())
         .as("the size gate never mutates the traversal's native step list")
         .isEqualTo(stepsBefore);
@@ -238,7 +237,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).isEmpty();
+    assertThat(result).isNull();
   }
 
   /**
@@ -325,7 +324,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("an unconvertible ID declines the whole walk").isEmpty();
+    assertThat(result).as("an unconvertible ID declines the whole walk").isNull();
   }
 
   /**
@@ -342,7 +341,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("a numeric (non-RID) id declines the whole walk").isEmpty();
+    assertThat(result).as("a numeric (non-RID) id declines the whole walk").isNull();
   }
 
   /**
@@ -359,7 +358,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("a blank RID string declines the whole walk").isEmpty();
+    assertThat(result).as("a blank RID string declines the whole walk").isNull();
   }
 
   // ---------------------------------------------------------------------------
@@ -385,13 +384,13 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       var result = GremlinStepWalker.production().walk(admin);
 
-      assertThat(result).isPresent();
+      assertThat(result).isNotNull();
       // No @class narrowing: a bare g.V() carries no boundary-alias filter even under non-poly.
-      assertThat(result.get().inputs().aliasFilters())
+      assertThat(result.inputs().aliasFilters())
           .as("non-poly bare g.V() must not narrow by @class")
           .doesNotContainKey(BOUNDARY_ALIAS);
       // The single-node polymorphic V-class scan is still pinned via aliasClasses.
-      assertThat(result.get().inputs().aliasClasses()).containsEntry(BOUNDARY_ALIAS, "V");
+      assertThat(result.inputs().aliasClasses()).containsEntry(BOUNDARY_ALIAS, "V");
     });
   }
 
@@ -410,8 +409,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       var result = GremlinStepWalker.production().walk(admin);
 
-      assertThat(result).isPresent();
-      var inputs = result.get().inputs();
+      assertThat(result).isNotNull();
+      var inputs = result.inputs();
       assertThat(inputs.aliasRids()).containsKey(BOUNDARY_ALIAS);
       assertThat(inputs.aliasRids().get(BOUNDARY_ALIAS).toString()).isEqualTo("#25:3");
       // No @class filter added to the alias even under non-poly: the by-id lookup is RID-only.
@@ -435,8 +434,8 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       var result = GremlinStepWalker.production().walk(admin);
 
-      assertThat(result).isPresent();
-      var inputs = result.get().inputs();
+      assertThat(result).isNotNull();
+      var inputs = result.inputs();
       assertThat(inputs.aliasRids())
           .as("multi-ID uses an IN filter, not the single-RID hint")
           .doesNotContainKey(BOUNDARY_ALIAS);
@@ -466,7 +465,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result)
         .as("a repeated id cannot be expressed exactly by @rid IN, so the walk declines")
-        .isEmpty();
+        .isNull();
   }
 
   // ---------------------------------------------------------------------------
@@ -478,7 +477,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   /**
    * An empty traversal (zero steps) declines up front at the size gate, before the walk loop and
    * before the boundary invariant. A step-less traversal has nothing to translate and could never
-   * pin a boundary; declining it here keeps it a normal decline (an empty {@link Optional}) rather
+   * pin a boundary; declining it here keeps it a normal decline (a {@code null} return) rather
    * than letting it reach the post-walk invariant assert, which is reserved for a recogniser that
    * claims a step without pinning the boundary. A Mockito traversal with an empty step list drives
    * the {@code steps.isEmpty()} branch directly.
@@ -491,7 +490,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     var result = GremlinStepWalker.production().walk(emptyTraversal);
 
-    assertThat(result).as("an empty traversal declines at the size gate").isEmpty();
+    assertThat(result).as("an empty traversal declines at the size gate").isNull();
   }
 
   /**
