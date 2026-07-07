@@ -134,23 +134,12 @@ final class StartStepRecogniser implements StepRecogniser {
       return false;
     }
 
+    // Normalise the start step's ids to distinct RIDs in one pass. A null return declines the
+    // whole traversal: either an unconvertible id, or a duplicate the set-semantics @rid IN
+    // filter cannot reproduce — both rationales are documented on normaliseIds. The empty-id
+    // g.V() case returns an empty list, not null.
     var rids = normaliseIds(graphStep.getIds());
     if (rids == null) {
-      // At least one ID could not be converted — decline cleanly so the traversal
-      // stays on the native pipeline that knows how to resolve every Gremlin ID
-      // shape.
-      return false;
-    }
-
-    // Native g.V(ids) (YTDBGraphImplAbstract.elements) streams the id array one-to-one
-    // with no dedup, so a repeated id emits the vertex once per occurrence. A translated
-    // @rid IN [...] filter has set semantics: MATCH scans the class once and emits each
-    // matching vertex once, regardless of how many times the id appears. MATCH cannot
-    // express "emit the same vertex twice" through an IN clause, so a duplicated id is a
-    // shape this recogniser cannot match exactly — decline it to native rather than
-    // return a smaller multiset than the native pipeline. The single-id path is exact
-    // (one native emission, one aliasRids lookup) and is unaffected.
-    if (hasDuplicate(rids)) {
       return false;
     }
 
@@ -209,24 +198,47 @@ final class StartStepRecogniser implements StepRecogniser {
   }
 
   /**
-   * Converts the start step's heterogeneous {@code Object[] ids} into a list of
-   * {@link RecordIdInternal}, returning {@code null} as a "decline" sentinel if any
-   * element cannot be normalised. {@link Identifiable} (Gremlin {@code Vertex}/
-   * {@code Edge}, YTDB record handles) and RID-shaped {@link String}s ({@code "#X:Y"})
-   * are accepted; anything else (numbers, arbitrary objects) signals decline.
+   * Normalises the start step's heterogeneous {@code Object[] ids} into a list of distinct
+   * {@link RecordIdInternal} in a single pass, returning {@code null} as a "decline" sentinel
+   * when the shape cannot be translated faithfully. Two conditions decline: an element that does
+   * not normalise, or the same RID appearing more than once.
    *
-   * <p>An empty or null input array maps to an empty list, which represents the
-   * {@code g.V()} no-ID case — the caller distinguishes "no IDs" from "unconvertible
-   * IDs" by the {@code null} return.
+   * <p>{@link Identifiable} (Gremlin {@code Vertex}/{@code Edge}, YTDB record handles) and
+   * RID-shaped {@link String}s ({@code "#X:Y"}) normalise; anything else (numbers, arbitrary
+   * objects) declines. An empty or null input maps to an empty list — the {@code g.V()} no-ID
+   * case — which the caller tells apart from a {@code null} decline.
+   *
+   * <p>The duplicate check shares this pass. Native {@code g.V(ids)}
+   * ({@code YTDBGraphImplAbstract.elements}) streams the id array one-to-one with no dedup, so a
+   * repeated id emits its vertex once per occurrence; a translated {@code @rid IN [...]} filter
+   * has set semantics and emits each vertex once. MATCH cannot express "emit the same vertex
+   * twice", so a duplicated id is a shape this recogniser cannot match exactly — decline rather
+   * than return a smaller multiset than the native pipeline. The single-id path (one native
+   * emission, one aliasRids lookup) can never trip this.
+   *
+   * <p>Dedup keys on the RID value ({@link RidKey}: collection id + position), not the
+   * {@link RecordIdInternal} instance: ids arrive from two paths — {@link
+   * RecordIdInternal#fromString} and {@link Identifiable#getIdentity} — that can return different
+   * concrete subtypes for the same logical rid, so an instance-hashCode set is not guaranteed to
+   * collide them. The same {@code @rid IN} filter is emitted regardless of which subtype carried
+   * the value.
    */
   @Nullable private static List<RecordIdInternal> normaliseIds(Object[] ids) {
     if (ids == null || ids.length == 0) {
       return List.of();
     }
     var rids = new ArrayList<RecordIdInternal>(ids.length);
+    var seen = new HashSet<RidKey>(ids.length);
     for (var id : ids) {
       var rid = toRecordId(id);
       if (rid == null) {
+        // Unconvertible id — decline so the traversal stays on the native pipeline, which knows
+        // how to resolve every Gremlin id shape.
+        return null;
+      }
+      if (!seen.add(new RidKey(rid.getCollectionId(), rid.getCollectionPosition()))) {
+        // Repeated id — the set-semantics @rid IN filter cannot reproduce the native pipeline's
+        // one-emission-per-occurrence multiset. Decline.
         return null;
       }
       rids.add(rid);
@@ -313,28 +325,8 @@ final class StartStepRecogniser implements StepRecogniser {
     return condition;
   }
 
-  /**
-   * Returns {@code true} if {@code rids} contains the same {@link RecordIdInternal} more
-   * than once. Used to decline a {@code g.V(ids)} source with a repeated id: an
-   * {@code @rid IN [...]} filter has set semantics and cannot reproduce the native
-   * pipeline's one-emission-per-occurrence multiset.
-   */
-  private static boolean hasDuplicate(List<RecordIdInternal> rids) {
-    // Dedup on the value key (collection id + position) rather than the RecordIdInternal
-    // instance: the ids reach this list from two paths — RecordIdInternal.fromString and
-    // Identifiable.getIdentity — that can return different concrete permitted subtypes for the
-    // same logical rid, so an instance-hashCode-based set is not guaranteed to collide them.
-    // The same @rid IN filter is emitted regardless of which subtype carried the value, so the
-    // value key is the right identity here.
-    var seen = new HashSet<RidKey>(rids.size());
-    for (var rid : rids) {
-      if (!seen.add(new RidKey(rid.getCollectionId(), rid.getCollectionPosition()))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
+  /** Dedup key for {@link #normaliseIds}: the RID value (collection id + position), not the
+   *  {@link RecordIdInternal} instance. */
   private record RidKey(int collectionId, long position) {
   }
 
