@@ -994,7 +994,7 @@ public class SelectExecutionPlanner {
    */
   static boolean isUnsatisfiableWhere(
       @Nullable List<SQLAndBlock> flattenedWhereClause, CommandContext ctx,
-      @Nullable SchemaClass clazz) {
+      SchemaClass clazz) {
     if (flattenedWhereClause == null || flattenedWhereClause.isEmpty()) {
       return false;
     }
@@ -1031,12 +1031,12 @@ public class SelectExecutionPlanner {
    * and must not be read as empty; likewise it applies the property's collate, so on a
    * case-insensitive STRING property {@code name = 'A' AND name = 'a'} is satisfiable and must not
    * be read as empty. Comparing the raw literals ({@code Objects.equals}, or the untyped equality)
-   * would drop those rows. When the property type is unknown — a schemaless field, or {@code clazz}
-   * did not resolve — the coercion cannot be reproduced, so the equality-contradiction check is
+   * would drop those rows. When the property type is unknown — a schemaless field whose property
+   * is not declared — the coercion cannot be reproduced, so the equality-contradiction check is
    * skipped; the type-independent {@code = null} and {@code IS NULL} contradictions still apply.
    */
   static boolean isUnsatisfiableAndBlock(
-      SQLAndBlock block, CommandContext ctx, @Nullable SchemaClass clazz) {
+      SQLAndBlock block, CommandContext ctx, SchemaClass clazz) {
     Map<String, List<Object>> literalEqualities = new HashMap<>();
     Set<String> nullRequiredProperties = new HashSet<>();
     for (var expr : block.getSubBlocks()) {
@@ -1099,10 +1099,10 @@ public class SelectExecutionPlanner {
       }
       // The runtime filter coerces each literal to the property's stored type and applies the
       // property's collate before comparing, so two values only prove the block empty when they
-      // stay distinct under that same coercion and collation. Without a declared type (schemaless
-      // field, or the class did not resolve) the coercion is unknown, so the contradiction cannot
-      // be proven and the block is left to normal planning.
-      var declared = clazz == null ? null : clazz.getProperty(entry.getKey());
+      // stay distinct under that same coercion and collation. Without a declared type — a
+      // schemaless field whose property is not declared — the coercion is unknown, so the
+      // contradiction cannot be proven and the block is left to normal planning.
+      var declared = clazz.getProperty(entry.getKey());
       if (declared == null) {
         continue;
       }
@@ -2280,7 +2280,13 @@ public class SelectExecutionPlanner {
       boolean profilingEnabled) {
     var identifier = from.getItem().getIdentifier();
     var targetClass = getSchemaFromContext(ctx).getClass(identifier.getStringValue());
-    if (isUnsatisfiableWhere(info.flattenedWhereClause, ctx, targetClass)) {
+    // Only short-circuit when the class resolves. A target whose name is not in the schema is left
+    // to the downstream handlers, which reject it (throwing "Class not found") — so a missing class
+    // errors consistently regardless of the WHERE, instead of a provably-empty predicate
+    // (e.g. `field = null`) silently turning that error into an empty result set. Resolved classes
+    // still short-circuit, including schemaless fields (class resolves, property undeclared).
+    if (targetClass != null
+        && isUnsatisfiableWhere(info.flattenedWhereClause, ctx, targetClass)) {
       plan.chain(new EmptyStep(ctx, profilingEnabled));
       // The predicate is provably empty. Clear the WHERE so handleWhere() does not append a dead
       // FilterStep over the already-empty stream, matching how the index paths consume the WHERE.

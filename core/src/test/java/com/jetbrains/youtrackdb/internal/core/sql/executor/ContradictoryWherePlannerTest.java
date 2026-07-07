@@ -3,8 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
+import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import java.math.BigDecimal;
@@ -313,6 +315,45 @@ public class ContradictoryWherePlannerTest extends TestUtilsFixture {
           rs.getExecutionPlan().getSteps().getFirst() instanceof EmptyStep);
       assertFalse(rs.hasNext());
     }
+  }
+
+  /**
+   * A target class that does not resolve must error the same way whatever the WHERE looks like. A
+   * provably-empty predicate ({@code field = null}) must not turn the class-not-found error into a
+   * silent empty result. Before the {@code targetClass != null} guard in
+   * {@link SelectExecutionPlanner}, {@code SELECT FROM <missing> WHERE f = null} short-circuited to
+   * {@link EmptyStep} and returned zero rows, while the same query with no WHERE threw. This pins
+   * the throw for both shapes so a typo'd class name never hides behind an empty predicate.
+   */
+  @Test
+  public void unsatisfiableWhereOnMissingClass_throwsClassNotFound() {
+    var missingClass = "NoSuchClassForContradictionTest";
+    // Baseline: a missing class with no WHERE throws "Class not found".
+    var noWhere =
+        assertThrows(
+            CommandExecutionException.class,
+            () -> {
+              try (var rs = session.query("SELECT FROM " + missingClass)) {
+                rs.hasNext();
+              }
+            });
+    assertTrue(
+        "expected a class-not-found error, got: " + noWhere.getMessage(),
+        noWhere.getMessage().contains("Class not found"));
+    // Regression: the contradictory `= null` predicate must throw the same error, not swallow it
+    // into an empty result via EmptyStep.
+    var contradictoryWhere =
+        assertThrows(
+            CommandExecutionException.class,
+            () -> {
+              try (var rs =
+                  session.query("SELECT FROM " + missingClass + " WHERE indexed = null")) {
+                rs.hasNext();
+              }
+            });
+    assertTrue(
+        "expected a class-not-found error, got: " + contradictoryWhere.getMessage(),
+        contradictoryWhere.getMessage().contains("Class not found"));
   }
 
   /**
