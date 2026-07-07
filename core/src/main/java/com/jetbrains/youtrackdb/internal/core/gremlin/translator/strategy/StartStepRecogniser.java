@@ -154,29 +154,29 @@ final class StartStepRecogniser implements StepRecogniser {
       return false;
     }
 
-    // Polymorphism resolution lives in the recogniser (not a walker pre-check) so each recogniser
-    // owns the traversal-level reads its own shape needs. YTDBStrategyUtil.isPolymorphic is
-    // null-safe: it returns null (never throws) when the traversal has no attached YTDB graph — a
-    // detached EmptyGraph traversal or a non-YTDB graph — or when its configuration is
-    // unresolvable. The structural gates above still run first so a non-vertex shape declines
-    // cheaply before any config read.
+    // Polymorphism resolution lives in the recogniser (not the WalkerContext constructor or a
+    // walker pre-check) so the cheap structural gates above run first: a non-vertex shape or an
+    // unconvertible id declines before this config read ever touches the session.
+    // YTDBStrategyUtil.isPolymorphic is null-safe — it returns null (never throws) when the
+    // traversal has no attached YTDB graph (a detached EmptyGraph or a non-YTDB graph) or its
+    // configuration is unresolvable. That null is the decline signal: with no resolvable setting
+    // the traversal cannot be translated faithfully, so it stays on the native pipeline.
     //
-    // Only the NULL result is load-bearing in the current scope: a null (no attached YTDB
-    // graph or unresolvable config) declines the whole traversal cleanly. The resolved boolean itself is
-    // deliberately discarded here, because Phase 1's shapes (bare g.V() / g.V(ids)) never
-    // narrow by @class — see the no-@class-narrowing note below and the design doc's
-    // "Schema polymorphism" section. Later recognisers that introduce a new node alias
-    // (the vertex-step chain hops and the hasLabel recognisers) DO consume the flag: under
-    // polymorphic=false they augment the new alias with a @class = '<class>' predicate.
-    // When such a recogniser lands it will carry the flag forward (e.g. a WalkerContext
-    // field) so every alias honours one setting; until a consumer exists the value is
-    // dropped rather than stored on a field nothing reads.
+    // The non-null value is committed to ctx.polymorphic in the commit block below (see
+    // WalkerContext#polymorphic) for the later node-introducing recognisers — the vertex-step
+    // chain hops and the hasLabel recognisers — which read it to add a @class = '<class>'
+    // predicate to their new alias when false, so every alias honours one setting. Phase 1's own
+    // shapes (bare g.V() / g.V(ids)) do not narrow by @class themselves — see the
+    // no-@class-narrowing note below.
     Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(ctx.traversal);
     if (polymorphic == null) {
       return false;
     }
 
     // Validation done; commit mutations to the context.
+    // Carry the resolved setting for later node-introducing recognisers. Unboxing is safe: the
+    // null case declined at the gate above, so `polymorphic` is non-null here.
+    ctx.polymorphic = polymorphic;
     ctx.patternBuilder.addNode(BOUNDARY_ALIAS, DEFAULT_VERTEX_CLASS, null, false);
     ctx.boundaryAlias = BOUNDARY_ALIAS;
     ctx.outputType = BoundaryOutputType.ELEMENT;
