@@ -82,6 +82,16 @@ final class WalkerContext {
    *  alongside {@link #boundaryAlias}. Required for a successful walk. */
   Class<? extends Element> returnClass;
 
+  /** Whether the traversal runs as a polymorphic query, resolved from the traversal's YTDB
+   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}). Set by the start-step
+   *  recogniser after its structural gates pass; because that recogniser runs first (step
+   *  index 0) and the walk declines unless it returns {@code true}, the flag is populated
+   *  before any later recogniser reads it. Later node-introducing recognisers (the vertex-step
+   *  chain hops, {@code hasLabel}) read it to narrow a new alias with {@code @class = '<class>'}
+   *  when {@code false}, so every alias in the pattern honours one setting. A {@code null}
+   *  resolution declines in the recogniser and never reaches this field. */
+  boolean polymorphic;
+
   /** Index of the step the walker is currently dispatching to recognisers, advanced by
    *  the walker after each successful recognise. Recognisers read it (e.g. the
    *  start-step recogniser only accepts at index 0). */
