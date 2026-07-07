@@ -48,7 +48,7 @@ final class GremlinToMatchTranslator {
    * @return the whole-traversal translation, or {@code null} to decline
    */
   @Nullable static TranslationResult translate(Traversal.Admin<?, ?> traversal) {
-    return GremlinStepWalker.production().walk(traversal).orElse(null);
+    return GremlinStepWalker.production().walk(traversal);
   }
 
   /**
