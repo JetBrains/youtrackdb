@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -12,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -465,6 +467,55 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(result)
         .as("a repeated id cannot be expressed exactly by @rid IN, so the walk declines")
         .isEmpty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Walker gate + invariant discipline — an empty traversal declines up front at
+  // the size gate; a recogniser that claims a step but leaves the boundary
+  // unpinned trips the post-walk invariant assert rather than declining silently.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * An empty traversal (zero steps) declines up front at the size gate, before the walk loop and
+   * before the boundary invariant. A step-less traversal has nothing to translate and could never
+   * pin a boundary; declining it here keeps it a normal decline (an empty {@link Optional}) rather
+   * than letting it reach the post-walk invariant assert, which is reserved for a recogniser that
+   * claims a step without pinning the boundary. A Mockito traversal with an empty step list drives
+   * the {@code steps.isEmpty()} branch directly.
+   */
+  @Test
+  public void walk_emptyTraversal_declinesAtSizeGate() {
+    @SuppressWarnings("unchecked")
+    Traversal.Admin<Object, Object> emptyTraversal = mock(Traversal.Admin.class);
+    when(emptyTraversal.getSteps()).thenReturn(List.of());
+
+    var result = GremlinStepWalker.production().walk(emptyTraversal);
+
+    assertThat(result).as("an empty traversal declines at the size gate").isEmpty();
+  }
+
+  /**
+   * A recogniser that claims its step (returns {@code true}) but never pins the boundary metadata
+   * violates the walker's post-walk invariant: every fully-recognised non-empty traversal must
+   * carry a pinned boundary. Because empty traversals are gated out earlier, reaching the invariant
+   * with a null boundary can only be a recogniser-logic bug, so the walker asserts rather than
+   * declining silently — a silent decline would mask the bug. Under {@code -ea} (the test/CI
+   * default) the assert throws {@link AssertionError}, which {@code GremlinToMatchStrategy}'s
+   * throw-safety net does NOT catch (it catches only {@code RuntimeException}), so the bug surfaces
+   * loudly instead of degrading to a silent decline. This test drives a fixture registry whose
+   * recogniser claims the start {@code GraphStep} without mutating the context, and asserts the
+   * walk trips that invariant.
+   */
+  @Test
+  public void walk_recogniserLeavesBoundaryUnpinned_tripsInvariantAssert() {
+    // Fixture recogniser: claims every step it is handed, pins nothing on the context.
+    StepRecogniser unpinning = (step, ctx) -> true;
+    var walker = new GremlinStepWalker(Map.of(GraphStep.class, unpinning));
+    var admin = graph.traversal().V().asAdmin();
+
+    assertThatThrownBy(() -> walker.walk(admin))
+        .as("a recognised walk that leaves the boundary unpinned trips the invariant assert")
+        .isInstanceOf(AssertionError.class);
   }
 
   /**
