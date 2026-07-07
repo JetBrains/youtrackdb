@@ -18,9 +18,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.function.Function;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
@@ -181,12 +179,11 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     // A translator that would translate if consulted — proves the idempotency gate short-
     // circuits before the translator runs.
     var translated = new int[1];
-    Function<Traversal.Admin<?, ?>,
-        Optional<GremlinToMatchTranslator.TranslationResult>> countingTranslator =
-            t -> {
-              translated[0]++;
-              return Optional.of(fixtureTranslation());
-            };
+    GremlinToMatchStrategy.TraversalTranslator countingTranslator =
+        t -> {
+          translated[0]++;
+          return fixtureTranslation();
+        };
     var strategy = new GremlinToMatchStrategy(countingTranslator);
 
     strategy.apply(admin);
@@ -219,7 +216,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
           new GremlinToMatchStrategy(
               t -> {
                 consulted[0]++;
-                return Optional.of(fixtureTranslation());
+                return fixtureTranslation();
               },
               (s, i) -> {
                 neverBuilt[0]++;
@@ -377,7 +374,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
 
     var strategy =
         new GremlinToMatchStrategy(
-            t -> Optional.of(fixtureTranslation()),
+            t -> fixtureTranslation(),
             (s, i) -> {
               throw new IllegalStateException("simulated planner failure");
             });
@@ -419,7 +416,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     var translation = fixtureTranslation();
 
     var strategy =
-        new GremlinToMatchStrategy(t -> Optional.of(translation), (s, i) -> stubPlan);
+        new GremlinToMatchStrategy(t -> translation, (s, i) -> stubPlan);
 
     strategy.apply(admin);
 
@@ -452,7 +449,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         new GremlinToMatchStrategy(
             t -> {
               consulted[0]++;
-              return Optional.of(fixtureTranslation());
+              return fixtureTranslation();
             });
 
     assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
@@ -488,7 +485,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         new GremlinToMatchStrategy(
             t -> {
               consulted[0]++;
-              return Optional.of(fixtureTranslation());
+              return fixtureTranslation();
             });
 
     assertThatCode(() -> strategy.apply(admin)).doesNotThrowAnyException();
@@ -513,7 +510,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         new GremlinToMatchStrategy(
             t -> {
               consulted[0]++;
-              return Optional.of(fixtureTranslation());
+              return fixtureTranslation();
             });
 
     strategy.apply(admin);
@@ -542,7 +539,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
         new GremlinToMatchStrategy(
             t -> {
               consulted[0]++;
-              return Optional.empty();
+              return null;
             });
 
     strategy.apply(admin);
@@ -581,7 +578,7 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
             inputs, "v", BoundaryOutputType.ELEMENT, Vertex.class);
 
     // Single-arg constructor → production plan builder (real MatchExecutionPlanner).
-    var strategy = new GremlinToMatchStrategy(t -> Optional.of(translation));
+    var strategy = new GremlinToMatchStrategy(t -> translation);
 
     strategy.apply(admin);
 
