@@ -1,14 +1,23 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.gremlintest.scenarios;
 
 import static org.apache.tinkerpop.gremlin.LoadGraphWith.GraphData.MODERN;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.gremlin.tokens.YTDBQueryConfigParam;
 import com.jetbrains.youtrackdb.internal.SequentialTest;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMonitoringMode;
 import com.jetbrains.youtrackdb.internal.core.YouTrackDBEnginesManager;
+import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBGraphEmbedded;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromClassExecutionStep;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Random;
@@ -21,6 +30,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.Scope;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.process.traversal.lambda.CardinalityValueTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 import org.apache.tinkerpop.gremlin.structure.VertexProperty;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -194,6 +204,290 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       assertThat(q.toList().isEmpty()).isFalse();
     }
     // Commit should succeed.
+    g.tx().commit();
+  }
+
+  // The getExecutionPlan() accessor is a @Nullable default returning null, so a QueryDetails
+  // implementation that predates the accessor (and does not override it) keeps compiling and
+  // reports no plan. This pins that opt-in default contract.
+  @Test
+  public void queryDetailsDefaultExecutionPlanIsNull() {
+    var detailsWithoutPlanOverride =
+        new QueryMetricsListener.QueryDetails() {
+          @Override
+          public String getQuery() {
+            return "g.V()";
+          }
+
+          @Override
+          public String getQuerySummary() {
+            return null;
+          }
+
+          @Override
+          public String getTransactionTrackingId() {
+            return "tx-1";
+          }
+        };
+
+    assertThat(detailsWithoutPlanOverride.getExecutionPlan())
+        .as("the default accessor returns null for an implementation that does not override it")
+        .isNull();
+  }
+
+  // A plan-backed full scan (querying a class with no usable index) must surface a non-null plan
+  // to the listener, and that plan must contain no FetchFromIndexStep — the shape a scan detector
+  // relies on to flag an unindexed query.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void planBackedScanSurfacesNonNullPlanWithoutFetchFromIndexStep() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().V().hasLabel("person")) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.executionPlan)
+        .as("a plan-backed scan surfaces a non-null plan")
+        .isNotNull();
+    assertThat(listener.planStepsInCallback)
+        .as("the captured plan is the scan plan, not an empty or unrelated plan")
+        .isNotEmpty();
+    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromClassExecutionStep.class))
+        .as("an unindexed scan fetches from the class, not an index")
+        .isTrue();
+    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
+        .as("an unindexed scan uses no index step")
+        .isFalse();
+  }
+
+  // An index-backed query must surface a non-null plan whose steps contain a FetchFromIndexStep.
+  // The indexed class is created in a separate session before the monitored transaction so the
+  // query planner can resolve the index.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void indexedQuerySurfacesPlanWithFetchFromIndexStep() throws Exception {
+    try (var session = ((YTDBGraphEmbedded) graph()).acquireSession()) {
+      var cls = session.getSchema().createVertexClass("IndexedThing");
+      cls.createProperty("code", PropertyType.STRING).createIndex(INDEX_TYPE.NOTUNIQUE);
+    }
+
+    g.tx().open();
+    g().addV("IndexedThing").property("code", "abc").iterate();
+    g.tx().commit();
+
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().V().has("IndexedThing", "code", "abc")) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.executionPlan)
+        .as("an indexed query surfaces a non-null plan")
+        .isNotNull();
+    assertThat(containsStepOfType(listener.planStepsInCallback, FetchFromIndexStep.class))
+        .as("an indexed query uses a FetchFromIndexStep")
+        .isTrue();
+  }
+
+  // A by-id lookup takes the branch that runs no query, so no plan is captured — the listener sees
+  // a null plan even though the callback still fires.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void byIdLookupSurfacesNullPlan() throws Exception {
+    g.tx().open();
+    final var personId = g().V().hasLabel("person").next().id();
+    g.tx().commit();
+
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().V(personId)) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("a by-id lookup runs no query, so no plan is captured")
+        .isNull();
+  }
+
+  // A non-graph-rooted root traversal (g.inject) has no YTDBGraphStep at its root, so
+  // capturedExecutionPlan() finds no source step and the listener sees a null plan even though the
+  // query-finished callback still fires. Pins the documented locality contract that only the root
+  // source step's plan is captured.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void nonGraphRootedTraversalSurfacesNullPlan() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().inject(1, 2, 3)) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("a non-graph-rooted root traversal captures no source-step plan")
+        .isNull();
+  }
+
+  // A downstream limit(0) does NOT prevent the source step from running: the YTDBGraphStep source
+  // supplier executes its query as soon as the traversal is iterated, before RangeGlobalStep can
+  // short-circuit, so a non-null scan plan is still captured. This contradicts the earlier prose
+  // claim that a limit(0) short-circuit leaves the plan null; this test pins the actual observed
+  // behavior for this Gremlin traversal shape.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void downstreamLimitZeroStillCapturesSourcePlan() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().V().hasLabel("person").limit(0)) {
+      q.toList();
+    }
+    g.tx().commit();
+
+    assertThat(listener.notified)
+        .as("the listener was notified")
+        .isTrue();
+    assertThat(listener.executionPlan)
+        .as("the source step runs before limit(0) short-circuits, so its plan is captured")
+        .isNotNull();
+  }
+
+  // The plan must be readable inside the queryFinished callback even though the query's result set
+  // has already closed: getSteps() and prettyPrint() are the session-free inspection surface, and
+  // closing the result set does not clear the retained steps.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void executionPlanReadableInsideCallbackAfterResultSetClosed() throws Exception {
+    final var listener = new RememberingListener();
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+        .withQueryListener(listener);
+
+    g.tx().open();
+    try (var q = g().V().hasLabel("person")) {
+      q.toList(); // fully drains and closes the result set before queryFinished fires
+    }
+    g.tx().commit();
+
+    assertThat(listener.planStepsInCallback)
+        .as("getSteps() is readable in the callback after the result set closed")
+        .isNotNull()
+        .isNotEmpty();
+    assertThat(listener.planPrettyInCallback)
+        .as("prettyPrint() is readable in the callback after the result set closed")
+        .isNotNull()
+        .isNotEmpty();
+  }
+
+  // A cache-hit replay of an identical query in the same transaction surfaces a null plan: the
+  // per-transaction result cache re-serves rows from a view whose plan was nulled when the first
+  // (populating) run's stream drained. The first run is fully drained here so the cache entry
+  // closes before the replay. The result cache is off by default, so the test enables it for
+  // the transaction and restores the previous setting afterward.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void cacheHitReplaySurfacesNullPlan() throws Exception {
+    final var cacheWasEnabled =
+        GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.getValueAsBoolean();
+    GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(true);
+    try {
+      final var listener = new RememberingListener();
+      ((YTDBTransaction) g.tx())
+          .withQueryMonitoringMode(QueryMonitoringMode.EXACT)
+          .withQueryListener(listener);
+
+      g.tx().open();
+
+      try (var q1 = g().V().hasLabel("person")) {
+        q1.toList(); // populating run — fully drained so the cache entry closes and nulls its plan
+      }
+      assertThat(listener.executionPlan)
+          .as("the populating run surfaces a non-null plan")
+          .isNotNull();
+
+      listener.reset();
+
+      try (var q2 = g().V().hasLabel("person")) {
+        q2.toList(); // replay — served from the result cache
+      }
+      g.tx().commit();
+
+      assertThat(listener.notified)
+          .as("the listener was notified on the replay")
+          .isTrue();
+      assertThat(listener.executionPlan)
+          .as("a cache-hit replay surfaces a null plan")
+          .isNull();
+    } finally {
+      GlobalConfiguration.QUERY_TX_RESULT_CACHE_ENABLED.setValue(cacheWasEnabled);
+    }
+  }
+
+  // reset() must clear the retained plan and re-arm the step's iterator. This is a distinct test
+  // from a bare post-reset-null check: it re-iterates the traversal and asserts the results are
+  // still correct, which only holds if reset() called super.reset() to re-enable iteration. A
+  // super-less override would leave the step exhausted, so the second run would return no results.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void resetClearsPlanAndReIterationYieldsCorrectResults() {
+    g.tx().open();
+
+    final var traversal = g().V().hasLabel("person");
+    final var admin = traversal.asAdmin();
+
+    final var firstRun = traversal.toList();
+    assertThat(firstRun)
+        .as("the first run returns the person vertices")
+        .isNotEmpty();
+
+    final var graphStep =
+        TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, admin).orElseThrow();
+    assertThat(graphStep.getLastExecutionPlan())
+        .as("the first run captured a plan")
+        .isNotNull();
+
+    admin.reset();
+    assertThat(graphStep.getLastExecutionPlan())
+        .as("reset() clears the retained plan")
+        .isNull();
+
+    final var secondRun = traversal.toList();
+    assertThat(secondRun)
+        .as("re-iteration after reset() yields the same correct results")
+        .hasSameSizeAs(firstRun);
+    assertThat(graphStep.getLastExecutionPlan())
+        .as("the latest run captured a plan")
+        .isNotNull();
+
     g.tx().commit();
   }
 
@@ -1043,6 +1337,16 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     long startedAtMillis;
     long executionTimeNanos;
 
+    // Set true whenever queryFinished ran, so a test can tell "callback fired but plan was null"
+    // apart from "callback never fired".
+    boolean notified;
+    ExecutionPlan executionPlan;
+    // The plan's steps and pretty-print are captured inside the callback (the only window where the
+    // plan is valid), so a test can assert they are readable there even though the query's result
+    // set has already closed.
+    List<ExecutionStep> planStepsInCallback;
+    String planPrettyInCallback;
+
     @Override
     public void queryFinished(
         QueryDetails queryDetails,
@@ -1054,6 +1358,12 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       this.query = queryDetails.getQuery();
       this.querySummary = queryDetails.getQuerySummary();
       this.transactionTrackingId = queryDetails.getTransactionTrackingId();
+      this.notified = true;
+      this.executionPlan = queryDetails.getExecutionPlan();
+      if (this.executionPlan != null) {
+        this.planStepsInCallback = this.executionPlan.getSteps();
+        this.planPrettyInCallback = this.executionPlan.prettyPrint(0, 2);
+      }
     }
 
     public void reset() {
@@ -1062,7 +1372,26 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
       transactionTrackingId = null;
       startedAtMillis = 0;
       executionTimeNanos = 0;
+      notified = false;
+      executionPlan = null;
+      planStepsInCallback = null;
+      planPrettyInCallback = null;
     }
+  }
+
+  /// Recursively scans an execution plan's steps (and their sub-steps) for a step of the given
+  /// type. A [FetchFromIndexStep] marks the query as index-backed; a [FetchFromClassExecutionStep]
+  /// marks it as a full-class scan.
+  private static boolean containsStepOfType(List<ExecutionStep> steps, Class<?> stepType) {
+    for (var step : steps) {
+      if (stepType.isInstance(step)) {
+        return true;
+      }
+      if (containsStepOfType(step.getSubSteps(), stepType)) {
+        return true;
+      }
+    }
+    return false;
   }
 
 }

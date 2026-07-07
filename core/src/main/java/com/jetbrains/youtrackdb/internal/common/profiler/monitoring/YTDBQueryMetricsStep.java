@@ -4,6 +4,8 @@ import com.jetbrains.youtrackdb.internal.common.log.LogManager;
 import com.jetbrains.youtrackdb.internal.common.profiler.Ticker;
 import com.jetbrains.youtrackdb.internal.common.profiler.monitoring.QueryMetricsListener.QueryDetails;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
+import com.jetbrains.youtrackdb.internal.core.query.ExecutionPlan;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -15,6 +17,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversalSource;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.AbstractStep;
 import org.apache.tinkerpop.gremlin.process.traversal.translator.GroovyTranslator;
+import org.apache.tinkerpop.gremlin.process.traversal.util.TraversalHelper;
 
 /// A transparent TinkerPop step that measures query execution time and reports it to a
 /// [QueryMetricsListener] when the traversal is closed.
@@ -72,6 +75,17 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   @Override
   protected Admin<S> processNextStart() throws NoSuchElementException {
     return starts.next();
+  }
+
+  /// The execution plan of the monitored query for the listener, or {@code null} if none is
+  /// available. The plan lives on the plan-producing source step ([YTDBGraphStep]); this step reads
+  /// it from the source step of its own root traversal at reporting time, so the source step needs
+  /// no knowledge of monitoring. A root traversal has a single such source step; if that step ran
+  /// no plan-backed query (for example a by-id lookup) its plan is {@code null}, which is correct.
+  @Nullable private ExecutionPlan capturedExecutionPlan() {
+    return TraversalHelper.getFirstStepOfAssignableClass(YTDBGraphStep.class, traversal)
+        .map(YTDBGraphStep::getLastExecutionPlan)
+        .orElse(null);
   }
 
   @Override
@@ -141,6 +155,11 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
             @Override
             public String getTransactionTrackingId() {
               return ytdbTx.getTrackingId();
+            }
+
+            @Override
+            public ExecutionPlan getExecutionPlan() {
+              return capturedExecutionPlan();
             }
           },
           startMillis,
