@@ -231,7 +231,8 @@ public interface SQLBinaryCompareOperator {
         if (result <= 0) {
           yield new MergeResult(this, currentRight);
         }
-        yield new MergeResult(otherOperator, otherOperator);
+        // Keep the other LE bound; its right operand is the value, not the operator.
+        yield new MergeResult(otherOperator, otherRight);
       }
 
       case SQLLtOperator lessThan -> {

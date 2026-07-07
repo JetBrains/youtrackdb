@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -366,6 +367,17 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
 
   public SQLExpression getRight() {
     return right;
+  }
+
+  /**
+   * True when this is an equality against the SQL {@code null} literal ({@code field = null} or
+   * {@code null = field}). Such a condition is always false — {@code equals(x, null)} never holds,
+   * even for a null-valued field ({@code IS NULL} is the way to match null) — so any AND block that
+   * contains it is unsatisfiable.
+   */
+  public boolean isEqualityWithNullLiteral() {
+    return operator instanceof SQLEqualsOperator
+        && ((left != null && left.isNull) || (right != null && right.isNull));
   }
 
   public void setLeft(SQLExpression left) {
@@ -747,6 +759,13 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
   @Override
   public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
       @Nonnull CommandContext ctx) {
+    return mergeUsingAnd(other, ctx, null);
+  }
+
+  @Nullable
+  @Override
+  public SQLBooleanExpression mergeUsingAnd(SQLBooleanExpression other,
+      @Nonnull CommandContext ctx, @Nullable Collate collate) {
     if (other instanceof SQLBinaryCondition otherCondition) {
       if (!left.isBaseIdentifier() && !right.isEarlyCalculated(ctx)) {
         return null;
@@ -761,6 +780,27 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       var otherRightValue = otherCondition.right.execute((Result) null, ctx);
       var rightValue = right.execute((Result) null, ctx);
 
+      // Apply the property collate to both equality operands so values that are equal only under the
+      // collate (e.g. 'A' and 'a' on a case-insensitive property) merge into one index lookup rather
+      // than leaving two conditions that no index key can express, which drops the plan to a full
+      // scan. Only equality operands are collated: a range merge keeps its raw bound so the ordering
+      // that picks the tighter bound is unchanged. transform() may reject a value, so a failure
+      // leaves the raw operands and the merge simply may not collapse them.
+      if (collate != null
+          && operator instanceof SQLEqualsOperator
+          && otherCondition.operator instanceof SQLEqualsOperator) {
+        try {
+          if (rightValue != null) {
+            rightValue = collate.transform(rightValue);
+          }
+          if (otherRightValue != null) {
+            otherRightValue = collate.transform(otherRightValue);
+          }
+        } catch (RuntimeException ignore) {
+          // leave the raw values untouched
+        }
+      }
+
       var resultOperand = operator.mergeWithOperator(ctx.getDatabaseSession(),
           otherCondition.operator,
           rightValue,
@@ -769,8 +809,11 @@ public final class SQLBinaryCondition extends SQLBooleanExpression {
       if (resultOperand != null) {
         var result = new SQLBinaryCondition(-1);
         result.left = left.copy();
-        result.operator = operator.copy();
-        result.right = new SQLValueExpression(resultOperand);
+        // Unwrap the MergeResult: the merged condition uses the operator and right value the merge
+        // produced, not the current operator with the whole record as its value. mergeWithOperator
+        // can also change the operator (e.g. GE + NE -> GT), so both fields must come from it.
+        result.operator = resultOperand.operator().copy();
+        result.right = new SQLValueExpression(resultOperand.mergedRightOperand());
 
         return result;
       }

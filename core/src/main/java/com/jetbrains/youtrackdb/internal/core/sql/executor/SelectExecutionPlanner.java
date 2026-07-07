@@ -9,12 +9,14 @@ import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.index.Index;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaClassInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.sql.operator.QueryOperatorEquals;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.AggregateProjectionSplit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLAndBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBaseExpression;
@@ -30,6 +32,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIndexIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInputParameter;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInteger;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetClause;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLetItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMetadataIdentifier;
@@ -982,6 +985,179 @@ public class SelectExecutionPlanner {
     }
 
     return result;
+  }
+
+  /**
+   * Returns {@code true} when every OR branch in the flattened WHERE is provably unsatisfiable
+   * at plan time — e.g. {@code field = 'a' AND field = 'b'} on the same property with different
+   * early-calculable literals. The result set is guaranteed empty without scanning.
+   */
+  static boolean isUnsatisfiableWhere(
+      @Nullable List<SQLAndBlock> flattenedWhereClause, CommandContext ctx,
+      SchemaClass clazz) {
+    if (flattenedWhereClause == null || flattenedWhereClause.isEmpty()) {
+      return false;
+    }
+    for (var block : flattenedWhereClause) {
+      if (!isUnsatisfiableAndBlock(block, ctx, clazz)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Detects that one AND block can never match. A block is provably empty when any of these holds
+   * on the same property:
+   *
+   * <ul>
+   *   <li>an equality against the SQL {@code null} literal ({@code field = null}) — always false,
+   *       so a single such condition empties the block;
+   *   <li>contradictory equality values ({@code field = 'a' AND field = 'b'}) — the property would
+   *       have to hold two different values at once; and
+   *   <li>a non-null equality and an {@code IS NULL} ({@code field = 'a' AND field IS NULL}) — the
+   *       property would have to be both a value and null.
+   * </ul>
+   *
+   * <p>The value operand of an equality is resolved at plan time when it is a literal or a bound
+   * parameter — both of which the engine can evaluate up front; a per-row expression cannot be
+   * resolved and is ignored. The property may sit on either side of the operator, so both
+   * {@code field = 'a'} and {@code 'a' = field} are recognised.
+   *
+   * <p>Two equality values are contradictory only when they stay distinct after coercion to the
+   * property's declared type and application of its collate, compared with the engine's own
+   * type-aware equality. The runtime filter coerces each literal to the stored value's type, so
+   * {@code n = '5' AND n = '05'} on an INTEGER property is satisfiable — both coerce to {@code 5} —
+   * and must not be read as empty; likewise it applies the property's collate, so on a
+   * case-insensitive STRING property {@code name = 'A' AND name = 'a'} is satisfiable and must not
+   * be read as empty. Comparing the raw literals ({@code Objects.equals}, or the untyped equality)
+   * would drop those rows. When the property type is unknown — a schemaless field whose property
+   * is not declared — the coercion cannot be reproduced, so the equality-contradiction check is
+   * skipped; the type-independent {@code = null} and {@code IS NULL} contradictions still apply.
+   */
+  static boolean isUnsatisfiableAndBlock(
+      SQLAndBlock block, CommandContext ctx, SchemaClass clazz) {
+    Map<String, List<Object>> literalEqualities = new HashMap<>();
+    Set<String> nullRequiredProperties = new HashSet<>();
+    for (var expr : block.getSubBlocks()) {
+      // `field IS NULL` forces the property to be null; record it and cross-check against non-null
+      // equalities on the same property after the loop.
+      if (expr instanceof SQLIsNullCondition isNull) {
+        var target = isNull.getExpression();
+        if (target != null && target.isBaseIdentifier()) {
+          nullRequiredProperties.add(target.getDefaultAlias().getStringValue());
+        }
+        continue;
+      }
+      if (!(expr instanceof SQLBinaryCondition cond)) {
+        continue;
+      }
+      // `X = null` is always false, so one such condition makes the whole AND block empty.
+      if (cond.isEqualityWithNullLiteral()) {
+        return true;
+      }
+      if (!(cond.getOperator() instanceof SQLEqualsOperator)) {
+        continue;
+      }
+      // The property can be on either side of '='; the literal is whatever the other side is,
+      // provided it resolves at plan time. Skip conditions with no bare property (e.g. field =
+      // field) or a non-literal operand.
+      var left = cond.getLeft();
+      var right = cond.getRight();
+      String property;
+      SQLExpression valueExpr;
+      if (left != null && left.isBaseIdentifier() && right != null
+          && right.isEarlyCalculated(ctx)) {
+        property = left.getDefaultAlias().getStringValue();
+        valueExpr = right;
+      } else if (right != null && right.isBaseIdentifier()
+          && left != null && left.isEarlyCalculated(ctx)) {
+        property = right.getDefaultAlias().getStringValue();
+        valueExpr = left;
+      } else {
+        continue;
+      }
+      // Resolve the value operand up front. A bound parameter that is unbound or bound to null
+      // resolves to null and is recorded as an always-false `field = null` equality (matching the
+      // runtime filter). A constant fold that throws when evaluated at plan time (e.g. `1 / 0`)
+      // must not abort planning: on an empty or non-matching scan the runtime filter never
+      // evaluates it, so leave the operand to normal planning rather than turning a query that
+      // used to run into a plan-time failure.
+      Object value;
+      try {
+        value = valueExpr.execute((Result) null, ctx);
+      } catch (RuntimeException ignore) {
+        continue;
+      }
+      literalEqualities.computeIfAbsent(property, k -> new ArrayList<>()).add(value);
+    }
+    var session = ctx.getDatabaseSession();
+    for (var entry : literalEqualities.entrySet()) {
+      var values = entry.getValue();
+      if (values.size() < 2) {
+        continue;
+      }
+      // The runtime filter coerces each literal to the property's stored type and applies the
+      // property's collate before comparing, so two values only prove the block empty when they
+      // stay distinct under that same coercion and collation. Without a declared type — a
+      // schemaless field whose property is not declared — the coercion is unknown, so the
+      // contradiction cannot be proven and the block is left to normal planning.
+      var declared = clazz.getProperty(entry.getKey());
+      if (declared == null) {
+        continue;
+      }
+      var type = PropertyTypeInternal.convertFromPublicType(declared.getType());
+      if (type == null) {
+        continue;
+      }
+      var collate = declared.getCollate();
+      var first = values.getFirst();
+      for (var i = 1; i < values.size(); i++) {
+        if (literalsProvablyDistinct(session, first, values.get(i), type, collate)) {
+          return true;
+        }
+      }
+    }
+    // A property forced null by IS NULL cannot also satisfy an equality on the same property: a
+    // non-null value contradicts IS NULL, and an equality whose value is null (a `= null` literal
+    // returns above; a parameter bound to null reaches the map) matches no row on its own. Either
+    // way, a property in both maps empties the block.
+    for (var nullProperty : nullRequiredProperties) {
+      if (literalEqualities.containsKey(nullProperty)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * True when {@code a} and {@code b} stay unequal after coercion to {@code type} and application
+   * of {@code collate}, so no stored value of that type can equal both. Mirrors the runtime filter
+   * ({@link com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition#evaluate}): the
+   * property's collate is applied to each operand before the engine's type-aware equality, so a
+   * case-insensitive property treats {@code 'A'} and {@code 'a'} as equal (satisfiable) rather than
+   * distinct. A literal that cannot be coerced to {@code type}, or a collate that rejects the
+   * value, matches no row at runtime, but doing that work here can throw; that case is treated as
+   * "not provably distinct" so a query that used to run is never turned into a plan-time failure.
+   */
+  private static boolean literalsProvablyDistinct(
+      @Nullable DatabaseSessionEmbedded session, Object a, Object b, PropertyTypeInternal type,
+      @Nullable Collate collate) {
+    try {
+      if (collate != null) {
+        // Guard nulls: `equals(x, null)` is already false, and not every Collate implementation is
+        // null-safe in transform().
+        if (a != null) {
+          a = collate.transform(a);
+        }
+        if (b != null) {
+          b = collate.transform(b);
+        }
+      }
+      return !QueryOperatorEquals.equals(session, a, b, type);
+    } catch (RuntimeException ignore) {
+      return false;
+    }
   }
 
   /**
@@ -2103,6 +2279,21 @@ public class SelectExecutionPlanner {
       CommandContext ctx,
       boolean profilingEnabled) {
     var identifier = from.getItem().getIdentifier();
+    var targetClass = getSchemaFromContext(ctx).getClass(identifier.getStringValue());
+    // Only short-circuit when the class resolves. A target whose name is not in the schema is left
+    // to the downstream handlers, which reject it (throwing "Class not found") — so a missing class
+    // errors consistently regardless of the WHERE, instead of a provably-empty predicate
+    // (e.g. `field = null`) silently turning that error into an empty result set. Resolved classes
+    // still short-circuit, including schemaless fields (class resolves, property undeclared).
+    if (targetClass != null
+        && isUnsatisfiableWhere(info.flattenedWhereClause, ctx, targetClass)) {
+      plan.chain(new EmptyStep(ctx, profilingEnabled));
+      // The predicate is provably empty. Clear the WHERE so handleWhere() does not append a dead
+      // FilterStep over the already-empty stream, matching how the index paths consume the WHERE.
+      info.whereClause = null;
+      info.flattenedWhereClause = null;
+      return;
+    }
     if (handleClassAsTargetWithIndexedFunction(
         plan, identifier, info, ctx, profilingEnabled)) {
       plan.chain(new FilterByClassStep(identifier, ctx, profilingEnabled));
@@ -2129,10 +2320,11 @@ public class SelectExecutionPlanner {
       orderByRidAsc = false;
     }
     var className = identifier.getStringValue();
-    Schema schema = getSchemaFromContext(ctx);
 
     AbstractExecutionStep fetcher;
-    if (schema.getClass(className) != null) {
+    // Reuse the class resolved at the top of the method for the empty-WHERE check instead of
+    // looking it up again.
+    if (targetClass != null) {
       fetcher =
           new FetchFromClassExecutionStep(
               className, null, info, ctx, orderByRidAsc, profilingEnabled);
@@ -3107,10 +3299,17 @@ public class SelectExecutionPlanner {
         //try to mere first condition with the rest of the conditions too
         var resultingExpressions = new ArrayList<SQLBooleanExpression>(2);
 
+        // The merge collapses two equalities on the same property into one index key. Pass the
+        // property collate so values that are equal only under it (e.g. 'A' and 'a' on a
+        // case-insensitive property) still merge and keep using the index instead of dropping to a
+        // full scan.
+        var mergeProperty = clazz.getProperty(indexPropertyName);
+        var mergeCollate = mergeProperty == null ? null : mergeProperty.getCollate();
+
         var firstExpression = expressions.getFirst();
         var expressionToMerge = expressions.get(1);
 
-        var mergedExpression = firstExpression.mergeUsingAnd(expressionToMerge, ctx);
+        var mergedExpression = firstExpression.mergeUsingAnd(expressionToMerge, ctx, mergeCollate);
         if (mergedExpression != null) {
           expressionToMerge = mergedExpression;
         } else {
@@ -3120,7 +3319,8 @@ public class SelectExecutionPlanner {
         if (expressions.size() > 2) {
           for (var i = 2; i < expressions.size(); i++) {
             var nextBlockToMerge = expressions.get(i);
-            expressionToMerge = expressionToMerge.mergeUsingAnd(nextBlockToMerge, ctx);
+            expressionToMerge =
+                expressionToMerge.mergeUsingAnd(nextBlockToMerge, ctx, mergeCollate);
 
             //unable to merge expressions
             if (expressionToMerge == null) {
