@@ -13,10 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimiz
 import com.jetbrains.youtrackdb.internal.core.sql.executor.InternalExecutionPlan;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchExecutionPlanner;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
-import java.util.Optional;
 import java.util.Set;
-import java.util.function.BiFunction;
-import java.util.function.Function;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
@@ -77,9 +74,9 @@ import org.slf4j.LoggerFactory;
  *       (clone-for-reuse, test-harness re-application, lazy first-iteration apply); leaving an
  *       already-translated traversal alone keeps rewriting deterministic and avoids discarding
  *       a built plan.</li>
- *   <li><b>Empty translation.</b> {@link GremlinToMatchTranslator#translate} returns {@link
- *       Optional#empty()} — no whole-traversal translation is available because the walker
- *       declined a step. Replacing zero steps would be a no-op, so the strategy returns.</li>
+ *   <li><b>No translation.</b> {@link GremlinToMatchTranslator#translate} returns {@code null}
+ *       — no whole-traversal translation is available because the walker declined a step.
+ *       Replacing zero steps would be a no-op, so the strategy returns.</li>
  * </ol>
  *
  * <h2>Throw-safety net</h2>
@@ -102,8 +99,9 @@ import org.slf4j.LoggerFactory;
  * or plan build must surface loudly instead of degrading to a silent decline that masks a real
  * bug, and a fatal {@code OutOfMemoryError} / {@code StackOverflowError} must not be handed to
  * the native pipeline to re-attempt in an already-exhausted JVM. The body throws only unchecked
- * exceptions — its calls go through {@code Function} / {@code BiFunction} and TinkerPop APIs —
- * so {@code RuntimeException} covers every failure that can actually occur.
+ * exceptions — its calls go through the {@code TraversalTranslator} / {@code MatchPlanBuilder}
+ * seams and TinkerPop APIs — so {@code RuntimeException} covers every failure that can actually
+ * occur.
  *
  * <p>The net catches during the walk and the plan build; the actual step-list mutation happens
  * only after both succeed (see {@link #applyTranslation}), so a caught exception always leaves
@@ -131,10 +129,11 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Testability</h2>
  *
- * The translator is injected through a package-private constructor so unit tests can drive the
- * post-gate splice path with a fixture {@link GremlinToMatchTranslator.TranslationResult}
- * (and can supply a throwing fixture to exercise the throw-safety net) without wiring a real
- * walker. Production code uses {@link #instance()}, which wires the production facade.
+ * The translator and plan builder are injected as the {@link TraversalTranslator} and {@link
+ * MatchPlanBuilder} seams through package-private constructors, so unit tests can drive the
+ * post-gate splice path with a fixture {@link GremlinToMatchTranslator.TranslationResult} (and
+ * can supply a throwing fixture to exercise the throw-safety net) without wiring a real walker.
+ * Production code uses {@link #instance()}, which wires the production facade.
  */
 public final class GremlinToMatchStrategy
     extends AbstractTraversalStrategy<TraversalStrategy.ProviderOptimizationStrategy>
@@ -160,19 +159,15 @@ public final class GremlinToMatchStrategy
       new GremlinToMatchStrategy(
           GremlinToMatchTranslator::translate, GremlinToMatchStrategy::buildPlan);
 
-  private final Function<Traversal.Admin<?, ?>,
-      Optional<GremlinToMatchTranslator.TranslationResult>> translator;
+  private final TraversalTranslator translator;
 
-  private final BiFunction<DatabaseSessionEmbedded, MatchPlanInputs,
-      InternalExecutionPlan> planBuilder;
+  private final MatchPlanBuilder planBuilder;
 
   /**
    * Package-private — tests construct a strategy with a fixture translator (and the production
    * plan builder). Production code goes through {@link #instance()}.
    */
-  GremlinToMatchStrategy(
-      Function<Traversal.Admin<?, ?>,
-          Optional<GremlinToMatchTranslator.TranslationResult>> translator) {
+  GremlinToMatchStrategy(TraversalTranslator translator) {
     this(translator, GremlinToMatchStrategy::buildPlan);
   }
 
@@ -182,11 +177,7 @@ public final class GremlinToMatchStrategy
    * standing up the real {@link MatchExecutionPlanner}. Production code goes through {@link
    * #instance()}, which wires the production translator and the production plan builder.
    */
-  GremlinToMatchStrategy(
-      Function<Traversal.Admin<?, ?>,
-          Optional<GremlinToMatchTranslator.TranslationResult>> translator,
-      BiFunction<DatabaseSessionEmbedded, MatchPlanInputs,
-          InternalExecutionPlan> planBuilder) {
+  GremlinToMatchStrategy(TraversalTranslator translator, MatchPlanBuilder planBuilder) {
     this.translator = translator;
     this.planBuilder = planBuilder;
   }
@@ -239,11 +230,11 @@ public final class GremlinToMatchStrategy
     if (containsBoundaryStep(traversal)) {
       return;
     }
-    var translation = translator.apply(traversal);
-    if (translation.isEmpty()) {
+    var translation = translator.translate(traversal);
+    if (translation == null) {
       return;
     }
-    applyTranslation(traversal, session, translation.get());
+    applyTranslation(traversal, session, translation);
   }
 
   /**
@@ -366,7 +357,7 @@ public final class GremlinToMatchStrategy
       Traversal.Admin<?, ?> traversal,
       DatabaseSessionEmbedded session,
       GremlinToMatchTranslator.TranslationResult translation) {
-    InternalExecutionPlan plan = planBuilder.apply(session, translation.inputs());
+    InternalExecutionPlan plan = planBuilder.buildPlan(session, translation.inputs());
     replaceAllStepsWithBoundary(traversal, plan, translation);
   }
 
@@ -416,5 +407,29 @@ public final class GremlinToMatchStrategy
   @Override
   public Set<Class<? extends ProviderOptimizationStrategy>> applyPost() {
     return NO_ORDERING;
+  }
+
+  /**
+   * Injection seam for the whole-traversal translation step. Production wires {@link
+   * GremlinToMatchTranslator#translate}; tests pass a fixture (or a throwing fixture for the
+   * throw-safety net) without a real walker. Named rather than a bare {@code Function} so the
+   * call site reads {@code translator.translate(traversal)}, and returns {@code null} to decline
+   * rather than an empty {@link java.util.Optional} — the seam is package-private, so a nullable
+   * return is simpler than wrapping at the single call site.
+   */
+  @FunctionalInterface
+  interface TraversalTranslator {
+    @Nullable GremlinToMatchTranslator.TranslationResult translate(Traversal.Admin<?, ?> traversal);
+  }
+
+  /**
+   * Injection seam for building the MATCH execution plan from translated inputs. Production wires
+   * {@link #buildPlan}; tests pass a stub so the splice path runs without a real {@link
+   * MatchExecutionPlanner}. Named rather than a bare {@code BiFunction} so the call site reads
+   * {@code planBuilder.buildPlan(session, inputs)}.
+   */
+  @FunctionalInterface
+  interface MatchPlanBuilder {
+    InternalExecutionPlan buildPlan(DatabaseSessionEmbedded session, MatchPlanInputs inputs);
   }
 }
