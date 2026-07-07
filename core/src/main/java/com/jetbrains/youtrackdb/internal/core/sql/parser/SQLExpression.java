@@ -244,15 +244,26 @@ public class SQLExpression extends SimpleNode {
   }
 
   /**
-   * Returns true when this expression is a bare reference to an internal (synthesized) alias
-   * — a variable produced by inline-subquery extraction ({@code $$$SUBQUERY$$_N}) or
-   * aggregate-projection splitting. {@link #isEarlyCalculated} reports true for such a
-   * reference because the alias is internal, but its value is bound by a LET step only at
-   * execution time. A plan-time evaluator (the class-target {@code @rid} direct-fetch fast
-   * path) must therefore treat it as non-resolvable and fall through to the scan, where the
-   * LET step runs before the filter is applied.
+   * Returns true when this expression can be resolved to a concrete value now, at plan-build time,
+   * without executing any query step. This is stricter than {@link #isEarlyCalculated}: an
+   * early-calculable value may still be an internal LET-variable reference (see
+   * {@link #refersToInternalAlias}) that is bound only when its LET step runs during execution. A
+   * plan-time evaluator (the class-target {@code @rid} direct-fetch fast path) must gate on this
+   * predicate; index handlers, which resolve the value at execution time, gate on the looser
+   * {@link #isEarlyCalculated} instead.
    */
-  public boolean refersToInternalAlias() {
+  public boolean isPlanTimeResolvable(CommandContext ctx) {
+    return isEarlyCalculated(ctx) && !refersToInternalAlias();
+  }
+
+  /**
+   * Returns true when this expression is a bare reference to an internal (synthesized) alias — a
+   * variable produced by inline-subquery extraction ({@code $$$SUBQUERY$$_N}) or
+   * aggregate-projection splitting. {@link #isEarlyCalculated} reports true for such a reference
+   * because the alias is internal, but its value is bound by a LET step only at execution time, so
+   * a plan-time evaluator must treat it as non-resolvable — see {@link #isPlanTimeResolvable}.
+   */
+  private boolean refersToInternalAlias() {
     if (!(mathExpression instanceof SQLBaseExpression base)) {
       return false;
     }

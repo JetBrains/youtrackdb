@@ -2424,15 +2424,15 @@ public class SelectExecutionPlanner {
       return false;
     }
 
-    // Only optimize a plan-time-resolvable RID value (literal or bound param). By the time
-    // this runs, extractSubQueries() has rewritten `@rid IN (subquery)` into
-    // `@rid IN $$$SUBQUERY$$_N` — a reference to an internal LET variable. That reference
-    // reports isEarlyCalculated() == true (it is an internal alias) but is bound only when
-    // the LET step runs during execution; evaluating it here yields empty and would wrongly
-    // collapse the plan to EmptyStep. refersToInternalAlias() rejects it so the query falls
-    // through to the scan + filter, which runs after the LET step.
+    // Only optimize a value resolvable now, at plan time (a literal or bound param). By the
+    // time this runs, extractSubQueries() has rewritten `@rid IN (subquery)` into
+    // `@rid IN $$$SUBQUERY$$_N` — a reference to an internal LET variable. isEarlyCalculated()
+    // still reports it as resolvable, but its value is bound only when the LET step runs during
+    // execution; evaluating it here yields empty and would wrongly collapse the plan to an
+    // EmptyStep. isPlanTimeResolvable() excludes it so the query falls through to the scan +
+    // filter, which runs after the LET step.
     var ridExpression = extraction.ridExpression();
-    if (!ridExpression.isEarlyCalculated(ctx) || ridExpression.refersToInternalAlias()) {
+    if (!ridExpression.isPlanTimeResolvable(ctx)) {
       return false;
     }
 
