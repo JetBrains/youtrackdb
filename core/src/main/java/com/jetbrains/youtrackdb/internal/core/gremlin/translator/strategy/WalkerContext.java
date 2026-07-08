@@ -126,6 +126,52 @@ final class WalkerContext {
    *  #ANON_VERTEX_ALIAS_PREFIX}. */
   static final String EDGE_ALIAS_PREFIX = "$g2m_edge_";
 
+  /**
+   * The single definition of the reserved {@code $} alias-namespace prefix. The translator mints
+   * every internal alias under it ({@link #ANON_VERTEX_ALIAS_PREFIX} and {@link #EDGE_ALIAS_PREFIX}
+   * both begin with {@code $}), so a user identifier in this space could reach a MATCH WHERE
+   * identifier the executor resolves as a query context variable ({@code $parent}, or any {@code
+   * $name} bound in the execution context) rather than a record property — diverging from native
+   * Gremlin, which treats {@code $foo} as a plain, absent property name.
+   *
+   * <p>Both reserved-namespace guards read this one constant so they cannot drift apart on its
+   * value: {@link GremlinStepWalker}'s reserved-prefix {@code as(...)} label pre-flight declines a
+   * label starting with it, and {@link GremlinPredicateAdapter}'s {@code has(...)}-key guard folds
+   * it into {@link #isReservedHasKey(String)}.
+   */
+  static final String RESERVED_ALIAS_PREFIX = "$";
+
+  /** TinkerPop's hidden-key namespace prefix ({@code ~label} / {@code ~id}, produced by {@code
+   *  hasLabel} / {@code hasId}). A {@code has(...)} key in this space is a reserved token, not a
+   *  plain property, so {@link #isReservedHasKey(String)} declines it. */
+  static final String HIDDEN_KEY_PREFIX = "~";
+
+  /** YouTrackDB's record-attribute namespace prefix ({@code @class} / {@code @rid} / {@code
+   *  @version}). The shared identifier resolver treats a bare {@code @}-prefixed identifier as
+   *  record metadata rather than a property, so a {@code has(...)} key in this space would diverge
+   *  from native Gremlin — which treats {@code @foo} as an ordinary, absent property name.
+   *  {@link #isReservedHasKey(String)} declines it. */
+  static final String RECORD_ATTRIBUTE_PREFIX = "@";
+
+  /**
+   * The one place the {@code has(...)}-key reserved-namespace decline set is expressed. Returns
+   * {@code true} when {@code key} lands in a namespace whose bare identifier the MATCH executor
+   * would resolve as something other than a plain record property — the minted-alias {@code $}
+   * space ({@link #RESERVED_ALIAS_PREFIX}), TinkerPop's hidden-key {@code ~} space ({@link
+   * #HIDDEN_KEY_PREFIX}), or YouTrackDB's record-attribute {@code @} space ({@link
+   * #RECORD_ATTRIBUTE_PREFIX}) — so the predicate adapter declines rather than translate a
+   * divergent filter. Centralising the three prefixes here keeps the decline set from drifting as
+   * predicate coverage grows in later tracks. Null / blank keys are the caller's concern (not a
+   * namespace one). The walker's label pre-flight deliberately consumes only {@link
+   * #RESERVED_ALIAS_PREFIX}: an {@code as(...)} label can collide only with the minted-alias
+   * namespace, never with {@code ~} / {@code @}.
+   */
+  static boolean isReservedHasKey(String key) {
+    return key.startsWith(RESERVED_ALIAS_PREFIX)
+        || key.startsWith(HIDDEN_KEY_PREFIX)
+        || key.startsWith(RECORD_ATTRIBUTE_PREFIX);
+  }
+
   /** Monotonic counter behind {@link #nextAnonVertexAlias()}. Per-context (reset each walk), so
    *  the alias sequence is deterministic per query rather than monotonic across the JVM. */
   private int anonVertexCounter;

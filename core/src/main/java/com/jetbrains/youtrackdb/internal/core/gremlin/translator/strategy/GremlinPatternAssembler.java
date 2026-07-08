@@ -85,11 +85,6 @@ final class GremlinPatternAssembler {
   }
 
   /**
-   * Re-pins the boundary metadata and replaces the single RETURN column so the result is the new
-   * {@code targetAlias} vertex. Clears the three parallel return lists first so a naive append cannot
-   * leave a stale column keyed on the previous boundary.
-   */
-  /**
    * Maps a TinkerPop {@link Direction} onto the pattern builder's edge direction. A vertex/edge hop
    * only ever carries the three proper directions {@code OUT} / {@code IN} / {@code BOTH} ({@code
    * Direction.from} / {@code Direction.to} are aliases for {@code OUT} / {@code IN}, not separate
@@ -106,6 +101,11 @@ final class GremlinPatternAssembler {
     };
   }
 
+  /**
+   * Re-pins the boundary metadata and replaces the single RETURN column so the result is the new
+   * {@code targetAlias} vertex. Clears the three parallel return lists first so a naive append cannot
+   * leave a stale column keyed on the previous boundary.
+   */
   private static void rePinBoundaryToTarget(WalkerContext ctx, String targetAlias) {
     ctx.boundaryAlias = targetAlias;
     ctx.outputType = BoundaryOutputType.ELEMENT;

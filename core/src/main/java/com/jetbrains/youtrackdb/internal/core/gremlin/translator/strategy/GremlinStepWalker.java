@@ -98,15 +98,6 @@ final class GremlinStepWalker {
   private static final GremlinStepWalker PRODUCTION_INSTANCE =
       new GremlinStepWalker(PRODUCTION_RECOGNISERS);
 
-  /**
-   * Prefix the reserved-prefix pre-flight scan forbids in user labels. The translator mints all
-   * of its internal aliases under {@code $} ({@link WalkerContext#ANON_VERTEX_ALIAS_PREFIX} /
-   * {@link WalkerContext#EDGE_ALIAS_PREFIX}), so a user label in this space could collide with a
-   * minted one; a traversal carrying such a label declines to the native pipeline. Kept as one
-   * greppable constant tied to the reserved namespace.
-   */
-  private static final String RESERVED_ALIAS_PREFIX = "$";
-
   private final Map<Class<?>, StepRecogniser> recognisers;
 
   /**
@@ -222,8 +213,8 @@ final class GremlinStepWalker {
 
   /**
    * Returns {@code true} if any step carries a user label starting with the reserved {@code $}
-   * prefix ({@link #RESERVED_ALIAS_PREFIX}). Scans every step's {@code getLabels()} once; the
-   * scan is purely lexical (no graph access), so the walker runs it before resolving any
+   * prefix ({@link WalkerContext#RESERVED_ALIAS_PREFIX}). Scans every step's {@code getLabels()}
+   * once; the scan is purely lexical (no graph access), so the walker runs it before resolving any
    * session-dependent state. A match declines the whole traversal rather than throwing, so a
    * pre-existing {@code as("$foo")} query keeps its native behaviour.
    */
@@ -235,7 +226,7 @@ final class GremlinStepWalker {
         // A step's label set can contain a null: as((String) null) reaches AbstractStep.addLabel,
         // which adds the label with no null guard. Skip nulls so this purely lexical scan declines
         // (never throws) — a null label cannot collide with the reserved '$' namespace anyway.
-        if (label != null && label.startsWith(RESERVED_ALIAS_PREFIX)) {
+        if (label != null && label.startsWith(WalkerContext.RESERVED_ALIAS_PREFIX)) {
           return true;
         }
       }
