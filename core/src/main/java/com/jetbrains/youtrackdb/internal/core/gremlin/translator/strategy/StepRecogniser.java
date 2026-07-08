@@ -27,29 +27,47 @@ import org.apache.tinkerpop.gremlin.process.traversal.Step;
  * class. A recogniser MAY still re-assert its step type with an {@code instanceof} check as
  * defence-in-depth, but that check is not the routing mechanism.
  *
+ * <h2>Consumed-step count: recognisers advance the cursor</h2>
+ *
+ * The walker's loop is index-driven — it reads {@code steps.get(ctx.stepIndex)}, dispatches
+ * it, and does <em>not</em> advance the cursor itself. A recogniser that claims its step
+ * (returns {@code true}) MUST advance {@link WalkerContext#stepIndex} past every step it
+ * consumed: by one for a single-step claim, by N for a multi-step claim (the non-adjacent
+ * {@code outE(L).has(...).inV()} chain, where one recogniser consumes the edge step, the
+ * interleaved {@code has(...)} steps, and the closing vertex hop in a single call). The
+ * advance count is the recogniser's report of how many steps it consumed; the walker resumes
+ * dispatch at the new cursor. A recogniser that returns {@code true} without advancing would
+ * spin the walker's loop forever, so this is a hard part of the contract, guarded by an
+ * assertion in the walker.
+ *
  * <h2>Discipline</h2>
  *
- * Recognisers MUST validate before mutating {@link WalkerContext}. A recogniser that
- * partially mutates the context and then returns {@code false} would leave a later
- * recogniser inspecting tainted state — the walker does not roll back per-step
- * mutations. The contract is "look first, write last".
+ * Recognisers MUST validate before mutating {@link WalkerContext} — including {@link
+ * WalkerContext#stepIndex}. A recogniser that partially mutates the context (or advances the
+ * cursor) and then returns {@code false} would leave a later recogniser inspecting tainted
+ * state — the walker does not roll back per-step mutations. The contract is "look first, write
+ * last": a declining recogniser leaves {@code ctx} — cursor included — exactly as it found it.
  */
 @FunctionalInterface
 interface StepRecogniser {
 
   /**
-   * Inspects a single step from the traversal. Returns {@code true} when the step has
-   * been fully consumed and its effect appended to {@code ctx}. A {@code false} return
-   * declines the whole traversal: dispatch is class-keyed, so this recogniser is the only
-   * one registered for the step's class and there is no next recogniser to try.
+   * Inspects the step at the walker's current cursor. Returns {@code true} when the step (and,
+   * for a multi-step claim, its trailing consumed steps) has been fully translated into {@code
+   * ctx} and the cursor {@link WalkerContext#stepIndex} advanced past every consumed step. A
+   * {@code false} return declines the whole traversal: dispatch is class-keyed, so this
+   * recogniser is the only one registered for the step's class and there is no next recogniser
+   * to try.
    *
    * @param step the current step under consideration; never {@code null}
    * @param ctx  the in-progress walker state — recognisers read traversal-level
    *             information (attached graph, polymorphism resolution) and append their
    *             contribution to the pattern builder, alias maps, and return-projection
    *             lists. Recognisers MUST NOT mutate {@code ctx} unless they are committing
-   *             to return {@code true}.
-   * @return {@code true} iff the step was recognised and the context was updated.
+   *             to return {@code true}, and on {@code true} MUST advance {@link
+   *             WalkerContext#stepIndex} by the number of steps consumed (≥ 1).
+   * @return {@code true} iff the step was recognised, the context was updated, and the cursor
+   *         was advanced past every consumed step.
    */
   boolean recognize(Step<?, ?> step, WalkerContext ctx);
 }

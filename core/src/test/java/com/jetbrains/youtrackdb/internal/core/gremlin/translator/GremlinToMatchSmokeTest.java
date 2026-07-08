@@ -346,12 +346,14 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
-   * A follow-up step ({@code g.V().out()}) declines the whole traversal — Phase 1's recognized
-   * set is exactly the bare vertex source (the minimal-prefix size-1 gate). The traversal keeps
-   * its native step shape with no boundary step spliced.
+   * A follow-up step ({@code g.V().out("knows")}) declines the whole traversal: the translator
+   * recognizes the vertex source but no recognizer claims the folded {@code out} vertex step in
+   * this track, so under all-or-nothing the whole traversal declines and stays on the native
+   * pipeline with no boundary step spliced. The walker has no step-count gate — it walks the whole
+   * step list and declines at the first unrecognized step class.
    */
   @Test
-  public void followUpStepDeclinesUnderMinimalPrefixGate() {
+  public void followUpStepDeclinesUnrecognizedStep() {
     var alice = graph.addVertex(T.label, "Person", "name", "Alice");
     var bob = graph.addVertex(T.label, "Person", "name", "Bob");
     alice.addEdge("knows", bob);
@@ -360,7 +362,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V().out("knows").asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("a multi-step traversal must decline under the minimal-prefix gate")
+        .as("a follow-up step with no recognizer must decline the whole traversal")
         .isEqualTo(0);
 
     // The declined shape still executes correctly on the native pipeline: Alice -knows-> Bob.
@@ -370,12 +372,12 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
-   * A {@code g.V().has("name", "Alice")} start declines: {@code YTDBGraphStepStrategy} folds the
-   * {@code has} into a {@code YTDBGraphStep} with a non-empty has-container, which the translator
-   * declines. Because the translator runs first, at translator time the step is still a plain
-   * {@code GraphStep} carrying no folded predicate — but the whole traversal has more than one
-   * step before folding collapses it, so the minimal-prefix gate declines it regardless, and the
-   * native folder then handles the shape.
+   * A {@code g.V().has("name", "Alice")} start declines. Because the translator runs before {@code
+   * YTDBGraphStepStrategy} folds the {@code has} into the start step, at translator time the
+   * traversal is still {@code [GraphStep, HasStep]}: the walker recognizes the vertex source but no
+   * recognizer claims the {@code HasStep} in this track, so under all-or-nothing the whole traversal
+   * declines. The native folder then collapses the {@code has} into a {@code YTDBGraphStep} and
+   * handles the shape.
    */
   @Test
   public void startWithHasContainerDeclines() {

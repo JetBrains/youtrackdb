@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStr
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
@@ -23,6 +24,26 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
  * recognisers cannot claim causes the entire walk to decline (returning {@code null}). There is
  * no "partial prefix" mechanism — either every step is recognised or the traversal is declined
  * whole and stays on the native TinkerPop pipeline.
+ *
+ * <h2>Index-driven cursor for multi-step claims</h2>
+ *
+ * The walk is driven by a cursor ({@link WalkerContext#stepIndex}), not a for-each: each
+ * iteration reads {@code steps.get(stepIndex)}, dispatches it, and lets the claiming recogniser
+ * advance the cursor past every step it consumed. A recogniser may consume several steps in one
+ * claim (the non-adjacent {@code outE(L).has(...).inV()} chain), so the recognised set is bounded
+ * by which step <em>classes</em> have a recogniser, not by a step count. The walker therefore has
+ * no upper-bound size gate: a long but fully-recognised chain translates, and the first
+ * unrecognised step class declines the whole traversal. An empty traversal is still declined up
+ * front (nothing to translate, no boundary to pin).
+ *
+ * <h2>Reserved-prefix pre-flight scan</h2>
+ *
+ * Before dispatching any step, the walker scans every step's labels and declines the whole
+ * traversal if any user label starts with {@code $}. The {@code $} space is reserved for the
+ * translator's minted {@code $g2m_} aliases (see {@link WalkerContext#ANON_VERTEX_ALIAS_PREFIX}),
+ * so a user label in that space could collide with a minted one. Declining (not throwing)
+ * preserves the all-or-nothing fallback: such a traversal runs unchanged on the native pipeline.
+ * The scan is purely lexical, so it runs before the session-dependent polymorphism resolution.
  *
  * <h2>Per-step shape gates in recognisers; the graph-level flag in the walker</h2>
  *
@@ -68,15 +89,13 @@ final class GremlinStepWalker {
       new GremlinStepWalker(PRODUCTION_RECOGNISERS);
 
   /**
-   * Largest traversal the current recogniser registry can translate whole. Phase 1 recognises
-   * only the single vertex-source step, so a traversal with any follow-up step is a shape this
-   * registry cannot cover. The walker declines such traversals up front rather than walking them:
-   * the all-or-nothing loop below would decline anyway (a follow-up step has no recogniser), but
-   * an explicit size gate makes the recognised-set bound a single, greppable constant and guards
-   * against a future recogniser regression that would otherwise let a multi-step traversal slip
-   * through. Later tracks that widen the recognised set raise this bound.
+   * Prefix the reserved-prefix pre-flight scan forbids in user labels. The translator mints all
+   * of its internal aliases under {@code $} ({@link WalkerContext#ANON_VERTEX_ALIAS_PREFIX} /
+   * {@link WalkerContext#EDGE_ALIAS_PREFIX}), so a user label in this space could collide with a
+   * minted one; a traversal carrying such a label declines to the native pipeline. Kept as one
+   * greppable constant tied to the reserved namespace.
    */
-  private static final int MAX_RECOGNISED_STEPS = 1;
+  private static final String RESERVED_ALIAS_PREFIX = "$";
 
   private final Map<Class<?>, StepRecogniser> recognisers;
 
@@ -100,14 +119,23 @@ final class GremlinStepWalker {
    * {@code null}.
    */
   @Nullable GremlinToMatchTranslator.TranslationResult walk(Traversal.Admin<?, ?> traversal) {
-    // Size gate, before any per-step work. An empty traversal has nothing to translate and could
-    // never pin a boundary, so decline it here rather than let it fall through to the invariant
-    // assert below — an empty traversal is a normal shape, not a recogniser bug. The upper bound
-    // declines any traversal larger than the current recognised set can translate whole; see
-    // MAX_RECOGNISED_STEPS, which holds Phase 1 to the bare vertex source and keeps a follow-up
-    // step (out/has/match/…) on the native pipeline.
+    // Empty-traversal gate, before any per-step work. A step-less traversal has nothing to
+    // translate and could never pin a boundary, so decline it here rather than let it fall through
+    // to the invariant assert below — an empty traversal is a normal shape, not a recogniser bug.
+    // There is no upper-bound size gate: a recogniser may consume several steps in one claim, so
+    // the recognised set is bounded by which step classes have a recogniser, not by a step count,
+    // and a long but fully-recognised chain must translate. Any unrecognised step class declines
+    // the whole traversal in the dispatch loop below.
     var steps = traversal.getSteps();
-    if (steps.isEmpty() || steps.size() > MAX_RECOGNISED_STEPS) {
+    if (steps.isEmpty()) {
+      return null;
+    }
+
+    // Reserved-prefix pre-flight: decline the whole traversal if any user label starts with '$',
+    // which is the translator's reserved namespace for minted $g2m_ aliases. Purely lexical (no
+    // graph access), so it runs before the session-dependent polymorphism resolution below.
+    // Declining (not throwing) keeps such a traversal on the native pipeline unchanged.
+    if (hasReservedPrefixLabel(steps)) {
       return null;
     }
 
@@ -126,16 +154,39 @@ final class GremlinStepWalker {
 
     var ctx = new WalkerContext(traversal, polymorphic);
 
-    for (Step<?, ?> step : steps) {
-      // Class-keyed dispatch: the recogniser registered for this step's concrete runtime
-      // class owns it. No entry — an unregistered type or an unexpected subclass — declines the
-      // whole traversal (all-or-nothing), as does a registered recogniser that rejects the step
-      // as malformed.
+    // Index-driven dispatch. Each iteration reads the step at the cursor and dispatches it to the
+    // recogniser registered for its concrete runtime class; the claiming recogniser advances the
+    // cursor past every step it consumed (one for a single-step claim, N for a multi-step claim),
+    // so the walker no longer advances it. Class-keyed dispatch: no entry — an unregistered type
+    // or an unexpected subclass — declines the whole traversal (all-or-nothing), as does a
+    // registered recogniser that rejects the step as malformed.
+    while (ctx.stepIndex < steps.size()) {
+      int indexBefore = ctx.stepIndex;
+      Step<?, ?> step = steps.get(indexBefore);
       var recogniser = recognisers.get(step.getClass());
       if (recogniser == null || !recogniser.recognize(step, ctx)) {
         return null;
       }
-      ctx.stepIndex++;
+      // The claiming recogniser must advance the cursor past every step it consumed: forward by at
+      // least one, and never past the end of the list. A recogniser that returns true without
+      // advancing would spin this loop forever; one that overruns the list would skip a step the
+      // walk never validated. Both are recogniser-logic bugs, so the assert surfaces them loudly
+      // under -ea (an AssertionError, which GremlinToMatchStrategy's RuntimeException-only
+      // throw-safety net does not swallow). Under -da the defensive decline keeps such a bug from
+      // hanging or mis-translating a live query — the traversal falls back to the native pipeline.
+      assert ctx.stepIndex > indexBefore && ctx.stepIndex <= steps.size()
+          : "recogniser for "
+              + step.getClass().getSimpleName()
+              + " returned true but advanced the cursor from "
+              + indexBefore
+              + " to "
+              + ctx.stepIndex
+              + " (must consume at least one step without overrunning "
+              + steps.size()
+              + ")";
+      if (ctx.stepIndex <= indexBefore || ctx.stepIndex > steps.size()) {
+        return null;
+      }
     }
 
     // Invariant: a fully-recognised non-empty traversal has its terminator metadata pinned —
@@ -157,6 +208,26 @@ final class GremlinStepWalker {
     }
 
     return buildResult(ctx);
+  }
+
+  /**
+   * Returns {@code true} if any step carries a user label starting with the reserved {@code $}
+   * prefix ({@link #RESERVED_ALIAS_PREFIX}). Scans every step's {@code getLabels()} once; the
+   * scan is purely lexical (no graph access), so the walker runs it before resolving any
+   * session-dependent state. A match declines the whole traversal rather than throwing, so a
+   * pre-existing {@code as("$foo")} query keeps its native behaviour.
+   */
+  private static boolean hasReservedPrefixLabel(List<?> steps) {
+    for (Object raw : steps) {
+      // getSteps() is a raw List<Step>; each element is a Step whose labels are user-supplied.
+      var step = (Step<?, ?>) raw;
+      for (String label : step.getLabels()) {
+        if (label.startsWith(RESERVED_ALIAS_PREFIX)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
