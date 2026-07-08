@@ -29,55 +29,68 @@ public class GremlinPredicateAdapterTest {
   // Accept path — the six scalar comparisons map to their SQL operators.
   // ---------------------------------------------------------------------------
 
-  /** {@code has("since", P.eq(2010))} maps to {@code since = 2010} (an SQLEqualsOperator condition). */
+  /** {@code has("since", P.eq(2010))} maps to {@code since = 2010} — SQLEqualsOperator over {@code 2010}. */
   @Test
   public void eq_mapsToEqualsOperator() {
     var condition = translateScalar("since", P.eq(2010));
     assertThat(condition.getOperator()).isInstanceOf(SQLEqualsOperator.class);
     assertThat(renderLeft(condition)).isEqualTo("since");
+    // Assert the literal value operand too: a regression that dropped the literal, substituted a
+    // constant, or swapped operands would still pass the operator/field checks above.
+    assertThat(renderRight(condition)).as("the compared value must survive as the right operand")
+        .isEqualTo("2010");
   }
 
-  /** {@code has("since", P.neq(2010))} maps to a not-equals ({@code <>}) condition. */
+  /** {@code has("since", P.neq(2010))} maps to a not-equals ({@code <>}) condition over {@code 2010}. */
   @Test
   public void neq_mapsToNeqOperator() {
-    assertThat(translateScalar("since", P.neq(2010)).getOperator())
-        .isInstanceOf(SQLNeqOperator.class);
+    var condition = translateScalar("since", P.neq(2010));
+    assertThat(condition.getOperator()).isInstanceOf(SQLNeqOperator.class);
+    assertThat(renderRight(condition)).isEqualTo("2010");
   }
 
-  /** {@code has("since", P.lt(2015))} maps to a less-than ({@code <}) condition — the IC2 shape. */
+  /** {@code has("since", P.lt(2015))} maps to a less-than ({@code <}) condition over {@code 2015} — the IC2 shape. */
   @Test
   public void lt_mapsToLtOperator() {
-    assertThat(translateScalar("since", P.lt(2015)).getOperator())
-        .isInstanceOf(SQLLtOperator.class);
+    var condition = translateScalar("since", P.lt(2015));
+    assertThat(condition.getOperator()).isInstanceOf(SQLLtOperator.class);
+    assertThat(renderRight(condition)).isEqualTo("2015");
   }
 
-  /** {@code has("since", P.lte(2015))} maps to a less-than-or-equal ({@code <=}) condition. */
+  /** {@code has("since", P.lte(2015))} maps to a less-than-or-equal ({@code <=}) condition over {@code 2015}. */
   @Test
   public void lte_mapsToLeOperator() {
-    assertThat(translateScalar("since", P.lte(2015)).getOperator())
-        .isInstanceOf(SQLLeOperator.class);
+    var condition = translateScalar("since", P.lte(2015));
+    assertThat(condition.getOperator()).isInstanceOf(SQLLeOperator.class);
+    assertThat(renderRight(condition)).isEqualTo("2015");
   }
 
-  /** {@code has("since", P.gt(2015))} maps to a greater-than ({@code >}) condition. */
+  /** {@code has("since", P.gt(2015))} maps to a greater-than ({@code >}) condition over {@code 2015}. */
   @Test
   public void gt_mapsToGtOperator() {
-    assertThat(translateScalar("since", P.gt(2015)).getOperator())
-        .isInstanceOf(SQLGtOperator.class);
+    var condition = translateScalar("since", P.gt(2015));
+    assertThat(condition.getOperator()).isInstanceOf(SQLGtOperator.class);
+    assertThat(renderRight(condition)).isEqualTo("2015");
   }
 
-  /** {@code has("since", P.gte(2015))} maps to a greater-than-or-equal ({@code >=}) condition. */
+  /** {@code has("since", P.gte(2015))} maps to a greater-than-or-equal ({@code >=}) condition over {@code 2015}. */
   @Test
   public void gte_mapsToGeOperator() {
-    assertThat(translateScalar("since", P.gte(2015)).getOperator())
-        .isInstanceOf(SQLGeOperator.class);
+    var condition = translateScalar("since", P.gte(2015));
+    assertThat(condition.getOperator()).isInstanceOf(SQLGeOperator.class);
+    assertThat(renderRight(condition)).isEqualTo("2015");
   }
 
-  /** A String literal value is accepted (renders as the right operand) — not only numbers. */
+  /** A String literal value is accepted and renders as a quoted string literal ({@code "alice"}) — not only numbers. */
   @Test
   public void stringValue_isAccepted() {
     var condition = translateScalar("name", P.eq("alice"));
     assertThat(condition.getOperator()).isInstanceOf(SQLEqualsOperator.class);
     assertThat(renderLeft(condition)).isEqualTo("name");
+    // A String literal renders as a quoted, encoded string literal, not a bare identifier — so the
+    // predicate compares against the value "alice", not a field or variable named alice.
+    assertThat(renderRight(condition)).as("a String value renders as a quoted string literal")
+        .isEqualTo("\"alice\"");
   }
 
   // ---------------------------------------------------------------------------
@@ -139,6 +152,38 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
+   * A {@code @}-prefixed property key declines rather than translating. YouTrackDB's identifier
+   * resolver treats a bare {@code @class} / {@code @rid} / {@code @version} identifier as record
+   * metadata (the record-attribute namespace) rather than a plain property, so translating such a
+   * key would diverge from native Gremlin — which treats {@code @class} as an ordinary property the
+   * record does not carry (matching nothing on an edge). Declining keeps the reserved
+   * record-attribute namespace off the WHERE identifier path, the same conservative fallback the
+   * {@code $} minted-alias and {@code ~} hidden-key prefixes get.
+   */
+  @Test
+  public void reservedRecordAttributeKey_declines() {
+    assertThat(
+        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("@class", P.eq("Knows"))))
+        .as("a @-prefixed key must not reach the record-attribute identifier space")
+        .isNull();
+  }
+
+  /**
+   * A null comparison value declines rather than rendering {@code field = null}. {@code
+   * has("since", P.eq(null))} produces a Compare predicate whose value is null, reaching the {@code
+   * value == null} guard in {@code toFilter}; without it a null comparand would render as {@code
+   * since = null} — a present-null set-membership semantic that diverges from native. This is a
+   * distinct branch from {@link #unsupportedValueType_declines}, which drives the unrenderable-type
+   * path inside the literal builder's try/catch (the value-null check runs before that try).
+   */
+  @Test
+  public void nullComparisonValue_declines() {
+    assertThat(GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("since", P.eq(null))))
+        .as("a null comparison value must decline, not render field = null")
+        .isNull();
+  }
+
+  /**
    * A comparison value of a type {@link
    * com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder} cannot
    * render declines rather than throwing — the adapter catches the builder's exception and returns
@@ -176,6 +221,13 @@ public class GremlinPredicateAdapterTest {
   private static String renderLeft(SQLBinaryCondition condition) {
     var sb = new StringBuilder();
     condition.getLeft().toString(new HashMap<>(), sb);
+    return sb.toString();
+  }
+
+  /** Renders the right operand of a binary condition (the compared literal value). */
+  private static String renderRight(SQLBinaryCondition condition) {
+    var sb = new StringBuilder();
+    condition.getRight().toString(new HashMap<>(), sb);
     return sb.toString();
   }
 }

@@ -554,6 +554,34 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * A recogniser that advances the cursor PAST the end of the step list trips the walker's in-loop
+   * cursor guard — the overrun twin of {@link
+   * #walk_recogniserClaimsWithoutAdvancing_tripsCursorAssert}, which covers the no-advance half. The
+   * guard asserts {@code stepIndex <= steps.size()}; a recogniser that mis-counts and jumps the
+   * cursor beyond the list would skip a step the walk never validated, producing a plan from an
+   * unverified suffix. Under {@code -ea} the assert throws {@link AssertionError} (not swallowed by
+   * the strategy's {@code RuntimeException}-only net), so the mis-counting recogniser surfaces loudly
+   * rather than mis-translating. The fixture claims the single {@code g.V()} step but sets the cursor
+   * to {@code size + 1}, the exact overrun this upper-bound guard defends against.
+   */
+  @Test
+  public void walk_recogniserOverrunsCursor_tripsCursorAssert() {
+    // Fixture recogniser: returns true but advances the cursor past the end of the step list — the
+    // suffix-skipping bug the walker's upper-bound cursor guard catches.
+    StepRecogniser overrunning =
+        (step, ctx) -> {
+          ctx.stepIndex = ctx.traversal.getSteps().size() + 1;
+          return true;
+        };
+    var walker = new GremlinStepWalker(Map.of(GraphStep.class, overrunning));
+    var admin = graph.traversal().V().asAdmin();
+
+    assertThatThrownBy(() -> walker.walk(admin))
+        .as("a recogniser that advances the cursor past the end of the step list trips the guard")
+        .isInstanceOf(AssertionError.class);
+  }
+
+  /**
    * The index-driven walker supports a multi-step claim: a recogniser may consume several steps in
    * one call by advancing the cursor past all of them, and the walker resumes dispatch at the new
    * cursor rather than re-inspecting the consumed steps. The fixture delegates to {@link
