@@ -2368,9 +2368,9 @@ public class SelectExecutionPlanner {
    *   <li>Pull at most one RID predicate via {@code extractAndRemoveRidEquality} then
    *       {@code extractAndRemoveRidInList}; if neither matches, return false so the
    *       caller falls through to the index / scan chain.</li>
-   *   <li>Gate on {@code ridExpression.isEarlyCalculated(ctx)} — a literal or bound
-   *       parameter resolves at plan time; a field reference or subquery cannot, so
-   *       return false and fall through.</li>
+   *   <li>Gate on {@code ridExpression.isPlanTimeResolvable(ctx)} — a literal or bound
+   *       parameter resolves at plan time; a field reference, subquery, or internal
+   *       LET-variable reference cannot, so return false and fall through.</li>
    *   <li>Evaluate the RID expression to candidate {@link RecordIdInternal}s (a
    *       singleton for {@code =}, the list elements for {@code IN}), mapping each
    *       result the way {@code SQLRid.toRecordId}'s switch does, then dedup.</li>
