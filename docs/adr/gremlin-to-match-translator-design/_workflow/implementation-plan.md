@@ -348,7 +348,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > by GQL independently of the translator, so it stands alone as an
   > independently reviewable, independently mergeable PR.
 
-- [ ] Track 2: Strategy skeleton + boundary step + minimal `g.V()` / `g.V(ids)` translation
+- [x] Track 2: Strategy skeleton + boundary step + minimal `g.V()` / `g.V(ids)` translation
   > Wires `GremlinToMatchStrategy` into the optimization chain and establishes
   > the end-to-end pipeline with the simplest recognized traversal. Lands the
   > cross-cutting scaffolding every later track extends: the `MatchPlanInputs`
@@ -437,17 +437,17 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Implementation state
 
-Track 1 is executed and complete; Tracks 2–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites (187 tests: 15 + 41 + 28 + 8 assembler + 4 prettyPrint + 91 GQL). No translator strategy, walker, recogniser, plan cache, or boundary step is present yet — those land in Tracks 2–6 — so the `core` build compiles and the existing Gremlin / MATCH behavior is unchanged.
+Tracks 1–2 are executed and complete; Tracks 3–6 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites. Track 2 delivered the `GremlinToMatchStrategy` (a translator-first `ProviderOptimizationStrategy` with a kill-switch and a throw-safety net), the `GremlinStepWalker` + `StepRecogniser` registry with `StartStepRecogniser`, and the `YTDBMatchPlanStep` boundary step — translating `g.V()` / `g.V(id)` / `g.V(ids)` into a MATCH plan and surfacing it in `explain()`. Edge traversal, filtering, result shaping, and advanced patterns land in Tracks 3–6; plan caching (D5) is reassigned to Track 4.
 
 | Track | Code | Notes |
 |---|---|---|
 | 1 | done | shared builders + GQL adoption + `IS DEFINED` / `IS NOT DEFINED` factories |
-| 2 | not started | strategy skeleton, walker / registry / cache / boundary step |
+| 2 | done | strategy + walker / registry + boundary step + `g.V()` / `g.V(ids)` translation |
 | 3 | not started | edge traversal — direction handlers, folded edge chains, non-adjacent edge filtering |
 | 4 | not started | full `P` / `Text` / `TextP` algebra incl. D-TEXT-OPS, logical filters, presence forms |
 | 5 | not started | result shaping — labels / dedup, projections, order / pagination, aggregations |
 | 6 | not started | union, list-shaping terminators, Cucumber re-run, JMH baseline |
 
-Decision conformance: D6 (one shared builder package serving both front-ends) and D-IS-DEFINED (the presence-operator factories) are satisfied by Track 1. The remaining decisions — D1–D5, D7–D11, and D-TEXT-OPS — belong to Tracks 2–6 and are not yet implemented.
+Decision conformance: D6 (one shared builder package serving both front-ends) and D-IS-DEFINED (the presence-operator factories) are satisfied by Track 1; the decisions tagged *Implemented in: Track 2* above (all-or-nothing decline, class-keyed dispatch, the boundary-step lifecycle, strategy idempotency, and translator-first ordering) are satisfied by Track 2. The decisions assigned to Tracks 3–6 — and plan cache (D5), reassigned to Track 4 — are not yet implemented.
 
 Track 1 deferral: `MatchWhereBuilder.endsWith` / `matchesRegex` are not built in this track. Their AST backing (`SQLEndsWithCondition`, `SQLMatchesCondition` find-mode) is introduced by Track 4's D-TEXT-OPS work; the baseline-backed `containsText` (`SQLContainsTextCondition`) and `startsWith` (half-open range) ship in Track 1. See plan/track-1.md § Decision Log.
