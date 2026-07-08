@@ -38,6 +38,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  * <ul>
  *   <li>the key is null, blank, or a reserved token ({@code ~label} / {@code ~id} from {@code
  *       hasLabel} / {@code hasId}) — key handling beyond a plain property is a later track;
+ *   <li>the key starts with the reserved {@code $} prefix — such a key would reach a WHERE
+ *       identifier that the executor resolves as a query context variable, not a record property
+ *       (see the {@link #RESERVED_ALIAS_PREFIX} field);
  *   <li>the predicate's bi-predicate is not a scalar {@link Compare} (e.g. {@code Contains}, a
  *       connective {@code AndP} / {@code OrP}, or a text predicate);
  *   <li>the compared value is null, or a type {@link MatchLiteralBuilder} cannot render (e.g. a
@@ -52,6 +55,17 @@ final class GremlinPredicateAdapter {
   /** Prefix of TinkerPop's reserved hidden keys ({@code ~label}, {@code ~id}), which {@code
    *  hasLabel} / {@code hasId} produce and this skeleton declines. */
   private static final String HIDDEN_KEY_PREFIX = "~";
+
+  /**
+   * Reserved prefix for the translator's minted aliases ({@code $g2m_...}). A user property key in
+   * this space would become a bare WHERE identifier that {@code SQLSuffixIdentifier} resolves as a
+   * query context variable ({@code $parent}, or any {@code $name} bound in the execution context)
+   * rather than a record property, diverging from native Gremlin — which treats {@code $foo} as a
+   * plain property name that simply does not exist. Declining such keys mirrors the walker's
+   * reserved-{@code $} label pre-flight ({@code GremlinStepWalker.RESERVED_ALIAS_PREFIX}) and keeps
+   * user identifiers out of the context-variable namespace.
+   */
+  private static final String RESERVED_ALIAS_PREFIX = "$";
 
   /** Stateless builder for the comparison AST; construction is trivial so a shared instance is fine. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
@@ -69,8 +83,13 @@ final class GremlinPredicateAdapter {
       return null;
     }
     var key = container.getKey();
-    if (key == null || key.isBlank() || key.startsWith(HIDDEN_KEY_PREFIX)) {
-      // Blank/reserved keys (hasLabel/hasId) are out of the skeleton's scope — decline.
+    if (key == null
+        || key.isBlank()
+        || key.startsWith(HIDDEN_KEY_PREFIX)
+        || key.startsWith(RESERVED_ALIAS_PREFIX)) {
+      // Blank/reserved keys are out of the skeleton's scope — decline. ~label/~id (hasLabel/hasId)
+      // are a later track; a $-prefixed key would reach a WHERE identifier the executor resolves as
+      // a query context variable rather than a property, so it declines to keep native behaviour.
       return null;
     }
     // Only a flat scalar comparison is in scope. A connective predicate (and/or) or a Contains

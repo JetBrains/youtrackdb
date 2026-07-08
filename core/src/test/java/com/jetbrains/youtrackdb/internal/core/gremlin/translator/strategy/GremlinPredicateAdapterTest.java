@@ -125,6 +125,20 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
+   * A {@code $}-prefixed property key declines rather than translating. Such a key would become a
+   * bare WHERE identifier that the executor resolves as a query context variable (e.g. {@code
+   * $parent}) instead of a record property, diverging from native Gremlin — which treats {@code
+   * $parent} as a plain property name. Declining keeps the reserved {@code $} namespace off the
+   * identifier path, mirroring the walker's reserved-{@code $} label pre-flight.
+   */
+  @Test
+  public void reservedDollarKey_declines() {
+    assertThat(GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("$parent", P.eq(5))))
+        .as("a $-prefixed key must not reach the context-variable identifier space")
+        .isNull();
+  }
+
+  /**
    * A comparison value of a type {@link
    * com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder} cannot
    * render declines rather than throwing — the adapter catches the builder's exception and returns
