@@ -150,18 +150,15 @@ final class StartStepRecogniser implements StepRecogniser {
     ctx.outputType = BoundaryOutputType.ELEMENT;
     ctx.returnClass = Vertex.class;
 
-    // aliasRids carries the single-ID path; multi-ID constraints flow through aliasFilters.
-    if (rids.size() == 1) {
-      ctx.aliasRids.put(BOUNDARY_ALIAS, MatchLiteralBuilder.createLegacySqlRid(rids.getFirst()));
-    }
-
-    // Multi-ID sources need a WHERE @rid IN [...] filter; the single/no-ID paths carry no
-    // filter here. No @class narrowing is applied: for a bare g.V() (and g.V(ids) with no
+    // All ID sources flow through a WHERE @rid IN [...] filter; the empty-ID g.V() case carries
+    // no filter. The planner's promoteStaticRidsFromFilters lifts the IN list into pinned RIDs —
+    // a size-1 IN collapses to a single pinned RID and the SELECT FROM #X:Y fast path, the same as
+    // a bare @rid equality. No @class narrowing is applied: for a bare g.V() (and g.V(ids) with no
     // folded label) the native pipeline returns the full polymorphic set regardless of the
-    // polymorphic flag — the no-id branch always browses the class polymorphically, and the
-    // by-id branch applies no class filter (YTDBGraphImplAbstract.elements /
-    // YTDBGraphStep.elements). Emitting @class = 'V' would wrongly exclude subclass instances.
-    if (rids.size() > 1) {
+    // polymorphic flag — the no-id branch always browses the class polymorphically, and the by-id
+    // branch applies no class filter (YTDBGraphImplAbstract.elements / YTDBGraphStep.elements).
+    // Emitting @class = 'V' would wrongly exclude subclass instances.
+    if (!rids.isEmpty()) {
       ctx.aliasFilters.put(BOUNDARY_ALIAS, wrapWhere(buildRidInExpression(rids)));
     }
 

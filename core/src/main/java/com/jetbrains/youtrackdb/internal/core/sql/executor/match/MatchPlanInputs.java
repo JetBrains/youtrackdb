@@ -9,7 +9,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchStatement;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -45,7 +44,6 @@ public record MatchPlanInputs(
     @Nonnull Pattern pattern,
     Map<String, String> aliasClasses,
     Map<String, SQLWhereClause> aliasFilters,
-    Map<String, SQLRid> aliasRids,
     List<SQLMatchExpression> matchExpressions,
     List<SQLMatchExpression> notMatchExpressions,
     List<SQLExpression> returnItems,
@@ -70,7 +68,6 @@ public record MatchPlanInputs(
     Objects.requireNonNull(pattern, "pattern must not be null");
     aliasClasses = aliasClasses == null ? Map.of() : aliasClasses;
     aliasFilters = aliasFilters == null ? Map.of() : aliasFilters;
-    aliasRids = aliasRids == null ? Map.of() : aliasRids;
     matchExpressions = matchExpressions == null ? List.of() : matchExpressions;
     notMatchExpressions = notMatchExpressions == null ? List.of() : notMatchExpressions;
     returnItems = returnItems == null ? List.of() : returnItems;
@@ -100,7 +97,7 @@ public record MatchPlanInputs(
    * Starts a {@link Builder} for the given (required) {@code pattern}. Every other field
    * defaults to {@code null} / {@code false}; the compact constructor normalises null
    * collections to empty. A front-end sets only the fields its shape actually carries — e.g. a
-   * single-node Gremlin {@code g.V()} translation sets the pattern, alias classes/filters/rids,
+   * single-node Gremlin {@code g.V()} translation sets the pattern, alias classes and filters,
    * and the return items, leaving the projection, ordering, and return-mode fields at defaults.
    */
   public static Builder builder(Pattern pattern) {
@@ -119,7 +116,6 @@ public record MatchPlanInputs(
     private final Pattern pattern;
     private Map<String, String> aliasClasses;
     private Map<String, SQLWhereClause> aliasFilters;
-    private Map<String, SQLRid> aliasRids;
     private List<SQLMatchExpression> matchExpressions;
     private List<SQLMatchExpression> notMatchExpressions;
     private List<SQLExpression> returnItems;
@@ -147,11 +143,6 @@ public record MatchPlanInputs(
 
     public Builder aliasFilters(Map<String, SQLWhereClause> aliasFilters) {
       this.aliasFilters = aliasFilters;
-      return this;
-    }
-
-    public Builder aliasRids(Map<String, SQLRid> aliasRids) {
-      this.aliasRids = aliasRids;
       return this;
     }
 
@@ -236,7 +227,6 @@ public record MatchPlanInputs(
           pattern,
           aliasClasses,
           aliasFilters,
-          aliasRids,
           matchExpressions,
           notMatchExpressions,
           returnItems,

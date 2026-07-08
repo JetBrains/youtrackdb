@@ -179,7 +179,6 @@ final class GremlinStepWalker {
         MatchPlanInputs.builder(ir.pattern())
             .aliasClasses(ir.aliasClasses())
             .aliasFilters(finalAliasFilters)
-            .aliasRids(ctx.aliasRids)
             .returnItems(ctx.returnItems)
             .returnAliases(ctx.returnAliases)
             .returnNestedProjections(ctx.returnNestedProjections)
