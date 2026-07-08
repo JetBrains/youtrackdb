@@ -91,12 +91,12 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().both("knows"));
   }
 
-  // A multi-hop chain (g.V().out(L).out(L)) is intentionally not exercised here: at translator
-  // time LazyBarrierStrategy injects a NoOpBarrierStep between the hops, which no recogniser claims
-  // in this step, so the chain declines under all-or-nothing. Chained-hop recognition (and the
-  // barrier recogniser it needs) lands with the non-adjacent edge-filter work. The unit test
-  // twoSequentialHops_chainOffPreviousTarget pins the recogniser's chaining logic directly, without
-  // the barrier.
+  // A multi-hop chain (g.V().out(L).out(L)) is exercised end-to-end below by
+  // multiHopChain_recognizedViaBarrierRecogniser: LazyBarrierStrategy injects a NoOpBarrierStep
+  // between the hops, which NoOpBarrierRecogniser now claims as a transparent pass-through, so the
+  // whole chain is RECOGNIZED (it declined before that recogniser landed). The unit test
+  // twoSequentialHops_chainOffPreviousTarget additionally pins the recogniser's chaining logic
+  // directly, without the barrier.
 
   // ---------------------------------------------------------------------------
   // Adjacent folded edge chains — outE(L).inV() / bothE(L).otherV(). These fold
@@ -380,9 +380,12 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
             () -> graph.traversal().V().out("knows")));
 
     // Sharpen the pin: prove the traversal returned the Person subclass target, so the equivalence
-    // above was not vacuously true over two empty results. Run natively (translator state is
-    // restored by the helper) — the target's leaf class must be Person, which an @class='V' narrow
-    // would have excluded.
+    // above was not vacuously true over two empty results. This runs under the restored default —
+    // assertEquivalent's finally put the translator flag back to the value read on entry, and
+    // QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED defaults to true — so it exercises the translated
+    // path, not the native one. The assertion holds either way (out("knows") returns the Person
+    // subclass whether translated or native); the target's leaf class must be Person, which an
+    // @class='V' narrow would have excluded.
     var labels =
         graph.traversal().V().out("knows").toList().stream()
             .map(Vertex::label)
@@ -390,6 +393,45 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     assertThat(labels)
         .as("the bare-hop target must be the Person subclass instance, not undercounted")
         .containsExactly("Person");
+  }
+
+  // ---------------------------------------------------------------------------
+  // Edge-subclass label polymorphism — a knows-labelled hop must span subclass
+  // edges the same way native out() does (the edge-side analogue of the
+  // vertex-subclass no-undercount pin above).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Edge-subclass label polymorphism: {@code g.V(alice).out("knows")} must include edges whose class
+   * is a subclass of {@code knows} the same number of times translator-on as native. The fixture
+   * derives a {@code CloseFriend} edge class from {@code knows} and connects Alice to Carol through
+   * it, plus a plain {@code knows} edge to Bob. Native {@code out("knows")} follows the {@code
+   * CloseFriend} edge polymorphically, so the translated plan must too; if the translation matched
+   * the {@code knows} label non-polymorphically it would drop the {@code CloseFriend} edge (an
+   * undercount), and the reverse divergence (an overcount) would fail the same equivalence assertion.
+   * This is the edge-side analogue of the vertex-subclass undercount that {@code
+   * nonPolymorphicBareHop_doesNotUndercountSubclassTargets} pins; the plain {@code knows} edge keeps
+   * the non-empty guard in {@code assertEquivalent} satisfied so the comparison is never vacuous.
+   */
+  @Test
+  public void edgeSubclassLabel_behavesAsNativeOut() {
+    // Derive CloseFriend from the knows edge class so a CloseFriend edge IS-A knows edge; the in/out
+    // link properties are inherited from knows (createEdgeClass added them), as edge classes require.
+    var knows = session.createEdgeClass("knows");
+    session.getSchema().createClass("CloseFriend", knows);
+
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob); // plain knows edge
+    alice.addEdge("CloseFriend", carol); // subclass-of-knows edge
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).out(knows) spanning a CloseFriend subclass edge",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).out("knows"));
   }
 
   // ---------------------------------------------------------------------------
@@ -543,6 +585,15 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must engage exactly one boundary step")
             .isEqualTo(1);
+        // Every RECOGNIZED case seeds matching data, so both runs must return a non-empty multiset.
+        // Without this guard a seed regression that persisted nothing (createVertexClass/schema
+        // change, a silently no-op commit, a base-class rename) would make both runs return [], the
+        // multiset equality below would hold vacuously over two empty lists, and the case would go
+        // green while verifying nothing — the false-green this headline fixture must not admit.
+        assertThat(onIds)
+            .as(scenario + ": a RECOGNIZED fixture must return a non-empty result "
+                + "(else the multiset equality below is vacuous)")
+            .isNotEmpty();
       } else {
         assertThat(boundaryOn)
             .as(scenario + " (translator on) must decline to native — no boundary step")
