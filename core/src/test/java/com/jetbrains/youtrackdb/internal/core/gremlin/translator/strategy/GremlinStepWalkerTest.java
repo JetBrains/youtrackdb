@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.optimization.YTDBGraphStepStrategy;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -34,8 +33,8 @@ import org.junit.Test;
  *
  * <ul>
  *   <li><b>Translation correctness</b> — each recognized shape produces the right single-node
- *       {@code $g2m_v0} pattern, with the RID landing on {@code aliasRids} (single ID) or an
- *       {@code @rid IN [...]} filter (multi ID).
+ *       {@code $g2m_v0} pattern, with any RIDs rendered as an {@code @rid IN [...]} filter that
+ *       the planner promotes to pinned RIDs.
  *   <li><b>The plain-{@code GraphStep} key</b> — the registry keys {@link StartStepRecogniser}
  *       under the plain TinkerPop {@code GraphStep}, NOT {@code YTDBGraphStep}. A pinned
  *       regression test would fail if it keyed on {@code YTDBGraphStep}, because at translator
@@ -77,17 +76,17 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var inputs = translation.inputs();
     assertThat(inputs.pattern().aliasToNode).containsOnlyKeys(BOUNDARY_ALIAS);
     assertThat(inputs.aliasClasses()).containsEntry(BOUNDARY_ALIAS, "V");
-    assertThat(inputs.aliasRids()).as("bare g.V() has no RID hint").doesNotContainKey(
+    assertThat(inputs.aliasFilters()).as("bare g.V() has no RID filter").doesNotContainKey(
         BOUNDARY_ALIAS);
   }
 
   /**
-   * {@code g.V(id)} with a single RID-shaped ID lands the RID on {@code aliasRids} (the planner's
-   * {@code SELECT FROM #X:Y} fast path), not on an {@code @rid IN [...]} filter. The rendered RID
-   * matches the requested ID.
+   * {@code g.V(id)} with a single RID-shaped ID builds an {@code @rid IN [#X:Y]} filter on
+   * {@code aliasFilters}; the planner promotes the size-1 IN list to a single pinned RID (the
+   * {@code SELECT FROM #X:Y} fast path). The rendered filter carries the requested RID.
    */
   @Test
-  public void walk_singleId_landsOnAliasRids() {
+  public void walk_singleId_buildsRidInFilter() {
     // #25:3 is an arbitrary well-formed RID literal: the walker only renders it into MATCH SQL and
     // never dereferences it against storage, so no record with this RID need exist.
     var admin = graph.traversal().V("#25:3").asAdmin();
@@ -96,12 +95,11 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result).isNotNull();
     var inputs = result.inputs();
-    assertThat(inputs.aliasRids()).containsKey(BOUNDARY_ALIAS);
-    SQLRid rid = inputs.aliasRids().get(BOUNDARY_ALIAS);
-    assertThat(rid.toString()).isEqualTo("#25:3");
-    // The single-ID path uses the RID hint, so no @rid IN [...] filter is emitted for the alias
-    // under the default (polymorphic) mode.
-    assertThat(inputs.aliasFilters()).doesNotContainKey(BOUNDARY_ALIAS);
+    assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
+    var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
+    // Pin the IN operator and the RID, not just token presence.
+    assertThat(rendered).contains("@rid IN ").contains("#25:3");
+    assertThat(rendered).doesNotContain("NOT IN");
   }
 
   /**
@@ -119,8 +117,6 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
     assertThat(result).isNotNull();
     var inputs = result.inputs();
-    assertThat(inputs.aliasRids()).as("multi-ID uses an IN filter, not the single-RID hint")
-        .doesNotContainKey(BOUNDARY_ALIAS);
     assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
     var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
     // Pin the IN operator and both RIDs, not just token presence: an equality-OR rewrite
@@ -288,7 +284,6 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     assertThat(recognized).as("edge start is not a vertex source").isFalse();
     assertThat(ctx.patternBuilder.build().pattern().aliasToNode)
         .as("declining recognizer must add no pattern node").isEmpty();
-    assertThat(ctx.aliasRids).isEmpty();
     assertThat(ctx.aliasFilters).isEmpty();
     assertThat(ctx.returnItems).isEmpty();
     assertThat(ctx.boundaryAlias).isNull();
@@ -400,11 +395,12 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * Non-polymorphic mode does NOT narrow {@code g.V(id)} either. The by-id path resolves purely by
    * RID — {@code YTDBGraphImplAbstract.elements} applies no class filter on the by-id branch — so
    * the RID's class is irrelevant and the {@code polymorphicQuery} flag is inert. The single RID
-   * still lands on {@code aliasRids} (the {@code SELECT FROM #X:Y} fast path) with no {@code @class}
-   * filter on {@code aliasFilters}, exactly as under the default mode.
+   * lands on an {@code @rid IN [#25:3]} filter (which the planner promotes to a single pinned RID,
+   * the {@code SELECT FROM #X:Y} fast path) with no {@code @class} predicate, exactly as under the
+   * default mode.
    */
   @Test
-  public void walk_nonPolymorphicSingleId_landsOnAliasRidsWithoutClassFilter() {
+  public void walk_nonPolymorphicSingleId_buildsRidInFilterWithoutClassFilter() {
     withNonPolymorphicDefault(() -> {
       // #25:3 is an arbitrary well-formed RID literal; the walker only renders it.
       var admin = graph.traversal().V("#25:3").asAdmin();
@@ -413,12 +409,13 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       assertThat(result).isNotNull();
       var inputs = result.inputs();
-      assertThat(inputs.aliasRids()).containsKey(BOUNDARY_ALIAS);
-      assertThat(inputs.aliasRids().get(BOUNDARY_ALIAS).toString()).isEqualTo("#25:3");
-      // No @class filter added to the alias even under non-poly: the by-id lookup is RID-only.
-      assertThat(inputs.aliasFilters())
+      assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
+      var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
+      assertThat(rendered).contains("@rid IN ").contains("#25:3");
+      // No @class narrowing added even under non-poly: the by-id lookup is RID-only.
+      assertThat(rendered)
           .as("non-poly g.V(id) must not narrow by @class")
-          .doesNotContainKey(BOUNDARY_ALIAS);
+          .doesNotContain("@class");
     });
   }
 
@@ -438,9 +435,6 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
       assertThat(result).isNotNull();
       var inputs = result.inputs();
-      assertThat(inputs.aliasRids())
-          .as("multi-ID uses an IN filter, not the single-RID hint")
-          .doesNotContainKey(BOUNDARY_ALIAS);
       assertThat(inputs.aliasFilters()).containsKey(BOUNDARY_ALIAS);
       var rendered = inputs.aliasFilters().get(BOUNDARY_ALIAS).toString();
       assertThat(rendered).contains("@rid IN ").contains("#25:3").contains("#25:7");

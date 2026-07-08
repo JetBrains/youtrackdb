@@ -11,7 +11,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLimit;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderBy;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSkip;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLUnwind;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -33,9 +32,9 @@ import org.junit.Test;
  *   <li>Record compact-ctor null normalisation (null collections become empty; null pattern
  *       throws NPE).</li>
  *   <li>Planner ctor null-input handling.</li>
- *   <li>Defensive-copy independence of {@code aliasClasses} / {@code aliasFilters} /
- *       {@code aliasRids} against caller mutations after construction &mdash; the planner mutates
- *       these maps internally during planning.</li>
+ *   <li>Defensive-copy independence of {@code aliasClasses} / {@code aliasFilters} against
+ *       caller mutations after construction &mdash; the planner mutates these maps internally
+ *       during planning.</li>
  *   <li>Field propagation: {@code matchExpressions}, {@code returnItems}, the four return
  *       flags, {@code returnDistinct}, single-value AST fields ({@code skip}, {@code limit},
  *       {@code groupBy}, {@code orderBy}, {@code unwind}), and the pattern reference.</li>
@@ -57,11 +56,10 @@ public class MatchExecutionPlannerInputsTest {
   public void record_nullCollections_normalizedToEmpty() {
     var inputs =
         new MatchPlanInputs(
-            new Pattern(), null, null, null, null, null, null, null, null, null, null, null, null,
+            new Pattern(), null, null, null, null, null, null, null, null, null, null, null,
             null, false, false, false, false, false);
     assertThat(inputs.aliasClasses()).isEmpty();
     assertThat(inputs.aliasFilters()).isEmpty();
-    assertThat(inputs.aliasRids()).isEmpty();
     assertThat(inputs.matchExpressions()).isEmpty();
     assertThat(inputs.notMatchExpressions()).isEmpty();
     assertThat(inputs.returnItems()).isEmpty();
@@ -97,13 +95,12 @@ public class MatchExecutionPlannerInputsTest {
     nestedProjections.add(null);
 
     // Positional ctor (the builder normalises nulls, so null-entry lists must use it): the three
-    // varying arguments are returnItems (7th), returnAliases (8th), returnNestedProjections (9th).
+    // varying arguments are returnItems (6th), returnAliases (7th), returnNestedProjections (8th).
     var inputs =
         new MatchPlanInputs(
             new Pattern(),
             /* aliasClasses */ null,
             /* aliasFilters */ null,
-            /* aliasRids */ null,
             /* matchExpressions */ null,
             /* notMatchExpressions */ null,
             items,
@@ -168,7 +165,6 @@ public class MatchExecutionPlannerInputsTest {
     // skip assertions alone did not pin.
     assertThat(getAliasClasses(planner)).isEmpty();
     assertThat(getAliasFilters(planner)).isEmpty();
-    assertThat(getAliasRids(planner)).isEmpty();
     assertThat(getGroupBy(planner)).isNull();
     assertThat(getOrderBy(planner)).isNull();
     assertThat(getUnwind(planner)).isNull();
@@ -214,7 +210,6 @@ public class MatchExecutionPlannerInputsTest {
         MatchPlanInputs.builder(pattern)
             .aliasClasses(Map.of("a", "Person"))
             .aliasFilters(Map.of("a", new SQLWhereClause(-1)))
-            .aliasRids(Map.of("a", new SQLRid(-1)))
             .matchExpressions(List.of(new SQLMatchExpression(-1)))
             .notMatchExpressions(List.of(notExpr))
             // Two parallel return items so the three return lists are equal-length (the record
@@ -233,7 +228,6 @@ public class MatchExecutionPlannerInputsTest {
     // check only) could not catch.
     assertThat(planner.returnNestedProjections).containsExactly(proj1, proj2);
     assertThat(getAliasFilters(planner)).hasSize(1);
-    assertThat(getAliasRids(planner)).hasSize(1);
   }
 
   // ─────────────── Planner ctor — defensive-copy independence (3 maps) ──────────────────
@@ -274,24 +268,6 @@ public class MatchExecutionPlannerInputsTest {
     caller.clear();
 
     assertThat(getAliasFilters(planner)).containsEntry("a", w);
-  }
-
-  /**
-   * Same as above but for {@code aliasRids}. The minimal {@code (Pattern, Map, Map)} ctor
-   * defaults this to {@code Map.of()}; the new ctor accepts a real map and must defensive-
-   * copy it so that a translator that later reuses its own map for a second traversal does
-   * not see entries the planner would attach during scheduling.
-   */
-  @Test
-  public void plannerCtor_aliasRids_callerMutationDoesNotAffectPlanner() {
-    var caller = new HashMap<String, SQLRid>();
-    var rid = new SQLRid(-1);
-    caller.put("a", rid);
-    var planner = new MatchExecutionPlanner(inputsWithAliasRids(caller));
-
-    caller.clear();
-
-    assertThat(getAliasRids(planner)).containsEntry("a", rid);
   }
 
   /**
@@ -451,10 +427,6 @@ public class MatchExecutionPlannerInputsTest {
     return MatchPlanInputs.builder(new Pattern()).aliasFilters(aliasFilters).build();
   }
 
-  private static MatchPlanInputs inputsWithAliasRids(Map<String, SQLRid> aliasRids) {
-    return MatchPlanInputs.builder(new Pattern()).aliasRids(aliasRids).build();
-  }
-
   /// Reflective field access — used because the working maps and the three final AST fields
   /// are private and the public API surface is intentionally not expanded for testing.
   @SuppressWarnings("unchecked")
@@ -478,10 +450,6 @@ public class MatchExecutionPlannerInputsTest {
 
   private static Map<String, SQLWhereClause> getAliasFilters(MatchExecutionPlanner planner) {
     return readField(planner, "aliasFilters");
-  }
-
-  private static Map<String, SQLRid> getAliasRids(MatchExecutionPlanner planner) {
-    return readField(planner, "aliasRids");
   }
 
   private static boolean getReturnDistinct(MatchExecutionPlanner planner) {
