@@ -365,6 +365,15 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `g.V(ids)` translator, and strategy / boundary tests + a Cucumber
   > smoke check.
   > **Depends on:** Track 1.
+  >
+  > **Strategy refresh:** CONTINUE — Track 2's discoveries are absorbed by
+  > Track 3's plan with no scope, dependency, or ordering change to Tracks 3–6:
+  > `useCache=false` binds the shared planner ctor, `WalkerContext.polymorphic`
+  > now exists so Track 3 only adds the chain-target read, chain-target `@class`
+  > narrowing stays `polymorphic=false`-gated to avoid the BC2 undercount, the
+  > throw-safety net rethrows `Error`/`AssertionError`, `clone()` isolation
+  > already covers multi-node patterns, and the anon-alias generator deferred
+  > from Track 2 lands here.
 
 - [ ] Track 3: Edge traversal — `out` / `in` / `both`, folded `outE.inV` etc., plus non-adjacent edge filtering
   > Extends the recognized set with edge-traversal patterns including
