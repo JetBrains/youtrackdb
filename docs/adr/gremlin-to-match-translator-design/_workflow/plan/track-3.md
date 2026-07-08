@@ -10,7 +10,7 @@ Extends the recognized set with edge-traversal patterns and non-adjacent edge fi
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 
