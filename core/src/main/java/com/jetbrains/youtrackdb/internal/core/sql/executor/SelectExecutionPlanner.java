@@ -52,6 +52,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SubQueryCollector;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.YqlExecutionPlanCache;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -1812,7 +1813,12 @@ public class SelectExecutionPlanner {
     for (var rid : rids) {
       actualRids.add(rid.toRecordId((Result) null, ctx));
     }
-    plan.chain(new FetchFromRidsStep(actualRids, ctx, profilingEnabled));
+    // skipMissing=true: a query-level fetch over a set of RIDs - an explicit FROM [rids], a bound
+    // RID-list param, or a MATCH @rid-promotion routed through here - must not truncate the set
+    // when one RID is dangling (deleted / never allocated). It skips the hole and continues,
+    // matching a class scan. The step default stays terminate-on-missing for low-level callers
+    // such as DeleteEdge that construct FetchFromRidsStep directly.
+    plan.chain(new FetchFromRidsStep(actualRids, ctx, profilingEnabled, /* skipMissing= */ true));
   }
 
   /**
@@ -2305,6 +2311,12 @@ public class SelectExecutionPlanner {
     // FilterByClassStep — the class-membership guard inside the handler (collection-id
     // intersection) already filters at plan time, whereas FilterByClassStep would
     // redundantly re-filter each loaded record.
+    //
+    // A top-level @rid predicate always wins over index selection here: when the WHERE is
+    // `@rid IN [<list>] AND <indexed predicate>`, the list drives the fetch and the indexed
+    // term becomes a post-filter. That is optimal for the intended small-list / equality shapes;
+    // only a large IN list paired with a more selective indexed predicate would load more records
+    // than an index-first plan.
     if (handleClassAsTargetWithRidEquality(plan, identifier, info, ctx, profilingEnabled)) {
       return;
     }
@@ -2439,17 +2451,30 @@ public class SelectExecutionPlanner {
     // Evaluate the RID expression and map its result(s) to RecordIdInternal, mapping
     // each the way SQLRid.toRecordId's switch does.
     var evaluated = ridExpression.execute((Result) null, ctx);
+    if (evaluated == null) {
+      // A plan-time-resolvable expression that yields null here is an unbound reference — most
+      // importantly a batch-script LET variable, which is DECLARED during the script's up-front
+      // planning pass (SqlScriptExecutor plans every statement before executing any) but not
+      // BOUND until its LET statement runs. Evaluating it now reads null; chaining EmptyStep on
+      // that would silently drop every row. Fall through to the scan, which re-evaluates the
+      // predicate per row at execution, after the LET has run. A genuine `@rid = null` literal
+      // never reaches here — isUnsatisfiableWhere routes it to EmptyStep upstream. info.whereClause
+      // is still untouched at this point, so the scan sees the original predicate.
+      return false;
+    }
     var candidates = new LinkedHashSet<RecordIdInternal>();
     if (MultiValue.isMultiValue(evaluated)) {
       var iterable = MultiValue.getMultiValueIterable(evaluated);
       if (fromEquality) {
-        // Scalar @rid = <collection>: the scan path this replaces unwraps a collection to
-        // its element only when the collection has exactly one element (QueryOperatorEquals
-        // .equals size-1 unwrap); a size-0 or size->=2 collection never matches a scalar
-        // @rid, so the scan returns empty. To keep that parity, optimize only the size-1
-        // case (one candidate) and fall through to the scan for any other size — returning
-        // false is safe because info.whereClause is not mutated until the success branch,
-        // so the scan sees the original @rid = <collection> predicate and returns empty.
+        // Scalar @rid = <value>: QueryOperatorEquals (the scan filter this replaces) unwraps only
+        // a Collection, and only at size 1 — a size-0 or size-2+ Collection, or a non-Collection
+        // multi-value (array, map), never matches a scalar @rid, so the scan returns empty. Keep
+        // that parity: optimize only the size-1 Collection and fall through for anything else.
+        // Falling through is safe because info.whereClause is not mutated until the success
+        // branch, so the scan sees the original @rid = <value> predicate and returns empty.
+        if (!(evaluated instanceof Collection<?>)) {
+          return false;
+        }
         var single = singleElementOrNull(iterable);
         if (single == null) {
           return false;
@@ -2498,7 +2523,11 @@ public class SelectExecutionPlanner {
 
     if (members.isEmpty()) {
       // Wrong-class RID, empty IN [], or an all-non-member list: no rows are possible.
-      // Return an empty result rather than falling through to a full scan.
+      // Return an empty result rather than falling through to a full scan. Clear the WHERE so
+      // handleWhere() does not append a dead FilterStep over the already-empty stream, matching
+      // the unsatisfiable-WHERE sibling path at the top of handleClassAsTarget.
+      info.whereClause = null;
+      info.flattenedWhereClause = null;
       plan.chain(new EmptyStep(ctx, profilingEnabled));
       return true;
     }
@@ -2548,7 +2577,10 @@ public class SelectExecutionPlanner {
   @Nullable private static RecordIdInternal toRecordIdCandidate(Object value) {
     return switch (value) {
       case null -> null;
-      case Identifiable identifiable -> (RecordIdInternal) identifiable.getIdentity();
+      // Drop an identity that is not a RecordIdInternal (e.g. a marker/tombstone RID) rather than
+      // ClassCastException-ing at plan time, consistent with the no-throw contract of this method.
+      case Identifiable identifiable ->
+          identifiable.getIdentity() instanceof RecordIdInternal r ? r : null;
       // A malformed RID string (no #/: separator, non-numeric parts) makes fromString throw.
       // Yield null so the candidate is dropped rather than aborting the query: the scan-plus-
       // filter this path replaces returns empty for @rid = '<garbage>' (QueryOperatorEquals

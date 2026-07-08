@@ -30,6 +30,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Spliterator;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -1011,32 +1012,7 @@ public class SQLWhereClause extends SimpleNode {
    */
   @Nullable
   public RidExtractionResult extractAndRemoveRidEquality() {
-    if (baseExpression == null) {
-      return null;
-    }
-
-    var expr = baseExpression;
-    if (expr instanceof SQLOrBlock orBlock) {
-      if (orBlock.subBlocks.size() != 1) {
-        return null;
-      }
-      expr = orBlock.subBlocks.getFirst();
-    }
-    if (!(expr instanceof SQLAndBlock andBlock)) {
-      return null;
-    }
-
-    for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
-      var ridExpr = tryExtractRidFromTerm(andBlock.subBlocks.get(idx));
-      if (ridExpr != null) {
-        if (andBlock.subBlocks.size() == 1) {
-          return new RidExtractionResult(ridExpr, null);
-        }
-        var remaining = buildWhereWithout(andBlock, idx);
-        return new RidExtractionResult(ridExpr, remaining);
-      }
-    }
-    return null;
+    return extractAndRemoveRid(SQLWhereClause::tryExtractRidFromTerm);
   }
 
   /**
@@ -1066,10 +1042,21 @@ public class SQLWhereClause extends SimpleNode {
    */
   @Nullable
   public RidExtractionResult extractAndRemoveRidInList() {
+    return extractAndRemoveRid(SQLWhereClause::tryExtractRidInListFromTerm);
+  }
+
+  /**
+   * Shared skeleton for the destructive RID extractors: unwrap a single-element {@code OrBlock},
+   * require an {@code AndBlock}, then pull the first term the {@code termExtractor} recognizes as
+   * an {@code @rid} predicate, returning it plus the remaining WHERE (null when it was the sole
+   * term). The equality and IN variants differ only in that term extractor.
+   */
+  @Nullable
+  private RidExtractionResult extractAndRemoveRid(
+      Function<SQLBooleanExpression, SQLExpression> termExtractor) {
     if (baseExpression == null) {
       return null;
     }
-
     var expr = baseExpression;
     if (expr instanceof SQLOrBlock orBlock) {
       if (orBlock.subBlocks.size() != 1) {
@@ -1080,14 +1067,10 @@ public class SQLWhereClause extends SimpleNode {
     if (!(expr instanceof SQLAndBlock andBlock)) {
       return null;
     }
-
     for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
-      var ridExpr = tryExtractRidInListFromTerm(andBlock.subBlocks.get(idx));
+      var ridExpr = termExtractor.apply(andBlock.subBlocks.get(idx));
       if (ridExpr != null) {
-        if (andBlock.subBlocks.size() == 1) {
-          return new RidExtractionResult(ridExpr, null);
-        }
-        var remaining = buildWhereWithout(andBlock, idx);
+        var remaining = andBlock.subBlocks.size() == 1 ? null : buildWhereWithout(andBlock, idx);
         return new RidExtractionResult(ridExpr, remaining);
       }
     }

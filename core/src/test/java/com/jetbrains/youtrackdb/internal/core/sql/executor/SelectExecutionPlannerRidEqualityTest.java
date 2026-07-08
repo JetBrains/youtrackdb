@@ -108,6 +108,11 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     session.commit();
 
     var sql = "select from " + classA + " where @rid = " + ridB;
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "a wrong-class @rid must compile to EmptyStep, not fall through to a class scan, plan: "
+            + plan,
+        plan.contains("FETCH FROM CLASS"));
     try (var result = session.query(sql)) {
       Assert.assertFalse(
           "a RID from a sibling class must never leak through the class target", result.hasNext());
@@ -436,6 +441,10 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     session.commit();
 
     var sql = "select from " + className + " where @rid = 'garbage'";
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "an unparseable @rid must compile to EmptyStep, not a class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
     try (var result = session.query(sql)) {
       Assert.assertFalse(
           "a malformed RID string must yield an empty result rather than throwing",
@@ -461,10 +470,83 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     session.commit();
 
     var sql = "select from " + className + " where @rid = '#-3:0'";
+    var plan = explainPlan(sql);
+    Assert.assertFalse(
+        "an out-of-range @rid must compile to EmptyStep, not a class scan, plan was: " + plan,
+        plan.contains("FETCH FROM CLASS"));
     try (var result = session.query(sql)) {
       Assert.assertFalse(
           "an out-of-range RID string must yield an empty result rather than throwing",
           result.hasNext());
+    }
+  }
+
+  /**
+   * Regression: in a multi-statement script the planner builds every statement's plan up front, so
+   * a {@code LET $r = <rid>} is only DECLARED (not yet bound) when a later
+   * {@code SELECT ... WHERE @rid = $r} is planned. The fast path must not resolve {@code $r} at
+   * plan time — it reads null there and would wrongly chain EmptyStep, returning zero rows. It must
+   * fall through to the scan, which evaluates the predicate per row at execution, after the LET has
+   * run. Verifies the record is returned, not a silently-empty result.
+   */
+  @Test
+  public void ridEqualsScriptVariable_returnsRecordViaScan() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var doc = session.newInstance(className);
+    doc.setProperty("tag", "sv");
+    var rid = doc.getIdentity();
+    session.commit();
+
+    // The script runs in a fresh transaction: the correct plan for a not-yet-bound LET variable
+    // is the class scan, which needs an active tx to iterate (session.computeScript, unlike
+    // session.query, does not auto-open one); the buggy fast path returned empty without a tx.
+    // Running inside a tx isolates the behavior under test.
+    session.begin();
+    try {
+      var script = "LET $r = " + rid + ";\n"
+          + "SELECT FROM " + className + " WHERE @rid = $r;";
+      try (var result = session.computeScript("sql", script)) {
+        Assert.assertTrue(
+            "a script LET-bound @rid must return the record, not a silently-empty result",
+            result.hasNext());
+        Assert.assertEquals("sv", result.next().getProperty("tag"));
+        Assert.assertFalse(result.hasNext());
+      }
+    } finally {
+      session.commit();
+    }
+  }
+
+  /** IN-list variant of {@link #ridEqualsScriptVariable_returnsRecordViaScan}. */
+  @Test
+  public void ridInScriptVariableList_returnsRecordsViaScan() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var d0 = session.newInstance(className);
+    d0.setProperty("tag", "a");
+    var d1 = session.newInstance(className);
+    d1.setProperty("tag", "b");
+    var rid0 = d0.getIdentity();
+    var rid1 = d1.getIdentity();
+    session.commit();
+
+    // See ridEqualsScriptVariable_returnsRecordViaScan: the fall-through scan needs an active tx.
+    session.begin();
+    try {
+      var script = "LET $r = [" + rid0 + ", " + rid1 + "];\n"
+          + "SELECT FROM " + className + " WHERE @rid IN $r;";
+      try (var result = session.computeScript("sql", script)) {
+        Set<String> seen = new HashSet<>();
+        while (result.hasNext()) {
+          seen.add(result.next().getProperty("tag"));
+        }
+        Assert.assertEquals(
+            "a script LET-bound @rid IN list must return all matching records", Set.of("a", "b"),
+            seen);
+      }
+    } finally {
+      session.commit();
     }
   }
 
@@ -559,10 +641,16 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
     var rid = doc.getIdentity();
     session.commit();
 
-    var plan = explainPlan("select from " + className + " where " + rid + " = @rid");
+    var sql = "select from " + className + " where " + rid + " = @rid";
+    var plan = explainPlan(sql);
     Assert.assertTrue("reversed <literal> = @rid must still use the RID fetch, plan was: " + plan,
         plan.contains("FETCH FROM RIDs"));
     Assert.assertFalse(plan.contains("FETCH FROM CLASS"));
+    try (var result = session.query(sql)) {
+      Assert.assertTrue("reversed operand must return the targeted record", result.hasNext());
+      Assert.assertEquals("r", result.next().getProperty("tag"));
+      Assert.assertFalse(result.hasNext());
+    }
   }
 
   /**
@@ -748,6 +836,77 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
         Assert.assertEquals("s", result.next().getProperty("tag"));
         Assert.assertFalse(result.hasNext());
       }
+    }
+  }
+
+  /**
+   * A bound-parameter RID list ({@code @rid IN :params}) under a class target must compile to the
+   * direct RID fetch and return exactly the matching records. This is the only test of the
+   * bound-param arm of the IN detector (wrapEarlyCalculableInRight's rightParam branch); the other
+   * IN tests use a list literal, which takes the rightMathExpression branch.
+   */
+  @Test
+  public void ridInBoundParamList_compilesToRidFetch() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var d0 = session.newInstance(className);
+    d0.setProperty("tag", "p0");
+    var d1 = session.newInstance(className);
+    d1.setProperty("tag", "p1");
+    var rid0 = d0.getIdentity();
+    var rid1 = d1.getIdentity();
+    session.commit();
+
+    Map<Object, Object> params = new HashMap<>();
+    params.put("rids", List.of(rid0, rid1));
+    var sql = "select from " + className + " where @rid in :rids";
+
+    var plan = explainPlanWithParams(sql, params);
+    Assert.assertTrue("@rid IN :param must compile to FetchFromRidsStep, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+    Assert.assertFalse(plan.contains("FETCH FROM CLASS"));
+    try (var result = session.query(sql, params)) {
+      Set<String> seen = new HashSet<>();
+      while (result.hasNext()) {
+        seen.add(result.next().getProperty("tag"));
+      }
+      Assert.assertEquals(Set.of("p0", "p1"), seen);
+    }
+  }
+
+  /**
+   * {@code @rid IN [<list>] AND <extra>} must let the IN list drive the fetch and apply the extra
+   * predicate as exactly one downstream FilterStep — the IN-list twin of
+   * {@link #ridEqualsWithExtraPredicate_appliesRemainderExactlyOnce}. Exercises the compound-AND
+   * remainder branch of extractAndRemoveRidInList (buildWhereWithout), which the sole-condition IN
+   * tests never reach.
+   */
+  @Test
+  public void ridInListWithExtraPredicate_appliesRemainderExactlyOnce() {
+    var className = createClassInstance().getName();
+    session.begin();
+    var a = session.newInstance(className);
+    a.setProperty("status", "A");
+    var b = session.newInstance(className);
+    b.setProperty("status", "B");
+    var ridA = a.getIdentity();
+    var ridB = b.getIdentity();
+    session.commit();
+
+    var sql = "select from " + className
+        + " where @rid in [" + ridA + ", " + ridB + "] and status = 'A'";
+    var plan = explainPlan(sql);
+    Assert.assertTrue("IN list must drive the RID fetch, plan was: " + plan,
+        plan.contains("FETCH FROM RIDs"));
+    Assert.assertEquals(
+        "the extra predicate must be chained as exactly one FilterStep, plan was: " + plan,
+        1,
+        countOccurrences(plan, "FILTER ITEMS WHERE"));
+    try (var result = session.query(sql)) {
+      Assert.assertTrue(result.hasNext());
+      Assert.assertEquals("only ridA survives status='A'", "A",
+          result.next().getProperty("status"));
+      Assert.assertFalse(result.hasNext());
     }
   }
 
