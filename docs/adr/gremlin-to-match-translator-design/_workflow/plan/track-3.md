@@ -17,6 +17,7 @@ Extends the recognized set with edge-traversal patterns and non-adjacent edge fi
 - [x] 2026-07-08T12:30Z [ctx=info] Review + decomposition complete
 - [x] 2026-07-08T14:02Z [ctx=safe] Step 1 complete (commit eb6b03e18c99a0409e998f0899b97464082011bb)
 - [x] 2026-07-08T20:04Z [ctx=safe] Step 2 complete (commit 68be3ed059db36bffa0677c8fffc4e52ad6a4f16)
+- [x] 2026-07-08T22:09Z [ctx=info] Step 3 complete (commit 66010db103, Review fix 6b5740cb6a)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -53,11 +54,26 @@ Extends the recognized set with edge-traversal patterns and non-adjacent edge fi
   for Track 4's folded `hasLabel` as its first caller; MATCH preserves native multiplicity — parallel
   edges, self-loops, and `both()` returned the same multiset translator-on versus translator-off. See
   Episodes §Step 2.
+- 2026-07-08 Phase B Step 3: the MATCH executor's graph-method set has no `otherV`, so
+  `bothE(L).has(...).otherV()` edge filtering cannot be expressed and declines; plain `both(L)` still
+  translates as the folded `VertexStep`, and `outE`/`inE` edge filtering works. `SQLMethodCall.methodName`
+  is protected with no public setter, so front-end edge-method path-item construction lives in a new
+  non-generated `sql.parser` factory `MatchEdgePathItems` (mirroring the `SQLMatchFilter.fromAliasAndClass`
+  seam) — no generated parser file was edited. `GremlinPredicateAdapter` is the `has()`→WHERE chokepoint
+  Track 4 extends; today it handles only flat scalar `Compare` predicates and declines everything else.
+  The reserved-`$` namespace is now guarded on two input surfaces — `as()` labels (Step 1) and `has()`
+  keys (this step); later tracks adding user-string input surfaces should apply the same decline. See
+  Episodes §Step 3.
 
 ## Decision Log
 <!-- Continuous-log. -->
 
-<!-- Reserved for Move 1 — per-track inlined Decision Records. -->
+- 2026-07-08 (Step 3): **Descope `bothE(L).has(...).otherV()` edge filtering.** The MATCH executor
+  exposes `out`/`in`/`both`/`outE`/`inE`/`bothE`/`outV`/`inV`/`bothV` but no `otherV`, so the
+  edge-as-node form cannot express a BOTH-direction edge filter that must return the *other* endpoint.
+  `outE`/`inE` edge filtering (the LDBC-IC2 case) and plain `both(L)` both work; only the narrow
+  BOTH-direction *edge-filtered* shape declines to native. Enabling it later needs a new executor
+  `otherV` method or a different encoding — out of Track 3 scope. See Episodes §Step 3.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
@@ -99,7 +115,7 @@ flowchart LR
 ## Concrete Steps
 1. Walker multi-step infrastructure: convert `GremlinStepWalker` to index-driven iteration, raise `MAX_RECOGNISED_STEPS`, change `StepRecogniser.recognize` to a consumed-step-count contract (recognisers advance `ctx.stepIndex`; walker drops its unconditional `++`), update `StartStepRecogniser` to the new contract, add the reserved-`$` user-label pre-flight decline scan, add the anonymous-alias generator + new `WalkerContext` fields (`edgeFilters` map, alias counters), and empirically record the post-`applyStrategies()` dispatch step-classes for the target shapes; regression: `g.V()`/`g.V(ids)` still translate; preserve all-or-nothing + no-mutation-on-decline. — risk: high (architecture: load-bearing walker iteration model + `StepRecogniser` contract change)  [x]  commit: eb6b03e18c
 2. `VertexStepRecogniser` for the folded `out(L)`/`in(L)`/`both(L)` shapes: real 7-arg `addEdge(from, target, dir, label, null, null, null)` + `addNode(target, "V", null, false)` with NO `@class` narrowing on the bare hop target (BC2), the boundary/RETURN re-pin (replace the single return item + re-pin `boundaryAlias` to the target alias), and the `MatchClassFilters` helper (explicit user classes only); stand up `EdgeTraversalEquivalenceTest` with folded cases + a subclassed-schema `polymorphic=false` BC2 pin + `both`/self-loop/parallel-edge multiplicity. — risk: medium — size: ~6 files; rest of track is high (Steps 1, 3), no mergeable low/medium work  [x]  commit: 68be3ed059
-3. `EdgeStepRecogniser` for non-adjacent edge filtering: add the edge-as-node builder/assembler capability (`GremlinPatternAssembler` emitting the two-path-item `outE(L){as $g2m_edge_N, where <edge filter>}.inV()` form; extend `MatchPatternBuilder` if the assembler needs it), the `GremlinPredicateAdapter` skeleton, `NoOpBarrierRecogniser`, and the peek-ahead recogniser (skip `NoOpBarrierStep`, AND-merge `HasStep`s into a local edge `SQLMatchFilter`, close on `EdgeVertexStep`/`EdgeOtherVertexStep`, decline with no ctx mutation), confirm `MatchExecutionPlanner` plans an edge-aliased intermediate node (premise test; descope edge filtering if unsupported), and extend `EdgeTraversalEquivalenceTest` with `outE(L).has(edgeProp).inV()` equivalence + interleaved-barrier cases. — risk: high (architecture: new `GremlinPredicateAdapter` seam + edge-as-node builder extension; headline correctness-critical feature)  [ ]
+3. `EdgeStepRecogniser` for non-adjacent edge filtering: add the edge-as-node builder/assembler capability (`GremlinPatternAssembler` emitting the two-path-item `outE(L){as $g2m_edge_N, where <edge filter>}.inV()` form; extend `MatchPatternBuilder` if the assembler needs it), the `GremlinPredicateAdapter` skeleton, `NoOpBarrierRecogniser`, and the peek-ahead recogniser (skip `NoOpBarrierStep`, AND-merge `HasStep`s into a local edge `SQLMatchFilter`, close on `EdgeVertexStep`/`EdgeOtherVertexStep`, decline with no ctx mutation), confirm `MatchExecutionPlanner` plans an edge-aliased intermediate node (premise test; descope edge filtering if unsupported), and extend `EdgeTraversalEquivalenceTest` with `outE(L).has(edgeProp).inV()` equivalence + interleaved-barrier cases. — risk: high (architecture: new `GremlinPredicateAdapter` seam + edge-as-node builder extension; headline correctness-critical feature)  [x]  commit: 66010db103
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -117,6 +133,13 @@ flowchart LR
 **What changed from the plan:** The equivalence fixture omits a multi-hop RECOGNIZED case — it depends on the Step-3 barrier recogniser per the discovery above, so `VertexStepRecogniser`'s two-hop chaining is pinned at the unit level (without the barrier) instead. The smoke test `followUpStepDeclinesUnrecognizedStep` used `g.V().out("knows")` as its declined shape; that now translates, so it was retargeted to a trailing `count()` to keep exercising the all-or-nothing decline path.
 **Key files:** `VertexStepRecogniser.java` (new), `MatchClassFilters.java` (new), `GremlinStepWalker.java`, `WalkerContext.java`; tests `EdgeTraversalEquivalenceTest.java` (new), `VertexStepRecogniserTest.java` (new), `MatchClassFiltersTest.java` (new), `GremlinToMatchSmokeTest.java`.
 **Critical context:** The blank-edge-label decline branch is unreachable through the DSL (it rejects blank labels at construction), so a Mockito `VertexStep` mock covers it. `MatchClassFilters` has no production caller yet — the folded `hasLabel` step will be its first.
+
+### Step 3 — commit 66010db103c..., 2026-07-08T22:09Z [ctx=info]
+**What was done:** Non-adjacent edge-property filtering now translates: `outE(L).has(edgeProp).inV()` and the `inE.outV` analogue become the edge-as-node MATCH form. `MatchPatternBuilder.addEdgeAsNode` emits the two-path-item `outE(L){as $edge, where <filter>}.inV(){as $target}` shape, building the edge/vertex method calls through a new `sql.parser`-package factory `MatchEdgePathItems`. `EdgeStepRecogniser` peeks ahead from the edge step, AND-merges `has()` predicates through the new `GremlinPredicateAdapter` skeleton, skips interleaved barriers, and closes on `EdgeVertexStep`; `VertexStepRecogniser` delegates its `returnsEdge()` branch to it. `NoOpBarrierRecogniser` claims the barrier `LazyBarrierStrategy` wedges between chained hops, so multi-hop `out().out()` chains now translate. `GremlinPatternAssembler` factors the shared edge/target assembly and boundary re-pin. A follow-up `Review fix:` commit (6b5740cb6a) closed the reserved-`$` gap the step-level security review raised (SE1): `GremlinPredicateAdapter` now declines a `has()` whose property key starts with `$`, mirroring Step 1's reserved-`$` label scan. 203 tests pass; changed-code coverage clears the gate per file.
+**What was discovered:** The planner already plans an edge-aliased intermediate node, so edge filtering was NOT descoped — the premise held end-to-end. TinkerPop merges consecutive `has()` calls into one `HasStep` carrying multiple `HasContainer`s, so the recogniser iterates containers and AND-merges correctly. `SQLMethodCall.methodName` is protected with no public setter, so the edge-method path-item factory had to live in the `sql.parser` package. The security review sharpened the reserved-`$` risk: native YTDB rejects a `$`-prefixed property name with `DatabaseException` (property names must start with a letter or underscore), so the pre-fix translator would have returned a wrong non-throwing result where native throws.
+**What changed from the plan:** Edge filtering was NOT descoped (planner supports the edge-as-node IR), but BOTH-direction edge filtering (`bothE.has.otherV`) is descoped because the MATCH executor lacks `otherV` — recorded in the Decision Log. Path-item construction landed in a new `sql.parser`-package factory (`MatchEdgePathItems`) in addition to extending `MatchPatternBuilder`, forced by the protected `methodName` field; no generated file was edited. Track 4's predicate work builds on the `GremlinPredicateAdapter` skeleton delivered here.
+**Key files:** `EdgeStepRecogniser.java` (new), `GremlinPatternAssembler.java` (new), `GremlinPredicateAdapter.java` (new), `NoOpBarrierRecogniser.java` (new), `MatchEdgePathItems.java` (new), `GremlinStepWalker.java`, `VertexStepRecogniser.java`, `MatchPatternBuilder.java`; tests `EdgeStepRecogniserTest.java` (new), `NoOpBarrierRecogniserTest.java` (new), `GremlinPredicateAdapterTest.java` (new), `EdgeTraversalEquivalenceTest.java`, `VertexStepRecogniserTest.java`, `MatchPatternBuilderTest.java`.
+**Critical context:** `GremlinPredicateAdapter` is the `has()`→WHERE chokepoint Track 4 extends — today it handles only flat scalar `Compare` predicates (eq/neq/lt/lte/gt/gte over a literal) and declines everything else (Contains, `and`/`or`, `hasLabel`, entity-presence). The reserved-`$` namespace is now guarded on two input surfaces (`as()` labels and `has()` keys). Any future both-direction edge feature needs an executor `otherV` method — MATCH has none today.
 
 ## Validation and Acceptance
 - `out(L)` / `in(L)` / `both(L)` and the folded `outE(L).inV()` analogues translate and return the same multiset as native; the boundary emits `Vertex` from the *last hop's target* alias.
