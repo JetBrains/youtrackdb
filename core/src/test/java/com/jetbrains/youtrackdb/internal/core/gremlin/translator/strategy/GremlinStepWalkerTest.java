@@ -46,6 +46,12 @@ import org.junit.Test;
  *       step list would be preserved by the caller), a detached / null-{@code isPolymorphic}
  *       traversal declines, and a declining recognizer leaves the {@link WalkerContext}
  *       unmutated (no-mutation-on-decline).
+ *   <li><b>Multi-step walker infrastructure</b> — the index-driven loop lets a recogniser
+ *       consume several steps in one claim (a fixture advances the cursor by two); a recogniser
+ *       that claims a step without advancing the cursor trips the walker's guard; the
+ *       reserved-{@code $} pre-flight scan declines a traversal carrying a {@code $}-prefixed
+ *       user label; and {@link WalkerContext}'s anonymous-alias generator mints distinct,
+ *       per-context sequences.
  * </ul>
  */
 public class GremlinStepWalkerTest extends GraphBaseTest {
@@ -203,23 +209,26 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * The minimal-prefix (size-1) gate declines any traversal larger than the single vertex source
-   * the Phase 1 registry can translate whole, without walking a single step. {@code g.V().count()}
-   * has two steps; the walker's up-front size check declines it (the recognizer for the second
-   * step does not exist yet, so the all-or-nothing loop would decline anyway, but the size gate is
-   * the direct, greppable bound on the recognized set). The traversal's native step list is left
-   * untouched.
+   * A multi-step traversal is now walked (no up-front size gate) and declines at the first
+   * unrecognized step class. {@code g.V().count()} has two steps: the walker recognizes the
+   * vertex source, the claiming recogniser advances the cursor past it, and the walker then
+   * dispatches the {@code CountGlobalStep} — which has no registry entry — so under all-or-nothing
+   * the whole walk declines. This pins that removing the upper-bound size gate did not let a
+   * multi-step traversal translate: it still declines, via the no-recogniser path rather than a
+   * step-count check. The traversal's native step list is left untouched.
    */
   @Test
-  public void walk_multiStepTraversal_declinesUnderMinimalPrefixGate() {
+  public void walk_multiStepTraversal_declinesAtUnrecognizedFollowUpStep() {
     var admin = graph.traversal().V().count().asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("a multi-step traversal declines under the size-1 gate").isNull();
+    assertThat(result)
+        .as("a multi-step traversal declines at the unrecognized follow-up step")
+        .isNull();
     assertThat(admin.getSteps())
-        .as("the size gate never mutates the traversal's native step list")
+        .as("the walk never mutates the traversal's native step list")
         .isEqualTo(stepsBefore);
   }
 
@@ -466,27 +475,28 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // Walker gate + invariant discipline — an empty traversal declines up front at
-  // the size gate; a recogniser that claims a step but leaves the boundary
-  // unpinned trips the post-walk invariant assert rather than declining silently.
+  // the empty gate; a recogniser that claims a step without advancing the cursor,
+  // or without pinning the boundary, trips a walker guard rather than declining
+  // silently (or, for the cursor, spinning forever).
   // ---------------------------------------------------------------------------
 
   /**
-   * An empty traversal (zero steps) declines up front at the size gate, before the walk loop and
-   * before the boundary invariant. A step-less traversal has nothing to translate and could never
-   * pin a boundary; declining it here keeps it a normal decline (a {@code null} return) rather
-   * than letting it reach the post-walk invariant assert, which is reserved for a recogniser that
-   * claims a step without pinning the boundary. A Mockito traversal with an empty step list drives
-   * the {@code steps.isEmpty()} branch directly.
+   * An empty traversal (zero steps) declines up front at the empty-traversal gate, before the
+   * walk loop and before the boundary invariant. A step-less traversal has nothing to translate
+   * and could never pin a boundary; declining it here keeps it a normal decline (a {@code null}
+   * return) rather than letting it reach the post-walk invariant assert, which is reserved for a
+   * recogniser that claims a step without pinning the boundary. A Mockito traversal with an empty
+   * step list drives the {@code steps.isEmpty()} branch directly.
    */
   @Test
-  public void walk_emptyTraversal_declinesAtSizeGate() {
+  public void walk_emptyTraversal_declinesAtEmptyGate() {
     @SuppressWarnings("unchecked")
     Traversal.Admin<Object, Object> emptyTraversal = mock(Traversal.Admin.class);
     when(emptyTraversal.getSteps()).thenReturn(List.of());
 
     var result = GremlinStepWalker.production().walk(emptyTraversal);
 
-    assertThat(result).as("an empty traversal declines at the size gate").isNull();
+    assertThat(result).as("an empty traversal declines at the empty gate").isNull();
   }
 
   /**
@@ -497,20 +507,153 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * declining silently — a silent decline would mask the bug. Under {@code -ea} (the test/CI
    * default) the assert throws {@link AssertionError}, which {@code GremlinToMatchStrategy}'s
    * throw-safety net does NOT catch (it catches only {@code RuntimeException}), so the bug surfaces
-   * loudly instead of degrading to a silent decline. This test drives a fixture registry whose
-   * recogniser claims the start {@code GraphStep} without mutating the context, and asserts the
-   * walk trips that invariant.
+   * loudly instead of degrading to a silent decline. The fixture recogniser advances the cursor
+   * (so it clears the walker's cursor-advance guard and reaches the post-walk boundary invariant)
+   * but pins nothing on the context, isolating the boundary invariant from the cursor guard.
    */
   @Test
   public void walk_recogniserLeavesBoundaryUnpinned_tripsInvariantAssert() {
-    // Fixture recogniser: claims every step it is handed, pins nothing on the context.
-    StepRecogniser unpinning = (step, ctx) -> true;
+    // Fixture recogniser: claims the step and advances the cursor by one (clearing the
+    // cursor-advance guard), but pins no boundary metadata — isolating the post-walk boundary
+    // invariant from the in-loop cursor guard.
+    StepRecogniser unpinning =
+        (step, ctx) -> {
+          ctx.stepIndex++;
+          return true;
+        };
     var walker = new GremlinStepWalker(Map.of(GraphStep.class, unpinning));
     var admin = graph.traversal().V().asAdmin();
 
     assertThatThrownBy(() -> walker.walk(admin))
         .as("a recognised walk that leaves the boundary unpinned trips the invariant assert")
         .isInstanceOf(AssertionError.class);
+  }
+
+  /**
+   * A recogniser that returns {@code true} without advancing the cursor trips the walker's
+   * in-loop cursor-advance guard. Under the index-driven contract the claiming recogniser owns
+   * the cursor advance; a recogniser that claims a step but leaves {@code stepIndex} unchanged
+   * would spin the walk loop forever, so the walker asserts the cursor moved forward by at least
+   * one. Under {@code -ea} the assert throws {@link AssertionError} (not swallowed by the
+   * strategy's {@code RuntimeException}-only net); under {@code -da} the walker's defensive
+   * decline (asserted separately by the return value here being unreachable) keeps a live query
+   * off an infinite loop. The fixture claims the start {@code GraphStep} without touching the
+   * cursor, which is exactly the mis-implemented recogniser this guard defends against.
+   */
+  @Test
+  public void walk_recogniserClaimsWithoutAdvancing_tripsCursorAssert() {
+    // Fixture recogniser: returns true but never advances the cursor — the infinite-loop bug the
+    // walker's cursor-advance guard catches.
+    StepRecogniser nonAdvancing = (step, ctx) -> true;
+    var walker = new GremlinStepWalker(Map.of(GraphStep.class, nonAdvancing));
+    var admin = graph.traversal().V().asAdmin();
+
+    assertThatThrownBy(() -> walker.walk(admin))
+        .as("a recogniser that claims a step without advancing the cursor trips the guard")
+        .isInstanceOf(AssertionError.class);
+  }
+
+  /**
+   * The index-driven walker supports a multi-step claim: a recogniser may consume several steps in
+   * one call by advancing the cursor past all of them, and the walker resumes dispatch at the new
+   * cursor rather than re-inspecting the consumed steps. The fixture delegates to {@link
+   * StartStepRecogniser} (which pins the boundary and advances the cursor by one) and then advances
+   * the cursor by one more, so it claims BOTH steps of {@code g.V().out()} in a single call. The
+   * {@code out()} {@code VertexStep} at index 1 is therefore never dispatched (no recogniser is
+   * registered for it), yet the walk succeeds — proving the loop honours a recogniser-driven
+   * multi-step advance. This is a walker-mechanic test; the fixture's claim over {@code out()} is
+   * contrived (real edge-hop translation lands in a later step).
+   */
+  @Test
+  public void walk_multiStepClaim_recogniserConsumesMultipleSteps() {
+    // Fixture: reuse StartStepRecogniser's valid single-node build (advances the cursor by one and
+    // pins the boundary), then consume one extra step so the claim spans both steps of g.V().out().
+    StepRecogniser twoStepClaim =
+        (step, ctx) -> {
+          boolean recognised = StartStepRecogniser.INSTANCE.recognize(step, ctx);
+          if (recognised) {
+            ctx.stepIndex++;
+          }
+          return recognised;
+        };
+    var walker = new GremlinStepWalker(Map.of(GraphStep.class, twoStepClaim));
+    var admin = graph.traversal().V().out("knows").asAdmin();
+    assertThat(admin.getSteps()).as("precondition: g.V().out() is a two-step traversal").hasSize(2);
+
+    var result = walker.walk(admin);
+
+    assertThat(result)
+        .as("a recogniser that advances the cursor past both steps translates the whole traversal")
+        .isNotNull();
+    assertThat(result.boundaryAlias()).isEqualTo(BOUNDARY_ALIAS);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Reserved-prefix pre-flight scan + anonymous-alias generator — the walker
+  // infrastructure this step adds ahead of the edge-hop recognisers.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A user label starting with the reserved {@code $} prefix declines the whole walk. {@code
+   * as("$foo")} labels the vertex {@code GraphStep} with {@code $foo}; the walker's reserved-prefix
+   * pre-flight scan runs before any recogniser and declines the traversal, so the translator's
+   * minted {@code $g2m_} alias namespace can never collide with a user label. Declining (not
+   * throwing) keeps a pre-existing {@code as("$foo")} query on the native pipeline unchanged.
+   */
+  @Test
+  public void walk_reservedDollarUserLabel_declines() {
+    var admin = graph.traversal().V().as("$foo").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result).as("a $-prefixed user label declines the whole walk").isNull();
+  }
+
+  /**
+   * A non-{@code $} user label does not trip the reserved-prefix scan. {@code g.V().as("foo")} is
+   * a single {@code GraphStep} carrying the label {@code foo}; the scan keys specifically on the
+   * {@code $} prefix, so this traversal still translates (the label has no consumer step in this
+   * track, so it is inert on the single-node pattern). This pins that the scan does not decline
+   * every labelled traversal — only reserved-prefix ones.
+   */
+  @Test
+  public void walk_nonReservedUserLabel_notDeclinedByReservedScan() {
+    var admin = graph.traversal().V().as("foo").asAdmin();
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result)
+        .as("a non-$ user label must not be declined by the reserved-prefix scan")
+        .isNotNull();
+  }
+
+  /**
+   * The anonymous-alias generator mints distinct, sequenced aliases under the reserved {@code
+   * $g2m_} prefixes, with independent per-kind counters that reset per {@link WalkerContext}. The
+   * vertex sequence is {@code $g2m_anon_0}, {@code $g2m_anon_1}, …; the edge sequence is {@code
+   * $g2m_edge_0}, {@code $g2m_edge_1}, …; minting an edge alias does not perturb the vertex counter
+   * (and vice versa). A fresh context restarts both sequences at 0, so alias names are deterministic
+   * per query rather than monotonic across the JVM. The {@code edgeFilters} map — infrastructure
+   * this step adds, populated by a later edge recogniser — starts empty.
+   */
+  @Test
+  public void context_anonAliasGenerator_mintsDistinctSequencedAliases() {
+    var admin = graph.traversal().V().asAdmin();
+    var ctx = new WalkerContext(admin, true);
+
+    assertThat(ctx.nextAnonVertexAlias()).isEqualTo("$g2m_anon_0");
+    assertThat(ctx.nextAnonVertexAlias()).isEqualTo("$g2m_anon_1");
+    // Independent counter: minting edge aliases does not advance the vertex counter.
+    assertThat(ctx.nextEdgeAlias()).isEqualTo("$g2m_edge_0");
+    assertThat(ctx.nextEdgeAlias()).isEqualTo("$g2m_edge_1");
+    assertThat(ctx.nextAnonVertexAlias()).isEqualTo("$g2m_anon_2");
+    assertThat(ctx.edgeFilters).as("edgeFilters starts empty until a recogniser populates it")
+        .isEmpty();
+
+    // Per-context reset: a fresh walk restarts both sequences at 0.
+    var fresh = new WalkerContext(admin, true);
+    assertThat(fresh.nextAnonVertexAlias()).isEqualTo("$g2m_anon_0");
+    assertThat(fresh.nextEdgeAlias()).isEqualTo("$g2m_edge_0");
   }
 
   /**

@@ -170,6 +170,11 @@ final class StartStepRecogniser implements StepRecogniser {
     ctx.returnAliases.add(new SQLIdentifier(BOUNDARY_ALIAS));
     ctx.returnNestedProjections.add(null);
 
+    // Advance the cursor past the one step this recogniser consumed (the start GraphStep). Under
+    // the index-driven walker the recogniser owns this advance — the walker no longer does an
+    // unconditional ++ — so a single-step claim advances by exactly one. Done last, after every
+    // context mutation, so a decline before this point leaves the cursor untouched.
+    ctx.stepIndex++;
     return true;
   }
 

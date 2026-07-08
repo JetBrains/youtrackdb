@@ -16,8 +16,10 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 /**
  * Mutable accumulator that recognisers populate as {@link GremlinStepWalker} walks a
  * traversal. The walker creates one context per call; recognisers append nodes/edges
- * to {@link #patternBuilder} and entries to {@link #aliasFilters} /
- * the three return-projection lists, and pin the boundary metadata
+ * to {@link #patternBuilder} and entries to {@link #aliasFilters} / {@link #edgeFilters} /
+ * the three return-projection lists, mint anonymous aliases for intermediate nodes and
+ * edges via {@link #nextAnonVertexAlias()} / {@link #nextEdgeAlias()}, advance the step
+ * cursor {@link #stepIndex} past every step they consume, and pin the boundary metadata
  * ({@link #boundaryAlias}, {@link #outputType}, {@link #returnClass}) when their step
  * is the traversal's terminator.
  *
@@ -49,6 +51,15 @@ final class WalkerContext {
    *  alias filters at result-build time; entries here override builder entries on
    *  the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
+
+  /** Per-edge-alias WHERE clauses accumulated for non-adjacent edge filtering (the
+   *  {@code outE(L).has(...).inV()} shape). The edge recogniser mints an edge alias via
+   *  {@link #nextEdgeAlias()}, AND-merges the interleaved {@code has(...)} predicates into
+   *  this map under that alias, and hands the accumulated filter to the edge-as-node
+   *  assembler. Kept separate from {@link #aliasFilters} because an edge filter attaches to
+   *  the edge's own match item, not to a vertex alias. Empty until the edge recogniser
+   *  populates it (added by a later step); the walker infrastructure only owns the field. */
+  final Map<String, SQLWhereClause> edgeFilters = new LinkedHashMap<>();
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
@@ -85,13 +96,51 @@ final class WalkerContext {
    *  the walker before this context is built, so the field is always a resolved primitive. */
   final boolean polymorphic;
 
-  /** Index of the step the walker is currently dispatching to recognisers, advanced by
-   *  the walker after each successful recognise. Recognisers read it (e.g. the
+  /** Cursor into the traversal's step list. The walker's index-driven loop reads {@code
+   *  steps.get(stepIndex)} and dispatches it; the claiming recogniser then advances this cursor
+   *  past every step it consumed (one for a single-step claim, N for a multi-step claim such as
+   *  the {@code outE(L).has(...).inV()} chain). The walker no longer advances it — a recogniser
+   *  that returns {@code true} MUST advance it by at least one, which is the consumed-step count
+   *  the {@link StepRecogniser#recognize} contract requires. Recognisers also read it (e.g. the
    *  start-step recogniser only accepts at index 0). */
   int stepIndex;
+
+  /** Reserved prefix for translator-minted anonymous vertex aliases: {@code $g2m_anon_0},
+   *  {@code $g2m_anon_1}, … The {@code $g2m_} namespace is the translator's private space,
+   *  distinct from GQL's {@code $c} and from {@code MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX},
+   *  so a minted alias cannot collide with either front-end. User labels starting with {@code $}
+   *  are refused by the walker's reserved-prefix pre-flight scan, so the namespace stays private. */
+  static final String ANON_VERTEX_ALIAS_PREFIX = "$g2m_anon_";
+
+  /** Reserved prefix for translator-minted anonymous edge aliases: {@code $g2m_edge_0},
+   *  {@code $g2m_edge_1}, … Used by the non-adjacent edge-filter recogniser to name the edge in
+   *  the edge-as-node MATCH form. Same reserved {@code $g2m_} namespace as {@link
+   *  #ANON_VERTEX_ALIAS_PREFIX}. */
+  static final String EDGE_ALIAS_PREFIX = "$g2m_edge_";
+
+  /** Monotonic counter behind {@link #nextAnonVertexAlias()}. Per-context (reset each walk), so
+   *  the alias sequence is deterministic per query rather than monotonic across the JVM. */
+  private int anonVertexCounter;
+
+  /** Monotonic counter behind {@link #nextEdgeAlias()}. Per-context (reset each walk); see {@link
+   *  #anonVertexCounter}. */
+  private int edgeCounter;
 
   WalkerContext(Traversal.Admin<?, ?> traversal, boolean polymorphic) {
     this.traversal = traversal;
     this.polymorphic = polymorphic;
+  }
+
+  /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). Each
+   *  call returns a fresh alias and advances the per-context counter, so a multi-hop chain gets
+   *  distinct intermediate-node names. */
+  String nextAnonVertexAlias() {
+    return ANON_VERTEX_ALIAS_PREFIX + anonVertexCounter++;
+  }
+
+  /** Mints the next anonymous edge alias ({@code $g2m_edge_0}, {@code $g2m_edge_1}, …). Each call
+   *  returns a fresh alias and advances the per-context counter. */
+  String nextEdgeAlias() {
+    return EDGE_ALIAS_PREFIX + edgeCounter++;
   }
 }
