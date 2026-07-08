@@ -5,7 +5,6 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPa
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRid;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,7 +16,7 @@ import org.apache.tinkerpop.gremlin.structure.Element;
 /**
  * Mutable accumulator that recognisers populate as {@link GremlinStepWalker} walks a
  * traversal. The walker creates one context per call; recognisers append nodes/edges
- * to {@link #patternBuilder} and entries to {@link #aliasFilters} / {@link #aliasRids} /
+ * to {@link #patternBuilder} and entries to {@link #aliasFilters} /
  * the three return-projection lists, and pin the boundary metadata
  * ({@link #boundaryAlias}, {@link #outputType}, {@link #returnClass}) when their step
  * is the traversal's terminator.
@@ -50,12 +49,6 @@ final class WalkerContext {
    *  alias filters at result-build time; entries here override builder entries on
    *  the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
-
-  /** Per-alias single-RID hints — the planner's fast path that resolves to
-   *  {@code SELECT FROM #X:Y} when populated. The MATCH SQL grammar accepts only one
-   *  RID per alias here; multi-RID lookups go through {@link #aliasFilters} as
-   *  {@code WHERE @rid IN [...]}. */
-  final Map<String, SQLRid> aliasRids = new LinkedHashMap<>();
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
