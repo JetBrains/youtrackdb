@@ -36,11 +36,16 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
  * throw on an unrecognised predicate. It declines when:
  *
  * <ul>
- *   <li>the key is null, blank, or a reserved token ({@code ~label} / {@code ~id} from {@code
- *       hasLabel} / {@code hasId}) — key handling beyond a plain property is a later track;
- *   <li>the key starts with the reserved {@code $} prefix — such a key would reach a WHERE
- *       identifier that the executor resolves as a query context variable, not a record property
- *       (see the {@link #RESERVED_ALIAS_PREFIX} field);
+ *   <li>the key is null or blank — an empty field name is not a translatable filter;
+ *   <li>the key lands in a reserved namespace — TinkerPop's hidden-key {@code ~} space ({@code
+ *       ~label} / {@code ~id} from {@code hasLabel} / {@code hasId}), the translator's minted-alias
+ *       {@code $} space, or YouTrackDB's record-attribute {@code @} space ({@code @class} / {@code
+ *       @rid} / {@code @version}). Such a key would reach a WHERE identifier the executor resolves
+ *       as a reserved token, a query context variable, or record metadata rather than a plain
+ *       property, diverging from native Gremlin. The three prefixes are defined once on {@link
+ *       WalkerContext} and checked through {@link WalkerContext#isReservedHasKey(String)}, which the
+ *       walker's reserved-{@code $} label pre-flight shares. Key handling beyond a plain property
+ *       ({@code ~label} / {@code ~id} narrowing) is a later track;
  *   <li>the predicate's bi-predicate is not a scalar {@link Compare} (e.g. {@code Contains}, a
  *       connective {@code AndP} / {@code OrP}, or a text predicate);
  *   <li>the compared value is null, or a type {@link MatchLiteralBuilder} cannot render (e.g. a
@@ -51,21 +56,6 @@ final class GremlinPredicateAdapter {
 
   /** Singleton — the adapter is stateless and cheap to share across recogniser calls. */
   static final GremlinPredicateAdapter INSTANCE = new GremlinPredicateAdapter();
-
-  /** Prefix of TinkerPop's reserved hidden keys ({@code ~label}, {@code ~id}), which {@code
-   *  hasLabel} / {@code hasId} produce and this skeleton declines. */
-  private static final String HIDDEN_KEY_PREFIX = "~";
-
-  /**
-   * Reserved prefix for the translator's minted aliases ({@code $g2m_...}). A user property key in
-   * this space would become a bare WHERE identifier that {@code SQLSuffixIdentifier} resolves as a
-   * query context variable ({@code $parent}, or any {@code $name} bound in the execution context)
-   * rather than a record property, diverging from native Gremlin — which treats {@code $foo} as a
-   * plain property name that simply does not exist. Declining such keys mirrors the walker's
-   * reserved-{@code $} label pre-flight ({@code GremlinStepWalker.RESERVED_ALIAS_PREFIX}) and keeps
-   * user identifiers out of the context-variable namespace.
-   */
-  private static final String RESERVED_ALIAS_PREFIX = "$";
 
   /** Stateless builder for the comparison AST; construction is trivial so a shared instance is fine. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
@@ -83,13 +73,13 @@ final class GremlinPredicateAdapter {
       return null;
     }
     var key = container.getKey();
-    if (key == null
-        || key.isBlank()
-        || key.startsWith(HIDDEN_KEY_PREFIX)
-        || key.startsWith(RESERVED_ALIAS_PREFIX)) {
-      // Blank/reserved keys are out of the skeleton's scope — decline. ~label/~id (hasLabel/hasId)
-      // are a later track; a $-prefixed key would reach a WHERE identifier the executor resolves as
-      // a query context variable rather than a property, so it declines to keep native behaviour.
+    if (key == null || key.isBlank() || WalkerContext.isReservedHasKey(key)) {
+      // Blank or reserved-namespace keys are out of the skeleton's scope — decline. A reserved key
+      // (the minted-alias $ space, the ~label/~id hidden-key space, or the @-record-attribute
+      // space; see WalkerContext.isReservedHasKey) would reach a WHERE identifier the executor
+      // resolves as a context variable, a reserved token, or record metadata rather than a plain
+      // property, so it declines to keep native behaviour. ~label/~id (hasLabel/hasId) narrowing is
+      // a later track.
       return null;
     }
     // Only a flat scalar comparison is in scope. A connective predicate (and/or) or a Contains
