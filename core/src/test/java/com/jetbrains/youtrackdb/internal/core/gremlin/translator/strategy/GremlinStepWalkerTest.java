@@ -628,6 +628,34 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
+   * A null user label must not throw from the reserved-prefix scan. A step's label set can carry a
+   * null — {@code as((String) null)} reaches {@code AbstractStep.addLabel}, which adds the label
+   * with no null guard — and the scan's inner loop calls {@code startsWith} on each label. Without
+   * a null guard that call NPEs; the strategy's {@code RuntimeException} net would mask it to a
+   * native decline, but a direct walk (as here, and as a future refactor that moves or directly
+   * calls the scan might do) would surface the NPE. The scan skips nulls, so a null label is inert:
+   * it cannot collide with the reserved {@code $} namespace, and the bare {@code g.V()} still
+   * translates rather than declining or throwing.
+   */
+  @Test
+  public void walk_nullUserLabel_notDeclinedByReservedScanAndDoesNotThrow() {
+    var admin = graph.traversal().V().asAdmin();
+    // Inject a null label directly onto the start step, mirroring g.V().as((String) null):
+    // AbstractStep.addLabel adds it with no null guard, so getLabels() returns a set containing
+    // null — the exact input that NPE'd the reserved-prefix scan before the null guard.
+    admin.getStartStep().addLabel(null);
+    assertThat(admin.getStartStep().getLabels())
+        .as("precondition: the start step carries a null label")
+        .contains((String) null);
+
+    var result = GremlinStepWalker.production().walk(admin);
+
+    assertThat(result)
+        .as("a null user label must not NPE the reserved scan; the bare g.V() still translates")
+        .isNotNull();
+  }
+
+  /**
    * The anonymous-alias generator mints distinct, sequenced aliases under the reserved {@code
    * $g2m_} prefixes, with independent per-kind counters that reset per {@link WalkerContext}. The
    * vertex sequence is {@code $g2m_anon_0}, {@code $g2m_anon_1}, …; the edge sequence is {@code

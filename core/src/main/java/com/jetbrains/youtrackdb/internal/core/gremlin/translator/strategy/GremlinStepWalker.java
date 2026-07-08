@@ -222,7 +222,10 @@ final class GremlinStepWalker {
       // getSteps() is a raw List<Step>; each element is a Step whose labels are user-supplied.
       var step = (Step<?, ?>) raw;
       for (String label : step.getLabels()) {
-        if (label.startsWith(RESERVED_ALIAS_PREFIX)) {
+        // A step's label set can contain a null: as((String) null) reaches AbstractStep.addLabel,
+        // which adds the label with no null guard. Skip nulls so this purely lexical scan declines
+        // (never throws) — a null label cannot collide with the reserved '$' namespace anyway.
+        if (label != null && label.startsWith(RESERVED_ALIAS_PREFIX)) {
           return true;
         }
       }
