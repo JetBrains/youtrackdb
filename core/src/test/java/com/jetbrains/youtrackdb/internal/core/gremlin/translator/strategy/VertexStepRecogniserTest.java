@@ -133,12 +133,16 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * The edge-returning branch declines: {@code outE("knows")} is a {@code VertexStep} with {@code
-   * returnsEdge() == true}, which the non-adjacent edge-filter recogniser claims — not this one. So
-   * it declines and leaves the whole traversal on the native pipeline until that recogniser lands.
+   * The edge-returning branch delegates to the edge-filter recogniser: {@code outE("knows")} is a
+   * {@code VertexStep} with {@code returnsEdge() == true}, so this recogniser hands it to {@link
+   * EdgeStepRecogniser} rather than handling it itself. Here the edge step is a bare terminal with no
+   * closing vertex hop, so the edge recogniser declines (an edge result is out of scope) — the whole
+   * traversal stays on the native pipeline and the context is left unmutated, proving the delegation
+   * preserves no-mutation-on-decline. (The claimed {@code outE(L).has(...).inV()} chain is exercised
+   * in {@link EdgeStepRecogniserTest}.)
    */
   @Test
-  public void edgeReturningVertexStep_declines() {
+  public void edgeReturningVertexStep_delegatesAndDeclinesBareEdgeTerminal() {
     var admin = graph.traversal().V().outE("knows").asAdmin();
     var ctx = contextWithStartBoundary(admin);
     var edgeStep = stepAt(admin, 1);
@@ -148,7 +152,9 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(edgeStep, ctx);
 
-    assertThat(recognized).as("an edge-returning VertexStep must decline here").isFalse();
+    assertThat(recognized)
+        .as("a bare edge-returning terminal must decline via the edge recogniser")
+        .isFalse();
     assertContextUnmutated(ctx);
   }
 

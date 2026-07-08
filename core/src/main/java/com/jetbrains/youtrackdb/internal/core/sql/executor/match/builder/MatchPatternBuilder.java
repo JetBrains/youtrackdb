@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.MatchEdgePathItems;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchExpression;
@@ -155,6 +156,76 @@ public final class MatchPatternBuilder {
 
     pattern.addExpression(expr);
     return this;
+  }
+
+  /**
+   * Registers the edge-as-node form {@code fromAlias --<edgeDir>E(edgeLabel){as: edgeAlias, where:
+   * edgeFilter}--> edgeAlias --<closingVertexDir>V(){as: toAlias}--> toAlias} as a single MATCH
+   * expression with two path items.
+   *
+   * <p>This is the only way to attach a filter to the <em>edge</em> rather than the target vertex.
+   * {@link #addEdge}'s {@code edgeFilter} lands on the target-vertex filter (a single {@code out(L)}
+   * path item has no separate edge slot), so it cannot express {@code outE(L).has(edgeProp).inV()}.
+   * Node-izing the edge — giving it its own alias and its own path-item {@code WHERE} — is the MATCH
+   * IR's only representation of an edge-property filter, and it is the shape the executor already
+   * runs (see {@code MatchEdgeMethod*Test}). Both endpoints and the intermediate edge node are
+   * created implicitly by {@link Pattern#addExpression}; callers that want a class / filter on the
+   * target should still call {@link #addNode} for {@code toAlias}.
+   *
+   * @param fromAlias        non-null alias of the source vertex (the current boundary)
+   * @param edgeAlias        non-null alias the edge binds to (the intermediate node)
+   * @param toAlias          non-null alias of the target vertex (the far endpoint)
+   * @param edgeDir          direction of the edge hop: {@code OUT}→{@code outE}, {@code IN}→{@code
+   *                         inE}, {@code BOTH}→{@code bothE}
+   * @param edgeLabel        the single edge label; a null/blank label emits the method with no
+   *                         parameter (all edge types)
+   * @param closingVertexDir direction of the closing vertex hop: {@code OUT}→{@code outV}, {@code
+   *                         IN}→{@code inV}, {@code BOTH}→{@code bothV}. For a proper far-vertex hop,
+   *                         this is the opposite of {@code edgeDir} ({@code outE}→{@code inV},
+   *                         {@code inE}→{@code outV})
+   * @param edgeFilter       the edge {@code WHERE}, or null when the edge is unfiltered
+   * @throws IllegalStateException if {@link #build()} has already been called on this builder
+   */
+  public MatchPatternBuilder addEdgeAsNode(
+      @Nonnull String fromAlias,
+      @Nonnull String edgeAlias,
+      @Nonnull String toAlias,
+      @Nonnull Direction edgeDir,
+      String edgeLabel,
+      @Nonnull Direction closingVertexDir,
+      SQLWhereClause edgeFilter) {
+    checkNotBuilt();
+    var edgeItem =
+        MatchEdgePathItems.edgeMethodItem(
+            edgeMethodName(edgeDir), edgeLabel, edgeAlias, edgeFilter);
+    var vertexItem =
+        MatchEdgePathItems.vertexMethodItem(closingVertexMethodName(closingVertexDir), toAlias);
+
+    var expr = new SQLMatchExpression(-1);
+    expr.setOrigin(SQLMatchFilter.fromAliasAndClass(fromAlias, null));
+    expr.addItem(edgeItem);
+    expr.addItem(vertexItem);
+
+    pattern.addExpression(expr);
+    return this;
+  }
+
+  /** Maps an edge-hop direction to the edge-returning MATCH method name. */
+  private static String edgeMethodName(Direction dir) {
+    return switch (dir) {
+      case OUT -> "outE";
+      case IN -> "inE";
+      case BOTH -> "bothE";
+    };
+  }
+
+  /** Maps a closing-vertex-hop direction to the vertex-returning MATCH method name. */
+  private static String closingVertexMethodName(Direction dir) {
+    return switch (dir) {
+      case OUT -> "outV";
+      case IN -> "inV";
+      case BOTH -> "bothV";
+    };
   }
 
   /**
