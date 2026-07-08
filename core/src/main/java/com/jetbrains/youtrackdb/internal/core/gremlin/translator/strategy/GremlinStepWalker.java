@@ -10,6 +10,7 @@ import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 
 /**
  * Iterates a {@link Traversal.Admin}'s step list in order and dispatches each step to the
@@ -69,15 +70,19 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 final class GremlinStepWalker {
 
   /**
-   * Production recogniser registry, keyed on the concrete step class. Phase 1 registers
-   * one entry — {@link StartStepRecogniser} under {@link GraphStep}; later tracks add one entry
-   * per step class they translate. Class-keyed dispatch is O(1) and fails safe: a step whose
-   * runtime class has no entry — an unregistered type, or an unexpected subclass — finds no
-   * recogniser and declines the whole traversal, rather than being misrouted through a parent
-   * recogniser via an {@code instanceof} near-miss.
+   * Production recogniser registry, keyed on the concrete step class. {@link StartStepRecogniser}
+   * claims the vertex source under {@link GraphStep}; {@link VertexStepRecogniser} claims a folded
+   * vertex hop ({@code out(L)} / {@code in(L)} / {@code both(L)}, and the adjacent
+   * {@code outE(L).inV()} chains TinkerPop folds to the same class) under {@link VertexStep}. Later
+   * tracks add one entry per step class they translate. Class-keyed dispatch is O(1) and fails
+   * safe: a step whose runtime class has no entry — an unregistered type, or an unexpected subclass
+   * — finds no recogniser and declines the whole traversal, rather than being misrouted through a
+   * parent recogniser via an {@code instanceof} near-miss.
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
-      Map.of(GraphStep.class, StartStepRecogniser.INSTANCE);
+      Map.of(
+          GraphStep.class, StartStepRecogniser.INSTANCE,
+          VertexStep.class, VertexStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable

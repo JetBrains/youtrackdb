@@ -346,11 +346,13 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
-   * A follow-up step ({@code g.V().out("knows")}) declines the whole traversal: the translator
-   * recognizes the vertex source but no recognizer claims the folded {@code out} vertex step in
-   * this track, so under all-or-nothing the whole traversal declines and stays on the native
-   * pipeline with no boundary step spliced. The walker has no step-count gate — it walks the whole
-   * step list and declines at the first unrecognized step class.
+   * An unrecognized follow-up step declines the whole traversal under all-or-nothing. Now that the
+   * folded {@code out("knows")} hop translates, this uses a trailing {@code count()} — which has no
+   * recognizer in this track — as the unrecognized step: the walker recognizes the vertex source and
+   * the {@code out} hop, then hits the {@code CountGlobalStep} with no registry entry, so the whole
+   * traversal declines and stays on the native pipeline with no boundary step spliced. The walker
+   * has no step-count gate — it walks the whole step list and declines at the first unrecognized
+   * step class.
    */
   @Test
   public void followUpStepDeclinesUnrecognizedStep() {
@@ -359,16 +361,14 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     alice.addEdge("knows", bob);
     graph.tx().commit();
 
-    var admin = graph.traversal().V().out("knows").asAdmin();
+    var admin = graph.traversal().V().out("knows").count().asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("a follow-up step with no recognizer must decline the whole traversal")
+        .as("an unrecognized follow-up step must decline the whole traversal")
         .isEqualTo(0);
 
-    // The declined shape still executes correctly on the native pipeline: Alice -knows-> Bob.
-    var names =
-        admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
-    assertThat(names).isEqualTo(List.of("Bob"));
+    // The declined shape still executes correctly on the native pipeline: one knows-neighbour (Bob).
+    assertThat(admin.toList()).isEqualTo(List.of(1L));
   }
 
   /**

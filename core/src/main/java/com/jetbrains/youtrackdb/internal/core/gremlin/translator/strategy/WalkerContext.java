@@ -88,10 +88,18 @@ final class WalkerContext {
 
   /** Whether the traversal runs as a polymorphic query, resolved from the traversal's YTDB
    *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}). Resolved once by {@link
-   *  GremlinStepWalker} at construction and read — never re-resolved — by later node-introducing
-   *  recognisers (the vertex-step chain hops, {@code hasLabel}), which narrow a new alias with
-   *  {@code @class = '<class>'} when {@code false} so every alias in the pattern honours one
-   *  setting. The walker owns the resolution so no recogniser initialises the flag; a {@code null}
+   *  GremlinStepWalker} at construction and read — never re-resolved — by the recognisers.
+   *
+   *  <p>The flag governs class narrowing for an <em>explicit</em> user-named class only — the
+   *  folded {@code hasLabel(L)}, added later, which narrows through the shared {@link
+   *  MatchClassFilters} seam. It does <em>not</em> apply to a bare chain hop: {@code out(L)} /
+   *  {@code in(L)} / {@code both(L)} and the start step root at the generic {@code V} class
+   *  polymorphically and emit no {@code @class} filter regardless of this flag, because native
+   *  Gremlin never class-filters a hop target — narrowing one (even under {@code false}) would
+   *  drop subclass instances the native pipeline keeps (a subclass undercount; see {@link
+   *  VertexStepRecogniser} and {@link StartStepRecogniser}).
+   *
+   *  <p>The walker owns the resolution so no recogniser initialises the flag; a {@code null}
    *  resolution (no attached YTDB graph, or an unresolvable setting) declines the whole walk in
    *  the walker before this context is built, so the field is always a resolved primitive. */
   final boolean polymorphic;
