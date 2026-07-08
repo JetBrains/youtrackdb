@@ -316,6 +316,15 @@ public class MatchExecutionPlanner {
   private Map<String, List<SQLRid>> aliasPinnedRids;
 
   /**
+   * When true, {@link #buildPatterns} promotes the pre-built {@code @rid} / {@code @rid IN}
+   * filters into {@link #aliasPinnedRids} on the additive (pre-built-pattern) path. Set only by
+   * the {@link MatchPlanInputs} constructor — the Gremlin-to-MATCH translator's path — so the GQL
+   * 3-arg constructor, which shares the same early return in {@code buildPatterns}, keeps its
+   * existing plans.
+   */
+  private boolean promoteFilterRidsOnBuild = false;
+
+  /**
    * Aliases whose class was inferred from edge LINK schema rather than
    * explicitly declared. Inferred aliases must NOT outcompete explicit
    * roots during scheduling — a low-cardinality inferred class can cause
@@ -467,13 +476,14 @@ public class MatchExecutionPlanner {
    * produce the complete MATCH input set directly (currently the Gremlin-to-MATCH translator).
    *
    * <p>This constructor is purely additive; the three pre-existing constructors are unchanged.
-   * It field-by-field defensive-copies all mutable working maps (and shallow-copies the AST
-   * lists) so the planner can freely mutate {@code aliasClasses}, {@code aliasFilters}, and
-   * {@code aliasRids} during planning without affecting the caller's record. Both
-   * {@code aliasClasses} and {@code aliasFilters} are copied because the planner mutates
-   * both &mdash; {@code aliasClasses} during class inference into chained edges, and
-   * {@code aliasFilters} during NOT-IN anti-join detection (which strips the rewritten
-   * conditions from the per-alias filter map).
+   * It field-by-field defensive-copies the mutable working maps (and shallow-copies the AST
+   * lists) so the planner can freely mutate {@code aliasClasses} and {@code aliasFilters} during
+   * planning without affecting the caller's record &mdash; {@code aliasClasses} during class
+   * inference into chained edges, and {@code aliasFilters} during NOT-IN anti-join detection
+   * (which strips the rewritten conditions from the per-alias filter map). {@code aliasPinnedRids}
+   * starts empty and is filled by {@link #buildPatterns}, which promotes the pre-built
+   * {@code @rid} / {@code @rid IN} filters so RID-pinned sources take the same fast path as on the
+   * SQL path.
    *
    * <p><b>Caching precondition.</b> The inherited {@code statement} field stays {@code null}
    * because no SQL AST is available, so callers MUST invoke
@@ -493,7 +503,11 @@ public class MatchExecutionPlanner {
     // so without copies a second invocation would observe mutated state from the first.
     this.aliasClasses = new HashMap<>(inputs.aliasClasses());
     this.aliasFilters = new HashMap<>(inputs.aliasFilters());
-    this.aliasRids = new HashMap<>(inputs.aliasRids());
+    // aliasPinnedRids starts empty and mutable; buildPatterns promotes the pre-built @rid /
+    // @rid IN filters into it on this additive path (see promoteFilterRidsOnBuild), so RID-pinned
+    // sources take the same fast path as the SQL path.
+    this.aliasPinnedRids = new LinkedHashMap<>();
+    this.promoteFilterRidsOnBuild = true;
     // Shallow copies of the AST lists. Translator-built front-ends produce fresh AST
     // elements that are not shared with anyone else, so element-level deep copy (as the
     // (SQLMatchStatement) ctor does) is unnecessary; the list-level copy guards against
@@ -4654,6 +4668,15 @@ public class MatchExecutionPlanner {
    */
   private void buildPatterns(CommandContext ctx) {
     if (this.pattern != null) {
+      // Additive path (pre-built pattern + aliasFilters, e.g. the Gremlin-to-MATCH translator):
+      // the pattern and per-alias filters are already populated, so skip the matchExpressions
+      // rebuild below. Static @rid = / @rid IN filters still need promoting to aliasPinnedRids so
+      // the RID fast path and the collapsed root estimate apply, exactly as the rebuild branch
+      // does for the SQL path. Scoped by promoteFilterRidsOnBuild so only the MatchPlanInputs path
+      // (which sets a mutable aliasPinnedRids) promotes; the GQL 3-arg ctor keeps its plans.
+      if (promoteFilterRidsOnBuild) {
+        promoteStaticRidsFromFilters(this.aliasFilters, this.aliasPinnedRids, ctx);
+      }
       return;
     }
     List<SQLMatchExpression> allPatterns = new ArrayList<>();
