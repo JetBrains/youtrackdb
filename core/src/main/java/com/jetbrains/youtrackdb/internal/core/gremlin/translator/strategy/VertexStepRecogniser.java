@@ -1,13 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
-import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
-import org.apache.tinkerpop.gremlin.structure.Direction;
-import org.apache.tinkerpop.gremlin.structure.Vertex;
 
 /**
  * Recogniser for a single folded vertex hop — the bare {@code out(L)} / {@code in(L)} /
@@ -30,14 +24,15 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * only for an explicit user-named class (the folded {@code hasLabel}, added later), produced through
  * the shared {@link MatchClassFilters} seam — never here.
  *
- * <h2>Edge steps are out of scope</h2>
+ * <h2>Edge steps delegate to the edge-filter recogniser</h2>
  *
  * The single {@link VertexStep} registry key covers both bare hops (this recogniser's scope) and
  * the non-adjacent edge step of the {@code outE(L).has(...).inV()} shape — TinkerPop models the
- * latter as a {@code VertexStep} with {@code returnsEdge() == true}. This recogniser handles only
- * the bare-hop branch ({@code returnsEdge() == false}) and declines the edge-returning branch,
- * which the non-adjacent edge-filter recogniser claims once it lands. Declining leaves the whole
- * traversal on the native pipeline until then (all-or-nothing).
+ * latter as a {@code VertexStep} with {@code returnsEdge() == true}. Because the registry keys one
+ * recogniser per class, this recogniser owns the class: it handles the bare-hop branch ({@code
+ * returnsEdge() == false}) itself and delegates the edge-returning branch to {@link
+ * EdgeStepRecogniser}, which either claims the whole {@code outE(L).has(...).inV()} chain or declines
+ * (leaving the traversal on the native pipeline under all-or-nothing).
  *
  * <h2>Single edge label only</h2>
  *
@@ -52,14 +47,6 @@ final class VertexStepRecogniser implements StepRecogniser {
   /** Singleton — the recogniser is stateless and cheap to share across walker instances. */
   static final VertexStepRecogniser INSTANCE = new VertexStepRecogniser();
 
-  /**
-   * Class attached to every bare-hop target: the abstract vertex root. A bare hop roots at the
-   * generic {@code V} class polymorphically (subclasses included) with no {@code @class} filter —
-   * see the class Javadoc "Bare hop targets root at {@code V}". Same convention {@link
-   * StartStepRecogniser} uses for the start node.
-   */
-  private static final String DEFAULT_VERTEX_CLASS = "V";
-
   private VertexStepRecogniser() {
     // Singleton — instantiate via INSTANCE.
   }
@@ -72,11 +59,14 @@ final class VertexStepRecogniser implements StepRecogniser {
     if (!(step instanceof VertexStep<?> vertexStep)) {
       return false;
     }
-    // returnsEdge() == true is the non-adjacent edge step (outE(L) in outE(L).has(...).inV());
-    // that shape is claimed by the edge-filter recogniser, not here. Decline so the whole
-    // traversal stays native until that recogniser lands.
+    // returnsEdge() == true is the non-adjacent edge step (outE(L) in outE(L).has(...).inV()). The
+    // registry keys one recogniser per class and both shapes are a VertexStep, so this recogniser
+    // owns the class and delegates the edge-returning branch to the edge-filter recogniser. That
+    // recogniser peeks ahead for the has()/closing-hop window and either claims the whole chain or
+    // declines (e.g. a bare outE(L) terminal with no closing hop) — its decline is a no-op on ctx,
+    // preserving no-mutation-on-decline.
     if (vertexStep.returnsEdge()) {
-      return false;
+      return EdgeStepRecogniser.INSTANCE.recognize(vertexStep, ctx);
     }
     // A hop with no boundary to hang off cannot be translated: the "from" endpoint is the current
     // terminator's alias, pinned by the start step (or a prior hop). A null here would mean a
@@ -96,58 +86,20 @@ final class VertexStepRecogniser implements StepRecogniser {
       return false;
     }
     // Map the TinkerPop traversal direction onto the pattern-builder direction.
-    var direction = toBuilderDirection(vertexStep.getDirection());
+    var direction = GremlinPatternAssembler.toBuilderDirection(vertexStep.getDirection());
 
     // Validation done; commit mutations. The target is a fresh anonymous alias so a multi-hop
-    // chain gets distinct intermediate-node names.
+    // chain gets distinct intermediate-node names. The assembler appends the folded hop (edge +
+    // target node under the generic V class, no @class filter — no subclass undercount) and re-pins
+    // the boundary / single RETURN column to the new target.
     var fromAlias = ctx.boundaryAlias;
     var targetAlias = ctx.nextAnonVertexAlias();
-
-    // The folded case carries no edge filter (edge-property filtering is the non-adjacent
-    // outE(L).has(...).inV() shape, a later recogniser). while/maxDepth stay null — Phase 1 has no
-    // variable-depth hops.
-    ctx.patternBuilder.addEdge(fromAlias, targetAlias, direction, edgeLabel, null, null, null);
-    // Register the target with the generic V class and NO @class filter (no subclass undercount —
-    // see class Javadoc): the target roots at V polymorphically regardless of ctx.polymorphic.
-    ctx.patternBuilder.addNode(targetAlias, DEFAULT_VERTEX_CLASS, null, false);
-
-    // Re-pin the boundary to the new target: a chain hop makes the target the result. The output
-    // stays an ELEMENT / Vertex (a bare hop yields vertices, like the start step).
-    ctx.boundaryAlias = targetAlias;
-    ctx.outputType = BoundaryOutputType.ELEMENT;
-    ctx.returnClass = Vertex.class;
-
-    // Replace the single RETURN column so exactly one column remains, keyed on the new target
-    // alias. The start step (or the prior hop) left one column keyed on the old boundary alias; a
-    // naive append would emit two columns or return the wrong vertex. The three parallel lists are
-    // kept in lock-step (item / alias / nested projection).
-    ctx.returnItems.clear();
-    ctx.returnAliases.clear();
-    ctx.returnNestedProjections.clear();
-    ctx.returnItems.add(new SQLExpression(new SQLIdentifier(targetAlias)));
-    ctx.returnAliases.add(new SQLIdentifier(targetAlias));
-    ctx.returnNestedProjections.add(null);
+    GremlinPatternAssembler.appendFoldedHop(ctx, fromAlias, targetAlias, direction, edgeLabel);
 
     // Advance the cursor past the one folded step this hop consumed. Done last, after every
     // context mutation, so a decline before this point leaves the cursor (and the rest of ctx)
     // untouched.
     ctx.stepIndex++;
     return true;
-  }
-
-  /**
-   * Maps a TinkerPop {@link Direction} onto the pattern builder's edge direction. A {@link
-   * VertexStep} only ever carries the three proper directions {@code OUT} / {@code IN} /
-   * {@code BOTH} ({@code Direction.from} / {@code Direction.to} are aliases for {@code OUT} /
-   * {@code IN}, not separate constants), so the switch is exhaustive with no default. Should the
-   * fork ever add a direction constant, this stops compiling — a loud, correct signal — rather
-   * than silently mistranslating.
-   */
-  private static MatchPatternBuilder.Direction toBuilderDirection(Direction direction) {
-    return switch (direction) {
-      case OUT -> MatchPatternBuilder.Direction.OUT;
-      case IN -> MatchPatternBuilder.Direction.IN;
-      case BOTH -> MatchPatternBuilder.Direction.BOTH;
-    };
   }
 }

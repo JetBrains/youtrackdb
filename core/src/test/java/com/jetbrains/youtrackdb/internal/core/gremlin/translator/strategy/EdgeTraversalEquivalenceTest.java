@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import java.util.List;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
@@ -125,6 +126,174 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().bothE(knows).otherV()",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().bothE("knows").otherV());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Multi-hop chains — now RECOGNIZED because NoOpBarrierRecogniser claims the
+  // barrier LazyBarrierStrategy wedges between chained hops (deferred from the
+  // folded-hop step, which had no barrier recogniser).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V().out("knows").out("knows")} translates end-to-end: {@code LazyBarrierStrategy} wedges
+   * a {@code NoOpBarrierStep} between the two hops, which {@code NoOpBarrierRecogniser} now claims as
+   * a transparent pass-through, so the whole two-hop chain is recognised (it declined before this
+   * step for want of a barrier recogniser). Over Alice→Bob→Carol, two {@code out} hops yield {Carol}.
+   */
+  @Test
+  public void multiHopChain_recognizedViaBarrierRecogniser() {
+    seedKnowsChain();
+    assertEquivalent(
+        "g.V().out(knows).out(knows) (multi-hop, interleaved barrier)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out("knows").out("knows"));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Non-adjacent edge filtering — outE(L).has(edgeProp).inV(). A has() between
+  // the edge step and its close blocks IncidentToAdjacentStrategy's fold, so the
+  // chain arrives unfolded and translates via the edge-as-node MATCH form (the
+  // edge filter on the edge's own path item, not the target vertex).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * LDBC-IC2-style edge-date filter: {@code g.V().outE("knows").has("since", P.lt(2015)).inV()}
+   * translates via the edge-as-node form and returns the same vertex multiset as native. Alice knows
+   * Bob (since 2010) and Carol (since 2020); the edge filter {@code since < 2015} keeps only the Bob
+   * edge, so both runs yield {Bob}. This is the headline correctness case: the filter must apply to
+   * the edge, not the target vertex.
+   */
+  @Test
+  public void nonAdjacentOutEdgeFilter_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("knows", carol, "since", 2020);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().outE(knows).has(since, lt 2015).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").has("since", P.lt(2015)).inV());
+  }
+
+  /**
+   * The {@code inE(L).has(...).outV()} analogue translates and matches native, exercising the {@code
+   * IN} edge direction with an {@code outV} close. Bob and Carol are known-by Alice (edges carry
+   * {@code since}); filtering {@code since >= 2015} from the Forum/target side keeps only Carol's
+   * edge, so reading back the source (Alice) via {@code outV} yields {Alice} once.
+   */
+  @Test
+  public void nonAdjacentInEdgeFilter_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("knows", carol, "since", 2020);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().inE(knows).has(since, gte 2015).outV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().inE("knows").has("since", P.gte(2015)).outV());
+  }
+
+  /**
+   * An edge-property equality filter with two chained {@code has(...)} steps AND-merges into one edge
+   * {@code WHERE}: {@code outE("knows").has("since", 2010).has("weight", 5).inV()}. Only the
+   * Alice→Bob edge carries both {@code since=2010} and {@code weight=5}, so both runs yield {Bob}. The
+   * Alice→Carol edge (different values) is excluded, pinning that both predicates apply to the edge.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_andMergesMultipleHasSteps() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010, "weight", 5);
+    alice.addEdge("knows", carol, "since", 2010, "weight", 9);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().outE(knows).has(since,2010).has(weight,5).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .V()
+            .outE("knows")
+            .has("since", 2010)
+            .has("weight", 5)
+            .inV());
+  }
+
+  /**
+   * Parallel filtered edges preserve multiplicity in the edge-as-node form: two Alice→Bob {@code
+   * knows} edges both satisfy {@code since < 2015}, so native emits Bob twice and the translated plan
+   * must too (each edge is a distinct pattern match). A plan that collapsed the two edges would
+   * return Bob once and break the multiset contract.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_parallelEdgesPreserveMultiplicity() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("knows", bob, "since", 2011); // parallel edge, also matches since < 2015
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "parallel filtered edges g.V(alice).outE(knows).has(since, lt 2015).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).outE("knows").has("since", P.lt(2015)).inV());
+  }
+
+  /**
+   * A bare hop followed by a filtered edge chain translates as a whole:
+   * {@code g.V().out("knows").outE("knows").has("since", P.lt(3000)).inV()} combines the folded-hop
+   * recogniser, the barrier recogniser, and the edge-filter recogniser in one traversal, exercising
+   * an interleaved {@code NoOpBarrierStep} at top level between the recognised segments. Over
+   * Alice→Bob→Carol (all edges {@code since < 3000}), the result matches native.
+   */
+  @Test
+  public void hopThenFilteredEdgeChain_recognizedWithInterleavedBarrier() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010);
+    bob.addEdge("knows", carol, "since", 2020);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().out(knows).outE(knows).has(since, lt 3000).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .V()
+            .out("knows")
+            .outE("knows")
+            .has("since", P.lt(3000))
+            .inV());
+  }
+
+  /**
+   * The {@code both} edge-filter chain declines: {@code bothE(L).has(...).otherV()} closes on an
+   * {@code EdgeOtherVertexStep} ({@code otherV}), and the MATCH executor has no {@code otherV}
+   * method, so the chain cannot be expressed and must stay on the native pipeline. With the
+   * translator on it carries no boundary step, and the declined shape still returns the native
+   * multiset. (Plain {@code both(L)} without an edge filter still translates — that fold is a bare
+   * VertexStep.)
+   */
+  @Test
+  public void nonAdjacentBothEdgeFilter_declinesToNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().bothE(knows).has(since, lt 2015).otherV() (otherV unsupported)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().bothE("knows").has("since", P.lt(2015)).otherV());
   }
 
   // ---------------------------------------------------------------------------
