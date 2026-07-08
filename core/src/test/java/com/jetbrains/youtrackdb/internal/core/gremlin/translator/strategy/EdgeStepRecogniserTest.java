@@ -1,0 +1,345 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.Step;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.structure.Vertex;
+import org.junit.Test;
+
+/**
+ * Unit tests for {@link EdgeStepRecogniser}, the peek-ahead recogniser that claims the non-adjacent
+ * {@code outE(L).has(edgeProp).inV()} chain and its analogues. These drive the recogniser directly
+ * on the raw (un-strategised) DSL step list — which arrives as the exact
+ * {@code VertexStep(outE) / HasStep / EdgeVertexStep} sequence the recogniser peeks — so each accept
+ * and decline branch is pinned in isolation. End-to-end result equivalence (translator on vs off) is
+ * covered by {@link EdgeTraversalEquivalenceTest}.
+ *
+ * <p>The recogniser is reached in production by delegation from {@link VertexStepRecogniser} on its
+ * {@code returnsEdge()} branch; {@link #outEdgeFilterChain_claimedViaVertexStepDelegation} exercises
+ * that real dispatch path, the rest drive {@link EdgeStepRecogniser} directly for clarity.
+ */
+public class EdgeStepRecogniserTest extends GraphBaseTest {
+
+  private static final String BOUNDARY_ALIAS = "$g2m_v0";
+  private static final String FIRST_EDGE_ALIAS = "$g2m_edge_0";
+  private static final String FIRST_ANON_ALIAS = "$g2m_anon_0";
+
+  // ---------------------------------------------------------------------------
+  // Accept path.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code outE("knows").has("w", 1).inV()} is claimed through the real {@link VertexStepRecogniser}
+   * delegation: the edge is node-ized under a minted edge alias carrying the {@code has} filter, the
+   * target vertex is minted under the generic {@code V} class, the boundary / RETURN re-pin to the
+   * target, and the cursor advances past all three consumed steps (edge, has, closing hop).
+   */
+  @Test
+  public void outEdgeFilterChain_claimedViaVertexStepDelegation() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+    var edgeStep = stepAt(admin, 1);
+
+    // Delegation entry point: VertexStepRecogniser routes the edge-returning VertexStep here.
+    var recognized = VertexStepRecogniser.INSTANCE.recognize(edgeStep, ctx);
+
+    assertThat(recognized).as("outE.has.inV must be claimed").isTrue();
+    // Boundary re-pinned to the target vertex; output still an ELEMENT / Vertex.
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.ELEMENT);
+    assertThat(ctx.returnClass).isEqualTo(Vertex.class);
+    // Exactly one RETURN column, keyed on the target (the start column was replaced).
+    assertThat(ctx.returnAliases).hasSize(1);
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(FIRST_ANON_ALIAS);
+    // The edge filter is accumulated under the minted edge alias.
+    assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    // Cursor consumed the edge step, the has step, and the closing hop.
+    assertThat(ctx.stepIndex).as("edge + has + closing hop consumed").isEqualTo(4);
+
+    // Three-node pattern (source → edge node → target); the target roots at the generic V class
+    // with no @class filter (no subclass undercount).
+    var ir = ctx.patternBuilder.build();
+    assertThat(ir.pattern().aliasToNode)
+        .containsOnlyKeys(BOUNDARY_ALIAS, FIRST_EDGE_ALIAS, FIRST_ANON_ALIAS);
+    assertThat(ir.aliasClasses()).containsEntry(FIRST_ANON_ALIAS, "V");
+    assertThat(ir.aliasFilters())
+        .as("the target vertex carries no @class filter")
+        .doesNotContainKey(FIRST_ANON_ALIAS);
+  }
+
+  /**
+   * The {@code inE("knows").has("w", 1).outV()} analogue is claimed, exercising the {@code IN} edge
+   * direction with an {@code outV} close. Light assertions — the detailed mutation shape is pinned by
+   * the {@code outE} case above; this covers the direction branch.
+   */
+  @Test
+  public void inEdgeFilterChain_isClaimed() {
+    var admin = graph.traversal().V().inE("knows").has("w", 1).outV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("inE.has.outV must be claimed").isTrue();
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    assertThat(ctx.stepIndex).isEqualTo(4);
+  }
+
+  /**
+   * An unfiltered edge chain ({@code outE("knows").inV()} with no {@code has}) is claimed with no
+   * edge filter — the branch reachable when a barrier (not a has) blocked the adjacency fold. The
+   * edge-filter map stays empty and only two steps (edge + closing hop) are consumed.
+   */
+  @Test
+  public void unfilteredEdgeChain_isClaimedWithNoEdgeFilter() {
+    var admin = graph.traversal().V().outE("knows").inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("outE.inV (no has) must be claimed").isTrue();
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    assertThat(ctx.edgeFilters).as("an unfiltered edge accumulates no filter").isEmpty();
+    assertThat(ctx.stepIndex).as("edge + closing hop consumed").isEqualTo(3);
+  }
+
+  /**
+   * Two {@code has(...)} calls AND-merge into a single edge filter recorded under the edge alias.
+   * TinkerPop folds consecutive {@code has} calls into one {@link
+   * org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep} carrying two
+   * {@code HasContainer}s, so {@code outE("knows").has("w", 1).has("since", 2010).inV()} arrives as
+   * edge / has / closing — three inner steps — and the recogniser AND-merges both containers.
+   */
+  @Test
+  public void multipleHasSteps_andMergeIntoOneEdgeFilter() {
+    var admin =
+        graph.traversal().V().outE("knows").has("w", 1).has("since", 2010).inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("two has containers must be AND-merged and claimed").isTrue();
+    assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    assertThat(ctx.stepIndex).as("edge + has (2 containers) + closing hop consumed").isEqualTo(4);
+  }
+
+  /**
+   * A {@link NoOpBarrierStep} interleaved between the has step and the closing hop is skipped (not
+   * consumed as a filter) — the recogniser's belt-and-suspenders barrier-skip. The barrier is
+   * inserted manually because {@code LazyBarrierStrategy}'s {@code returnsEdge()} carve-out keeps a
+   * real barrier out of this window; the recogniser must still tolerate one. All four inner steps
+   * (edge, has, barrier, closing) are consumed.
+   */
+  @Test
+  public void interleavedBarrier_isSkipped() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).inV().asAdmin();
+    // Insert a barrier between the has step (index 2) and the closing EdgeVertexStep (index 3).
+    admin.addStep(3, new NoOpBarrierStep<>(admin));
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("an interleaved barrier must be skipped, chain still claimed")
+        .isTrue();
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    assertThat(ctx.stepIndex).as("edge + has + barrier + closing hop consumed").isEqualTo(5);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Decline paths — every decline leaves the context unmutated.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The {@code both} edge chain closes on an {@code EdgeOtherVertexStep} ({@code otherV}), for which
+   * the MATCH executor has no method, so {@code bothE("knows").has("w", 1).otherV()} declines and
+   * stays on the native pipeline.
+   */
+  @Test
+  public void otherVClose_declines() {
+    var admin = graph.traversal().V().bothE("knows").has("w", 1).otherV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("otherV close must decline (no MATCH otherV method)").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * An edge-returning terminal with no closing vertex hop ({@code outE("knows")}) declines — an edge
+   * result is out of scope.
+   */
+  @Test
+  public void noClosingHop_declines() {
+    var admin = graph.traversal().V().outE("knows").asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("an edge-returning terminal must decline").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * A {@code has} predicate the adapter cannot translate ({@code P.within(...)}) declines the whole
+   * chain — no half-applied edge filter that would diverge from native.
+   */
+  @Test
+  public void untranslatablePredicate_declines() {
+    var admin = graph.traversal().V().outE("knows").has("w", P.within(1, 2)).inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("an untranslatable predicate must decline").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * A step other than {@code HasStep} / {@code NoOpBarrierStep} between the edge and its close
+   * ({@code outE("knows").dedup().inV()}) declines — the recogniser only understands the has / barrier
+   * window.
+   */
+  @Test
+  public void nonHasNonBarrierStepInWindow_declines() {
+    var admin = graph.traversal().V().outE("knows").dedup().inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("a foreign step in the window must decline").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * A user {@code as(...)} label on the edge step ({@code outE("knows").as("e").has("w",1).inV()})
+   * declines — a named edge would need to be exposed as a result, which is out of scope.
+   */
+  @Test
+  public void edgeStepWithAsLabel_declines() {
+    var admin = graph.traversal().V().outE("knows").as("e").has("w", 1).inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("an as(...) label on the edge must decline").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /** A multi-label edge ({@code outE("knows", "likes")}) declines — multi-label is out of scope. */
+  @Test
+  public void multiLabelEdge_declines() {
+    var admin = graph.traversal().V().outE("knows", "likes").inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("a multi-label edge must decline").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /** A label-less edge ({@code outE()}) declines — Phase 1 translates only single-label edges. */
+  @Test
+  public void labelLessEdge_declines() {
+    var admin = graph.traversal().V().outE().inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("a label-less edge must decline").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * A non-{@link org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep} (defence in
+   * depth against a direct mis-call) declines cleanly rather than throwing.
+   */
+  @Test
+  public void nonVertexStep_declines() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).inV().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+    var graphStep = stepAt(admin, 0); // the GraphStep, not an edge VertexStep
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(graphStep, ctx);
+
+    assertThat(recognized).as("a non-VertexStep must decline, not throw").isFalse();
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * An edge step reaching the recogniser with no pinned boundary ({@code boundaryAlias == null})
+   * declines — there is no "from" endpoint to hang the edge off.
+   */
+  @Test
+  public void nullBoundary_declines() {
+    var admin = graph.traversal().V().outE("knows").has("w", 1).inV().asAdmin();
+    var ctx = new WalkerContext(admin, true); // boundary stays null, cursor stays 0
+    ctx.stepIndex = 1;
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("an edge step with no pinned boundary must decline").isFalse();
+    assertThat(ctx.boundaryAlias).isNull();
+    assertThat(ctx.edgeFilters).isEmpty();
+    assertThat(ctx.nextEdgeAlias())
+        .as("no edge alias minted on decline")
+        .isEqualTo(FIRST_EDGE_ALIAS);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Builds a context pre-seeded as the start-step recogniser would leave it: a pinned {@code $g2m_v0}
+   * boundary with one RETURN column keyed on that alias, cursor positioned at the edge step. A
+   * claimed chain must replace the column with one keyed on its target; a declined chain must leave
+   * everything as seeded.
+   */
+  private static WalkerContext contextWithStartBoundary(Traversal.Admin<?, ?> admin) {
+    var ctx = new WalkerContext(admin, true);
+    ctx.patternBuilder.addNode(BOUNDARY_ALIAS, "V", null, false);
+    ctx.boundaryAlias = BOUNDARY_ALIAS;
+    ctx.outputType = BoundaryOutputType.ELEMENT;
+    ctx.returnClass = Vertex.class;
+    ctx.returnItems.add(new SQLExpression(new SQLIdentifier(BOUNDARY_ALIAS)));
+    ctx.returnAliases.add(new SQLIdentifier(BOUNDARY_ALIAS));
+    ctx.returnNestedProjections.add(null);
+    ctx.stepIndex = 1; // positioned at the edge step, after the start step
+    return ctx;
+  }
+
+  /**
+   * No-mutation-on-decline: a declining recogniser must leave the context exactly as
+   * {@link #contextWithStartBoundary} seeded it — the start boundary / RETURN intact, no target or
+   * edge node, no alias minted, cursor unmoved.
+   */
+  private static void assertContextUnmutated(WalkerContext ctx) {
+    assertThat(ctx.boundaryAlias).isEqualTo(BOUNDARY_ALIAS);
+    assertThat(ctx.returnAliases).hasSize(1);
+    assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(BOUNDARY_ALIAS);
+    assertThat(ctx.stepIndex).as("cursor must not advance on decline").isEqualTo(1);
+    assertThat(ctx.edgeFilters).as("no edge filter accumulated on decline").isEmpty();
+    assertThat(ctx.patternBuilder.hasAlias(FIRST_ANON_ALIAS))
+        .as("no target node added on decline")
+        .isFalse();
+    assertThat(ctx.patternBuilder.hasAlias(FIRST_EDGE_ALIAS))
+        .as("no edge node added on decline")
+        .isFalse();
+    assertThat(ctx.nextEdgeAlias()).as("no edge alias minted on decline").isEqualTo(
+        FIRST_EDGE_ALIAS);
+    assertThat(ctx.nextAnonVertexAlias())
+        .as("no anonymous vertex alias minted on decline")
+        .isEqualTo(FIRST_ANON_ALIAS);
+  }
+
+  private static Step<?, ?> stepAt(Traversal.Admin<?, ?> admin, int index) {
+    return admin.getSteps().get(index);
+  }
+}

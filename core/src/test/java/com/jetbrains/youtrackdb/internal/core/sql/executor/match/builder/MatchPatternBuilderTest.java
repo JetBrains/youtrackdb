@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder.Direction;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchPathItem;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.lang.reflect.Field;
 import java.util.HashMap;
@@ -361,6 +362,121 @@ public class MatchPatternBuilderTest {
         () -> b.addEdge("a", "b", null, "E", null, null, null));
   }
 
+  // ── addEdgeAsNode (edge-as-node form: outE(L){as,where}.inV()) ──
+
+  /**
+   * {@link MatchPatternBuilder#addEdgeAsNode} builds the two-path-item edge-as-node topology: three
+   * nodes (source, the intermediate edge node, target) and two edges (source→edge, edge→target). The
+   * intermediate edge node is a real pattern node so a filter can attach to the edge itself.
+   */
+  @Test
+  public void addEdgeAsNode_buildsThreeNodeTwoEdgeTopology() {
+    var ir =
+        new MatchPatternBuilder()
+            .addEdgeAsNode(
+                "from", "e0", "t0", Direction.OUT, "Knows", Direction.IN, null)
+            .build();
+
+    assertEquals(3, ir.pattern().aliasToNode.size());
+    assertEquals(2, ir.pattern().getNumOfEdges());
+    var from = ir.pattern().aliasToNode.get("from");
+    var edge = ir.pattern().aliasToNode.get("e0");
+    var target = ir.pattern().aliasToNode.get("t0");
+    assertNotNull("source node registered", from);
+    assertNotNull("intermediate edge node registered", edge);
+    assertNotNull("target node registered", target);
+    assertEquals("source has one outgoing edge to the edge node", 1, from.out.size());
+    assertEquals("edge node has one incoming (from source)", 1, edge.in.size());
+    assertEquals("edge node has one outgoing (to target)", 1, edge.out.size());
+    assertEquals("target has one incoming (from edge node)", 1, target.in.size());
+  }
+
+  /**
+   * The two path items render as the edge-returning {@code .outE(...)} method carrying the edge label
+   * and the vertex-returning {@code .inV()} method with no parameter — the exact shape the MATCH
+   * executor runs for {@code outE(L){...}.inV()}. Pins that the edge label lands on the edge method
+   * (not the vertex method) and that the filter blocks name the edge and target aliases.
+   */
+  @Test
+  public void addEdgeAsNode_rendersOutEThenInVMethodCalls() {
+    var ir =
+        new MatchPatternBuilder()
+            .addEdgeAsNode(
+                "from", "e0", "t0", Direction.OUT, "Knows", Direction.IN, null)
+            .build();
+
+    var edgeItem = ir.pattern().aliasToNode.get("from").out.iterator().next().item;
+    var edgeRendered = renderItem(edgeItem);
+    assertTrue("edge item must be an outE method call: " + edgeRendered,
+        edgeRendered.startsWith(".outE("));
+    assertTrue("edge item must carry the edge label: " + edgeRendered,
+        edgeRendered.contains("Knows"));
+    assertTrue("edge item filter block must name the edge alias: " + edgeRendered,
+        edgeRendered.contains("e0"));
+
+    var vertexItem = ir.pattern().aliasToNode.get("e0").out.iterator().next().item;
+    var vertexRendered = renderItem(vertexItem);
+    assertTrue("closing item must be an inV method call: " + vertexRendered,
+        vertexRendered.startsWith(".inV("));
+    assertTrue("closing item filter block must name the target alias: " + vertexRendered,
+        vertexRendered.contains("t0"));
+  }
+
+  /**
+   * The {@code IN} edge direction with an {@code OUT} close renders as {@code .inE(...).outV()} — the
+   * {@code inE(L){...}.outV()} analogue. Pins the direction mapping for both path-item methods.
+   */
+  @Test
+  public void addEdgeAsNode_inEdgeDirection_rendersInEThenOutV() {
+    var ir =
+        new MatchPatternBuilder()
+            .addEdgeAsNode(
+                "from", "e0", "t0", Direction.IN, "Knows", Direction.OUT, null)
+            .build();
+
+    var edgeRendered = renderItem(ir.pattern().aliasToNode.get("from").out.iterator().next().item);
+    var vertexRendered = renderItem(ir.pattern().aliasToNode.get("e0").out.iterator().next().item);
+    assertTrue("IN edge must render as inE: " + edgeRendered, edgeRendered.startsWith(".inE("));
+    assertTrue("OUT close must render as outV: " + vertexRendered,
+        vertexRendered.startsWith(".outV("));
+  }
+
+  /**
+   * An edge filter passed to {@link MatchPatternBuilder#addEdgeAsNode} attaches to the <em>edge</em>
+   * path item's filter (so it filters the edge, not the target vertex) — the whole reason the
+   * edge-as-node form exists. Pins the filter object on the edge path item's {@code WHERE}.
+   */
+  @Test
+  public void addEdgeAsNode_edgeFilter_attachesToEdgePathItem() {
+    var wb = new MatchWhereBuilder();
+    var where = wb.wrap(wb.eq("since", MatchLiteralBuilder.toLiteral(2010L)));
+
+    var ir =
+        new MatchPatternBuilder()
+            .addEdgeAsNode(
+                "from", "e0", "t0", Direction.OUT, "Knows", Direction.IN, where)
+            .build();
+
+    var edgeItem = ir.pattern().aliasToNode.get("from").out.iterator().next().item;
+    assertSame(
+        "the edge WHERE must be the edge path item's filter, not the target's",
+        where,
+        edgeItem.getFilter().getFilter());
+  }
+
+  /**
+   * After {@link MatchPatternBuilder#build()}, {@link MatchPatternBuilder#addEdgeAsNode} must throw
+   * {@link IllegalStateException} — the one-shot contract applies to the new method too.
+   */
+  @Test
+  public void build_oneShot_subsequentAddEdgeAsNodeThrows() {
+    var b = new MatchPatternBuilder().addNode("a", "Person", null, false);
+    b.build();
+    assertThrows(
+        IllegalStateException.class,
+        () -> b.addEdgeAsNode("a", "e", "b", Direction.OUT, "E", Direction.IN, null));
+  }
+
   // ── hasAlias ──
 
   /**
@@ -487,6 +603,13 @@ public class MatchPatternBuilderTest {
     var edge = node.out.iterator().next();
     var sb = new StringBuilder();
     edge.item.toString(new HashMap<>(), sb);
+    return sb.toString();
+  }
+
+  /** Renders a single path item (method call + filter block) to its MATCH text form. */
+  private static String renderItem(SQLMatchPathItem item) {
+    var sb = new StringBuilder();
+    item.toString(new HashMap<>(), sb);
     return sb.toString();
   }
 
