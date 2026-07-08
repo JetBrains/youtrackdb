@@ -2,7 +2,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
-import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchLiteralBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
@@ -143,29 +142,9 @@ final class StartStepRecogniser implements StepRecogniser {
       return false;
     }
 
-    // Polymorphism resolution lives in the recogniser (not the WalkerContext constructor or a
-    // walker pre-check) so the cheap structural gates above run first: a non-vertex shape or an
-    // unconvertible id declines before this config read ever touches the session.
-    // YTDBStrategyUtil.isPolymorphic is null-safe — it returns null (never throws) when the
-    // traversal has no attached YTDB graph (a detached EmptyGraph or a non-YTDB graph) or its
-    // configuration is unresolvable. That null is the decline signal: with no resolvable setting
-    // the traversal cannot be translated faithfully, so it stays on the native pipeline.
-    //
-    // The non-null value is committed to ctx.polymorphic in the commit block below (see
-    // WalkerContext#polymorphic) for the later node-introducing recognisers — the vertex-step
-    // chain hops and the hasLabel recognisers — which read it to add a @class = '<class>'
-    // predicate to their new alias when false, so every alias honours one setting. Phase 1's own
-    // shapes (bare g.V() / g.V(ids)) do not narrow by @class themselves — see the
-    // no-@class-narrowing note below.
-    Boolean polymorphic = YTDBStrategyUtil.isPolymorphic(ctx.traversal);
-    if (polymorphic == null) {
-      return false;
-    }
-
-    // Validation done; commit mutations to the context.
-    // Carry the resolved setting for later node-introducing recognisers. Unboxing is safe: the
-    // null case declined at the gate above, so `polymorphic` is non-null here.
-    ctx.polymorphic = polymorphic;
+    // Validation done; commit mutations to the context. The polymorphism flag is resolved and
+    // pinned once by the walker at context construction (see GremlinStepWalker.walk); no
+    // recogniser initialises it.
     ctx.patternBuilder.addNode(BOUNDARY_ALIAS, DEFAULT_VERTEX_CLASS, null, false);
     ctx.boundaryAlias = BOUNDARY_ALIAS;
     ctx.outputType = BoundaryOutputType.ELEMENT;

@@ -34,11 +34,11 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  */
 final class WalkerContext {
 
-  /** Traversal currently being walked. Recognisers read traversal-level information
-   *  (the attached graph and the polymorphism setting) directly from this reference;
-   *  the walker does not pre-resolve any of those values because each requires a
-   *  graph-supporting subgraph to evaluate, and recogniser-local structural gates
-   *  must run first. */
+  /** Traversal currently being walked. Recognisers read traversal-level information (the
+   *  attached graph, strategies) directly from this reference. The one traversal-level value the
+   *  walker pre-resolves is the polymorphism setting (see {@link #polymorphic}): {@code
+   *  YTDBStrategyUtil.isPolymorphic} is null-safe, so the walker resolves it once up front and
+   *  declines the whole walk on a null result, rather than each recogniser re-resolving it. */
   final Traversal.Admin<?, ?> traversal;
 
   /** Pattern under construction. Recognisers call {@code addNode}/{@code addEdge}; the
@@ -83,21 +83,22 @@ final class WalkerContext {
   Class<? extends Element> returnClass;
 
   /** Whether the traversal runs as a polymorphic query, resolved from the traversal's YTDB
-   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}). Set by the start-step
-   *  recogniser after its structural gates pass; because that recogniser runs first (step
-   *  index 0) and the walk declines unless it returns {@code true}, the flag is populated
-   *  before any later recogniser reads it. Later node-introducing recognisers (the vertex-step
-   *  chain hops, {@code hasLabel}) read it to narrow a new alias with {@code @class = '<class>'}
-   *  when {@code false}, so every alias in the pattern honours one setting. A {@code null}
-   *  resolution declines in the recogniser and never reaches this field. */
-  boolean polymorphic;
+   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}). Resolved once by {@link
+   *  GremlinStepWalker} at construction and read — never re-resolved — by later node-introducing
+   *  recognisers (the vertex-step chain hops, {@code hasLabel}), which narrow a new alias with
+   *  {@code @class = '<class>'} when {@code false} so every alias in the pattern honours one
+   *  setting. The walker owns the resolution so no recogniser initialises the flag; a {@code null}
+   *  resolution (no attached YTDB graph, or an unresolvable setting) declines the whole walk in
+   *  the walker before this context is built, so the field is always a resolved primitive. */
+  final boolean polymorphic;
 
   /** Index of the step the walker is currently dispatching to recognisers, advanced by
    *  the walker after each successful recognise. Recognisers read it (e.g. the
    *  start-step recogniser only accepts at index 0). */
   int stepIndex;
 
-  WalkerContext(Traversal.Admin<?, ?> traversal) {
+  WalkerContext(Traversal.Admin<?, ?> traversal, boolean polymorphic) {
     this.traversal = traversal;
+    this.polymorphic = polymorphic;
   }
 }
