@@ -241,32 +241,34 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * A traversal whose {@code getGraph()} is empty makes {@code YTDBStrategyUtil.isPolymorphic}
-   * return {@code null}; the recognizer treats a null polymorphism result as a clean decline
-   * rather than proceeding with an unresolved flag. This pins the null-{@code isPolymorphic}
-   * decline branch. A real vertex {@code GraphStep} clears the structural gates (vertex source,
-   * no ids, no hasContainers) so the recognizer reaches the polymorphism resolution; the
-   * {@link WalkerContext}'s traversal is a graph-less mock so {@code isPolymorphic} returns null
-   * (rather than throwing on {@code EmptyGraph.tx()}, which a real detached traversal would do —
-   * that non-transactional case is filtered out by the strategy's own gates before the walker
-   * ever runs).
+   * A single-step, graph-less traversal declines at the walker's own null-{@code isPolymorphic}
+   * gate. The walker resolves the graph-level polymorphism flag once, up front (see {@link
+   * GremlinStepWalker#walk}), before dispatching any step; a {@code null} result — no attached
+   * YTDB graph — declines the whole walk without a recognizer ever running. This pins that
+   * walker-level decline branch.
+   *
+   * <p>The traversal is a mock whose {@code getGraph()} is empty, so {@code
+   * YTDBStrategyUtil.isPolymorphic} returns {@code null}. {@code isPolymorphic} is null-safe (it
+   * gates on an attached YTDB graph and transaction before touching {@code tx()}), so a real
+   * detached {@code EmptyGraph} traversal would likewise return {@code null} here rather than
+   * throw. The single well-formed vertex {@code GraphStep} sharpens the point: a traversal that
+   * would otherwise translate is declined purely because the graph is absent.
    */
   @Test
   public void walk_nullIsPolymorphic_declines() {
-    // A real vertex GraphStep to satisfy the recognizer's structural gates.
-    var realAdmin = graph.traversal().V().asAdmin();
-    Step<?, ?> vertexStart = realAdmin.getStartStep();
+    // A real vertex GraphStep so the mock traversal carries a shape that would otherwise
+    // translate; it is never dispatched because the walker's null-isPolymorphic gate fires first
+    // (before the per-step recognizer loop).
+    Step<?, ?> vertexStart = graph.traversal().V().asAdmin().getStartStep();
 
-    // A graph-less traversal so YTDBStrategyUtil.isPolymorphic returns null.
     @SuppressWarnings("unchecked")
     Traversal.Admin<Object, Object> graphless = mock(Traversal.Admin.class);
+    when(graphless.getSteps()).thenReturn(List.of(vertexStart));
     when(graphless.getGraph()).thenReturn(Optional.empty());
-    var ctx = new WalkerContext(graphless);
 
-    boolean recognized = StartStepRecogniser.INSTANCE.recognize(vertexStart, ctx);
+    var result = GremlinStepWalker.production().walk(graphless);
 
-    assertThat(recognized).as("a null isPolymorphic declines cleanly").isFalse();
-    assertThat(ctx.boundaryAlias).as("no-mutation-on-decline").isNull();
+    assertThat(result).as("a null isPolymorphic declines the whole walk").isNull();
   }
 
   /**
@@ -278,7 +280,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void recognizer_declines_leavesContextUnmutated() {
     var admin = graph.traversal().E().asAdmin();
-    var ctx = new WalkerContext(admin);
+    var ctx = new WalkerContext(admin, true);
     Step<?, ?> edgeStart = admin.getStartStep();
 
     boolean recognized = StartStepRecogniser.INSTANCE.recognize(edgeStart, ctx);
@@ -302,7 +304,7 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   @Test
   public void recognizer_atNonZeroIndex_declines() {
     var admin = graph.traversal().V().asAdmin();
-    var ctx = new WalkerContext(admin);
+    var ctx = new WalkerContext(admin, true);
     ctx.stepIndex = 1;
     Step<?, ?> vertexStart = admin.getStartStep();
 

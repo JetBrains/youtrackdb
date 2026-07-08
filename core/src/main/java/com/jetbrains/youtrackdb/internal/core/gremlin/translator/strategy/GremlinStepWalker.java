@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
+import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
@@ -23,17 +24,17 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
  * no "partial prefix" mechanism — either every step is recognised or the traversal is declined
  * whole and stays on the native TinkerPop pipeline.
  *
- * <h2>Recognition gates live in recognisers, not the walker</h2>
+ * <h2>Per-step shape gates in recognisers; the graph-level flag in the walker</h2>
  *
- * Every gate (start-step shape, vertex-vs-edge, ID convertibility, hasContainer
- * presence, polymorphism resolution, predicate well-formedness, …) lives inside the
- * responsible recogniser, so the walker is agnostic to the recognised-step set as it
- * grows track by track. In particular, polymorphism resolution stays inside the
- * start-step recogniser because {@code YTDBStrategyUtil.isPolymorphic} calls
- * {@code graph.tx()} unconditionally — invoking it on graphs that do not support
- * transactions (anonymous traversals attached to {@code EmptyGraph}, non-YTDB graph
- * proxies) would throw before the recogniser's structural gates had a chance to
- * decline.
+ * Every per-step shape gate (start-step shape, vertex-vs-edge, ID convertibility, hasContainer
+ * presence, predicate well-formedness, …) lives inside the responsible recogniser, so the walker
+ * stays agnostic to the recognised-step set as it grows track by track. The one value the walker
+ * resolves up front is the traversal's graph-level polymorphism flag ({@code
+ * YTDBStrategyUtil.isPolymorphic}), stored on the {@link WalkerContext} as a plain boolean so the
+ * recognisers read one resolved setting without each re-resolving it. Resolving it in the walker
+ * is safe: {@code isPolymorphic} is null-safe (it gates on an attached YTDB graph and transaction
+ * before touching {@code tx()}, so a detached {@code EmptyGraph} or non-YTDB graph yields {@code
+ * null} rather than throwing), and a {@code null} result declines the whole walk.
  *
  * <h2>Result assembly</h2>
  *
@@ -110,7 +111,20 @@ final class GremlinStepWalker {
       return null;
     }
 
-    var ctx = new WalkerContext(traversal);
+    // Resolve the graph-level polymorphism flag once, up front, so recognisers work with a plain
+    // boolean and none of them re-resolves it. isPolymorphic is null-safe:
+    // YTDBStrategyUtil.resolveYtdbSession gates on an attached YTDBGraph + YTDBTransaction before
+    // touching tx(), so a detached EmptyGraph or non-YTDB graph yields null rather than throwing. A
+    // null result means the traversal has no resolvable polymorphism setting and cannot be
+    // translated faithfully — decline the whole walk before building the context. Owning the
+    // resolution here keeps every recogniser free of the flag's initialisation.
+    Boolean resolved = YTDBStrategyUtil.isPolymorphic(traversal);
+    if (resolved == null) {
+      return null;
+    }
+    boolean polymorphic = resolved;
+
+    var ctx = new WalkerContext(traversal, polymorphic);
 
     for (Step<?, ?> step : steps) {
       // Class-keyed dispatch: the recogniser registered for this step's concrete runtime
