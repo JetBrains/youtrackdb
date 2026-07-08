@@ -4804,7 +4804,13 @@ public class MatchExecutionPlanner {
       RecordIdInternal parsed;
       try {
         parsed = RecordIdInternal.fromString(s, false);
-      } catch (IllegalArgumentException ignored) {
+      } catch (RuntimeException ignored) {
+        // Drop any unparseable or out-of-range RID literal (a malformed string, or a
+        // collection id past the limit — which throws DatabaseException, not
+        // IllegalArgumentException) and abort promotion, so the retained WHERE filter
+        // handles it. Matches QueryOperatorEquals's catch-all on the scan path and
+        // SelectExecutionPlanner.toRecordIdCandidate, so a bad @rid literal yields an
+        // empty result in either planner rather than a plan-time throw.
         return null;
       }
       if (parsed == null) {

@@ -1095,35 +1095,32 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Checks if a single AND term (possibly wrapped in a single-element OrBlock
-   * and/or a non-negated NotBlock) is {@code @rid IN <early-calc value>}. Returns
-   * the value-side wrapped as a single {@link SQLExpression}, or null.
+   * Checks if a single AND term is {@code @rid IN <early-calc value>} and returns its
+   * early-calculable right side wrapped as a single {@link SQLExpression}, or null.
+   *
+   * <p>Detection (unwrap single-element wrappers, {@code @rid IN} shape, bare-{@code @rid}
+   * left side) is shared with the non-destructive MATCH finder through
+   * {@link #tryMatchRidInCondition}; only the right-side wrapping below is SELECT-specific.
    */
   @Nullable
   private static SQLExpression tryExtractRidInListFromTerm(SQLBooleanExpression term) {
-    // Unwrap single-element wrapper blocks via the shared helper, mirroring the
-    // equality path (tryExtractRidFromTerm) — the parser nests even a simple
-    // condition inside OrBlock/AndBlock wrappers.
-    term = unwrapSingleElementTerm(term);
-    if (term == null) {
+    var cond = tryMatchRidInCondition(term);
+    if (cond == null) {
       return null;
     }
-    assert !(term instanceof SQLOrBlock) && !(term instanceof SQLAndBlock)
-        : "tryExtractRidInListFromTerm: loop should have unwrapped all single-element wrappers";
-    if (!(term instanceof SQLInCondition cond)) {
-      return null;
-    }
-    // Left side must be a bare @rid — reuse the same record-attribute check the
-    // equality path applies (tryExtractRidValue). A non-null return means the left
-    // side is @rid; the returned value (cond.getLeft()) is discarded, only the
-    // membership is needed here.
-    if (tryExtractRidValue(cond.getLeft(), cond.getLeft()) == null) {
-      return null;
-    }
-    // Reject a subquery right side (rightStatement) — not early-calculable at plan
-    // time. Accept a list literal (rightMathExpression) or a bound param (rightParam),
-    // wrapping either into one SQLExpression so the emission site can uniformly call
-    // execute/isEarlyCalculated. This mirrors SQLInCondition.resolveKeyFrom.
+    return wrapEarlyCalculableInRight(cond);
+  }
+
+  /**
+   * Wraps the early-calculable right side of an {@code @rid IN} condition into a single
+   * {@link SQLExpression}, so the direct-fetch emission site can uniformly call
+   * {@code execute}/{@code isEarlyCalculated}. Rejects a subquery right side
+   * ({@code rightStatement}, not resolvable at plan time) by returning null; accepts a list
+   * literal ({@code rightMathExpression}) or a bound param ({@code rightParam}). Mirrors
+   * {@code SQLInCondition.resolveKeyFrom}.
+   */
+  @Nullable
+  private static SQLExpression wrapEarlyCalculableInRight(SQLInCondition cond) {
     if (cond.getRightMathExpression() != null) {
       var wrapped = new SQLExpression(-1);
       wrapped.setMathExpression(cond.getRightMathExpression().copy());
@@ -1226,15 +1223,17 @@ public class SQLWhereClause extends SimpleNode {
    */
   @Nullable
   private static SQLInCondition findRidInListInExpression(SQLBooleanExpression expr) {
-    return findRidConditionInExpression(expr, SQLWhereClause::tryExtractRidInFromTerm);
+    return findRidConditionInExpression(expr, SQLWhereClause::tryMatchRidInCondition);
   }
 
   /**
-   * Checks if a single AND term is {@code @rid IN <expr>}. Returns the
-   * {@link SQLInCondition} or null.
+   * Matches a single AND term against the {@code @rid IN <expr>} shape and returns the
+   * {@link SQLInCondition} (or null). Shared detector: the non-destructive
+   * {@link #findRidInList()} and the destructive {@link #extractAndRemoveRidInList()} both
+   * route through it, so {@code @rid IN} recognition lives in one place.
    */
   @Nullable
-  private static SQLInCondition tryExtractRidInFromTerm(SQLBooleanExpression term) {
+  private static SQLInCondition tryMatchRidInCondition(SQLBooleanExpression term) {
     term = unwrapSingleElementTerm(term);
     if (term == null) {
       return null;

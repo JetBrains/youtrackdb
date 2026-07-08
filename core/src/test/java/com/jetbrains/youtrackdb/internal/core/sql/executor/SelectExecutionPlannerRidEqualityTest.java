@@ -461,6 +461,31 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
   }
 
   /**
+   * A syntactically-valid RID string with an out-of-range collection id ({@code '#-3:0'})
+   * makes {@code RecordIdInternal.fromString} throw a {@code DatabaseException} — a
+   * {@code RuntimeException} that is NOT an {@code IllegalArgumentException}. The fast path
+   * must still return empty, not throw: parity with the scan path, whose
+   * {@code QueryOperatorEquals} swallows every conversion failure. This locks the catch in
+   * {@code toRecordIdCandidate} at {@code RuntimeException} — narrowing it to
+   * {@code IllegalArgumentException} would let this input throw at plan time.
+   */
+  @Test
+  public void ridEqualsOutOfRangeCollectionString_returnsEmptyNoThrow() {
+    var className = createClassInstance().getName();
+    session.begin();
+    // A real record a broken parse must NOT return, and a scan must NOT be reached.
+    session.newInstance(className).setProperty("tag", "real");
+    session.commit();
+
+    var sql = "select from " + className + " where @rid = '#-3:0'";
+    try (var result = session.query(sql)) {
+      Assert.assertFalse(
+          "an out-of-range RID string must yield an empty result rather than throwing",
+          result.hasNext());
+    }
+  }
+
+  /**
    * A nonexistent class name with an {@code @rid} predicate must still throw a class-resolution
    * error, not silently return an empty result. When the class cannot be resolved the fast path
    * falls through (returns false) rather than chaining EmptyStep, so the query reaches the same

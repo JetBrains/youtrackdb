@@ -853,4 +853,25 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
             + " TO (SELECT FROM Person WHERE name = '" + to + "')")
         .close();
   }
+
+  /**
+   * A syntactically-valid RID string with an out-of-range collection id ({@code '#-3:0'})
+   * makes {@code RecordIdInternal.fromString} throw a {@code DatabaseException} — a
+   * {@code RuntimeException} that is NOT an {@code IllegalArgumentException}. Promotion must
+   * drop the value and fall back to the retained WHERE filter (which matches nothing),
+   * returning empty rather than throwing at plan time. This locks the catch in
+   * {@code sqlRidFromRuntimeValue} at {@code RuntimeException}, matching
+   * {@code SelectExecutionPlanner.toRecordIdCandidate} and the scan path's
+   * {@code QueryOperatorEquals} catch-all.
+   */
+  @Test
+  public void staticRidListOutOfRangeCollectionString_returnsEmptyNoThrow() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class: Comment, as: c, where: (@rid in ['#-3:0'])} RETURN c.name as name")
+        .toList();
+    assertTrue("out-of-range RID string must match nothing, not throw, got: " + result.size(),
+        result.isEmpty());
+    session.commit();
+  }
 }
