@@ -1,8 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
+import com.jetbrains.youtrackdb.internal.core.exception.DatabaseException;
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
@@ -294,6 +296,58 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().bothE(knows).has(since, lt 2015).otherV() (otherV unsupported)",
         Recognition.DECLINED,
         () -> graph.traversal().V().bothE("knows").has("since", P.lt(2015)).otherV());
+  }
+
+  /**
+   * A {@code $}-prefixed edge-property key declines the whole chain to native rather than
+   * translating: {@code g.V().outE("knows").has("$parent", 5).inV()}. Were the key translated it
+   * would become a bare WHERE identifier that the MATCH executor resolves as a query context
+   * variable ({@code $parent}) — silently comparing internal execution state to the literal and
+   * diverging from native. Native instead rejects a {@code $}-prefixed property name outright
+   * (YouTrackDB property names must start with a letter or underscore), throwing a {@link
+   * DatabaseException}. The regression guard is therefore twofold: with the translator on the shape
+   * must carry no boundary step (the predicate adapter declined the reserved key), and executing it
+   * must throw the same {@link DatabaseException} as the native run — proving the translator fell
+   * back to native rather than resolving the key against the context-variable namespace. Before the
+   * fix the translated run would have swallowed the {@code $parent} key as a context variable and
+   * returned a divergent (non-throwing) result. This guards the reserved-{@code $} namespace on the
+   * {@code has()}-key surface, the analogue of the walker's reserved-{@code $} label pre-flight on
+   * the {@code as(...)} label surface.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_reservedDollarKeyDeclinesToNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      // Translator ON: the reserved $-key must decline the whole chain (no boundary step), then run
+      // on the native pipeline, which rejects the reserved property name.
+      setTranslatorEnabled(true);
+      var onAdmin = graph.traversal().V().outE("knows").has("$parent", 5).inV().asAdmin();
+      onAdmin.applyStrategies();
+      assertThat(countBoundarySteps(onAdmin.getSteps()))
+          .as("a $-prefixed has() key must decline the chain to native — no boundary step")
+          .isEqualTo(0);
+      assertThatThrownBy(onAdmin::toList)
+          .as("the declined chain runs natively, which rejects the reserved $ property name")
+          .isInstanceOf(DatabaseException.class);
+
+      // Translator OFF: the native pipeline rejects the same reserved property name identically,
+      // proving the translator-on run fell back rather than resolving $parent as a context variable.
+      setTranslatorEnabled(false);
+      assertThatThrownBy(
+          () -> graph.traversal().V().outE("knows").has("$parent", 5).inV().toList())
+          .as("native rejects the reserved $ property name")
+          .isInstanceOf(DatabaseException.class);
+    } finally {
+      setTranslatorEnabled(original);
+    }
   }
 
   // ---------------------------------------------------------------------------
