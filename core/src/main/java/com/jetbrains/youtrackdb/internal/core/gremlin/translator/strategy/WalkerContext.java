@@ -91,8 +91,8 @@ final class WalkerContext {
    *  GremlinStepWalker} at construction and read — never re-resolved — by the recognisers.
    *
    *  <p>The flag governs class narrowing for an <em>explicit</em> user-named class only — the
-   *  folded {@code hasLabel(L)}, added later, which narrows through the shared {@link
-   *  MatchClassFilters} seam. It does <em>not</em> apply to a bare chain hop: {@code out(L)} /
+   *  folded {@code hasLabel(L)}, added later, which narrows through the shared {@code
+   *  MatchWhereBuilder.classEquals} seam. It does <em>not</em> apply to a bare chain hop: {@code out(L)} /
    *  {@code in(L)} / {@code both(L)} and the start step root at the generic {@code V} class
    *  polymorphically and emit no {@code @class} filter regardless of this flag, because native
    *  Gremlin never class-filters a hop target — narrowing one (even under {@code false}) would
