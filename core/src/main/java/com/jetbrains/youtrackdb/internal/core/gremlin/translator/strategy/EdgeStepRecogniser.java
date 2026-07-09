@@ -75,32 +75,32 @@ final class EdgeStepRecogniser implements StepRecogniser {
   }
 
   @Override
-  public boolean recognize(Step<?, ?> step, WalkerContext ctx) {
+  public int recognize(Step<?, ?> step, WalkerContext ctx) {
     // The delegating VertexStepRecogniser only routes an edge-returning VertexStep here, but
     // re-assert both facts so a direct call declines cleanly rather than mis-translating.
     if (!(step instanceof VertexStep<?> edgeStep) || !edgeStep.returnsEdge()) {
-      return false;
+      return 0;
     }
     // A hop with no boundary to hang off cannot be translated: the "from" endpoint is the current
     // terminator's alias. A null here would mean an edge step reached the walker before any node was
     // pinned — decline defensively rather than build a dangling edge.
     if (ctx.boundaryAlias == null) {
-      return false;
+      return 0;
     }
     // A user as(...) label on the edge step would expose the edge as a named result — out of scope.
     // Decline. (The walker's reserved-prefix pre-flight already declined any $-prefixed label.)
     if (!edgeStep.getLabels().isEmpty()) {
-      return false;
+      return 0;
     }
     // Only a single-label edge is in scope, mirroring the folded bare-hop rule. A label-less edge
     // (outE(), all types) and a multi-label edge (outE("a", "b")) both decline.
     var edgeLabels = edgeStep.getEdgeLabels();
     if (edgeLabels.length != 1) {
-      return false;
+      return 0;
     }
     var edgeLabel = edgeLabels[0];
     if (edgeLabel == null || edgeLabel.isBlank()) {
-      return false;
+      return 0;
     }
 
     // Peek forward from the step after the edge: AND-merge has() predicates, skip barriers, and stop
@@ -108,7 +108,8 @@ final class EdgeStepRecogniser implements StepRecogniser {
     var steps = ctx.traversal.getSteps();
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     Direction closingDirection = null;
-    var probe = ctx.stepIndex + 1;
+    var startIndex = ctx.stepIndex;
+    var probe = startIndex + 1;
     while (probe < steps.size()) {
       var next = steps.get(probe);
       if (next instanceof NoOpBarrierStep<?>) {
@@ -122,7 +123,7 @@ final class EdgeStepRecogniser implements StepRecogniser {
           if (filter == null) {
             // A predicate the adapter cannot translate declines the whole traversal — no half-applied
             // edge filter that would silently under- or over-match versus native.
-            return false;
+            return 0;
           }
           edgeFilters.add(filter);
         }
@@ -138,11 +139,11 @@ final class EdgeStepRecogniser implements StepRecogniser {
       // Any other step between the edge and its close declines. This includes EdgeOtherVertexStep
       // (otherV): the MATCH executor has no otherV method, so a bothE(L).has(...).otherV() chain
       // cannot be expressed and must stay on the native pipeline.
-      return false;
+      return 0;
     }
     if (closingDirection == null) {
       // Ran off the end with no closing vertex hop — an edge-returning terminal, out of scope.
-      return false;
+      return 0;
     }
 
     // Validation and peek-ahead done; commit mutations. Mint the edge alias then the target alias so
@@ -168,9 +169,9 @@ final class EdgeStepRecogniser implements StepRecogniser {
         ctx, fromAlias, edgeAlias, targetAlias, edgeDirection, edgeLabel, closingVertexDirection,
         edgeWhere);
 
-    // Advance the cursor past every step this chain consumed: the edge step, the interleaved
-    // has()/barrier steps, and the closing vertex hop. `probe` already sits one past the closing hop.
-    ctx.stepIndex = probe;
-    return true;
+    // Report every step this chain consumed: the edge step, the interleaved has()/barrier steps,
+    // and the closing vertex hop. `probe` sits one past the closing hop, so the count is that span
+    // from the edge step's index; the walker advances the cursor by it.
+    return probe - startIndex;
   }
 }

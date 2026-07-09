@@ -21,9 +21,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
  * <h2>No context mutation beyond the cursor</h2>
  *
  * A barrier contributes nothing to the pattern — no node, no edge, no filter, no boundary re-pin. It
- * is a pure execution hint the translated MATCH plan does not need. So this recogniser only advances
- * {@link WalkerContext#stepIndex}; it does not touch the pattern builder, the alias maps, the return
- * lists, or the boundary metadata. Because it makes no other mutation, a barrier that turned out to
+ * is a pure execution hint the translated MATCH plan does not need. So this recogniser reports one
+ * consumed step and mutates nothing: it does not touch the pattern builder, the alias maps, the
+ * return lists, or the boundary metadata. Because it makes no mutation, a barrier that turned out to
  * be the traversal's terminator (nothing after it) is harmless — the boundary the prior hop pinned
  * stays intact, and the walker's terminator invariant still holds.
  */
@@ -37,16 +37,15 @@ final class NoOpBarrierRecogniser implements StepRecogniser {
   }
 
   @Override
-  public boolean recognize(Step<?, ?> step, WalkerContext ctx) {
+  public int recognize(Step<?, ?> step, WalkerContext ctx) {
     // Defence in depth: the registry keys this recogniser on NoOpBarrierStep.class, so dispatch only
     // ever hands it a barrier. Re-assert the type so a future registry mistake declines cleanly
-    // rather than advancing the cursor over a step it never validated.
+    // rather than claiming a step it never validated.
     if (!(step instanceof NoOpBarrierStep<?>)) {
-      return false;
+      return 0;
     }
-    // A barrier is a transparent pass-through: advance the cursor past it and mutate nothing else,
+    // A barrier is a transparent pass-through: report the one step consumed and mutate nothing else,
     // so the hops on either side chain off each other as if the barrier were absent.
-    ctx.stepIndex++;
-    return true;
+    return 1;
   }
 }
