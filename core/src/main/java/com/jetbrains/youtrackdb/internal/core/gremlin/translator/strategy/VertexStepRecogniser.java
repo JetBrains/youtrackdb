@@ -22,7 +22,7 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
  * native pipeline keeps (a subclass undercount), so a bare chain hop mirrors the start step, which
  * likewise emits no class filter ({@link StartStepRecogniser}). {@code @class} narrowing reappears
  * only for an explicit user-named class (the folded {@code hasLabel}, added later), produced through
- * the shared {@link MatchClassFilters} seam — never here.
+ * the shared {@code MatchWhereBuilder.classEquals} seam — never here.
  *
  * <h2>Edge steps delegate to the edge-filter recogniser</h2>
  *

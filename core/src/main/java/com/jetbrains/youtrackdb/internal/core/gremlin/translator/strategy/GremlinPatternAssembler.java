@@ -21,9 +21,9 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  * filter, regardless of {@link WalkerContext#polymorphic}. Native Gremlin never class-filters a hop
  * target, so narrowing one — even under {@code polymorphic=false} — would drop subclass instances
  * the native pipeline keeps (a subclass undercount). {@code @class} narrowing is reserved for an
- * explicit user-named class (the folded {@code hasLabel}, a later track) via {@link
- * MatchClassFilters}, never here. This mirrors {@link StartStepRecogniser}'s treatment of the start
- * node.
+ * explicit user-named class (the folded {@code hasLabel}, a later track) via {@code
+ * MatchWhereBuilder.classEquals}, never here. This mirrors {@link StartStepRecogniser}'s treatment
+ * of the start node.
  *
  * <h2>Boundary / RETURN re-pin</h2>
  *
