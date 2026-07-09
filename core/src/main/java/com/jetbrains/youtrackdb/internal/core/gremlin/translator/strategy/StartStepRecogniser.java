@@ -104,24 +104,24 @@ final class StartStepRecogniser implements StepRecogniser {
   }
 
   @Override
-  public boolean recognize(Step<?, ?> step, WalkerContext ctx) {
+  public int recognize(Step<?, ?> step, WalkerContext ctx) {
     // The start-step recogniser is only meaningful at the head of a traversal; refusing
     // here keeps a misregistered registry (e.g. a future track placing this recogniser
     // after a step that fell through) from silently accepting a non-start position.
     if (ctx.stepIndex != 0) {
-      return false;
+      return 0;
     }
     // Gate on the plain TinkerPop GraphStep, not YTDBGraphStep: this walker runs before
     // YTDBGraphStepStrategy produces the YTDB subclass, so at translator time the start
     // step is still a plain GraphStep. See the class Javadoc "Gating on the plain
     // TinkerPop GraphStep" section for why keying on YTDBGraphStep would translate nothing.
     if (!(step instanceof GraphStep<?, ?> graphStep)) {
-      return false;
+      return 0;
     }
     // returnsVertex() distinguishes g.V() (accept) from g.E() (decline — edge starts are
     // a later milestone). This mirrors the strategy's own vertex-start gate.
     if (!graphStep.returnsVertex()) {
-      return false;
+      return 0;
     }
     // Defence in depth against a start step that already carries folded predicates. A plain
     // GraphStep has no hasContainers of its own (folding produces YTDBGraphStep), but if a
@@ -130,7 +130,7 @@ final class StartStepRecogniser implements StepRecogniser {
     // predicate must still cause a clean decline rather than being silently dropped.
     if (step instanceof HasContainerHolder<?, ?> holder
         && !holder.getHasContainers().isEmpty()) {
-      return false;
+      return 0;
     }
 
     // Normalise the start step's ids to distinct RIDs in one pass. A null return declines the
@@ -139,7 +139,7 @@ final class StartStepRecogniser implements StepRecogniser {
     // g.V() case returns an empty list, not null.
     var rids = normaliseIds(graphStep.getIds());
     if (rids == null) {
-      return false;
+      return 0;
     }
 
     // Validation done; commit mutations to the context. The polymorphism flag is resolved and
@@ -170,12 +170,10 @@ final class StartStepRecogniser implements StepRecogniser {
     ctx.returnAliases.add(new SQLIdentifier(BOUNDARY_ALIAS));
     ctx.returnNestedProjections.add(null);
 
-    // Advance the cursor past the one step this recogniser consumed (the start GraphStep). Under
-    // the index-driven walker the recogniser owns this advance — the walker no longer does an
-    // unconditional ++ — so a single-step claim advances by exactly one. Done last, after every
-    // context mutation, so a decline before this point leaves the cursor untouched.
-    ctx.stepIndex++;
-    return true;
+    // Report the one step this recogniser consumed (the start GraphStep); the walker advances the
+    // cursor by that count. Every context mutation above happened before this commit point, so a
+    // decline earlier leaves the cursor (and the rest of ctx) untouched.
+    return 1;
   }
 
   /**

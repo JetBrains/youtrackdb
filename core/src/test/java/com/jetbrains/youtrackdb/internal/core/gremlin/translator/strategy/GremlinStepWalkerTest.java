@@ -288,9 +288,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     var ctx = new WalkerContext(admin, true);
     Step<?, ?> edgeStart = admin.getStartStep();
 
-    boolean recognized = StartStepRecogniser.INSTANCE.recognize(edgeStart, ctx);
+    int recognized = StartStepRecogniser.INSTANCE.recognize(edgeStart, ctx);
 
-    assertThat(recognized).as("edge start is not a vertex source").isFalse();
+    assertThat(recognized).as("edge start is not a vertex source").isEqualTo(0);
     assertThat(ctx.patternBuilder.build().pattern().aliasToNode)
         .as("declining recognizer must add no pattern node").isEmpty();
     assertThat(ctx.aliasFilters).isEmpty();
@@ -312,9 +312,9 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
     ctx.stepIndex = 1;
     Step<?, ?> vertexStart = admin.getStartStep();
 
-    boolean recognized = StartStepRecogniser.INSTANCE.recognize(vertexStart, ctx);
+    int recognized = StartStepRecogniser.INSTANCE.recognize(vertexStart, ctx);
 
-    assertThat(recognized).as("start recognizer only accepts at index 0").isFalse();
+    assertThat(recognized).as("start recognizer only accepts at index 0").isEqualTo(0);
     assertThat(ctx.boundaryAlias).isNull();
   }
 
@@ -507,20 +507,15 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
    * declining silently — a silent decline would mask the bug. Under {@code -ea} (the test/CI
    * default) the assert throws {@link AssertionError}, which {@code GremlinToMatchStrategy}'s
    * throw-safety net does NOT catch (it catches only {@code RuntimeException}), so the bug surfaces
-   * loudly instead of degrading to a silent decline. The fixture recogniser advances the cursor
-   * (so it clears the walker's cursor-advance guard and reaches the post-walk boundary invariant)
-   * but pins nothing on the context, isolating the boundary invariant from the cursor guard.
+   * loudly instead of degrading to a silent decline. The fixture recogniser reports one consumed
+   * step (so the walker advances the cursor and reaches the post-walk boundary invariant) but pins
+   * nothing on the context, isolating the boundary invariant from the cursor guard.
    */
   @Test
   public void walk_recogniserLeavesBoundaryUnpinned_tripsInvariantAssert() {
-    // Fixture recogniser: claims the step and advances the cursor by one (clearing the
-    // cursor-advance guard), but pins no boundary metadata — isolating the post-walk boundary
-    // invariant from the in-loop cursor guard.
-    StepRecogniser unpinning =
-        (step, ctx) -> {
-          ctx.stepIndex++;
-          return true;
-        };
+    // Fixture recogniser: reports one consumed step but pins no boundary metadata — isolating the
+    // post-walk boundary invariant from the in-loop cursor guard.
+    StepRecogniser unpinning = (step, ctx) -> 1;
     var walker = new GremlinStepWalker(Map.of(GraphStep.class, unpinning));
     var admin = graph.traversal().V().asAdmin();
 
@@ -530,79 +525,70 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   }
 
   /**
-   * A recogniser that returns {@code true} without advancing the cursor trips the walker's
-   * in-loop cursor-advance guard. Under the index-driven contract the claiming recogniser owns
-   * the cursor advance; a recogniser that claims a step but leaves {@code stepIndex} unchanged
-   * would spin the walk loop forever, so the walker asserts the cursor moved forward by at least
-   * one. Under {@code -ea} the assert throws {@link AssertionError} (not swallowed by the
-   * strategy's {@code RuntimeException}-only net); under {@code -da} the walker's defensive
-   * decline (asserted separately by the return value here being unreachable) keeps a live query
-   * off an infinite loop. The fixture claims the start {@code GraphStep} without touching the
-   * cursor, which is exactly the mis-implemented recogniser this guard defends against.
+   * A recogniser that returns {@code 0} — the decline signal — makes the walk return {@code null}
+   * rather than spin. Under the count-reporting contract a claim is a positive count and {@code 0}
+   * is the decline, so "claim without progress" (the infinite-loop bug an advance-the-cursor
+   * contract could hit) is structurally impossible: the walker reads the count, sees 0, and
+   * declines. This pins that a 0-return is a clean decline, not a hang — the guarantee the
+   * count-reporting contract buys over the old "recogniser advances the cursor" contract.
    */
   @Test
-  public void walk_recogniserClaimsWithoutAdvancing_tripsCursorAssert() {
-    // Fixture recogniser: returns true but never advances the cursor — the infinite-loop bug the
-    // walker's cursor-advance guard catches.
-    StepRecogniser nonAdvancing = (step, ctx) -> true;
-    var walker = new GremlinStepWalker(Map.of(GraphStep.class, nonAdvancing));
+  public void walk_recogniserReturnsZero_declinesWithoutSpinning() {
+    // Fixture recogniser: always declines (returns 0). The walker must return null, never loop.
+    StepRecogniser declining = (step, ctx) -> 0;
+    var walker = new GremlinStepWalker(Map.of(GraphStep.class, declining));
     var admin = graph.traversal().V().asAdmin();
 
-    assertThatThrownBy(() -> walker.walk(admin))
-        .as("a recogniser that claims a step without advancing the cursor trips the guard")
-        .isInstanceOf(AssertionError.class);
+    var result = walker.walk(admin);
+
+    assertThat(result)
+        .as("a 0-return declines the walk cleanly; the count contract makes a spin impossible")
+        .isNull();
   }
 
   /**
-   * A recogniser that advances the cursor PAST the end of the step list trips the walker's in-loop
-   * cursor guard — the overrun twin of {@link
-   * #walk_recogniserClaimsWithoutAdvancing_tripsCursorAssert}, which covers the no-advance half. The
-   * guard asserts {@code stepIndex <= steps.size()}; a recogniser that mis-counts and jumps the
-   * cursor beyond the list would skip a step the walk never validated, producing a plan from an
-   * unverified suffix. Under {@code -ea} the assert throws {@link AssertionError} (not swallowed by
-   * the strategy's {@code RuntimeException}-only net), so the mis-counting recogniser surfaces loudly
-   * rather than mis-translating. The fixture claims the single {@code g.V()} step but sets the cursor
-   * to {@code size + 1}, the exact overrun this upper-bound guard defends against.
+   * A recogniser that reports a consumed count larger than the steps that remain trips the walker's
+   * one residual cursor guard. Because the count IS the advance, "claim without progress" is
+   * impossible, so overrun is the only cursor-logic bug left: the guard asserts {@code indexBefore +
+   * consumed <= steps.size()}; a recogniser that mis-counts and claims past the list would make the
+   * walker skip a step the walk never validated, producing a plan from an unverified suffix. Under
+   * {@code -ea} the assert throws {@link AssertionError} (not swallowed by the strategy's {@code
+   * RuntimeException}-only net), so the mis-counting recogniser surfaces loudly rather than
+   * mis-translating. The fixture claims the single {@code g.V()} step but reports {@code size + 1}
+   * consumed, the exact overrun this upper-bound guard defends against.
    */
   @Test
   public void walk_recogniserOverrunsCursor_tripsCursorAssert() {
-    // Fixture recogniser: returns true but advances the cursor past the end of the step list — the
+    // Fixture recogniser: reports a consumed count past the end of the step list — the
     // suffix-skipping bug the walker's upper-bound cursor guard catches.
-    StepRecogniser overrunning =
-        (step, ctx) -> {
-          ctx.stepIndex = ctx.traversal.getSteps().size() + 1;
-          return true;
-        };
+    StepRecogniser overrunning = (step, ctx) -> ctx.traversal.getSteps().size() + 1;
     var walker = new GremlinStepWalker(Map.of(GraphStep.class, overrunning));
     var admin = graph.traversal().V().asAdmin();
 
     assertThatThrownBy(() -> walker.walk(admin))
-        .as("a recogniser that advances the cursor past the end of the step list trips the guard")
+        .as("a recogniser that reports a count past the end of the step list trips the guard")
         .isInstanceOf(AssertionError.class);
   }
 
   /**
    * The index-driven walker supports a multi-step claim: a recogniser may consume several steps in
-   * one call by advancing the cursor past all of them, and the walker resumes dispatch at the new
-   * cursor rather than re-inspecting the consumed steps. The fixture delegates to {@link
-   * StartStepRecogniser} (which pins the boundary and advances the cursor by one) and then advances
-   * the cursor by one more, so it claims BOTH steps of {@code g.V().out()} in a single call. The
+   * one call by reporting a count greater than one, and the walker advances past all of them and
+   * resumes dispatch at the new cursor rather than re-inspecting the consumed steps. The fixture
+   * delegates to {@link StartStepRecogniser} (which pins the boundary and reports one consumed step)
+   * and then reports one more, so it claims BOTH steps of {@code g.V().out()} in a single call. The
    * {@code out()} {@code VertexStep} at index 1 is therefore never dispatched (no recogniser is
    * registered for it), yet the walk succeeds — proving the loop honours a recogniser-driven
-   * multi-step advance. This is a walker-mechanic test; the fixture's claim over {@code out()} is
+   * multi-step count. This is a walker-mechanic test; the fixture's claim over {@code out()} is
    * contrived (real edge-hop translation lands in a later step).
    */
   @Test
   public void walk_multiStepClaim_recogniserConsumesMultipleSteps() {
-    // Fixture: reuse StartStepRecogniser's valid single-node build (advances the cursor by one and
-    // pins the boundary), then consume one extra step so the claim spans both steps of g.V().out().
+    // Fixture: reuse StartStepRecogniser's valid single-node build (pins the boundary, reports one
+    // consumed step), then report one more so the claim spans both steps of g.V().out().
     StepRecogniser twoStepClaim =
         (step, ctx) -> {
-          boolean recognised = StartStepRecogniser.INSTANCE.recognize(step, ctx);
-          if (recognised) {
-            ctx.stepIndex++;
-          }
-          return recognised;
+          int base = StartStepRecogniser.INSTANCE.recognize(step, ctx);
+          return base == 0 ? 0 : base + 1;
         };
     var walker = new GremlinStepWalker(Map.of(GraphStep.class, twoStepClaim));
     var admin = graph.traversal().V().out("knows").asAdmin();

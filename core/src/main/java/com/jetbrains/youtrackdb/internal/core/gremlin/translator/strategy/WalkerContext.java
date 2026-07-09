@@ -104,13 +104,12 @@ final class WalkerContext {
    *  the walker before this context is built, so the field is always a resolved primitive. */
   final boolean polymorphic;
 
-  /** Cursor into the traversal's step list. The walker's index-driven loop reads {@code
-   *  steps.get(stepIndex)} and dispatches it; the claiming recogniser then advances this cursor
-   *  past every step it consumed (one for a single-step claim, N for a multi-step claim such as
-   *  the {@code outE(L).has(...).inV()} chain). The walker no longer advances it — a recogniser
-   *  that returns {@code true} MUST advance it by at least one, which is the consumed-step count
-   *  the {@link StepRecogniser#recognize} contract requires. Recognisers also read it (e.g. the
-   *  start-step recogniser only accepts at index 0). */
+  /** Cursor into the traversal's step list, owned and advanced solely by the walker. The walker's
+   *  index-driven loop reads {@code steps.get(stepIndex)}, dispatches it, and advances this cursor
+   *  by the consumed-step count the recogniser returns (one for a single-step claim, N for a multi-
+   *  step claim such as the {@code outE(L).has(...).inV()} chain). Recognisers read it (e.g. the
+   *  start-step recogniser only accepts at index 0, the edge recogniser peeks ahead from it) but
+   *  MUST NOT write it — see the {@link StepRecogniser#recognize} contract. */
   int stepIndex;
 
   /** Reserved prefix for translator-minted anonymous vertex aliases: {@code $g2m_anon_0},

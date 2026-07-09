@@ -39,7 +39,8 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
    * {@code outE("knows").has("w", 1).inV()} is claimed through the real {@link VertexStepRecogniser}
    * delegation: the edge is node-ized under a minted edge alias carrying the {@code has} filter, the
    * target vertex is minted under the generic {@code V} class, the boundary / RETURN re-pin to the
-   * target, and the cursor advances past all three consumed steps (edge, has, closing hop).
+   * target, and the claim reports all three consumed steps (edge, has, closing hop) for the walker
+   * to advance past.
    */
   @Test
   public void outEdgeFilterChain_claimedViaVertexStepDelegation() {
@@ -50,7 +51,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     // Delegation entry point: VertexStepRecogniser routes the edge-returning VertexStep here.
     var recognized = VertexStepRecogniser.INSTANCE.recognize(edgeStep, ctx);
 
-    assertThat(recognized).as("outE.has.inV must be claimed").isTrue();
+    assertThat(recognized).as("outE.has.inV consumes edge + has + closing hop").isEqualTo(3);
     // Boundary re-pinned to the target vertex; output still an ELEMENT / Vertex.
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.ELEMENT);
@@ -60,8 +61,9 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(FIRST_ANON_ALIAS);
     // The edge filter is accumulated under the minted edge alias.
     assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
-    // Cursor consumed the edge step, the has step, and the closing hop.
-    assertThat(ctx.stepIndex).as("edge + has + closing hop consumed").isEqualTo(4);
+    // The consumed count (3) is the return value asserted above; the recogniser does not advance
+    // the cursor — the walker does — so the seeded cursor is untouched.
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
 
     // Three-node pattern (source → edge node → target); the target roots at the generic V class
     // with no @class filter (no subclass undercount).
@@ -86,9 +88,9 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("inE.has.outV must be claimed").isTrue();
+    assertThat(recognized).as("inE.has.outV consumes edge + has + closing hop").isEqualTo(3);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
-    assertThat(ctx.stepIndex).isEqualTo(4);
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
   /**
@@ -103,10 +105,10 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("outE.inV (no has) must be claimed").isTrue();
+    assertThat(recognized).as("outE.inV (no has) consumes edge + closing hop").isEqualTo(2);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(ctx.edgeFilters).as("an unfiltered edge accumulates no filter").isEmpty();
-    assertThat(ctx.stepIndex).as("edge + closing hop consumed").isEqualTo(3);
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
   /**
@@ -124,9 +126,11 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("two has containers must be AND-merged and claimed").isTrue();
+    assertThat(recognized)
+        .as("two has containers AND-merged into one filter; edge + has + closing consumed")
+        .isEqualTo(3);
     assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
-    assertThat(ctx.stepIndex).as("edge + has (2 containers) + closing hop consumed").isEqualTo(4);
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
   /**
@@ -145,10 +149,10 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("an interleaved barrier must be skipped, chain still claimed")
-        .isTrue();
+    assertThat(recognized).as("barrier skipped; edge + has + barrier + closing consumed")
+        .isEqualTo(4);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
-    assertThat(ctx.stepIndex).as("edge + has + barrier + closing hop consumed").isEqualTo(5);
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
   // ---------------------------------------------------------------------------
@@ -167,7 +171,8 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("otherV close must decline (no MATCH otherV method)").isFalse();
+    assertThat(recognized).as("otherV close must decline (0) — no MATCH otherV method")
+        .isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -182,7 +187,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("an edge-returning terminal must decline").isFalse();
+    assertThat(recognized).as("an edge-returning terminal must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -197,7 +202,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("an untranslatable predicate must decline").isFalse();
+    assertThat(recognized).as("an untranslatable predicate must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -213,7 +218,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a foreign step in the window must decline").isFalse();
+    assertThat(recognized).as("a foreign step in the window must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -228,7 +233,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("an as(...) label on the edge must decline").isFalse();
+    assertThat(recognized).as("an as(...) label on the edge must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -240,7 +245,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a multi-label edge must decline").isFalse();
+    assertThat(recognized).as("a multi-label edge must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -252,7 +257,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a label-less edge must decline").isFalse();
+    assertThat(recognized).as("a label-less edge must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -268,7 +273,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(graphStep, ctx);
 
-    assertThat(recognized).as("a non-VertexStep must decline, not throw").isFalse();
+    assertThat(recognized).as("a non-VertexStep must decline (0), not throw").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -284,7 +289,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("an edge step with no pinned boundary must decline").isFalse();
+    assertThat(recognized).as("an edge step with no pinned boundary must decline (0)").isEqualTo(0);
     assertThat(ctx.boundaryAlias).isNull();
     assertThat(ctx.edgeFilters).isEmpty();
     assertThat(ctx.nextEdgeAlias())
