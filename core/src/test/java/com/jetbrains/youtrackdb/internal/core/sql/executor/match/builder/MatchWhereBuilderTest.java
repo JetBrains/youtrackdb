@@ -574,6 +574,70 @@ public class MatchWhereBuilderTest {
     assertEquals("d = 4", render(orBlock.getSubBlocks().get(1)));
   }
 
+  // ── classEquals — exact-class @class narrowing ──
+
+  /**
+   * {@link MatchWhereBuilder#classEquals} produces a {@link SQLBinaryCondition} with
+   * {@link SQLEqualsOperator#INSTANCE} rendering the {@code @class} record attribute, the equals
+   * operator, and the class name. Asserting on {@code @class} (not {@code class:}) pins the
+   * exact-leaf-class semantics — the record's own class, so subclasses are excluded — which is the
+   * whole point of the narrowing.
+   */
+  @Test
+  public void classEquals_producesExactClassEqualityCondition() {
+    var expr = b.classEquals("Person");
+
+    assertTrue(expr instanceof SQLBinaryCondition);
+    var bin = (SQLBinaryCondition) expr;
+    assertSame("classEquals must use the EqualsOperator singleton", SQLEqualsOperator.INSTANCE,
+        bin.getOperator());
+    var rendered = render(expr);
+    assertTrue("must be an exact @class equality predicate; was: " + rendered,
+        rendered.contains("@class") && rendered.contains("=") && rendered.contains("Person"));
+  }
+
+  /**
+   * {@link MatchWhereBuilder#classEqualsWhere} wraps the same condition in an {@link SQLWhereClause}
+   * so it drops straight into the MATCH IR's {@code aliasFilters} map. The rendered clause carries
+   * the {@code @class} predicate.
+   */
+  @Test
+  public void classEqualsWhere_wrapsConditionInWhereClause() {
+    var rendered = render(b.classEqualsWhere("Person"));
+
+    assertTrue("the where clause must carry the @class predicate; was: " + rendered,
+        rendered.contains("@class") && rendered.contains("Person"));
+  }
+
+  /**
+   * A null class name throws {@link IllegalArgumentException}: a caller reaches classEquals only with
+   * a concrete user-named class, so a null name is a caller bug that must fail loud rather than
+   * produce a broken predicate.
+   */
+  @Test
+  public void classEquals_nullName_throws() {
+    var ex = assertThrows(IllegalArgumentException.class, () -> b.classEquals(null));
+    assertTrue(ex.getMessage().contains("non-blank"));
+  }
+
+  /**
+   * An empty class name throws {@link IllegalArgumentException} — the {@code isBlank()} arm of the
+   * guard, distinct from the null arm above.
+   */
+  @Test
+  public void classEquals_emptyName_throws() {
+    assertThrows(IllegalArgumentException.class, () -> b.classEquals(""));
+  }
+
+  /**
+   * A whitespace-only class name throws {@link IllegalArgumentException} — also the {@code isBlank()}
+   * arm, since a blank {@code @class = ''} predicate would be silently wrong.
+   */
+  @Test
+  public void classEquals_whitespaceName_throws() {
+    assertThrows(IllegalArgumentException.class, () -> b.classEquals("   "));
+  }
+
   // ── helpers ──
 
   /** Renders a {@link SQLBooleanExpression} to its SQL text form. */
