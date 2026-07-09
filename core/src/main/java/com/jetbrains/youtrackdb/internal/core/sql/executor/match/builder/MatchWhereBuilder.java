@@ -48,6 +48,42 @@ public final class MatchWhereBuilder {
   }
 
   /**
+   * Builds {@code @class = 'className'} — the exact-class narrowing predicate a Gremlin recogniser
+   * attaches when a step names an explicit schema class (the folded {@code hasLabel(L)}). {@code
+   * @class} reads the record's own leaf class, so this selects exactly the named class, unlike the
+   * polymorphic MATCH {@code class:} node type. The left side is an {@link SQLRecordAttribute} (like
+   * {@code @rid}, or {@code @class IS NULL} via {@link #isNullAttribute}), which the runtime
+   * evaluator dispatches through a different path than a plain property identifier.
+   *
+   * <p>Throws {@link IllegalArgumentException} on a null or blank name: a caller only reaches this
+   * with a concrete user-named class, so a blank name is a caller bug — failing loud beats emitting
+   * a silently-wrong {@code @class = ''} predicate. Narrowing is correct only for an explicit user
+   * class; a bare chain hop ({@code out(L)}) and the start step must NOT narrow — they root at the
+   * generic {@code V} polymorphically — so the translator calls this only from its explicit-class
+   * path.
+   */
+  public SQLBooleanExpression classEquals(String className) {
+    if (className == null || className.isBlank()) {
+      throw new IllegalArgumentException("class name for @class narrowing must be non-blank");
+    }
+    var classAttr = new SQLRecordAttribute(-1);
+    classAttr.setName("@class");
+    var condition = new SQLBinaryCondition(-1);
+    condition.setLeft(new SQLExpression(classAttr, null));
+    condition.setOperator(SQLEqualsOperator.INSTANCE);
+    condition.setRight(stringExpression(className));
+    return condition;
+  }
+
+  /**
+   * Wraps {@link #classEquals(String)} in an {@link SQLWhereClause} so it drops straight into the
+   * MATCH IR's {@code aliasFilters} map for the narrowed alias.
+   */
+  public SQLWhereClause classEqualsWhere(String className) {
+    return wrap(classEquals(className));
+  }
+
+  /**
    * Builds {@code field {op} value} for any {@link SQLBinaryCompareOperator} ({@code =}, {@code
    * !=}, {@code >}, {@code >=}, {@code <}, {@code <=}, {@code LIKE}, …).
    */
