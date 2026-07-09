@@ -878,7 +878,7 @@ public class SelectExecutionPlannerRidEqualityTest extends TestUtilsFixture {
    * {@code @rid IN [<list>] AND <extra>} must let the IN list drive the fetch and apply the extra
    * predicate as exactly one downstream FilterStep — the IN-list twin of
    * {@link #ridEqualsWithExtraPredicate_appliesRemainderExactlyOnce}. Exercises the compound-AND
-   * remainder branch of extractAndRemoveRidInList (buildWhereWithout), which the sole-condition IN
+   * remainder branch of extractRidInList (buildWhereWithout), which the sole-condition IN
    * tests never reach.
    */
   @Test

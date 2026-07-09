@@ -5863,7 +5863,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         (com.jetbrains.youtrackdb.internal.core.sql.parser.SQLSelectStatement) com.jetbrains.youtrackdb.internal.core.sql.SQLEngine
             .parse("SELECT FROM V WHERE @class = 'Post' AND score > 5", session);
     var compoundResult =
-        stmCompound.getWhereClause().extractAndRemoveClassEquality();
+        stmCompound.getWhereClause().extractClassEquality();
     Assert.assertNotNull("Should extract class from compound AND", compoundResult);
     Assert.assertEquals("Post", compoundResult.className());
     Assert.assertNotNull(

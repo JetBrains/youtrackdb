@@ -2377,8 +2377,8 @@ public class SelectExecutionPlanner {
    *   <li>Cheap O(1) guards: bail when there is no WHERE, or when the WHERE flattens
    *       to more than one OR branch (the extraction primitives only handle a single
    *       OR branch).</li>
-   *   <li>Pull at most one RID predicate via {@code extractAndRemoveRidEquality} then
-   *       {@code extractAndRemoveRidInList}; if neither matches, return false so the
+   *   <li>Pull at most one RID predicate via {@code extractRidEquality} then
+   *       {@code extractRidInList}; if neither matches, return false so the
    *       caller falls through to the index / scan chain.</li>
    *   <li>Gate on {@code ridExpression.isPlanTimeResolvable(ctx)} — a literal or bound
    *       parameter resolves at plan time; a field reference, subquery, or internal
@@ -2427,10 +2427,10 @@ public class SelectExecutionPlanner {
     // extractor fired: the equality path must not expand a collection-valued RID value
     // (see the multi-value handling below), while the IN path expands all elements.
     var fromEquality = true;
-    var extraction = info.whereClause.extractAndRemoveRidEquality();
+    var extraction = info.whereClause.extractRidEquality();
     if (extraction == null) {
       fromEquality = false;
-      extraction = info.whereClause.extractAndRemoveRidInList();
+      extraction = info.whereClause.extractRidInList();
     }
     if (extraction == null) {
       return false;
@@ -3852,7 +3852,7 @@ public class SelectExecutionPlanner {
       it.unimi.dsi.fastutil.ints.IntSet classFilter = null;
       String className = null;
       SQLWhereClause remainingWhere = info.whereClause;
-      var classExtraction = info.whereClause.extractAndRemoveClassEquality();
+      var classExtraction = info.whereClause.extractClassEquality();
       if (classExtraction != null) {
         classFilter = resolveClassToCollectionIds(classExtraction.className(), plan);
         if (classFilter != null) {
@@ -3864,7 +3864,7 @@ public class SelectExecutionPlanner {
       // Step 2: Extract out/in('EdgeClass').@rid = <expr>
       RidFilterDescriptor ridFilter = null;
       if (remainingWhere != null) {
-        var edgeExtraction = remainingWhere.extractAndRemoveEdgeRidLookup();
+        var edgeExtraction = remainingWhere.extractEdgeRidLookup();
         if (edgeExtraction != null) {
           ridFilter = new RidFilterDescriptor.EdgeRidLookup(
               edgeExtraction.edgeClassName(),
@@ -3877,7 +3877,7 @@ public class SelectExecutionPlanner {
 
       // Step 3: Extract @rid = <expr>
       if (ridFilter == null && remainingWhere != null) {
-        var ridExtraction = remainingWhere.extractAndRemoveRidEquality();
+        var ridExtraction = remainingWhere.extractRidEquality();
         if (ridExtraction != null) {
           ridFilter = new RidFilterDescriptor.DirectRid(ridExtraction.ridExpression());
           remainingWhere = ridExtraction.remainingWhere();

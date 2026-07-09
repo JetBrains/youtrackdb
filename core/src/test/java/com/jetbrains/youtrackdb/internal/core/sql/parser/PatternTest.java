@@ -503,7 +503,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractRidEquality_simple() throws ParseException {
     var where = parseWhere("@rid = #23:1");
-    var result = where.extractAndRemoveRidEquality();
+    var result = where.extractRidEquality();
     assertNotNull("Should extract @rid equality", result);
     assertNotNull(result.ridExpression());
     assertNull("No remaining conditions expected", result.remainingWhere());
@@ -513,7 +513,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractRidEquality_compound() throws ParseException {
     var where = parseWhere("@rid = #23:1 AND name = 'x'");
-    var result = where.extractAndRemoveRidEquality();
+    var result = where.extractRidEquality();
     assertNotNull("Should extract @rid equality from compound", result);
     assertNotNull(result.ridExpression());
     assertNotNull("Should have remaining WHERE", result.remainingWhere());
@@ -523,7 +523,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractRidEquality_noRid() throws ParseException {
     var where = parseWhere("name = 'x'");
-    var result = where.extractAndRemoveRidEquality();
+    var result = where.extractRidEquality();
     assertNull("Should return null when no @rid equality", result);
   }
 
@@ -531,7 +531,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractEdgeRidLookup_simple() throws ParseException {
     var where = parseWhere("out('HAS_CREATOR').@rid = #10:5");
-    var result = where.extractAndRemoveEdgeRidLookup();
+    var result = where.extractEdgeRidLookup();
     assertNotNull("Should extract edge RID lookup", result);
     assertEquals("HAS_CREATOR", result.edgeClassName());
     assertEquals("out", result.traversalDirection());
@@ -543,7 +543,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractEdgeRidLookup_inDirection() throws ParseException {
     var where = parseWhere("in('KNOWS').@rid = #10:5");
-    var result = where.extractAndRemoveEdgeRidLookup();
+    var result = where.extractEdgeRidLookup();
     assertNotNull("Should extract edge RID lookup for IN", result);
     assertEquals("KNOWS", result.edgeClassName());
     assertEquals("in", result.traversalDirection());
@@ -553,7 +553,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractEdgeRidLookup_compound() throws ParseException {
     var where = parseWhere("out('HAS_CREATOR').@rid = #10:5 AND score > 3");
-    var result = where.extractAndRemoveEdgeRidLookup();
+    var result = where.extractEdgeRidLookup();
     assertNotNull("Should extract from compound", result);
     assertEquals("HAS_CREATOR", result.edgeClassName());
     assertNotNull("Should have remaining WHERE", result.remainingWhere());
@@ -563,7 +563,7 @@ public class PatternTest extends ParserTestAbstract {
   @Test
   public void testExtractEdgeRidLookup_noMatch() throws ParseException {
     var where = parseWhere("name = 'x'");
-    var result = where.extractAndRemoveEdgeRidLookup();
+    var result = where.extractEdgeRidLookup();
     assertNull("Should return null when no edge RID lookup", result);
   }
 

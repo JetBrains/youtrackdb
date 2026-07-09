@@ -3297,8 +3297,9 @@ public class MatchExecutionPlanner {
 
       // --- RID equality detection ---
       // Check if target filter contains @rid = <expr>.
-      // Uses findRidEquality() (non-destructive) instead of
-      // extractAndRemoveRidEquality() to avoid mutating the filter.
+      // Uses findRidEquality() rather than extractRidEquality(): this path needs only the RID
+      // expression, not a remainder clause, and findRidEquality() recurses through the AND/OR
+      // double-nesting addAliases() wraps MATCH filters in — which extractRidEquality() does not.
       var ridExpr = targetFilter.findRidEquality();
       if (ridExpr != null) {
         var involvedAliases = ridExpr.getMatchPatternInvolvedAliases();

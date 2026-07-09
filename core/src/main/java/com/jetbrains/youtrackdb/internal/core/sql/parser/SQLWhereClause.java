@@ -30,7 +30,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Spliterator;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -605,7 +604,7 @@ public class SQLWhereClause extends SimpleNode {
    */
   @Nullable
   public String extractClassEqualityName() {
-    var result = extractAndRemoveClassEquality();
+    var result = extractClassEquality();
     return result != null ? result.className() : null;
   }
 
@@ -634,7 +633,7 @@ public class SQLWhereClause extends SimpleNode {
    * @return extraction result, or {@code null} if no class equality is found
    */
   @Nullable
-  public ClassExtractionResult extractAndRemoveClassEquality() {
+  public ClassExtractionResult extractClassEquality() {
     if (baseExpression == null) {
       return null;
     }
@@ -932,8 +931,9 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Non-destructive version of {@link #extractAndRemoveRidEquality()}: finds a
-   * {@code @rid = <expr>} condition in this WHERE clause without modifying it.
+   * Finds a {@code @rid = <expr>} condition in this WHERE clause and returns just its
+   * value-side expression, without the remainder clause that {@link #extractRidEquality()}
+   * also returns. Neither method modifies this clause.
    *
    * @return the value-side expression, or {@code null} if no RID equality is found
    */
@@ -999,8 +999,9 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Extracts a {@code @rid = <expr>} condition from this WHERE clause,
-   * handling both simple and compound AND forms:
+   * Splits this WHERE clause into its {@code @rid = <expr>} condition and the remaining
+   * conditions, without mutating this clause. Handles both the simple and compound AND
+   * forms:
    * <ul>
    *   <li>{@code WHERE @rid = #23:1} → ridExpression="#23:1", remainingWhere=null
    *   <li>{@code WHERE @rid = :param AND x > 5} → ridExpression=":param",
@@ -1008,16 +1009,20 @@ public class SQLWhereClause extends SimpleNode {
    *   <li>{@code WHERE x > 5} → returns null
    * </ul>
    *
+   * <p>{@code remainingWhere} is a freshly built clause holding copies of the retained
+   * terms; this clause is left untouched, so a caller that decides not to use the result
+   * can fall through with the original predicate intact.
+   *
    * @return extraction result, or {@code null} if no RID equality is found
    */
   @Nullable
-  public RidExtractionResult extractAndRemoveRidEquality() {
-    return extractAndRemoveRid(SQLWhereClause::tryExtractRidFromTerm);
+  public RidExtractionResult extractRidEquality() {
+    return extractRidPredicate(SQLWhereClause::tryExtractRidFromTerm);
   }
 
   /**
    * Extracts a {@code @rid IN [<expr-list>]} condition from this WHERE clause,
-   * sibling to {@link #extractAndRemoveRidEquality()}. Handles both the simple
+   * sibling to {@link #extractRidEquality()}. Handles both the simple
    * form and the compound AND form:
    * <ul>
    *   <li>{@code WHERE @rid IN [#23:1, #23:2]} → ridExpression="[#23:1, #23:2]",
@@ -1029,7 +1034,7 @@ public class SQLWhereClause extends SimpleNode {
    *
    * <p>The returned {@code ridExpression} is a single {@link SQLExpression} whose
    * runtime value is a collection; the planner normalizes scalar-vs-collection at
-   * the emission site so {@code =} (via {@link #extractAndRemoveRidEquality()}) and
+   * the emission site so {@code =} (via {@link #extractRidEquality()}) and
    * {@code IN} feed one direct-fetch path. Only an early-calculable right side is
    * accepted — a list literal ({@code rightMathExpression}) or a bound parameter
    * ({@code rightParam}); a subquery ({@code rightStatement}) is not early-calculable
@@ -1041,19 +1046,30 @@ public class SQLWhereClause extends SimpleNode {
    * @return extraction result, or {@code null} if no {@code @rid IN} condition is found
    */
   @Nullable
-  public RidExtractionResult extractAndRemoveRidInList() {
-    return extractAndRemoveRid(SQLWhereClause::tryExtractRidInListFromTerm);
+  public RidExtractionResult extractRidInList() {
+    return extractRidPredicate(SQLWhereClause::tryExtractRidInListFromTerm);
   }
 
   /**
-   * Shared skeleton for the destructive RID extractors: unwrap a single-element {@code OrBlock},
+   * Recognizes one {@code @rid} predicate term and returns its value-side expression, or
+   * {@code null} when the term is not that shape. The equality and IN extractors differ only
+   * in this per-term test, so both hand it to {@link #extractRidPredicate}.
+   */
+  @FunctionalInterface
+  private interface RidTermExtractor {
+    @Nullable
+    SQLExpression extract(SQLBooleanExpression term);
+  }
+
+  /**
+   * Shared skeleton for both RID extractors: unwrap a single-element {@code OrBlock},
    * require an {@code AndBlock}, then pull the first term the {@code termExtractor} recognizes as
    * an {@code @rid} predicate, returning it plus the remaining WHERE (null when it was the sole
-   * term). The equality and IN variants differ only in that term extractor.
+   * term). This clause is not mutated — the remaining WHERE is a fresh clause built by
+   * {@code buildWhereWithout}. The equality and IN variants differ only in that term extractor.
    */
   @Nullable
-  private RidExtractionResult extractAndRemoveRid(
-      Function<SQLBooleanExpression, SQLExpression> termExtractor) {
+  private RidExtractionResult extractRidPredicate(RidTermExtractor termExtractor) {
     if (baseExpression == null) {
       return null;
     }
@@ -1068,7 +1084,7 @@ public class SQLWhereClause extends SimpleNode {
       return null;
     }
     for (var idx = 0; idx < andBlock.subBlocks.size(); idx++) {
-      var ridExpr = termExtractor.apply(andBlock.subBlocks.get(idx));
+      var ridExpr = termExtractor.extract(andBlock.subBlocks.get(idx));
       if (ridExpr != null) {
         var remaining = andBlock.subBlocks.size() == 1 ? null : buildWhereWithout(andBlock, idx);
         return new RidExtractionResult(ridExpr, remaining);
@@ -1187,8 +1203,9 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Non-destructive version of RID-IN extraction: finds a
-   * {@code @rid IN <expr>} condition without modifying the WHERE clause.
+   * Finds a {@code @rid IN <expr>} condition in this WHERE clause and returns just its
+   * {@link SQLInCondition}, without the remainder clause that {@link #extractRidInList()}
+   * also returns. Neither method modifies this clause.
    *
    * @return the {@link SQLInCondition}, or {@code null} if not found
    */
@@ -1211,9 +1228,9 @@ public class SQLWhereClause extends SimpleNode {
 
   /**
    * Matches a single AND term against the {@code @rid IN <expr>} shape and returns the
-   * {@link SQLInCondition} (or null). Shared detector: the non-destructive
-   * {@link #findRidInList()} and the destructive {@link #extractAndRemoveRidInList()} both
-   * route through it, so {@code @rid IN} recognition lives in one place.
+   * {@link SQLInCondition} (or null). Shared detector: both {@link #findRidInList()}
+   * (which returns only the condition) and {@link #extractRidInList()} (which also
+   * returns the remainder) route through it, so {@code @rid IN} recognition lives in one place.
    */
   @Nullable
   private static SQLInCondition tryMatchRidInCondition(SQLBooleanExpression term) {
@@ -1273,7 +1290,7 @@ public class SQLWhereClause extends SimpleNode {
    * @return extraction result, or {@code null} if no matching condition is found
    */
   @Nullable
-  public EdgeRidLookupExtractionResult extractAndRemoveEdgeRidLookup() {
+  public EdgeRidLookupExtractionResult extractEdgeRidLookup() {
     if (baseExpression == null) {
       return null;
     }
