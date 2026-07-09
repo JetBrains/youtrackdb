@@ -52,12 +52,12 @@ final class VertexStepRecogniser implements StepRecogniser {
   }
 
   @Override
-  public boolean recognize(Step<?, ?> step, WalkerContext ctx) {
+  public int recognize(Step<?, ?> step, WalkerContext ctx) {
     // Defence in depth: the registry keys this recogniser on VertexStep.class, so dispatch only
     // ever hands it a VertexStep. Re-assert the type so a future registry mistake declines cleanly
     // rather than ClassCastException-ing.
     if (!(step instanceof VertexStep<?> vertexStep)) {
-      return false;
+      return 0;
     }
     // returnsEdge() == true is the non-adjacent edge step (outE(L) in outE(L).has(...).inV()). The
     // registry keys one recogniser per class and both shapes are a VertexStep, so this recogniser
@@ -73,17 +73,17 @@ final class VertexStepRecogniser implements StepRecogniser {
     // VertexStep reached the walker before any node was pinned — decline defensively rather than
     // build a dangling edge.
     if (ctx.boundaryAlias == null) {
-      return false;
+      return 0;
     }
     // Only a single-label hop is in scope. A label-less hop (out(), all edge types) and a
     // multi-label hop (out("a", "b")) both decline — see the class Javadoc "Single edge label".
     var edgeLabels = vertexStep.getEdgeLabels();
     if (edgeLabels.length != 1) {
-      return false;
+      return 0;
     }
     var edgeLabel = edgeLabels[0];
     if (edgeLabel == null || edgeLabel.isBlank()) {
-      return false;
+      return 0;
     }
     // Map the TinkerPop traversal direction onto the pattern-builder direction.
     var direction = GremlinPatternAssembler.toBuilderDirection(vertexStep.getDirection());
@@ -96,10 +96,8 @@ final class VertexStepRecogniser implements StepRecogniser {
     var targetAlias = ctx.nextAnonVertexAlias();
     GremlinPatternAssembler.appendFoldedHop(ctx, fromAlias, targetAlias, direction, edgeLabel);
 
-    // Advance the cursor past the one folded step this hop consumed. Done last, after every
-    // context mutation, so a decline before this point leaves the cursor (and the rest of ctx)
-    // untouched.
-    ctx.stepIndex++;
-    return true;
+    // Report the one folded step this hop consumed; the walker advances the cursor. Every context
+    // mutation above happened before this commit point, so a decline earlier leaves ctx untouched.
+    return 1;
   }
 }

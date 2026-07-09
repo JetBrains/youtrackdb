@@ -156,38 +156,46 @@ final class GremlinStepWalker {
     var ctx = new WalkerContext(traversal, polymorphic);
 
     // Index-driven dispatch. Each iteration reads the step at the cursor and dispatches it to the
-    // recogniser registered for its concrete runtime class; the claiming recogniser advances the
-    // cursor past every step it consumed (one for a single-step claim, N for a multi-step claim),
-    // so the walker no longer advances it. Class-keyed dispatch: no entry — an unregistered type
-    // or an unexpected subclass — declines the whole traversal (all-or-nothing), as does a
-    // registered recogniser that rejects the step as malformed.
+    // recogniser registered for its concrete runtime class; the recogniser reports how many steps
+    // it consumed and the walker — the sole writer of the cursor — advances by that count. Class-
+    // keyed dispatch: no entry — an unregistered type or an unexpected subclass — declines the
+    // whole traversal (all-or-nothing), as does a registered recogniser that returns 0 because it
+    // rejects the step as malformed.
     while (ctx.stepIndex < steps.size()) {
       int indexBefore = ctx.stepIndex;
       Step<?, ?> step = steps.get(indexBefore);
       var recogniser = recognisers.get(step.getClass());
-      if (recogniser == null || !recogniser.recognize(step, ctx)) {
+      if (recogniser == null) {
         return null;
       }
-      // The claiming recogniser must advance the cursor past every step it consumed: forward by at
-      // least one, and never past the end of the list. A recogniser that returns true without
-      // advancing would spin this loop forever; one that overruns the list would skip a step the
-      // walk never validated. Both are recogniser-logic bugs, so the assert surfaces them loudly
-      // under -ea (an AssertionError, which GremlinToMatchStrategy's RuntimeException-only
-      // throw-safety net does not swallow). Under -da the defensive decline keeps such a bug from
-      // hanging or mis-translating a live query — the traversal falls back to the native pipeline.
-      assert ctx.stepIndex > indexBefore && ctx.stepIndex <= steps.size()
+      int consumed = recogniser.recognize(step, ctx);
+      if (consumed <= 0) {
+        // 0 (or, defensively, a negative) is the decline signal: no recogniser for the class, or
+        // the registered one rejected the step. The traversal falls back to the native pipeline.
+        return null;
+      }
+      // The walker owns the cursor and advances it by the reported consumed count. Because a claim
+      // is a positive count and 0 is the decline, a recogniser can never "claim without progress"
+      // and spin this loop — that whole bug class is gone. The one residual logic bug is an
+      // overrun: a recogniser claiming more steps than remain, which would skip a step the walk
+      // never validated. The assert surfaces it loudly under -ea (an AssertionError, which
+      // GremlinToMatchStrategy's RuntimeException-only throw-safety net does not swallow); under
+      // -da the defensive decline keeps such a bug from mis-translating a live query.
+      int nextIndex = indexBefore + consumed;
+      assert nextIndex <= steps.size()
           : "recogniser for "
               + step.getClass().getSimpleName()
-              + " returned true but advanced the cursor from "
+              + " claimed "
+              + consumed
+              + " step(s) from index "
               + indexBefore
-              + " to "
-              + ctx.stepIndex
-              + " (must consume at least one step without overrunning "
-              + steps.size()
-              + ")";
-      if (ctx.stepIndex <= indexBefore || ctx.stepIndex > steps.size()) {
+              + " but only "
+              + (steps.size() - indexBefore)
+              + " remain";
+      if (nextIndex > steps.size()) {
         return null;
       }
+      ctx.stepIndex = nextIndex;
     }
 
     // Invariant: a fully-recognised non-empty traversal has its terminator metadata pinned —

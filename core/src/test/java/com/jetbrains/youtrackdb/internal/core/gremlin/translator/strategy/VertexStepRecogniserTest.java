@@ -31,8 +31,8 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
   // ---------------------------------------------------------------------------
   // Accept path — a single-label bare hop appends an edge + target node, re-pins
-  // the boundary to the new target, replaces the RETURN column, and advances the
-  // cursor by exactly one.
+  // the boundary to the new target, replaces the RETURN column, and reports one
+  // consumed step (the walker, not the recogniser, advances the cursor).
   // ---------------------------------------------------------------------------
 
   /**
@@ -40,7 +40,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
    * alias, re-pins the boundary metadata to that target (still {@code ELEMENT} / {@code Vertex}),
    * <em>replaces</em> the single RETURN column so it is keyed on the new target (not the old
    * boundary), attaches the generic {@code V} class to the target with <em>no</em> {@code @class}
-   * filter (no subclass undercount), and advances the cursor by one. The context is pre-seeded with a
+   * filter (no subclass undercount), and reports one consumed step. The context is pre-seeded with a
    * start-step boundary and RETURN column so the replacement (not append) is observable.
    */
   @Test
@@ -51,7 +51,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(hop, ctx);
 
-    assertThat(recognized).as("a single-label out() hop must be claimed").isTrue();
+    assertThat(recognized).as("a single-label out() hop consumes one folded step").isEqualTo(1);
     // Boundary re-pinned to the fresh anonymous target, output still an ELEMENT / Vertex.
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(ctx.outputType).isEqualTo(BoundaryOutputType.ELEMENT);
@@ -66,8 +66,9 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
         .isNull();
     assertThat(ctx.returnAliases.getFirst().getStringValue()).isEqualTo(FIRST_ANON_ALIAS);
     assertThat(ctx.returnItems.getFirst().toString()).contains(FIRST_ANON_ALIAS);
-    // Cursor advanced by exactly one folded step.
-    assertThat(ctx.stepIndex).as("the hop consumes exactly one folded step").isEqualTo(2);
+    // The consumed count is the return value (asserted above); the recogniser does not advance the
+    // cursor — the walker does — so the seeded cursor is left untouched.
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
 
     // The pattern carries the start node, the new target node under class V, and no @class filter on
     // the target (the no-narrowing rule — a bare hop target roots at V polymorphically).
@@ -91,7 +92,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a single-label in() hop must be claimed").isTrue();
+    assertThat(recognized).as("a single-label in() hop consumes one folded step").isEqualTo(1);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
   }
 
@@ -106,7 +107,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a single-label both() hop must be claimed").isTrue();
+    assertThat(recognized).as("a single-label both() hop consumes one folded step").isEqualTo(1);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
   }
 
@@ -128,7 +129,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(graphStep, ctx);
 
-    assertThat(recognized).as("a non-VertexStep must decline, not throw").isFalse();
+    assertThat(recognized).as("a non-VertexStep must decline (0), not throw").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -153,8 +154,8 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
     var recognized = VertexStepRecogniser.INSTANCE.recognize(edgeStep, ctx);
 
     assertThat(recognized)
-        .as("a bare edge-returning terminal must decline via the edge recogniser")
-        .isFalse();
+        .as("a bare edge-returning terminal must decline (0) via the edge recogniser")
+        .isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -171,7 +172,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(hop, ctx);
 
-    assertThat(recognized).as("a hop with no pinned boundary must decline").isFalse();
+    assertThat(recognized).as("a hop with no pinned boundary must decline (0)").isEqualTo(0);
     // The bare context is left exactly as constructed: no boundary, cursor unmoved, nothing minted.
     assertThat(ctx.boundaryAlias).isNull();
     assertThat(ctx.stepIndex).isEqualTo(0);
@@ -194,14 +195,19 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().out("knows").out("knows").asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    assertThat(VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx)).isTrue();
+    assertThat(VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx))
+        .as("first hop consumes one folded step").isEqualTo(1);
     assertThat(ctx.boundaryAlias).as("first hop re-pins to the first anon target").isEqualTo(
         FIRST_ANON_ALIAS);
 
-    assertThat(VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 2), ctx)).isTrue();
+    assertThat(VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 2), ctx))
+        .as("second hop consumes one folded step").isEqualTo(1);
     assertThat(ctx.boundaryAlias).as("second hop re-pins to the second anon target").isEqualTo(
         "$g2m_anon_1");
-    assertThat(ctx.stepIndex).as("two hops consume two folded steps").isEqualTo(3);
+    // Each hop reports one consumed step (asserted above); a bare hop reads no cursor, so driving
+    // the recogniser directly twice chains via the re-pinned boundary while the seeded cursor —
+    // which the walker, not the recogniser, would advance — stays put.
+    assertThat(ctx.stepIndex).as("recognisers leave the cursor for the walker").isEqualTo(1);
 
     // Exactly one RETURN column, keyed on the final target — the chain leaves one result column.
     assertThat(ctx.returnAliases).hasSize(1);
@@ -227,7 +233,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a label-less hop must decline").isFalse();
+    assertThat(recognized).as("a label-less hop must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -242,7 +248,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a multi-label hop must decline").isFalse();
+    assertThat(recognized).as("a multi-label hop must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
@@ -263,7 +269,7 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
 
     var recognized = VertexStepRecogniser.INSTANCE.recognize(blankLabelHop, ctx);
 
-    assertThat(recognized).as("a single blank edge label must decline").isFalse();
+    assertThat(recognized).as("a single blank edge label must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
