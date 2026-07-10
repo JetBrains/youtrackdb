@@ -77,24 +77,16 @@ final class VertexStepRecogniser implements StepRecogniser {
     if (ctx.boundaryAlias == null) {
       return 0;
     }
-    // A multi-label hop (out("a", "b")) declines — multi-label edge traversal is out of scope for
-    // Phase 1 (addEdge carries a single edge label, with no multi-label / IN-list slot). See the
-    // class Javadoc "Single or no edge label".
-    var edgeLabels = vertexStep.getEdgeLabels();
-    if (edgeLabels.length > 1) {
+    // Resolve the edge-label arity — one rule shared with EdgeStepRecogniser (see
+    // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types hop
+    // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows
+    // to appendFoldedHop, which the builder renders as the all-edges out('E') form. See the class
+    // Javadoc "Single or no edge label".
+    var arity = GremlinPatternAssembler.resolveEdgeLabel(vertexStep);
+    if (!arity.translatable()) {
       return 0;
     }
-    // A label-less hop (length 0) carries no label; it maps to a null edge label, which the IR
-    // renders as the all-edges out('E') form (E is the base edge class, traversed polymorphically —
-    // the native out() semantics). A single-label hop carries exactly one label; a single but blank
-    // label (out("")) is degenerate and declines rather than collapse to the all-edges form.
-    String edgeLabel = null;
-    if (edgeLabels.length == 1) {
-      edgeLabel = edgeLabels[0];
-      if (edgeLabel == null || edgeLabel.isBlank()) {
-        return 0;
-      }
-    }
+    var edgeLabel = arity.label();
     // Map the TinkerPop traversal direction onto the pattern-builder direction.
     var direction = GremlinPatternAssembler.toBuilderDirection(vertexStep.getDirection());
 
