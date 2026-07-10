@@ -190,19 +190,28 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * A traversal carrying a step past the vertex source ({@code g.V().out()}) declines: the
-   * walker recognizes the start step but no recognizer claims the {@code out()} step, so under
-   * all-or-nothing the whole walk declines. The native step list the caller holds is untouched
-   * (the walker never mutates the traversal's steps — it only reads them).
+   * All-or-nothing across a recognized prefix: a recognized hop followed by a step no recogniser
+   * claims declines the whole walk, and no partial translation of the recognized prefix leaks. The
+   * fixture is {@code g.V().out("knows").map(...)}: the walker recognizes the vertex source and the
+   * {@code out("knows")} hop — which mutates the context (mints an alias, re-pins the boundary,
+   * appends the edge and target nodes) — then dispatches the lambda map, finds no recogniser, and
+   * declines. A lambda is arbitrary user code with no MATCH equivalent, so it is a permanently
+   * out-of-scope decline fixture no later track will start translating (unlike a hop / predicate /
+   * aggregate, each of which a later track teaches a recogniser). The walk returns null — nothing
+   * partial escapes — and the native step list is left untouched. This is the sharp guarantee now
+   * that hops themselves translate: a recognized prefix must not survive as a half-built plan when a
+   * later step declines.
    */
   @Test
-  public void walk_unrecognizedStep_declinesWholeWalk() {
-    var admin = graph.traversal().V().out().asAdmin();
+  public void walk_recognizedHopThenUnrecognizedStep_declinesWholeWalk() {
+    var admin = graph.traversal().V().out("knows").map(t -> t.get()).asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     var result = GremlinStepWalker.production().walk(admin);
 
-    assertThat(result).as("a step past the vertex source declines the whole walk").isNull();
+    assertThat(result)
+        .as("a recognized hop followed by an unrecognized step declines the whole walk")
+        .isNull();
     assertThat(admin.getSteps())
         .as("the walker never mutates the traversal's native step list")
         .isEqualTo(stepsBefore);
