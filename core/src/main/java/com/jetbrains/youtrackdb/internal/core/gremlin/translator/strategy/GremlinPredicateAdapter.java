@@ -14,6 +14,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
+import org.jspecify.annotations.NonNull;
 
 /**
  * Translates a TinkerPop {@link HasContainer} (one {@code has(key, predicate)} clause) into a MATCH
@@ -89,9 +90,6 @@ final class GremlinPredicateAdapter {
       return null;
     }
     var operator = toOperator(compare);
-    if (operator == null) {
-      return null;
-    }
     // The literal value; a null value or a type the literal builder cannot render (e.g. a deferred
     // GValue parameter) declines rather than throwing.
     var value = predicate.getValue();
@@ -113,7 +111,7 @@ final class GremlinPredicateAdapter {
    * ruled out by the {@code instanceof Compare} gate in {@link #toFilter}, so this only ever sees a
    * real {@link Compare} constant.
    */
-  @Nullable private static SQLBinaryCompareOperator toOperator(Compare compare) {
+  private static @NonNull SQLBinaryCompareOperator toOperator(Compare compare) {
     return switch (compare) {
       case eq -> SQLEqualsOperator.INSTANCE;
       case neq -> new SQLNeqOperator(-1);

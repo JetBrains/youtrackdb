@@ -93,24 +93,15 @@ final class EdgeStepRecogniser implements StepRecogniser {
     if (!edgeStep.getLabels().isEmpty()) {
       return 0;
     }
-    // A multi-label edge (outE("a", "b")) declines — multi-label edge traversal is out of scope for
-    // Phase 1 (the edge-as-node builder carries a single edge label, with no multi-label / IN-list
-    // slot). This mirrors the folded bare-hop rule in VertexStepRecogniser.
-    var edgeLabels = edgeStep.getEdgeLabels();
-    if (edgeLabels.length > 1) {
+    // Resolve the edge-label arity — one rule shared with VertexStepRecogniser (see
+    // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types edge
+    // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows
+    // to appendEdgeAsNode, which the builder renders as the all-types bare outE(){...} form.
+    var arity = GremlinPatternAssembler.resolveEdgeLabel(edgeStep);
+    if (!arity.translatable()) {
       return 0;
     }
-    // A label-less edge (length 0) carries no label; it maps to a null edge label, which the edge-as-
-    // node builder renders as the all-types bare outE(){...} form. A single-label edge carries exactly
-    // one label; a single but blank label (outE("")) is degenerate and declines rather than collapse
-    // to the all-types form.
-    String edgeLabel = null;
-    if (edgeLabels.length == 1) {
-      edgeLabel = edgeLabels[0];
-      if (edgeLabel == null || edgeLabel.isBlank()) {
-        return 0;
-      }
-    }
+    var edgeLabel = arity.label();
 
     // Peek forward from the step after the edge: AND-merge has() predicates, skip barriers, and stop
     // at the closing vertex hop. Nothing here mutates ctx — a decline at any point leaves it clean.
