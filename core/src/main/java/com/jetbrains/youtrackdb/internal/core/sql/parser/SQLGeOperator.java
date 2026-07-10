@@ -30,6 +30,8 @@ import javax.annotation.Nonnull;
 
 public class SQLGeOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
+  public static final SQLGeOperator INSTANCE = new SQLGeOperator(-1);
+
   public SQLGeOperator(int id) {
     super(id);
   }
