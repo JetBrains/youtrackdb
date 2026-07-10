@@ -183,13 +183,14 @@ final class WalkerContext {
         || key.startsWith(RECORD_ATTRIBUTE_PREFIX);
   }
 
-  /** Monotonic counter behind {@link #nextAnonVertexAlias()}. Per-context (reset each walk), so
-   *  the alias sequence is deterministic per query rather than monotonic across the JVM. */
-  private int anonVertexCounter;
+  /** Anonymous-vertex alias sequence ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …), minted by
+   *  {@link #nextAnonVertexAlias()}. Per-context: a fresh {@link WalkerContext} per walk restarts
+   *  it at 0, so the sequence is deterministic per query rather than monotonic across the JVM. */
+  private final AliasSequence anonVertexAliases = new AliasSequence(ANON_VERTEX_ALIAS_PREFIX);
 
-  /** Monotonic counter behind {@link #nextEdgeAlias()}. Per-context (reset each walk); see {@link
-   *  #anonVertexCounter}. */
-  private int edgeCounter;
+  /** Anonymous-edge alias sequence ({@code $g2m_edge_0}, {@code $g2m_edge_1}, …), minted by
+   *  {@link #nextEdgeAlias()}; see {@link #anonVertexAliases}. */
+  private final AliasSequence edgeAliases = new AliasSequence(EDGE_ALIAS_PREFIX);
 
   WalkerContext(Traversal.Admin<?, ?> traversal, boolean polymorphic) {
     this.traversal = traversal;
@@ -200,12 +201,33 @@ final class WalkerContext {
    *  call returns a fresh alias and advances the per-context counter, so a multi-hop chain gets
    *  distinct intermediate-node names. */
   String nextAnonVertexAlias() {
-    return ANON_VERTEX_ALIAS_PREFIX + anonVertexCounter++;
+    return anonVertexAliases.next();
   }
 
   /** Mints the next anonymous edge alias ({@code $g2m_edge_0}, {@code $g2m_edge_1}, …). Each call
    *  returns a fresh alias and advances the per-context counter. */
   String nextEdgeAlias() {
-    return EDGE_ALIAS_PREFIX + edgeCounter++;
+    return edgeAliases.next();
+  }
+
+  /**
+   * Prefixed monotonic alias generator: one instance per alias namespace. Each {@link #next()}
+   * returns {@code prefix + n} and advances the counter, so a namespace's aliases are distinct and
+   * ordered ({@code prefix0}, {@code prefix1}, …). Reset is by construction — the enclosing {@link
+   * WalkerContext} is rebuilt per walk, so each sequence restarts at 0 and stays deterministic per
+   * query rather than monotonic across the JVM.
+   */
+  private static final class AliasSequence {
+
+    private final String prefix;
+    private int n;
+
+    AliasSequence(String prefix) {
+      this.prefix = prefix;
+    }
+
+    String next() {
+      return prefix + n++;
+    }
   }
 }
