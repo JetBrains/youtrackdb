@@ -91,7 +91,9 @@ final class GremlinPredicateAdapter {
     }
     var operator = toOperator(compare);
     // The literal value; a null value or a type the literal builder cannot render (e.g. a deferred
-    // GValue parameter) declines rather than throwing.
+    // GValue parameter) declines rather than throwing. toLiteral throws IllegalArgumentException
+    // (and only that) on an unsupported type, so catch it specifically -- a broader catch would
+    // swallow an unrelated bug in the literal builder as a silent decline.
     var value = predicate.getValue();
     if (value == null) {
       return null;
@@ -99,10 +101,21 @@ final class GremlinPredicateAdapter {
     SQLExpression literal;
     try {
       literal = MatchLiteralBuilder.toLiteral(value);
-    } catch (RuntimeException unsupportedType) {
+    } catch (IllegalArgumentException unsupportedType) {
       return null;
     }
-    return WHERE.op(key, operator, literal);
+    var comparison = WHERE.op(key, operator, literal);
+    if (compare == Compare.neq) {
+      // Presence guard for negation. Native has(key, neq(v)) excludes an element that lacks `key`:
+      // HasContainer.test iterates element.properties(key) and returns false for an absent
+      // property, so the predicate is never consulted. A bare `key <> v` WHERE would instead
+      // INCLUDE such an element, because SQLNeqOperator negates QueryOperatorEquals.equals, which
+      // is false on a null (absent) operand -- flipping absent to true. AND-ing `key IS DEFINED`
+      // restores native's "property must be present" rule. The other five comparisons need no
+      // guard: an absent property drives their operator to false, matching native's exclusion.
+      return WHERE.and(WHERE.isDefined(key), comparison);
+    }
+    return comparison;
   }
 
   /**

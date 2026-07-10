@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
@@ -42,11 +43,16 @@ public final class MatchEdgePathItems {
    * @param edgeFilter the edge {@code WHERE}, or null when the edge is unfiltered
    */
   public static SQLMatchPathItem edgeMethodItem(
-      String methodName, @Nullable String edgeLabel, String edgeAlias,
+      @Nonnull String methodName, @Nullable String edgeLabel, @Nonnull String edgeAlias,
       @Nullable SQLWhereClause edgeFilter) {
     var method = new SQLMethodCall(-1);
     method.methodName = new SQLIdentifier(methodName);
     if (edgeLabel != null && !edgeLabel.isBlank()) {
+      // The user-supplied edge label enters the AST as a literal parameter node here; it is never
+      // rendered back to SQL/MATCH text and re-parsed. MatchPlanInputs is consumed in-memory by
+      // MatchExecutionPlanner (no text round-trip), so the label cannot inject query syntax even if
+      // it holds quotes or operators. A future feature that serializes this AST to text and reparses
+      // it would break that invariant and force a re-audit of this label surface.
       var param = new SQLExpression(-1);
       param.setMathExpression(new SQLBaseExpression(edgeLabel));
       method.addParam(param);
@@ -69,7 +75,8 @@ public final class MatchEdgePathItems {
    * @param methodName the vertex-returning method: {@code inV}, {@code outV}, or {@code bothV}
    * @param targetAlias non-null alias the target vertex binds to in the pattern
    */
-  public static SQLMatchPathItem vertexMethodItem(String methodName, String targetAlias) {
+  public static SQLMatchPathItem vertexMethodItem(
+      @Nonnull String methodName, @Nonnull String targetAlias) {
     var method = new SQLMethodCall(-1);
     method.methodName = new SQLIdentifier(methodName);
     var item = new SQLMatchPathItem(-1);
