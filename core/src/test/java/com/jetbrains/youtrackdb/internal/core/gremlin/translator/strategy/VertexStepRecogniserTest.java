@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -281,6 +282,29 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
     var recognized = VertexStepRecogniser.INSTANCE.recognize(blankLabelHop, ctx);
 
     assertThat(recognized).as("a single blank edge label must decline (0)").isEqualTo(0);
+    assertContextUnmutated(ctx);
+  }
+
+  /**
+   * A label-less hop under {@link EdgeLabelVerificationStrategy} declines, even though a label-less
+   * hop normally translates ({@link #labelLessHop_isClaimedAsAllEdges}). That opt-in strategy exists
+   * to reject a label-less edge traversal; translating the hop into a boundary step would remove it
+   * before the verification runs and swallow the error. Declining leaves the native {@code
+   * VertexStep} for the strategy to reject — the recogniser's part of that contract.
+   */
+  @Test
+  public void labelLessHop_underEdgeLabelVerificationStrategy_declines() {
+    var admin =
+        graph.traversal()
+            .withStrategies(EdgeLabelVerificationStrategy.build().create())
+            .V().out().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized)
+        .as("a label-less hop must decline when EdgeLabelVerificationStrategy is active")
+        .isEqualTo(0);
     assertContextUnmutated(ctx);
   }
 
