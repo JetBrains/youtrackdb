@@ -17,12 +17,12 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.step.HasContainerHolder;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
-import org.jspecify.annotations.NonNull;
 
 /**
  * Recogniser for the start step of a vertex-rooted traversal — the bare {@code g.V()}
@@ -291,7 +291,7 @@ final class StartStepRecogniser implements StepRecogniser {
    * well-formed condition. Named with a verb prefix because it constructs a fresh node each call
    * (it is a factory, not an accessor).
    */
-  private static @NonNull SQLInCondition buildRidInCondition(SQLExpression leftExpr,
+  private static @Nonnull SQLInCondition buildRidInCondition(SQLExpression leftExpr,
       SQLBaseExpression rightBase) {
     var condition = new SQLInCondition(-1);
     condition.setLeft(leftExpr);

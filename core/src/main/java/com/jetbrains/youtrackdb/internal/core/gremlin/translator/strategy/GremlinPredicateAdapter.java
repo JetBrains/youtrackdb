@@ -11,10 +11,10 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Compare;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
-import org.jspecify.annotations.NonNull;
 
 /**
  * Translates a TinkerPop {@link HasContainer} (one {@code has(key, predicate)} clause) into a MATCH
@@ -111,14 +111,14 @@ final class GremlinPredicateAdapter {
    * ruled out by the {@code instanceof Compare} gate in {@link #toFilter}, so this only ever sees a
    * real {@link Compare} constant.
    */
-  private static @NonNull SQLBinaryCompareOperator toOperator(Compare compare) {
+  private static @Nonnull SQLBinaryCompareOperator toOperator(Compare compare) {
     return switch (compare) {
       case eq -> SQLEqualsOperator.INSTANCE;
-      case neq -> new SQLNeqOperator(-1);
+      case neq -> SQLNeqOperator.INSTANCE;
       case lt -> SQLLtOperator.INSTANCE;
       case lte -> SQLLeOperator.INSTANCE;
       case gt -> SQLGtOperator.INSTANCE;
-      case gte -> new SQLGeOperator(-1);
+      case gte -> SQLGeOperator.INSTANCE;
     };
   }
 }

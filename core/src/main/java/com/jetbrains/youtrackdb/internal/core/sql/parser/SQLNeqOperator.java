@@ -10,6 +10,8 @@ import javax.annotation.Nonnull;
 
 public class SQLNeqOperator extends SimpleNode implements SQLBinaryCompareOperator {
 
+  public static final SQLNeqOperator INSTANCE = new SQLNeqOperator(-1);
+
   public SQLNeqOperator(int id) {
     super(id);
   }
