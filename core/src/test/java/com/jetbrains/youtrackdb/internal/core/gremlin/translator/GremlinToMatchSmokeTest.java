@@ -17,6 +17,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.structure.Edge;
 import org.apache.tinkerpop.gremlin.structure.Element;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -617,6 +618,87 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
         .doesNotContain("YTDBMatchPlanStep");
     assertThat(declinedExplain)
         .as("declined explain must still render a native vertex step; was: " + declinedExplain)
+        .contains("GraphStep");
+  }
+
+  /**
+   * {@code explain()} of a translated non-adjacent edge filter {@code outE(L).has(...).inV()}
+   * surfaces the boundary step and collapses the native chain. The interposed {@code has(...)}
+   * blocks TinkerPop's incident-to-adjacent fold, so the native form is {@code VertexStep /
+   * HasStep / EdgeVertexStep}; a successful translation replaces all three with a single {@link
+   * YTDBMatchPlanStep}. The check is scoped to the "Final Traversal" section: the native step boxes
+   * always appear in the "Original Traversal" rows, so a whole-string assertion would pass
+   * vacuously against a spliced-but-not-collapsed regression. {@code VertexStep} as a substring also
+   * catches {@code EdgeVertexStep}.
+   */
+  @Test
+  public void explainReflectsEdgeFilterTranslation() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    var explain =
+        graph.traversal().V().outE("knows").has("since", P.lt(2015)).inV().explain().toString();
+    assertThat(explain)
+        .as("explain() of a translated edge filter must surface the YTDBMatchPlanStep marker; was: "
+            + explain)
+        .contains("YTDBMatchPlanStep");
+    var finalSection = explain.substring(explain.lastIndexOf("Final Traversal"));
+    assertThat(finalSection)
+        .as("the translated final traversal must collapse to the boundary step, leaving no native"
+            + " VertexStep / HasStep / EdgeVertexStep / GraphStep box; was: " + finalSection)
+        .doesNotContain("VertexStep", "HasStep", "GraphStep");
+  }
+
+  /**
+   * {@code explain()} of a translated bare hop {@code out(L)} surfaces the boundary step and leaves
+   * no native {@code VertexStep} in the final traversal. Complements {@link
+   * #explainReflectsTranslation()} (which pins the {@code g.V()} source) with a hop shape, the
+   * headline Track-3 addition. Scoped to the "Final Traversal" section for the same reason.
+   */
+  @Test
+  public void explainReflectsBareHopTranslation() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+
+    var explain = graph.traversal().V().out("knows").explain().toString();
+    assertThat(explain)
+        .as("explain() of a translated bare hop must surface the YTDBMatchPlanStep marker; was: "
+            + explain)
+        .contains("YTDBMatchPlanStep");
+    var finalSection = explain.substring(explain.lastIndexOf("Final Traversal"));
+    assertThat(finalSection)
+        .as("the translated final traversal must collapse to the boundary step, leaving no native"
+            + " VertexStep / GraphStep box; was: " + finalSection)
+        .doesNotContain("VertexStep", "GraphStep");
+  }
+
+  /**
+   * {@code explain()} of a declined {@code bothE(L).has(...).otherV()} edge filter shows no boundary
+   * step and keeps the native chain. A BOTH-direction edge filter that must return the other
+   * endpoint cannot be expressed in the edge-as-node MATCH form (the executor exposes no {@code
+   * otherV}), so the whole traversal declines to the native pipeline -- the negative companion to
+   * {@link #explainReflectsEdgeFilterTranslation()}. The native vertex source still renders (a
+   * {@code GraphStep}, matched as a substring of the folded {@code YTDBGraphStep}).
+   */
+  @Test
+  public void declinedBothEdgeFilterExplainStaysNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    var explain =
+        graph.traversal().V().bothE("knows").has("since", P.lt(2015)).otherV().explain().toString();
+    assertThat(explain)
+        .as("explain() of a declined bothE edge filter must not contain a boundary step; was: "
+            + explain)
+        .doesNotContain("YTDBMatchPlanStep");
+    assertThat(explain)
+        .as("declined explain must still render the native vertex source; was: " + explain)
         .contains("GraphStep");
   }
 
