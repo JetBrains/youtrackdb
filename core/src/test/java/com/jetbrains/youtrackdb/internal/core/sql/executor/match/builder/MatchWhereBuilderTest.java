@@ -597,13 +597,15 @@ public class MatchWhereBuilderTest {
   }
 
   /**
-   * {@link MatchWhereBuilder#classEqualsWhere} wraps the same condition in an {@link SQLWhereClause}
-   * so it drops straight into the MATCH IR's {@code aliasFilters} map. The rendered clause carries
-   * the {@code @class} predicate.
+   * Wrapping a {@link MatchWhereBuilder#classEquals} condition with {@link MatchWhereBuilder#wrap}
+   * yields an {@link SQLWhereClause} that drops straight into the MATCH IR's {@code aliasFilters} map.
+   * This is the {@code wrap(classEquals(...))} idiom a class-narrowing caller uses (there is no
+   * dedicated {@code classEqualsWhere} convenience method); the rendered clause carries the {@code
+   * @class} predicate.
    */
   @Test
-  public void classEqualsWhere_wrapsConditionInWhereClause() {
-    var rendered = render(b.classEqualsWhere("Person"));
+  public void wrappedClassEquals_producesWhereClauseCarryingClassPredicate() {
+    var rendered = render(b.wrap(b.classEquals("Person")));
 
     assertTrue("the where clause must carry the @class predicate; was: " + rendered,
         rendered.contains("@class") && rendered.contains("Person"));
