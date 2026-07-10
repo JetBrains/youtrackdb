@@ -111,6 +111,32 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
   }
 
+  /**
+   * A label-less hop {@code out()} (all edge types) is claimed, not declined: {@code getEdgeLabels()}
+   * is empty (length 0), which the guard now accepts, passing a null edge label to the assembler (the
+   * IR renders it as the all-edges {@code out('E')} form). The claim mirrors the single-label case —
+   * one folded step consumed, boundary re-pinned to the fresh target, target under the generic {@code
+   * V} class with no {@code @class} filter (the same no-narrowing rule). End-to-end multiset
+   * equivalence with native {@code out()} is pinned by {@link EdgeTraversalEquivalenceTest}.
+   */
+  @Test
+  public void labelLessHop_isClaimedAsAllEdges() {
+    var admin = graph.traversal().V().out().asAdmin();
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized).as("a label-less hop consumes one folded step (all edge types)")
+        .isEqualTo(1);
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    var ir = ctx.patternBuilder.build();
+    assertThat(ir.pattern().aliasToNode).containsOnlyKeys(BOUNDARY_ALIAS, FIRST_ANON_ALIAS);
+    assertThat(ir.aliasClasses()).containsEntry(FIRST_ANON_ALIAS, "V");
+    assertThat(ir.aliasFilters())
+        .as("a label-less hop target carries no @class filter (the same no-narrowing rule)")
+        .doesNotContainKey(FIRST_ANON_ALIAS);
+  }
+
   // ---------------------------------------------------------------------------
   // Decline paths — every decline leaves the context unmutated (the walker's
   // no-mutation-on-decline contract), which the shared assertion below verifies.
@@ -223,23 +249,8 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A label-less hop {@code out()} (all edge types) declines — Phase 1 translates only single-label
-   * hops. {@code getEdgeLabels()} is empty, so {@code length != 1} declines.
-   */
-  @Test
-  public void labelLessHop_declines() {
-    var admin = graph.traversal().V().out().asAdmin();
-    var ctx = contextWithStartBoundary(admin);
-
-    var recognized = VertexStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
-
-    assertThat(recognized).as("a label-less hop must decline (0)").isEqualTo(0);
-    assertContextUnmutated(ctx);
-  }
-
-  /**
    * A multi-label hop {@code out("knows", "likes")} declines — multi-label edge traversal is out of
-   * scope for Phase 1. {@code getEdgeLabels()} has length 2, so {@code length != 1} declines.
+   * scope for Phase 1. {@code getEdgeLabels()} has length 2, so the {@code length > 1} guard declines.
    */
   @Test
   public void multiLabelHop_declines() {

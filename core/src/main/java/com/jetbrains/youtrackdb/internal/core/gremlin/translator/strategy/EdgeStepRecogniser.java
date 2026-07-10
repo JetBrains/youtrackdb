@@ -43,8 +43,9 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
  * cursor — when:
  *
  * <ul>
- *   <li>the edge step is not a single-label edge-returning {@code VertexStep}, or carries a user
- *       {@code as(...)} label (a named edge is out of scope);
+ *   <li>the edge step is not an edge-returning {@code VertexStep}, carries more than one edge label
+ *       (multi-label is out of scope), or carries a user {@code as(...)} label (a named edge is out
+ *       of scope);
  *   <li>a {@code has(...)} predicate is one {@link GremlinPredicateAdapter} cannot translate;
  *   <li>a step other than {@code HasStep} / {@code NoOpBarrierStep} sits between the edge and its
  *       close;
@@ -92,15 +93,23 @@ final class EdgeStepRecogniser implements StepRecogniser {
     if (!edgeStep.getLabels().isEmpty()) {
       return 0;
     }
-    // Only a single-label edge is in scope, mirroring the folded bare-hop rule. A label-less edge
-    // (outE(), all types) and a multi-label edge (outE("a", "b")) both decline.
+    // A multi-label edge (outE("a", "b")) declines — multi-label edge traversal is out of scope for
+    // Phase 1 (the edge-as-node builder carries a single edge label, with no multi-label / IN-list
+    // slot). This mirrors the folded bare-hop rule in VertexStepRecogniser.
     var edgeLabels = edgeStep.getEdgeLabels();
-    if (edgeLabels.length != 1) {
+    if (edgeLabels.length > 1) {
       return 0;
     }
-    var edgeLabel = edgeLabels[0];
-    if (edgeLabel == null || edgeLabel.isBlank()) {
-      return 0;
+    // A label-less edge (length 0) carries no label; it maps to a null edge label, which the edge-as-
+    // node builder renders as the all-types bare outE(){...} form. A single-label edge carries exactly
+    // one label; a single but blank label (outE("")) is degenerate and declines rather than collapse
+    // to the all-types form.
+    String edgeLabel = null;
+    if (edgeLabels.length == 1) {
+      edgeLabel = edgeLabels[0];
+      if (edgeLabel == null || edgeLabel.isBlank()) {
+        return 0;
+      }
     }
 
     // Peek forward from the step after the edge: AND-merge has() predicates, skip barriers, and stop

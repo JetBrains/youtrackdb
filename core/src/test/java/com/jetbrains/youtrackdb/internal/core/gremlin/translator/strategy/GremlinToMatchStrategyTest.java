@@ -260,14 +260,18 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
-   * The production strategy leaves an <em>unrecognized</em> traversal ({@code g.V().out()}, whose
-   * {@code out()} step has no recognizer yet) byte-for-byte unchanged: under all-or-nothing one
-   * unrecognized step declines the whole traversal, so the native step list — same step instances,
-   * same order — is preserved for the native pipeline and no boundary step is spliced in.
+   * All-or-nothing at the strategy layer: a recognized prefix followed by an unrecognized step leaves
+   * the traversal byte-for-byte unchanged, with no boundary step spliced. The fixture is {@code
+   * g.V().out("knows").map(...)}: the {@code out("knows")} hop is recognizable, but the trailing
+   * lambda map is not (a lambda is arbitrary user code with no MATCH equivalent — a permanently
+   * out-of-scope fixture no later track starts translating). Under all-or-nothing one unrecognized
+   * step declines the whole traversal, so {@code apply} must not splice a partial boundary for the
+   * recognized prefix: the native step list — same step instances, same order — is preserved for the
+   * native pipeline.
    */
   @Test
-  public void apply_productionUnrecognizedStep_leavesNativeStepListVerbatim() {
-    var admin = graph.traversal().V().out().asAdmin();
+  public void apply_recognizedPrefixThenUnrecognizedStep_leavesNativeStepListVerbatim() {
+    var admin = graph.traversal().V().out("knows").map(t -> t.get()).asAdmin();
     var stepsBefore = List.copyOf(admin.getSteps());
 
     GremlinToMatchStrategy.instance().apply(admin);

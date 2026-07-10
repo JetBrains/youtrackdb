@@ -9,7 +9,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
@@ -155,6 +157,46 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
+  /**
+   * Two <em>separate</em> {@link HasStep} instances between the edge and its close both AND-merge
+   * into the one edge filter, and every predicate survives. Consecutive {@code has(...)} calls
+   * normally fold into a single {@code HasStep} carrying multiple {@code HasContainer}s — the shape
+   * {@link #multipleHasSteps_andMergeIntoOneEdgeFilter} pins, which drives the inner container loop. A
+   * second distinct {@code HasStep} arrives only when something broke that fold, and a {@link
+   * NoOpBarrierStep} between the two {@code has} calls is the realistic cause. This drives the outer
+   * peek-ahead loop across two distinct {@code HasStep} objects (append, skip barrier, append) — a
+   * path the folded single-step cases never reach — and asserts both the {@code weight} and the
+   * {@code since} predicate land in the merged {@code WHERE}. A dropped predicate would still pass the
+   * edge-alias key-presence check but fail the clause-content assertion here. Edge, has, barrier, has,
+   * and the closing hop are all consumed (5).
+   */
+  @Test
+  public void twoSeparateHasSteps_andMergeAcrossBarrier() {
+    var admin = graph.traversal().V().outE("knows").has("weight", 5).inV().asAdmin();
+    // Build the anti-fold shape by hand: outE / has(weight) / barrier / has(since) / inV. The closing
+    // EdgeVertexStep starts at index 3; inserting the second HasStep then the barrier at index 3 each
+    // time leaves two distinct HasStep instances separated by a barrier, the shape a broken adjacency
+    // fold produces.
+    admin.addStep(3, new HasStep<>(admin, new HasContainer("since", P.eq(2010))));
+    admin.addStep(3, new NoOpBarrierStep<>(admin));
+    var ctx = contextWithStartBoundary(admin);
+
+    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+
+    assertThat(recognized)
+        .as("edge + has + barrier + has + closing hop all consumed")
+        .isEqualTo(5);
+    assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    // Both predicates from the two separate has steps survive the AND-merge into one edge WHERE.
+    var where = new StringBuilder();
+    ctx.edgeFilters.get(FIRST_EDGE_ALIAS).toGenericStatement(where);
+    assertThat(where.toString())
+        .as("both separate has() predicates AND-merge into the edge filter")
+        .contains("weight")
+        .contains("since");
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
+  }
+
   // ---------------------------------------------------------------------------
   // Decline paths — every decline leaves the context unmutated.
   // ---------------------------------------------------------------------------
@@ -249,16 +291,26 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     assertContextUnmutated(ctx);
   }
 
-  /** A label-less edge ({@code outE()}) declines — Phase 1 translates only single-label edges. */
+  /**
+   * A label-less edge chain ({@code outE().has("w", 1).inV()}, all edge types) is claimed, not
+   * declined: {@code getEdgeLabels()} is empty (length 0), which the guard now accepts, passing a null
+   * edge label to the edge-as-node builder (rendered as the all-types bare {@code outE(){...}} form).
+   * The edge filter still accumulates under the minted edge alias, and the chain consumes edge + has +
+   * closing hop. End-to-end multiset equivalence with native {@code outE().has(...).inV()} is pinned
+   * by {@link EdgeTraversalEquivalenceTest}.
+   */
   @Test
-  public void labelLessEdge_declines() {
-    var admin = graph.traversal().V().outE().inV().asAdmin();
+  public void labelLessEdge_isClaimed() {
+    var admin = graph.traversal().V().outE().has("w", 1).inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
-    assertThat(recognized).as("a label-less edge must decline (0)").isEqualTo(0);
-    assertContextUnmutated(ctx);
+    assertThat(recognized).as("a label-less edge chain consumes edge + has + closing hop")
+        .isEqualTo(3);
+    assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
+    assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
   /**
