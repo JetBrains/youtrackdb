@@ -82,7 +82,7 @@ final class VertexStepRecogniser implements StepRecogniser {
     // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows
     // to appendFoldedHop, which the builder renders as the all-edges out('E') form. See the class
     // Javadoc "Single or no edge label".
-    var arity = GremlinPatternAssembler.resolveEdgeLabel(vertexStep);
+    var arity = GremlinPatternAssembler.resolveEdgeLabel(vertexStep, ctx.traversal);
     if (!arity.translatable()) {
       return 0;
     }

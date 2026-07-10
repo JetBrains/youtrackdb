@@ -97,7 +97,7 @@ final class EdgeStepRecogniser implements StepRecogniser {
     // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types edge
     // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows
     // to appendEdgeAsNode, which the builder renders as the all-types bare outE(){...} form.
-    var arity = GremlinPatternAssembler.resolveEdgeLabel(edgeStep);
+    var arity = GremlinPatternAssembler.resolveEdgeLabel(edgeStep, ctx.traversal);
     if (!arity.translatable()) {
       return 0;
     }
