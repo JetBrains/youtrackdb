@@ -573,6 +573,162 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Absent-property edge filters — the neq presence guard and its companions.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * The negation presence guard end-to-end: {@code outE("knows").has("weight", P.neq(5)).inV()} must
+   * exclude edges that lack the {@code weight} property, matching native. Alice has three knows
+   * edges — weight 3 (kept: present, != 5), weight 5 (dropped: == 5), and no weight at all (dropped:
+   * native excludes an absent property because HasContainer.test is false when the property is
+   * missing). Native yields {Bob}. Before the presence guard the translated {@code weight <> 5}
+   * WHERE evaluated a null (absent) operand to true and wrongly INCLUDED the no-weight edge,
+   * returning {Bob, Dave} — a superset the multiset equality now catches. Passes only when neq is
+   * translated as {@code weight IS DEFINED AND weight <> 5}.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_neqExcludesAbsentProperty() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    alice.addEdge("knows", bob, "weight", 3); // present, != 5 -> kept
+    alice.addEdge("knows", carol, "weight", 5); // present, == 5 -> dropped
+    alice.addEdge("knows", dave); // no weight -> dropped (native excludes an absent property)
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).outE(knows).has(weight, neq 5).inV() excludes the no-weight edge",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).outE("knows").has("weight", P.neq(5)).inV());
+  }
+
+  /**
+   * Companion to the neq case: a positive comparison ({@code gt}) needs NO presence guard because an
+   * absent property already excludes the edge on both sides. Alice has a weight-10 edge to Bob (kept
+   * by {@code > 0}) and a no-weight edge to Carol (excluded: native's HasContainer.test is false for
+   * the absent property, and the translated {@code weight > 0} WHERE evaluates a null operand to
+   * false). Both runs yield {Bob}, pinning that only neq required the fix.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_positiveComparisonExcludesAbsentProperty() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "weight", 10); // present, > 0 -> kept
+    alice.addEdge("knows", carol); // no weight -> excluded on both sides
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).outE(knows).has(weight, gt 0).inV() excludes the no-weight edge",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).outE("knows").has("weight", P.gt(0)).inV());
+  }
+
+  /**
+   * A {@code @}-prefixed edge-property key declines the whole chain to native:
+   * {@code outE("knows").has("@class", "knows").inV()}. YouTrackDB resolves a bare {@code @class}
+   * identifier as record metadata, not a property, so translating it would diverge from native
+   * Gremlin (which treats {@code @class} as an ordinary property the edge does not carry). The
+   * predicate adapter declines the {@code @}-namespace key, so with the translator on the shape
+   * carries no boundary step — the end-to-end analogue of the {@code $}-key decline above, for the
+   * {@code @}-record-attribute branch of {@code WalkerContext.isReservedHasKey}. Native execution
+   * semantics of {@code @class} are out of scope here; the whole-chain decline is what this guards.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_reservedAtKeyDeclinesToNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob, "since", 2010);
+    graph.tx().commit();
+
+    var original =
+        session
+            .getConfiguration()
+            .getValueAsBoolean(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED);
+    try {
+      setTranslatorEnabled(true);
+      var onAdmin = graph.traversal().V().outE("knows").has("@class", "knows").inV().asAdmin();
+      onAdmin.applyStrategies();
+      assertThat(countBoundarySteps(onAdmin.getSteps()))
+          .as("a @-prefixed has() key must decline the whole chain to native — no boundary step")
+          .isEqualTo(0);
+    } finally {
+      setTranslatorEnabled(original);
+    }
+  }
+
+  /**
+   * A self-loop through the filtered edge-as-node form returns the self vertex like native:
+   * {@code g.V(alice).outE("knows").has("since", P.lt(2015)).inV()} over an Alice→Alice knows edge.
+   * The edge-as-node form emits two path items with distinct aliases ({@code $g2m_edge_N} and
+   * {@code $g2m_anon_M}); on a self-loop both the edge's endpoints resolve to Alice, so the target
+   * alias must bind to the same vertex the boundary alias does. Native yields {Alice}; a MATCH plan
+   * that implicitly required distinct bindings would return empty (an undercount the non-empty guard
+   * and multiset equality both catch). This is the two-path-item analogue of the bare-hop self-loop
+   * cases, which never exercise the edge-as-node pattern.
+   */
+  @Test
+  public void selfLoop_filteredEdgeChain_returnsSelfLikeNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    alice.addEdge("knows", alice, "since", 2010); // self-loop carrying an edge property
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "self-loop g.V(alice).outE(knows).has(since, lt 2015).inV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).outE("knows").has("since", P.lt(2015)).inV());
+  }
+
+  /**
+   * A foreign step between the edge and its close declines the whole chain to native:
+   * {@code g.V().outE("knows").dedup().inV()}. {@code dedup()} is neither a {@code HasStep} nor a
+   * {@code NoOpBarrierStep}, so {@code EdgeStepRecogniser} declines (its peek-ahead window spans only
+   * has/barrier between the edge and the closing hop). The whole traversal runs native — including
+   * the semantically-active dedup — so no boundary step engages and the result matches pure native.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_foreignStepInWindowDeclinesToNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    alice.addEdge("knows", bob);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().outE(knows).dedup().inV() (foreign step in window declines)",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().outE("knows").dedup().inV());
+  }
+
+  /**
+   * {@code bothE(L).has(...).bothV()} closes on an {@code EdgeVertexStep} with BOTH direction — not
+   * the {@code EdgeOtherVertexStep} that {@code otherV} produces — so, unlike otherV, it is accepted
+   * and translated to the edge-as-node {@code bothV()} form. Native {@code bothV()} yields both
+   * endpoints of each matched edge. Alice has one outgoing and one incoming knows edge; over
+   * {@code bothE(knows).has(since < 3000).bothV()} native gathers both edges and emits both endpoints
+   * of each ({Alice, Bob} and {Carol, Alice}). This pins that the translated multiset equals native.
+   * If the edge-as-node bothV form ever diverges, decline bothV closing hops the way otherV is.
+   */
+  @Test
+  public void nonAdjacentBothEdgeFilter_bothVClose_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010); // alice out, bob in
+    carol.addEdge("knows", alice, "since", 2011); // alice in, carol out
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).bothE(knows).has(since, lt 3000).bothV()",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).bothE("knows").has("since", P.lt(3000)).bothV());
+  }
+
+  // ---------------------------------------------------------------------------
   // Fixture helpers.
   // ---------------------------------------------------------------------------
 

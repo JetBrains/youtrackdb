@@ -3,12 +3,12 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
-import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNeqOperator;
 import java.util.HashMap;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.util.HasContainer;
@@ -41,12 +41,28 @@ public class GremlinPredicateAdapterTest {
         .isEqualTo("2010");
   }
 
-  /** {@code has("since", P.neq(2010))} maps to a not-equals ({@code <>}) condition over {@code 2010}. */
+  /**
+   * {@code has("since", P.neq(2010))} maps to {@code since IS DEFINED AND since <> 2010}, not a bare
+   * {@code since <> 2010}. The presence guard is load-bearing: native {@code has(key, neq(v))}
+   * excludes an element that lacks the property (HasContainer.test is false for an absent property),
+   * but a bare {@code <>} WHERE evaluates a null (absent) operand to true and would wrongly include
+   * it. This pins the emitted AST shape; {@code
+   * EdgeTraversalEquivalenceTest#nonAdjacentEdgeFilter_neqExcludesAbsentProperty} proves the
+   * end-to-end multiset.
+   */
   @Test
-  public void neq_mapsToNeqOperator() {
-    var condition = translateScalar("since", P.neq(2010));
-    assertThat(condition.getOperator()).isInstanceOf(SQLNeqOperator.class);
-    assertThat(renderRight(condition)).isEqualTo("2010");
+  public void neq_mapsToPresenceGuardedNeq() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("since", P.neq(2010)));
+    assertThat(expr).as("neq must translate, not decline").isNotNull();
+    // toGenericStatement renders the compared value as a bound `?` placeholder, so assert the
+    // structure (the IS DEFINED presence guard AND-ed with the <> comparison on the field), not the
+    // inlined literal. The value binding is MatchLiteralBuilder's job, covered by its own tests.
+    var rendered = render(expr);
+    assertThat(rendered)
+        .as("neq is guarded with a presence check (IS DEFINED) so absent-property elements are "
+            + "excluded, matching native")
+        .containsIgnoringCase("since is defined")
+        .contains("since <>");
   }
 
   /** {@code has("since", P.lt(2015))} maps to a less-than ({@code <}) condition over {@code 2015} — the IC2 shape. */
@@ -228,6 +244,14 @@ public class GremlinPredicateAdapterTest {
   private static String renderRight(SQLBinaryCondition condition) {
     var sb = new StringBuilder();
     condition.getRight().toString(new HashMap<>(), sb);
+    return sb.toString();
+  }
+
+  /** Renders a whole boolean expression to its generic SQL text (for non-binary shapes such as an
+   *  AND block). */
+  private static String render(SQLBooleanExpression expr) {
+    var sb = new StringBuilder();
+    expr.toGenericStatement(sb);
     return sb.toString();
   }
 }

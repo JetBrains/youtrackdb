@@ -117,13 +117,13 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
    * Two {@code has(...)} calls AND-merge into a single edge filter recorded under the edge alias.
    * TinkerPop folds consecutive {@code has} calls into one {@link
    * org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep} carrying two
-   * {@code HasContainer}s, so {@code outE("knows").has("w", 1).has("since", 2010).inV()} arrives as
-   * edge / has / closing — three inner steps — and the recogniser AND-merges both containers.
+   * {@code HasContainer}s, so {@code outE("knows").has("weight", 1).has("since", 2010).inV()} arrives
+   * as edge / has / closing — three inner steps — and the recogniser AND-merges both containers.
    */
   @Test
   public void multipleHasSteps_andMergeIntoOneEdgeFilter() {
     var admin =
-        graph.traversal().V().outE("knows").has("w", 1).has("since", 2010).inV().asAdmin();
+        graph.traversal().V().outE("knows").has("weight", 1).has("since", 2010).inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
     var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
@@ -132,6 +132,16 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
         .as("two has containers AND-merged into one filter; edge + has + closing consumed")
         .isEqualTo(3);
     assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    // Assert both containers of the single folded HasStep survive the AND-merge, not just that a
+    // filter was recorded under the edge alias. Render the merged clause and check both field
+    // names: a merge bug that dropped the second container (e.g. a break after the first) would
+    // still pass the key-presence check above but fail here.
+    var where = new StringBuilder();
+    ctx.edgeFilters.get(FIRST_EDGE_ALIAS).toGenericStatement(where);
+    assertThat(where.toString())
+        .as("both containers of the folded HasStep AND-merge into the edge WHERE")
+        .contains("weight")
+        .contains("since");
     assertThat(ctx.stepIndex).as("the recogniser leaves the cursor for the walker").isEqualTo(1);
   }
 
@@ -376,6 +386,12 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
    * No-mutation-on-decline: a declining recogniser must leave the context exactly as
    * {@link #contextWithStartBoundary} seeded it — the start boundary / RETURN intact, no target or
    * edge node, no alias minted, cursor unmoved.
+   *
+   * <p>The final two assertions are a destructive mint-probe: {@code nextEdgeAlias()} and {@code
+   * nextAnonVertexAlias()} advance the per-context alias counters, so calling this helper is itself
+   * a mutation. It is sound only because each decline test calls it exactly once, as its last
+   * statement — do not call it mid-test and then drive more recogniser calls, or the alias sequence
+   * starts at {@code _1} and a later real mint fails an unrelated equality check.
    */
   private static void assertContextUnmutated(WalkerContext ctx) {
     assertThat(ctx.boundaryAlias).isEqualTo(BOUNDARY_ALIAS);
