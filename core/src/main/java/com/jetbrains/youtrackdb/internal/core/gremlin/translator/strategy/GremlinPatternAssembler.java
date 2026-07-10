@@ -5,7 +5,9 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPa
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -105,12 +107,18 @@ final class GremlinPatternAssembler {
   /**
    * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStep}, applying one rule shared by
    * the bare hop ({@link VertexStepRecogniser}) and the edge-filter chain ({@link
-   * EdgeStepRecogniser}): a single named label or no label (all edge types) translates; a multi-label
-   * hop or a blank single label declines. Centralising the rule keeps the two hop kinds from drifting
-   * — one accepting a shape the other rejects. A translatable label-less hop yields a {@code null}
-   * label, which the builders render as the all-types {@code out('E')} / bare {@code outE()} form.
+   * EdgeStepRecogniser}): a single named label translates; a multi-label hop or a blank single label
+   * declines; a label-less hop (all edge types) translates unless the traversal opts into {@link
+   * EdgeLabelVerificationStrategy}. Centralising the rule keeps the two hop kinds from drifting — one
+   * accepting a shape the other rejects. A translatable label-less hop yields a {@code null} label,
+   * which the builders render as the all-types {@code out('E')} / bare {@code outE()} form.
+   *
+   * <p>The {@link EdgeLabelVerificationStrategy} carve-out preserves transparency: that opt-in
+   * strategy exists to reject a label-less hop, so translating one into a boundary step would remove
+   * it before the verification runs and silently swallow the error the user asked for. Declining
+   * leaves the native {@code VertexStep} for the strategy to reject.
    */
-  static EdgeLabelArity resolveEdgeLabel(VertexStep<?> step) {
+  static EdgeLabelArity resolveEdgeLabel(VertexStep<?> step, Traversal.Admin<?, ?> traversal) {
     var labels = step.getEdgeLabels();
     if (labels.length > 1) {
       // Multi-label edge traversal is out of scope for Phase 1: addEdge / the edge-as-node builder
@@ -126,7 +134,13 @@ final class GremlinPatternAssembler {
       }
       return new EdgeLabelArity(true, label);
     }
-    // Label-less (length 0): a null label the builders render as the all-types form.
+    // Label-less (length 0): all edge types. Decline when the traversal opts into
+    // EdgeLabelVerificationStrategy — translating the hop away would suppress the label-less error
+    // that strategy must raise (see the Javadoc). Otherwise translate: a null label the builders
+    // render as the all-types out('E') / bare outE() form.
+    if (traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent()) {
+      return EdgeLabelArity.DECLINE;
+    }
     return new EdgeLabelArity(true, null);
   }
 
