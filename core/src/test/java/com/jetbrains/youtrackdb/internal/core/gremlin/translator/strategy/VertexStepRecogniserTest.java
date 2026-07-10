@@ -335,6 +335,12 @@ public class VertexStepRecogniserTest extends GraphBaseTest {
    * No-mutation-on-decline: a declining recogniser must leave the context exactly as
    * {@link #contextWithStartBoundary} seeded it — the start boundary/RETURN intact, no target node,
    * no anonymous alias minted, cursor unmoved.
+   *
+   * <p>The final assertion is a destructive mint-probe: {@code nextAnonVertexAlias()} advances the
+   * per-context alias counter, so calling this helper is itself a mutation. It is sound only because
+   * each decline test calls it exactly once, as its last statement — do not call it mid-test and
+   * then drive more recogniser calls, or the alias sequence starts at {@code _1} and a later real
+   * mint fails an unrelated equality check.
    */
   private static void assertContextUnmutated(WalkerContext ctx) {
     assertThat(ctx.boundaryAlias).isEqualTo(BOUNDARY_ALIAS);

@@ -92,13 +92,6 @@ final class StartStepRecogniser implements StepRecogniser {
    */
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
 
-  /**
-   * Default schema class for {@code g.V()}-rooted traversals — the abstract vertex root.
-   * Same convention {@code GqlMatchPatternAssembler.effectiveType} uses when no explicit label
-   * is supplied.
-   */
-  private static final String DEFAULT_VERTEX_CLASS = "V";
-
   private StartStepRecogniser() {
     // Singleton — instantiate via INSTANCE.
   }
@@ -145,7 +138,7 @@ final class StartStepRecogniser implements StepRecogniser {
     // Validation done; commit mutations to the context. The polymorphism flag is resolved and
     // pinned once by the walker at context construction (see GremlinStepWalker.walk); no
     // recogniser initialises it.
-    ctx.patternBuilder.addNode(BOUNDARY_ALIAS, DEFAULT_VERTEX_CLASS, null, false);
+    ctx.patternBuilder.addNode(BOUNDARY_ALIAS, WalkerContext.VERTEX_ROOT_CLASS, null, false);
     ctx.boundaryAlias = BOUNDARY_ALIAS;
     ctx.outputType = BoundaryOutputType.ELEMENT;
     ctx.returnClass = Vertex.class;

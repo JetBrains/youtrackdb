@@ -86,22 +86,23 @@ final class WalkerContext {
    *  alongside {@link #boundaryAlias}. Required for a successful walk. */
   Class<? extends Element> returnClass;
 
-  /** Whether the traversal runs as a polymorphic query, resolved from the traversal's YTDB
-   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}). Resolved once by {@link
-   *  GremlinStepWalker} at construction and read — never re-resolved — by the recognisers.
+  /** Whether the traversal runs as a polymorphic query, resolved once from the traversal's YTDB
+   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}
+   *  at construction.
    *
-   *  <p>The flag governs class narrowing for an <em>explicit</em> user-named class only — the
-   *  folded {@code hasLabel(L)}, added later, which narrows through the shared {@code
-   *  MatchWhereBuilder.classEquals} seam. It does <em>not</em> apply to a bare chain hop: {@code out(L)} /
-   *  {@code in(L)} / {@code both(L)} and the start step root at the generic {@code V} class
-   *  polymorphically and emit no {@code @class} filter regardless of this flag, because native
-   *  Gremlin never class-filters a hop target — narrowing one (even under {@code false}) would
-   *  drop subclass instances the native pipeline keeps (a subclass undercount; see {@link
-   *  VertexStepRecogniser} and {@link StartStepRecogniser}).
+   *  <p>No recogniser in this track reads the resolved value. The resolution is kept for its decline
+   *  side effect: a {@code null} result (no attached YTDB graph, or an unresolvable setting) declines
+   *  the whole walk in the walker before this context is built, so the field is always a resolved
+   *  primitive. The resolved value itself is reserved for the explicit-class narrowing path -- the
+   *  folded {@code hasLabel(L)} of a later track, which narrows through the shared {@code
+   *  MatchWhereBuilder.classEquals} seam when {@code polymorphic} is {@code false}.
    *
-   *  <p>The walker owns the resolution so no recogniser initialises the flag; a {@code null}
-   *  resolution (no attached YTDB graph, or an unresolvable setting) declines the whole walk in
-   *  the walker before this context is built, so the field is always a resolved primitive. */
+   *  <p>The flag deliberately does <em>not</em> govern a bare chain hop or the start step: {@code
+   *  out(L)} / {@code in(L)} / {@code both(L)} and {@code g.V()} root at the generic {@code V} class
+   *  ({@link #VERTEX_ROOT_CLASS}) polymorphically and emit no {@code @class} filter regardless of it,
+   *  because native Gremlin never class-filters those shapes -- narrowing one (even under {@code
+   *  false}) would drop subclass instances the native pipeline keeps (a subclass undercount; see
+   *  {@link VertexStepRecogniser} and {@link StartStepRecogniser}). */
   final boolean polymorphic;
 
   /** Cursor into the traversal's step list, owned and advanced solely by the walker. The walker's
@@ -124,6 +125,17 @@ final class WalkerContext {
    *  the edge-as-node MATCH form. Same reserved {@code $g2m_} namespace as {@link
    *  #ANON_VERTEX_ALIAS_PREFIX}. */
   static final String EDGE_ALIAS_PREFIX = "$g2m_edge_";
+
+  /**
+   * Generic vertex root class {@code "V"} -- the polymorphic base every vertex-rooted traversal
+   * roots at when no explicit user class is given. Shared by {@link StartStepRecogniser} (the {@code
+   * g.V()} boundary node) and {@link GremlinPatternAssembler} (each bare-hop and edge-as-node target
+   * node), which both register their node under it with no {@code @class} filter, so the emitted
+   * MATCH keeps the full polymorphic vertex set native Gremlin returns. One definition so the two
+   * sites cannot drift onto different roots -- a drift would silently reintroduce a subclass
+   * undercount.
+   */
+  static final String VERTEX_ROOT_CLASS = "V";
 
   /**
    * The single definition of the reserved {@code $} alias-namespace prefix. The translator mints

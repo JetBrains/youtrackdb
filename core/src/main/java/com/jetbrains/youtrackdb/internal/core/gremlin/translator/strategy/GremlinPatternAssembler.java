@@ -38,13 +38,6 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
  */
 final class GremlinPatternAssembler {
 
-  /**
-   * Class attached to every hop target: the abstract vertex root. A hop target roots at the generic
-   * {@code V} class polymorphically (subclasses included) with no {@code @class} filter — see the
-   * class Javadoc "Bare hop targets root at {@code V}".
-   */
-  private static final String VERTEX_ROOT_CLASS = "V";
-
   private GremlinPatternAssembler() {
     // Static helper — no instances.
   }
@@ -61,7 +54,7 @@ final class GremlinPatternAssembler {
       MatchPatternBuilder.Direction dir,
       String edgeLabel) {
     ctx.patternBuilder.addEdge(fromAlias, targetAlias, dir, edgeLabel, null, null, null);
-    ctx.patternBuilder.addNode(targetAlias, VERTEX_ROOT_CLASS, null, false);
+    ctx.patternBuilder.addNode(targetAlias, WalkerContext.VERTEX_ROOT_CLASS, null, false);
     rePinBoundaryToTarget(ctx, targetAlias);
   }
 
@@ -83,7 +76,7 @@ final class GremlinPatternAssembler {
       SQLWhereClause edgeFilter) {
     ctx.patternBuilder.addEdgeAsNode(
         fromAlias, edgeAlias, targetAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
-    ctx.patternBuilder.addNode(targetAlias, VERTEX_ROOT_CLASS, null, false);
+    ctx.patternBuilder.addNode(targetAlias, WalkerContext.VERTEX_ROOT_CLASS, null, false);
     rePinBoundaryToTarget(ctx, targetAlias);
   }
 
