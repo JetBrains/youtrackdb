@@ -34,13 +34,15 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
  * EdgeStepRecogniser}, which either claims the whole {@code outE(L).has(...).inV()} chain or declines
  * (leaving the traversal on the native pipeline under all-or-nothing).
  *
- * <h2>Single edge label only</h2>
+ * <h2>Single or no edge label — multi-label declines</h2>
  *
- * Only a single-label hop ({@code out("knows")}) translates. A label-less hop ({@code out()},
- * all edge types) and a multi-label hop ({@code out("a", "b")}) both decline: multi-label edge
- * traversal is out of scope for Phase 1, and a label-less hop is declined rather than modelled as
- * an unlabelled MATCH edge so this recogniser stays inside the plan's {@code out(L)} scope. Both
- * shapes fall back to the native pipeline unchanged.
+ * A single-label hop ({@code out("knows")}) and a label-less hop ({@code out()}, all edge types)
+ * both translate. The label-less hop passes a null edge label to the assembler, which the IR renders
+ * as the all-edges {@code out('E')} form ({@code E} is the base edge class, traversed polymorphically
+ * — the vertex multiset native {@code out()} yields). A multi-label hop ({@code out("a", "b")})
+ * declines: multi-label edge traversal is out of scope for Phase 1, because the shared {@code
+ * MatchPatternBuilder.addEdge} carries a single edge label with no multi-label / {@code IN}-list
+ * slot. A multi-label hop falls back to the native pipeline unchanged.
  */
 final class VertexStepRecogniser implements StepRecogniser {
 
@@ -75,15 +77,23 @@ final class VertexStepRecogniser implements StepRecogniser {
     if (ctx.boundaryAlias == null) {
       return 0;
     }
-    // Only a single-label hop is in scope. A label-less hop (out(), all edge types) and a
-    // multi-label hop (out("a", "b")) both decline — see the class Javadoc "Single edge label".
+    // A multi-label hop (out("a", "b")) declines — multi-label edge traversal is out of scope for
+    // Phase 1 (addEdge carries a single edge label, with no multi-label / IN-list slot). See the
+    // class Javadoc "Single or no edge label".
     var edgeLabels = vertexStep.getEdgeLabels();
-    if (edgeLabels.length != 1) {
+    if (edgeLabels.length > 1) {
       return 0;
     }
-    var edgeLabel = edgeLabels[0];
-    if (edgeLabel == null || edgeLabel.isBlank()) {
-      return 0;
+    // A label-less hop (length 0) carries no label; it maps to a null edge label, which the IR
+    // renders as the all-edges out('E') form (E is the base edge class, traversed polymorphically —
+    // the native out() semantics). A single-label hop carries exactly one label; a single but blank
+    // label (out("")) is degenerate and declines rather than collapse to the all-edges form.
+    String edgeLabel = null;
+    if (edgeLabels.length == 1) {
+      edgeLabel = edgeLabels[0];
+      if (edgeLabel == null || edgeLabel.isBlank()) {
+        return 0;
+      }
     }
     // Map the TinkerPop traversal direction onto the pattern-builder direction.
     var direction = GremlinPatternAssembler.toBuilderDirection(vertexStep.getDirection());

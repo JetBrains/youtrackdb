@@ -91,6 +91,30 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().both("knows"));
   }
 
+  /**
+   * {@code g.V().out()} (label-less, all edge types) translates and returns the same vertex multiset
+   * as native. The label-less hop maps to the IR's null edge label, which renders as the all-edges
+   * {@code out('E')} form ({@code E} is the base edge class, traversed polymorphically). Seeded with
+   * both a {@code knows} and a {@code likes} edge from Alice so the hop must gather across edge
+   * types: this pins that {@code out('E')} picks up every edge type, matching native {@code out()}
+   * (were {@code out('E')} not equivalent to a bare all-edges traversal, the multisets would differ
+   * and this test would fail).
+   */
+  @Test
+  public void labelLessHop_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob);
+    alice.addEdge("likes", carol);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().out() (label-less, all edge types)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().out());
+  }
+
   // A multi-hop chain (g.V().out(L).out(L)) is exercised end-to-end below by
   // multiHopChain_recognizedViaBarrierRecogniser: LazyBarrierStrategy injects a NoOpBarrierStep
   // between the hops, which NoOpBarrierRecogniser now claims as a transparent pass-through, so the
@@ -178,6 +202,31 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().outE(knows).has(since, lt 2015).inV()",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().outE("knows").has("since", P.lt(2015)).inV());
+  }
+
+  /**
+   * A label-less edge filter {@code g.V().outE().has("since", P.gt(2015)).inV()} (all edge types)
+   * translates via the edge-as-node form and returns the same vertex multiset as native. The
+   * label-less edge maps to the null-label edge-as-node builder, rendered as the all-types bare
+   * {@code outE(){where: ...}} form. Alice has a {@code knows} edge (since 2010) to Bob and a {@code
+   * likes} edge (since 2020) to Carol; the filter {@code since > 2015} keeps only the likes edge, so
+   * both runs yield {Carol}. Seeding two edge types pins that the label-less {@code outE()} gathers
+   * across every type before the filter — were it not all-types, the likes edge would be missed and
+   * the multisets would differ.
+   */
+  @Test
+  public void labelLessEdgeFilter_returnsSameMultisetAsNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010);
+    alice.addEdge("likes", carol, "since", 2020);
+    graph.tx().commit();
+
+    assertEquivalent(
+        "g.V().outE().has(since, gt 2015).inV() (label-less, all edge types)",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE().has("since", P.gt(2015)).inV());
   }
 
   /**
@@ -500,23 +549,8 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Decline cases — label-less and multi-label hops fall back to native.
+  // Decline case — a multi-label hop falls back to native.
   // ---------------------------------------------------------------------------
-
-  /**
-   * A label-less hop {@code g.V().out()} (all edge types) declines to the native pipeline — Phase 1
-   * translates only single-label hops. With the translator on the shape must carry no boundary step,
-   * and the declined shape must still return the native multiset (Alice→Bob→Carol yields {Bob,
-   * Carol}).
-   */
-  @Test
-  public void labelLessHop_declinesToNative() {
-    seedKnowsChain();
-    assertEquivalent(
-        "g.V().out() (label-less)",
-        Recognition.DECLINED,
-        () -> graph.traversal().V().out());
-  }
 
   /**
    * A multi-label hop {@code g.V().out("knows", "likes")} declines — multi-label edge traversal is
