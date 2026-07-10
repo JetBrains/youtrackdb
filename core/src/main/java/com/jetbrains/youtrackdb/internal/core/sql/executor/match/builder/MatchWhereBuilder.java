@@ -76,14 +76,6 @@ public final class MatchWhereBuilder {
   }
 
   /**
-   * Wraps {@link #classEquals(String)} in an {@link SQLWhereClause} so it drops straight into the
-   * MATCH IR's {@code aliasFilters} map for the narrowed alias.
-   */
-  public SQLWhereClause classEqualsWhere(String className) {
-    return wrap(classEquals(className));
-  }
-
-  /**
    * Builds {@code field {op} value} for any {@link SQLBinaryCompareOperator} ({@code =}, {@code
    * !=}, {@code >}, {@code >=}, {@code <}, {@code <=}, {@code LIKE}, …).
    */
