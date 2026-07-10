@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPa
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -99,6 +100,45 @@ final class GremlinPatternAssembler {
       case IN -> MatchPatternBuilder.Direction.IN;
       case BOTH -> MatchPatternBuilder.Direction.BOTH;
     };
+  }
+
+  /**
+   * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStep}, applying one rule shared by
+   * the bare hop ({@link VertexStepRecogniser}) and the edge-filter chain ({@link
+   * EdgeStepRecogniser}): a single named label or no label (all edge types) translates; a multi-label
+   * hop or a blank single label declines. Centralising the rule keeps the two hop kinds from drifting
+   * — one accepting a shape the other rejects. A translatable label-less hop yields a {@code null}
+   * label, which the builders render as the all-types {@code out('E')} / bare {@code outE()} form.
+   */
+  static EdgeLabelArity resolveEdgeLabel(VertexStep<?> step) {
+    var labels = step.getEdgeLabels();
+    if (labels.length > 1) {
+      // Multi-label edge traversal is out of scope for Phase 1: addEdge / the edge-as-node builder
+      // carry a single edge label, with no multi-label / IN-list slot.
+      return EdgeLabelArity.DECLINE;
+    }
+    if (labels.length == 1) {
+      var label = labels[0];
+      if (label == null || label.isBlank()) {
+        // A single blank label (out("")) is degenerate — decline rather than collapse it to the
+        // all-types form.
+        return EdgeLabelArity.DECLINE;
+      }
+      return new EdgeLabelArity(true, label);
+    }
+    // Label-less (length 0): a null label the builders render as the all-types form.
+    return new EdgeLabelArity(true, null);
+  }
+
+  /**
+   * Outcome of {@link #resolveEdgeLabel}: whether the hop translates and, if so, its single edge
+   * label ({@code null} for a label-less all-types hop). A declined result carries a {@code null}
+   * label that callers must not read — they return their own decline first.
+   */
+  record EdgeLabelArity(boolean translatable, String label) {
+
+    /** The shared decline result: a multi-label hop or a blank single label. */
+    static final EdgeLabelArity DECLINE = new EdgeLabelArity(false, null);
   }
 
   /**
