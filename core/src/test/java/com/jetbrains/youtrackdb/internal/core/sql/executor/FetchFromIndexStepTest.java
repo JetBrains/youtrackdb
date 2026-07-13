@@ -310,6 +310,57 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
     assertThat(keys(results)).containsExactly(10, 20);
   }
 
+  /**
+   * A full ASCENDING scan over an index that stores null keys emits the null-key group BEFORE the
+   * ascending non-null keys. This is the "null = smallest" placement that {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem#compare} produces for ASC, and
+   * it must match whether or not the index accelerates the sort (YTDB-1197). Two null records are
+   * seeded so the assertion also proves the multi-value (NOTUNIQUE) null bucket yields every RID.
+   */
+  @Test
+  public void fullScanAscendingEmitsNullKeyEntriesFirst() {
+    var fixture = createIndexedClass();
+    var index = getIndex(fixture.indexName);
+    seed(fixture.className, 10, 20);
+    seedNull(fixture.className, 2);
+    var ctx = newContext();
+    var step = new FetchFromIndexStep(new IndexSearchDescriptor(index), true, ctx, false);
+
+    var results = startAndDrain(step, ctx);
+
+    // ASC: null group first, then ascending keys.
+    assertThat(keys(results)).containsExactly(null, null, 10, 20);
+  }
+
+  /**
+   * A full DESCENDING scan places the null-key group LAST, mirroring the in-memory sort's DESC
+   * behavior (nulls last). This pins the YTDB-1197 fix: {@code processFlatIteration} used to
+   * prepend the null stream unconditionally, so DESC emitted nulls first and diverged from the
+   * in-memory path. Two null records verify the descending scan still surfaces every RID stored
+   * under the null key (the BTreeMultiValueIndexEngine null bucket).
+   */
+  @Test
+  public void fullScanDescendingEmitsNullKeyEntriesLast() {
+    var fixture = createIndexedClass();
+    var index = getIndex(fixture.indexName);
+    seed(fixture.className, 10, 20);
+    var nullRids = seedNullReturningRids(fixture.className, 2);
+    var ctx = newContext();
+    var step = new FetchFromIndexStep(new IndexSearchDescriptor(index), false, ctx, false);
+
+    var results = startAndDrain(step, ctx);
+
+    // DESC: descending keys first, then the null group last.
+    assertThat(keys(results)).containsExactly(20, 10, null, null);
+    // The null bucket must surface every RID that was stored under the null key.
+    var emittedNullRids =
+        results.stream()
+            .filter(r -> r.getProperty("key") == null)
+            .map(r -> r.<RID>getProperty("rid"))
+            .toList();
+    assertThat(emittedNullRids).containsExactlyInAnyOrderElementsOf(nullRids);
+  }
+
   // =========================================================================
   // processAndBlock / multipleRange: operator coverage on a single-field index
   // =========================================================================
@@ -1027,6 +1078,25 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
         session.newEntity(className);
       }
       session.commit();
+    } catch (Exception e) {
+      session.rollback();
+      throw e;
+    }
+  }
+
+  /**
+   * Like {@link #seedNull(String, int)} but returns the RIDs of the created null records, so a test
+   * can assert the null-key stream surfaces exactly those RIDs.
+   */
+  private List<RID> seedNullReturningRids(String className, int count) {
+    session.begin();
+    try {
+      var entities = new ArrayList<EntityImpl>();
+      for (var i = 0; i < count; i++) {
+        entities.add((EntityImpl) session.newEntity(className));
+      }
+      session.commit();
+      return entities.stream().<RID>map(EntityImpl::getIdentity).toList();
     } catch (Exception e) {
       session.rollback();
       throw e;

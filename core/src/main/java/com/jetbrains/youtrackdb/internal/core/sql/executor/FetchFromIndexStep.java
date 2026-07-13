@@ -247,8 +247,20 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   /**
-   * Full index scan (no key condition). First fetches null-key entries (if the index
-   * stores them), then streams all entries in ASC or DESC order.
+   * Full index scan (no key condition). Concatenates the null-key entries (if the index stores
+   * them) with the sorted B-tree entries, placing the null group so that it matches the
+   * in-memory sort's "null = smallest" semantic (see {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem#compare}):
+   *
+   * <pre>
+   *  ASC  -> null keys first, then ascending B-tree entries
+   *  DESC -> descending B-tree entries first, then null keys last
+   * </pre>
+   *
+   * <p>Null keys are physically stored in a separate bucket outside the sorted B-tree, so their
+   * position in the emitted sequence is decided purely by where the null stream is concatenated.
+   * The old code always prepended the null stream, which put nulls first for DESC too and
+   * diverged from the in-memory path (YTDB-1197).
    */
   private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
       DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {
@@ -256,17 +268,31 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
 
-    var stream = fetchNullKeys(session, index);
-    if (stream != null) {
-      acquiredStreams.add(stream);
-      streams.add(stream);
-    }
+    var nullStream = fetchNullKeys(session, index);
+    var mainStream = isOrderAsc ? index.stream(session) : index.descStream(session);
 
-    stream = isOrderAsc ? index.stream(session) : index.descStream(session);
-    if (acquiredStreams.add(stream)) {
-      streams.add(stream);
+    if (isOrderAsc) {
+      addStreamIfNew(nullStream, streams, acquiredStreams);
+      addStreamIfNew(mainStream, streams, acquiredStreams);
+    } else {
+      addStreamIfNew(mainStream, streams, acquiredStreams);
+      addStreamIfNew(nullStream, streams, acquiredStreams);
     }
     return streams;
+  }
+
+  /**
+   * Appends {@code stream} to {@code streams} unless it is {@code null} or an identity-duplicate
+   * of a stream already added. The {@code acquiredStreams} identity set guards against adding
+   * (and later double-closing) the same stream instance twice.
+   */
+  private static void addStreamIfNew(
+      @Nullable Stream<RawPair<Object, RID>> stream,
+      List<Stream<RawPair<Object, RID>>> streams,
+      Set<Stream<RawPair<Object, RID>>> acquiredStreams) {
+    if (stream != null && acquiredStreams.add(stream)) {
+      streams.add(stream);
+    }
   }
 
   /**

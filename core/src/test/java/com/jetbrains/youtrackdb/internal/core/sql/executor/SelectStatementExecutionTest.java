@@ -6974,6 +6974,134 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * ORDER BY null placement must be identical whether a NOTUNIQUE (multi-value) index accelerates
+   * the sort or the rows are sorted in memory, for both ASC and DESC. The indexed class routes
+   * through handleClassWithIndexForSortOnly -> FetchFromIndexValuesStep (a FetchFromIndexStep with
+   * no OrderByStep); the non-indexed class falls back to an in-memory OrderByStep. Both must place
+   * nulls first for ASC and last for DESC (YTDB-1197 — the index path used to emit nulls first for
+   * DESC too).
+   */
+  @Test
+  public void testOrderByNullPlacementConsistentForNotUniqueIndex() {
+    var indexed = "testNullPlacementIdxNotUnique";
+    var inMemory = "testNullPlacementNoIdxNotUnique";
+    var idxCls = session.getMetadata().getSchema().createClass(indexed);
+    idxCls.createProperty("name", PropertyType.STRING);
+    idxCls.createIndex(indexed + ".name", INDEX_TYPE.NOTUNIQUE, "name");
+    session.getMetadata().getSchema().createClass(inMemory)
+        .createProperty("name", PropertyType.STRING);
+
+    // Two nulls exercise the multi-value null bucket; unsorted non-null values prove the sort runs.
+    var names = Arrays.asList("b", "a", "c", null, null);
+    seedNames(indexed, names);
+    seedNames(inMemory, names);
+
+    // ASC: nulls first, then ascending values — this path already agreed before the fix.
+    var idxAsc = orderedNamesAndAssertPlan(indexed, "ASC", true);
+    var memAsc = orderedNamesAndAssertPlan(inMemory, "ASC", false);
+    Assert.assertEquals(Arrays.asList(null, null, "a", "b", "c"), idxAsc);
+    Assert.assertEquals(memAsc, idxAsc);
+
+    // DESC: descending values, then nulls last — the placement the bug diverged on.
+    var idxDesc = orderedNamesAndAssertPlan(indexed, "DESC", true);
+    var memDesc = orderedNamesAndAssertPlan(inMemory, "DESC", false);
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null, null), idxDesc);
+    Assert.assertEquals(memDesc, idxDesc);
+  }
+
+  /**
+   * Same null-placement invariant as {@link #testOrderByNullPlacementConsistentForNotUniqueIndex}
+   * but for a UNIQUE (single-value) index. Nulls are not ignored by default
+   * (INDEX_IGNORE_NULL_VALUES_DEFAULT = false), so a UNIQUE index stores a single null key; the
+   * index-accelerated scan must return that null row and place it consistently with the in-memory
+   * sort for both ASC (nulls first) and DESC (nulls last).
+   */
+  @Test
+  public void testOrderByNullPlacementConsistentForUniqueIndex() {
+    var indexed = "testNullPlacementIdxUnique";
+    var inMemory = "testNullPlacementNoIdxUnique";
+    var idxCls = session.getMetadata().getSchema().createClass(indexed);
+    idxCls.createProperty("name", PropertyType.STRING);
+    idxCls.createIndex(indexed + ".name", INDEX_TYPE.UNIQUE, "name");
+    session.getMetadata().getSchema().createClass(inMemory)
+        .createProperty("name", PropertyType.STRING);
+
+    // UNIQUE allows a single null key, so seed exactly one null.
+    var names = Arrays.asList("b", "a", "c", null);
+    seedNames(indexed, names);
+    seedNames(inMemory, names);
+
+    var idxAsc = orderedNamesAndAssertPlan(indexed, "ASC", true);
+    var memAsc = orderedNamesAndAssertPlan(inMemory, "ASC", false);
+    Assert.assertEquals(Arrays.asList(null, "a", "b", "c"), idxAsc);
+    Assert.assertEquals(memAsc, idxAsc);
+
+    var idxDesc = orderedNamesAndAssertPlan(indexed, "DESC", true);
+    var memDesc = orderedNamesAndAssertPlan(inMemory, "DESC", false);
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null), idxDesc);
+    Assert.assertEquals(memDesc, idxDesc);
+  }
+
+  /**
+   * Inserts one record per entry in {@code names}; a {@code null} entry creates a record that does
+   * not set the {@code name} property, so an index that does not ignore nulls stores it under the
+   * null key. Each record is committed separately, matching the seeding style of the other
+   * index-ordering tests in this class.
+   */
+  private void seedNames(String className, List<String> names) {
+    for (var name : names) {
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(className);
+      if (name != null) {
+        doc.setProperty("name", name);
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Runs {@code SELECT name FROM <className> ORDER BY name <direction>} and returns the emitted
+   * {@code name} values in result order (nulls included). Asserts the execution plan shape matches
+   * {@code expectIndexAcceleratedSort}: an index-accelerated sort must contain a {@link
+   * FetchFromIndexStep} and no {@link OrderByStep}; an in-memory sort must contain an {@link
+   * OrderByStep} and no {@link FetchFromIndexStep}.
+   */
+  private List<Object> orderedNamesAndAssertPlan(
+      String className, String direction, boolean expectIndexAcceleratedSort) {
+    session.begin();
+    try {
+      var result = session.query("SELECT name FROM " + className + " ORDER BY name " + direction);
+      var plan = result.getExecutionPlan();
+      var fetchFromIndex =
+          plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count();
+      var orderBy =
+          plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count();
+      var rendered = plan.prettyPrint(0, 2);
+      if (expectIndexAcceleratedSort) {
+        Assert.assertTrue(
+            "expected an index-accelerated sort (FetchFromIndexStep), plan was:\n" + rendered,
+            fetchFromIndex >= 1);
+        Assert.assertEquals(
+            "index-accelerated sort must not add an in-memory OrderByStep, plan was:\n" + rendered,
+            0, orderBy);
+      } else {
+        Assert.assertEquals(
+            "expected an in-memory sort (no index), plan was:\n" + rendered, 0, fetchFromIndex);
+        Assert.assertEquals(
+            "in-memory sort must add an OrderByStep, plan was:\n" + rendered, 1, orderBy);
+      }
+      var names = new ArrayList<>();
+      while (result.hasNext()) {
+        names.add(result.next().<Object>getProperty("name"));
+      }
+      result.close();
+      return names;
+    } finally {
+      session.commit();
+    }
+  }
+
   // ── CASE + MIN/MAX aggregate tests ──
 
   /**
