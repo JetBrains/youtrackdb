@@ -278,9 +278,12 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     try {
       nullStream = fetchNullKeys(session, index);
       mainStream = isOrderAsc ? index.stream(session) : index.descStream(session);
-    } catch (RuntimeException e) {
-      // mainStream is still null when its own acquisition throws, so at most one stream is open
-      // here: no double close is possible even when both would be the same instance.
+    } catch (RuntimeException | Error e) {
+      // Guard both unchecked hierarchies, not just RuntimeException: if the main-stream setup trips
+      // an `assert` under -ea it throws AssertionError (an Error), which must still close the
+      // already-open null stream instead of leaking it. mainStream is still null when its own
+      // acquisition throws, so at most one stream is open here: no double close is possible even
+      // when both would be the same instance.
       closeSuppressing(nullStream, e);
       closeSuppressing(mainStream, e);
       throw e;
@@ -301,13 +304,25 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * primary} as a suppressed exception so the original acquisition failure stays the thrown one.
    */
   private static void closeSuppressing(
-      @Nullable Stream<RawPair<Object, RID>> stream, RuntimeException primary) {
+      @Nullable Stream<RawPair<Object, RID>> stream, Throwable primary) {
     if (stream != null) {
       try {
         stream.close();
-      } catch (RuntimeException e) {
+      } catch (RuntimeException | Error e) {
         primary.addSuppressed(e);
       }
+    }
+  }
+
+  /**
+   * Closes every stream in {@code streams}, attaching each {@code close()} failure to {@code
+   * primary} as a suppressed exception. Releases the streams a multi-acquisition method already
+   * acquired when a later acquisition throws.
+   */
+  private static void closeAllSuppressing(
+      List<Stream<RawPair<Object, RID>>> streams, Throwable primary) {
+    for (var stream : streams) {
+      closeSuppressing(stream, primary);
     }
   }
 
@@ -355,8 +370,39 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       SQLBooleanExpression condition,
       boolean isOrderAsc,
       CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
+    // Acquire streams into `streams` across all range combinations. If a later acquisition throws
+    // partway through, the streams already acquired would leak: the caller closes streams only once
+    // this method returns them, and on a throw the partial list is discarded. So close whatever was
+    // acquired, then rethrow. This is the same acquire-then-maybe-throw hazard processFlatIteration
+    // guards against.
+    try {
+      collectRangeStreams(
+          streams, index, fromKey, fromKeyIncluded, toKey, toKeyIncluded, condition, isOrderAsc,
+          ctx);
+    } catch (RuntimeException | Error e) {
+      closeAllSuppressing(streams, e);
+      throw e;
+    }
+    return streams;
+  }
+
+  /**
+   * Runs the range lookups for {@link #multipleRange}, appending each acquired stream to {@code
+   * streams}. Split out so {@code multipleRange} can close the partially-filled list if any
+   * acquisition here throws.
+   */
+  private static void collectRangeStreams(
+      List<Stream<RawPair<Object, RID>>> streams,
+      Index index,
+      SQLCollection fromKey,
+      boolean fromKeyIncluded,
+      SQLCollection toKey,
+      boolean toKeyIncluded,
+      SQLBooleanExpression condition,
+      boolean isOrderAsc,
+      CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
     // Expand multi-valued key expressions (from IN or subqueries) into all combinations.
@@ -416,16 +462,12 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                       // correctly in this
                       // case
                       stream = getStreamForNullKey(session, index);
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
-                      }
+                      addStreamIfNew(stream, streams, acquiredStreams);
                     } else {
                       stream =
                           index.streamEntriesBetween(session,
                               from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
-                      }
+                      addStreamIfNew(stream, streams, acquiredStreams);
                     }
                   });
         }
@@ -452,9 +494,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         // manage null value explicitly, as the index API does not seem to work correctly in this
         // case
         stream = getStreamForNullKey(session, index);
-        if (acquiredStreams.add(stream)) {
-          streams.add(stream);
-        }
+        addStreamIfNew(stream, streams, acquiredStreams);
       } else {
         if (from instanceof Collection<?> fromColl) {
           var toColl = (Collection<?>) to;
@@ -474,20 +514,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
                 toKeyIncluded,
                 isOrderAsc);
-            if (acquiredStreams.add(stream)) {
-              streams.add(stream);
-            }
+            addStreamIfNew(stream, streams, acquiredStreams);
           }
         } else {
           stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
               isOrderAsc);
-          if (acquiredStreams.add(stream)) {
-            streams.add(stream);
-          }
+          addStreamIfNew(stream, streams, acquiredStreams);
         }
       }
     }
-    return streams;
   }
 
   /**

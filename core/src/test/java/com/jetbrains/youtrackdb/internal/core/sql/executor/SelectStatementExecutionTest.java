@@ -7086,7 +7086,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     cls.createIndex(className + ".name", type, "name");
   }
 
-  /** Creates a class with a STRING {@code name} property and no index (forces an in-memory sort). */
+  /**
+   * Creates a class with a STRING {@code name} property and no index, forcing an in-memory sort.
+   */
   private void createPlainNameClass(String className) {
     session.getMetadata().getSchema().createClass(className)
         .createProperty("name", PropertyType.STRING);
@@ -7116,29 +7118,15 @@ public class SelectStatementExecutionTest extends DbTestBase {
    * (nulls included). Use this for a class that has an index on {@code name}.
    */
   private List<Object> orderedNamesIndexAccelerated(String className, String direction) {
-    session.begin();
-    try {
-      var result = session.query("SELECT name FROM " + className + " ORDER BY name " + direction);
-      var plan = result.getExecutionPlan();
-      var fetchFromIndex =
-          plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count();
-      var orderBy = plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count();
-      var rendered = plan.prettyPrint(0, 2);
-      Assert.assertTrue(
-          "expected an index-accelerated sort (FetchFromIndexStep), plan was:\n" + rendered,
-          fetchFromIndex >= 1);
-      Assert.assertEquals(
-          "index-accelerated sort must not add an in-memory OrderByStep, plan was:\n" + rendered,
-          0, orderBy);
-      var names = new ArrayList<>();
-      while (result.hasNext()) {
-        names.add(result.next().<Object>getProperty("name"));
-      }
-      result.close();
-      return names;
-    } finally {
-      session.commit();
-    }
+    var run = runOrderByQuery(className, direction);
+    Assert.assertTrue(
+        "expected an index-accelerated sort (FetchFromIndexStep), plan was:\n" + run.renderedPlan(),
+        run.fetchFromIndexSteps() >= 1);
+    Assert.assertEquals(
+        "index-accelerated sort must not add an in-memory OrderByStep, plan was:\n"
+            + run.renderedPlan(),
+        0, run.orderBySteps());
+    return run.names();
   }
 
   /**
@@ -7149,27 +7137,46 @@ public class SelectStatementExecutionTest extends DbTestBase {
    * match.
    */
   private List<Object> orderedNamesInMemory(String className, String direction) {
+    var run = runOrderByQuery(className, direction);
+    Assert.assertEquals(
+        "expected an in-memory sort (no index), plan was:\n" + run.renderedPlan(), 0,
+        run.fetchFromIndexSteps());
+    Assert.assertEquals(
+        "in-memory sort must add an OrderByStep, plan was:\n" + run.renderedPlan(), 1,
+        run.orderBySteps());
+    return run.names();
+  }
+
+  /**
+   * Runs {@code SELECT name FROM <className> ORDER BY name <direction>} and returns the plan-step
+   * counts, the rendered plan (for assertion messages), and the emitted {@code name} values in
+   * result order (nulls included). The {@code ResultSet} is closed and the transaction committed
+   * unconditionally, so a failed assertion in a caller cannot leak either. The wrappers {@link
+   * #orderedNamesIndexAccelerated} / {@link #orderedNamesInMemory} add the plan-shape assertion
+   * that tells an index-accelerated sort apart from an in-memory one.
+   */
+  private OrderByRun runOrderByQuery(String className, String direction) {
     session.begin();
-    try {
-      var result = session.query("SELECT name FROM " + className + " ORDER BY name " + direction);
+    try (var result =
+        session.query("SELECT name FROM " + className + " ORDER BY name " + direction)) {
       var plan = result.getExecutionPlan();
       var fetchFromIndex =
           plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count();
       var orderBy = plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count();
       var rendered = plan.prettyPrint(0, 2);
-      Assert.assertEquals(
-          "expected an in-memory sort (no index), plan was:\n" + rendered, 0, fetchFromIndex);
-      Assert.assertEquals(
-          "in-memory sort must add an OrderByStep, plan was:\n" + rendered, 1, orderBy);
       var names = new ArrayList<>();
       while (result.hasNext()) {
         names.add(result.next().<Object>getProperty("name"));
       }
-      result.close();
-      return names;
+      return new OrderByRun(fetchFromIndex, orderBy, rendered, names);
     } finally {
       session.commit();
     }
+  }
+
+  /** Plan-step counts, rendered plan, and emitted names from one ORDER BY query run. */
+  private record OrderByRun(
+      long fetchFromIndexSteps, long orderBySteps, String renderedPlan, List<Object> names) {
   }
 
   // ── CASE + MIN/MAX aggregate tests ──
