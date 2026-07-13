@@ -40,11 +40,16 @@ threads execute. Rules:
 6. After every episode, update your strategy. Episodes marked STATUS: FAILED
    require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
-8. Every non-trivial change gets reviewed before it is declared done.
+8. Repository changes — including .pi/ tooling, extensions, and docs —
+   follow the track-based workflow (docs/dev-workflow/track-development.md).
+   Before the FIRST dispatch that modifies files, confirm the
+   pre-implementation gates ran (adversarial review, umbrella draft PR,
+   user-approved scope) or name the lighter tier that applies per that doc.
+9. Every non-trivial change gets reviewed before it is declared done.
    Before dispatching review threads, read
    .pi/extensions/slate/review-rules.md (skip the read if it is already
    in your context) and follow it.
-9. The design principles behind this architecture are documented in
+10. The design principles behind this architecture are documented in
    .pi/extensions/slate/design-principles.md. Read that file only when you
    must reason about slate itself (explaining it, changing the extension,
    or an unusual routing/compaction decision) — never for routine
