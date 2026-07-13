@@ -476,7 +476,6 @@ public class MatchExecutionPlanner {
     // detectNotInAntiJoin() mutates this map to strip NOT IN conditions.
     this.aliasFilters = new HashMap<>(aliasFilters);
     this.aliasPinnedRids = Map.of();
-    this.explicitPatternRids = Map.of();
   }
 
   /**
@@ -5779,10 +5778,6 @@ public class MatchExecutionPlanner {
     this.aliasFilters = aliasFilters;
     this.aliasClasses = aliasClasses;
     this.aliasPinnedRids = aliasPinnedRids;
-    // Capture explicit pattern pins before promoteStaticRidsFromFilters folds
-    // @rid WHERE filters into aliasPinnedRids. Index-ordered single-source
-    // detection must see only explicit {rid:} pins (see explicitPatternRids doc).
-    this.explicitPatternRids = Map.copyOf(aliasPinnedRids);
     this.inferredWhileExprAliases = inferredAliases;
 
     // Promote static `@rid = <literal|param>` and `@rid IN [...]` filters into
@@ -6497,7 +6492,7 @@ public class MatchExecutionPlanner {
       CommandContext context,
       Map<String, Long> estimatedRootEntries) {
     return new IndexOrderedPlanner(
-        pattern, aliasClasses, aliasFilters, explicitPatternRids,
+        pattern, aliasClasses, aliasFilters, aliasPinnedRids,
         orderBy, skip, limit, returnItems, returnAliases,
         returnElements, returnPaths, returnPatterns, returnPathElements)
         .detect(sortedEdges, context, estimatedRootEntries);
