@@ -16,7 +16,7 @@ import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
 
 /**
- * Unit tests for {@link EdgeStepRecogniser}, the peek-ahead recogniser that claims the non-adjacent
+ * Unit tests for {@link EdgeHopRecogniser}, the peek-ahead recogniser that claims the non-adjacent
  * {@code outE(L).has(edgeProp).inV()} chain and its analogues. These drive the recogniser directly
  * on the raw (un-strategised) DSL step list — which arrives as the exact
  * {@code VertexStep(outE) / HasStep / EdgeVertexStep} sequence the recogniser peeks — so each accept
@@ -25,9 +25,9 @@ import org.junit.Test;
  *
  * <p>The recogniser is reached in production by delegation from {@link VertexStepRecogniser} on its
  * {@code returnsEdge()} branch; {@link #outEdgeFilterChain_claimedViaVertexStepDelegation} exercises
- * that real dispatch path, the rest drive {@link EdgeStepRecogniser} directly for clarity.
+ * that real dispatch path, the rest drive {@link EdgeHopRecogniser} directly for clarity.
  */
-public class EdgeStepRecogniserTest extends GraphBaseTest {
+public class EdgeHopRecogniserTest extends GraphBaseTest {
 
   private static final String BOUNDARY_ALIAS = "$g2m_v0";
   private static final String FIRST_EDGE_ALIAS = "$g2m_edge_0";
@@ -88,7 +88,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().inE("knows").has("w", 1).outV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("inE.has.outV consumes edge + has + closing hop").isEqualTo(3);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
@@ -105,7 +105,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE("knows").inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("outE.inV (no has) consumes edge + closing hop").isEqualTo(2);
     assertThat(ctx.boundaryAlias).isEqualTo(FIRST_ANON_ALIAS);
@@ -126,7 +126,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
         graph.traversal().V().outE("knows").has("weight", 1).has("since", 2010).inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized)
         .as("two has containers AND-merged into one filter; edge + has + closing consumed")
@@ -159,7 +159,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     admin.addStep(3, new NoOpBarrierStep<>(admin));
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("barrier skipped; edge + has + barrier + closing consumed")
         .isEqualTo(4);
@@ -191,7 +191,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     admin.addStep(3, new NoOpBarrierStep<>(admin));
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized)
         .as("edge + has + barrier + has + closing hop all consumed")
@@ -221,7 +221,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().bothE("knows").has("w", 1).otherV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("otherV close must decline (0) — no MATCH otherV method")
         .isEqualTo(0);
@@ -237,7 +237,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE("knows").asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("an edge-returning terminal must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
@@ -252,7 +252,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE("knows").has("w", P.within(1, 2)).inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("an untranslatable predicate must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
@@ -268,7 +268,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE("knows").dedup().inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("a foreign step in the window must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
@@ -283,7 +283,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE("knows").as("e").has("w", 1).inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("an as(...) label on the edge must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
@@ -295,7 +295,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE("knows", "likes").inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("a multi-label edge must decline (0)").isEqualTo(0);
     assertContextUnmutated(ctx);
@@ -314,7 +314,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var admin = graph.traversal().V().outE().has("w", 1).inV().asAdmin();
     var ctx = contextWithStartBoundary(admin);
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("a label-less edge chain consumes edge + has + closing hop")
         .isEqualTo(3);
@@ -333,7 +333,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var ctx = contextWithStartBoundary(admin);
     var graphStep = stepAt(admin, 0); // the GraphStep, not an edge VertexStep
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(graphStep, ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(graphStep, ctx);
 
     assertThat(recognized).as("a non-VertexStep must decline (0), not throw").isEqualTo(0);
     assertContextUnmutated(ctx);
@@ -349,7 +349,7 @@ public class EdgeStepRecogniserTest extends GraphBaseTest {
     var ctx = new WalkerContext(admin, true); // boundary stays null, cursor stays 0
     ctx.stepIndex = 1;
 
-    var recognized = EdgeStepRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
+    var recognized = EdgeHopRecogniser.INSTANCE.recognize(stepAt(admin, 1), ctx);
 
     assertThat(recognized).as("an edge step with no pinned boundary must decline (0)").isEqualTo(0);
     assertThat(ctx.boundaryAlias).isNull();
