@@ -2649,8 +2649,8 @@ public class MatchExecutionPlanner {
       return 1.0;
     }
     return applyClassSelectivity(
-        baseCost, targetAlias, targetClass,
-        aliasFilters, estimatedRootEntries, session);
+        targetAlias, targetClass,
+        aliasFilters, estimatedRootEntries, classCountCache, session);
   }
 
   /**
@@ -2692,26 +2692,32 @@ public class MatchExecutionPlanner {
     if (preResolvedTargetClass == null) {
       return baseCost;
     }
-    return applyClassSelectivity(
-        baseCost, targetAlias, preResolvedTargetClass,
-        aliasFilters, estimatedRootEntries, session);
+    return baseCost * applyClassSelectivity(
+        targetAlias, preResolvedTargetClass,
+        aliasFilters, estimatedRootEntries, null, session);
   }
 
   /**
-   * Shared body of {@link #applyTargetSelectivity} and
+   * Shared factor body of {@link #targetSelectivityFactor} and
    * {@link #applyTargetSelectivityWithResolvedClass}: given a non-null
-   * target class, look it up in the schema and adjust {@code baseCost} by
-   * either (a) the filter-shape heuristic on the target's WHERE clause, or
-   * (b) the estimated cardinality ratio. All null-guards on the target
-   * class are the callers' responsibility; this helper assumes
-   * {@code targetClass != null}.
+   * target class, look it up in the schema and return the selectivity
+   * multiplier from either (a) the filter-shape heuristic on the target's
+   * WHERE clause, or (b) the estimated cardinality ratio. Returns {@code 1.0}
+   * (no narrowing) when the schema or class is missing, {@code approximateCount}
+   * returns ≤ 0, no usable filter heuristic exists, and no per-alias estimate is
+   * registered. Callers scale their own {@code baseCost} by the returned factor.
+   * All null-guards on the target class are the callers' responsibility; this
+   * helper assumes {@code targetClass != null}.
+   *
+   * <p>When {@code classCountCache} is non-null the class row count is memoized
+   * across calls within a single forecast pass.
    */
   private static double applyClassSelectivity(
-      double baseCost,
       String targetAlias,
       String targetClass,
       Map<String, SQLWhereClause> aliasFilters,
       Map<String, Long> estimatedRootEntries,
+      @Nullable Map<String, Long> classCountCache,
       DatabaseSessionEmbedded session) {
     var schema = session.getMetadata().getImmutableSchemaSnapshot();
     if (schema == null) {
