@@ -316,6 +316,16 @@ public class MatchExecutionPlanner {
   private Map<String, List<SQLRid>> aliasPinnedRids;
 
   /**
+   * Snapshot of the explicit pattern-level RID pins ({@code {as: a, rid: #1:2}}),
+   * taken before {@link #promoteStaticRidsFromFilters} folds {@code @rid = ...}
+   * WHERE filters into {@link #aliasPinnedRids}. Index-ordered MATCH gates
+   * single-source mode on this narrower map: an explicit pattern pin guarantees a
+   * single source row, but a promoted {@code @rid} WHERE filter must still route
+   * through FILTERED mode so its plan-time cost check (MIN_LINKBAG) applies.
+   */
+  private Map<String, List<SQLRid>> explicitPatternRids;
+
+  /**
    * Aliases whose class was inferred from edge LINK schema rather than
    * explicitly declared. Inferred aliases must NOT outcompete explicit
    * roots during scheduling — a low-cardinality inferred class can cause
@@ -421,6 +431,7 @@ public class MatchExecutionPlanner {
     // detectNotInAntiJoin() mutates this map to strip NOT IN conditions.
     this.aliasFilters = new HashMap<>(aliasFilters);
     this.aliasPinnedRids = Map.of();
+    this.explicitPatternRids = Map.of();
   }
 
   /**
@@ -4724,6 +4735,10 @@ public class MatchExecutionPlanner {
     this.aliasFilters = aliasFilters;
     this.aliasClasses = aliasClasses;
     this.aliasPinnedRids = aliasPinnedRids;
+    // Capture explicit pattern pins before promoteStaticRidsFromFilters folds
+    // @rid WHERE filters into aliasPinnedRids. Index-ordered single-source
+    // detection must see only explicit {rid:} pins (see explicitPatternRids doc).
+    this.explicitPatternRids = Map.copyOf(aliasPinnedRids);
     this.inferredWhileExprAliases = inferredAliases;
 
     // Promote static `@rid = <literal|param>` and `@rid IN [...]` filters into
@@ -5274,7 +5289,7 @@ public class MatchExecutionPlanner {
       CommandContext context,
       Map<String, Long> estimatedRootEntries) {
     return new IndexOrderedPlanner(
-        pattern, aliasClasses, aliasFilters, aliasRids,
+        pattern, aliasClasses, aliasFilters, explicitPatternRids,
         orderBy, skip, limit, returnItems, returnAliases,
         returnElements, returnPaths, returnPatterns, returnPathElements)
         .detect(sortedEdges, context, estimatedRootEntries);
