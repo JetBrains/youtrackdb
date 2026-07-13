@@ -18,6 +18,7 @@ import {
 	SessionManager,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { DEFAULT_WORKER_PROMPT_DOCS, loadPromptDocs } from "./prompt-docs.ts";
 
 export type WorkerSession = Awaited<ReturnType<typeof createAgentSession>>["session"];
 
@@ -52,6 +53,7 @@ export async function openWorkerSession(opts: {
 	sessionFile?: string; // resume when provided, else create new under .pi/slate/threads/
 	model?: string; // "provider/id"
 	tools?: string[];
+	promptDocs?: string[]; // role-guideline doc paths (default DEFAULT_WORKER_PROMPT_DOCS)
 }): Promise<WorkerSession> {
 	const { ctx } = opts;
 	const dir = threadsDir(ctx.cwd);
@@ -61,6 +63,12 @@ export async function openWorkerSession(opts: {
 	const authStorage = AuthStorage.create();
 	const modelRegistry = ModelRegistry.create(authStorage);
 
+	// Role-guideline doc content is captured when this session object is
+	// created: a live session keeps its system prompt until disposed; a
+	// thread reopened later (e.g. after a pi restart) re-reads the docs at
+	// their then-current content. Blocks go in separator-free — pi core
+	// joins appendSystemPrompt entries with "\n\n".
+	const promptDocs = loadPromptDocs(ctx.cwd, opts.promptDocs ?? DEFAULT_WORKER_PROMPT_DOCS);
 	const loader = new DefaultResourceLoader({
 		cwd: ctx.cwd,
 		agentDir,
@@ -68,7 +76,7 @@ export async function openWorkerSession(opts: {
 		noSkills: true,
 		noPromptTemplates: true,
 		noThemes: true,
-		appendSystemPrompt: [WORKER_PREAMBLE],
+		appendSystemPrompt: [WORKER_PREAMBLE, ...promptDocs],
 	});
 	await loader.reload();
 

@@ -44,6 +44,8 @@ export interface SlateConfig {
 	workerTools?: string[];
 	maxConcurrent?: number;
 	pauseThresholdPercent?: number; // orchestrator context budget for auto-pause (default 40)
+	orchestratorPromptDocs?: string[]; // role-guideline docs appended to the orchestrator prompt (paths, cwd-relative)
+	workerPromptDocs?: string[]; // role-guideline docs appended to worker system prompts (paths, cwd-relative)
 }
 
 export class SlateStore {

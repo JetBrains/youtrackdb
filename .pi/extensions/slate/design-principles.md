@@ -166,6 +166,13 @@ project's load-on-demand guidance (AGENTS.md):
   reasoning about the architecture itself — explaining slate, modifying
   the extension, or making a non-obvious routing/compaction decision.
 
+The same discipline applies to role guidance extracted from AGENTS.md:
+`prompt-docs.ts` injects per-role guideline docs (orchestrator via
+`before_agent_start`, workers via `appendSystemPrompt`). Defaults are
+compiled into `prompt-docs.ts`; the optional `.pi/slate.json` keys
+`orchestratorPromptDocs` / `workerPromptDocs` override them. Each role's
+always-loaded surface carries only its own rules; the rest stays on demand.
+
 Injecting this full document every turn would be self-defeating: it would
 spend the working memory the architecture exists to protect, and most of
 its content (prior-approach analysis, background concepts) is rationale,

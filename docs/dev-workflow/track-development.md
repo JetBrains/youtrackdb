@@ -150,7 +150,7 @@ never reused.
 
 Per-track sequence:
 
-1. Implement the track (normal commit/test/push discipline per AGENTS.md).
+1. Implement the track (normal commit/test/push discipline per `docs/agents/orchestrator-guidelines.md` and `docs/agents/thread-guidelines.md`).
 2. MANDATORY agent code review of the cumulative track diff `git diff <prev-marker>..HEAD` —
    correctness, test coverage, style, API surface, documentation sync.
 3. Fix findings as normal commits.
