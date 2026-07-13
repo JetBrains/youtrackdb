@@ -19,7 +19,8 @@ Guidance: docs/dev-workflow/track-development.md -->
 #### Tracks:
 <!-- Multi-track changes only — display index; the source of truth is the marker commits
 (`git log --oneline --grep '^Track [0-9]* complete:'`). Write "N/A (single-track)" otherwise.
-Branch-life only: this table is stripped from the description before the squash-merge. -->
+Branch-life only: this table is stripped from the description before the PR is flipped ready
+for review. -->
 
 | # | Track | Scope | Status | Satellite PR |
 |---|-------|-------|--------|--------------|

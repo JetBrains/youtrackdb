@@ -32,13 +32,15 @@ This flow covers **all files in the repository**, including `.pi/` tooling and s
    marker commit the agent asks whether to open a draft satellite PR for review by separate
    peer reviewers; mechanics in `docs/dev-workflow/satellite-pr.md`. Satellites are
    review-only: always draft, never merged. Once opened, the track blocks the next one until
-   the peer review is complete or the user explicitly waives completion.
+   the peer review is complete or the user explicitly waives completion. Satellites are
+   multi-track only — for single-track changes the optional peer review runs on the umbrella
+   PR after the ready-for-review flip.
 
 Single-track changes skip the split and markers; trivial changes (typos, doc-only, mechanical
 renames) collapse the design review into consent to the planned-changes paragraph and may also
 skip the full adversarial review — see the protocol doc's scaling table. The mandatory user
 review gate applies at every tier: for single-track and trivial changes it gates the
-squash-merge.
+ready-for-review flip.
 
 ## Test Policy
 
@@ -100,11 +102,15 @@ dispatch a build there while another build or test run is in progress.
 - Target branch: `develop` (exception: satellite review PRs target their pinned `track-NN-base`
   branch)
 - **1 PR = 1 squashed commit** — all branch commits are squashed on merge
+- **Merge is user-performed** — the agent never merges the umbrella PR. Its final act is
+  flipping the PR to ready-for-review after the pre-flip checklist (see
+  `docs/dev-workflow/track-development.md`); the user may wait for CI and/or peer review, ask
+  the agent to fix failures or observations, and squash-merges themselves.
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made. Satellite review PRs are exempt — they carry a track-summary body instead (see the satellite bullet below).
 - **Keep the PR title and description in sync with follow-up commits.** The squashed commit message is built from the PR title and description, not from individual commit messages — update them with every push so the merge commit reflects all changes.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
 - **Planned changes & Tracks sections**: The PR template includes "Planned changes" and "Tracks" sections, mandatory for non-trivial changes. The umbrella draft PR's description is kept in sync as work proceeds — see `docs/dev-workflow/track-development.md`.
-- **Satellite review PRs** are draft-only review vehicles for individual tracks: they are never merged and never marked ready for review — see `docs/dev-workflow/satellite-pr.md`.
+- **Satellite review PRs** are draft-only review vehicles for individual tracks: they are never merged and never marked ready for review — see `docs/dev-workflow/satellite-pr.md`. Single-track changes create no satellite — their peer review runs on the umbrella PR.
 
 ### Rebase Conflict Resolution
 - When a rebase produces conflicts in prose-heavy files (e.g., `AGENTS.md` or `docs/adr/**`), re-read every resolved file end-to-end before continuing — three-way prose merges can splice text that parses but contradicts itself.

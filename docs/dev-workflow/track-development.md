@@ -6,19 +6,20 @@ This is the mandatory flow for ALL changes in this repository:
 
 Research → (lazy) research log → user design review → adversarial review → umbrella draft PR →
 user approves track split → per-track loop (implement → track code review → fixes → mandatory
-user review → marker commit → optional satellite peer-review PR) → squash-merge + cleanup.
+user review → marker commit → optional satellite peer-review PR) → ready-for-review flip →
+user-performed squash-merge + cleanup.
 
 The flow scales with change size:
 
 | Change size | What applies |
 | --- | --- |
 | Multi-track change | Full flow as described above. |
-| Single-track change | No track split, no marker commits. Everything else applies. |
+| Single-track change | No track split, no marker commits. Everything else applies. Optional peer review runs on the umbrella PR itself — no satellite (see § Ready-for-review flip, merge & cleanup). |
 | Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. Planned-changes section is a 2–3-sentence paragraph; the design review collapses into user consent to it. Micro adversarial review, or skip it with explicit user consent. |
 
 The mandatory user review gate applies at EVERY tier. For single-track and trivial changes the
 whole branch diff is the track, so the user review sits after the agent code review and before
-the squash-merge.
+the ready-for-review flip.
 
 ## Research phase (lightweight)
 
@@ -210,8 +211,9 @@ Per-track sequence:
    if reality diverged from it.
 7. Ask the user whether to open a satellite review PR (see `docs/dev-workflow/satellite-pr.md`) —
    a peer-review vehicle for separate reviewers, not the primary user review (that already
-   happened in step 4). Once a satellite is open, the track's review loop stays open: process
-   peer observations and do NOT start the next track until the peer review is complete
+   happened in step 4). (This ask is multi-track only — for single-track changes the peer-review
+   ask happens at the ready-for-review flip and the review runs on the umbrella PR itself.)
+   Once a satellite is open, the track's review loop stays open: process peer observations and do NOT start the next track until the peer review is complete
    (completion signal defined in that doc) or the user explicitly waives completion. Record the
    peer-review state (open / completed / waived) in the track's Tracks table row — same
    mechanism as sticky answers — so a new session knows whether the loop is still open. Sticky
@@ -253,22 +255,37 @@ After any rebase of the working branch: the markers moved automatically. Re-pin 
 base/head branches from the moved markers and push with `--force-with-lease`. Open satellite PRs
 update automatically since their refs moved.
 
-## Merge & cleanup
+## Ready-for-review flip, merge & cleanup
 
-The umbrella PR is the ONLY PR ever merged (squash, per repo conventions). Before merge:
+The umbrella PR is the ONLY PR ever merged (squash, per repo conventions), and the merge is
+performed BY THE USER — the agent never merges it. The agent's final act is flipping the PR to
+ready-for-review, gated by this pre-flip checklist:
 
 - Re-read the whole PR description end-to-end to confirm it still tells one consistent story.
-- Any commits landed after the last user-approved gate (e.g., late peer-review fixes on the
-  final track) get a user review.
-- Every opened satellite's peer review is completed or explicitly user-waived — closing
-  satellites at merge never discards a pending review.
+- Every opened satellite's peer review is completed or explicitly user-waived — flipping never
+  discards a pending review.
+- All commits landed since the last user-approved gate (e.g., final-track peer-review fixes)
+  are presented to the user.
 - Strip the Tracks table (and any sticky-answer note under it) from the description. Track
   numbers are ephemeral branch-life identifiers: after the squash-merge the marker commits are
   gone and the satellites are closed, so track references would dangle in develop's history.
   The rest of the description — Motivation, Planned changes — stays: it becomes the
   squash-commit body.
 
-At merge: close all satellite PRs and delete all satellite review branches.
+Single-track changes: at the flip the agent asks whether the user wants a peer review. If yes,
+peers review the ready umbrella PR directly — no satellite branches or PR are created; the
+observation loop of `docs/dev-workflow/satellite-pr.md` applies, run on the umbrella PR (fixes
+land as normal commits; no branch re-pinning is needed since the PR head is the working branch).
+
+After the flip: the user may wait for CI green and/or peer-review completion and ask the agent
+to fix test failures or peer observations. The agent lands fixes as normal commits, keeps the
+description in sync, and presents agent-landed commits to the user as they land. Commits pushed
+directly by reviewers are visible in the PR UI; the agent reconciles the description with them
+on its next task. The user's merge act is the final approval.
+
+At merge: close all satellite PRs and delete all satellite review branches — an agent duty,
+executed when the user reports the merge or a later session detects it (the leftover discovery
+procedure lives in `docs/dev-workflow/satellite-pr.md` § Cleanup).
 
 ## Layering richer workflows on top
 
@@ -276,5 +293,6 @@ Richer internal planning and execution machinery — whatever agent tooling is i
 layered on top of this baseline, provided it satisfies the mandatory gates: a user design
 review before adversarial review, pre-implementation adversarial review, an umbrella draft PR
 before coding starts, a code review per track, a mandatory user review per track, marker
-commits at track boundaries, and the per-track satellite-PR ask. This document defines the
-baseline that applies regardless of the tooling.
+commits at track boundaries, the per-track satellite-PR ask, and a user-performed merge (the
+agent never merges the umbrella PR). This document defines the baseline that applies
+regardless of the tooling.
