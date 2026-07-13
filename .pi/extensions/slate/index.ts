@@ -18,7 +18,9 @@
  *
  * Optional config at .pi/slate.json:
  *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4,
- *     "pauseThresholdPercent": 40 }
+ *     "pauseThresholdPercent": 40,
+ *     "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
+ *     "workerPromptDocs": ["docs/agents/thread-guidelines.md"] }
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -62,5 +64,5 @@ export default function (pi: ExtensionAPI) {
 	// getConfig reads the CURRENT `manager` (reassigned on session_start).
 	const handoff = registerSlateHandoff(pi, store, () => manager.getConfig());
 
-	registerSlateMode(pi, store, handoff);
+	registerSlateMode(pi, store, handoff, () => manager.getConfig());
 }

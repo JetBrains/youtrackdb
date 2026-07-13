@@ -204,6 +204,7 @@ export class ThreadManager {
 					sessionFile: thread.sessionFile || undefined,
 					model: thread.model,
 					tools: opts.tools ?? this.config.workerTools,
+					promptDocs: this.config.workerPromptDocs,
 				});
 				this.live.set(thread.id, session);
 				if (!thread.sessionFile && session.sessionFile) {

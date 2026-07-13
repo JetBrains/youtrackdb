@@ -14,7 +14,8 @@
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
-import type { SlateStore } from "./state.ts";
+import { DEFAULT_ORCHESTRATOR_PROMPT_DOCS, loadPromptDocs } from "./prompt-docs.ts";
+import type { SlateConfig, SlateStore } from "./state.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
 
@@ -58,7 +59,12 @@ work. Reply with a concise handoff brief (overall goal, per-thread state with
 episode ids, immediate next actions) and direct the user to run
 /slate handoff [optional focus].`;
 
-export function registerSlateMode(pi: ExtensionAPI, store: SlateStore, hooks: SlateHandoffHooks): void {
+export function registerSlateMode(
+	pi: ExtensionAPI,
+	store: SlateStore,
+	hooks: SlateHandoffHooks,
+	getConfig: () => SlateConfig,
+): void {
 	let savedTools: string[] | undefined;
 	let uiCtx: ExtensionContext | undefined;
 
@@ -133,10 +139,18 @@ export function registerSlateMode(pi: ExtensionAPI, store: SlateStore, hooks: Sl
 		},
 	});
 
-	pi.on("before_agent_start", async (event) => {
+	pi.on("before_agent_start", async (event, ctx) => {
 		if (!store.orchestratorMode) return;
-		const doctrine = store.paused ? DOCTRINE + PAUSED_ADDENDUM : DOCTRINE;
-		return { systemPrompt: event.systemPrompt + doctrine };
+		// Doc CONTENTS are re-read from disk on every agent start, so edits are
+		// picked up live; the doc PATH LIST comes from config, which reloads
+		// only on session_start (index.ts).
+		const docs = loadPromptDocs(ctx.cwd, getConfig().orchestratorPromptDocs ?? DEFAULT_ORCHESTRATOR_PROMPT_DOCS);
+		// Blocks carry no separators — prefix each here. When paused, the
+		// addendum goes LAST so the pause directive is the final word in the
+		// prompt, undiluted by the role guidelines.
+		const parts = [DOCTRINE, ...docs.map((d) => `\n\n${d}`)];
+		if (store.paused) parts.push(PAUSED_ADDENDUM);
+		return { systemPrompt: event.systemPrompt + parts.join("") };
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
