@@ -21,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.executor.FetchFromIndexStep;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.tinkerpop.gremlin.LoadGraphWith;
 import org.apache.tinkerpop.gremlin.process.GremlinProcessRunner;
 import org.apache.tinkerpop.gremlin.process.traversal.DT;
@@ -326,6 +327,82 @@ public class YTDBQueryMetricsStrategyTest extends YTDBAbstractGremlinTest {
     assertThat(listener.executionPlan)
         .as("a by-id lookup runs no query, so no plan is captured")
         .isNull();
+  }
+
+  // YTDB-1195: queryFinished should fire exactly once even when a traversal is
+  // exhausted via iteration and then explicitly closed.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void queryFinishedFiresOnceWhenTraversalExhaustedThenClosed() throws Exception {
+    final var invocationCount = new AtomicInteger(0);
+    QueryMetricsListener countingListener = (queryDetails, startedAtMillis, executionTimeNanos) -> {
+      invocationCount.incrementAndGet();
+    };
+
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(countingListener);
+
+    g.tx().open();
+
+    var q = g.V().hasLabel("person");
+    // Iterate to full exhaustion
+    while (q.hasNext()) {
+      q.next();
+    }
+    // Then explicitly close (this should be idempotent and not fire queryFinished again)
+    q.close();
+
+    g.tx().commit();
+
+    assertThat(invocationCount.get())
+        .as("queryFinished should fire exactly once despite explicit close after exhaustion")
+        .isEqualTo(1);
+  }
+
+  // YTDB-1195: After reset(), a re-executed traversal should fire queryFinished again.
+  // This tests that reset() properly clears the closed flag so re-execution isn't suppressed.
+  @Test
+  @LoadGraphWith(MODERN)
+  public void queryFinishedFiresAgainAfterResetAndReExecution() throws Exception {
+    final var invocationCount = new AtomicInteger(0);
+    QueryMetricsListener countingListener = (queryDetails, startedAtMillis, executionTimeNanos) -> {
+      invocationCount.incrementAndGet();
+    };
+
+    ((YTDBTransaction) g.tx())
+        .withQueryMonitoringMode(QueryMonitoringMode.LIGHTWEIGHT)
+        .withQueryListener(countingListener);
+
+    g.tx().open();
+
+    final var traversal = g.V().hasLabel("person");
+    final var admin = traversal.asAdmin();
+
+    // First execution: iterate to exhaustion and close
+    while (traversal.hasNext()) {
+      traversal.next();
+    }
+    traversal.close();
+
+    assertThat(invocationCount.get())
+        .as("queryFinished should fire once for the first execution")
+        .isEqualTo(1);
+
+    // Reset the traversal to re-arm it for re-execution
+    admin.reset();
+
+    // Second execution: iterate to exhaustion and close
+    while (traversal.hasNext()) {
+      traversal.next();
+    }
+    traversal.close();
+
+    g.tx().commit();
+
+    assertThat(invocationCount.get())
+        .as("queryFinished should fire twice total (once per execution after reset)")
+        .isEqualTo(2);
   }
 
   // A non-graph-rooted root traversal (g.inject) has no YTDBGraphStep at its root, so

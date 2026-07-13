@@ -56,6 +56,7 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
   private final Ticker ticker;
   private final boolean isLightweight;
   private boolean hasStarted = false;
+  private boolean closed = false;
   private long startMillis;
   private long nano;
   private long endNano;
@@ -128,9 +129,10 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
 
   @Override
   public void close() throws Exception {
-    if (!hasStarted) {
+    if (!hasStarted || closed) {
       return;
     }
+    closed = true;
 
     final var duration = isLightweight ? endNano - nano : nano;
     try {
@@ -168,6 +170,19 @@ public class YTDBQueryMetricsStep<S> extends AbstractStep<S, S> implements AutoC
       LogManager.instance().error(this,
           "Error in QueryMetricsListener callback", e);
     }
+  }
+
+  @Override
+  public void reset() {
+    // Re-arm the base AbstractStep iterator first: super.reset() clears the exhausted state
+    // so this step can be iterated again. Only then clear the monitoring state, so a re-run
+    // starts fresh with new timing measurements and fires queryFinished exactly once.
+    super.reset();
+    this.hasStarted = false;
+    this.closed = false;
+    this.startMillis = 0;
+    this.nano = 0;
+    this.endNano = 0;
   }
 
   private void queryHasStarted() {
