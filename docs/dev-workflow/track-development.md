@@ -14,7 +14,7 @@ The flow scales with change size:
 | --- | --- |
 | Multi-track change | Full flow as described above. |
 | Single-track change | No track split, no marker commits. Everything else applies. |
-| Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. Design review collapses into user consent to the 2–3-sentence planned-changes paragraph. Micro adversarial review, or skip it with explicit user consent. |
+| Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. Planned-changes section is a 2–3-sentence paragraph; the design review collapses into user consent to it. Micro adversarial review, or skip it with explicit user consent. |
 
 The mandatory user review gate applies at EVERY tier. For single-track and trivial changes the
 whole branch diff is the track, so the user review sits after the agent code review and before
@@ -88,18 +88,25 @@ Design review: user-approved — YYYY-MM-DD
 ```
 
 With no log, append the line to the draft Planned-changes statement instead; it travels into
-the PR description at umbrella-PR creation.
+the PR description at umbrella-PR creation. (Crossing a session boundary before umbrella-PR
+creation is research-log trigger #4 — open a log then; it becomes the verdict line's home.)
+The verdict line is written at every tier; at the trivial tier it is appended after the
+planned-changes paragraph, which stands in for the Risks & accepted trade-offs subsection.
 
 Tier scaling: at the trivial tier the design review collapses into the user's consent to the
-2–3-sentence planned-changes paragraph. For trivial and single-track changes that consent may
-be batched with the PR-description approval into a single ask.
+2–3-sentence planned-changes paragraph. For trivial and single-track changes the ask may be
+batched: the agent presents the design together with the draft PR description in ONE
+pre-adversarial ask, and the user's single approval covers both. Umbrella-PR creation still
+follows the adversarial review; the description is re-presented only if adversarial triage
+changed it.
 
 ## Adversarial review (mandatory, pre-implementation)
 
-Adversarial review runs after the user design review approves the design, BEFORE the PR
-description is finalized and implementation starts, for EVERY change. The rationale, briefly:
-critique activates latent knowledge that constructive planning does not (generator/critic
-asymmetry), and a fresh-context reviewer has no anchoring on the author's rationale.
+Adversarial review runs after the user approves the design in the user design review, BEFORE
+the PR description is finalized and implementation starts, for EVERY change. The rationale,
+briefly: critique activates latent knowledge that constructive planning does not
+(generator/critic asymmetry), and a fresh-context reviewer has no anchoring on the author's
+rationale.
 
 The reviewer must be a fresh context (sub-agent or fresh session) that did not author the
 decisions.
@@ -124,7 +131,8 @@ Triage each finding with the user. Three outcomes:
 - **Accept-as-risk** — record it in Open Questions / Risks.
 
 Triage runs with the user, so a Reverse outcome is itself user-endorsed; after any reversal,
-refresh the design-review verdict line (new date) before the second adversarial round.
+refresh the design-review verdict line (new date) before any further adversarial round (a
+round-2 reversal refreshes the line before the change is declared reviewed).
 
 One round by default; run a second round only if any decision was actually reversed. Append a
 verdict line to the log (or to the draft Planned-changes statement if there is no log; it

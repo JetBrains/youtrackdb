@@ -14,14 +14,12 @@ This flow covers **all files in the repository**, including `.pi/` tooling and s
 1. **Research first** — interactive code exploration before implementation; a research log is
    opened lazily when complexity triggers fire (non-trivial decisions, surprises, risky
    invariants, session boundaries — see the protocol doc).
-2. **User design review (mandatory, pre-adversarial)** — research ends with a user review loop:
-   the agent presents the design (approach, key decisions with rejected alternatives, risks,
-   open questions — from the research log or the draft Planned-changes statement) and loops on
-   user feedback until explicit approval, recorded as a
-   `Design review: user-approved — YYYY-MM-DD` verdict line.
+2. **User design review** — mandatory before adversarial review: the agent presents the design
+   to the user and loops on feedback until explicit approval, recorded as a durable verdict
+   line — see the protocol doc.
 3. **Adversarial review** — mandatory before implementation for every change; a fresh-context
-   reviewer attacks the user-approved design — the research log (or the draft plan when no log
-   exists); scaled down to a micro-review for trivial changes.
+   reviewer attacks the user-approved design — the research log (or the draft Planned-changes
+   statement when no log exists); scaled down to a micro-review for trivial changes.
 4. **Umbrella draft PR** — created before implementation starts, with a design-level
    description (Planned changes + Tracks sections per the PR template). The user approves the
    proposed track split before coding begins.
