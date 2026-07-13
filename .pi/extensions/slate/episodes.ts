@@ -94,6 +94,7 @@ export interface CompressedEpisode {
 	text: string; // full episode markdown (header + body) as returned to the orchestrator
 	file: string;
 	compressor: string; // model used, or "(uncompressed fallback)"
+	costUsd: number; // USD cost of the compression LLM call (0 on fallback)
 }
 
 function lastAssistantText(messages: unknown[]): string {
@@ -119,6 +120,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 
 	let body: string | undefined;
 	let compressor = "(uncompressed fallback)";
+	let costUsd = 0;
 
 	try {
 		const model = await resolveCompressorModel(ctx, opts.configuredModel, opts.workerModel);
@@ -151,6 +153,7 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 						signal: opts.signal,
 					},
 				);
+				costUsd = response.usage?.cost?.total ?? 0;
 				const text = response.content
 					.filter((c: { type: string }): c is { type: "text"; text: string } => c.type === "text")
 					.map((c: { text: string }) => c.text)
@@ -192,5 +195,5 @@ export async function compressEpisode(opts: CompressEpisodeOptions): Promise<Com
 
 	const text = `${header}${body}\n`;
 	writeFileSync(file, text, "utf8");
-	return { text, file, compressor };
+	return { text, file, compressor, costUsd };
 }

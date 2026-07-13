@@ -20,7 +20,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { SlateConfig, SlateSnapshot, SlateStore } from "./state.ts";
+import { orchestratorCostUsd, type SlateConfig, type SlateSnapshot, type SlateStore } from "./state.ts";
 
 const DEFAULT_PAUSE_THRESHOLD_PERCENT = 40;
 /** A pending-handoff file older than this cannot belong to an in-flight handoff. */
@@ -173,7 +173,15 @@ export function registerSlateHandoff(
 			brief,
 			// The successor starts unpaused and in orchestrator mode regardless of
 			// the current (paused) state.
-			snapshot: { ...store.snapshot(), paused: false, orchestratorMode: true },
+			snapshot: {
+				...store.snapshot(),
+				paused: false,
+				orchestratorMode: true,
+				// The successor's own branch sum starts at zero, so bank the parent's
+				// billed orchestrator spend (plus anything already carried) — the
+				// displayed total must survive repeated handoffs.
+				carriedCostUsd: store.carriedCostUsd + orchestratorCostUsd(ctx),
+			},
 		};
 		const file = pendingFile(ctx.cwd);
 		mkdirSync(dirname(file), { recursive: true });

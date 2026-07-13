@@ -37,6 +37,8 @@ export interface SlateSnapshot {
 	episodes: EpisodeRecord[];
 	orchestratorMode: boolean;
 	paused: boolean;
+	workerCostUsd: number;
+	carriedCostUsd: number; // orchestrator spend banked from ancestor sessions at handoff
 }
 
 export interface SlateConfig {
@@ -54,6 +56,14 @@ export class SlateStore {
 	orchestratorMode = false;
 	/** When true (context budget exceeded) ThreadManager rejects NEW dispatches. */
 	paused = false;
+	/**
+	 * Cumulative USD spend of worker threads this session. Includes the episode
+	 * compressor's LLM calls, so the "workers" figure shown in the widget covers
+	 * compression spend too.
+	 */
+	workerCostUsd = 0;
+	/** Orchestrator spend inherited from ancestor sessions across handoffs. */
+	carriedCostUsd = 0;
 	/** Invoked after every save/restore; used by mode.ts to refresh the widget. */
 	onDidChange?: () => void;
 
@@ -74,6 +84,8 @@ export class SlateStore {
 			episodes: [...this.episodes.values()],
 			orchestratorMode: this.orchestratorMode,
 			paused: this.paused,
+			workerCostUsd: this.workerCostUsd,
+			carriedCostUsd: this.carriedCostUsd,
 		};
 	}
 
@@ -92,6 +104,20 @@ export class SlateStore {
 			}
 		}
 		this.adoptSnapshot(latest, ctx);
+		// Cost counters are NOT branch-scoped like the records above: money never
+		// un-spends, and dispatches on now-abandoned branches were still billed.
+		// Take the MAX over ALL slate-state entries (both counters are monotonic
+		// within a session file) so a branch switch cannot roll them back.
+		for (const entry of ctx.sessionManager.getEntries()) {
+			const e = entry as {
+				type: string;
+				customType?: string;
+				data?: { workerCostUsd?: number; carriedCostUsd?: number };
+			};
+			if (e.type !== "custom" || e.customType !== "slate-state") continue;
+			this.workerCostUsd = Math.max(this.workerCostUsd, e.data?.workerCostUsd ?? 0);
+			this.carriedCostUsd = Math.max(this.carriedCostUsd, e.data?.carriedCostUsd ?? 0);
+		}
 	}
 
 	/**
@@ -104,10 +130,15 @@ export class SlateStore {
 		this.episodes.clear();
 		this.orchestratorMode = false;
 		this.paused = false;
+		this.workerCostUsd = 0;
+		this.carriedCostUsd = 0;
 		if (!latest) return;
 
 		this.orchestratorMode = latest.orchestratorMode ?? false;
 		this.paused = latest.paused ?? false;
+		// ?? 0: old snapshots lack the cost fields.
+		this.workerCostUsd = latest.workerCostUsd ?? 0;
+		this.carriedCostUsd = latest.carriedCostUsd ?? 0;
 		const dropped: string[] = [];
 		for (const t of latest.threads ?? []) {
 			if (t.sessionFile && !existsSync(t.sessionFile)) {
@@ -133,4 +164,23 @@ export class SlateStore {
 		}
 		this.onDidChange?.();
 	}
+}
+
+/**
+ * Orchestrator spend recorded in the session file: billed LINEAGE spend —
+ * summed over ALL entries including abandoned branches (forked/cloned sessions
+ * thus inherit parent-file spend as their own). EXCLUDES pi-internal LLM calls
+ * stored as non-message entries (compaction, branch summarization).
+ * Shared by the widget (mode.ts) and handoff carry (handoff.ts).
+ */
+export function orchestratorCostUsd(ctx: ExtensionContext): number {
+	let cost = 0;
+	for (const entry of ctx.sessionManager.getEntries()) {
+		// Loose cast + optional chaining: tolerate malformed/legacy entries.
+		const e = entry as { type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } };
+		if (e.type === "message" && e.message?.role === "assistant") {
+			cost += e.message.usage?.cost?.total ?? 0;
+		}
+	}
+	return cost;
 }
