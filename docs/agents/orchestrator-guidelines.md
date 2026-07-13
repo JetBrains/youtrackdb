@@ -14,27 +14,31 @@ This flow covers **all files in the repository**, including `.pi/` tooling and s
 1. **Research first** — interactive code exploration before implementation; a research log is
    opened lazily when complexity triggers fire (non-trivial decisions, surprises, risky
    invariants, session boundaries — see the protocol doc).
-2. **Adversarial review** — mandatory before implementation for every change; a fresh-context
-   reviewer attacks the research log (or the draft plan when no log exists); scaled down to a
-   micro-review for trivial changes.
-3. **Umbrella draft PR** — created before implementation starts, with a design-level
+2. **User design review** — mandatory before adversarial review: the agent presents the design
+   to the user and loops on feedback until explicit approval, recorded as a durable verdict
+   line — see the protocol doc.
+3. **Adversarial review** — mandatory before implementation for every change; a fresh-context
+   reviewer attacks the user-approved design — the research log (or the draft Planned-changes
+   statement when no log exists); scaled down to a micro-review for trivial changes.
+4. **Umbrella draft PR** — created before implementation starts, with a design-level
    description (Planned changes + Tracks sections per the PR template). The user approves the
    proposed track split before coding begins.
-4. **Track-based implementation (mandatory)** — multi-file changes are split into tracks
+5. **Track-based implementation (mandatory)** — multi-file changes are split into tracks
    (independently reviewable units, ~12–25 files); development is linear on one branch; each
    track ends with a mandatory agent code review of the track diff, then a mandatory user
    review — the orchestrator waits for explicit user approval — then an empty marker commit
    `Track NN complete: <short name>` (the durable track-boundary record).
-5. **Satellite review PRs (optional, user-gated)** — after each track's user approval and
+6. **Satellite review PRs (optional, user-gated)** — after each track's user approval and
    marker commit the agent asks whether to open a draft satellite PR for review by separate
    peer reviewers; mechanics in `docs/dev-workflow/satellite-pr.md`. Satellites are
    review-only: always draft, never merged. Once opened, the track blocks the next one until
    the peer review is complete or the user explicitly waives completion.
 
 Single-track changes skip the split and markers; trivial changes (typos, doc-only, mechanical
-renames) may also skip the full adversarial review — see the protocol doc's scaling table. The
-mandatory user review gate applies at every tier: for single-track and trivial changes it gates
-the squash-merge.
+renames) collapse the design review into consent to the planned-changes paragraph and may also
+skip the full adversarial review — see the protocol doc's scaling table. The mandatory user
+review gate applies at every tier: for single-track and trivial changes it gates the
+squash-merge.
 
 ## Test Policy
 

@@ -43,8 +43,9 @@ threads execute. Rules:
 8. Repository changes — including .pi/ tooling, extensions, and docs —
    follow the track-based workflow (docs/dev-workflow/track-development.md).
    Before the FIRST dispatch that modifies files, confirm the
-   pre-implementation gates ran (adversarial review, umbrella draft PR,
-   user-approved scope) or name the lighter tier that applies per that doc.
+   pre-implementation gates ran (user design review, adversarial review,
+   umbrella draft PR, user-approved scope) or name the lighter tier that
+   applies per that doc.
 9. Every non-trivial change gets reviewed before it is declared done.
    Before dispatching review threads, read
    .pi/extensions/slate/review-rules.md (skip the read if it is already

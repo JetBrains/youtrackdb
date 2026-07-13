@@ -4,9 +4,9 @@
 
 This is the mandatory flow for ALL changes in this repository:
 
-Research → (lazy) research log → adversarial review → umbrella draft PR → user approves track
-split → per-track loop (implement → track code review → fixes → mandatory user review → marker
-commit → optional satellite peer-review PR) → squash-merge + cleanup.
+Research → (lazy) research log → user design review → adversarial review → umbrella draft PR →
+user approves track split → per-track loop (implement → track code review → fixes → mandatory
+user review → marker commit → optional satellite peer-review PR) → squash-merge + cleanup.
 
 The flow scales with change size:
 
@@ -14,7 +14,7 @@ The flow scales with change size:
 | --- | --- |
 | Multi-track change | Full flow as described above. |
 | Single-track change | No track split, no marker commits. Everything else applies. |
-| Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. Micro adversarial review, or skip it with explicit user consent. Planned-changes section is a 2–3-sentence paragraph. |
+| Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. Planned-changes section is a 2–3-sentence paragraph; the design review collapses into user consent to it. Micro adversarial review, or skip it with explicit user consent. |
 
 The mandatory user review gate applies at EVERY tier. For single-track and trivial changes the
 whole branch diff is the track, so the user review sits after the agent code review and before
@@ -25,7 +25,7 @@ the squash-merge.
 Research is interactive exploration before any implementation: read real source code, trace call
 chains, and clarify aims and constraints with the user. There is no design document, no
 implementation plan, and no mandatory artifacts. The phase ends when the initial design of the
-change is understood.
+change is understood and has passed the user design review (see below).
 
 ## Research log (lazy-triggered)
 
@@ -56,7 +56,8 @@ Four sections:
 
 During research the log lives as an untracked file `research-log.md` at the repo root. At
 umbrella-PR creation its content is folded into the PR description — Key decisions, Risks, and
-Open questions feed the corresponding Planned-changes subsections — and the file is deleted.
+Open questions feed the corresponding Planned-changes subsections, and the design review and
+adversarial review verdict lines land in Risks & accepted trade-offs — and the file is deleted.
 Decisions made after PR creation are appended to the PR description directly.
 
 ### Under-trigger guardrail
@@ -64,12 +65,48 @@ Decisions made after PR creation are appended to the PR description directly.
 When shaping the PR description without a log, state this explicitly (e.g. "no log kept — one
 trivial decision, no surprises") so the user can override and request one.
 
+## User design review (mandatory, pre-adversarial)
+
+When research converges, the agent presents the design to the user: the proposed approach, key
+decisions with the alternatives rejected, risks, and open questions. The presentation input is
+keyed on log existence, the same way as the adversarial review's: log exists → present from the
+log; no log → present the draft Planned-changes statement. The agent then loops on user
+feedback — revising the design (and log) — until the user explicitly approves. Only after that
+approval does the adversarial review run.
+
+Rationale: the user owns the design direction. Reviewing with the user first means the
+adversarial review attacks a stabilized, user-endorsed design instead of one the user may still
+redirect — adversarial rounds are not spent on designs that would change anyway. The loop
+mechanics mirror the track loop's mandatory user review (present → feedback → explicit
+approval); the position relative to machine review is deliberately inverted — here the user
+reviews first.
+
+Durable record — append a verdict line to the log:
+
+```
+Design review: user-approved — YYYY-MM-DD
+```
+
+With no log, append the line to the draft Planned-changes statement instead; it travels into
+the PR description at umbrella-PR creation. (Crossing a session boundary before umbrella-PR
+creation is research-log trigger #4 — open a log then; it becomes the verdict line's home.)
+The verdict line is written at every tier; at the trivial tier it is appended after the
+planned-changes paragraph, which stands in for the Risks & accepted trade-offs subsection.
+
+Tier scaling: at the trivial tier the design review collapses into the user's consent to the
+2–3-sentence planned-changes paragraph. For trivial and single-track changes the ask may be
+batched: the agent presents the design together with the draft PR description in ONE
+pre-adversarial ask, and the user's single approval covers both. Umbrella-PR creation still
+follows the adversarial review; the description is re-presented only if adversarial triage
+changed it.
+
 ## Adversarial review (mandatory, pre-implementation)
 
-Adversarial review runs after research converges, BEFORE the PR description is finalized and
-implementation starts, for EVERY change. The rationale, briefly: critique activates latent
-knowledge that constructive planning does not (generator/critic asymmetry), and a fresh-context
-reviewer has no anchoring on the author's rationale.
+Adversarial review runs after the user approves the design in the user design review, BEFORE
+the PR description is finalized and implementation starts, for EVERY change. The rationale,
+briefly: critique activates latent knowledge that constructive planning does not
+(generator/critic asymmetry), and a fresh-context reviewer has no anchoring on the author's
+rationale.
 
 The reviewer must be a fresh context (sub-agent or fresh session) that did not author the
 decisions.
@@ -93,8 +130,13 @@ Triage each finding with the user. Three outcomes:
 - **Reverse** — change the decision now, while it is still cheap.
 - **Accept-as-risk** — record it in Open Questions / Risks.
 
+Triage runs with the user, so a Reverse outcome is itself user-endorsed; after any reversal,
+refresh the design-review verdict line (new date) before any further adversarial round (a
+round-2 reversal refreshes the line before the change is declared reviewed).
+
 One round by default; run a second round only if any decision was actually reversed. Append a
-verdict line to the log (or straight to the PR description if there is no log):
+verdict line to the log (or to the draft Planned-changes statement if there is no log; it
+travels into the PR description at umbrella-PR creation):
 
 ```
 Adversarial review: passed, N accepted risks — YYYY-MM-DD
@@ -102,7 +144,8 @@ Adversarial review: passed, N accepted risks — YYYY-MM-DD
 
 ## Umbrella draft PR
 
-Created once the initial design is understood, before implementation:
+Created once the design has passed the user design review and the adversarial review, before
+implementation:
 
 ```bash
 gh pr create --draft --base develop
@@ -125,7 +168,8 @@ Subsections activate when their content exists:
 - **How** — design-level description.
 - **Key decisions** — chosen vs rejected; preempts "why not X?" review comments.
 - **Out of scope** — explicit non-goals.
-- **Risks & accepted trade-offs** — including the adversarial review verdict line.
+- **Risks & accepted trade-offs** — including the design review and adversarial review verdict
+  lines.
 - **Verification approach** — 1–2 lines.
 
 "Deep enough" test: a reviewer who knows the codebase but not this change can (1) predict which
@@ -229,7 +273,8 @@ At merge: close all satellite PRs and delete all satellite review branches.
 ## Layering richer workflows on top
 
 Richer internal planning and execution machinery — whatever agent tooling is in use — may be
-layered on top of this baseline, provided it satisfies the mandatory gates: pre-implementation
-adversarial review, an umbrella draft PR before coding starts, a code review per track, a
-mandatory user review per track, marker commits at track boundaries, and the per-track
-satellite-PR ask. This document defines the baseline that applies regardless of the tooling.
+layered on top of this baseline, provided it satisfies the mandatory gates: a user design
+review before adversarial review, pre-implementation adversarial review, an umbrella draft PR
+before coding starts, a code review per track, a mandatory user review per track, marker
+commits at track boundaries, and the per-track satellite-PR ask. This document defines the
+baseline that applies regardless of the tooling.
