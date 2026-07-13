@@ -1,11 +1,12 @@
 /**
  * Slate — thread-weaving agent architecture for pi.
  *
- * Implements the Slate architecture (see slate-dev/reference/slate-blog.md)
- * per slate-dev/EXECPLAN.md. An orchestrator (the main pi session) dispatches
- * bounded actions to persistent worker threads via the `thread` tool; each
- * completed action returns an episode — a compressed, structured record that
- * the orchestrator composes into further dispatches.
+ * Implements the Slate architecture — design rationale and principles in
+ * ./design-principles.md (module headers cite decision ids D3–D9/M1–M3 from
+ * the original ExecPlan, which is not in-repo). An orchestrator (the main pi
+ * session) dispatches bounded actions to persistent worker threads via the
+ * `thread` tool; each completed action returns an episode — a compressed,
+ * structured record that the orchestrator composes into further dispatches.
  *
  * Modules:
  *   state.ts    — thread/episode records, session-scoped persistence
