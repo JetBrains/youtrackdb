@@ -260,7 +260,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
    * <p>Null keys are physically stored in a separate bucket outside the sorted B-tree, so their
    * position in the emitted sequence is decided purely by where the null stream is concatenated.
    * The old code always prepended the null stream, which put nulls first for DESC too and
-   * diverged from the in-memory path (YTDB-1197).
+   * diverged from the in-memory path.
    */
   private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
       DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {

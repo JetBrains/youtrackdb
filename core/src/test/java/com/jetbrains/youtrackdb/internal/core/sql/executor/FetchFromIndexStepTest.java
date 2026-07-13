@@ -314,7 +314,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
    * A full ASCENDING scan over an index that stores null keys emits the null-key group BEFORE the
    * ascending non-null keys. This is the "null = smallest" placement that {@link
    * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem#compare} produces for ASC, and
-   * it must match whether or not the index accelerates the sort (YTDB-1197). Two null records are
+   * it must match whether or not the index accelerates the sort. Two null records are
    * seeded so the assertion also proves the multi-value (NOTUNIQUE) null bucket yields every RID.
    */
   @Test
@@ -334,7 +334,7 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
 
   /**
    * A full DESCENDING scan places the null-key group LAST, mirroring the in-memory sort's DESC
-   * behavior (nulls last). This pins the YTDB-1197 fix: {@code processFlatIteration} used to
+   * behavior (nulls last). This pins the fix: {@code processFlatIteration} used to
    * prepend the null stream unconditionally, so DESC emitted nulls first and diverged from the
    * in-memory path. Two null records verify the descending scan still surfaces every RID stored
    * under the null key (the BTreeMultiValueIndexEngine null bucket).
