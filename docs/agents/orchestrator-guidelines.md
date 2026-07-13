@@ -9,6 +9,8 @@ automatically by the slate extension). Hands-on command references live in
 
 All changes follow the track-based flow — full protocol in `docs/dev-workflow/track-development.md`:
 
+This flow covers **all files in the repository**, including `.pi/` tooling and slate extension code — not only Java/product sources. There is no "harness tooling" exemption: editing an extension, prompt, or doc is a repository change and takes the same gates.
+
 1. **Research first** — interactive code exploration before implementation; a research log is
    opened lazily when complexity triggers fire (non-trivial decisions, surprises, risky
    invariants, session boundaries — see the protocol doc).

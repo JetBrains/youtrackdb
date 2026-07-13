@@ -22,6 +22,7 @@ export function registerSlateTools(pi: ExtensionAPI, store: SlateStore, getManag
 			"Threads are serial; to parallelize, dispatch to DIFFERENT threads in one message.",
 			"`model` (\"provider/id\") and `tools` apply only when creating a new thread.",
 			"An episode header of STATUS: FAILED means the action failed — read it and adapt.",
+			"Tasks that modify repository files require the track workflow's pre-implementation gates to have run first.",
 		].join(" "),
 		promptSnippet: "Dispatch one bounded action to a persistent worker thread; returns a compressed episode",
 		promptGuidelines: [

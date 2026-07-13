@@ -157,12 +157,13 @@ The orchestrator's knowledge of these principles is two-tier, following the
 project's load-on-demand guidance (AGENTS.md):
 
 - **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
-  distillation of P1–P10 plus the review discipline defined in
-  `review-rules.md`, appended to the system prompt every turn while
-  orchestrator mode is on. It costs a few hundred tokens and covers
-  everything routine dispatching needs.
+  distillation of P1–P10, the review discipline defined in
+  `review-rules.md`, and a pointer to the repository's track-based
+  workflow gates (`docs/dev-workflow/track-development.md`), appended to
+  the system prompt every turn while orchestrator mode is on. It costs a
+  few hundred tokens and covers everything routine dispatching needs.
 - **Tier 2 — on demand.** This document. The doctrine carries a short
-  pointer to it (doctrine rule 9); the orchestrator reads it only when
+  pointer to it (doctrine rule 10); the orchestrator reads it only when
   reasoning about the architecture itself — explaining slate, modifying
   the extension, or making a non-obvious routing/compaction decision.
 
