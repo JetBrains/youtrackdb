@@ -5,8 +5,8 @@
 This is the mandatory flow for ALL changes in this repository:
 
 Research → (lazy) research log → adversarial review → umbrella draft PR → user approves track
-split → per-track loop (implement → track code review → fixes → marker commit → optional satellite
-PR) → squash-merge + cleanup.
+split → per-track loop (implement → track code review → fixes → mandatory user review → marker
+commit → optional satellite peer-review PR) → squash-merge + cleanup.
 
 The flow scales with change size:
 
@@ -15,6 +15,10 @@ The flow scales with change size:
 | Multi-track change | Full flow as described above. |
 | Single-track change | No track split, no marker commits. Everything else applies. |
 | Trivial change (typo, doc-only, mechanical rename, obvious one-file fix) | No split. Micro adversarial review, or skip it with explicit user consent. Planned-changes section is a 2–3-sentence paragraph. |
+
+The mandatory user review gate applies at EVERY tier. For single-track and trivial changes the
+whole branch diff is the track, so the user review sits after the agent code review and before
+the squash-merge.
 
 ## Research phase (lightweight)
 
@@ -154,12 +158,23 @@ Per-track sequence:
 2. MANDATORY agent code review of the cumulative track diff `git diff <prev-marker>..HEAD` —
    correctness, test coverage, style, API surface, documentation sync.
 3. Fix findings as normal commits.
-4. Land the marker commit.
-5. Update the umbrella PR Tracks table row (status, satellite link); revise Planned changes only
+4. MANDATORY user review: present the track summary and the track diff to the user, then loop on
+   user feedback — landing fixes as normal commits — until the user explicitly approves. The
+   agent waits for that approval; the marker commit certifies a fully user-reviewed track.
+5. Land the marker commit.
+6. Update the umbrella PR Tracks table row (status, satellite link); revise Planned changes only
    if reality diverged from it.
-6. Ask the user whether to open a satellite review PR (see `docs/dev-workflow/satellite-pr.md`). Sticky
+7. Ask the user whether to open a satellite review PR (see `docs/dev-workflow/satellite-pr.md`) —
+   a peer-review vehicle for separate reviewers, not the primary user review (that already
+   happened in step 4). Once a satellite is open, the track's review loop stays open: process
+   peer observations and do NOT start the next track until the peer review is complete
+   (completion signal defined in that doc) or the user explicitly waives completion. Record the
+   peer-review state (open / completed / waived) in the track's Tracks table row — same
+   mechanism as sticky answers — so a new session knows whether the loop is still open. Sticky
    answers are allowed: the user may reply "yes/no for all remaining tracks". Record the sticky
-   answer as a one-line note under the Tracks table for cross-session durability and stop asking.
+   answer as a one-line note under the Tracks table for cross-session durability and stop
+   asking. Sticky answers apply only to this satellite ask — the step-4 user review stays
+   mandatory for every track.
 
 ## Marker commits (source of truth for track boundaries)
 
@@ -182,8 +197,9 @@ Properties:
 
 - **Rebase-resilient** — markers are in the history being rebased, so they move with it.
 - **Zero cleanup** — the squash-merge into develop erases them.
-- The umbrella PR Tracks table is a display-only index (names, scope lines, satellite links —
-  never SHAs).
+- The umbrella PR Tracks table is a display-only index (names, scope lines, statuses,
+  peer-review state, satellite links — never SHAs); it is never the source of truth for track
+  boundaries.
 
 Single-track changes land no markers — the whole branch diff is the track.
 
@@ -198,6 +214,10 @@ update automatically since their refs moved.
 The umbrella PR is the ONLY PR ever merged (squash, per repo conventions). Before merge:
 
 - Re-read the whole PR description end-to-end to confirm it still tells one consistent story.
+- Any commits landed after the last user-approved gate (e.g., late peer-review fixes on the
+  final track) get a user review.
+- Every opened satellite's peer review is completed or explicitly user-waived — closing
+  satellites at merge never discards a pending review.
 - Strip the Tracks table (and any sticky-answer note under it) from the description. Track
   numbers are ephemeral branch-life identifiers: after the squash-merge the marker commits are
   gone and the satellites are closed, so track references would dangle in develop's history.
@@ -210,6 +230,6 @@ At merge: close all satellite PRs and delete all satellite review branches.
 
 Richer internal planning and execution machinery — whatever agent tooling is in use — may be
 layered on top of this baseline, provided it satisfies the mandatory gates: pre-implementation
-adversarial review, an umbrella draft PR before coding starts, a code review per track, marker
-commits at track boundaries, and the per-track satellite-PR ask. This document defines the
-baseline that applies regardless of the tooling.
+adversarial review, an umbrella draft PR before coding starts, a code review per track, a
+mandatory user review per track, marker commits at track boundaries, and the per-track
+satellite-PR ask. This document defines the baseline that applies regardless of the tooling.

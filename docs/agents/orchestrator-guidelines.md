@@ -22,14 +22,19 @@ This flow covers **all files in the repository**, including `.pi/` tooling and s
    proposed track split before coding begins.
 4. **Track-based implementation (mandatory)** — multi-file changes are split into tracks
    (independently reviewable units, ~12–25 files); development is linear on one branch; each
-   track ends with a mandatory agent code review of the track diff, then an empty marker
-   commit `Track NN complete: <short name>` (the durable track-boundary record).
-5. **Satellite review PRs (optional, user-gated)** — after each track the agent asks whether
-   to open a draft satellite PR for human review of that track's diff; mechanics in
-   `docs/dev-workflow/satellite-pr.md`. Satellites are review-only: always draft, never merged.
+   track ends with a mandatory agent code review of the track diff, then a mandatory user
+   review — the orchestrator waits for explicit user approval — then an empty marker commit
+   `Track NN complete: <short name>` (the durable track-boundary record).
+5. **Satellite review PRs (optional, user-gated)** — after each track's user approval and
+   marker commit the agent asks whether to open a draft satellite PR for review by separate
+   peer reviewers; mechanics in `docs/dev-workflow/satellite-pr.md`. Satellites are
+   review-only: always draft, never merged. Once opened, the track blocks the next one until
+   the peer review is complete or the user explicitly waives completion.
 
 Single-track changes skip the split and markers; trivial changes (typos, doc-only, mechanical
-renames) may also skip the full adversarial review — see the protocol doc's scaling table.
+renames) may also skip the full adversarial review — see the protocol doc's scaling table. The
+mandatory user review gate applies at every tier: for single-track and trivial changes it gates
+the squash-merge.
 
 ## Test Policy
 
