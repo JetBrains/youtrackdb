@@ -6,7 +6,7 @@ This is the mandatory flow for ALL changes in this repository:
 
 Research → (lazy) research log → adversarial review → umbrella draft PR → user approves track
 split → per-track loop (implement → track code review → fixes → mandatory user review → marker
-commit → optional satellite PR (peer review)) → squash-merge + cleanup.
+commit → optional satellite peer-review PR) → squash-merge + cleanup.
 
 The flow scales with change size:
 
@@ -160,18 +160,21 @@ Per-track sequence:
 3. Fix findings as normal commits.
 4. MANDATORY user review: present the track summary and the track diff to the user, then loop on
    user feedback — landing fixes as normal commits — until the user explicitly approves. The
-   orchestrator WAITS for that approval; the marker commit certifies a fully user-reviewed track.
+   agent waits for that approval; the marker commit certifies a fully user-reviewed track.
 5. Land the marker commit.
 6. Update the umbrella PR Tracks table row (status, satellite link); revise Planned changes only
    if reality diverged from it.
 7. Ask the user whether to open a satellite review PR (see `docs/dev-workflow/satellite-pr.md`) —
-   a peer-review vehicle for SEPARATE reviewers, not the primary user review (that already
+   a peer-review vehicle for separate reviewers, not the primary user review (that already
    happened in step 4). Once a satellite is open, the track's review loop stays open: process
-   peer observations and do NOT start the next track until the peer review completes or the user
-   explicitly says to proceed without completing it. Sticky answers are allowed: the user may
-   reply "yes/no for all remaining tracks". Record the sticky answer as a one-line note under the
-   Tracks table for cross-session durability and stop asking. Sticky answers never waive the
-   mandatory in-session user review in step 4.
+   peer observations and do NOT start the next track until the peer review is complete
+   (completion signal defined in that doc) or the user explicitly waives completion. Record the
+   peer-review state (open / completed / waived) in the track's Tracks table row — same
+   mechanism as sticky answers — so a new session knows whether the loop is still open. Sticky
+   answers are allowed: the user may reply "yes/no for all remaining tracks". Record the sticky
+   answer as a one-line note under the Tracks table for cross-session durability and stop
+   asking. Sticky answers apply only to this satellite ask — the step-4 user review stays
+   mandatory for every track.
 
 ## Marker commits (source of truth for track boundaries)
 
@@ -212,6 +215,8 @@ The umbrella PR is the ONLY PR ever merged (squash, per repo conventions). Befor
 - Re-read the whole PR description end-to-end to confirm it still tells one consistent story.
 - Any commits landed after the last user-approved gate (e.g., late peer-review fixes on the
   final track) get a user review.
+- Every opened satellite's peer review is completed or explicitly user-waived — closing
+  satellites at merge never discards a pending review.
 - Strip the Tracks table (and any sticky-answer note under it) from the description. Track
   numbers are ephemeral branch-life identifiers: after the squash-merge the marker commits are
   gone and the satellites are closed, so track references would dangle in develop's history.
