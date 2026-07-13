@@ -296,7 +296,9 @@ public class MatchEdgeMethodInferenceAndAbortTest extends DbTestBase {
     // by asserting its position falls between {selectiveTag} and {broadTag};
     // without this positional check, the assertion could pass even if the
     // planner mis-attached the index to the broad branch.
-    int intersectionPos = plan.indexOf("(intersection: index VITag_name)");
+    // Match the marker prefix only: the plan appends "selectivity=… estHits=…"
+    // inside the parentheses, so a trailing ")" would not match.
+    int intersectionPos = plan.indexOf("(intersection: index VITag_name");
     assertTrue(
         "Plan should show index intersection for VITag_name (proves class"
             + " inference), but plan was:\n" + plan,
