@@ -42,7 +42,12 @@ threads execute. Rules:
 8. Every non-trivial change gets reviewed before it is declared done.
    Before dispatching review threads, read
    .pi/extensions/slate/review-rules.md (skip the read if it is already
-   in your context) and follow it.`;
+   in your context) and follow it.
+9. The design principles behind this architecture are documented in
+   .pi/extensions/slate/design-principles.md. Read that file only when you
+   must reason about slate itself (explaining it, changing the extension,
+   or an unusual routing/compaction decision) — never for routine
+   dispatching. Skip the read if it is already in your context.`;
 
 const PAUSED_ADDENDUM = `
 
