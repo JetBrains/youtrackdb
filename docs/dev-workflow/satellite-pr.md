@@ -3,11 +3,14 @@
 ## Purpose & invariants
 
 A satellite PR is a review vehicle for ONE track's diff, aimed at separate peer reviewers.
-Satellites exist for MULTI-TRACK changes only; for single-track changes the umbrella PR itself
-hosts the optional peer review after the agent flips it ready for review — the same observation
-loop (below), run on the umbrella PR. The primary user review happens in-session as a mandatory
-per-track gate (see `docs/dev-workflow/track-development.md`) and is never replaced by a
-satellite. Two invariants:
+Satellites exist for MULTI-TRACK changes only; for single-track and trivial changes the
+umbrella PR itself hosts the optional peer review after the agent flips it ready for review.
+There the observation loop (below) applies only in part: observations are read and fixed as
+normal commits under the same completion signal, but the satellite-only mechanics — head
+force-update, next-track blocking — do not apply; the post-flip duties live in
+`docs/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup. The primary
+user review happens in-session as a mandatory per-track gate (see the same doc) and is never
+replaced by a satellite. Two invariants:
 
 - It is **never merged**.
 - It is **never marked "ready for review"** — it stays DRAFT for its whole life.
@@ -60,7 +63,9 @@ decide (keep waiting vs waive completion). Peer-fix commits land after the track
 approval: on a non-final track they fall inside the next track's commit range and are covered by
 that track's mandatory user review; commits after the last user-approved gate (e.g., final-track
 peer fixes) are presented to the user by the pre-flip checklist (see
-`docs/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup).
+`docs/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup). On a
+single-track or trivial change's umbrella PR, post-flip peer fixes are instead presented as
+they land (same section).
 
 Caveat: if later tracks have started (i.e., the user waived completion), the updated head
 pollutes the satellite's diff with later-track commits. Mitigations: GitHub's "changes since
@@ -76,6 +81,8 @@ with `--force-with-lease`.
 
 The umbrella PR's merge is user-performed. Closing every satellite PR and deleting every
 `track-NN-base` / `track-NN-head` branch is an agent duty, executed when the user reports the
-merge or a later session detects it. Discover leftovers with `gh pr list --state open --draft`,
-filtering for `[Track NN]` titles, plus a branch scan for the `<branch>/track-NN-base` /
-`<branch>/track-NN-head` name pattern.
+merge or a later session detects it. First confirm the umbrella PR is actually MERGED
+(`gh pr view --json state,mergedAt`) — never run cleanup while the umbrella is open: a paused
+in-flight branch keeps its satellites. Discover leftovers with
+`gh pr list --state open --draft`, filtering for `[Track NN]` titles, plus a branch scan for
+the `<branch>/track-NN-base` / `<branch>/track-NN-head` name pattern.
