@@ -52,7 +52,7 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
  *   <li>the closing hop is an {@code EdgeOtherVertexStep} ({@code otherV}) — the MATCH executor has
  *       no {@code otherV} method, so a {@code bothE(L).has(...).otherV()} chain cannot be expressed
  *       and stays native (plain {@code both(L)} without an edge filter still translates via {@link
- *       VertexStepRecogniser});
+ *       VertexHopRecogniser});
  *   <li>there is no closing hop at all (an edge-returning terminal — out of scope).
  * </ul>
  *
@@ -63,15 +63,15 @@ import org.apache.tinkerpop.gremlin.structure.Direction;
  * WalkerContext#stepIndex} is advanced only once the closing hop is confirmed. A decline therefore
  * leaves {@code ctx} exactly as it was found, as the {@link StepRecogniser} contract requires.
  */
-final class EdgeStepRecogniser implements StepRecogniser {
+final class EdgeHopRecogniser implements StepRecogniser {
 
   /** Singleton — the recogniser is stateless and cheap to share across walker instances. */
-  static final EdgeStepRecogniser INSTANCE = new EdgeStepRecogniser();
+  static final EdgeHopRecogniser INSTANCE = new EdgeHopRecogniser();
 
   /** Stateless builder for the AND-merge and where-clause wrap; construction is trivial. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
 
-  private EdgeStepRecogniser() {
+  private EdgeHopRecogniser() {
     // Singleton — instantiate via INSTANCE.
   }
 
@@ -93,7 +93,7 @@ final class EdgeStepRecogniser implements StepRecogniser {
     if (!edgeStep.getLabels().isEmpty()) {
       return 0;
     }
-    // Resolve the edge-label arity — one rule shared with VertexStepRecogniser (see
+    // Resolve the edge-label arity — one rule shared with VertexHopRecogniser (see
     // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types edge
     // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows
     // to appendEdgeAsNode, which the builder renders as the all-types bare outE(){...} form.
