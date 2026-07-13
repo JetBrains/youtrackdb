@@ -6974,73 +6974,118 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // ── ORDER BY null placement: index-accelerated vs in-memory (YTDB-1197) ──
+  //
+  // One explicit test per scenario. Each asserts (a) whether the index optimization is used — an
+  // index-accelerated sort has a FetchFromIndexStep and no OrderByStep, an in-memory sort has an
+  // OrderByStep and no FetchFromIndexStep (checked inside orderedNamesAndAssertPlan) — and (b) the
+  // exact null placement. Every scenario pins the same order literal per direction, so ASC and
+  // DESC placement is identical across the index-accelerated and in-memory paths by construction.
+
   /**
-   * ORDER BY null placement must be identical whether a NOTUNIQUE (multi-value) index accelerates
-   * the sort or the rows are sorted in memory, for both ASC and DESC. The indexed class routes
-   * through handleClassWithIndexForSortOnly -> FetchFromIndexValuesStep (a FetchFromIndexStep with
-   * no OrderByStep); the non-indexed class falls back to an in-memory OrderByStep. Both must place
-   * nulls first for ASC and last for DESC (YTDB-1197 — the index path used to emit nulls first for
-   * DESC too).
+   * ASC over a NOTUNIQUE (multi-value) indexed field: the planner satisfies ORDER BY from the index
+   * (FetchFromIndexValuesStep, no OrderByStep) and emits the two null-keyed rows first, then the
+   * ascending values.
    */
   @Test
-  public void testOrderByNullPlacementConsistentForNotUniqueIndex() {
-    var indexed = "testNullPlacementIdxNotUnique";
-    var inMemory = "testNullPlacementNoIdxNotUnique";
-    var idxCls = session.getMetadata().getSchema().createClass(indexed);
-    idxCls.createProperty("name", PropertyType.STRING);
-    idxCls.createIndex(indexed + ".name", INDEX_TYPE.NOTUNIQUE, "name");
-    session.getMetadata().getSchema().createClass(inMemory)
-        .createProperty("name", PropertyType.STRING);
+  public void testOrderByAscUsesNotUniqueIndexNullsFirst() {
+    var className = "testOrderByAscIdxNotUnique";
+    createIndexedNameClass(className, INDEX_TYPE.NOTUNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
 
-    // Two nulls exercise the multi-value null bucket; unsorted non-null values prove the sort runs.
-    var names = Arrays.asList("b", "a", "c", null, null);
-    seedNames(indexed, names);
-    seedNames(inMemory, names);
+    var ordered = orderedNamesAndAssertPlan(className, "ASC", true);
 
-    // ASC: nulls first, then ascending values — this path already agreed before the fix.
-    var idxAsc = orderedNamesAndAssertPlan(indexed, "ASC", true);
-    var memAsc = orderedNamesAndAssertPlan(inMemory, "ASC", false);
-    Assert.assertEquals(Arrays.asList(null, null, "a", "b", "c"), idxAsc);
-    Assert.assertEquals(memAsc, idxAsc);
-
-    // DESC: descending values, then nulls last — the placement the bug diverged on.
-    var idxDesc = orderedNamesAndAssertPlan(indexed, "DESC", true);
-    var memDesc = orderedNamesAndAssertPlan(inMemory, "DESC", false);
-    Assert.assertEquals(Arrays.asList("c", "b", "a", null, null), idxDesc);
-    Assert.assertEquals(memDesc, idxDesc);
+    Assert.assertEquals(Arrays.asList(null, null, "a", "b", "c"), ordered);
   }
 
   /**
-   * Same null-placement invariant as {@link #testOrderByNullPlacementConsistentForNotUniqueIndex}
-   * but for a UNIQUE (single-value) index. Nulls are not ignored by default
-   * (INDEX_IGNORE_NULL_VALUES_DEFAULT = false), so a UNIQUE index stores a single null key; the
-   * index-accelerated scan must return that null row and place it consistently with the in-memory
-   * sort for both ASC (nulls first) and DESC (nulls last).
+   * DESC over a NOTUNIQUE (multi-value) indexed field: index-accelerated, and the null-keyed rows
+   * come LAST. This is the placement the bug got wrong — the index path used to emit nulls first
+   * for DESC (YTDB-1197).
    */
   @Test
-  public void testOrderByNullPlacementConsistentForUniqueIndex() {
-    var indexed = "testNullPlacementIdxUnique";
-    var inMemory = "testNullPlacementNoIdxUnique";
-    var idxCls = session.getMetadata().getSchema().createClass(indexed);
-    idxCls.createProperty("name", PropertyType.STRING);
-    idxCls.createIndex(indexed + ".name", INDEX_TYPE.UNIQUE, "name");
-    session.getMetadata().getSchema().createClass(inMemory)
+  public void testOrderByDescUsesNotUniqueIndexNullsLast() {
+    var className = "testOrderByDescIdxNotUnique";
+    createIndexedNameClass(className, INDEX_TYPE.NOTUNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesAndAssertPlan(className, "DESC", true);
+
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null, null), ordered);
+  }
+
+  /**
+   * ASC over a UNIQUE (single-value) indexed field: index-accelerated. Nulls are not ignored by
+   * default (INDEX_IGNORE_NULL_VALUES_DEFAULT = false), so the single null key is stored and
+   * emitted first.
+   */
+  @Test
+  public void testOrderByAscUsesUniqueIndexNullsFirst() {
+    var className = "testOrderByAscIdxUnique";
+    createIndexedNameClass(className, INDEX_TYPE.UNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null));
+
+    var ordered = orderedNamesAndAssertPlan(className, "ASC", true);
+
+    Assert.assertEquals(Arrays.asList(null, "a", "b", "c"), ordered);
+  }
+
+  /**
+   * DESC over a UNIQUE (single-value) indexed field: index-accelerated, single null key emitted
+   * LAST — the DESC placement fixed in YTDB-1197.
+   */
+  @Test
+  public void testOrderByDescUsesUniqueIndexNullsLast() {
+    var className = "testOrderByDescIdxUnique";
+    createIndexedNameClass(className, INDEX_TYPE.UNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null));
+
+    var ordered = orderedNamesAndAssertPlan(className, "DESC", true);
+
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null), ordered);
+  }
+
+  /**
+   * ASC with no index: the sort runs in memory (OrderByStep, no FetchFromIndexStep) and nulls come
+   * first. Reference behavior the index-accelerated ASC path must match.
+   */
+  @Test
+  public void testOrderByAscInMemoryNullsFirst() {
+    var className = "testOrderByAscNoIdx";
+    createPlainNameClass(className);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesAndAssertPlan(className, "ASC", false);
+
+    Assert.assertEquals(Arrays.asList(null, null, "a", "b", "c"), ordered);
+  }
+
+  /**
+   * DESC with no index: in-memory sort (OrderByStep, no FetchFromIndexStep), nulls last. Reference
+   * behavior the index-accelerated DESC path must match (YTDB-1197).
+   */
+  @Test
+  public void testOrderByDescInMemoryNullsLast() {
+    var className = "testOrderByDescNoIdx";
+    createPlainNameClass(className);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesAndAssertPlan(className, "DESC", false);
+
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null, null), ordered);
+  }
+
+  /** Creates a class with a STRING {@code name} property and an index of {@code type} on it. */
+  private void createIndexedNameClass(String className, INDEX_TYPE type) {
+    var cls = session.getMetadata().getSchema().createClass(className);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex(className + ".name", type, "name");
+  }
+
+  /** Creates a class with a STRING {@code name} property and no index (forces an in-memory sort). */
+  private void createPlainNameClass(String className) {
+    session.getMetadata().getSchema().createClass(className)
         .createProperty("name", PropertyType.STRING);
-
-    // UNIQUE allows a single null key, so seed exactly one null.
-    var names = Arrays.asList("b", "a", "c", null);
-    seedNames(indexed, names);
-    seedNames(inMemory, names);
-
-    var idxAsc = orderedNamesAndAssertPlan(indexed, "ASC", true);
-    var memAsc = orderedNamesAndAssertPlan(inMemory, "ASC", false);
-    Assert.assertEquals(Arrays.asList(null, "a", "b", "c"), idxAsc);
-    Assert.assertEquals(memAsc, idxAsc);
-
-    var idxDesc = orderedNamesAndAssertPlan(indexed, "DESC", true);
-    var memDesc = orderedNamesAndAssertPlan(inMemory, "DESC", false);
-    Assert.assertEquals(Arrays.asList("c", "b", "a", null), idxDesc);
-    Assert.assertEquals(memDesc, idxDesc);
   }
 
   /**
