@@ -388,6 +388,49 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
   }
 
   /**
+   * ASC full scan whose main-stream acquisition fails with an {@link AssertionError} — the exact
+   * shape an {@code assert} throws under {@code -ea} while the index scan is being set up. Even
+   * though an AssertionError is an {@link Error} and not a {@link RuntimeException}, the
+   * already-open null-key stream must STILL be closed before the error propagates, and the
+   * AssertionError itself must escape unwrapped.
+   *
+   * <p>This pins the {@code | Error} half of the {@code catch (RuntimeException | Error e)} guard in
+   * {@code processFlatIteration}: the sibling leak tests only inject a {@link RuntimeException}, so
+   * narrowing that clause to {@code catch (RuntimeException e)} would let an -ea AssertionError skip
+   * the close-and-rethrow path and leak the null stream while every RuntimeException test kept
+   * passing. Injecting an Error here is the only assertion that fails under that narrowing.
+   */
+  @Test
+  public void fullScanAscClosesNullStreamWhenMainStreamAcquisitionThrowsError() {
+    var fixture = createIndexedClass();
+    // Borrow a real NOTUNIQUE definition — it does not ignore nulls, so fetchNullKeys runs.
+    var definition = getIndex(fixture.indexName).getDefinition();
+    var ctx = newContext();
+
+    // A null-key stream whose close() we can observe.
+    var nullStreamClosed = new AtomicBoolean(false);
+    Stream<RID> nullRids = Stream.<RID>empty().onClose(() -> nullStreamClosed.set(true));
+
+    // Index that yields the null-key stream but fails the main (non-null) scan with an Error
+    // (AssertionError), not a RuntimeException — mirrors an -ea assertion tripping during setup.
+    var failingIndex = mock(Index.class);
+    when(failingIndex.getDefinition()).thenReturn(definition);
+    when(failingIndex.getName()).thenReturn(fixture.indexName);
+    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    var mainStreamFailure = new AssertionError("index scan assertion failed");
+    when(failingIndex.stream(any())).thenThrow(mainStreamFailure);
+
+    var desc = new IndexSearchDescriptor(failingIndex);
+
+    assertThatThrownBy(() -> FetchFromIndexStep.init(desc, true, ctx))
+        .isInstanceOf(AssertionError.class)
+        .hasMessage("index scan assertion failed");
+    assertThat(nullStreamClosed)
+        .as("null-key stream must be closed even when the failure is an Error, not leaked")
+        .isTrue();
+  }
+
+  /**
    * Drives a full scan whose main-stream acquisition throws and asserts the already-open null-key
    * stream is closed and the original failure propagates unwrapped. Stubs whichever main-scan
    * method the direction uses: {@code stream} for ASC, {@code descStream} for DESC.
