@@ -197,8 +197,9 @@ Properties:
 
 - **Rebase-resilient** — markers are in the history being rebased, so they move with it.
 - **Zero cleanup** — the squash-merge into develop erases them.
-- The umbrella PR Tracks table is a display-only index (names, scope lines, satellite links —
-  never SHAs).
+- The umbrella PR Tracks table is a display-only index (names, scope lines, statuses,
+  peer-review state, satellite links — never SHAs); it is never the source of truth for track
+  boundaries.
 
 Single-track changes land no markers — the whole branch diff is the track.
 
