@@ -176,8 +176,10 @@ export class SlateStore {
 export function orchestratorCostUsd(ctx: ExtensionContext): number {
 	let cost = 0;
 	for (const entry of ctx.sessionManager.getEntries()) {
-		if (entry.type === "message" && entry.message.role === "assistant") {
-			cost += entry.message.usage?.cost?.total ?? 0;
+		// Loose cast + optional chaining: tolerate malformed/legacy entries.
+		const e = entry as { type: string; message?: { role?: string; usage?: { cost?: { total?: number } } } };
+		if (e.type === "message" && e.message?.role === "assistant") {
+			cost += e.message.usage?.cost?.total ?? 0;
 		}
 	}
 	return cost;
