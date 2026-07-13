@@ -45,7 +45,7 @@ final class GremlinPatternAssembler {
   /**
    * Appends a folded bare hop {@code fromAlias --dir(edgeLabel)--> targetAlias} (no edge filter — the
    * folded case cannot carry one), registers the target under the generic {@code V} class, and
-   * re-pins the boundary / RETURN to the target. Used by {@link VertexStepRecogniser}.
+   * re-pins the boundary / RETURN to the target. Used by {@link VertexHopRecogniser}.
    */
   static void appendFoldedHop(
       WalkerContext ctx,
@@ -62,7 +62,7 @@ final class GremlinPatternAssembler {
    * Appends the edge-as-node form {@code fromAlias --<edgeDir>E(edgeLabel){as: edgeAlias, where:
    * edgeFilter}--> edgeAlias --<closingVertexDir>V(){as: targetAlias}--> targetAlias}, registers the
    * target under the generic {@code V} class, and re-pins the boundary / RETURN to the target. Used
-   * by {@link EdgeStepRecogniser}. The edge filter (if any) travels on the edge path item, so the
+   * by {@link EdgeHopRecogniser}. The edge filter (if any) travels on the edge path item, so the
    * predicate filters the edge rather than the target vertex.
    */
   static void appendEdgeAsNode(
@@ -86,7 +86,7 @@ final class GremlinPatternAssembler {
    * Direction.from} / {@code Direction.to} are aliases for {@code OUT} / {@code IN}, not separate
    * constants), so the switch is exhaustive with no default. Should the fork ever add a direction
    * constant, this stops compiling — a loud, correct signal — rather than silently mistranslating.
-   * Shared by {@link VertexStepRecogniser} (hop direction) and {@link EdgeStepRecogniser} (edge and
+   * Shared by {@link VertexHopRecogniser} (hop direction) and {@link EdgeHopRecogniser} (edge and
    * closing-vertex directions).
    */
   static MatchPatternBuilder.Direction toBuilderDirection(Direction direction) {
@@ -99,8 +99,8 @@ final class GremlinPatternAssembler {
 
   /**
    * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStep}, applying one rule shared by
-   * the bare hop ({@link VertexStepRecogniser}) and the edge-filter chain ({@link
-   * EdgeStepRecogniser}): a single named label translates; a multi-label hop or a blank single label
+   * the bare hop ({@link VertexHopRecogniser}) and the edge-filter chain ({@link
+   * EdgeHopRecogniser}): a single named label translates; a multi-label hop or a blank single label
    * declines; a label-less hop (all edge types) translates unless the traversal opts into {@link
    * EdgeLabelVerificationStrategy}. Centralising the rule keeps the two hop kinds from drifting — one
    * accepting a shape the other rejects. A translatable label-less hop yields a {@code null} label,
