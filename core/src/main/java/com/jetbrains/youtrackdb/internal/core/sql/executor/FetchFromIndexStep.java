@@ -268,8 +268,23 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
 
-    var nullStream = fetchNullKeys(session, index);
-    var mainStream = isOrderAsc ? index.stream(session) : index.descStream(session);
+    // Acquire both streams before wiring them into the result list. The caller closes these streams
+    // only once they are returned in `streams` (via the ExecutionStreamProducer in internalStart);
+    // if the second acquisition throws, the list is discarded and the first, already-open stream
+    // leaks. So close whatever was opened, then rethrow. Only the two acquisitions can throw; the
+    // addStreamIfNew calls below are plain list/set inserts, so the try wraps exactly them.
+    Stream<RawPair<Object, RID>> nullStream = null;
+    Stream<RawPair<Object, RID>> mainStream = null;
+    try {
+      nullStream = fetchNullKeys(session, index);
+      mainStream = isOrderAsc ? index.stream(session) : index.descStream(session);
+    } catch (RuntimeException e) {
+      // mainStream is still null when its own acquisition throws, so at most one stream is open
+      // here: no double close is possible even when both would be the same instance.
+      closeSuppressing(nullStream, e);
+      closeSuppressing(mainStream, e);
+      throw e;
+    }
 
     if (isOrderAsc) {
       addStreamIfNew(nullStream, streams, acquiredStreams);
@@ -279,6 +294,21 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       addStreamIfNew(nullStream, streams, acquiredStreams);
     }
     return streams;
+  }
+
+  /**
+   * Closes {@code stream} if it is non-null, attaching any failure from {@code close()} to {@code
+   * primary} as a suppressed exception so the original acquisition failure stays the thrown one.
+   */
+  private static void closeSuppressing(
+      @Nullable Stream<RawPair<Object, RID>> stream, RuntimeException primary) {
+    if (stream != null) {
+      try {
+        stream.close();
+      } catch (RuntimeException e) {
+        primary.addSuppressed(e);
+      }
+    }
   }
 
   /**

@@ -42,6 +42,7 @@ import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
@@ -359,6 +360,41 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
             .map(r -> r.<RID>getProperty("rid"))
             .toList();
     assertThat(emittedNullRids).containsExactlyInAnyOrderElementsOf(nullRids);
+  }
+
+  /**
+   * A full scan opens the null-key stream first, then the main B-tree stream. If opening the main
+   * stream throws, the already-open null stream must be closed before the exception propagates —
+   * otherwise it leaks, because the caller only closes streams that {@code init()} actually returns
+   * and on a throw the partial list is discarded. The index is mocked so its main scan fails while
+   * its null-key scan still yields a stream; the test asserts the original failure propagates
+   * unwrapped and the null stream was closed.
+   */
+  @Test
+  public void fullScanClosesNullStreamWhenMainStreamAcquisitionThrows() {
+    var fixture = createIndexedClass();
+    // Borrow a real NOTUNIQUE definition — it does not ignore nulls, so fetchNullKeys runs.
+    var definition = getIndex(fixture.indexName).getDefinition();
+    var ctx = newContext();
+
+    // A null-key stream whose close() we can observe.
+    var nullStreamClosed = new AtomicBoolean(false);
+    Stream<RID> nullRids = Stream.<RID>empty().onClose(() -> nullStreamClosed.set(true));
+
+    // Index that yields the null-key stream but fails when the main (non-null) scan is opened.
+    var failingIndex = mock(Index.class);
+    when(failingIndex.getDefinition()).thenReturn(definition);
+    when(failingIndex.getName()).thenReturn(fixture.indexName);
+    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    when(failingIndex.stream(any())).thenThrow(new IllegalStateException("index scan failed"));
+
+    var desc = new IndexSearchDescriptor(failingIndex);
+
+    // ASC full scan: null stream acquired, then the main stream throws.
+    assertThatThrownBy(() -> FetchFromIndexStep.init(desc, true, ctx))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("index scan failed");
+    assertThat(nullStreamClosed).as("null-key stream must be closed, not leaked").isTrue();
   }
 
   // =========================================================================
