@@ -686,7 +686,7 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   /**
    * A foreign step between the edge and its close declines the whole chain to native:
    * {@code g.V().outE("knows").dedup().inV()}. {@code dedup()} is neither a {@code HasStep} nor a
-   * {@code NoOpBarrierStep}, so {@code EdgeStepRecogniser} declines (its peek-ahead window spans only
+   * {@code NoOpBarrierStep}, so {@code EdgeHopRecogniser} declines (its peek-ahead window spans only
    * has/barrier between the edge and the closing hop). The whole traversal runs native — including
    * the semantically-active dedup — so no boundary step engages and the result matches pure native.
    */

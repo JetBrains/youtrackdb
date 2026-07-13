@@ -102,7 +102,7 @@ final class WalkerContext {
    *  ({@link #VERTEX_ROOT_CLASS}) polymorphically and emit no {@code @class} filter regardless of it,
    *  because native Gremlin never class-filters those shapes -- narrowing one (even under {@code
    *  false}) would drop subclass instances the native pipeline keeps (a subclass undercount; see
-   *  {@link VertexStepRecogniser} and {@link StartStepRecogniser}). */
+   *  {@link VertexHopRecogniser} and {@link StartStepRecogniser}). */
   final boolean polymorphic;
 
   /** Cursor into the traversal's step list, owned and advanced solely by the walker. The walker's

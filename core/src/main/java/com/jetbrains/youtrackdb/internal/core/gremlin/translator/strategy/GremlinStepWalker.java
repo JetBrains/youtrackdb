@@ -72,10 +72,11 @@ final class GremlinStepWalker {
 
   /**
    * Production recogniser registry, keyed on the concrete step class. {@link StartStepRecogniser}
-   * claims the vertex source under {@link GraphStep}; {@link VertexStepRecogniser} claims a folded
-   * vertex hop ({@code out(L)} / {@code in(L)} / {@code both(L)}, and the adjacent
-   * {@code outE(L).inV()} chains TinkerPop folds to the same class) under {@link VertexStep} and
-   * delegates the edge-returning {@code outE(L).has(...).inV()} branch to {@link EdgeStepRecogniser};
+   * claims the vertex source under {@link GraphStep}; {@link VertexStepRecogniser} owns {@link
+   * VertexStep} and routes it on {@code returnsEdge()} — a folded bare hop ({@code out(L)} /
+   * {@code in(L)} / {@code both(L)}, and the adjacent {@code outE(L).inV()} chains TinkerPop folds to
+   * the same class) to {@link VertexHopRecogniser}, and the edge-returning {@code
+   * outE(L).has(...).inV()} branch to {@link EdgeHopRecogniser};
    * {@link NoOpBarrierRecogniser} claims the {@link NoOpBarrierStep} {@code LazyBarrierStrategy}
    * wedges between chained hops, so a multi-hop chain does not decline at the barrier. Later tracks
    * add one entry per step class they translate. Class-keyed dispatch is O(1) and fails safe: a step
