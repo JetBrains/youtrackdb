@@ -288,6 +288,9 @@ export class ThreadManager {
 		thread.episodeIds.push(episodeId);
 		thread.status = "idle";
 		thread.updatedAt = Date.now();
+		// Accumulate session-wide worker spend (worker turns + episode compressor)
+		// BEFORE save so it persists with the snapshot.
+		this.store.workerCostUsd += usage.cost + compressed.costUsd;
 		this.store.save();
 
 		emit(true, status);

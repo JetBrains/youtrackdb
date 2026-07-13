@@ -15,7 +15,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { SlateHandoffHooks } from "./handoff.ts";
 import { DEFAULT_ORCHESTRATOR_PROMPT_DOCS, loadPromptDocs } from "./prompt-docs.ts";
-import type { SlateConfig, SlateStore } from "./state.ts";
+import { orchestratorCostUsd, type SlateConfig, type SlateStore } from "./state.ts";
 
 const ORCHESTRATOR_TOOLS = ["read", "grep", "find", "ls", "thread", "threads", "episode"];
 
@@ -75,10 +75,18 @@ export function registerSlateMode(
 			uiCtx.ui.setStatus("slate", undefined);
 			return;
 		}
-		uiCtx.ui.setStatus("slate", "slate: orchestrator");
+		// Orchestrator's own spend: summed over ALL entries (billed reality —
+		// abandoned branches still cost money), plus spend carried across handoffs.
+		const orchestratorCost = orchestratorCostUsd(uiCtx);
+		const total = orchestratorCost + store.workerCostUsd + store.carriedCostUsd;
+		// Keep the line short in the common no-handoff case.
+		const carried = store.carriedCostUsd > 0 ? ` + carried $${store.carriedCostUsd.toFixed(4)}` : "";
+		const costLine = `total $${total.toFixed(4)} (me $${orchestratorCost.toFixed(4)} + workers $${store.workerCostUsd.toFixed(4)}${carried})`;
+		uiCtx.ui.setStatus("slate", `slate: orchestrator ⋅ ${costLine}`);
 		const threads = [...store.threads.values()];
 		const lines = [
 			`slate ⋅ orchestrator mode ⋅ ${threads.length} thread${threads.length === 1 ? "" : "s"}`,
+			`  ${costLine}`,
 			...(store.paused ? ["  ⛔ PAUSED (context budget) — run /slate handoff"] : []),
 			...threads.map(
 				(t) =>
@@ -151,6 +159,12 @@ export function registerSlateMode(
 		const parts = [DOCTRINE, ...docs.map((d) => `\n\n${d}`)];
 		if (store.paused) parts.push(PAUSED_ADDENDUM);
 		return { systemPrompt: event.systemPrompt + parts.join("") };
+	});
+
+	// Refresh the orchestrator's own cost after each of its settled runs.
+	pi.on("agent_settled", async (_event, ctx) => {
+		uiCtx = ctx;
+		updateWidget();
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
