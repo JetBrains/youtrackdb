@@ -88,7 +88,10 @@ final class IndexOrderedPlanner {
   @Nullable private final Pattern pattern;
   private final Map<String, String> aliasClasses;
   private final Map<String, SQLWhereClause> aliasFilters;
-  private final Map<String, SQLRid> aliasRids;
+  // Explicit pattern-level {rid:} pins only — NOT promoted @rid WHERE filters.
+  // A promoted @rid filter must stay in FILTERED mode (cost check applies); only
+  // an explicit pin guarantees a single source row, making single-source safe.
+  private final Map<String, List<SQLRid>> explicitPatternRids;
   @Nullable private final SQLOrderBy orderBy;
   @Nullable private final SQLSkip skip;
   @Nullable private final SQLLimit limit;
@@ -103,7 +106,7 @@ final class IndexOrderedPlanner {
       @Nullable Pattern pattern,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, SQLRid> aliasRids,
+      Map<String, List<SQLRid>> explicitPatternRids,
       @Nullable SQLOrderBy orderBy,
       @Nullable SQLSkip skip,
       @Nullable SQLLimit limit,
@@ -116,7 +119,7 @@ final class IndexOrderedPlanner {
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
     this.aliasFilters = aliasFilters;
-    this.aliasRids = aliasRids;
+    this.explicitPatternRids = explicitPatternRids;
     this.orderBy = orderBy;
     this.skip = skip;
     this.limit = limit;
@@ -259,7 +262,7 @@ final class IndexOrderedPlanner {
         ? limit.getValue(context) : -1;
     if (earlyLimitSize < 0
         && (aliasFilters.get(sourceAlias) != null
-            || aliasRids.get(sourceAlias) != null)) {
+            || explicitPatternRids.get(sourceAlias) != null)) {
       return null;
     }
 
@@ -318,7 +321,7 @@ final class IndexOrderedPlanner {
     // so the output would be incorrectly ordered if >1 source rows arrive.
     // Multi-source mode always produces globally sorted results, so it is the
     // safe default whenever the source is not pinned to a single row.
-    var sourceHasRidConstraint = aliasRids.get(sourceAlias) != null
+    var sourceHasRidConstraint = explicitPatternRids.get(sourceAlias) != null
         || hasSingleRowGuarantee(
             sourceAlias, aliasClasses, aliasFilters, context);
     MultiSourceMode multiSourceMode = null;
