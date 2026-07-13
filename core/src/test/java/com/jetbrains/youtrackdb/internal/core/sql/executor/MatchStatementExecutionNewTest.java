@@ -5091,10 +5091,12 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     }
   }
 
-  // WHERE (@rid = ...) goes through FILTERED mode (not single-source aliasRids).
-  // With MIN_LINKBAG=999999, the plan-time cost check in computeCosts returns null
-  // (linkBagSize < minLinkBag), so the optimization is rejected. Falls back to
-  // standard MATCH + ORDER BY, results still correct.
+  // A non-unique WHERE filter (TestPerson.name is unindexed) routes the source
+  // through a FILTERED multi-source mode. With MIN_LINKBAG=999999 the plan-time
+  // cost check in computeCosts returns null (linkBagSize < minLinkBag), so the
+  // optimization is rejected and the query falls back to standard MATCH +
+  // ORDER BY. The multi-field early-termination cutoff is disabled on that
+  // fallback path; results must still be correctly sorted.
   @Test
   public void testIndexOrderedMatchMultiFieldCutoffDisabledWhenUnsorted() {
     initIndexOrderedMatchLargeData();
@@ -5103,16 +5105,9 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(999999);
     try {
       session.begin();
-      String rid;
-      try (var ridResult = session.query(
-          "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
-        Assert.assertTrue("Should find person1", ridResult.hasNext());
-        rid = ridResult.next().getProperty("r").toString();
-      }
-
-      // @rid in WHERE → FILTERED mode (not aliasRids single-source);
-      // MIN_LINKBAG=999999 → plan-time cost check rejects.
-      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+      // name is not indexed → no single-row guarantee, not a RID pin → FILTERED
+      // mode (not single-source). MIN_LINKBAG=999999 → plan-time cost check rejects.
+      var query = "MATCH {class: TestPerson, as: p, where: (name = 'person1')}"
           + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
           + "RETURN m.creationDate as cd, m.msgId as mid"
           + " ORDER BY cd DESC, mid ASC LIMIT 5";
@@ -5138,6 +5133,106 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
       session.commit();
     } finally {
       GlobalConfiguration.QUERY_INDEX_ORDERED_MIN_LINKBAG.setValue(oldMinLinkBag);
+    }
+  }
+
+  // A single `@rid = <literal>` WHERE filter is promoted to a single-element
+  // aliasPinnedRids entry (develop's promoteStaticRidsFromFilters). Because the
+  // pin has size 1, the source yields exactly one row, so index-ordered
+  // detection uses single-source mode — the same path as {rid: #X:Y} pattern
+  // syntax (INDEX ORDERED MATCH with no multi-source mode suffix).
+  @Test
+  public void testIndexOrderedMatchSingleRidWhereUsesSingleSource() throws Exception {
+    initIndexOrderedMatchLargeData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      String rid;
+      try (var ridResult = session.query(
+          "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+        Assert.assertTrue("Should find person1", ridResult.hasNext());
+        rid = ridResult.next().getProperty("r").toString();
+      }
+
+      // where: (@rid = #X:Y) → promoted single pin → single-source mode.
+      var query = "MATCH {class: TestPerson, as: p, where: (@rid = " + rid + ")}"
+          + ".in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+          + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 5";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        Assert.assertTrue(
+            "Plan should use INDEX ORDERED MATCH, but was:\n" + plan,
+            plan.contains("INDEX ORDERED MATCH"));
+        // Single-source: no FILTERED_*/UNFILTERED_* mode suffix.
+        Assert.assertFalse(
+            "Promoted single @rid should be single-source (no mode suffix), but was:\n"
+                + plan,
+            plan.contains("FILTERED") || plan.contains("UNFILTERED"));
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        Assert.assertEquals("Should have 5 results: " + mids, 5, mids.size());
+        Assert.assertEquals(200L, (long) mids.get(0));
+        Assert.assertEquals(196L, (long) mids.get(4));
+      }
+      session.commit();
+    }
+  }
+
+  // Guard: a multi-RID `@rid IN [...]` filter promotes to a multi-element
+  // aliasPinnedRids entry. The single-source path reads only one upstream row,
+  // so a multi-RID source must NOT go single-source — it would drop every source
+  // but the first. The size()==1 guard sends it to a multi-source mode (or the
+  // fallback); every listed source's edges must be considered and globally sorted.
+  @Test
+  public void testIndexOrderedMatchMultiRidInNotSingleSource() throws Exception {
+    initIndexOrderedMatchMultiSourceData();
+
+    try (var cfg = setIndexOrderedTestConfig()) {
+      session.begin();
+      String rid1;
+      String rid2;
+      try (var r = session.query(
+          "SELECT @rid as r FROM TestPerson WHERE name = 'person1'")) {
+        rid1 = r.next().getProperty("r").toString();
+      }
+      try (var r = session.query(
+          "SELECT @rid as r FROM TestPerson WHERE name = 'person2'")) {
+        rid2 = r.next().getProperty("r").toString();
+      }
+
+      // person1: msgId 1..10 (earlier dates), person2: msgId 11..20 (later).
+      // @rid IN [p1, p2] → 2 source rows → must not be single-source.
+      var query = "MATCH {class: TestPerson, as: p, where: (@rid IN [" + rid1 + ", "
+          + rid2 + "])}.in('TEST_HAS_CREATOR'){class: TestMessage, as: m} "
+          + "RETURN m.msgId as mid ORDER BY m.creationDate DESC LIMIT 15";
+      try (var result = session.query(query)) {
+        var plan = getPlan(result);
+        // A multi-RID source is never single-source index-ordered (that path
+        // reads only the first upstream row); it uses a multi-source mode or the
+        // fallback — either is acceptable, both return the full result set.
+        var singleSourceIndexOrdered = plan.contains("INDEX ORDERED MATCH")
+            && !(plan.contains("FILTERED") || plan.contains("UNFILTERED"));
+        Assert.assertFalse(
+            "Multi-RID @rid IN must not be single-source index-ordered, but was:\n" + plan,
+            singleSourceIndexOrdered);
+
+        var mids = new java.util.ArrayList<Long>();
+        while (result.hasNext()) {
+          mids.add(((Number) result.next().getProperty("mid")).longValue());
+        }
+        // 20 messages across both persons; top 15 by creationDate DESC = msgId
+        // 20..6 (all 10 of person2, plus top 5 of person1). If the guard were
+        // missing, single-source would drop one person → fewer than 15 results.
+        Assert.assertEquals("Should have 15 results: " + mids, 15, mids.size());
+        Assert.assertEquals(20L, (long) mids.get(0));
+        Assert.assertEquals(6L, (long) mids.get(14));
+        Assert.assertTrue("person1 messages (msgId <= 10) must be present",
+            mids.stream().anyMatch(id -> id <= 10));
+      }
+      session.commit();
     }
   }
 

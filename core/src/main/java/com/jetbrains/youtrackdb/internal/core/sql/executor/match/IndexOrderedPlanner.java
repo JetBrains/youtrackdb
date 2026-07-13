@@ -88,10 +88,12 @@ final class IndexOrderedPlanner {
   @Nullable private final Pattern pattern;
   private final Map<String, String> aliasClasses;
   private final Map<String, SQLWhereClause> aliasFilters;
-  // Explicit pattern-level {rid:} pins only — NOT promoted @rid WHERE filters.
-  // A promoted @rid filter must stay in FILTERED mode (cost check applies); only
-  // an explicit pin guarantees a single source row, making single-source safe.
-  private final Map<String, List<SQLRid>> explicitPatternRids;
+  // Pinned RIDs per alias — explicit {rid:} pattern pins plus promoted
+  // @rid = / @rid IN filters (develop's aliasPinnedRids). Single-source mode is
+  // gated on a single pin (size()==1): a multi-RID pin (@rid IN [...]) yields
+  // multiple source rows, which the single-source path cannot handle (it reads
+  // only the first upstream row), so those fall through to a multi-source mode.
+  private final Map<String, List<SQLRid>> aliasPinnedRids;
   @Nullable private final SQLOrderBy orderBy;
   @Nullable private final SQLSkip skip;
   @Nullable private final SQLLimit limit;
@@ -106,7 +108,7 @@ final class IndexOrderedPlanner {
       @Nullable Pattern pattern,
       Map<String, String> aliasClasses,
       Map<String, SQLWhereClause> aliasFilters,
-      Map<String, List<SQLRid>> explicitPatternRids,
+      Map<String, List<SQLRid>> aliasPinnedRids,
       @Nullable SQLOrderBy orderBy,
       @Nullable SQLSkip skip,
       @Nullable SQLLimit limit,
@@ -119,7 +121,7 @@ final class IndexOrderedPlanner {
     this.pattern = pattern;
     this.aliasClasses = aliasClasses;
     this.aliasFilters = aliasFilters;
-    this.explicitPatternRids = explicitPatternRids;
+    this.aliasPinnedRids = aliasPinnedRids;
     this.orderBy = orderBy;
     this.skip = skip;
     this.limit = limit;
@@ -262,7 +264,7 @@ final class IndexOrderedPlanner {
         ? limit.getValue(context) : -1;
     if (earlyLimitSize < 0
         && (aliasFilters.get(sourceAlias) != null
-            || explicitPatternRids.get(sourceAlias) != null)) {
+            || aliasPinnedRids.get(sourceAlias) != null)) {
       return null;
     }
 
@@ -321,7 +323,12 @@ final class IndexOrderedPlanner {
     // so the output would be incorrectly ordered if >1 source rows arrive.
     // Multi-source mode always produces globally sorted results, so it is the
     // safe default whenever the source is not pinned to a single row.
-    var sourceHasRidConstraint = explicitPatternRids.get(sourceAlias) != null
+    // Single pin (size()==1) guarantees exactly one source row → single-source
+    // safe. A multi-RID pin (@rid IN [...]) means multiple source rows, which
+    // must NOT go single-source (see aliasPinnedRids field doc); leave those to
+    // a multi-source mode below.
+    var sourcePins = aliasPinnedRids.get(sourceAlias);
+    var sourceHasRidConstraint = (sourcePins != null && sourcePins.size() == 1)
         || hasSingleRowGuarantee(
             sourceAlias, aliasClasses, aliasFilters, context);
     MultiSourceMode multiSourceMode = null;
