@@ -2,7 +2,9 @@
 
 ## Purpose & invariants
 
-A satellite PR is a review vehicle for ONE track's diff. Two invariants:
+A satellite PR is a review vehicle for ONE track's diff, aimed at SEPARATE PEER REVIEWERS. The
+primary user review happens in-session as a mandatory per-track gate (see
+`docs/dev-workflow/track-development.md`) and is never replaced by a satellite. Two invariants:
 
 - It is **never merged**.
 - It is **never marked "ready for review"** — it stays DRAFT for its whole life.
@@ -14,9 +16,10 @@ misfire on a non-develop base if the PR ever left draft.
 
 ## When
 
-Optional per track and user-gated: after a track's review fixes and marker commit land, the agent
-asks whether to create one. Sticky answers ("yes/no for all remaining tracks") are honored and
-recorded under the umbrella PR's Tracks table.
+Optional per track and user-gated: after a track's user-review approval and marker commit land,
+the agent asks whether to create one. Sticky answers ("yes/no for all remaining tracks") are
+honored and recorded under the umbrella PR's Tracks table — they never waive the mandatory
+in-session user review.
 
 ## Creation
 
@@ -46,10 +49,15 @@ The reviewer leaves observations in the satellite PR. The agent reads them (`gh 
 satellite branches), then force-updates `<branch>/track-NN-head` to the current working-branch
 HEAD with `--force-with-lease`.
 
-Caveat: if later tracks have started, the updated head pollutes the satellite's diff with
-later-track commits. Mitigations: GitHub's "changes since your last review" view shows only the
-fix commits, and observations should be resolved promptly — preferably before the next track
-completes.
+Once a satellite is open, the track's review loop stays open: the next track does NOT start
+until the peer review completes or the user explicitly waives completion. Peer-fix commits land
+after the track's user approval, so they are covered by the pre-merge user review of post-gate
+commits (see `docs/dev-workflow/track-development.md` § Merge & cleanup).
+
+Caveat: if later tracks have started (i.e., the user waived completion), the updated head
+pollutes the satellite's diff with later-track commits. Mitigations: GitHub's "changes since
+your last review" view shows only the fix commits, and observations should be resolved promptly
+— preferably before the next track completes.
 
 ## Rebase re-pinning
 
