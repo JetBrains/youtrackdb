@@ -48,8 +48,14 @@ interface StepCursor {
 
   /**
    * Returns the significant step {@code ahead} positions past the head without consuming anything, or
-   * {@code null} when fewer than {@code ahead + 1} significant steps remain. {@code peek(0)} equals
-   * {@link #peek()}. Transparent steps are skipped and not counted toward {@code ahead}.
+   * {@code null} when fewer than {@code ahead + 1} significant steps remain. Transparent steps are
+   * skipped and not counted toward {@code ahead}.
+   *
+   * <p>At {@code ahead == 0} the returned step is the same one {@link #peek()} returns, but the two
+   * differ in their effect on the cursor: {@code peek(int)} reads through a local probe and leaves the
+   * position untouched, whereas {@link #peek()} advances the position past any leading transparent
+   * steps (counting them as consumed). {@code peek(int)} is thus a pure look-ahead; callers that want
+   * the barrier-skipping side effect use {@link #peek()}.
    *
    * @param ahead how many significant steps beyond the head to look; must be {@code >= 0}
    */
