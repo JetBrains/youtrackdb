@@ -14,8 +14,24 @@ public final class LoaderExecutionStream implements ExecutionStream {
   private Result nextResult = null;
   private final Iterator<? extends Identifiable> iterator;
 
+  /**
+   * When true, a RID that resolves to a non-existent (deleted / never-allocated) position is
+   * skipped and iteration continues to the next RID. When false (the legacy default), the first
+   * such RID terminates the stream — the documented contract pinned by
+   * {@code LoaderExecutionStreamTest.loaderAbortsScanOnFirstRecordNotFoundAndDropsTail} and
+   * {@code FetchFromRidsStepTest.nonExistentRidTerminatesIterationSilently}. Only the class-target
+   * {@code @rid IN} fast path opts in, because there a dangling in-class RID must not truncate the
+   * RIDs after it (scan parity: a class scan never visits a dangling position).
+   */
+  private final boolean skipMissing;
+
   public LoaderExecutionStream(Iterator<? extends Identifiable> iterator) {
+    this(iterator, false);
+  }
+
+  public LoaderExecutionStream(Iterator<? extends Identifiable> iterator, boolean skipMissing) {
     this.iterator = iterator;
+    this.skipMissing = skipMissing;
   }
 
   @Override
@@ -64,6 +80,12 @@ public final class LoaderExecutionStream implements ExecutionStream {
             nextResult = res;
             return;
           } catch (RecordNotFoundException e) {
+            // Legacy default (skipMissing == false): terminate the stream on the first missing
+            // record. When skipMissing is set, skip this dangling RID and continue to the next,
+            // which the @rid IN fast path needs for scan parity.
+            if (skipMissing) {
+              continue;
+            }
             return;
           }
         }

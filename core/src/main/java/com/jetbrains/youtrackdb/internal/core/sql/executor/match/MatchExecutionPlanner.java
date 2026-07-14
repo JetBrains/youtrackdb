@@ -3297,8 +3297,9 @@ public class MatchExecutionPlanner {
 
       // --- RID equality detection ---
       // Check if target filter contains @rid = <expr>.
-      // Uses findRidEquality() (non-destructive) instead of
-      // extractAndRemoveRidEquality() to avoid mutating the filter.
+      // Uses findRidEquality() rather than extractRidEquality(): this path needs only the RID
+      // expression, not a remainder clause, and findRidEquality() recurses through the AND/OR
+      // double-nesting addAliases() wraps MATCH filters in — which extractRidEquality() does not.
       var ridExpr = targetFilter.findRidEquality();
       if (ridExpr != null) {
         var involvedAliases = ridExpr.getMatchPatternInvolvedAliases();
@@ -4804,7 +4805,13 @@ public class MatchExecutionPlanner {
       RecordIdInternal parsed;
       try {
         parsed = RecordIdInternal.fromString(s, false);
-      } catch (IllegalArgumentException ignored) {
+      } catch (RuntimeException ignored) {
+        // Drop any unparseable or out-of-range RID literal (a malformed string, or a
+        // collection id past the limit — which throws DatabaseException, not
+        // IllegalArgumentException) and abort promotion, so the retained WHERE filter
+        // handles it. Matches QueryOperatorEquals's catch-all on the scan path and
+        // SelectExecutionPlanner.toRecordIdCandidate, so a bad @rid literal yields an
+        // empty result in either planner rather than a plan-time throw.
         return null;
       }
       if (parsed == null) {

@@ -19,7 +19,6 @@ public interface ExecutionStream {
 
   void close(CommandContext ctx);
 
-
   default ExecutionStream map(ResultMapper mapper) {
     return new MapperExecutionStream(this, mapper);
   }
@@ -60,6 +59,18 @@ public interface ExecutionStream {
     return new LoaderExecutionStream(iterator);
   }
 
+  /**
+   * Wraps a RID iterator as a loading stream, controlling how missing records are handled.
+   *
+   * @param skipMissing when true, a RID that resolves to a non-existent position is skipped and
+   *     iteration continues; when false, the first missing record terminates the stream (the
+   *     legacy default). Only the class-target {@code @rid IN} fast path opts in.
+   */
+  static ExecutionStream loadIterator(
+      Iterator<? extends Identifiable> iterator, boolean skipMissing) {
+    return new LoaderExecutionStream(iterator, skipMissing);
+  }
+
   static ExecutionStream empty() {
     return EmptyExecutionStream.EMPTY;
   }
@@ -79,34 +90,33 @@ public interface ExecutionStream {
 
   default Stream<Result> stream(CommandContext ctx) {
     return StreamSupport.stream(
-            new Spliterator<Result>() {
+        new Spliterator<Result>() {
 
-              @Override
-              public boolean tryAdvance(Consumer<? super Result> action) {
-                if (hasNext(ctx)) {
-                  action.accept(next(ctx));
-                  return true;
-                }
-                return false;
-              }
+          @Override
+          public boolean tryAdvance(Consumer<? super Result> action) {
+            if (hasNext(ctx)) {
+              action.accept(next(ctx));
+              return true;
+            }
+            return false;
+          }
 
-              @Nullable
-              @Override
-              public Spliterator<Result> trySplit() {
-                return null;
-              }
+          @Nullable @Override
+          public Spliterator<Result> trySplit() {
+            return null;
+          }
 
-              @Override
-              public long estimateSize() {
-                return Long.MAX_VALUE;
-              }
+          @Override
+          public long estimateSize() {
+            return Long.MAX_VALUE;
+          }
 
-              @Override
-              public int characteristics() {
-                return 0;
-              }
-            },
-            false)
+          @Override
+          public int characteristics() {
+            return 0;
+          }
+        },
+        false)
         .onClose(() -> this.close(ctx));
   }
 }

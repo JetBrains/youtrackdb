@@ -9,6 +9,8 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.Test;
 
 /**
@@ -403,24 +405,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
    */
   @Test
   public void staticRidList_winsRootSelectionOverSmallerClass() {
-    session.execute("CREATE class Big extends V").close();
-    session.execute("CREATE property Big.name STRING").close();
-    session.execute("CREATE class Small extends V").close();
-    session.execute("CREATE property Small.name STRING").close();
-    session.execute("CREATE class Rel extends E").close();
-
-    session.begin();
-    for (var i = 0; i < 40; i++) {
-      session.execute("CREATE VERTEX Big set name = 'b" + i + "'").close();
-    }
-    for (var i = 0; i < 3; i++) {
-      session.execute("CREATE VERTEX Small set name = 's" + i + "'").close();
-    }
-    session.execute(
-        "CREATE EDGE Rel FROM (SELECT FROM Big WHERE name = 'b0')"
-            + " TO (SELECT FROM Small WHERE name = 's0')")
-        .close();
-    session.commit();
+    createBigSmallRelFixture();
 
     session.begin();
     var b0 = ridOf("Big", "b0");
@@ -451,24 +436,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
    */
   @Test
   public void staticRidListTwoRids_winsRootSelectionOverSmallerClass() {
-    session.execute("CREATE class Big extends V").close();
-    session.execute("CREATE property Big.name STRING").close();
-    session.execute("CREATE class Small extends V").close();
-    session.execute("CREATE property Small.name STRING").close();
-    session.execute("CREATE class Rel extends E").close();
-
-    session.begin();
-    for (var i = 0; i < 40; i++) {
-      session.execute("CREATE VERTEX Big set name = 'b" + i + "'").close();
-    }
-    for (var i = 0; i < 3; i++) {
-      session.execute("CREATE VERTEX Small set name = 's" + i + "'").close();
-    }
-    session.execute(
-        "CREATE EDGE Rel FROM (SELECT FROM Big WHERE name = 'b0')"
-            + " TO (SELECT FROM Small WHERE name = 's0')")
-        .close();
-    session.commit();
+    createBigSmallRelFixture();
 
     session.begin();
     var b0 = ridOf("Big", "b0");
@@ -507,25 +475,7 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
    */
   @Test
   public void staticRid_winsRootSelectionOverSmallerClass() {
-    session.execute("CREATE class Big extends V").close();
-    session.execute("CREATE property Big.name STRING").close();
-    session.execute("CREATE class Small extends V").close();
-    session.execute("CREATE property Small.name STRING").close();
-    session.execute("CREATE class Rel extends E").close();
-
-    session.begin();
-    for (var i = 0; i < 40; i++) {
-      session.execute("CREATE VERTEX Big set name = 'b" + i + "'").close();
-    }
-    for (var i = 0; i < 3; i++) {
-      session.execute("CREATE VERTEX Small set name = 's" + i + "'").close();
-    }
-    // One edge so the pinned Big has a path to a Small.
-    session.execute(
-        "CREATE EDGE Rel FROM (SELECT FROM Big WHERE name = 'b0')"
-            + " TO (SELECT FROM Small WHERE name = 's0')")
-        .close();
-    session.commit();
+    createBigSmallRelFixture();
 
     session.begin();
     var b0 = ridOf("Big", "b0");
@@ -665,9 +615,9 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
         .toList();
     var names = result.stream()
         .map(r -> (String) r.getProperty("cName"))
-        .collect(java.util.stream.Collectors.toSet());
+        .collect(Collectors.toSet());
     assertEquals("OR must match both the pinned RID and the named record, got: " + names,
-        java.util.Set.of("c1", "c2"), names);
+        Set.of("c1", "c2"), names);
     session.commit();
   }
 
@@ -686,9 +636,9 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
         .toList();
     var names = result.stream()
         .map(r -> (String) r.getProperty("cName"))
-        .collect(java.util.stream.Collectors.toSet());
+        .collect(Collectors.toSet());
     assertEquals("OR must match both the pinned RID list and the named record, got: " + names,
-        java.util.Set.of("c1", "c2"), names);
+        Set.of("c1", "c2"), names);
     session.commit();
   }
 
@@ -852,5 +802,86 @@ public class MatchStaticRidPromotionIntegrationTest extends DbTestBase {
         "CREATE EDGE Ride FROM (SELECT FROM Person WHERE name = '" + from + "')"
             + " TO (SELECT FROM Person WHERE name = '" + to + "')")
         .close();
+  }
+
+  /**
+   * Builds the root-selection fixture: 40 Big, 3 Small, and one Rel edge b0 -> s0. By class size
+   * alone Small (3 rows) is the cheaper root; pinning a Big by @rid collapses its estimate to 1,
+   * which must flip the root to Big. Shared by the three root-selection-flip tests.
+   */
+  private void createBigSmallRelFixture() {
+    session.execute("CREATE class Big extends V").close();
+    session.execute("CREATE property Big.name STRING").close();
+    session.execute("CREATE class Small extends V").close();
+    session.execute("CREATE property Small.name STRING").close();
+    session.execute("CREATE class Rel extends E").close();
+
+    session.begin();
+    for (var i = 0; i < 40; i++) {
+      session.execute("CREATE VERTEX Big set name = 'b" + i + "'").close();
+    }
+    for (var i = 0; i < 3; i++) {
+      session.execute("CREATE VERTEX Small set name = 's" + i + "'").close();
+    }
+    session.execute(
+        "CREATE EDGE Rel FROM (SELECT FROM Big WHERE name = 'b0')"
+            + " TO (SELECT FROM Small WHERE name = 's0')")
+        .close();
+    session.commit();
+  }
+
+  /**
+   * A syntactically-valid RID string with an out-of-range collection id ({@code '#-3:0'})
+   * makes {@code RecordIdInternal.fromString} throw a {@code DatabaseException} — a
+   * {@code RuntimeException} that is NOT an {@code IllegalArgumentException}. Promotion must
+   * drop the value and fall back to the retained WHERE filter (which matches nothing),
+   * returning empty rather than throwing at plan time. This locks the catch in
+   * {@code sqlRidFromRuntimeValue} at {@code RuntimeException}, matching
+   * {@code SelectExecutionPlanner.toRecordIdCandidate} and the scan path's
+   * {@code QueryOperatorEquals} catch-all.
+   */
+  @Test
+  public void staticRidListOutOfRangeCollectionString_returnsEmptyNoThrow() {
+    session.begin();
+    var result = session.query(
+        "MATCH {class: Comment, as: c, where: (@rid in ['#-3:0'])} RETURN c.name as name")
+        .toList();
+    assertTrue("out-of-range RID string must match nothing, not throw, got: " + result.size(),
+        result.isEmpty());
+    session.commit();
+  }
+
+  /**
+   * A dangling in-class RID in the MIDDLE of a pinned {@code @rid IN} list must not truncate the
+   * live RIDs after it. The deleted Comment's RID keeps its collection id (passes the membership
+   * check) but its position is freed, so the fetch's load fails. The legacy loader default
+   * terminates on the first miss — which would drop the live tail. Three consecutive Comments put
+   * the deleted one BETWEEN two live ones by position, so truncation shows whether the fetch keeps
+   * list order or sorts by RID. Scan parity requires both live Comments.
+   */
+  @Test
+  public void staticRidListWithDanglingRidInMiddle_returnsLiveTail() {
+    session.begin();
+    session.execute("CREATE VERTEX Comment set name = 'da'").close();
+    session.execute("CREATE VERTEX Comment set name = 'ddead'").close();
+    session.execute("CREATE VERTEX Comment set name = 'db'").close();
+    session.commit();
+    session.begin();
+    var da = ridOf("Comment", "da");
+    var dead = ridOf("Comment", "ddead");
+    var db = ridOf("Comment", "db");
+    session.execute("DELETE VERTEX Comment WHERE name = 'ddead'").close();
+    session.commit();
+
+    session.begin();
+    var result = session.query(
+        "MATCH {class: Comment, as: c, where: (@rid in [" + da + ", " + dead + ", " + db + "])}"
+            + " RETURN c.name as name ORDER BY name")
+        .toList();
+    session.commit();
+    var names = result.stream().map(r -> (String) r.getProperty("name")).toList();
+    assertEquals(
+        "a dangling RID between two live ones must not truncate the live tail, got: " + names,
+        List.of("da", "db"), names);
   }
 }

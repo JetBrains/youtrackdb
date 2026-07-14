@@ -28,6 +28,16 @@ public class SQLIdentifier extends SimpleNode {
    */
   protected boolean internalAlias = false;
 
+  /**
+   * Returns true when this alias was synthesized by the query optimizer (inline-subquery
+   * extraction, aggregate-projection split) rather than written by the user. Such aliases
+   * report {@link #isEarlyCalculated} == true, yet are bound by a LET step only at execution
+   * time, so a plan-time evaluator must not treat their value as resolvable.
+   */
+  public boolean isInternalAlias() {
+    return internalAlias;
+  }
+
   public SQLIdentifier(SQLIdentifier copyFrom, boolean quoted) {
     this(-1);
     this.value = copyFrom.value;

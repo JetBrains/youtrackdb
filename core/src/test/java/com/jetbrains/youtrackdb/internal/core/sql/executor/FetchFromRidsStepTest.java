@@ -351,6 +351,28 @@ public class FetchFromRidsStepTest extends TestUtilsFixture {
   }
 
   /**
+   * The {@code skipMissing} flag survives a serialize/deserialize round-trip and a copy. Plan
+   * serialization is the distributed-transport path: if the flag were dropped, a remote node would
+   * default to terminate-on-first-missing and truncate an {@code @rid IN} list at a dangling RID.
+   */
+  @Test
+  public void serializeAndCopyPreserveSkipMissing() {
+    var ctx = newContext();
+    var rids = List.of((RecordIdInternal) new RecordId(5, 1));
+    var original = new FetchFromRidsStep(rids, ctx, false, /* skipMissing= */ true);
+
+    var serialized = original.serialize(session);
+    assertThat((Boolean) serialized.getProperty("skipMissing")).isTrue();
+
+    var restored = new FetchFromRidsStep(Collections.emptyList(), ctx, false, false);
+    restored.deserialize(serialized, session);
+    assertThat((Boolean) restored.serialize(session).getProperty("skipMissing")).isTrue();
+
+    var copy = (FetchFromRidsStep) original.copy(ctx);
+    assertThat((Boolean) copy.serialize(session).getProperty("skipMissing")).isTrue();
+  }
+
+  /**
    * When a step was constructed with {@code null} RIDs, {@code serialize} skips the "rids"
    * property (the {@code rids != null} guard).
    */
