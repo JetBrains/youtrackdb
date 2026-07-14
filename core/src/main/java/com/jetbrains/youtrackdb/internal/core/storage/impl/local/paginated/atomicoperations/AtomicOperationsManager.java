@@ -76,6 +76,18 @@ public class AtomicOperationsManager {
   // and validate it via OptimisticReadScope.
   private final ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
 
+  /**
+   * TEST-ONLY accessor for this storage's apply-phase epoch, exposed package-private for
+   * the test bridge in the same test package (used by the YTDB-1178 mixed-apply-state
+   * regression tests to make baseline-relative assertions on the epoch counters).
+   * Production code must not call this — writers bump the epoch only through
+   * {@code AtomicOperationBinaryTracking.commitChanges} and readers observe it only
+   * through {@code OptimisticReadScope}.
+   */
+  ApplyPhaseEpoch getApplyPhaseEpoch() {
+    return applyPhaseEpoch;
+  }
+
   public AtomicOperationsManager(
       AbstractStorage storage, AtomicOperationsTable atomicOperationsTable) {
     this.storage = storage;
