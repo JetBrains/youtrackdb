@@ -102,11 +102,12 @@ dispatch a build there while another build or test run is in progress.
 - Target branch: `develop` (exception: satellite review PRs target their pinned `track-NN-base`
   branch)
 - **1 PR = 1 squashed commit** — all branch commits are squashed on merge
-- **Merge is user-performed** — the agent never merges the umbrella PR; it flips the PR to
-  ready-for-review after the pre-flip checklist and hands it to the user — see
+- **Merge is user-performed** — the agent never merges the umbrella PR; it runs the pre-flip
+  checklist — which includes updating the PR title and description to the final state of the
+  change — then flips the PR to ready-for-review and hands it to the user — see
   `docs/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup.
 - **Must use the PR template** at `.github/pull_request_template.md`. Every PR must include the Motivation section explaining WHY the change was made. Satellite review PRs are exempt — they carry a track-summary body instead (see the satellite bullet below).
-- **Keep the PR title and description in sync with follow-up commits.** The squashed commit message is built from the PR title and description, not from individual commit messages — update them with every push so the merge commit reflects all changes.
+- **Keep the PR title and description in sync with follow-up commits.** The squashed commit message is built from the PR title and description, not from individual commit messages — update them with every push so the merge commit reflects all changes. The pre-flip checklist ends with a final-state update of the title and description — a backstop, not a substitute, for per-push sync.
 - **Test count gate bypass**: Add `[no-test-number-check]` to the PR title to skip the test count gate. Use this only for intentional test refactorings that restructure or consolidate tests without reducing coverage.
 - **Planned changes & Tracks sections**: The PR template includes "Planned changes" and "Tracks" sections, mandatory for non-trivial changes. The umbrella draft PR's description is kept in sync as work proceeds — see `docs/dev-workflow/track-development.md`.
 - **Satellite review PRs** are draft-only review vehicles for individual tracks (multi-track changes only — see workflow step 6 above): they are never merged and never marked ready for review — see `docs/dev-workflow/satellite-pr.md`.

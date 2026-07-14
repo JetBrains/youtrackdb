@@ -260,9 +260,8 @@ update automatically since their refs moved.
 The umbrella PR is the ONLY PR ever merged (squash, per repo conventions), and the merge is
 performed BY THE USER — the agent never merges it. Flipping the PR to ready-for-review is the
 agent's last act before handing the PR to the user; post-flip fix work and post-merge cleanup
-stay agent duties (below). The flip is gated by this pre-flip checklist:
+stay agent duties (below). The flip is gated by this pre-flip checklist, executed in order:
 
-- Re-read the whole PR description end-to-end to confirm it still tells one consistent story.
 - Every opened satellite's peer review is completed or explicitly user-waived — flipping never
   discards a pending review.
 - All commits landed since the last user-approved gate (e.g., final-track peer-review fixes)
@@ -273,6 +272,13 @@ stay agent duties (below). The flip is gated by this pre-flip checklist:
   marker commits are gone and the satellites are closed, so track references would dangle in
   develop's history. The rest of the description — Motivation, Planned changes — stays: it
   becomes the squash-commit body.
+- Update the PR title and description to the final state of the change: the title names what
+  was actually delivered — preserving the issue prefix or multi-issue bracket list and any gate
+  markers such as `[no-test-number-check]` — and the description, including the Planned changes
+  section, describes the change as implemented, folding in everything added, dropped, or
+  reshaped since the draft PR was opened.
+- Last, re-read the whole PR description end-to-end to confirm the as-flipped text tells one
+  consistent story.
 
 Single-track and trivial changes: at the flip the agent asks whether the user wants a peer
 review. If yes, peers review the ready umbrella PR directly — no satellite branches or PR are
