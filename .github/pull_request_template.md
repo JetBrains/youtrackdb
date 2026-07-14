@@ -9,7 +9,8 @@ Not a restatement of the diff. This section is **MANDATORY**.
 
 #### Planned changes:
 <!-- MANDATORY for non-trivial changes. Written when the draft PR is created (before
-implementation); updated as reality diverges. High design level using the main domain
+implementation); updated as reality diverges; brought to the final, as-implemented state
+before the PR is flipped ready for review. High design level using the main domain
 entities from the code — no file paths, no method signatures. Include the subsections that
 apply: Current state · What changes (contract/behavior) · How (design level) ·
 Key decisions (chosen vs rejected alternatives) · Out of scope · Risks & accepted
