@@ -18,7 +18,7 @@
  *
  * Optional config at .pi/slate.json:
  *   { "episodeModel": "provider/id", "workerTools": [...], "maxConcurrent": 4,
- *     "pauseThresholdPercent": 40,
+ *     "pauseThresholdPercent": 40, "orchestratorModeDefault": true,
  *     "orchestratorPromptDocs": ["docs/agents/orchestrator-guidelines.md"],
  *     "workerPromptDocs": ["docs/agents/thread-guidelines.md"] }
  */
