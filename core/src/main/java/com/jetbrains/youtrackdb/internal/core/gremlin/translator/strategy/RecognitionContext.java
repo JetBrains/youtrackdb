@@ -1,0 +1,113 @@
+package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
+
+import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
+import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.structure.Element;
+
+/**
+ * The recogniser-facing view of the walk. A {@link StepRecogniser} reads resolved flags and the
+ * current boundary, mints aliases, and contributes to the pattern through the named methods here — it
+ * cannot reach the traversal, the strategy list, the step cursor's position, or the pattern builder.
+ * The concrete {@link WalkerContext} implements this interface and owns that full state.
+ *
+ * <p>Narrowing the surface this way is what keeps a new recogniser from perturbing the others: it
+ * cannot add order-dependence on the raw traversal or scan strategies on a hot path, and every
+ * contribution goes through a method whose effect is fixed here rather than through direct field
+ * writes.
+ *
+ * <h2>No mutation discipline</h2>
+ *
+ * A recogniser may read and contribute in any order. A {@link Outcome#DECLINE} — its own or a later
+ * recogniser's — makes {@link GremlinStepWalker} discard the whole walk, so a partial contribution
+ * can never leak into a translated plan. "Validate before you mutate" is unnecessary here.
+ */
+interface RecognitionContext {
+
+  // --- Resolved flags, each resolved once by the walker -----------------------------------------
+
+  /**
+   * Whether the traversal runs as a polymorphic query ({@code YTDBStrategyUtil.isPolymorphic}).
+   * Resolved once by {@link GremlinStepWalker}; a {@code null} resolution declines the whole walk
+   * before any recogniser runs, so this is always a resolved value. Reserved for the explicit-class
+   * narrowing path (the folded {@code hasLabel} of a later track); the Phase 1 recognisers root every
+   * node at the generic {@code V} class regardless of it.
+   */
+  boolean polymorphic();
+
+  /**
+   * Whether the traversal opts into {@code EdgeLabelVerificationStrategy}. Resolved once by
+   * {@link GremlinStepWalker} so a recogniser reads a boolean instead of scanning the strategy list.
+   * A label-less hop declines when this is {@code true}: translating the hop away would suppress the
+   * label-less error that strategy exists to raise (see
+   * {@link GremlinPatternAssembler#resolveEdgeLabel}).
+   */
+  boolean edgeLabelVerificationEnabled();
+
+  // --- Boundary read ----------------------------------------------------------------------------
+
+  /**
+   * The alias of the traversal's current terminator, or {@code null} before any step has pinned a
+   * boundary. A hop reads this as its "from" endpoint; the start-step recogniser uses a {@code null}
+   * boundary as its "I am the start" guard.
+   */
+  @Nullable String boundaryAlias();
+
+  // --- Alias minting ----------------------------------------------------------------------------
+
+  /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). */
+  String nextAnonVertexAlias();
+
+  /** Mints the next anonymous edge alias ({@code $g2m_edge_0}, {@code $g2m_edge_1}, …). */
+  String nextEdgeAlias();
+
+  // --- Contributions ----------------------------------------------------------------------------
+
+  /** Registers a pattern node under {@code alias} rooted at {@code className}, non-optional. */
+  void addNode(String alias, String className);
+
+  /** Registers an unfiltered edge {@code fromAlias --dir(edgeLabel)--> toAlias} on the pattern. */
+  void addEdge(
+      String fromAlias, String toAlias, MatchPatternBuilder.Direction dir,
+      @Nullable String edgeLabel);
+
+  /**
+   * Registers the edge-as-node form {@code fromAlias --edgeDir E(edgeLabel){edgeFilter}--> edgeAlias
+   * --closingVertexDir V()--> toAlias}, the only IR shape that can filter an edge rather than the
+   * target vertex.
+   */
+  void addEdgeAsNode(
+      String fromAlias,
+      String edgeAlias,
+      String toAlias,
+      MatchPatternBuilder.Direction edgeDir,
+      @Nullable String edgeLabel,
+      MatchPatternBuilder.Direction closingVertexDir,
+      @Nullable SQLWhereClause edgeFilter);
+
+  /**
+   * Records a per-alias {@code WHERE} contributed outside the pattern builder (e.g. {@code @rid IN
+   * [...]}). Merged into the built pattern's alias filters at result-build time, overriding a builder
+   * entry on the same alias.
+   */
+  void putAliasFilter(String alias, SQLWhereClause where);
+
+  /** Records the accumulated edge {@code WHERE} under an edge alias, so the edge filter is
+   *  observable on the walk state. The filter also travels on the edge path item via
+   *  {@link #addEdgeAsNode}. */
+  void putEdgeFilter(String edgeAlias, SQLWhereClause where);
+
+  /**
+   * Pins the boundary metadata: the alias the matched element appears under in each row, how the row
+   * projects onto a traverser, and the TinkerPop element class the boundary emits.
+   */
+  void pinBoundary(String alias, BoundaryOutputType type, Class<? extends Element> returnClass);
+
+  /**
+   * Replaces the RETURN projection with a single column {@code alias AS alias}. A chain hop calls this
+   * to make its new target the traversal's one result column; the start step calls it to key the row
+   * on the source vertex.
+   */
+  void setSingleReturnColumn(String alias);
+}

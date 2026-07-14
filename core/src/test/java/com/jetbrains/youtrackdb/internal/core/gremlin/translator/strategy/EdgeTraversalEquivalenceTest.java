@@ -116,11 +116,10 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // A multi-hop chain (g.V().out(L).out(L)) is exercised end-to-end below by
-  // multiHopChain_recognizedViaBarrierRecogniser: LazyBarrierStrategy injects a NoOpBarrierStep
-  // between the hops, which NoOpBarrierRecogniser now claims as a transparent pass-through, so the
-  // whole chain is RECOGNIZED (it declined before that recogniser landed). The unit test
-  // twoSequentialHops_chainOffPreviousTarget additionally pins the recogniser's chaining logic
-  // directly, without the barrier.
+  // multiHopChain_recognizedViaTransparentBarrier: LazyBarrierStrategy injects a NoOpBarrierStep
+  // between the hops, which the step cursor skips as a transparent step, so the whole chain is
+  // RECOGNIZED. The unit test twoSequentialHops_chainOffPreviousTarget additionally pins the
+  // recogniser's chaining logic directly, without the barrier.
 
   // ---------------------------------------------------------------------------
   // Adjacent folded edge chains — outE(L).inV() / bothE(L).otherV(). These fold
@@ -155,19 +154,18 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Multi-hop chains — now RECOGNIZED because NoOpBarrierRecogniser claims the
-  // barrier LazyBarrierStrategy wedges between chained hops (deferred from the
-  // folded-hop step, which had no barrier recogniser).
+  // Multi-hop chains — RECOGNIZED because the step cursor skips the NoOpBarrierStep
+  // LazyBarrierStrategy wedges between chained hops as a transparent step.
   // ---------------------------------------------------------------------------
 
   /**
    * {@code g.V().out("knows").out("knows")} translates end-to-end: {@code LazyBarrierStrategy} wedges
-   * a {@code NoOpBarrierStep} between the two hops, which {@code NoOpBarrierRecogniser} now claims as
-   * a transparent pass-through, so the whole two-hop chain is recognised (it declined before this
-   * step for want of a barrier recogniser). Over Alice→Bob→Carol, two {@code out} hops yield {Carol}.
+   * a {@code NoOpBarrierStep} between the two hops, which the step cursor skips as a transparent step,
+   * so the whole two-hop chain is recognised. Over Alice→Bob→Carol, two {@code out} hops yield
+   * {Carol}.
    */
   @Test
-  public void multiHopChain_recognizedViaBarrierRecogniser() {
+  public void multiHopChain_recognizedViaTransparentBarrier() {
     seedKnowsChain();
     assertEquivalent(
         "g.V().out(knows).out(knows) (multi-hop, interleaved barrier)",
