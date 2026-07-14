@@ -114,9 +114,11 @@ final class WalkerContext implements RecognitionContext {
    * Gremlin, which treats {@code $foo} as a plain, absent property name.
    *
    * <p>Both reserved-namespace guards read this one constant so they cannot drift apart on its
-   * value: {@link GremlinStepWalker}'s reserved-prefix {@code as(...)} label pre-flight declines a
-   * label starting with it, and {@link GremlinPredicateAdapter}'s {@code has(...)}-key guard folds
-   * it into {@link #isReservedHasKey(String)}.
+   * value, though they react differently: {@link GremlinStepWalker}'s reserved-prefix {@code as(...)}
+   * label pre-flight <em>rejects</em> a label starting with it (throwing a {@code
+   * ReservedAliasException} — a user alias colliding with the minted namespace is prohibited input),
+   * while {@link GremlinPredicateAdapter}'s {@code has(...)}-key guard <em>declines</em> to native
+   * through {@link #isReservedHasKey(String)}.
    */
   static final String RESERVED_ALIAS_PREFIX = "$";
 

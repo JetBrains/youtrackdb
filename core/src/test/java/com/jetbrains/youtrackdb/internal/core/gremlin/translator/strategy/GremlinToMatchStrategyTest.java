@@ -260,6 +260,25 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   }
 
   /**
+   * The production strategy propagates a reserved-{@code $} alias rejection end to end. A user {@code
+   * as("$foo")} label reaches the walker-backed facade, whose reserved-prefix pre-flight throws a
+   * {@link ReservedAliasException}; the throw-safety net re-throws it rather than degrading to a
+   * decline, so the query fails with a clear error instead of silently running on native (which would
+   * accept the {@code $} label). This pins the real wiring — gates on, production walker, net
+   * re-throw — that the fixture-injection test {@link #apply_reservedAliasException_propagates}
+   * exercises in isolation.
+   */
+  @Test
+  public void apply_productionReservedAliasLabel_propagates() {
+    var admin = graph.traversal().V().as("$foo").asAdmin();
+
+    assertThatCode(() -> GremlinToMatchStrategy.instance().apply(admin))
+        .as("a prohibited reserved-$ alias must surface through the production strategy")
+        .isInstanceOf(ReservedAliasException.class)
+        .hasMessageContaining("$foo");
+  }
+
+  /**
    * All-or-nothing at the strategy layer: a recognized prefix followed by an unrecognized step leaves
    * the traversal byte-for-byte unchanged, with no boundary step spliced. The fixture is {@code
    * g.V().out("knows").map(...)}: the {@code out("knows")} hop is recognizable, but the trailing
@@ -284,7 +303,9 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
   // Throw-safety net: an unchecked (RuntimeException) failure from a translator declines
   // cleanly (the exception never escapes apply() and the step list is left untouched), but an
   // Error or AssertionError propagates so a fatal JVM error or an -ea invariant violation
-  // surfaces loudly instead of degrading to a silent decline.
+  // surfaces loudly instead of degrading to a silent decline. The one RuntimeException subtype that
+  // also propagates is ReservedAliasException — a prohibited user alias in the reserved '$'
+  // namespace, an input rejection rather than a translator failure.
   // ---------------------------------------------------------------------------
 
   /**
@@ -363,6 +384,29 @@ public class GremlinToMatchStrategyTest extends GraphBaseTest {
     assertThatCode(() -> strategy.apply(admin))
         .as("an -ea invariant violation must surface, not be swallowed")
         .isInstanceOf(AssertionError.class);
+  }
+
+  /**
+   * A {@link ReservedAliasException} — the walker's rejection of a user {@code as(...)} label in the
+   * reserved {@code $} namespace — must propagate, not decline. It is prohibited input rather than a
+   * best-effort-translation failure, so {@code apply} re-throws it (caught before the {@link
+   * RuntimeException} clause) and the query fails with a clear error instead of silently running on
+   * native, which would accept the {@code $} label. This is the one {@code RuntimeException} subtype
+   * the throw-safety net does not swallow.
+   */
+  @Test
+  public void apply_reservedAliasException_propagates() {
+    var admin = graph.traversal().V().asAdmin();
+
+    var strategy =
+        new GremlinToMatchStrategy(
+            t -> {
+              throw new ReservedAliasException("Gremlin alias '$foo' uses the reserved '$' prefix");
+            });
+
+    assertThatCode(() -> strategy.apply(admin))
+        .as("a prohibited reserved-$ alias must surface, not degrade to a native decline")
+        .isInstanceOf(ReservedAliasException.class);
   }
 
   /**
