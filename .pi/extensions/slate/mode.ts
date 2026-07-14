@@ -190,9 +190,11 @@ export function registerSlateMode(
 		// seed, while resumed/forked real sessions and explicit /slate off
 		// decisions stay untouched. Deliberately NOT saved — persisting would
 		// lock the default into old sessions even after the config flag is later
-		// turned off; the first real mutation persists it. The hasUI gate keeps
-		// non-interactive (print/RPC) sessions unaffected.
-		if (!store.orchestratorMode && ctx.hasUI && getConfig().orchestratorModeDefault === true) {
+		// turned off; the first real mutation persists it. The mode === "tui"
+		// gate limits the seed to interactive terminal sessions — hasUI would not
+		// do: it is also true in RPC mode, and scripted/automated runs
+		// (print/JSON/RPC) must not silently lose tactical tools.
+		if (!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true) {
 			const fresh = !ctx.sessionManager.getBranch().some((entry) => {
 				// Loose cast like state.ts restore(): tolerate malformed/legacy entries.
 				const e = entry as { type: string; customType?: string };
