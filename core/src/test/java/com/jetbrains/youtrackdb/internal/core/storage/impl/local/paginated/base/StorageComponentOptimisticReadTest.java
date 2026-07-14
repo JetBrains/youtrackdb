@@ -54,7 +54,7 @@ public class StorageComponentOptimisticReadTest {
   private ReadCache mockReadCache;
   private AtomicOperation mockAtomicOp;
   private OptimisticReadScope scope;
-  private WarnCapturingStorageComponent component;
+  private ErrorCapturingStorageComponent component;
 
   @Before
   public void setUp() {
@@ -74,7 +74,7 @@ public class StorageComponentOptimisticReadTest {
     mockAtomicOp = mock(AtomicOperation.class);
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
-    component = new WarnCapturingStorageComponent(mockStorage);
+    component = new ErrorCapturingStorageComponent(mockStorage);
   }
 
   @After
@@ -699,7 +699,7 @@ public class StorageComponentOptimisticReadTest {
   public void testValidatedNullTriggersExactlyOnePinnedRecheckAndStaysSilent()
       throws IOException {
     // A cleanly validated optimistic NULL triggers exactly one pinned re-check; when the
-    // pinned run confirms the miss (agreement), the null is returned silently — no WARN.
+    // pinned run confirms the miss (agreement), the null is returned silently — no report.
     final int[] pinnedRuns = {0};
 
     String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
@@ -714,13 +714,13 @@ public class StorageComponentOptimisticReadTest {
 
     assertNull(result);
     assertEquals(1, pinnedRuns[0]);
-    assertEquals(0, component.nullRecheckWarnCount);
+    assertEquals(0, component.nullRecheckErrorCount);
   }
 
   @Test
-  public void testNullRecheckDisagreementReturnsPinnedResultAndWarns() throws IOException {
+  public void testNullRecheckDisagreementReturnsPinnedResultAndReportsError() throws IOException {
     // Disagreement: validated optimistic null, but the pinned re-check finds an entry.
-    // The pinned result is authoritative and returned; exactly one WARN is emitted with
+    // The pinned result is authoritative and returned; exactly one rate-limited ERROR is emitted with
     // the lookup coordinates.
     final int[] pinnedRuns = {0};
 
@@ -736,8 +736,8 @@ public class StorageComponentOptimisticReadTest {
 
     assertEquals("pinned-found", result);
     assertEquals(1, pinnedRuns[0]);
-    assertEquals(1, component.nullRecheckWarnCount);
-    assertEquals("key=42", component.lastNullRecheckWarnDescription);
+    assertEquals(1, component.nullRecheckErrorCount);
+    assertEquals("key=42", component.lastNullRecheckErrorDescription);
   }
 
   @Test
@@ -763,7 +763,7 @@ public class StorageComponentOptimisticReadTest {
 
     assertEquals("optimistic-hit", result);
     assertEquals(0, pinnedRuns[0]);
-    assertEquals(0, component.nullRecheckWarnCount);
+    assertEquals(0, component.nullRecheckErrorCount);
     releaseFrame(frame);
   }
 
@@ -789,14 +789,14 @@ public class StorageComponentOptimisticReadTest {
 
     assertNull(result);
     assertEquals(1, pinnedRuns[0]);
-    assertEquals(0, component.nullRecheckWarnCount);
+    assertEquals(0, component.nullRecheckErrorCount);
   }
 
   @Test
-  public void testEqualNonNullResultsDoNotWarn() throws IOException {
+  public void testEqualNonNullResultsDoNotReport() throws IOException {
     // findVisibleEntry shape: the trigger can fire even when the composed optimistic
     // result is non-null (inner tree-null with a snapshot-index hit). An equal pinned
-    // result is agreement, not disagreement — no WARN.
+    // result is agreement, not disagreement — no report.
     String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
         mockAtomicOp,
         () -> List.of("same"),
@@ -805,13 +805,37 @@ public class StorageComponentOptimisticReadTest {
         () -> "key=42").get(0);
 
     assertEquals("same", result);
-    assertEquals(0, component.nullRecheckWarnCount);
+    assertEquals(0, component.nullRecheckErrorCount);
   }
 
   @Test
-  public void testProductionWarnEmissionIsRateLimited() throws IOException {
+  public void testPinnedNullOptimisticNonNullReturnsOptimisticSilently() throws IOException {
+    // Reverse-direction disagreement: the trigger fires on a non-null composed optimistic
+    // result (the findVisibleEntry snapshot-hit shape) and the pinned re-check returns
+    // null. The optimistic value is the SI-correct answer for this operation's snapshot
+    // and must be returned; this direction is deliberately silent — exactly one pinned
+    // run, no disagreement signal, no emission.
+    final int[] pinnedRuns = {0};
+
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> "optimistic-snapshot-hit",
+        () -> {
+          pinnedRuns[0]++;
+          return null;
+        },
+        r -> true,
+        () -> "key=42");
+
+    assertEquals("optimistic-snapshot-hit", result);
+    assertEquals(1, pinnedRuns[0]);
+    assertEquals(0, component.nullRecheckErrorCount);
+  }
+
+  @Test
+  public void testProductionErrorEmissionIsRateLimited() throws IOException {
     // Uses a component WITHOUT the capturing override so the PRODUCTION emission body of
-    // warnOptimisticNullRecheckDisagreement runs end-to-end: the first disagreement
+    // errorOptimisticNullRecheckDisagreement runs end-to-end: the first disagreement
     // passes the rate limiter and logs through LogManager (building the lazy
     // description); an immediate second disagreement takes the limiter's suppression
     // return. Both lookups must still return the authoritative pinned result.
@@ -828,20 +852,20 @@ public class StorageComponentOptimisticReadTest {
   }
 
   @Test
-  public void testNullRecheckWarnRateLimiterSuppressesRepeats() {
-    // The rate limiter allows at most one WARN per minute per component; tested with
+  public void testNullRecheckErrorRateLimiterSuppressesRepeats() {
+    // The rate limiter allows at most one ERROR per minute per component; tested with
     // controlled timestamps against the package-private seam.
     long t0 = 1L;
     assertTrue("first emission must be allowed",
-        component.tryAcquireNullRecheckWarnSlot(t0));
+        component.tryAcquireNullRecheckErrorSlot(t0));
     assertFalse("immediate repeat must be suppressed",
-        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.MILLISECONDS.toNanos(1)));
+        component.tryAcquireNullRecheckErrorSlot(t0 + TimeUnit.MILLISECONDS.toNanos(1)));
     assertFalse("repeat within the interval must be suppressed",
-        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.SECONDS.toNanos(59)));
+        component.tryAcquireNullRecheckErrorSlot(t0 + TimeUnit.SECONDS.toNanos(59)));
     assertTrue("emission after the interval must be allowed",
-        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.SECONDS.toNanos(61)));
+        component.tryAcquireNullRecheckErrorSlot(t0 + TimeUnit.SECONDS.toNanos(61)));
     assertFalse("the fresh emission must restart the interval",
-        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.SECONDS.toNanos(62)));
+        component.tryAcquireNullRecheckErrorSlot(t0 + TimeUnit.SECONDS.toNanos(62)));
   }
 
   @Test
@@ -938,26 +962,26 @@ public class StorageComponentOptimisticReadTest {
   }
 
   /**
-   * Test subclass whose WARN override replaces the LogManager sink so tests can assert
+   * Test subclass whose report override replaces the LogManager sink so tests can assert
    * emission counts and descriptions; the production emission body is exercised
    * separately through the plain {@link TestStorageComponent} in
-   * {@link #testProductionWarnEmissionIsRateLimited()}, and the rate limiter through its
+   * {@link #testProductionErrorEmissionIsRateLimited()}, and the rate limiter through its
    * package-private seam.
    */
-  private static class WarnCapturingStorageComponent extends TestStorageComponent {
+  private static class ErrorCapturingStorageComponent extends TestStorageComponent {
 
-    int nullRecheckWarnCount;
-    String lastNullRecheckWarnDescription;
+    int nullRecheckErrorCount;
+    String lastNullRecheckErrorDescription;
 
-    WarnCapturingStorageComponent(AbstractStorage storage) {
+    ErrorCapturingStorageComponent(AbstractStorage storage) {
       super(storage);
     }
 
     @Override
-    protected void warnOptimisticNullRecheckDisagreement(
+    protected void errorOptimisticNullRecheckDisagreement(
         Supplier<String> lookupDescription) {
-      nullRecheckWarnCount++;
-      lastNullRecheckWarnDescription = lookupDescription.get();
+      nullRecheckErrorCount++;
+      lastNullRecheckErrorDescription = lookupDescription.get();
     }
   }
 }

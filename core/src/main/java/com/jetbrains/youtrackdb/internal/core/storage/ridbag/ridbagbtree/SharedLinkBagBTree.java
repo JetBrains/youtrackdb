@@ -170,7 +170,7 @@ public final class SharedLinkBagBTree extends StorageComponent {
   }
 
   /**
-   * Key coordinates for the null-recheck disagreement WARN.
+   * Key coordinates for the null-recheck disagreement report.
    */
   private String lookupDescription(
       final long ridBagId, final int targetCollection, final long targetPosition) {

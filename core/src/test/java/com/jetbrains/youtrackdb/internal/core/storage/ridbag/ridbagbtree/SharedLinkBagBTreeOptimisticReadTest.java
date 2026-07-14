@@ -575,7 +575,7 @@ public class SharedLinkBagBTreeOptimisticReadTest {
    * points. With all pages cached, the optimistic attempt validates cleanly (stamps and
    * epoch), its null result triggers the pinned re-check under the component shared
    * lock, the re-check confirms the miss (agreement), and the null is returned silently
-   * — no disagreement WARN, no behavior change for legitimate misses.
+   * — no disagreement report, no behavior change for legitimate misses.
    */
   @Test
   public void testAbsentKeyLookupsConfirmNullThroughPinnedRecheck() throws Exception {

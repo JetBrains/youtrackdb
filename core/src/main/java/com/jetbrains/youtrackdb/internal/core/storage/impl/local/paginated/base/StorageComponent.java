@@ -695,12 +695,12 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     }
   }
 
-  // Rate limiter state for the null-recheck disagreement WARN: nanoTime of the last
+  // Rate limiter state for the null-recheck disagreement ERROR: nanoTime of the last
   // emitted message, 0 = never emitted. Per component instance, CAS-updated so
   // concurrent readers emit at most ~one message per interval.
-  private final AtomicLong lastNullRecheckWarnNanos = new AtomicLong();
+  private final AtomicLong lastNullRecheckErrorNanos = new AtomicLong();
 
-  private static final long NULL_RECHECK_WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
+  private static final long NULL_RECHECK_ERROR_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
 
   /**
    * Variant of {@link #executeOptimisticStorageRead(AtomicOperation, OptimisticReadFunction,
@@ -721,15 +721,18 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    *       every legitimate miss pay the pinned cost twice more.
    *   <li>On trigger, the pinned lambda runs once under the component shared lock. A non-null
    *       pinned result that differs from the optimistic one is a disagreement: a rate-limited
-   *       WARN is emitted and the pinned result is returned. If the pinned result is null too,
+   *       ERROR is emitted and the pinned result is returned. If the pinned result is null too,
    *       the null is confirmed and returned silently.
+   *   <li>The trigger fires only on the load-bearing NULL by design: stale validated
+   *       NON-null results are guaranteed consistent by the apply-phase epoch, and
+   *       re-verifying them would double the pinned cost of every successful lookup.
    * </ul>
    *
    * @param recheckTrigger    evaluated on the validated optimistic result; return true to
    *                          request the pinned re-check (e.g. {@code Objects::isNull}, or a
    *                          flag captured from an inner lookup when the composed result can
    *                          mask the load-bearing null)
-   * @param lookupDescription lazily built key coordinates for the disagreement WARN
+   * @param lookupDescription lazily built key coordinates for the disagreement report
    */
   @Nullable protected <T> T executeOptimisticStorageReadWithNullRecheck(
       @Nonnull final AtomicOperation atomicOperation,
@@ -785,56 +788,66 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     }
 
     if (pinnedResult != null && !Objects.equals(pinnedResult, result)) {
-      warnOptimisticNullRecheckDisagreement(lookupDescription);
+      errorOptimisticNullRecheckDisagreement(lookupDescription);
       return pinnedResult;
     }
-    // Agreement (typically both null): confirm silently. When the pinned result is null but
-    // the composed optimistic result was not (e.g. a snapshot-index hit), the optimistic
-    // value is still a valid concurrent-snapshot answer and is preferred.
+    // Agreement (typically both null): confirm silently. The reverse-direction
+    // disagreement — optimistic non-null, pinned null — is DELIBERATELY silent: that is
+    // the snapshot-hit shape (the composed optimistic value came from the in-memory
+    // snapshot index while the tree had nothing). The pinned run saw the same or newer
+    // state, and the optimistic value is the SI-correct answer for this operation's
+    // snapshot, so it is preferred and no anomaly is reported.
     return pinnedResult != null ? pinnedResult : result;
   }
 
   /**
-   * Emits the rate-limited disagreement WARN for the validated-null re-check. Protected so
+   * Emits the rate-limited disagreement ERROR for the validated-null re-check. Protected so
    * unit tests can override it to capture emissions; the rate limiter itself lives in
-   * {@link #tryAcquireNullRecheckWarnSlot(long)} and is tested directly.
+   * {@link #tryAcquireNullRecheckErrorSlot(long)} and is tested directly.
+   *
+   * <p>ERROR (not WARN) because for the production wiring the miss cannot be explained by
+   * benign timing: visibility is resolved against a fixed snapshot captured at operation
+   * construction, so a concurrently committed insert would be filtered out anyway — a
+   * disagreement here indicates a genuine optimistic-read anomaly.
    */
-  protected void warnOptimisticNullRecheckDisagreement(
+  protected void errorOptimisticNullRecheckDisagreement(
       final Supplier<String> lookupDescription) {
-    if (!tryAcquireNullRecheckWarnSlot(System.nanoTime())) {
+    if (!tryAcquireNullRecheckErrorSlot(System.nanoTime())) {
       return;
     }
     LogManager.instance()
-        .warn(
+        .error(
             this,
-            "Optimistic point lookup in component '%s' reported a miss, but the pinned"
-                + " re-check found an entry (%s). This is usually benign — a concurrent commit"
-                + " may have inserted the entry between the optimistic attempt and the re-check"
-                + " — but it may also indicate an unmodeled optimistic-read anomaly worth"
-                + " reporting. At most one such message is logged per minute per component.",
-            // The Object cast pins the warn(requester, message, Object...) overload: with
-            // two String arguments javac would otherwise select the
-            // warn(requester, dbName, message, Object...) overload, shifting the whole
-            // message into the dbName slot and breaking the %s formatting.
-            (Object) getName(),
+            "Pinned re-check in component '%s' found an entry that the validated optimistic"
+                + " lookup missed (%s). The lookup self-healed — the pinned result was"
+                + " returned — but this indicates a possible optimistic-read/epoch anomaly:"
+                + " visibility is resolved against a fixed operation snapshot, so a"
+                + " concurrently committed insert cannot explain the miss. Please report this"
+                + " occurrence. At most one such message is logged per minute per component.",
+            // The explicit null Throwable pins the single
+            // error(requester, message, exception, Object...) overload — unlike warn, error
+            // has no (requester, dbName, message, ...) sibling that two String arguments
+            // could silently select.
+            null,
+            getName(),
             lookupDescription.get());
   }
 
   /**
-   * Rate limiter for the disagreement WARN: returns true if the caller won the right to log
-   * at {@code nowNanos} (at most one win per {@link #NULL_RECHECK_WARN_INTERVAL_NANOS}).
-   * CAS-based so concurrent winners are unique. Package-private for direct unit testing
-   * with controlled timestamps.
+   * Rate limiter for the disagreement ERROR: returns true if the caller won the right to
+   * log at {@code nowNanos} (at most one win per
+   * {@link #NULL_RECHECK_ERROR_INTERVAL_NANOS}). CAS-based so concurrent winners are
+   * unique. Package-private for direct unit testing with controlled timestamps.
    */
-  boolean tryAcquireNullRecheckWarnSlot(final long nowNanos) {
+  boolean tryAcquireNullRecheckErrorSlot(final long nowNanos) {
     while (true) {
-      final long last = lastNullRecheckWarnNanos.get();
+      final long last = lastNullRecheckErrorNanos.get();
       // 0 is the "never logged" sentinel; a genuine nanoTime of exactly 0 would merely
       // allow one extra message, which is harmless.
-      if (last != 0 && nowNanos - last < NULL_RECHECK_WARN_INTERVAL_NANOS) {
+      if (last != 0 && nowNanos - last < NULL_RECHECK_ERROR_INTERVAL_NANOS) {
         return false;
       }
-      if (lastNullRecheckWarnNanos.compareAndSet(last, nowNanos)) {
+      if (lastNullRecheckErrorNanos.compareAndSet(last, nowNanos)) {
         return true;
       }
     }
