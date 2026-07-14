@@ -367,6 +367,80 @@ public class CommitChangesPageApplyHookTest {
   }
 
   @Test
+  public void testZeroChangeCommitDoesNotBumpEpoch() throws IOException {
+    // CN-11/CQ-1/CS-2 regression: a commit with nothing to apply (read-only atomic
+    // operation — no deleted files, no new/truncated files, no page changes) performs
+    // no shared-cache mutation, so it must NOT enter the epoch bracket. Before the
+    // gating fix, every commit bumped the epoch, spuriously invalidating all
+    // concurrently overlapping optimistic reads in the storage.
+    var op = createOperation();
+
+    // Pure no-op commit: returns null (no WAL unit was ever started either).
+    Assert.assertNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(0, epoch.enterSeq());
+    Assert.assertEquals(0, epoch.exitSeq());
+  }
+
+  @Test
+  public void testHookReturningDuplicatePageIndexFailsCommitWithBalancedEpoch()
+      throws IOException {
+    // CS-1/CQ-2/CN-13: a duplicate in the hook-returned order would double-apply a
+    // page. The permutation validation must fail the commit loudly, and the epoch
+    // bracket must still close via the finally.
+    var op = createOperation();
+    setupNewFileWithPages(op, "duplicate-page.dat", 2);
+
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public long[] orderPageApplications(long fileId, long[] pageIndexes) {
+        return new long[] {0, 0};
+      }
+    });
+
+    try {
+      op.commitChanges(42L, wal);
+      Assert.fail("Expected IllegalStateException for duplicate page index");
+    } catch (IllegalStateException e) {
+      Assert.assertTrue(
+          "Message should mention the duplicate page index: " + e.getMessage(),
+          e.getMessage().contains("duplicate page index 0"));
+    }
+
+    Assert.assertEquals(1, epoch.enterSeq());
+    Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  @Test
+  public void testHookOmittingPagesFailsCommitWithBalancedEpoch() throws IOException {
+    // CS-1/CQ-2/CN-13: an omission in the hook-returned order would silently drop a
+    // WAL-committed page's changes from the cache. The permutation validation must
+    // fail the commit loudly (incomplete permutation), and the epoch bracket must
+    // still close via the finally.
+    var op = createOperation();
+    setupNewFileWithPages(op, "omitted-page.dat", 2);
+
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public long[] orderPageApplications(long fileId, long[] pageIndexes) {
+        return new long[] {0}; // omits page 1
+      }
+    });
+
+    try {
+      op.commitChanges(42L, wal);
+      Assert.fail("Expected IllegalStateException for incomplete permutation");
+    } catch (IllegalStateException e) {
+      Assert.assertTrue(
+          "Message should mention the incomplete permutation: " + e.getMessage(),
+          e.getMessage().contains("incomplete permutation"));
+    }
+
+    Assert.assertEquals(1, epoch.enterSeq());
+    Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  @Test
   public void testCommitWithoutHookBumpsEpochExactlyOnce() throws IOException {
     // The production path (no hook installed) must also bracket the apply section with
     // exactly one enter/exit pair per commit — one pair for the whole commit, not one

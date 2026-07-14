@@ -616,6 +616,75 @@ public class StorageComponentOptimisticReadTest {
     releaseFrame(frame);
   }
 
+  @Test
+  public void testCheckedIOExceptionPropagatesAndDoesNotPoisonNextRead() throws IOException {
+    // CN-10/BG-1 regression: a checked IOException escaping the optimistic lambda is
+    // NOT handled by the fallback catch (only RuntimeException | AssertionError route
+    // to the pinned path) — it must propagate to the caller. Before the fix, this exit
+    // path skipped exitAttempt(), leaving the -ea-only nesting state machine latched
+    // (attemptActive=true), so the NEXT read on the same scope failed with a spurious
+    // "Nested optimistic read attempt" AssertionError. The finally-based cleanup must
+    // close the attempt on this path too.
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    try {
+      component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            throw new IOException("checked failure from optimistic lambda");
+          },
+          () -> "pinned-result");
+      fail("Expected the checked IOException to propagate (not swallowed into fallback)");
+    } catch (IOException expected) {
+      assertEquals("checked failure from optimistic lambda", expected.getMessage());
+    }
+
+    // The next read on the same scope must run normally — no spurious nesting error.
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+    assertEquals("optimistic-result", result);
+
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testCheckedIOExceptionDoesNotPoisonNextReadVoidVariant() throws IOException {
+    // Void-overload twin of the test above — both overloads carry their own copy of
+    // the enter/exit attempt protocol and must both be exception-complete.
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    try {
+      component.testExecuteOptimisticStorageReadVoid(
+          mockAtomicOp,
+          () -> {
+            throw new IOException("checked failure from optimistic lambda");
+          },
+          () -> fail("pinned fallback must not run for a checked exception"));
+      fail("Expected the checked IOException to propagate");
+    } catch (IOException expected) {
+      assertEquals("checked failure from optimistic lambda", expected.getMessage());
+    }
+
+    final boolean[] optimisticRan = {false};
+    component.testExecuteOptimisticStorageReadVoid(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          optimisticRan[0] = true;
+        },
+        () -> fail("should not fall back — previous failure must not poison this read"));
+    assertEquals(true, optimisticRan[0]);
+
+    releaseFrame(frame);
+  }
+
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {
     var frame = pool.acquire(true, Intention.TEST);
     long exclusiveStamp = frame.acquireExclusiveLock();

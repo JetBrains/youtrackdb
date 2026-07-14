@@ -1133,7 +1133,16 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // epoch. The WAL phase and snapshot-buffer flushes above are deliberately NOT
       // bracketed — they do not mutate shared cache pages (snapshot-index entries are
       // SI-filtered on read).
-      applyPhaseEpoch.enterApplyPhase();
+      //
+      // The bracket is gated on the commit actually having shared-cache mutations
+      // (CN-11): zero-change commits — read-only atomic operations, pure metadata ops —
+      // perform no readCache calls in the section below, so bumping the epoch for them
+      // would only spuriously invalidate every concurrently overlapping optimistic
+      // read in the storage.
+      final var mutatesSharedCache = commitMutatesSharedCache();
+      if (mutatesSharedCache) {
+        applyPhaseEpoch.enterApplyPhase();
+      }
       try {
         deletedFilesIterator = deletedFiles.longIterator();
         while (deletedFilesIterator.hasNext()) {
@@ -1202,7 +1211,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           }
         }
       } finally {
-        applyPhaseEpoch.exitApplyPhase();
+        if (mutatesSharedCache) {
+          applyPhaseEpoch.exitApplyPhase();
+        }
       }
 
       return txEndLsn;
@@ -1276,6 +1287,30 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
+   * Returns whether this commit will mutate shared read-cache state in the apply
+   * section: any file deletion, any new/truncated file, or any page with accumulated
+   * changes. Zero-change commits (read-only atomic operations) return {@code false}
+   * and skip the apply-phase epoch bracket entirely.
+   */
+  private boolean commitMutatesSharedCache() {
+    if (!deletedFiles.isEmpty()) {
+      return true;
+    }
+    for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
+      final var changes = fileChangesEntry.getValue();
+      if (changes.isNew || changes.truncate) {
+        return true;
+      }
+      for (final var pageEntry : changes.pageChangesMap.long2ObjectEntrySet()) {
+        if (pageEntry.getValue().changes.hasChanges()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
    * TEST-ONLY variant of the per-file page-apply loop, active only when a
    * {@link PageApplyHook} is installed. Applies the file's changed pages in the order
    * chosen by {@link PageApplyHook#orderPageApplications} (default: the map's native
@@ -1293,16 +1328,39 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     var pageIndexes = fileChanges.pageChangesMap.keySet().toLongArray();
     final var reordered = hook.orderPageApplications(fileId, pageIndexes.clone());
     if (reordered != null) {
+      // Enforce the "complete permutation" contract (CS-1/CQ-2/CN-13): an unknown
+      // index would apply nothing for a real page, a duplicate would double-apply,
+      // and an omission would silently drop a WAL-committed page's changes from the
+      // cache — all of which would silently weaken the tests using this seam.
+      final var expected = new LongOpenHashSet(pageIndexes);
+      final var seen = new LongOpenHashSet(reordered.length);
+      for (final var pageIndex : reordered) {
+        if (!expected.contains(pageIndex)) {
+          throw new IllegalStateException(
+              "PageApplyHook.orderPageApplications returned unknown page index " + pageIndex
+                  + " for file " + fileId);
+        }
+        if (!seen.add(pageIndex)) {
+          throw new IllegalStateException(
+              "PageApplyHook.orderPageApplications returned duplicate page index " + pageIndex
+                  + " for file " + fileId);
+        }
+      }
+      if (reordered.length != pageIndexes.length) {
+        throw new IllegalStateException(
+            "PageApplyHook.orderPageApplications returned an incomplete permutation for file "
+                + fileId + ": expected " + pageIndexes.length + " pages, got "
+                + reordered.length);
+      }
       pageIndexes = reordered;
     }
 
     for (final var pageIndex : pageIndexes) {
       final var filePageChanges = fileChanges.pageChangesMap.get(pageIndex);
-      if (filePageChanges == null) {
-        throw new IllegalStateException(
-            "PageApplyHook.orderPageApplications returned unknown page index " + pageIndex
-                + " for file " + fileId);
-      }
+      // The permutation validation above (and keySet origin on the default path)
+      // guarantees every index resolves; this is a defensive invariant only.
+      assert filePageChanges != null
+          : "page changes vanished for page index " + pageIndex + " in file " + fileId;
 
       if (filePageChanges.changes.hasChanges()) {
         hook.beforePageApply(fileId, pageIndex);
@@ -1341,9 +1399,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     /**
      * Returns the order in which the given changed pages of {@code fileId} should be
      * applied, or {@code null} to keep the default (map iteration) order. The returned
-     * array must be a permutation of {@code pageIndexes} — unknown indexes fail the
-     * commit with {@link IllegalStateException}; omitted pages would silently not be
-     * applied, so tests must return all of them.
+     * array must be a COMPLETE permutation of {@code pageIndexes}: unknown indexes,
+     * duplicates, and omissions all fail the commit with
+     * {@link IllegalStateException} (an omission would otherwise silently drop a
+     * WAL-committed page's changes from the cache).
      */
     @Nullable default long[] orderPageApplications(final long fileId, final long[] pageIndexes) {
       return null;

@@ -99,13 +99,15 @@ public final class OptimisticReadScope {
         throw OptimisticReadFailedException.INSTANCE;
       }
     }
-    // The epoch check MUST stay after the stamp loop. PageFrame.validate() performs a
-    // volatile read of the StampedLock state, and ApplyPhaseEpoch.enterSeq() is a
-    // volatile read as well; the JMM forbids reordering two volatile reads, so keeping
-    // program order (stamps first, epoch second) guarantees the epoch re-read cannot be
-    // hoisted before the stamp validation. Validity requires both that no apply phase
-    // was in flight at capture time (enter == exit at capture) and that none entered
-    // since (live enterSeq unchanged).
+    // Epoch check placement: the essential requirement is only that this check runs
+    // AFTER all page reads of the attempt — which holds structurally, because the
+    // caller invokes validateOrThrow() once the optimistic lambda has finished reading.
+    // Both PageFrame.validate() (StampedLock state read behind an acquire fence) and
+    // ApplyPhaseEpoch.enterSeq() (volatile read) are synchronization actions whose
+    // mutual order matches program order, so running the epoch check after the stamp
+    // loop is the natural, conservative placement — not a load-bearing constraint.
+    // Validity requires both that no apply phase was in flight at capture time
+    // (enter == exit at capture) and that none entered since (live enterSeq unchanged).
     if (enterSeqAtCapture != exitSeqAtCapture
         || applyPhaseEpoch.enterSeq() != enterSeqAtCapture) {
       throw OptimisticReadFailedException.INSTANCE;

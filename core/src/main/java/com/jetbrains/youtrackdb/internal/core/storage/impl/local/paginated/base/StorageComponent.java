@@ -600,6 +600,13 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     // placed inside the try could never surface. See OptimisticReadScope#enterAttempt.
     assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
+    // Tracks whether the fallback catch below already closed the attempt. The attempt
+    // must be closed exactly once on EVERY exit path — including throwables the catch
+    // does not handle (a checked IOException from the optimistic lambda, or a VM error)
+    // — otherwise attemptActive stays latched and every subsequent optimistic read on
+    // this AtomicOperation fails with a spurious "Nested optimistic read attempt"
+    // AssertionError under -ea (CN-10/BG-1).
+    var attemptClosedByFallback = false;
     try {
       final T result = optimistic.apply();
       scope.validateOrThrow();
@@ -608,10 +615,6 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // policy's frequency sketch stays accurate.
       recordOptimisticAccesses(scope);
 
-      // Well-formedness check on both exits (here and at the top of the catch below):
-      // fails if a nested reset was detected while this attempt was in flight.
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
-
       return result;
     } catch (final RuntimeException | AssertionError e) {
       // Catch RuntimeException and AssertionError because speculative reads from
@@ -619,13 +622,16 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // and assertion failures (e.g., position-consistency checks seeing stale data)
       // before stamp validation has a chance to detect the inconsistency.
       // All such errors are safe to swallow here — the pinned fallback path will
-      // produce the correct result.
+      // produce the correct result. Checked exceptions and other Errors are NOT
+      // caught — they propagate to the caller (and the finally below still closes
+      // the attempt).
 
       // Close the attempt before the pinned fallback runs: the fallback may itself
       // legitimately start fresh optimistic reads (e.g., via helper methods), which
       // must not trip a stale nesting flag. If a nested reset was detected during the
       // failed attempt, this assert surfaces it (the nested AssertionError itself was
       // swallowed by this catch).
+      attemptClosedByFallback = true;
       assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
 
       acquireSharedLock();
@@ -633,6 +639,13 @@ public abstract class StorageComponent extends SharedResourceAbstract {
         return pinned.apply();
       } finally {
         releaseSharedLock();
+      }
+    } finally {
+      // Close the attempt on all remaining exit paths: normal return, and any
+      // throwable the catch above does not handle. Skipped when the fallback already
+      // closed it (exitAttempt is not idempotent — a second call reports ill-formed).
+      if (!attemptClosedByFallback) {
+        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
       }
     }
   }
@@ -652,15 +665,15 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     // See the nesting-guard comments in the T-returning overload above.
     assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
+    var attemptClosedByFallback = false;
     try {
       optimistic.run();
       scope.validateOrThrow();
 
       recordOptimisticAccesses(scope);
-
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
     } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
+      attemptClosedByFallback = true;
       assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
 
       acquireSharedLock();
@@ -668,6 +681,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
         pinned.run();
       } finally {
         releaseSharedLock();
+      }
+    } finally {
+      if (!attemptClosedByFallback) {
+        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
       }
     }
   }

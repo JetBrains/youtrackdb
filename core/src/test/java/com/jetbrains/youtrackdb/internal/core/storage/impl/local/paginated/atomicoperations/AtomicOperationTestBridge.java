@@ -15,8 +15,8 @@ import javax.annotation.Nullable;
  *       order and pause the writer mid-apply inside the epoch bracket;
  *   <li>the per-storage {@link ApplyPhaseEpoch} owned by {@link AtomicOperationsManager},
  *       so a test can make baseline-relative assertions on the epoch counters (never
- *       absolute ones — any read-only operation also brackets its own empty apply
- *       phase).
+ *       absolute ones — any commit that mutates shared cache state bumps the epoch,
+ *       and storages are shared across tests).
  * </ul>
  */
 public final class AtomicOperationTestBridge {

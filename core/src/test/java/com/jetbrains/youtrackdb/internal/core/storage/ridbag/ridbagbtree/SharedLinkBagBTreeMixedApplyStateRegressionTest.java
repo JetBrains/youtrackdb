@@ -246,8 +246,8 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
   private void runMixedStateScenario(LookupAssertion lookup) throws Exception {
     final var epoch = AtomicOperationTestBridge.applyPhaseEpoch(atomicOperationsManager);
     // Baseline is captured while no operation is running (setUp's operations have
-    // committed). Never assert absolute epoch values — every operation (including
-    // read-only ones) brackets its own apply phase at commit.
+    // committed). Never assert absolute epoch values — every commit that mutates
+    // shared cache state bumps the epoch, and this storage is shared across tests.
     final long baseEnter = epoch.enterSeq();
     final long baseExit = epoch.exitSeq();
     assertEquals("epoch must be quiescent at baseline", baseEnter, baseExit);
@@ -423,10 +423,11 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
       assertFalse("writer thread did not finish", writer.isAlive());
       assertNull("writer failed: " + writerError.get(), writerError.get());
 
-      // The bracket is balanced again (writer's apply plus the reader's own read-only
-      // commit both exited); relative lower bound only — never absolute.
+      // The bracket is balanced again. Exactly ONE bump relative to the baseline: the
+      // writer's apply. The reader's own commit is a zero-change commit and — since the
+      // CN-11 gating — deliberately does NOT bump the epoch.
       assertEquals(epoch.enterSeq(), epoch.exitSeq());
-      assertTrue(epoch.enterSeq() >= baseEnter + 2);
+      assertEquals(baseEnter + 1, epoch.enterSeq());
 
       // Final verification on a fresh operation: the fully applied tree serves every
       // pre-built key and the writer's first inserted key correctly.
@@ -456,7 +457,8 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
    * Waits until the reader thread blocks on the component shared lock (its pinned
    * fallback parks after the optimistic attempt failed epoch validation). Completing
    * while the writer is still paused would mean the reader never contended with the
-   * commit — the race would not have been exercised — so that fails the test.
+   * commit — the race would not have been exercised — so that fails the test with the
+   * future's real outcome surfaced.
    */
   private static void awaitReaderBlocked(Thread readerThread, Future<Void> readerFuture)
       throws Exception {
@@ -468,16 +470,24 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
             + " degenerated and the race was not exercised");
       }
       final var state = readerThread.getState();
-      if (state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING
-          || state == Thread.State.BLOCKED) {
+      final var parked = state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING
+          || state == Thread.State.BLOCKED;
+      // Re-check isDone AFTER the state read (TQ-1): a reader that completed between
+      // the isDone check above and the state read leaves the executor thread parked
+      // idle in WAITING, which would be misreported as "blocked on the lock". If it
+      // completed, loop back so the isDone branch above surfaces the future's real
+      // result or exception instead of a misleading generic assertion.
+      if (parked && !readerFuture.isDone()) {
         return;
       }
       if (System.nanoTime() > deadline) {
         fail("Timed out waiting for the reader to block on the component shared lock;"
-            + " reader state=" + state);
+            + " reader state=" + state + " done=" + readerFuture.isDone());
       }
-      //noinspection BusyWait — polling is the only way to observe lock-park state
-      Thread.sleep(1);
+      if (!readerFuture.isDone()) {
+        //noinspection BusyWait — polling is the only way to observe lock-park state
+        Thread.sleep(1);
+      }
     }
   }
 }
