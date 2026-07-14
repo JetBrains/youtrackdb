@@ -10,108 +10,76 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
 /**
- * Mutable accumulator that recognisers populate as {@link GremlinStepWalker} walks a
- * traversal. The walker creates one context per call; recognisers append nodes/edges
- * to {@link #patternBuilder} and entries to {@link #aliasFilters} / {@link #edgeFilters} /
- * the three return-projection lists, mint anonymous aliases for intermediate nodes and
- * edges via {@link #nextAnonVertexAlias()} / {@link #nextEdgeAlias()}, advance the step
- * cursor {@link #stepIndex} past every step they consume, and pin the boundary metadata
- * ({@link #boundaryAlias}, {@link #outputType}, {@link #returnClass}) when their step
- * is the traversal's terminator.
+ * The full walk state {@link GremlinStepWalker} owns and recognisers contribute to. It implements
+ * {@link RecognitionContext}, the narrow view handed to recognisers: they reach the fields here only
+ * through that interface's named methods, while the walker reads the fields directly to build the
+ * result. The walker creates one context per walk.
  *
- * <p>Package-private — held entirely inside the walker / recogniser conversation. The
- * {@link GremlinToMatchTranslator.TranslationResult} returned to the strategy is built
- * by the walker from this context's final state.
+ * <h2>No mutation discipline</h2>
  *
- * <h2>Mutation discipline</h2>
- *
- * Recognisers must not mutate any field unless they are about to return {@code true}.
- * The walker does not roll back partial mutations on a {@code false} return — see the
- * contract on {@link StepRecogniser#recognize}.
+ * A recogniser may contribute in any order. A {@link Outcome#DECLINE} makes the walker discard the
+ * whole context (and its cursor), so a partial contribution never leaks — see
+ * {@link RecognitionContext}.
  */
-final class WalkerContext {
+final class WalkerContext implements RecognitionContext {
 
-  /** Traversal currently being walked. Recognisers read traversal-level information (the
-   *  attached graph, strategies) directly from this reference. The one traversal-level value the
-   *  walker pre-resolves is the polymorphism setting (see {@link #polymorphic}): {@code
-   *  YTDBStrategyUtil.isPolymorphic} is null-safe, so the walker resolves it once up front and
-   *  declines the whole walk on a null result, rather than each recogniser re-resolving it. */
-  final Traversal.Admin<?, ?> traversal;
-
-  /** Pattern under construction. Recognisers call {@code addNode}/{@code addEdge}; the
-   *  walker calls {@code build()} once at the end of a successful walk. */
+  /** Pattern under construction. Recognisers contribute through {@link #addNode} / {@link #addEdge} /
+   *  {@link #addEdgeAsNode}; the walker calls {@code build()} once at the end of a successful walk. */
   final MatchPatternBuilder patternBuilder = new MatchPatternBuilder();
 
-  /** Per-alias WHERE clauses contributed outside the pattern builder (e.g.
-   *  {@code @rid IN [...]}, {@code @class = '...'}). Merged with the builder's own
-   *  alias filters at result-build time; entries here override builder entries on
-   *  the same alias. */
+  /** Per-alias WHERE clauses contributed outside the pattern builder (e.g. {@code @rid IN [...]}).
+   *  Merged with the builder's own alias filters at result-build time; entries here override builder
+   *  entries on the same alias. */
   final Map<String, SQLWhereClause> aliasFilters = new LinkedHashMap<>();
 
-  /** Per-edge-alias WHERE clauses accumulated for non-adjacent edge filtering (the
-   *  {@code outE(L).has(...).inV()} shape). The edge recogniser mints an edge alias via
-   *  {@link #nextEdgeAlias()}, AND-merges the interleaved {@code has(...)} predicates into
-   *  this map under that alias, and hands the accumulated filter to the edge-as-node
-   *  assembler. Kept separate from {@link #aliasFilters} because an edge filter attaches to
-   *  the edge's own match item, not to a vertex alias. Empty until the edge recogniser
-   *  populates it (added by a later step); the walker infrastructure only owns the field. */
+  /** Per-edge-alias WHERE clauses for non-adjacent edge filtering (the {@code outE(L).has(...).inV()}
+   *  shape). Populated by {@link #putEdgeFilter} for observability; the same clause also travels on
+   *  the edge path item via {@link #addEdgeAsNode}, so it is not re-read at result-build time. */
   final Map<String, SQLWhereClause> edgeFilters = new LinkedHashMap<>();
 
   /** RETURN-clause projection items. One entry per output column. */
   final List<SQLExpression> returnItems = new ArrayList<>();
 
-  /** {@code AS} aliases for each entry in {@link #returnItems}. Same length, parallel
-   *  positions; null entries are allowed when an item has no alias. */
+  /** {@code AS} aliases for each entry in {@link #returnItems}. Same length, parallel positions;
+   *  null entries are allowed when an item has no alias. */
   final List<SQLIdentifier> returnAliases = new ArrayList<>();
 
-  /** Optional nested projections per entry in {@link #returnItems}. Same length,
-   *  parallel positions; null entries are allowed when an item has no nested
-   *  projection. */
+  /** Optional nested projections per entry in {@link #returnItems}. Same length, parallel positions;
+   *  null entries are allowed when an item has no nested projection. */
   final List<SQLNestedProjection> returnNestedProjections = new ArrayList<>();
 
-  /** Alias under which the matched element appears in each result row. Set by the
-   *  recogniser owning the traversal's terminator (in Phase 1, the start-step
-   *  recogniser). Required for a successful walk. */
+  /** Alias under which the matched element appears in each result row. Pinned by the recogniser
+   *  owning the traversal's terminator. Required for a successful walk. */
   String boundaryAlias;
 
-  /** How the boundary step projects each result row onto a TinkerPop traverser. Set
-   *  alongside {@link #boundaryAlias}. Required for a successful walk. */
+  /** How the boundary step projects each result row onto a TinkerPop traverser. Pinned alongside
+   *  {@link #boundaryAlias}. Required for a successful walk. */
   BoundaryOutputType outputType;
 
-  /** TinkerPop element class the boundary step emits (e.g. {@code Vertex.class}). Set
-   *  alongside {@link #boundaryAlias}. Required for a successful walk. */
+  /** TinkerPop element class the boundary step emits (e.g. {@code Vertex.class}). Pinned alongside
+   *  {@link #boundaryAlias}. Required for a successful walk. */
   Class<? extends Element> returnClass;
 
   /** Whether the traversal runs as a polymorphic query, resolved once from the traversal's YTDB
-   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}
-   *  at construction.
+   *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}.
    *
-   *  <p>No recogniser in this track reads the resolved value. The resolution is kept for its decline
-   *  side effect: a {@code null} result (no attached YTDB graph, or an unresolvable setting) declines
-   *  the whole walk in the walker before this context is built, so the field is always a resolved
-   *  primitive. The resolved value itself is reserved for the explicit-class narrowing path -- the
-   *  folded {@code hasLabel(L)} of a later track, which narrows through the shared {@code
-   *  MatchWhereBuilder.classEquals} seam when {@code polymorphic} is {@code false}.
-   *
-   *  <p>The flag deliberately does <em>not</em> govern a bare chain hop or the start step: {@code
-   *  out(L)} / {@code in(L)} / {@code both(L)} and {@code g.V()} root at the generic {@code V} class
-   *  ({@link #VERTEX_ROOT_CLASS}) polymorphically and emit no {@code @class} filter regardless of it,
-   *  because native Gremlin never class-filters those shapes -- narrowing one (even under {@code
-   *  false}) would drop subclass instances the native pipeline keeps (a subclass undercount; see
-   *  {@link VertexHopRecogniser} and {@link StartStepRecogniser}). */
-  final boolean polymorphic;
+   *  <p>No Phase 1 recogniser reads it: {@code g.V()}, a bare chain hop, and the start step all root
+   *  at the generic {@code V} class ({@link #VERTEX_ROOT_CLASS}) polymorphically and emit no {@code
+   *  @class} filter regardless, because native Gremlin never class-filters those shapes — narrowing
+   *  one would drop subclass instances the native pipeline keeps. The resolution is kept for its
+   *  decline side effect (a {@code null} result declines the whole walk in the walker) and reserved
+   *  for the explicit-class narrowing path — the folded {@code hasLabel} of a later track, which
+   *  narrows through {@code MatchWhereBuilder.classEquals} when this is {@code false}. */
+  private final boolean polymorphic;
 
-  /** Cursor into the traversal's step list, owned and advanced solely by the walker. The walker's
-   *  index-driven loop reads {@code steps.get(stepIndex)}, dispatches it, and advances this cursor
-   *  by the consumed-step count the recogniser returns (one for a single-step claim, N for a multi-
-   *  step claim such as the {@code outE(L).has(...).inV()} chain). Recognisers read it (e.g. the
-   *  start-step recogniser only accepts at index 0, the edge recogniser peeks ahead from it) but
-   *  MUST NOT write it — see the {@link StepRecogniser#recognize} contract. */
-  int stepIndex;
+  /** Whether the traversal opts into {@code EdgeLabelVerificationStrategy}, resolved once by
+   *  {@link GremlinStepWalker} so {@link GremlinPatternAssembler#resolveEdgeLabel} reads a boolean
+   *  rather than scanning the strategy list per hop. */
+  private final boolean edgeLabelVerification;
 
   /** Reserved prefix for translator-minted anonymous vertex aliases: {@code $g2m_anon_0},
    *  {@code $g2m_anon_1}, … The {@code $g2m_} namespace is the translator's private space,
@@ -192,22 +160,104 @@ final class WalkerContext {
    *  {@link #nextEdgeAlias()}; see {@link #anonVertexAliases}. */
   private final AliasSequence edgeAliases = new AliasSequence(EDGE_ALIAS_PREFIX);
 
-  WalkerContext(Traversal.Admin<?, ?> traversal, boolean polymorphic) {
-    this.traversal = traversal;
+  WalkerContext(boolean polymorphic, boolean edgeLabelVerification) {
     this.polymorphic = polymorphic;
+    this.edgeLabelVerification = edgeLabelVerification;
   }
 
-  /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). Each
-   *  call returns a fresh alias and advances the per-context counter, so a multi-hop chain gets
-   *  distinct intermediate-node names. */
-  String nextAnonVertexAlias() {
+  // --- RecognitionContext: resolved flags -------------------------------------------------------
+
+  @Override
+  public boolean polymorphic() {
+    return polymorphic;
+  }
+
+  @Override
+  public boolean edgeLabelVerificationEnabled() {
+    return edgeLabelVerification;
+  }
+
+  // --- RecognitionContext: boundary read --------------------------------------------------------
+
+  @Nullable @Override
+  public String boundaryAlias() {
+    return boundaryAlias;
+  }
+
+  // --- RecognitionContext: alias minting --------------------------------------------------------
+
+  /** Mints the next anonymous vertex alias ({@code $g2m_anon_0}, {@code $g2m_anon_1}, …). Each call
+   *  returns a fresh alias and advances the per-context counter, so a multi-hop chain gets distinct
+   *  intermediate-node names. */
+  @Override
+  public String nextAnonVertexAlias() {
     return anonVertexAliases.next();
   }
 
   /** Mints the next anonymous edge alias ({@code $g2m_edge_0}, {@code $g2m_edge_1}, …). Each call
    *  returns a fresh alias and advances the per-context counter. */
-  String nextEdgeAlias() {
+  @Override
+  public String nextEdgeAlias() {
     return edgeAliases.next();
+  }
+
+  // --- RecognitionContext: contributions --------------------------------------------------------
+
+  @Override
+  public void addNode(String alias, String className) {
+    patternBuilder.addNode(alias, className, null, false);
+  }
+
+  @Override
+  public void addEdge(
+      String fromAlias,
+      String toAlias,
+      MatchPatternBuilder.Direction dir,
+      @Nullable String edgeLabel) {
+    patternBuilder.addEdge(fromAlias, toAlias, dir, edgeLabel, null, null, null);
+  }
+
+  @Override
+  public void addEdgeAsNode(
+      String fromAlias,
+      String edgeAlias,
+      String toAlias,
+      MatchPatternBuilder.Direction edgeDir,
+      @Nullable String edgeLabel,
+      MatchPatternBuilder.Direction closingVertexDir,
+      @Nullable SQLWhereClause edgeFilter) {
+    patternBuilder.addEdgeAsNode(
+        fromAlias, edgeAlias, toAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter);
+  }
+
+  @Override
+  public void putAliasFilter(String alias, SQLWhereClause where) {
+    aliasFilters.put(alias, where);
+  }
+
+  @Override
+  public void putEdgeFilter(String edgeAlias, SQLWhereClause where) {
+    edgeFilters.put(edgeAlias, where);
+  }
+
+  @Override
+  public void pinBoundary(String alias, BoundaryOutputType type,
+      Class<? extends Element> returnClass) {
+    this.boundaryAlias = alias;
+    this.outputType = type;
+    this.returnClass = returnClass;
+  }
+
+  @Override
+  public void setSingleReturnColumn(String alias) {
+    // Clear first so a re-pin (a chain hop replacing the prior boundary's column) cannot leave a
+    // stale column keyed on the previous alias; the three parallel lists stay in lock-step.
+    returnItems.clear();
+    returnAliases.clear();
+    returnNestedProjections.clear();
+    returnItems.add(new SQLExpression(new SQLIdentifier(alias)));
+    returnAliases.add(new SQLIdentifier(alias));
+    returnNestedProjections.add(null);
   }
 
   /**
