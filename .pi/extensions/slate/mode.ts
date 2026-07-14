@@ -6,7 +6,10 @@
  *     delegation becomes the natural behavior;
  *   - the thread-weaving doctrine is appended to the system prompt each turn;
  *   - a widget above the editor shows live thread status;
- *   - the mode persists in slate state and is re-applied on session restore.
+ *   - the mode persists in slate state and is re-applied on session restore;
+ *   - with config `orchestratorModeDefault` (.pi/slate.json), genuinely fresh
+ *     interactive sessions are seeded with the mode ON (unsaved until the
+ *     first real state mutation).
  *
  * `/slate handoff [focus]` / `/slate resume` interact with the auto-pause
  * machinery in handoff.ts (context budget → paused → fresh-session handoff).
@@ -178,6 +181,27 @@ export function registerSlateMode(
 		// store.restore() (index.ts) and pending-handoff adoption (handoff.ts)
 		// ran before this handler in registration order; re-apply the persisted
 		// mode to the fresh runtime.
+		//
+		// Config-driven default: seed orchestrator mode ON for a genuinely FRESH
+		// interactive session. Running AFTER restore and handoff adoption means
+		// the seed can neither clobber persisted state nor trip the adoption
+		// guard. "Fresh" = no message entries and no recorded slate state on the
+		// branch: metadata-only entries (e.g., session naming) don't suppress the
+		// seed, while resumed/forked real sessions and explicit /slate off
+		// decisions stay untouched. Deliberately NOT saved — persisting would
+		// lock the default into old sessions even after the config flag is later
+		// turned off; the first real mutation persists it. The mode === "tui"
+		// gate limits the seed to interactive terminal sessions — hasUI would not
+		// do: it is also true in RPC mode, and scripted/automated runs
+		// (print/JSON/RPC) must not silently lose tactical tools.
+		if (!store.orchestratorMode && ctx.mode === "tui" && getConfig().orchestratorModeDefault === true) {
+			const fresh = !ctx.sessionManager.getBranch().some((entry) => {
+				// Loose cast like state.ts restore(): tolerate malformed/legacy entries.
+				const e = entry as { type: string; customType?: string };
+				return e.type === "message" || (e.type === "custom" && e.customType === "slate-state");
+			});
+			if (fresh) store.orchestratorMode = true;
+		}
 		if (store.orchestratorMode) {
 			const active = pi.getActiveTools();
 			const alreadyRestricted =
