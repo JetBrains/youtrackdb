@@ -812,7 +812,11 @@ public abstract class StorageComponent extends SharedResourceAbstract {
                 + " may have inserted the entry between the optimistic attempt and the re-check"
                 + " — but it may also indicate an unmodeled optimistic-read anomaly worth"
                 + " reporting. At most one such message is logged per minute per component.",
-            getName(),
+            // The Object cast pins the warn(requester, message, Object...) overload: with
+            // two String arguments javac would otherwise select the
+            // warn(requester, dbName, message, Object...) overload, shifting the whole
+            // message into the dbName slot and breaking the %s formatting.
+            (Object) getName(),
             lookupDescription.get());
   }
 

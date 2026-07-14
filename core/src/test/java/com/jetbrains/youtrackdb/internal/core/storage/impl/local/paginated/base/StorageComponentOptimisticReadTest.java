@@ -54,7 +54,7 @@ public class StorageComponentOptimisticReadTest {
   private ReadCache mockReadCache;
   private AtomicOperation mockAtomicOp;
   private OptimisticReadScope scope;
-  private TestStorageComponent component;
+  private WarnCapturingStorageComponent component;
 
   @Before
   public void setUp() {
@@ -74,7 +74,7 @@ public class StorageComponentOptimisticReadTest {
     mockAtomicOp = mock(AtomicOperation.class);
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
-    component = new TestStorageComponent(mockStorage);
+    component = new WarnCapturingStorageComponent(mockStorage);
   }
 
   @After
@@ -809,6 +809,25 @@ public class StorageComponentOptimisticReadTest {
   }
 
   @Test
+  public void testProductionWarnEmissionIsRateLimited() throws IOException {
+    // Uses a component WITHOUT the capturing override so the PRODUCTION emission body of
+    // warnOptimisticNullRecheckDisagreement runs end-to-end: the first disagreement
+    // passes the rate limiter and logs through LogManager (building the lazy
+    // description); an immediate second disagreement takes the limiter's suppression
+    // return. Both lookups must still return the authoritative pinned result.
+    var plainComponent = new TestStorageComponent(component.storage);
+    for (var i = 0; i < 2; i++) {
+      String result = plainComponent.testExecuteOptimisticStorageReadWithNullRecheck(
+          mockAtomicOp,
+          () -> null,
+          () -> "pinned-found",
+          Objects::isNull,
+          () -> "key=7");
+      assertEquals("pinned-found", result);
+    }
+  }
+
+  @Test
   public void testNullRecheckWarnRateLimiterSuppressesRepeats() {
     // The rate limiter allows at most one WARN per minute per component; tested with
     // controlled timestamps against the package-private seam.
@@ -907,20 +926,6 @@ public class StorageComponentOptimisticReadTest {
       return addFile(op, fileName);
     }
 
-    // --- Validated-null re-check seams ---
-
-    // Captured WARN emissions (the override replaces the LogManager sink so tests can
-    // assert emission counts; the rate limiter is tested separately via its seam).
-    int nullRecheckWarnCount;
-    String lastNullRecheckWarnDescription;
-
-    @Override
-    protected void warnOptimisticNullRecheckDisagreement(
-        Supplier<String> lookupDescription) {
-      nullRecheckWarnCount++;
-      lastNullRecheckWarnDescription = lookupDescription.get();
-    }
-
     <T> T testExecuteOptimisticStorageReadWithNullRecheck(
         AtomicOperation op,
         OptimisticReadFunction<T> optimistic,
@@ -929,6 +934,30 @@ public class StorageComponentOptimisticReadTest {
         Supplier<String> lookupDescription) throws IOException {
       return executeOptimisticStorageReadWithNullRecheck(
           op, optimistic, pinned, recheckTrigger, lookupDescription);
+    }
+  }
+
+  /**
+   * Test subclass whose WARN override replaces the LogManager sink so tests can assert
+   * emission counts and descriptions; the production emission body is exercised
+   * separately through the plain {@link TestStorageComponent} in
+   * {@link #testProductionWarnEmissionIsRateLimited()}, and the rate limiter through its
+   * package-private seam.
+   */
+  private static class WarnCapturingStorageComponent extends TestStorageComponent {
+
+    int nullRecheckWarnCount;
+    String lastNullRecheckWarnDescription;
+
+    WarnCapturingStorageComponent(AbstractStorage storage) {
+      super(storage);
+    }
+
+    @Override
+    protected void warnOptimisticNullRecheckDisagreement(
+        Supplier<String> lookupDescription) {
+      nullRecheckWarnCount++;
+      lastNullRecheckWarnDescription = lookupDescription.get();
     }
   }
 }
