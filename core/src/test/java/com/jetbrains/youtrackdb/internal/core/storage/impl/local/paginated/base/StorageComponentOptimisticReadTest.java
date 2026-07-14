@@ -2,6 +2,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -13,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -24,6 +27,7 @@ import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -498,6 +502,118 @@ public class StorageComponentOptimisticReadTest {
 
     assertEquals(99L, fileId);
     verify(op).addFile("test-file.dat", false);
+  }
+
+  // --- Apply-phase epoch fallback and nesting detection (YTDB-1178) ---
+
+  @Test
+  public void testFallbackToPinnedWhenApplyPhaseInFlightAtCapture() throws IOException {
+    // A commit apply phase already in flight when the read starts must fail epoch
+    // validation (the capture sees enterSeq != exitSeq) and run the pinned lambda —
+    // even though the page's stamp stays valid the whole time.
+    var epoch = new ApplyPhaseEpoch();
+    scope = new OptimisticReadScope(epoch);
+    when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
+
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    epoch.enterApplyPhase();
+    try {
+      String result = component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+            return "optimistic-result";
+          },
+          () -> "pinned-result");
+      assertEquals("pinned-result", result);
+    } finally {
+      epoch.exitApplyPhase();
+    }
+
+    // A failed validation must not bump the eviction frequency sketch.
+    verify(mockReadCache, never()).recordOptimisticAccess(FILE_ID, PAGE_INDEX);
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testFallbackToPinnedWhenApplyPhaseBeginsMidRead() throws IOException {
+    // Epoch quiescent at capture, but a writer enters (and even completes) an apply
+    // phase between the page read and validation. The live enterSeq no longer matches
+    // the captured value → epoch check fails → pinned fallback runs.
+    var epoch = new ApplyPhaseEpoch();
+    scope = new OptimisticReadScope(epoch);
+    when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
+
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          // Writer commits a full apply phase before this read validates.
+          epoch.enterApplyPhase();
+          epoch.exitApplyPhase();
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+
+    assertEquals("pinned-result", result);
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testNestedOptimisticReadSurfacesAssertionError() throws IOException {
+    // Nested executeOptimisticStorageRead calls are a programming error: the inner
+    // reset() wipes the outer scope's stamps, silently voiding the outer validation.
+    // Detection is -ea-only and involves TWO AssertionErrors: the INNER call's
+    // enterAttempt() assert ("... attempt ...") fires first, but it is thrown inside
+    // the outer optimistic lambda and swallowed by the outer fallback catch; the
+    // violation latched in the scope then fails the OUTER catch's exitAttempt() assert,
+    // and THAT error ("... detected ...") is what escapes to the caller — before the
+    // outer pinned lambda gets a chance to run.
+    var assertionsEnabled = false;
+    // Intentional side effect in assert — standard idiom to detect whether -ea is on.
+    assert assertionsEnabled = true;
+    Assume.assumeTrue("Nesting detection requires -ea", assertionsEnabled);
+
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    final boolean[] outerPinnedRan = {false};
+    try {
+      component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> component.testExecuteOptimisticStorageRead(
+              mockAtomicOp,
+              () -> "inner-optimistic",
+              () -> "inner-pinned"),
+          () -> {
+            outerPinnedRan[0] = true;
+            return "outer-pinned";
+          });
+      fail("Expected AssertionError from nested optimistic read detection");
+    } catch (AssertionError e) {
+      assertTrue(
+          "Expected the outer 'detected' assert to escape, got: " + e.getMessage(),
+          String.valueOf(e.getMessage()).contains("Nested optimistic read detected"));
+    }
+    assertEquals(false, outerPinnedRan[0]);
+
+    // exitAttempt() clears the detection state: a subsequent well-formed read on the
+    // same scope must work normally again.
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+    assertEquals("optimistic-result", result);
+
+    releaseFrame(frame);
   }
 
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {

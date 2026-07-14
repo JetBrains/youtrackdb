@@ -157,6 +157,12 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // the hot path this class is designed to support.
   private final OptimisticReadScope optimisticReadScope;
 
+  // TEST-ONLY seam for the commit-time page-apply loop (see PageApplyHook). Always null
+  // in production — the apply loop takes the unmodified fast path on null. Volatile
+  // because tests install the hook on the test thread while commitChanges may run on a
+  // separate writer thread.
+  @Nullable private volatile PageApplyHook pageApplyHook;
+
   // Per-storage apply-phase epoch, owned by AtomicOperationsManager and shared by all
   // atomic operations of the same storage. Bumped around the cache-apply section of
   // commitChanges so concurrent optimistic readers can detect overlap with a partially
@@ -1167,68 +1173,32 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           // and updateDirtyPagesTable (Track 4) skips them regardless.
           final var fileStartLSN = nonDurable ? null : startLSN;
 
-          final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
-              fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
-          while (filePageChangesIterator.hasNext()) {
-            final var filePageChangesEntry =
-                filePageChangesIterator.next();
+          // Snapshot the test hook once per file so a concurrent (test-side) uninstall
+          // cannot switch paths mid-file. Null in production — the fast path below is
+          // byte-for-byte the pre-seam loop.
+          final var hook = pageApplyHook;
+          if (hook == null) {
+            final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
+                fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
+            while (filePageChangesIterator.hasNext()) {
+              final var filePageChangesEntry =
+                  filePageChangesIterator.next();
 
-            if (filePageChangesEntry.getValue().changes.hasChanges()) {
-              final var pageIndex = filePageChangesEntry.getLongKey();
-              final var filePageChanges = filePageChangesEntry.getValue();
-
-              final var cacheEntry =
-                  readCache.loadOrAddForWrite(
-                      fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
-              // loadOrAddForWrite is total on both engines at this point:
-              //   - Disk engine (LockFreeReadCache + WOWCache): WriteCache.loadOrAdd gap-fills
-              //     intermediate pages and returns a usable entry for the requested pageIndex.
-              //   - In-memory engine (DirectMemoryOnlyDiskCache): allocatePageForWrite eagerly
-              //     installs the page in MemoryFile during the TX, so the commit-time
-              //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
-              // Of the four sibling loadOrAddForWrite sites, this one is the only reachable
-              // site on the in-memory engine (the AbstractStorage WAL-replay branches and
-              // DiskStorage incremental-backup restore are disk-only because
-              // MemoryWriteAheadLog is a no-op). So an assertion is not sufficient here:
-              // any future extension or test caller that bypasses allocatePageForWrite on
-              // the in-memory engine would surface a null return only in -ea test builds.
-              // Throw unconditionally so the violation is visible in production builds too.
-              if (cacheEntry == null) {
-                throw new IllegalStateException(
-                    "readCache.loadOrAddForWrite returned null in commitChanges for fileId="
-                        + fileId + " pageIndex=" + pageIndex
-                        + " isNew=" + filePageChanges.isNew
-                        + " (in-memory engine: eager-install in allocatePageForWrite must"
-                        + " have run; disk engine: WriteCache.loadOrAdd is total);"
-                        + " WriteCache.loadOrAdd totality contract violated");
+              if (filePageChangesEntry.getValue().changes.hasChanges()) {
+                applyPageChangesToCache(
+                    fileId,
+                    filePageChangesEntry.getLongKey(),
+                    filePageChangesEntry.getValue(),
+                    nonDurable,
+                    fileStartLSN,
+                    txEndLsn);
+              } else {
+                filePageChangesIterator.remove();
               }
-
-              try {
-                final var durablePage = new DurablePage(cacheEntry);
-
-                durablePage.restoreChanges(filePageChanges.changes);
-
-                // Non-durable pages have no WAL records, so endLSN and changeLSN
-                // are not meaningful. The dirty-pages-table skip in
-                // updateDirtyPagesTable (Track 4) ensures these pages
-                // don't block WAL truncation.
-                if (!nonDurable) {
-                  // flushPendingOperations sets changeLSN for all durable pages.
-                  // The WAL phase above throws StorageException if changeLSN is
-                  // null for a durable page with changes — this assert is a
-                  // defense-in-depth double-check.
-                  assert filePageChanges.getChangeLSN() != null
-                      : "Durable page must have changeLSN set for page "
-                          + cacheEntry.getPageIndex();
-                  cacheEntry.setEndLSN(txEndLsn);
-                  durablePage.setLsn(filePageChanges.getChangeLSN());
-                }
-              } finally {
-                readCache.releaseFromWrite(cacheEntry, writeCache, true);
-              }
-            } else {
-              filePageChangesIterator.remove();
             }
+          } else {
+            applyPageChangesWithHook(hook, fileId, fileChanges, nonDurable, fileStartLSN,
+                txEndLsn);
           }
         }
       } finally {
@@ -1238,6 +1208,155 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       return txEndLsn;
     } finally {
       active = false;
+    }
+  }
+
+  /**
+   * Applies one page's accumulated binary changes to the shared read cache. Extracted
+   * from the commitChanges apply loop so the production iterator path and the test-only
+   * hook-ordered path ({@link #applyPageChangesWithHook}) share the exact same per-page
+   * logic. Must only be called inside the apply-phase epoch bracket.
+   */
+  private void applyPageChangesToCache(
+      final long fileId,
+      final long pageIndex,
+      final CacheEntryChanges filePageChanges,
+      final boolean nonDurable,
+      @Nullable final LogSequenceNumber fileStartLSN,
+      @Nullable final LogSequenceNumber txEndLsn) throws IOException {
+    final var cacheEntry =
+        readCache.loadOrAddForWrite(
+            fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
+    // loadOrAddForWrite is total on both engines at this point:
+    //   - Disk engine (LockFreeReadCache + WOWCache): WriteCache.loadOrAdd gap-fills
+    //     intermediate pages and returns a usable entry for the requested pageIndex.
+    //   - In-memory engine (DirectMemoryOnlyDiskCache): allocatePageForWrite eagerly
+    //     installs the page in MemoryFile during the TX, so the commit-time
+    //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
+    // Of the four sibling loadOrAddForWrite sites, this one is the only reachable
+    // site on the in-memory engine (the AbstractStorage WAL-replay branches and
+    // DiskStorage incremental-backup restore are disk-only because
+    // MemoryWriteAheadLog is a no-op). So an assertion is not sufficient here:
+    // any future extension or test caller that bypasses allocatePageForWrite on
+    // the in-memory engine would surface a null return only in -ea test builds.
+    // Throw unconditionally so the violation is visible in production builds too.
+    if (cacheEntry == null) {
+      throw new IllegalStateException(
+          "readCache.loadOrAddForWrite returned null in commitChanges for fileId="
+              + fileId + " pageIndex=" + pageIndex
+              + " isNew=" + filePageChanges.isNew
+              + " (in-memory engine: eager-install in allocatePageForWrite must"
+              + " have run; disk engine: WriteCache.loadOrAdd is total);"
+              + " WriteCache.loadOrAdd totality contract violated");
+    }
+
+    try {
+      final var durablePage = new DurablePage(cacheEntry);
+
+      durablePage.restoreChanges(filePageChanges.changes);
+
+      // Non-durable pages have no WAL records, so endLSN and changeLSN
+      // are not meaningful. The dirty-pages-table skip in
+      // updateDirtyPagesTable (Track 4) ensures these pages
+      // don't block WAL truncation.
+      if (!nonDurable) {
+        // flushPendingOperations sets changeLSN for all durable pages.
+        // The WAL phase above throws StorageException if changeLSN is
+        // null for a durable page with changes — this assert is a
+        // defense-in-depth double-check.
+        assert filePageChanges.getChangeLSN() != null
+            : "Durable page must have changeLSN set for page "
+                + cacheEntry.getPageIndex();
+        cacheEntry.setEndLSN(txEndLsn);
+        durablePage.setLsn(filePageChanges.getChangeLSN());
+      }
+    } finally {
+      readCache.releaseFromWrite(cacheEntry, writeCache, true);
+    }
+  }
+
+  /**
+   * TEST-ONLY variant of the per-file page-apply loop, active only when a
+   * {@link PageApplyHook} is installed. Applies the file's changed pages in the order
+   * chosen by {@link PageApplyHook#orderPageApplications} (default: the map's native
+   * order) and invokes {@link PageApplyHook#beforePageApply} before each application.
+   * Runs inside the apply-phase epoch bracket, so a hook that throws still triggers the
+   * bracket's finally-exit (the epoch can never be left permanently "in apply").
+   */
+  private void applyPageChangesWithHook(
+      final PageApplyHook hook,
+      final long fileId,
+      final FileChanges fileChanges,
+      final boolean nonDurable,
+      @Nullable final LogSequenceNumber fileStartLSN,
+      @Nullable final LogSequenceNumber txEndLsn) throws IOException {
+    var pageIndexes = fileChanges.pageChangesMap.keySet().toLongArray();
+    final var reordered = hook.orderPageApplications(fileId, pageIndexes.clone());
+    if (reordered != null) {
+      pageIndexes = reordered;
+    }
+
+    for (final var pageIndex : pageIndexes) {
+      final var filePageChanges = fileChanges.pageChangesMap.get(pageIndex);
+      if (filePageChanges == null) {
+        throw new IllegalStateException(
+            "PageApplyHook.orderPageApplications returned unknown page index " + pageIndex
+                + " for file " + fileId);
+      }
+
+      if (filePageChanges.changes.hasChanges()) {
+        hook.beforePageApply(fileId, pageIndex);
+        applyPageChangesToCache(fileId, pageIndex, filePageChanges, nonDurable, fileStartLSN,
+            txEndLsn);
+      } else {
+        fileChanges.pageChangesMap.remove(pageIndex);
+      }
+    }
+  }
+
+  /**
+   * Installs the TEST-ONLY page-apply hook (see {@link PageApplyHook}). Must never be
+   * called from production code — the hook exists solely so tests can deterministically
+   * order and pause the commit-time page-apply loop inside the apply-phase epoch bracket.
+   */
+  void setPageApplyHook(@Nullable final PageApplyHook hook) {
+    this.pageApplyHook = hook;
+  }
+
+  /**
+   * TEST-ONLY seam into the commit-time page-apply loop of {@link #commitChanges}
+   * (YTDB-1178). The page-apply order is normally fastutil hash order, which makes
+   * mixed-state races (a reader overlapping a partially applied commit) practically
+   * impossible to reproduce deterministically. This hook lets a test (a) dictate the
+   * order in which a file's changed pages are applied and (b) block at a barrier between
+   * two page applications — while the writer is inside the apply-phase epoch bracket and
+   * still holds its component exclusive locks — so a concurrent reader can be run
+   * deterministically against the mixed state.
+   *
+   * <p>Production impact: a single null check per file in the apply loop; the hook field
+   * is always null outside tests.
+   */
+  interface PageApplyHook {
+
+    /**
+     * Returns the order in which the given changed pages of {@code fileId} should be
+     * applied, or {@code null} to keep the default (map iteration) order. The returned
+     * array must be a permutation of {@code pageIndexes} — unknown indexes fail the
+     * commit with {@link IllegalStateException}; omitted pages would silently not be
+     * applied, so tests must return all of them.
+     */
+    @Nullable default long[] orderPageApplications(final long fileId, final long[] pageIndexes) {
+      return null;
+    }
+
+    /**
+     * Called immediately before the changes for {@code (fileId, pageIndex)} are applied
+     * to the shared read cache. May block (e.g., on a barrier) to pause the writer
+     * mid-apply between two page applications. Runs inside the apply-phase epoch
+     * bracket; a thrown exception aborts the commit but still passes through the
+     * bracket's finally-exit.
+     */
+    default void beforePageApply(final long fileId, final long pageIndex) {
     }
   }
 
