@@ -279,8 +279,11 @@ public final class TxSchemaState {
 
   /**
    * The {@code <class>_<counter>} name recorded for {@code provisionalCollectionId} when it was
-   * allocated, or {@code null} when no name was recorded for it. The commit creates the real
-   * collection under this name.
+   * allocated. The commit creates the real collection under this name. Throws
+   * {@link IllegalStateException} when no name was recorded for the id: a missing name means the
+   * id was never allocated by this transaction, and returning {@code null} instead would silently
+   * reintroduce the null-placeholder index-membership bug in any JVM running without {@code -ea},
+   * so the check is an unconditional throw rather than an assert.
    *
    * @param provisionalCollectionId a provisional id this transaction previously allocated (must be
    *     {@code <= -2}).
@@ -291,8 +294,11 @@ public final class TxSchemaState {
         : "only a provisional id (<= -2) carries a provisional name, got "
             + provisionalCollectionId;
     final var name = provisionalToName.get(provisionalCollectionId);
-    assert name != null
-        : "no provisional collection name recorded for id " + provisionalCollectionId;
+    if (name == null) {
+      throw new IllegalStateException(
+          "No provisional collection name recorded for id " + provisionalCollectionId
+              + "; a provisional id is resolvable only inside the transaction that allocated it");
+    }
     return name;
   }
 

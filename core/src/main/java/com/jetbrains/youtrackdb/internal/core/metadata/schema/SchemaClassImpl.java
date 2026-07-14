@@ -1623,7 +1623,15 @@ public abstract class SchemaClassImpl {
 
   private void removeCollectionFromIndexes(DatabaseSessionEmbedded session, final int iId) {
     if (session.getStorage() instanceof AbstractStorage) {
-      final var collectionName = session.getCollectionNameById(iId);
+      // Provisional-aware mirror of the add-side ripple (addCollectionIdToIndexes): a subclass
+      // created in this same transaction carries a provisional id, whose committed name lookup
+      // answers null. Resolving through the shared resolver returns the carried <class>_<counter>
+      // name — the same name the add side recorded — so a same-tx create-then-drop (or detach) of
+      // the subclass cancels the pending membership add in the overlay. A null here instead would
+      // fail to cancel, and the commit would persist a phantom collection name into the committed
+      // index's collectionsToIndex (naming, on the drop path, a collection the reconciliation
+      // never creates).
+      final var collectionName = SchemaShared.resolveCollectionNameById(session, iId);
       final List<String> indexesToRemove = new ArrayList<>();
 
       final Set<Index> indexes = new HashSet<>();
@@ -1654,6 +1662,13 @@ public abstract class SchemaClassImpl {
       if (collections.add(collectionId)) {
         try {
           addCollectionIdToIndexes(session, collectionId, validateIndexes);
+        } catch (IllegalStateException e) {
+          // An invariant violation from the provisional-name resolution (a provisional collection
+          // id with no tx-local schema state, or no recorded name) must fail the ripple loudly.
+          // The warn-and-skip below exists to tolerate historical index-add validation failures;
+          // degrading an invariant break to a warning would silently drop the collection from the
+          // polymorphic set and skip its membership recording.
+          throw e;
         } catch (RuntimeException e) {
           LogManager.instance()
               .warn(
