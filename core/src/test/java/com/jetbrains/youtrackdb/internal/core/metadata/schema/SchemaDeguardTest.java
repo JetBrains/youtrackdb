@@ -1212,6 +1212,9 @@ public class SchemaDeguardTest extends DbTestBase {
    * superclass at the top level and then a subclass inside a transaction ripples the subclass's
    * collection into the superclass index; this asserts the overlay carries that membership add
    * (beyond recording the owning class as changed, which the earlier de-guard tests already cover).
+   * The tx-created subclass's collection is provisional during the transaction, so the ripple must
+   * resolve it through the carried {@code <class>_<counter>} name the commit creates the real
+   * collection under — never a null placeholder (the regression this test originally pinned).
    */
   @Test
   public void membershipRippleRecordsCollectionAddIntoOverlay() {
@@ -1233,24 +1236,33 @@ public class SchemaDeguardTest extends DbTestBase {
           assertNotNull(
               "the membership ripple must record a collection-add against the superclass index",
               added);
-          // Exact-set assertion over the current recording semantics: the tx-local
-          // inheritance rebuild re-records the parent's own committed collection names
-          // (idempotent re-adds at commit), and the tx-created subclass's provisional
-          // collection ids collapse into one deduplicated null placeholder, because mid-tx
-          // id->name resolution deliberately answers null for a provisional id. The
-          // subclass's real names enter the parent index's membership only for a committed
-          // child (the end-to-end membership tests); resolving provisional membership at
-          // commit is a documented gap of the membership persistence. A wrong-collection or
-          // extra-entry regression fails this exact-set check where a bare non-empty check
-          // stayed green.
+          // Exact-set assertion over the recording semantics: the tx-local inheritance
+          // rebuild re-records the parent's own committed collection names (idempotent
+          // re-adds at commit), and the tx-created subclass's provisional collection ids
+          // resolve to the carried <class>_<counter> names the commit creates the real
+          // collections under — mid-tx id->name resolution answers null for a provisional
+          // id, so the ripple reads the carried name off TxSchemaState instead. A null
+          // placeholder here would persist into the committed index's collectionsToIndex at
+          // commit (the regression this exact-set check pins), and a wrong-collection or
+          // extra-entry regression fails it where a bare non-empty check stayed green.
+          assertFalse(
+              "the recorded membership-add must never carry a null placeholder for a"
+                  + " provisional subclass collection",
+              added.contains(null));
           var expectedNames = new HashSet<String>();
           for (var parentCollectionId : superCls.getCollectionIds()) {
             expectedNames.add(session.getCollectionNameById(parentCollectionId));
           }
-          expectedNames.add(null);
+          var txState = session.getTxSchemaState();
+          for (var subCollectionId : subCls.getCollectionIds()) {
+            assertTrue(
+                "a tx-created subclass must carry provisional collection ids during the tx",
+                SchemaShared.isProvisionalCollectionId(subCollectionId));
+            expectedNames.add(txState.getProvisionalCollectionName(subCollectionId));
+          }
           assertEquals(
               "the recorded membership-add must carry exactly the parent's committed names"
-                  + " plus the provisional-subclass null placeholder",
+                  + " plus the provisional subclass's carried collection names",
               expectedNames, added);
         });
   }

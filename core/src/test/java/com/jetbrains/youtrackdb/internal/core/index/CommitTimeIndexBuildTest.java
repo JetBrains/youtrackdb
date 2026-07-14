@@ -36,6 +36,7 @@ import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -511,8 +512,9 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
    * would fail this while passing isolation and rollback.
    *
    * <p>The child is committed independently first (rather than created under the parent in one step)
-   * so its collection is a real id when the ripple runs; a same-transaction subclass would carry a
-   * provisional collection id, which the membership persistence does not yet resolve.
+   * so its collection is a real id when the ripple runs; the same-transaction subclass case (a
+   * provisional collection id resolved through its carried name) is covered by
+   * {@link #sameTxSubclassUnderIndexedParentResolvesRealCollectionNameInMembership}.
    */
   @Test
   public void committedMembershipChangeMakesParentIndexCoverSubclassRows() {
@@ -858,14 +860,16 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   /**
    * The commit-time build handles non-scalar and null keys: an index over an EMBEDDEDLIST
    * property emits one entry per element of a same-tx row's list value (the collection-of-keys
-   * branch), and a row whose indexed property is null is skipped, because a deferred in-tx
-   * create leaves the definition's null handling at its ignore-nulls constructor default (the
-   * null-key skip branch). Every other build test uses a scalar non-null STRING key, so a
-   * failure on a null key or a first-element-only population would be invisible without this
-   * test.
+   * branch), and a row whose indexed property is null is indexed under the null key, because the
+   * deferred in-tx create applies the same ignoreNullValues resolution as the committed create
+   * path (the storage default, false). The deferred path leaving the definition at its
+   * ignore-nulls constructor default — silently skipping null keys a committed create would have
+   * indexed — was a pinned divergence, fixed by routing both paths through the shared setting.
+   * Every other build test uses a scalar non-null STRING key, so a failure on a null key or a
+   * first-element-only population would be invisible without this test.
    */
   @Test
-  public void commitTimeBuildIndexesMultiValueKeysAndSkipsNullKeyRows() {
+  public void commitTimeBuildIndexesMultiValueKeysAndNullKeyRows() {
     var schema = session.getMetadata().getSchema();
     var cls = schema.createClass("MultiValueBuild");
     cls.createProperty("tags", PropertyType.EMBEDDEDLIST, PropertyType.STRING);
@@ -890,14 +894,121 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertEquals("each element of the list value must be indexed", 1, greenRids.size());
     assertEquals("the multi-value row must be indexed under both its elements",
         multi.getIdentity(), redRids.getFirst());
-    // The deferred in-tx create leaves the definition ignoring null values (the committed-path
-    // create applies the global ignore-nulls default instead), so the null-key row is skipped
-    // by the build; pinned here as the current contract of the deferred path.
-    assertTrue("the definition created through the deferred in-tx path must ignore null values",
+    // The deferred in-tx create applies the same ignoreNullValues resolution as the committed
+    // create path: no explicit metadata means the storage-wide default (false), so the null-key
+    // row is indexed by the build exactly as it would be by a committed create.
+    assertFalse(
+        "the deferred in-tx create must apply the storage ignore-nulls default (false), as the"
+            + " committed create path does",
         index.getDefinition().isNullValuesIgnored());
     var nullRids = session.computeInTx(tx -> index.getRids(session, null).toList());
-    assertTrue("a null-key row must be skipped by the build when null values are ignored",
+    assertEquals("the null-key row must be indexed when null values are not ignored",
+        1, nullRids.size());
+    assertEquals("the null-key entry must point at the row whose indexed property is absent",
+        nullRow.getIdentity(), nullRids.getFirst());
+  }
+
+  /**
+   * A tx-created index carrying explicit {@code ignoreNullValues=true} metadata must honor it at
+   * the commit-time build: the metadata wins over the storage default, so a same-tx row whose
+   * indexed property is null is skipped while a valued row is indexed — exactly the committed
+   * create path's contract. Together with the sibling default-resolution test this pins both arms
+   * of the shared ignoreNullValues setting on the deferred path (a regression that dropped the
+   * setting entirely would fail the sibling; one that inverted or hardcoded it fails this one).
+   */
+  @Test
+  public void txCreatedIndexHonorsExplicitIgnoreNullValuesMetadata() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("NullMetaBuild");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "NullMetaBuild.name";
+
+    session.begin();
+    session.getMetadata().getSchema().getClass("NullMetaBuild")
+        .createIndex(
+            indexName,
+            SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+            null,
+            Map.of("ignoreNullValues", true),
+            new String[] {"name"});
+    var valued = (EntityImpl) session.newEntity("NullMetaBuild");
+    valued.setProperty("name", "present");
+    var nullRow = (EntityImpl) session.newEntity("NullMetaBuild");
+    nullRow.setProperty("unrelated", "x");
+    session.commit();
+
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertTrue("explicit ignoreNullValues=true metadata must be honored by the deferred create",
+        index.getDefinition().isNullValuesIgnored());
+    var presentRids = session.computeInTx(tx -> index.getRids(session, "present").toList());
+    assertEquals("the valued same-tx row must be indexed", 1, presentRids.size());
+    assertEquals(valued.getIdentity(), presentRids.getFirst());
+    var nullRids = session.computeInTx(tx -> index.getRids(session, null).toList());
+    assertTrue("a null-key row must be skipped when ignoreNullValues=true is explicit",
         nullRids.isEmpty());
+  }
+
+  /**
+   * A subclass created under an indexed parent in the SAME transaction resolves its provisional
+   * collection into the parent index's committed membership as the real collection name. During
+   * the transaction the subclass's collection id is provisional (id->name resolution answers
+   * null), so the membership ripple must resolve through the carried {@code <class>_<counter>}
+   * name the commit creates the real collection under — the regression fixed here recorded a null
+   * placeholder that persisted into the committed index's {@code collectionsToIndex}. After
+   * commit (and across a reopen, the durable arm) the membership must carry the real collection
+   * name and no null, and a subclass row inserted afterwards must be returned by a polymorphic
+   * lookup through the parent index — proving the membership is functional, not just cosmetic.
+   */
+  @Test
+  public void sameTxSubclassUnderIndexedParentResolvesRealCollectionNameInMembership() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ProvMemParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "ProvMemParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    // Create the subclass under the indexed parent inside one transaction: its collection is
+    // provisional (<= -2) while the transaction is open, so the membership ripple resolves the
+    // carried provisional name instead of a null placeholder.
+    session.executeInTx(
+        tx -> assertNotNull("the same-tx subclass create must succeed",
+            session.getMetadata().getSchema()
+                .createClass("ProvMemChild",
+                    session.getMetadata().getSchema().getClass("ProvMemParent"))));
+
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("ProvMemChild").getCollectionIds()[0]);
+    assertNotNull("the committed subclass must own a real collection", childCollectionName);
+
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var membership = new HashSet<>(index.getCollections());
+    assertFalse("no null placeholder may persist into the committed index's membership",
+        membership.contains(null));
+    assertTrue("the parent index must cover the same-tx subclass's real collection",
+        membership.contains(childCollectionName));
+
+    // The durable arm: a reopen discards every in-memory registry, so the membership re-read
+    // from the persisted index record must carry the real collection name and no null.
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedIndex = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var reloadedMembership = new HashSet<>(reloadedIndex.getCollections());
+    assertFalse("no null placeholder may survive a reopen in the durable membership",
+        reloadedMembership.contains(null));
+    assertTrue("the durable membership must carry the real collection name",
+        reloadedMembership.contains(childCollectionName));
+
+    // Functional proof: a subclass row inserted after the commit is indexed under the parent
+    // index (its collection is covered), so a polymorphic lookup through it returns the row.
+    session.begin();
+    var childRow = (EntityImpl) session.newEntity("ProvMemChild");
+    childRow.setProperty("name", "childValue");
+    session.commit();
+    var rids = session.computeInTx(tx -> reloadedIndex.getRids(session, "childValue").toList());
+    assertEquals(
+        "a polymorphic lookup through the parent index must return the same-tx subclass's row",
+        1, rids.size());
+    assertEquals(childRow.getIdentity(), rids.getFirst());
   }
 
   /**

@@ -527,6 +527,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       if (indexDefinition.getClassName() != null) {
         txState.markClassChanged(indexDefinition.getClassName());
       }
+      // Apply the ignoreNullValues metadata setting (or the storage-wide default) exactly as the
+      // committed create path below does. Skipping this step left the definition at its
+      // constructor default (ignore nulls), so a tx-created deferred index silently skipped null
+      // keys that an identical committed create would have indexed.
+      applyNullValuesIgnoredSetting(indexDefinition, metadata);
       var deferredHandle = Indexes.createIndexInstance(type, algorithm, storage);
       // Populate the handle with its definition so the public path (e.g. the SQL CREATE INDEX
       // statement's size() probe) sees a sensible, NPE-free deferred index; the engine is not built
@@ -567,23 +572,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
               "Index with name " + iName + " already exists.");
         }
 
-        var currentIndexMetadata = metadata;
-        if (currentIndexMetadata == null) {
-          currentIndexMetadata = new HashMap<>();
-        }
-
         final var collectionsToIndex = findCollectionsByIds(collectionIdsToIndex, session);
-        var ignoreNullValues = currentIndexMetadata.get("ignoreNullValues");
-        if (Boolean.TRUE.equals(ignoreNullValues)) {
-          indexDefinition.setNullValuesIgnored(true);
-        } else if (Boolean.FALSE.equals(ignoreNullValues)) {
-          indexDefinition.setNullValuesIgnored(false);
-        } else {
-          indexDefinition.setNullValuesIgnored(
-              storage
-                  .getContextConfiguration()
-                  .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
-        }
+        applyNullValuesIgnoredSetting(indexDefinition, metadata);
 
         var im =
             new IndexMetadata(
@@ -612,6 +602,29 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     idx.fillIndex(session, progressListener);
 
     return idx;
+  }
+
+  /**
+   * Applies the {@code ignoreNullValues} metadata setting to the index definition: an explicit
+   * {@code true}/{@code false} value wins, otherwise the storage-wide
+   * {@link GlobalConfiguration#INDEX_IGNORE_NULL_VALUES_DEFAULT} default applies. Shared by the
+   * committed create path and the deferred (transaction-created) path so both agree on whether
+   * the index skips null keys; the deferred path applying the constructor default instead was the
+   * silent tx-vs-committed null-handling divergence.
+   */
+  private void applyNullValuesIgnoredSetting(
+      IndexDefinition indexDefinition, @Nullable Map<String, Object> metadata) {
+    final var ignoreNullValues = metadata == null ? null : metadata.get("ignoreNullValues");
+    if (Boolean.TRUE.equals(ignoreNullValues)) {
+      indexDefinition.setNullValuesIgnored(true);
+    } else if (Boolean.FALSE.equals(ignoreNullValues)) {
+      indexDefinition.setNullValuesIgnored(false);
+    } else {
+      indexDefinition.setNullValuesIgnored(
+          storage
+              .getContextConfiguration()
+              .getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT));
+    }
   }
 
   private Index createIndexFromMetadata(
