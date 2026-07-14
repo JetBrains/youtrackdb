@@ -325,6 +325,33 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * The edge-as-node form respects the edge label: {@code g.V(alice).outE("knows").has("since",
+   * P.lt(3000)).inV()} must exclude a same-property {@code likes} edge, matching native. Alice has a
+   * {@code knows} edge to Bob and a {@code likes} edge to Carol, both carrying {@code since} values
+   * the filter keeps; only the {@code knows} edge sits on the {@code outE("knows")} label, so native
+   * yields {Bob}. Every other non-adjacent filter case seeds a single edge label, so an edge-as-node
+   * translation that dropped the label (matching all edge types) would pass them yet return
+   * {Bob, Carol} here — this is the only end-to-end pin of the two-path-item form's label
+   * discrimination. (The AST label itself is unit-pinned by {@code
+   * MatchPatternBuilderTest.addEdgeAsNode_rendersOutEThenInVMethodCalls}.)
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_excludesDifferentLabelEdge() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010); // knows edge -> kept
+    alice.addEdge("likes", carol, "since", 2011); // likes edge -> excluded by outE("knows")
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).outE(knows).has(since, lt 3000).inV() excludes the likes edge",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).outE("knows").has("since", P.lt(3000)).inV());
+  }
+
+  /**
    * The {@code both} edge-filter chain declines: {@code bothE(L).has(...).otherV()} closes on an
    * {@code EdgeOtherVertexStep} ({@code otherV}), and the MATCH executor has no {@code otherV}
    * method, so the chain cannot be expressed and must stay on the native pipeline. With the
@@ -479,6 +506,39 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         "g.V(alice).out(knows) spanning a CloseFriend subclass edge",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V(aliceId).out("knows"));
+  }
+
+  /**
+   * Edge-as-node analogue of {@code edgeSubclassLabel_behavesAsNativeOut}: the filtered {@code
+   * outE("knows").has(...).inV()} chain must span a {@code knows} subclass edge the same way native
+   * does. The fixture derives {@code CloseFriend} from {@code knows} and links Alice→Carol through it
+   * (carrying {@code since}), plus a plain {@code knows} edge Alice→Bob; the filter {@code since <
+   * 3000} keeps both. Native {@code outE("knows")} follows the {@code CloseFriend} edge
+   * polymorphically, so the edge-as-node translation must too — yielding {Bob, Carol}. A translation
+   * that matched the {@code knows} label non-polymorphically would drop the {@code CloseFriend} edge
+   * (an undercount the multiset equality catches). This pins edge-label polymorphism on the
+   * two-path-item edge-as-node path, which {@code edgeSubclassLabel_behavesAsNativeOut} covers only
+   * for the folded bare hop.
+   */
+  @Test
+  public void nonAdjacentEdgeFilter_spansSubclassEdgeLikeNative() {
+    // Derive CloseFriend from the knows edge class so a CloseFriend edge IS-A knows edge; the in/out
+    // link properties are inherited from knows (createEdgeClass added them), as edge classes require.
+    var knows = session.createEdgeClass("knows");
+    session.getSchema().createClass("CloseFriend", knows);
+
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    var bob = graph.addVertex(T.label, "Person", "name", "Bob");
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol");
+    alice.addEdge("knows", bob, "since", 2010); // plain knows edge, kept
+    alice.addEdge("CloseFriend", carol, "since", 2020); // subclass-of-knows edge, kept
+    graph.tx().commit();
+    var aliceId = alice.id();
+
+    assertEquivalent(
+        "g.V(alice).outE(knows).has(since, lt 3000).inV() spanning a CloseFriend subclass edge",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V(aliceId).outE("knows").has("since", P.lt(3000)).inV());
   }
 
   // ---------------------------------------------------------------------------
