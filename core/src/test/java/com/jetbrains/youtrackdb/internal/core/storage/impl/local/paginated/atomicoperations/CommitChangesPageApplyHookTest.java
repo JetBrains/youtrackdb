@@ -225,7 +225,7 @@ public class CommitChangesPageApplyHookTest {
   @Test
   public void testReaderFailsDeterministicallyWhileWriterPausedMidApply()
       throws Exception {
-    // THE seam test (AR-10): a writer thread commits two pages and is paused by the hook
+    // THE seam test: a writer thread commits two pages and is paused by the hook
     // barrier BETWEEN the two page applications — inside the epoch bracket, page 0
     // already visible in the cache, page 1 not yet (the mixed state). An overlapping
     // reader capturing the epoch at that moment must deterministically fail
@@ -368,7 +368,7 @@ public class CommitChangesPageApplyHookTest {
 
   @Test
   public void testZeroChangeCommitDoesNotBumpEpoch() throws IOException {
-    // CN-11/CQ-1/CS-2 regression: a commit with nothing to apply (read-only atomic
+    // Regression guard: a commit with nothing to apply (read-only atomic
     // operation — no deleted files, no new/truncated files, no page changes) performs
     // no shared-cache mutation, so it must NOT enter the epoch bracket. Before the
     // gating fix, every commit bumped the epoch, spuriously invalidating all
@@ -385,7 +385,7 @@ public class CommitChangesPageApplyHookTest {
   @Test
   public void testHookReturningDuplicatePageIndexFailsCommitWithBalancedEpoch()
       throws IOException {
-    // CS-1/CQ-2/CN-13: a duplicate in the hook-returned order would double-apply a
+    // A duplicate in the hook-returned order would double-apply a
     // page. The permutation validation must fail the commit loudly, and the epoch
     // bracket must still close via the finally.
     var op = createOperation();
@@ -413,7 +413,7 @@ public class CommitChangesPageApplyHookTest {
 
   @Test
   public void testHookOmittingPagesFailsCommitWithBalancedEpoch() throws IOException {
-    // CS-1/CQ-2/CN-13: an omission in the hook-returned order would silently drop a
+    // An omission in the hook-returned order would silently drop a
     // WAL-committed page's changes from the cache. The permutation validation must
     // fail the commit loudly (incomplete permutation), and the epoch bracket must
     // still close via the finally.

@@ -51,8 +51,7 @@ import org.junit.experimental.categories.Category;
  * target key is past its end; the one-hop right-sibling check only inspects sibling
  * index 0 — so any moved key that landed at sibling index &gt; 0 produces a false
  * "absent" result. Upstream, {@code LinkBag.remove} surfaces that as
- * LinksConsistencyException, and {@code LinkBag.add} silently overwrites the counter
- * (AR-4).
+ * LinksConsistencyException, and {@code LinkBag.add} silently overwrites the counter.
  *
  * <p><b>The fix under test:</b> the per-storage {@code ApplyPhaseEpoch} bracket around
  * the commit-time apply loop. A reader whose window overlaps any apply phase fails
@@ -183,7 +182,7 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
   }
 
   /**
-   * Silent add-counter-overwrite variant (AR-4): the first step of a concurrent
+   * Silent add-counter-overwrite variant: the first step of a concurrent
    * {@code LinkBag.add} counter increment is reading the current absolute value via the
    * visible-entry path ({@code findVisibleEntry}). A false-null there makes the add
    * treat the existing rid as absent and reset its counter. While the writer is paused
@@ -205,7 +204,7 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
           operation, RID_BAG_ID, TARGET_COLLECTION, position);
       assertNotNull(
           "findVisibleEntry returned false-null for position " + position
-              + " — a concurrent add would have reset the counter (AR-4)",
+              + " — a concurrent add would have reset the counter",
           pair);
       assertEquals(
           "counter for position " + position + " must be the true committed value",
@@ -425,7 +424,7 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
 
       // The bracket is balanced again. Exactly ONE bump relative to the baseline: the
       // writer's apply. The reader's own commit is a zero-change commit and — since the
-      // CN-11 gating — deliberately does NOT bump the epoch.
+      // zero-change-commit gating — deliberately does NOT bump the epoch.
       assertEquals(epoch.enterSeq(), epoch.exitSeq());
       assertEquals(baseEnter + 1, epoch.enterSeq());
 
@@ -472,7 +471,7 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
       final var state = readerThread.getState();
       final var parked = state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING
           || state == Thread.State.BLOCKED;
-      // Re-check isDone AFTER the state read (TQ-1): a reader that completed between
+      // Re-check isDone AFTER the state read: a reader that completed between
       // the isDone check above and the state read leaves the executor thread parked
       // idle in WAITING, which would be misreported as "blocked on the lock". If it
       // completed, loop back so the isDone branch above surfaces the future's real

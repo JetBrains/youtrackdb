@@ -1134,8 +1134,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // bracketed — they do not mutate shared cache pages (snapshot-index entries are
       // SI-filtered on read).
       //
-      // The bracket is gated on the commit actually having shared-cache mutations
-      // (CN-11): zero-change commits — read-only atomic operations, pure metadata ops —
+      // The bracket is gated on the commit actually having shared-cache mutations:
+      // zero-change commits — read-only atomic operations, pure metadata ops —
       // perform no readCache calls in the section below, so bumping the epoch for them
       // would only spuriously invalidate every concurrently overlapping optimistic
       // read in the storage.
@@ -1328,7 +1328,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     var pageIndexes = fileChanges.pageChangesMap.keySet().toLongArray();
     final var reordered = hook.orderPageApplications(fileId, pageIndexes.clone());
     if (reordered != null) {
-      // Enforce the "complete permutation" contract (CS-1/CQ-2/CN-13): an unknown
+      // Enforce the "complete permutation" contract: an unknown
       // index would apply nothing for a real page, a duplicate would double-apply,
       // and an omission would silently drop a WAL-committed page's changes from the
       // cache — all of which would silently weaken the tests using this seam.

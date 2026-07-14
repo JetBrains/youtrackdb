@@ -605,7 +605,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     // does not handle (a checked IOException from the optimistic lambda, or a VM error)
     // — otherwise attemptActive stays latched and every subsequent optimistic read on
     // this AtomicOperation fails with a spurious "Nested optimistic read attempt"
-    // AssertionError under -ea (CN-10/BG-1).
+    // AssertionError under -ea.
     var attemptClosedByFallback = false;
     try {
       final T result = optimistic.apply();

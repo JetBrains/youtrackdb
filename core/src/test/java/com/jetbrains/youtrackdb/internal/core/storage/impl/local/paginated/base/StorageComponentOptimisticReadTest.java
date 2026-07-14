@@ -618,7 +618,7 @@ public class StorageComponentOptimisticReadTest {
 
   @Test
   public void testCheckedIOExceptionPropagatesAndDoesNotPoisonNextRead() throws IOException {
-    // CN-10/BG-1 regression: a checked IOException escaping the optimistic lambda is
+    // Regression: a checked IOException escaping the optimistic lambda is
     // NOT handled by the fallback catch (only RuntimeException | AssertionError route
     // to the pinned path) — it must propagate to the caller. Before the fix, this exit
     // path skipped exitAttempt(), leaving the -ea-only nesting state machine latched
