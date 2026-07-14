@@ -42,11 +42,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.Edge
  *
  * <h2>Reserved-prefix pre-flight scan</h2>
  *
- * Before dispatching any step, the walker declines the whole traversal if any user label starts with
- * {@code $}. The {@code $} space is reserved for the translator's minted {@code $g2m_} aliases (see
- * {@link WalkerContext#ANON_VERTEX_ALIAS_PREFIX}), so a user label there could collide with a minted
- * one. Declining (not throwing) preserves the all-or-nothing fallback. The scan is purely lexical, so
- * it runs before the session-dependent flag resolution.
+ * Before dispatching any step, the walker rejects the whole traversal — throwing a {@link
+ * ReservedAliasException} — if any user label starts with {@code $}. The {@code $} space is reserved
+ * for the translator's minted {@code $g2m_} aliases (see {@link WalkerContext#ANON_VERTEX_ALIAS_PREFIX})
+ * and for YouTrackDB's query-context variables, so a user label there is prohibited rather than
+ * declined to native. {@link GremlinToMatchStrategy}'s throw-safety net re-throws this one exception
+ * type so the query fails loudly, while every other failure still degrades to a native decline. The
+ * scan is purely lexical, so it runs before the session-dependent flag resolution.
  *
  * <h2>Resolved flags in the walker; shape gates in recognisers</h2>
  *
@@ -128,12 +130,13 @@ final class GremlinStepWalker {
       return null;
     }
 
-    // Reserved-prefix pre-flight: decline the whole traversal if any user label starts with '$',
-    // the translator's reserved namespace for minted $g2m_ aliases. Purely lexical (no graph access),
-    // so it runs before the session-dependent flag resolution below.
-    if (hasReservedPrefixLabel(steps)) {
-      return null;
-    }
+    // Reserved-prefix pre-flight: a user label starting with '$' is prohibited — the namespace is
+    // reserved for the minted $g2m_ aliases and YouTrackDB query variables — so reject the whole
+    // traversal with a ReservedAliasException. GremlinToMatchStrategy's throw-safety net propagates
+    // this one type rather than swallowing it, so the query fails loudly instead of running on native
+    // (which accepts the '$' label). Purely lexical (no graph access), so it runs before flag
+    // resolution below.
+    rejectReservedPrefixLabels(steps);
 
     // Resolve the polymorphism flag once. isPolymorphic is null-safe: it gates on an attached YTDB
     // graph + transaction before touching tx(), so a detached EmptyGraph or non-YTDB graph yields
@@ -199,26 +202,33 @@ final class GremlinStepWalker {
   }
 
   /**
-   * Returns {@code true} if any step carries a user label starting with the reserved {@code $} prefix
-   * ({@link WalkerContext#RESERVED_ALIAS_PREFIX}). Scans every step's {@code getLabels()} once; the
-   * scan is purely lexical (no graph access), so the walker runs it before resolving any
-   * session-dependent state. A match declines the whole traversal rather than throwing, so a
-   * pre-existing {@code as("$foo")} query keeps its native behaviour.
+   * Rejects the whole traversal with a {@link ReservedAliasException} if any step carries a user label
+   * starting with the reserved {@code $} prefix ({@link WalkerContext#RESERVED_ALIAS_PREFIX}). That
+   * namespace is reserved for the translator's minted {@code $g2m_} aliases and YouTrackDB's
+   * query-context variables, so a user label there is prohibited rather than translated. Scans every
+   * step's {@code getLabels()} once; the scan is purely lexical (no graph access), so the walker runs
+   * it before resolving any session-dependent state. The exception is the one failure {@link
+   * GremlinToMatchStrategy}'s throw-safety net re-throws rather than degrading to a native decline.
    */
-  private static boolean hasReservedPrefixLabel(List<?> steps) {
+  private static void rejectReservedPrefixLabels(List<?> steps) {
     for (Object raw : steps) {
       // getSteps() is a raw List<Step>; each element is a Step whose labels are user-supplied.
       var step = (Step<?, ?>) raw;
       for (String label : step.getLabels()) {
         // A step's label set can contain a null: as((String) null) reaches AbstractStep.addLabel,
-        // which adds the label with no null guard. Skip nulls so this purely lexical scan declines
-        // (never throws) — a null label cannot collide with the reserved '$' namespace anyway.
+        // which adds the label with no null guard. Skip nulls — a null label is lexical noise that
+        // cannot collide with the reserved '$' namespace, so it is never a rejection.
         if (label != null && label.startsWith(WalkerContext.RESERVED_ALIAS_PREFIX)) {
-          return true;
+          throw new ReservedAliasException(
+              "Gremlin alias '"
+                  + label
+                  + "' uses the reserved '"
+                  + WalkerContext.RESERVED_ALIAS_PREFIX
+                  + "' prefix: this namespace is reserved for YouTrackDB internal aliases and query"
+                  + " variables. Rename the as(...) label.");
         }
       }
     }
-    return false;
   }
 
   /**
