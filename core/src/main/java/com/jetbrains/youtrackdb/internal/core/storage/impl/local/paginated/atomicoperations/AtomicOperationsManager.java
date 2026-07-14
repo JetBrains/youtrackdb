@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -67,6 +68,14 @@ public class AtomicOperationsManager {
   private final OperationsFreezer writeOperationsFreezer = new OperationsFreezer();
   private final AtomicOperationsTable atomicOperationsTable;
 
+  // Apply-phase epoch shared by all atomic operations of this storage. Owned here (one
+  // manager per storage) rather than by ReadCache, because on the disk engine a single
+  // read cache is shared by all storages of the engine — an engine-global epoch would
+  // let commits in one database spuriously invalidate optimistic reads in another.
+  // Writers bump it around the cache-apply section of commitChanges; readers capture
+  // and validate it via OptimisticReadScope.
+  private final ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
+
   public AtomicOperationsManager(
       AbstractStorage storage, AtomicOperationsTable atomicOperationsTable) {
     this.storage = storage;
@@ -100,7 +109,7 @@ public class AtomicOperationsManager {
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
         storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),
-        storage.getEdgeSnapshotIndexSize());
+        storage.getEdgeSnapshotIndexSize(), applyPhaseEpoch);
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {

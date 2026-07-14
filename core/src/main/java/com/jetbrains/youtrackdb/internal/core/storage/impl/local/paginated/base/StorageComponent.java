@@ -593,6 +593,12 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
     scope.reset();
+    // -ea-only guard against nested optimistic read attempts: a nested
+    // executeOptimisticStorageRead call from inside an optimistic lambda would wipe the
+    // outer scope's stamps via reset(), silently voiding the outer validation. Kept
+    // OUTSIDE the try below — the fallback catch swallows AssertionError, so an assert
+    // placed inside the try could never surface. See OptimisticReadScope#enterAttempt.
+    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
     try {
       final T result = optimistic.apply();
@@ -602,6 +608,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // policy's frequency sketch stays accurate.
       recordOptimisticAccesses(scope);
 
+      // Well-formedness check on both exits (here and at the top of the catch below):
+      // fails if a nested reset was detected while this attempt was in flight.
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
       return result;
     } catch (final RuntimeException | AssertionError e) {
       // Catch RuntimeException and AssertionError because speculative reads from
@@ -610,6 +620,14 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // before stamp validation has a chance to detect the inconsistency.
       // All such errors are safe to swallow here — the pinned fallback path will
       // produce the correct result.
+
+      // Close the attempt before the pinned fallback runs: the fallback may itself
+      // legitimately start fresh optimistic reads (e.g., via helper methods), which
+      // must not trip a stale nesting flag. If a nested reset was detected during the
+      // failed attempt, this assert surfaces it (the nested AssertionError itself was
+      // swallowed by this catch).
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
       acquireSharedLock();
       try {
         return pinned.apply();
@@ -631,14 +649,20 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
     scope.reset();
+    // See the nesting-guard comments in the T-returning overload above.
+    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
     try {
       optimistic.run();
       scope.validateOrThrow();
 
       recordOptimisticAccesses(scope);
+
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
     } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
       acquireSharedLock();
       try {
         pinned.run();

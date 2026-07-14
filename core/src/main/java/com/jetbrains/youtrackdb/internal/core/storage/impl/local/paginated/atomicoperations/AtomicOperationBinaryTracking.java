@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.index.engine.HistogramDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.index.engine.IndexCountDeltaHolder;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.AbstractWriteCache;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -154,8 +155,21 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // Optimistic read scope — reused across optimistic read attempts within
   // the same atomic operation. Eagerly allocated since optimistic reads are
   // the hot path this class is designed to support.
-  private final OptimisticReadScope optimisticReadScope = new OptimisticReadScope();
+  private final OptimisticReadScope optimisticReadScope;
 
+  // Per-storage apply-phase epoch, owned by AtomicOperationsManager and shared by all
+  // atomic operations of the same storage. Bumped around the cache-apply section of
+  // commitChanges so concurrent optimistic readers can detect overlap with a partially
+  // applied commit (per-page stamps alone cannot — they are a temporal check only).
+  private final ApplyPhaseEpoch applyPhaseEpoch;
+
+  /**
+   * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
+   * with concurrent optimistic readers: allocates a private {@link ApplyPhaseEpoch}.
+   * Production code must use the primary constructor with the storage-wide epoch owned by
+   * {@link AtomicOperationsManager} — a private epoch would make commit-time applies
+   * invisible to optimistic readers of other operations on the same storage.
+   */
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
       final WriteCache writeCache,
@@ -168,6 +182,24 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
       @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
       @Nonnull AtomicLong edgeSnapshotIndexSize) {
+    this(readCache, writeCache, writeAheadLog, storageId, snapshot, sharedSnapshotIndex,
+        sharedVisibilityIndex, snapshotIndexSize, sharedEdgeSnapshotIndex,
+        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize, new ApplyPhaseEpoch());
+  }
+
+  AtomicOperationBinaryTracking(
+      final ReadCache readCache,
+      final WriteCache writeCache,
+      @Nullable final WriteAheadLog writeAheadLog,
+      final int storageId,
+      @Nonnull AtomicOperationsSnapshot snapshot,
+      @Nonnull ConcurrentSkipListMap<SnapshotKey, PositionEntry> sharedSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<VisibilityKey, SnapshotKey> sharedVisibilityIndex,
+      @Nonnull AtomicLong snapshotIndexSize,
+      @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
+      @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
+      @Nonnull AtomicLong edgeSnapshotIndexSize,
+      @Nonnull ApplyPhaseEpoch applyPhaseEpoch) {
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -182,6 +214,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.sharedEdgeSnapshotIndex = sharedEdgeSnapshotIndex;
     this.sharedEdgeVisibilityIndex = sharedEdgeVisibilityIndex;
     this.edgeSnapshotIndexSize = edgeSnapshotIndexSize;
+    this.applyPhaseEpoch = applyPhaseEpoch;
+    this.optimisticReadScope = new OptimisticReadScope(applyPhaseEpoch);
     this.active = true;
   }
 
@@ -1079,107 +1113,126 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         flushEdgeSnapshotBuffers();
       }
 
-      deletedFilesIterator = deletedFiles.longIterator();
-      while (deletedFilesIterator.hasNext()) {
-        var deletedFileId = deletedFilesIterator.nextLong();
-        readCache.deleteFile(deletedFileId, writeCache);
-      }
-
-      for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
-        final var fileChanges = fileChangesEntry.getValue();
-        final var fileId = fileChangesEntry.getLongKey();
-        final boolean nonDurable = nonDurableFlags.get(fileId);
-
-        if (fileChanges.isNew) {
-          // On the in-memory engine, addFile already eagerly registered this fileId with
-          // readCache so that fresh-booked-file pages could take the eager-install branch
-          // in allocatePageForWrite (see AtomicOperationBinaryTracking.addFile). A second
-          // readCache.addFile call would throw "File with id ... already exists" from
-          // DirectMemoryOnlyDiskCache.addFile.
-          if (!fileChanges.eagerlyInstalledInCache) {
-            readCache.addFile(
-                fileChanges.fileName,
-                newFileNamesId.getLong(fileChanges.fileName),
-                writeCache,
-                nonDurable);
-          }
-        } else if (fileChanges.truncate) {
-          LogManager.instance()
-              .warn(
-                  this,
-                  "You performing truncate operation which is considered unsafe because can not be"
-                      + " rolled back, as result data can be incorrectly restored after crash, this"
-                      + " operation is not recommended to be used");
-          readCache.truncateFile(fileId, writeCache);
+      // Apply-phase epoch bracket: exactly ONE enter/exit pair spanning the entire
+      // shared-cache mutation section — the readCache.deleteFile loop plus the whole
+      // per-file apply loop (addFile/truncateFile/loadOrAddForWrite/releaseFromWrite).
+      // Pages are applied one at a time in hash order, so a concurrent optimistic
+      // reader overlapping this section could see a mix of pre- and post-commit pages
+      // with every per-page stamp still valid; the epoch lets it detect the overlap
+      // and fall back to the pinned path. The exit MUST be in a finally block: an
+      // exception escaping this section must not leave the epoch permanently "in
+      // apply", which would disable optimistic reads for the storage's lifetime.
+      // Rolled-back operations never reach commitChanges (see the gate in
+      // AtomicOperationsManager.endAtomicOperation), so rollback does not bump the
+      // epoch. The WAL phase and snapshot-buffer flushes above are deliberately NOT
+      // bracketed — they do not mutate shared cache pages (snapshot-index entries are
+      // SI-filtered on read).
+      applyPhaseEpoch.enterApplyPhase();
+      try {
+        deletedFilesIterator = deletedFiles.longIterator();
+        while (deletedFilesIterator.hasNext()) {
+          var deletedFileId = deletedFilesIterator.nextLong();
+          readCache.deleteFile(deletedFileId, writeCache);
         }
 
-        // Non-durable files use null startLSN — no WAL dependency exists,
-        // and updateDirtyPagesTable (Track 4) skips them regardless.
-        final var fileStartLSN = nonDurable ? null : startLSN;
+        for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
+          final var fileChanges = fileChangesEntry.getValue();
+          final var fileId = fileChangesEntry.getLongKey();
+          final boolean nonDurable = nonDurableFlags.get(fileId);
 
-        final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
-            fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
-        while (filePageChangesIterator.hasNext()) {
-          final var filePageChangesEntry =
-              filePageChangesIterator.next();
-
-          if (filePageChangesEntry.getValue().changes.hasChanges()) {
-            final var pageIndex = filePageChangesEntry.getLongKey();
-            final var filePageChanges = filePageChangesEntry.getValue();
-
-            final var cacheEntry =
-                readCache.loadOrAddForWrite(
-                    fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
-            // loadOrAddForWrite is total on both engines at this point:
-            //   - Disk engine (LockFreeReadCache + WOWCache): WriteCache.loadOrAdd gap-fills
-            //     intermediate pages and returns a usable entry for the requested pageIndex.
-            //   - In-memory engine (DirectMemoryOnlyDiskCache): allocatePageForWrite eagerly
-            //     installs the page in MemoryFile during the TX, so the commit-time
-            //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
-            // Of the four sibling loadOrAddForWrite sites, this one is the only reachable
-            // site on the in-memory engine (the AbstractStorage WAL-replay branches and
-            // DiskStorage incremental-backup restore are disk-only because
-            // MemoryWriteAheadLog is a no-op). So an assertion is not sufficient here:
-            // any future extension or test caller that bypasses allocatePageForWrite on
-            // the in-memory engine would surface a null return only in -ea test builds.
-            // Throw unconditionally so the violation is visible in production builds too.
-            if (cacheEntry == null) {
-              throw new IllegalStateException(
-                  "readCache.loadOrAddForWrite returned null in commitChanges for fileId="
-                      + fileId + " pageIndex=" + pageIndex
-                      + " isNew=" + filePageChanges.isNew
-                      + " (in-memory engine: eager-install in allocatePageForWrite must"
-                      + " have run; disk engine: WriteCache.loadOrAdd is total);"
-                      + " WriteCache.loadOrAdd totality contract violated");
+          if (fileChanges.isNew) {
+            // On the in-memory engine, addFile already eagerly registered this fileId with
+            // readCache so that fresh-booked-file pages could take the eager-install branch
+            // in allocatePageForWrite (see AtomicOperationBinaryTracking.addFile). A second
+            // readCache.addFile call would throw "File with id ... already exists" from
+            // DirectMemoryOnlyDiskCache.addFile.
+            if (!fileChanges.eagerlyInstalledInCache) {
+              readCache.addFile(
+                  fileChanges.fileName,
+                  newFileNamesId.getLong(fileChanges.fileName),
+                  writeCache,
+                  nonDurable);
             }
+          } else if (fileChanges.truncate) {
+            LogManager.instance()
+                .warn(
+                    this,
+                    "You performing truncate operation which is considered unsafe because can not"
+                        + " be rolled back, as result data can be incorrectly restored after"
+                        + " crash, this operation is not recommended to be used");
+            readCache.truncateFile(fileId, writeCache);
+          }
 
-            try {
-              final var durablePage = new DurablePage(cacheEntry);
+          // Non-durable files use null startLSN — no WAL dependency exists,
+          // and updateDirtyPagesTable (Track 4) skips them regardless.
+          final var fileStartLSN = nonDurable ? null : startLSN;
 
-              durablePage.restoreChanges(filePageChanges.changes);
+          final Iterator<Long2ObjectMap.Entry<CacheEntryChanges>> filePageChangesIterator =
+              fileChanges.pageChangesMap.long2ObjectEntrySet().iterator();
+          while (filePageChangesIterator.hasNext()) {
+            final var filePageChangesEntry =
+                filePageChangesIterator.next();
 
-              // Non-durable pages have no WAL records, so endLSN and changeLSN
-              // are not meaningful. The dirty-pages-table skip in
-              // updateDirtyPagesTable (Track 4) ensures these pages
-              // don't block WAL truncation.
-              if (!nonDurable) {
-                // flushPendingOperations sets changeLSN for all durable pages.
-                // The WAL phase above throws StorageException if changeLSN is
-                // null for a durable page with changes — this assert is a
-                // defense-in-depth double-check.
-                assert filePageChanges.getChangeLSN() != null
-                    : "Durable page must have changeLSN set for page "
-                        + cacheEntry.getPageIndex();
-                cacheEntry.setEndLSN(txEndLsn);
-                durablePage.setLsn(filePageChanges.getChangeLSN());
+            if (filePageChangesEntry.getValue().changes.hasChanges()) {
+              final var pageIndex = filePageChangesEntry.getLongKey();
+              final var filePageChanges = filePageChangesEntry.getValue();
+
+              final var cacheEntry =
+                  readCache.loadOrAddForWrite(
+                      fileId, pageIndex, writeCache, filePageChanges.verifyCheckSum, fileStartLSN);
+              // loadOrAddForWrite is total on both engines at this point:
+              //   - Disk engine (LockFreeReadCache + WOWCache): WriteCache.loadOrAdd gap-fills
+              //     intermediate pages and returns a usable entry for the requested pageIndex.
+              //   - In-memory engine (DirectMemoryOnlyDiskCache): allocatePageForWrite eagerly
+              //     installs the page in MemoryFile during the TX, so the commit-time
+              //     loadOrAddForWrite reads the page back via MemoryFile.loadPage.
+              // Of the four sibling loadOrAddForWrite sites, this one is the only reachable
+              // site on the in-memory engine (the AbstractStorage WAL-replay branches and
+              // DiskStorage incremental-backup restore are disk-only because
+              // MemoryWriteAheadLog is a no-op). So an assertion is not sufficient here:
+              // any future extension or test caller that bypasses allocatePageForWrite on
+              // the in-memory engine would surface a null return only in -ea test builds.
+              // Throw unconditionally so the violation is visible in production builds too.
+              if (cacheEntry == null) {
+                throw new IllegalStateException(
+                    "readCache.loadOrAddForWrite returned null in commitChanges for fileId="
+                        + fileId + " pageIndex=" + pageIndex
+                        + " isNew=" + filePageChanges.isNew
+                        + " (in-memory engine: eager-install in allocatePageForWrite must"
+                        + " have run; disk engine: WriteCache.loadOrAdd is total);"
+                        + " WriteCache.loadOrAdd totality contract violated");
               }
-            } finally {
-              readCache.releaseFromWrite(cacheEntry, writeCache, true);
+
+              try {
+                final var durablePage = new DurablePage(cacheEntry);
+
+                durablePage.restoreChanges(filePageChanges.changes);
+
+                // Non-durable pages have no WAL records, so endLSN and changeLSN
+                // are not meaningful. The dirty-pages-table skip in
+                // updateDirtyPagesTable (Track 4) ensures these pages
+                // don't block WAL truncation.
+                if (!nonDurable) {
+                  // flushPendingOperations sets changeLSN for all durable pages.
+                  // The WAL phase above throws StorageException if changeLSN is
+                  // null for a durable page with changes — this assert is a
+                  // defense-in-depth double-check.
+                  assert filePageChanges.getChangeLSN() != null
+                      : "Durable page must have changeLSN set for page "
+                          + cacheEntry.getPageIndex();
+                  cacheEntry.setEndLSN(txEndLsn);
+                  durablePage.setLsn(filePageChanges.getChangeLSN());
+                }
+              } finally {
+                readCache.releaseFromWrite(cacheEntry, writeCache, true);
+              }
+            } else {
+              filePageChangesIterator.remove();
             }
-          } else {
-            filePageChangesIterator.remove();
           }
         }
+      } finally {
+        applyPhaseEpoch.exitApplyPhase();
       }
 
       return txEndLsn;
