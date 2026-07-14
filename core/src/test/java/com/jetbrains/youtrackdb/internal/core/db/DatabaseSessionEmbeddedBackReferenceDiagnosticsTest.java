@@ -51,6 +51,10 @@ public class DatabaseSessionEmbeddedBackReferenceDiagnosticsTest extends DbTestB
     var opposite = newPersistentEntity("opposite");
 
     session.begin();
+    // Reload the committed source in the active transaction so its properties are
+    // readable: the forward-links field must actually render (as null here — the property
+    // is absent) instead of degrading to an error marker.
+    source = session.load(source.getIdentity());
     var bag = new LinkBag(session);
     var present1 = new RecordId(12, 100);
     var present2 = new RecordId(12, 101);
@@ -73,7 +77,12 @@ public class DatabaseSessionEmbeddedBackReferenceDiagnosticsTest extends DbTestB
     assertTrue(message, message.endsWith("]"));
     assertTrue(message, message.contains("sourceProperty=linkMap"));
     assertTrue(message, message.contains(expectedSourceField));
-    assertTrue(message, message.contains("sourceForwardLinks="));
+    // The source has no 'linkMap' property, so the forward-links field renders the null
+    // gracefully. (The historical String.valueOf(char[]) overload trap turned this into
+    // <error:NullPointerException>, destroying the source-side evidence.)
+    assertTrue(message, message.contains("sourceForwardLinks=null"));
+    assertFalse("no diagnostic field may degrade to an error marker: " + message,
+        message.contains("<error:"));
     assertTrue(message, message.contains("oppositeBagProperty=#linkMap"));
     assertTrue(message, message.contains(expectedOppositeField));
     assertTrue(message, message.contains("bagType=embedded"));
@@ -191,6 +200,69 @@ public class DatabaseSessionEmbeddedBackReferenceDiagnosticsTest extends DbTestB
 
     assertTrue(message, message.contains("bagSize=64"));
     assertFalse(message, message.contains(" more)"));
+  }
+
+  /**
+   * The source's forward links are the other half of the evidence: for a linkMap property
+   * the rendered value must show the ACTUAL map content — the key and the target rid — not
+   * an error marker. This pins the fix for the {@code String.valueOf(char[])} overload
+   * trap: {@code getPropertyInternal}'s unbounded generic return let javac resolve the
+   * render call to the char[] overload, so every non-char[] property value threw
+   * ClassCastException and the field degraded to {@code <error:ClassCastException>}.
+   */
+  @Test
+  public void diagnosticsRenderSourceForwardLinksContentForLinkMap() {
+    var opposite = newPersistentEntity("opposite");
+    var targetRid = new RecordId(15, 7);
+
+    session.begin();
+    var source = (EntityImpl) session.newEntity();
+    source.getOrCreateLinkMap("linkMap").put("edgeKey", targetRid);
+    var bag = new LinkBag(session);
+    bag.add(new RecordId(15, 8));
+    var message = DatabaseSessionEmbedded.describeMissingBackReference(
+        "base", source, "linkMap", opposite, "#linkMap", bag, -1);
+    session.rollback();
+
+    // The rendered forward-links value carries the real map content: key and target rid.
+    assertTrue(message, message.contains("sourceForwardLinks="));
+    assertTrue("rendered value must contain the map key: " + message,
+        message.contains("edgeKey"));
+    assertTrue("rendered value must contain the target rid: " + message,
+        message.contains(targetRid.toString()));
+    assertFalse("no diagnostic field may degrade to an error marker: " + message,
+        message.contains("<error:"));
+  }
+
+  /**
+   * Same content pin for a second property shape (linkList): the rendered forward-links
+   * value must contain every target rid. Before the overload-trap fix this field threw
+   * ClassCastException for list values exactly as for maps.
+   */
+  @Test
+  public void diagnosticsRenderSourceForwardLinksContentForLinkList() {
+    var opposite = newPersistentEntity("opposite");
+    var ridA = new RecordId(15, 8);
+    var ridB = new RecordId(15, 9);
+
+    session.begin();
+    var source = (EntityImpl) session.newEntity();
+    var linkList = source.getOrCreateLinkList("linkList");
+    linkList.add(ridA);
+    linkList.add(ridB);
+    var bag = new LinkBag(session);
+    bag.add(new RecordId(15, 10));
+    var message = DatabaseSessionEmbedded.describeMissingBackReference(
+        "base", source, "linkList", opposite, "#linkList", bag, -1);
+    session.rollback();
+
+    assertTrue(message, message.contains("sourceForwardLinks="));
+    assertTrue("rendered value must contain the first rid: " + message,
+        message.contains(ridA.toString()));
+    assertTrue("rendered value must contain the second rid: " + message,
+        message.contains(ridB.toString()));
+    assertFalse("no diagnostic field may degrade to an error marker: " + message,
+        message.contains("<error:"));
   }
 
   /**
