@@ -51,7 +51,7 @@ import org.junit.Test;
  *       WalkerContext} (a decline discards the whole walk anyway).
  *   <li><b>Multi-step walker infrastructure</b> — the cursor-driven loop lets a recogniser
  *       consume several steps in one claim; an accept that consumes nothing trips the walker's
- *       progress guard; the reserved-{@code $} pre-flight scan declines a traversal carrying a
+ *       progress guard; the reserved-{@code $} pre-flight scan throws on a traversal carrying a
  *       {@code $}-prefixed user label; and {@link WalkerContext}'s anonymous-alias generator mints
  *       distinct, per-context sequences.
  * </ul>
@@ -643,19 +643,22 @@ public class GremlinStepWalkerTest extends GraphBaseTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * A user label starting with the reserved {@code $} prefix declines the whole walk. {@code
-   * as("$foo")} labels the vertex {@code GraphStep} with {@code $foo}; the walker's reserved-prefix
-   * pre-flight scan runs before any recogniser and declines the traversal, so the translator's
-   * minted {@code $g2m_} alias namespace can never collide with a user label. Declining (not
-   * throwing) keeps a pre-existing {@code as("$foo")} query on the native pipeline unchanged.
+   * A user label starting with the reserved {@code $} prefix is prohibited: the walker's
+   * reserved-prefix pre-flight scan throws a {@link ReservedAliasException} rather than declining, so
+   * the query fails loudly instead of silently running on the native pipeline. {@code as("$foo")}
+   * labels the vertex {@code GraphStep} with {@code $foo}; the scan runs before any recogniser, so the
+   * translator's minted {@code $g2m_} alias namespace can never be shadowed by a user label. The
+   * strategy's throw-safety net re-throws this one exception type rather than degrading it to a native
+   * decline (see {@code GremlinToMatchStrategyTest#apply_reservedAliasException_propagates}).
    */
   @Test
-  public void walk_reservedDollarUserLabel_declines() {
+  public void walk_reservedDollarUserLabel_throwsReservedAlias() {
     var admin = graph.traversal().V().as("$foo").asAdmin();
 
-    var result = GremlinStepWalker.production().walk(admin);
-
-    assertThat(result).as("a $-prefixed user label declines the whole walk").isNull();
+    assertThatThrownBy(() -> GremlinStepWalker.production().walk(admin))
+        .as("a $-prefixed user label is prohibited and throws")
+        .isInstanceOf(ReservedAliasException.class)
+        .hasMessageContaining("$foo");
   }
 
   /**

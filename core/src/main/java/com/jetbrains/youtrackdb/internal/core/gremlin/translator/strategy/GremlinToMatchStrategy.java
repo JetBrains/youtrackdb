@@ -42,8 +42,10 @@ import org.slf4j.LoggerFactory;
  * {@code apply} runs its gates, receives a non-empty translation, and splices the boundary
  * step in place of the entire step list ({@link #applyTranslation}). Landing the gating
  * cascade + throw-safety net + kill-switch before any recognizer ran under the strategy was
- * deliberate: it guarantees the "a throw in {@code apply} can only ever decline, never break a
- * query" invariant holds from the moment the strategy is first registered.
+ * deliberate: it guarantees the "a translator bug in {@code apply} can only ever decline, never break
+ * a query" invariant holds from the moment the strategy is first registered. The one throw meant to
+ * reach the caller is a {@link ReservedAliasException} — a prohibited user alias in the reserved
+ * {@code $} namespace — which the net re-throws rather than degrades (see "Throw-safety net").
  *
  * <h2>Gating cascade</h2>
  *
@@ -92,6 +94,13 @@ import org.slf4j.LoggerFactory;
  * (which, under the all-or-nothing rule, is at least as well-served as before). The net
  * degrades a translator bug to native execution rather than a broken query, and it exists from
  * the skeleton so the invariant holds before any recognizer runs under the strategy.
+ *
+ * <p>The net makes one deliberate exception. A {@link ReservedAliasException} — thrown by the
+ * walker's reserved-prefix pre-flight when a user {@code as(...)} label sits in the reserved {@code
+ * $} namespace — rejects prohibited input rather than reporting a translator failure, so the {@code
+ * catch} re-throws it (caught before the {@link RuntimeException} clause) and the query fails with a
+ * clear error. Native execution would accept the {@code $} label, so degrading this to a decline
+ * would let a prohibited alias run silently; propagating it is the point.
  *
  * <p>The catch is narrowed to {@link RuntimeException}, so {@link Error} — including {@link
  * AssertionError} — is never swallowed: it is not a {@code RuntimeException} and propagates
@@ -198,10 +207,17 @@ public final class GremlinToMatchStrategy
     // the plan build both succeed, so a caught exception always leaves the step list unmodified.
     try {
       applyOrDecline(traversal);
+    } catch (ReservedAliasException e) {
+      // The one deliberate hard rejection: a user as(...) label in the reserved '$' namespace is
+      // prohibited input, not a best-effort-translation failure. Propagate it so the query fails with
+      // a clear error rather than silently degrading to native (which accepts the '$' label). It must
+      // be caught before the RuntimeException clause below, which would otherwise turn it into a
+      // decline — ReservedAliasException is a RuntimeException subtype.
+      throw e;
     } catch (RuntimeException e) {
-      // Swallow unchecked exceptions deliberately: translation is a best-effort optimization. A
-      // recognizer/planner failure declines to the native pipeline, which handles the traversal
-      // correctly. Rethrowing would break every Gremlin query, recognized or not. Error and
+      // Swallow every other unchecked exception deliberately: translation is a best-effort
+      // optimization. A recognizer/planner failure declines to the native pipeline, which handles the
+      // traversal correctly. Rethrowing would break every Gremlin query, recognized or not. Error and
       // AssertionError are not RuntimeExceptions, so they are intentionally not caught here — a
       // JVM Error or an -ea invariant violation must surface loudly, never degrade to a silent
       // decline.

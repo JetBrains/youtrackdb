@@ -1625,12 +1625,16 @@ collision is detected — additional state and a bigger surface for
 subtle bugs.
 
 A pre-flight scan in the walker iterates every step's `Step.getLabels()`
-once before dispatching to recognizers and declines the entire traversal
-if any user-supplied label starts with `$`. Declining (rather than
-throwing) preserves the D3 fallback: the native TinkerPop pipeline keeps
-handling such a traversal exactly as it does today, so a user with a
-pre-existing `as("$foo")` query sees no behavior change. The pre-flight
-is purely lexical (no graph access) so it is safe to run before any
+once before dispatching to recognizers and rejects the entire traversal —
+throwing a `ReservedAliasException` — if any user-supplied label starts
+with `$`. This is the one case that does not fall back to native under D3:
+the `$` namespace is reserved for the translator's minted `$g2m_` aliases
+and YouTrackDB's query-context variables, so a user label there is
+prohibited rather than silently run on the native pipeline (which accepts
+the `$` label). `GremlinToMatchStrategy`'s throw-safety net re-throws this
+one exception type — every other `RuntimeException` still degrades to a
+native decline — so the query fails with a clear error. The pre-flight is
+purely lexical (no graph access) so it is safe to run before any
 recognizer-specific gate, including those that depend on the session
 being resolved.
 
