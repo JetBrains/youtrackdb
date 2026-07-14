@@ -27,6 +27,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
@@ -988,8 +989,11 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertTrue("the parent index must cover the same-tx subclass's real collection",
         membership.contains(childCollectionName));
 
-    // The durable arm: a reopen discards every in-memory registry, so the membership re-read
-    // from the persisted index record must carry the real collection name and no null.
+    // The durable arm: force the index manager to re-parse its persisted record first — a reOpen
+    // alone does NOT discard the SharedContext's in-memory index registry, so without the reload
+    // the assertions below would re-read the same in-memory state and a save()-side serialization
+    // bug would pass unnoticed (the sibling durable tests in this file use the same pattern).
+    session.getSharedContext().getIndexManager().reload(session);
     reOpen("admin", ADMIN_PASSWORD);
     var reloadedIndex = session.getSharedContext().getIndexManager().getIndex(indexName);
     var reloadedMembership = new HashSet<>(reloadedIndex.getCollections());
@@ -1009,6 +1013,164 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
         "a polymorphic lookup through the parent index must return the same-tx subclass's row",
         1, rids.size());
     assertEquals(childRow.getIdentity(), rids.getFirst());
+  }
+
+  /**
+   * A subclass created AND dropped under an indexed parent in the same transaction must net to no
+   * membership change: the create ripple records the subclass's carried provisional
+   * {@code <class>_<counter>} name into the overlay's membership-added category, and the drop
+   * ripple must resolve the SAME carried name so the overlay cancels the pair. A remove side that
+   * resolved the provisional id to null (the asymmetry fixed here) would fail to cancel the add,
+   * and the commit would persist a phantom collection name into the committed index's
+   * {@code collectionsToIndex} — naming a collection the reconciliation never creates, because
+   * the dropped class allocates none. The durable arm re-parses the persisted index record to
+   * prove no phantom name reached the record bytes.
+   */
+  @Test
+  public void sameTxSubclassCreateThenDropLeavesNoPhantomMembership() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ProvDropParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "ProvDropParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var membershipBefore = new HashSet<>(index.getCollections());
+
+    // Create the subclass under the indexed parent and drop it again inside one transaction: the
+    // add ripple and the drop ripple both resolve the child's provisional collection id, so the
+    // membership deltas must cancel to nothing.
+    session.executeInTx(
+        tx -> {
+          var s = session.getMetadata().getSchema();
+          s.createClass("ProvDropChild", s.getClass("ProvDropParent"));
+          s.dropClass("ProvDropChild");
+        });
+
+    assertEquals(
+        "a same-tx subclass create-then-drop must leave the committed membership unchanged",
+        membershipBefore, new HashSet<>(index.getCollections()));
+
+    // The durable arm: reload re-parses the persisted index record (reOpen alone does not discard
+    // the SharedContext's in-memory index registry), so a phantom name persisted into the record
+    // by the enroll phase would surface here.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedIndex = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var reloadedMembership = new HashSet<>(reloadedIndex.getCollections());
+    assertEquals("no phantom collection name may survive in the durable membership",
+        membershipBefore, reloadedMembership);
+    assertFalse("no null placeholder may survive in the durable membership",
+        reloadedMembership.contains(null));
+  }
+
+  /**
+   * The detach variant of the create-then-drop pin: a subclass created under an indexed parent and
+   * detached again ({@code removeSuperClass}) in the same transaction must not leave the parent
+   * index covering the subclass's collection. Unlike the drop variant the subclass survives the
+   * commit with a real collection, so this arm additionally proves the parent index does not name
+   * that real collection and does not index rows inserted into the detached class afterwards — a
+   * remove side that resolved the provisional id to null would leave the carried name dangling in
+   * the membership-added category and the commit would durably cover the detached class.
+   */
+  @Test
+  public void sameTxSubclassCreateThenDetachLeavesParentMembershipUnchanged() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("ProvDetachParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "ProvDetachParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var membershipBefore = new HashSet<>(index.getCollections());
+
+    session.executeInTx(
+        tx -> {
+          var s = session.getMetadata().getSchema();
+          s.createClass("ProvDetachChild", s.getClass("ProvDetachParent"));
+          s.getClass("ProvDetachChild").removeSuperClass(s.getClass("ProvDetachParent"));
+        });
+
+    // The detached child commits its real collection (it still exists as a standalone class)…
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("ProvDetachChild").getCollectionIds()[0]);
+    assertNotNull("the detached child must own a real collection after commit",
+        childCollectionName);
+
+    // …but the parent index's membership must be exactly what it was before the transaction: the
+    // add and remove ripples resolved the same carried name and cancelled.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    var reloadedIndex = session.getSharedContext().getIndexManager().getIndex(indexName);
+    var reloadedMembership = new HashSet<>(reloadedIndex.getCollections());
+    assertEquals("the detach must cancel the same-tx membership add durably",
+        membershipBefore, reloadedMembership);
+    assertFalse("the parent index must not cover the detached class's collection",
+        reloadedMembership.contains(childCollectionName));
+
+    // Functional proof: a row inserted into the detached class is not returned through the parent
+    // index (its collection is not covered).
+    session.begin();
+    var detachedRow = (EntityImpl) session.newEntity("ProvDetachChild");
+    detachedRow.setProperty("name", "detachedValue");
+    session.commit();
+    var rids = session.computeInTx(tx -> reloadedIndex.getRids(session, "detachedValue").toList());
+    assertTrue("a lookup through the parent index must not return the detached class's rows",
+        rids.isEmpty());
+  }
+
+  /**
+   * Explicit {@code ignoreNullValues} metadata beats the storage-wide default on the deferred
+   * path, in BOTH directions: with the global default flipped to {@code true} (ignore nulls), a
+   * tx-created index with no metadata inherits the flipped default (proving the default
+   * resolution reads the config rather than hardcoding {@code false}), while a sibling tx-created
+   * index carrying explicit {@code ignoreNullValues=false} still indexes null keys (proving
+   * explicit metadata wins over the default). Complements the sibling null-handling tests, which
+   * exercise only the false-default and explicit-true arms.
+   */
+  @Test
+  public void txCreatedIndexExplicitFalseMetadataBeatsFlippedGlobalDefault() {
+    var configuration = storage().getContextConfiguration();
+    var originalDefault =
+        configuration.getValueAsBoolean(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT);
+    configuration.setValue(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT, true);
+    try {
+      var schema = session.getMetadata().getSchema();
+      var cls = schema.createClass("NullFlipBuild");
+      cls.createProperty("a", PropertyType.STRING);
+      cls.createProperty("b", PropertyType.STRING);
+
+      session.begin();
+      var target = session.getMetadata().getSchema().getClass("NullFlipBuild");
+      target.createIndex("NullFlipBuild.a", SchemaClass.INDEX_TYPE.NOTUNIQUE, "a");
+      target.createIndex(
+          "NullFlipBuild.b",
+          SchemaClass.INDEX_TYPE.NOTUNIQUE.toString(),
+          null,
+          Map.of("ignoreNullValues", false),
+          new String[] {"b"});
+      // Both indexed properties are absent, so the row carries a null key for both indexes.
+      var row = (EntityImpl) session.newEntity("NullFlipBuild");
+      row.setProperty("unrelated", "x");
+      session.commit();
+
+      var manager = session.getSharedContext().getIndexManager();
+      var defaultIndex = manager.getIndex("NullFlipBuild.a");
+      var explicitIndex = manager.getIndex("NullFlipBuild.b");
+      assertTrue(
+          "with the flipped global default, a metadata-less deferred create must ignore nulls",
+          defaultIndex.getDefinition().isNullValuesIgnored());
+      assertFalse("explicit ignoreNullValues=false must beat the flipped global default",
+          explicitIndex.getDefinition().isNullValuesIgnored());
+      assertTrue("the null-key row must be skipped by the default-resolved index",
+          session.computeInTx(tx -> defaultIndex.getRids(session, null).toList()).isEmpty());
+      assertEquals("the null-key row must be indexed by the explicit-false index",
+          1, session.computeInTx(tx -> explicitIndex.getRids(session, null).toList()).size());
+    } finally {
+      configuration.setValue(GlobalConfiguration.INDEX_IGNORE_NULL_VALUES_DEFAULT,
+          originalDefault);
+    }
   }
 
   /**

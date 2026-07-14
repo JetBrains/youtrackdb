@@ -117,6 +117,36 @@ public abstract class SchemaShared implements CloseableInStorage {
   }
 
   /**
+   * Resolves a collection id to its name for the index paths, tolerating a provisional id
+   * ({@code <= -2}) allocated by the session's open schema transaction. A non-provisional id
+   * resolves through the storage name map as usual (and may answer {@code null} for an unknown
+   * id, which callers handle); a provisional id resolves to the {@code <class>_<counter>} name
+   * the transaction recorded on {@link TxSchemaState} when it allocated the id, because
+   * {@code getCollectionNameById} deliberately answers {@code null} for any negative id and the
+   * real collection does not exist until the commit creates it under exactly that carried name.
+   *
+   * <p>This is the single resolver behind the deferred index create and BOTH sides of the
+   * index-membership ripple (add and remove), so a same-transaction pair — e.g. a subclass
+   * created and then dropped or detached under an indexed parent — resolves the provisional id
+   * to the same name on both sides and cancels cleanly in the overlay, instead of one side
+   * recording the carried name and the other a null placeholder (which would persist a phantom
+   * collection name into the committed index's membership at commit).
+   */
+  @Nullable public static String resolveCollectionNameById(
+      DatabaseSessionEmbedded session, int collectionId) {
+    if (isProvisionalCollectionId(collectionId)) {
+      final var txState = session.getTxSchemaState();
+      if (txState == null) {
+        throw new IllegalStateException(
+            "Provisional collection id " + collectionId + " can only be resolved inside the"
+                + " transaction that allocated it, but no tx-local schema state is present");
+      }
+      return txState.getProvisionalCollectionName(collectionId);
+    }
+    return session.getCollectionNameById(collectionId);
+  }
+
+  /**
    * Monotonically increasing counter for generating unique collection names.
    * Each new collection gets a name like {@code <lowercase_classname>_<counter>}.
    * Protected by the schema write lock.

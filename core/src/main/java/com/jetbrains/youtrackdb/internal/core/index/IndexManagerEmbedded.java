@@ -541,7 +541,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // provisional-aware resolver reads the carried <class>_<counter> name off TxSchemaState so the
       // deferred handle stores the right collection name and the commit-time build re-resolves it.
       var deferredCollections =
-          resolveDeferredCollectionNames(collectionIdsToIndex, session, txState);
+          resolveDeferredCollectionNames(collectionIdsToIndex, session);
       deferredHandle.markDeferred(
           new IndexMetadata(iName, indexDefinition, deferredCollections, type, algorithm, -1,
               metadata));
@@ -712,21 +712,18 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * real collection does not exist until commit. This is why the deferred create no longer throws
    * {@code IndexException("Collection with id -2 does not exist")} when indexing a same-transaction
    * class: the handle stores the generated name, and the commit-time engine build re-resolves it to
-   * the real collection once reconciliation has created it.
+   * the real collection once reconciliation has created it. Resolution goes through the shared
+   * {@link SchemaShared#resolveCollectionNameById} resolver, the same one both sides of the
+   * index-membership ripple use, so every provisional-id consumer agrees on the carried name.
    */
   private static Set<String> resolveDeferredCollectionNames(
-      int[] collectionIdsToIndex, DatabaseSessionEmbedded session, TxSchemaState txState) {
+      int[] collectionIdsToIndex, DatabaseSessionEmbedded session) {
     final Set<String> collectionsToIndex = new HashSet<>();
     if (collectionIdsToIndex == null) {
       return collectionsToIndex;
     }
     for (final var collectionId : collectionIdsToIndex) {
-      final String collectionName;
-      if (SchemaShared.isProvisionalCollectionId(collectionId)) {
-        collectionName = txState.getProvisionalCollectionName(collectionId);
-      } else {
-        collectionName = session.getCollectionNameById(collectionId);
-      }
+      final var collectionName = SchemaShared.resolveCollectionNameById(session, collectionId);
       if (collectionName == null) {
         throw new IndexException(session.getDatabaseName(),
             "Collection with id " + collectionId + " does not exist.");

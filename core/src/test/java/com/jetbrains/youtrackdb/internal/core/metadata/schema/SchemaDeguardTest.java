@@ -1268,6 +1268,97 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
+   * The membership ripple's add and remove sides resolve a provisional subclass collection id to
+   * the SAME carried {@code <class>_<counter>} name, so a same-tx create-then-drop of the subclass
+   * cancels in the overlay: after the drop the membership-added category carries exactly the
+   * parent's own committed names (the idempotent inheritance re-adds) and the membership-removed
+   * category carries nothing. A remove side that resolved the provisional id to null instead (the
+   * asymmetry regression this pins against) would leave the carried name dangling in the added set
+   * — to be persisted at commit as a phantom membership — and record a spurious null removal.
+   */
+  @Test
+  public void membershipRippleCancelsOnSameTxSubclassDrop() {
+    var schema = session.getMetadata().getSchema();
+    var superCls = schema.createClass("OverlayCancelSuper");
+    superCls.createProperty("name", PropertyType.STRING);
+    var indexName = "OverlayCancelSuper.name";
+    superCls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.executeInTx(
+        tx -> {
+          schema.createClass("OverlayCancelSub", superCls);
+          schema.dropClass("OverlayCancelSub");
+
+          var overlay = session.getTxSchemaState().getIndexOverlay();
+          assertNotNull("the membership ripple must have created the index overlay", overlay);
+          // The parent's own committed names are re-recorded by the inheritance rebuild (an
+          // idempotent no-op at commit); the subclass's carried names must be gone — cancelled by
+          // the drop ripple resolving the same names.
+          var expectedNames = new HashSet<String>();
+          for (var parentCollectionId : superCls.getCollectionIds()) {
+            expectedNames.add(session.getCollectionNameById(parentCollectionId));
+          }
+          assertEquals(
+              "after the same-tx drop the added category must carry only the parent's own names",
+              expectedNames, overlay.getMembershipAdded().get(indexName));
+          assertNull("a cancelled add/remove pair must record no removal",
+              overlay.getMembershipRemoved().get(indexName));
+        });
+  }
+
+  /**
+   * The provisional-name resolver fails loudly (never records a null placeholder) when it meets a
+   * provisional collection id outside the transaction that allocated it, and the polymorphic
+   * ripple rethrows that invariant violation past its historical warn-and-skip catch instead of
+   * silently dropping the collection id. The scenario is structurally prevented in real use (a
+   * provisional id exists only inside its allocating transaction), so the guard is exercised
+   * directly: a committed class is handed a provisional polymorphic id it never allocated and
+   * rippled into another class with no transaction open.
+   */
+  @Test
+  public void polymorphicRippleFailsLoudlyOnUnresolvableProvisionalId() {
+    var schema = session.getMetadata().getSchema();
+    schema.createClass("RippleGuardParent");
+    schema.createClass("RippleGuardBase");
+    var committed = session.getSharedContext().getSchema();
+    var parent = committed.getClass("RippleGuardParent");
+    var base = committed.getClass("RippleGuardBase");
+    // Inject an unallocated provisional id into the base's polymorphic ids (package-level access
+    // to the protected field). No transaction is open, so the shared resolver must throw — and
+    // addPolymorphicCollectionIds must rethrow — rather than degrade to a warn-and-skip that
+    // records a null placeholder or silently drops the id.
+    base.polymorphicCollectionIds = new int[] {-5};
+    var thrown =
+        assertThrows(IllegalStateException.class,
+            () -> parent.addPolymorphicCollectionIds(session, base, true));
+    assertTrue("the guard must name the unresolvable provisional id",
+        thrown.getMessage().contains("Provisional collection id"));
+  }
+
+  /**
+   * {@code TxSchemaState.getProvisionalCollectionName} throws unconditionally (not assert-only)
+   * for a provisional id the transaction never allocated: returning null instead would silently
+   * reintroduce the null-placeholder membership bug in a JVM running without {@code -ea}. The
+   * guard is probed directly on a seeded tx-local state with an id from the provisional range
+   * that was never handed out.
+   */
+  @Test
+  public void unallocatedProvisionalIdNameLookupFailsLoudly() {
+    session.executeInTx(
+        tx -> {
+          // Seed the tx-local schema state (and allocate the class's own provisional ids).
+          session.getMetadata().getSchema().createClass("ProvNameGuard");
+          var txState = session.getTxSchemaState();
+          assertNotNull("the schema write must have seeded the tx-local state", txState);
+          var thrown =
+              assertThrows(IllegalStateException.class,
+                  () -> txState.getProvisionalCollectionName(-9999));
+          assertTrue("the guard must say no name was recorded",
+              thrown.getMessage().contains("No provisional collection name recorded"));
+        });
+  }
+
+  /**
    * A schema-only transaction that never touches an index allocates no index overlay. Creating a
    * class inside a transaction seeds the tx-local schema state but must leave the overlay null,
    * proving the overlay is created lazily only on the first index change and the common schema-only

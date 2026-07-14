@@ -674,27 +674,14 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   @Override
   protected void addCollectionIdToIndexes(DatabaseSessionEmbedded session, int iId,
       boolean requireEmpty) {
-    final String collectionName;
-    if (SchemaShared.isProvisionalCollectionId(iId)) {
-      // A collection allocated in this same transaction carries a provisional id (<= -2), which
-      // session.getCollectionNameById deliberately answers null for. Passing that null on would
-      // record a null placeholder into the overlay's membership category, and the commit would
-      // persist it into the committed index's collectionsToIndex. The transaction recorded the
-      // <class>_<counter> name the commit creates the real collection under when it allocated the
-      // id (and the commit's collection reconciliation runs before the membership enroll), so
-      // resolve through that carried name: the membership delta then lands on the real collection
-      // name at commit. This mirrors resolveDeferredCollectionNames on the deferred index-create
-      // path.
-      final var txState = session.getTxSchemaState();
-      if (txState == null) {
-        throw new IllegalStateException(
-            "Provisional collection id " + iId + " can only be resolved inside the transaction"
-                + " that allocated it, but no tx-local schema state is present");
-      }
-      collectionName = txState.getProvisionalCollectionName(iId);
-    } else {
-      collectionName = session.getCollectionNameById(iId);
-    }
+    // Provisional-aware resolution: a collection allocated in this same transaction carries a
+    // provisional id (<= -2) that resolves to the carried <class>_<counter> name the commit
+    // creates the real collection under (the commit's collection reconciliation runs before the
+    // membership enroll). Recording the plain getCollectionNameById null instead would persist a
+    // null placeholder into the committed index's collectionsToIndex. The shared resolver keeps
+    // this add side, the remove side (removeCollectionFromIndexes), and the deferred index create
+    // agreeing on the same name, so same-tx add/remove pairs cancel in the overlay.
+    final var collectionName = SchemaShared.resolveCollectionNameById(session, iId);
     final List<String> indexesToAdd = new ArrayList<>();
 
     for (var index : getIndexesInternal(session)) {
