@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -16,6 +18,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -24,8 +27,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
+import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
@@ -685,6 +693,171 @@ public class StorageComponentOptimisticReadTest {
     releaseFrame(frame);
   }
 
+  // --- Validated-null pinned re-check decision core (belt-and-braces, YTDB-1178) ---
+
+  @Test
+  public void testValidatedNullTriggersExactlyOnePinnedRecheckAndStaysSilent()
+      throws IOException {
+    // A cleanly validated optimistic NULL triggers exactly one pinned re-check; when the
+    // pinned run confirms the miss (agreement), the null is returned silently — no WARN.
+    final int[] pinnedRuns = {0};
+
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> null,
+        () -> {
+          pinnedRuns[0]++;
+          return null;
+        },
+        Objects::isNull,
+        () -> "key=42");
+
+    assertNull(result);
+    assertEquals(1, pinnedRuns[0]);
+    assertEquals(0, component.nullRecheckWarnCount);
+  }
+
+  @Test
+  public void testNullRecheckDisagreementReturnsPinnedResultAndWarns() throws IOException {
+    // Disagreement: validated optimistic null, but the pinned re-check finds an entry.
+    // The pinned result is authoritative and returned; exactly one WARN is emitted with
+    // the lookup coordinates.
+    final int[] pinnedRuns = {0};
+
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> null,
+        () -> {
+          pinnedRuns[0]++;
+          return "pinned-found";
+        },
+        Objects::isNull,
+        () -> "key=42");
+
+    assertEquals("pinned-found", result);
+    assertEquals(1, pinnedRuns[0]);
+    assertEquals(1, component.nullRecheckWarnCount);
+    assertEquals("key=42", component.lastNullRecheckWarnDescription);
+  }
+
+  @Test
+  public void testNonNullValidatedResultSkipsRecheck() throws IOException {
+    // A cleanly validated non-null result must not pay the re-check: the pinned lambda
+    // never runs.
+    final int[] pinnedRuns = {0};
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-hit";
+        },
+        () -> {
+          pinnedRuns[0]++;
+          return "pinned";
+        },
+        Objects::isNull,
+        () -> "key=42");
+
+    assertEquals("optimistic-hit", result);
+    assertEquals(0, pinnedRuns[0]);
+    assertEquals(0, component.nullRecheckWarnCount);
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testFallbackPathPerformsNoRecheck() throws IOException {
+    // When the optimistic attempt fails and the pinned fallback runs, its result is
+    // already authoritative: even a null must NOT trigger a re-check — the pinned
+    // lambda executes exactly once (a legitimate miss must not pay the pinned cost
+    // twice more).
+    final int[] pinnedRuns = {0};
+
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> {
+          throw OptimisticReadFailedException.INSTANCE;
+        },
+        () -> {
+          pinnedRuns[0]++;
+          return null;
+        },
+        Objects::isNull,
+        () -> "key=42");
+
+    assertNull(result);
+    assertEquals(1, pinnedRuns[0]);
+    assertEquals(0, component.nullRecheckWarnCount);
+  }
+
+  @Test
+  public void testEqualNonNullResultsDoNotWarn() throws IOException {
+    // findVisibleEntry shape: the trigger can fire even when the composed optimistic
+    // result is non-null (inner tree-null with a snapshot-index hit). An equal pinned
+    // result is agreement, not disagreement — no WARN.
+    String result = component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> List.of("same"),
+        () -> List.of("same"), // equal by value, distinct instance
+        r -> true,
+        () -> "key=42").get(0);
+
+    assertEquals("same", result);
+    assertEquals(0, component.nullRecheckWarnCount);
+  }
+
+  @Test
+  public void testNullRecheckWarnRateLimiterSuppressesRepeats() {
+    // The rate limiter allows at most one WARN per minute per component; tested with
+    // controlled timestamps against the package-private seam.
+    long t0 = 1L;
+    assertTrue("first emission must be allowed",
+        component.tryAcquireNullRecheckWarnSlot(t0));
+    assertFalse("immediate repeat must be suppressed",
+        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.MILLISECONDS.toNanos(1)));
+    assertFalse("repeat within the interval must be suppressed",
+        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.SECONDS.toNanos(59)));
+    assertTrue("emission after the interval must be allowed",
+        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.SECONDS.toNanos(61)));
+    assertFalse("the fresh emission must restart the interval",
+        component.tryAcquireNullRecheckWarnSlot(t0 + TimeUnit.SECONDS.toNanos(62)));
+  }
+
+  @Test
+  public void testNullRecheckVariantCheckedExceptionDoesNotPoisonNextRead()
+      throws IOException {
+    // The variant carries the same exception-completeness contract as the plain wrapper:
+    // a checked IOException from the optimistic lambda propagates (no fallback, no
+    // re-check) and must not latch the -ea nesting state machine for the next read.
+    try {
+      component.testExecuteOptimisticStorageReadWithNullRecheck(
+          mockAtomicOp,
+          () -> {
+            throw new IOException("checked failure from optimistic lambda");
+          },
+          () -> "pinned",
+          Objects::isNull,
+          () -> "key");
+      fail("Expected the checked IOException to propagate");
+    } catch (IOException expected) {
+      assertEquals("checked failure from optimistic lambda", expected.getMessage());
+    }
+
+    final int[] pinnedRuns = {0};
+    assertNull(component.testExecuteOptimisticStorageReadWithNullRecheck(
+        mockAtomicOp,
+        () -> null,
+        () -> {
+          pinnedRuns[0]++;
+          return null;
+        },
+        Objects::isNull,
+        () -> "key"));
+    assertEquals(1, pinnedRuns[0]);
+  }
+
   private PageFrame acquireFrameWithCoordinates(long fileId, int pageIndex) {
     var frame = pool.acquire(true, Intention.TEST);
     long exclusiveStamp = frame.acquireExclusiveLock();
@@ -732,6 +905,30 @@ public class StorageComponentOptimisticReadTest {
 
     long testAddFile(AtomicOperation op, String fileName) throws IOException {
       return addFile(op, fileName);
+    }
+
+    // --- Validated-null re-check seams ---
+
+    // Captured WARN emissions (the override replaces the LogManager sink so tests can
+    // assert emission counts; the rate limiter is tested separately via its seam).
+    int nullRecheckWarnCount;
+    String lastNullRecheckWarnDescription;
+
+    @Override
+    protected void warnOptimisticNullRecheckDisagreement(
+        Supplier<String> lookupDescription) {
+      nullRecheckWarnCount++;
+      lastNullRecheckWarnDescription = lookupDescription.get();
+    }
+
+    <T> T testExecuteOptimisticStorageReadWithNullRecheck(
+        AtomicOperation op,
+        OptimisticReadFunction<T> optimistic,
+        PinnedReadFunction<T> pinned,
+        Predicate<T> recheckTrigger,
+        Supplier<String> lookupDescription) throws IOException {
+      return executeOptimisticStorageReadWithNullRecheck(
+          op, optimistic, pinned, recheckTrigger, lookupDescription);
     }
   }
 }

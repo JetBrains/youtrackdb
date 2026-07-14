@@ -35,7 +35,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Base class for all storage-backed data structures that participate in the page cache lifecycle.
@@ -685,6 +691,147 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     } finally {
       if (!attemptClosedByFallback) {
         assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      }
+    }
+  }
+
+  // Rate limiter state for the null-recheck disagreement WARN: nanoTime of the last
+  // emitted message, 0 = never emitted. Per component instance, CAS-updated so
+  // concurrent readers emit at most ~one message per interval.
+  private final AtomicLong lastNullRecheckWarnNanos = new AtomicLong();
+
+  private static final long NULL_RECHECK_WARN_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
+
+  /**
+   * Variant of {@link #executeOptimisticStorageRead(AtomicOperation, OptimisticReadFunction,
+   * PinnedReadFunction)} for point lookups whose NULL result is load-bearing — the
+   * belt-and-braces hardening for the apply-phase epoch (YTDB-1178). The historical failure
+   * mode this guards against is a <em>false null</em>: an optimistic B-tree descent composing
+   * a per-page-valid but mutually inconsistent view and concluding "absent" for a present
+   * key. The epoch closes that race; this re-check is an independent second line of defense
+   * plus a live detector for any unmodeled anomaly.
+   *
+   * <p>Decision rules:
+   *
+   * <ul>
+   *   <li>The re-check triggers ONLY when the optimistic attempt completed cleanly (per-page
+   *       stamps AND epoch both validated) and {@code recheckTrigger} accepts the result
+   *       (typically: the lookup came back null). It NEVER triggers after the pinned fallback
+   *       ran — the fallback's result is already authoritative, and re-checking it would make
+   *       every legitimate miss pay the pinned cost twice more.
+   *   <li>On trigger, the pinned lambda runs once under the component shared lock. A non-null
+   *       pinned result that differs from the optimistic one is a disagreement: a rate-limited
+   *       WARN is emitted and the pinned result is returned. If the pinned result is null too,
+   *       the null is confirmed and returned silently.
+   * </ul>
+   *
+   * @param recheckTrigger    evaluated on the validated optimistic result; return true to
+   *                          request the pinned re-check (e.g. {@code Objects::isNull}, or a
+   *                          flag captured from an inner lookup when the composed result can
+   *                          mask the load-bearing null)
+   * @param lookupDescription lazily built key coordinates for the disagreement WARN
+   */
+  @Nullable protected <T> T executeOptimisticStorageReadWithNullRecheck(
+      @Nonnull final AtomicOperation atomicOperation,
+      final OptimisticReadFunction<T> optimistic,
+      final PinnedReadFunction<T> pinned,
+      final Predicate<T> recheckTrigger,
+      final Supplier<String> lookupDescription) throws IOException {
+    assert atomicOperation != null;
+
+    final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    scope.reset();
+    // See the nesting-guard comments in executeOptimisticStorageRead.
+    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
+
+    final T result;
+    var attemptClosedByFallback = false;
+    try {
+      result = optimistic.apply();
+      scope.validateOrThrow();
+
+      recordOptimisticAccesses(scope);
+    } catch (final RuntimeException | AssertionError e) {
+      // Same fallback semantics as executeOptimisticStorageRead — and deliberately NO
+      // re-check on this path: the pinned result below is already authoritative.
+      attemptClosedByFallback = true;
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
+      acquireSharedLock();
+      try {
+        return pinned.apply();
+      } finally {
+        releaseSharedLock();
+      }
+    } finally {
+      if (!attemptClosedByFallback) {
+        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      }
+    }
+
+    // Reaching here means the optimistic attempt completed cleanly (the catch above either
+    // returned or threw). The trigger and the re-check run OUTSIDE the try/catch so that a
+    // pinned-path failure cannot be misrouted into a second fallback.
+    if (!recheckTrigger.test(result)) {
+      return result;
+    }
+
+    final T pinnedResult;
+    acquireSharedLock();
+    try {
+      pinnedResult = pinned.apply();
+    } finally {
+      releaseSharedLock();
+    }
+
+    if (pinnedResult != null && !Objects.equals(pinnedResult, result)) {
+      warnOptimisticNullRecheckDisagreement(lookupDescription);
+      return pinnedResult;
+    }
+    // Agreement (typically both null): confirm silently. When the pinned result is null but
+    // the composed optimistic result was not (e.g. a snapshot-index hit), the optimistic
+    // value is still a valid concurrent-snapshot answer and is preferred.
+    return pinnedResult != null ? pinnedResult : result;
+  }
+
+  /**
+   * Emits the rate-limited disagreement WARN for the validated-null re-check. Protected so
+   * unit tests can override it to capture emissions; the rate limiter itself lives in
+   * {@link #tryAcquireNullRecheckWarnSlot(long)} and is tested directly.
+   */
+  protected void warnOptimisticNullRecheckDisagreement(
+      final Supplier<String> lookupDescription) {
+    if (!tryAcquireNullRecheckWarnSlot(System.nanoTime())) {
+      return;
+    }
+    LogManager.instance()
+        .warn(
+            this,
+            "Optimistic point lookup in component '%s' reported a miss, but the pinned"
+                + " re-check found an entry (%s). This is usually benign — a concurrent commit"
+                + " may have inserted the entry between the optimistic attempt and the re-check"
+                + " — but it may also indicate an unmodeled optimistic-read anomaly worth"
+                + " reporting. At most one such message is logged per minute per component.",
+            getName(),
+            lookupDescription.get());
+  }
+
+  /**
+   * Rate limiter for the disagreement WARN: returns true if the caller won the right to log
+   * at {@code nowNanos} (at most one win per {@link #NULL_RECHECK_WARN_INTERVAL_NANOS}).
+   * CAS-based so concurrent winners are unique. Package-private for direct unit testing
+   * with controlled timestamps.
+   */
+  boolean tryAcquireNullRecheckWarnSlot(final long nowNanos) {
+    while (true) {
+      final long last = lastNullRecheckWarnNanos.get();
+      // 0 is the "never logged" sentinel; a genuine nanoTime of exactly 0 would merely
+      // allow one extra message, which is harmless.
+      if (last != 0 && nowNanos - last < NULL_RECHECK_WARN_INTERVAL_NANOS) {
+        return false;
+      }
+      if (lastNullRecheckWarnNanos.compareAndSet(last, nowNanos)) {
+        return true;
       }
     }
   }
