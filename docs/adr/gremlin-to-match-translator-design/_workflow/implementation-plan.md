@@ -415,7 +415,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > are the first steps carrying literal values, so they bind as positional
   > parameters and one cached plan serves every value. Detail in plan/track-4.md.
   > **Scope:** ~20 files covering the predicate adapter (full `P` set),
-  > `HasStep` / `HasLabelStep` / `HasIdStep` + presence-form recognisers, the
+  > a single `HasStep` recogniser (property / `~label` / `~id` containers) + presence-form recognisers, the
   > two new SQL operators plus the `SQLContainsTextCondition` collate change,
   > `And` / `Or` / `Not` / `WhereTraversal` / `WherePredicate` recognisers,
   > `SubTraversalPredicateAdapter`, and predicate-equivalence + NULL/Collection-eq
