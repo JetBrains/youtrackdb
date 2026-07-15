@@ -395,6 +395,14 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > rework — see `plan/track-3.md` `## Episodes` § Track completion. (3 steps, 0 failed)
   >
   > **Track file:** `plan/track-3.md`
+  >
+  > **Strategy refresh:** ADJUST — Track 4's track file reconciled to Track 3's
+  > post-review rework before decomposition: folded-`hasLabel` narrowing via
+  > `MatchWhereBuilder.classEquals` (`MatchClassFilters` deleted), the
+  > already-landed absent-property `neq` semantics (`k IS DEFINED AND k <> v`),
+  > the `Outcome recognize(StepCursor, RecognitionContext)` recogniser contract,
+  > and the new `WalkerContext` shape. Scope, dependencies, and ordering for
+  > Tracks 4–6 unchanged.
 
 - [ ] Track 4: Filtering — predicates + logical filters (`has`/`hasLabel`/`hasId`, `P`/`Text`/`TextP`, `and`/`or`/`not`/`where`)
   > Merges predicate translation and the step-level logical filters
