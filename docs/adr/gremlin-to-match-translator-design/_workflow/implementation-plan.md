@@ -378,27 +378,23 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `polymorphic=false`-gating replays BC2, and edge filtering needs an
   > edge-as-node builder extension the plan had assumed away.)
 
-- [ ] Track 3: Edge traversal — `out` / `in` / `both`, folded `outE.inV` etc., plus non-adjacent edge filtering
+- [x] Track 3: Edge traversal — `out` / `in` / `both`, folded `outE.inV` etc., plus non-adjacent edge filtering
   > Extends the recognized set with edge-traversal patterns and non-adjacent
-  > edge filtering (`outE(L).has(...).inV()`). The walker switches from
-  > for-each to index-driven iteration to support the first multi-step
-  > recogniser (D10). Bare chain-hop targets root at `V` polymorphically — no
-  > `@class` narrowing (BC2). Edge filtering uses the edge-as-node form
-  > (`outE(L){as $e, where}.inV()`) via a new builder/assembler capability
-  > (the executor already supports it; `MatchPatternBuilder.addEdge` cannot
-  > filter edges). `WalkerContext.polymorphic` and the `ELEMENT` boundary
-  > already landed in Track 2; Track 3 re-pins the boundary to the last hop's
-  > target and builds the anonymous-alias generator + reserved-`$` scan
-  > deferred from Track 2.
-  > **Scope:** ~16-20 files covering `VertexStepRecogniser`,
-  > `EdgeStepRecogniser`, `NoOpBarrierRecogniser`, `MatchClassFilters`,
-  > `GremlinPatternAssembler` (incl. the edge-as-node assembly), the
-  > predicate-adapter skeleton Track 4 fills out, the index-driven walker
-  > refactor (raise `MAX_RECOGNISED_STEPS`, consumed-count contract,
-  > reserved-`$` scan) + context fields, anonymous-alias generation, the
-  > boundary/RETURN re-pin, and correctness + decline-no-mutation tests
-  > (incl. `EdgeTraversalEquivalenceTest`).
-  > **Depends on:** Track 2.
+  > edge filtering (`outE(L).has(...).inV()`). The walker gained multi-step
+  > recognition through a walker-owned step cursor (D10). Bare chain-hop
+  > targets root at `V` polymorphically — no `@class` narrowing (BC2). Edge
+  > filtering uses the edge-as-node form (`outE(L){as $e, where}.inV()`) via a
+  > new builder/assembler capability (the executor already supports it;
+  > `MatchPatternBuilder.addEdge` cannot filter edges). `WalkerContext.polymorphic`
+  > and the `ELEMENT` boundary already landed in Track 2; Track 3 re-pins the
+  > boundary to the last hop's target and builds the anonymous-alias generator
+  > + reserved-`$` scan deferred from Track 2.
+  >
+  > **Track episode:** Edge traversal on a walker-owned step-cursor
+  > architecture; completed as-is over an unreviewed 14-commit post-review
+  > rework — see `plan/track-3.md` `## Episodes` § Track completion. (3 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-3.md`
 
 - [ ] Track 4: Filtering — predicates + logical filters (`has`/`hasLabel`/`hasId`, `P`/`Text`/`TextP`, `and`/`or`/`not`/`where`)
   > Merges predicate translation and the step-level logical filters
