@@ -215,5 +215,5 @@ __pycache__/
 .pi/slate/
 
 # Agent-authored issue reports (local only, not committed)
-.issues/*
-!.issues/README.md
+/.issues/*
+!/.issues/README.md
