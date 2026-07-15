@@ -311,6 +311,15 @@ public enum GlobalConfiguration {
       Boolean.class,
       false),
 
+  STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS(
+      "youtrackdb.storage.optimisticRead.nullRecheckReportIntervalSecs",
+      "Minimum interval in seconds between reports of the optimistic-read null-recheck"
+          + " anomaly detector. On a disagreement (the pinned re-check finds an entry that a"
+          + " validated optimistic lookup missed) at most one ERROR is logged per interval"
+          + " per storage component.",
+      Integer.class,
+      60),
+
   STORAGE_COLLECTION_GC_MIN_THRESHOLD(
       "youtrackdb.storage.collection.gc.minThreshold",
       "Minimum number of dead records in a collection before the records GC is considered."

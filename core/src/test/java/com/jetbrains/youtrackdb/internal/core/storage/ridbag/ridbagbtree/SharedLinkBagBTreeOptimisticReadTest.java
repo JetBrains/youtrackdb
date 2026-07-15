@@ -567,6 +567,31 @@ public class SharedLinkBagBTreeOptimisticReadTest {
   }
 
   // ------------------------------------------------------------------
+  // Validated-null pinned re-check (belt-and-braces, YTDB-1178)
+  // ------------------------------------------------------------------
+
+  /**
+   * A lookup of a truly absent key still returns null through both point-lookup entry
+   * points. With all pages cached, the optimistic attempt validates cleanly (stamps and
+   * epoch), its null result triggers the pinned re-check under the component shared
+   * lock, the re-check confirms the miss (agreement), and the null is returned silently
+   * — no disagreement report, no behavior change for legitimate misses.
+   */
+  @Test
+  public void testAbsentKeyLookupsConfirmNullThroughPinnedRecheck() throws Exception {
+    atomicOperationsManager.executeInsideAtomicOperation(atomicOperation -> {
+      for (var i = ENTRY_COUNT; i < ENTRY_COUNT + 25; i++) {
+        Assert.assertNull(
+            "findCurrentEntry must confirm the miss for absent key index " + i,
+            bTree.findCurrentEntry(atomicOperation, RID_BAG_ID, i % 32, i));
+        Assert.assertNull(
+            "findVisibleEntry must confirm the miss for absent key index " + i,
+            bTree.findVisibleEntry(atomicOperation, RID_BAG_ID, i % 32, i));
+      }
+    });
+  }
+
+  // ------------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------------
 

@@ -5282,7 +5282,13 @@ public class DatabaseSessionEmbedded extends ListenerManger<SessionListener>
     appendDiagnosticField(sb, "source", () -> describeEntityState(sourceEntity));
     appendDiagnosticField(
         sb, "sourceForwardLinks",
-        () -> String.valueOf(sourceEntity.getPropertyInternal(sourcePropertyName, false)));
+        // Objects.toString forces the Object rendering: getPropertyInternal's unbounded
+        // generic return type <RET> would make an unqualified String.valueOf(...) call
+        // resolve to the char[] overload (javac infers RET := char[] as the most specific
+        // applicable type), inserting a checkcast that throws ClassCastException for every
+        // non-char[] value and an NPE for null — destroying exactly the source-side
+        // evidence this diagnostic exists to capture.
+        () -> Objects.toString(sourceEntity.getPropertyInternal(sourcePropertyName, false)));
     appendDiagnosticField(sb, "oppositeBagProperty", () -> oppositeLinkBagPropertyName);
     appendDiagnosticField(sb, "opposite", () -> describeEntityState(oppositeEntity));
     if (oppositeLinkBag == null) {

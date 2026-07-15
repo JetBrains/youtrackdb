@@ -28,6 +28,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentException;
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -67,6 +68,26 @@ public class AtomicOperationsManager {
   private final OperationsFreezer writeOperationsFreezer = new OperationsFreezer();
   private final AtomicOperationsTable atomicOperationsTable;
 
+  // Apply-phase epoch shared by all atomic operations of this storage. Owned here (one
+  // manager per storage) rather than by ReadCache, because on the disk engine a single
+  // read cache is shared by all storages of the engine — an engine-global epoch would
+  // let commits in one database spuriously invalidate optimistic reads in another.
+  // Writers bump it around the cache-apply section of commitChanges; readers capture
+  // and validate it via OptimisticReadScope.
+  private final ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
+
+  /**
+   * TEST-ONLY accessor for this storage's apply-phase epoch, exposed package-private for
+   * the test bridge in the same test package (used by the YTDB-1178 mixed-apply-state
+   * regression tests to make baseline-relative assertions on the epoch counters).
+   * Production code must not call this — writers bump the epoch only through
+   * {@code AtomicOperationBinaryTracking.commitChanges} and readers observe it only
+   * through {@code OptimisticReadScope}.
+   */
+  ApplyPhaseEpoch getApplyPhaseEpoch() {
+    return applyPhaseEpoch;
+  }
+
   public AtomicOperationsManager(
       AbstractStorage storage, AtomicOperationsTable atomicOperationsTable) {
     this.storage = storage;
@@ -100,7 +121,7 @@ public class AtomicOperationsManager {
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
         storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),
-        storage.getEdgeSnapshotIndexSize());
+        storage.getEdgeSnapshotIndexSize(), applyPhaseEpoch);
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {

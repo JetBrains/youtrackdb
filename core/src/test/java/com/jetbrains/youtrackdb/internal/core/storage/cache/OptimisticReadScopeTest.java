@@ -17,8 +17,10 @@ import org.junit.Test;
 /**
  * Tests for OptimisticReadScope — the multi-page stamp tracker used by optimistic reads.
  * Covers: record/validate happy path, validateOrThrow on invalid stamp, validateLastOrThrow,
- * reset clears state, grow on overflow, empty scope validates, and cross-thread stamp
- * invalidation via PageFrame exclusive lock (review finding R2).
+ * reset clears state, grow on overflow, empty scope validates, cross-thread stamp
+ * invalidation via PageFrame exclusive lock (review finding R2), and the interplay of
+ * per-page stamps with the apply-phase epoch check (YTDB-1178) — see
+ * {@link ApplyPhaseEpochTest} for the pure epoch protocol.
  */
 public class OptimisticReadScopeTest {
 
@@ -230,6 +232,65 @@ public class OptimisticReadScopeTest {
     frame1.releaseExclusiveLock(writeStamp);
 
     scope.validateOrThrow();
+  }
+
+  // --- Apply-phase epoch integration (YTDB-1178) ---
+
+  @Test
+  public void testEpochOverlapFailsEvenWhenAllStampsValid() {
+    // Per-page stamps are a temporal-only check. A commit apply phase overlapping the
+    // read window must fail validateOrThrow() even though every recorded stamp is still
+    // valid — the pages could be a mix of pre- and post-commit state.
+    var epoch = new ApplyPhaseEpoch();
+    var scope = new OptimisticReadScope(epoch);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    scope.reset(); // capture the quiescent epoch
+    scope.record(frame, frame.tryOptimisticRead());
+
+    // A writer enters the apply phase mid-read; the frame's stamp is untouched.
+    epoch.enterApplyPhase();
+    try {
+      scope.validateOrThrow();
+      fail("Expected OptimisticReadFailedException — apply phase overlapped the read");
+    } catch (OptimisticReadFailedException expected) {
+      // expected — the epoch check caught the overlap the stamps cannot see
+    } finally {
+      epoch.exitApplyPhase();
+    }
+
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testValidateLastOrThrowIsStampOnly() {
+    // validateLastOrThrow() is a mid-traversal early check and deliberately stays
+    // stamp-only — the epoch is checked exactly once per attempt, in validateOrThrow().
+    // With an apply phase in flight, validateLastOrThrow must still pass for a valid
+    // stamp while validateOrThrow on the same scope must fail.
+    var epoch = new ApplyPhaseEpoch();
+    var scope = new OptimisticReadScope(epoch);
+    var frame = pool.acquire(true, Intention.TEST);
+
+    scope.reset();
+    scope.record(frame, frame.tryOptimisticRead());
+
+    epoch.enterApplyPhase();
+    try {
+      // Stamp-only check: passes even though an apply phase is in flight.
+      scope.validateLastOrThrow();
+
+      try {
+        scope.validateOrThrow();
+        fail("Expected OptimisticReadFailedException from the epoch check");
+      } catch (OptimisticReadFailedException expected) {
+        // expected — only validateOrThrow performs the epoch check
+      }
+    } finally {
+      epoch.exitApplyPhase();
+    }
+
+    releaseFrame(frame);
   }
 
   /**

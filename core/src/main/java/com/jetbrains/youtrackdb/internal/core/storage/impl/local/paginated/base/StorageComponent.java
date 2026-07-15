@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
@@ -35,7 +36,13 @@ import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsManager;
 import java.io.IOException;
+import java.util.Objects;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
+import java.util.function.Supplier;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 
 /**
  * Base class for all storage-backed data structures that participate in the page cache lifecycle.
@@ -593,7 +600,20 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
     scope.reset();
+    // -ea-only guard against nested optimistic read attempts: a nested
+    // executeOptimisticStorageRead call from inside an optimistic lambda would wipe the
+    // outer scope's stamps via reset(), silently voiding the outer validation. Kept
+    // OUTSIDE the try below — the fallback catch swallows AssertionError, so an assert
+    // placed inside the try could never surface. See OptimisticReadScope#enterAttempt.
+    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
+    // Tracks whether the fallback catch below already closed the attempt. The attempt
+    // must be closed exactly once on EVERY exit path — including throwables the catch
+    // does not handle (a checked IOException from the optimistic lambda, or a VM error)
+    // — otherwise attemptActive stays latched and every subsequent optimistic read on
+    // this AtomicOperation fails with a spurious "Nested optimistic read attempt"
+    // AssertionError under -ea.
+    var attemptClosedByFallback = false;
     try {
       final T result = optimistic.apply();
       scope.validateOrThrow();
@@ -609,12 +629,30 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // and assertion failures (e.g., position-consistency checks seeing stale data)
       // before stamp validation has a chance to detect the inconsistency.
       // All such errors are safe to swallow here — the pinned fallback path will
-      // produce the correct result.
+      // produce the correct result. Checked exceptions and other Errors are NOT
+      // caught — they propagate to the caller (and the finally below still closes
+      // the attempt).
+
+      // Close the attempt before the pinned fallback runs: the fallback may itself
+      // legitimately start fresh optimistic reads (e.g., via helper methods), which
+      // must not trip a stale nesting flag. If a nested reset was detected during the
+      // failed attempt, this assert surfaces it (the nested AssertionError itself was
+      // swallowed by this catch).
+      attemptClosedByFallback = true;
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
       acquireSharedLock();
       try {
         return pinned.apply();
       } finally {
         releaseSharedLock();
+      }
+    } finally {
+      // Close the attempt on all remaining exit paths: normal return, and any
+      // throwable the catch above does not handle. Skipped when the fallback already
+      // closed it (exitAttempt is not idempotent — a second call reports ill-formed).
+      if (!attemptClosedByFallback) {
+        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
       }
     }
   }
@@ -631,7 +669,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
     scope.reset();
+    // See the nesting-guard comments in the T-returning overload above.
+    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
+    var attemptClosedByFallback = false;
     try {
       optimistic.run();
       scope.validateOrThrow();
@@ -639,13 +680,202 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       recordOptimisticAccesses(scope);
     } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
+      attemptClosedByFallback = true;
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
       acquireSharedLock();
       try {
         pinned.run();
       } finally {
         releaseSharedLock();
       }
+    } finally {
+      if (!attemptClosedByFallback) {
+        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      }
     }
+  }
+
+  // Rate limiter state for the null-recheck disagreement ERROR: nanoTime of the last
+  // emitted message, 0 = never emitted. Per component instance, CAS-updated so
+  // concurrent readers emit at most ~one message per interval.
+  private final AtomicLong lastNullRecheckErrorNanos = new AtomicLong();
+
+  /**
+   * Variant of {@link #executeOptimisticStorageRead(AtomicOperation, OptimisticReadFunction,
+   * PinnedReadFunction)} for point lookups whose NULL result is load-bearing — the
+   * belt-and-braces hardening for the apply-phase epoch (YTDB-1178). The historical failure
+   * mode this guards against is a <em>false null</em>: an optimistic B-tree descent composing
+   * a per-page-valid but mutually inconsistent view and concluding "absent" for a present
+   * key. The epoch closes that race; this re-check is an independent second line of defense
+   * plus a live detector for any unmodeled anomaly.
+   *
+   * <p>Decision rules:
+   *
+   * <ul>
+   *   <li>The re-check triggers ONLY when the optimistic attempt completed cleanly (per-page
+   *       stamps AND epoch both validated) and {@code recheckTrigger} accepts the result
+   *       (typically: the lookup came back null). It NEVER triggers after the pinned fallback
+   *       ran — the fallback's result is already authoritative, and re-checking it would make
+   *       every legitimate miss pay the pinned cost twice more.
+   *   <li>On trigger, the pinned lambda runs once under the component shared lock. A non-null
+   *       pinned result that differs from the optimistic one is a disagreement: a rate-limited
+   *       ERROR is emitted and the pinned result is returned. If the pinned result is null too,
+   *       the null is confirmed and returned silently.
+   *   <li>The trigger fires only on the load-bearing NULL by design: stale validated
+   *       NON-null results are guaranteed consistent by the apply-phase epoch, and
+   *       re-verifying them would double the pinned cost of every successful lookup.
+   * </ul>
+   *
+   * @param recheckTrigger    evaluated on the validated optimistic result; return true to
+   *                          request the pinned re-check (e.g. {@code Objects::isNull}, or a
+   *                          flag captured from an inner lookup when the composed result can
+   *                          mask the load-bearing null)
+   * @param lookupDescription lazily built key coordinates for the disagreement report
+   */
+  @Nullable protected <T> T executeOptimisticStorageReadWithNullRecheck(
+      @Nonnull final AtomicOperation atomicOperation,
+      final OptimisticReadFunction<T> optimistic,
+      final PinnedReadFunction<T> pinned,
+      final Predicate<T> recheckTrigger,
+      final Supplier<String> lookupDescription) throws IOException {
+    assert atomicOperation != null;
+
+    final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    scope.reset();
+    // See the nesting-guard comments in executeOptimisticStorageRead.
+    assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
+
+    final T result;
+    var attemptClosedByFallback = false;
+    try {
+      result = optimistic.apply();
+      scope.validateOrThrow();
+
+      recordOptimisticAccesses(scope);
+    } catch (final RuntimeException | AssertionError e) {
+      // Same fallback semantics as executeOptimisticStorageRead — and deliberately NO
+      // re-check on this path: the pinned result below is already authoritative.
+      attemptClosedByFallback = true;
+      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+
+      acquireSharedLock();
+      try {
+        return pinned.apply();
+      } finally {
+        releaseSharedLock();
+      }
+    } finally {
+      if (!attemptClosedByFallback) {
+        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      }
+    }
+
+    // Reaching here means the optimistic attempt completed cleanly (the catch above either
+    // returned or threw). The trigger and the re-check run OUTSIDE the try/catch so that a
+    // pinned-path failure cannot be misrouted into a second fallback.
+    if (!recheckTrigger.test(result)) {
+      return result;
+    }
+
+    final T pinnedResult;
+    acquireSharedLock();
+    try {
+      pinnedResult = pinned.apply();
+    } finally {
+      releaseSharedLock();
+    }
+
+    if (pinnedResult != null && !Objects.equals(pinnedResult, result)) {
+      errorOptimisticNullRecheckDisagreement(lookupDescription);
+      return pinnedResult;
+    }
+    // Agreement (typically both null): confirm silently. The reverse-direction
+    // disagreement — optimistic non-null, pinned null — is DELIBERATELY silent: that is
+    // the snapshot-hit shape (the composed optimistic value came from the in-memory
+    // snapshot index while the tree had nothing). The pinned run saw the same or newer
+    // state, and the optimistic value is the SI-correct answer for this operation's
+    // snapshot, so it is preferred and no anomaly is reported.
+    return pinnedResult != null ? pinnedResult : result;
+  }
+
+  /**
+   * Emits the rate-limited disagreement ERROR for the validated-null re-check. Protected so
+   * unit tests can override it to capture emissions; the rate limiter itself lives in
+   * {@link #tryAcquireNullRecheckErrorSlot(long)} and is tested directly.
+   *
+   * <p>ERROR (not WARN) because for the production wiring the miss cannot be explained by
+   * benign timing: visibility is resolved against a fixed snapshot captured at operation
+   * construction, so a concurrently committed insert would be filtered out anyway — a
+   * disagreement here indicates a genuine optimistic-read anomaly.
+   */
+  protected void errorOptimisticNullRecheckDisagreement(
+      final Supplier<String> lookupDescription) {
+    if (!tryAcquireNullRecheckErrorSlot(System.nanoTime())) {
+      return;
+    }
+    LogManager.instance()
+        .error(
+            this,
+            "Pinned re-check in component '%s' found an entry that the validated optimistic"
+                + " lookup missed (%s). The lookup self-healed — the pinned result was"
+                + " returned — but this indicates a possible optimistic-read/epoch anomaly:"
+                + " visibility is resolved against a fixed operation snapshot, so a"
+                + " concurrently committed insert cannot explain the miss. Please report this"
+                + " occurrence. At most one such message is logged per configured interval per"
+                + " component (youtrackdb.storage.optimisticRead.nullRecheckReportIntervalSecs,"
+                + " default 60s).",
+            // The explicit null Throwable pins the single
+            // error(requester, message, exception, Object...) overload — unlike warn, error
+            // has no (requester, dbName, message, ...) sibling that two String arguments
+            // could silently select.
+            null,
+            getName(),
+            lookupDescription.get());
+  }
+
+  /**
+   * Rate limiter for the disagreement ERROR: returns true if the caller won the right to
+   * log at {@code nowNanos} (at most one win per configured interval, see
+   * {@link GlobalConfiguration#STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS}).
+   * CAS-based so concurrent winners are unique. Package-private for direct unit testing
+   * with controlled timestamps.
+   */
+  boolean tryAcquireNullRecheckErrorSlot(final long nowNanos) {
+    final long intervalNanos = nullRecheckErrorIntervalNanos();
+    while (true) {
+      final long last = lastNullRecheckErrorNanos.get();
+      // 0 is the "never logged" sentinel; a genuine nanoTime of exactly 0 would merely
+      // allow one extra message, which is harmless.
+      if (last != 0 && nowNanos - last < intervalNanos) {
+        return false;
+      }
+      if (lastNullRecheckErrorNanos.compareAndSet(last, nowNanos)) {
+        return true;
+      }
+    }
+  }
+
+  /**
+   * Resolves the null-recheck report rate-limit interval in nanoseconds. Components read
+   * configuration through the storage's per-database {@code ContextConfiguration} — the
+   * dominant idiom at this layer (cf. {@code StaleTransactionMonitor}) — falling back to
+   * the {@link GlobalConfiguration} default when no context configuration is available
+   * (unit-test component doubles built around mock storages; production components exist
+   * only for open storages, which always carry one). Resolved lazily on each limiter
+   * check: the check runs only on the rare disagreement path, so the map lookup is
+   * negligible and component construction stays free of configuration-lifecycle ordering
+   * concerns.
+   */
+  private long nullRecheckErrorIntervalNanos() {
+    final var contextConfiguration = storage.getContextConfiguration();
+    final int intervalSecs =
+        contextConfiguration != null
+            ? contextConfiguration.getValueAsInteger(
+                GlobalConfiguration.STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS)
+            : GlobalConfiguration.STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS
+                .getValueAsInteger();
+    return TimeUnit.SECONDS.toNanos(intervalSecs);
   }
 
   /**

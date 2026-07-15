@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Spliterator;
 import java.util.stream.Stream;
@@ -148,18 +149,33 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return executeOptimisticStorageRead(
+      // Belt-and-braces hardening (YTDB-1178): a validated optimistic NULL is re-checked
+      // once via the pinned path — the false-null is exactly the failure mode of the
+      // historical mixed-apply-state race, and upstream LinkBag.remove turns it into
+      // LinksConsistencyException while LinkBag.add silently overwrites the counter.
+      return executeOptimisticStorageReadWithNullRecheck(
           atomicOperation,
           () -> findCurrentEntryOptimistic(
               atomicOperation, ridBagId, targetCollection, targetPosition),
           () -> findCurrentEntryInternal(atomicOperation, ridBagId, targetCollection,
-              targetPosition));
+              targetPosition),
+          Objects::isNull,
+          () -> lookupDescription(ridBagId, targetCollection, targetPosition));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
               "Error during prefix lookup in rid bag btree [" + getName() + "]"),
           e, storage.getName());
     }
+  }
+
+  /**
+   * Key coordinates for the null-recheck disagreement report.
+   */
+  private String lookupDescription(
+      final long ridBagId, final int targetCollection, final long targetPosition) {
+    return "ridBagId=" + ridBagId + ", targetCollection=" + targetCollection
+        + ", targetPosition=" + targetPosition;
   }
 
   /**
@@ -409,12 +425,19 @@ public final class SharedLinkBagBTree extends StorageComponent {
       final int targetCollection,
       final long targetPosition) {
     try {
-      return executeOptimisticStorageRead(
+      // Belt-and-braces hardening (YTDB-1178), keyed on the INNER tree-lookup null (the
+      // holder written by the optimistic lambda) rather than the composed result: a stale
+      // snapshot-index entry could otherwise mask a false tree-null. See
+      // executeOptimisticStorageReadWithNullRecheck for the decision rules.
+      final var treeLookupNull = new boolean[1];
+      return executeOptimisticStorageReadWithNullRecheck(
           atomicOperation,
           () -> findVisibleEntryOptimistic(
-              atomicOperation, ridBagId, targetCollection, targetPosition),
+              atomicOperation, ridBagId, targetCollection, targetPosition, treeLookupNull),
           () -> findVisibleEntryInternal(atomicOperation, ridBagId, targetCollection,
-              targetPosition));
+              targetPosition),
+          result -> treeLookupNull[0],
+          () -> lookupDescription(ridBagId, targetCollection, targetPosition));
     } catch (final IOException e) {
       throw BaseException.wrapException(
           new StorageException(storage.getName(),
@@ -428,14 +451,21 @@ public final class SharedLinkBagBTree extends StorageComponent {
    * for the prefix lookup, then performs in-memory visibility resolution.
    * The visibility resolution (resolveVisibleEntry / findVisibleSnapshotEntry)
    * operates on in-memory data structures, so no additional page I/O is needed.
+   *
+   * @param treeLookupNullOut single-element holder set to true when the inner tree lookup
+   *                          returned null — the trigger signal for the validated-null
+   *                          re-check in {@link #findVisibleEntry} (the composed result may
+   *                          still be non-null via the snapshot index)
    */
   @Nullable private RawPair<EdgeKey, LinkBagValue> findVisibleEntryOptimistic(
       final AtomicOperation atomicOperation,
       final long ridBagId,
       final int targetCollection,
-      final long targetPosition) {
+      final long targetPosition,
+      final boolean[] treeLookupNullOut) {
     final var current = findCurrentEntryOptimistic(
         atomicOperation, ridBagId, targetCollection, targetPosition);
+    treeLookupNullOut[0] = current == null;
     if (current == null) {
       final long currentOperationTs = atomicOperation.getCommitTsUnsafe();
       final var snapshot = atomicOperation.getAtomicOperationsSnapshot();
