@@ -247,8 +247,20 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
   }
 
   /**
-   * Full index scan (no key condition). First fetches null-key entries (if the index
-   * stores them), then streams all entries in ASC or DESC order.
+   * Full index scan (no key condition). Concatenates the null-key entries (if the index stores
+   * them) with the sorted B-tree entries, placing the null group so that it matches the
+   * in-memory sort's "null = smallest" semantic (see {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem#compare}):
+   *
+   * <pre>
+   *  ASC  -> null keys first, then ascending B-tree entries
+   *  DESC -> descending B-tree entries first, then null keys last
+   * </pre>
+   *
+   * <p>Null keys are physically stored in a separate bucket outside the sorted B-tree, so their
+   * position in the emitted sequence is decided purely by where the null stream is concatenated.
+   * The old code always prepended the null stream, which put nulls first for DESC too and
+   * diverged from the in-memory path.
    */
   private static List<Stream<RawPair<Object, RID>>> processFlatIteration(
       DatabaseSessionEmbedded session, Index index, boolean isOrderAsc) {
@@ -256,17 +268,76 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
 
-    var stream = fetchNullKeys(session, index);
-    if (stream != null) {
-      acquiredStreams.add(stream);
-      streams.add(stream);
+    // Acquire both streams before wiring them into the result list. The caller closes these streams
+    // only once they are returned in `streams` (via the ExecutionStreamProducer in internalStart);
+    // if the second acquisition throws, the list is discarded and the first, already-open stream
+    // leaks. So close whatever was opened, then rethrow. Only the two acquisitions can throw; the
+    // addStreamIfNew calls below are plain list/set inserts, so the try wraps exactly them.
+    Stream<RawPair<Object, RID>> nullStream = null;
+    Stream<RawPair<Object, RID>> mainStream = null;
+    try {
+      nullStream = fetchNullKeys(session, index);
+      mainStream = isOrderAsc ? index.stream(session) : index.descStream(session);
+    } catch (RuntimeException | Error e) {
+      // Guard both unchecked hierarchies, not just RuntimeException: if the main-stream setup trips
+      // an `assert` under -ea it throws AssertionError (an Error), which must still close the
+      // already-open null stream instead of leaking it. mainStream is still null when its own
+      // acquisition throws, so at most one stream is open here: no double close is possible even
+      // when both would be the same instance.
+      closeSuppressing(nullStream, e);
+      closeSuppressing(mainStream, e);
+      throw e;
     }
 
-    stream = isOrderAsc ? index.stream(session) : index.descStream(session);
-    if (acquiredStreams.add(stream)) {
-      streams.add(stream);
+    if (isOrderAsc) {
+      addStreamIfNew(nullStream, streams, acquiredStreams);
+      addStreamIfNew(mainStream, streams, acquiredStreams);
+    } else {
+      addStreamIfNew(mainStream, streams, acquiredStreams);
+      addStreamIfNew(nullStream, streams, acquiredStreams);
     }
     return streams;
+  }
+
+  /**
+   * Closes {@code stream} if it is non-null, attaching any failure from {@code close()} to {@code
+   * primary} as a suppressed exception so the original acquisition failure stays the thrown one.
+   */
+  private static void closeSuppressing(
+      @Nullable Stream<RawPair<Object, RID>> stream, Throwable primary) {
+    if (stream != null) {
+      try {
+        stream.close();
+      } catch (RuntimeException | Error e) {
+        primary.addSuppressed(e);
+      }
+    }
+  }
+
+  /**
+   * Closes every stream in {@code streams}, attaching each {@code close()} failure to {@code
+   * primary} as a suppressed exception. Releases the streams a multi-acquisition method already
+   * acquired when a later acquisition throws.
+   */
+  private static void closeAllSuppressing(
+      List<Stream<RawPair<Object, RID>>> streams, Throwable primary) {
+    for (var stream : streams) {
+      closeSuppressing(stream, primary);
+    }
+  }
+
+  /**
+   * Appends {@code stream} to {@code streams} unless it is {@code null} or an identity-duplicate
+   * of a stream already added. The {@code acquiredStreams} identity set guards against adding
+   * (and later double-closing) the same stream instance twice.
+   */
+  private static void addStreamIfNew(
+      @Nullable Stream<RawPair<Object, RID>> stream,
+      List<Stream<RawPair<Object, RID>>> streams,
+      Set<Stream<RawPair<Object, RID>>> acquiredStreams) {
+    if (stream != null && acquiredStreams.add(stream)) {
+      streams.add(stream);
+    }
   }
 
   /**
@@ -299,8 +370,39 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
       SQLBooleanExpression condition,
       boolean isOrderAsc,
       CommandContext ctx) {
-    var session = ctx.getDatabaseSession();
     List<Stream<RawPair<Object, RID>>> streams = new ArrayList<>();
+    // Acquire streams into `streams` across all range combinations. If a later acquisition throws
+    // partway through, the streams already acquired would leak: the caller closes streams only once
+    // this method returns them, and on a throw the partial list is discarded. So close whatever was
+    // acquired, then rethrow. This is the same acquire-then-maybe-throw hazard processFlatIteration
+    // guards against.
+    try {
+      collectRangeStreams(
+          streams, index, fromKey, fromKeyIncluded, toKey, toKeyIncluded, condition, isOrderAsc,
+          ctx);
+    } catch (RuntimeException | Error e) {
+      closeAllSuppressing(streams, e);
+      throw e;
+    }
+    return streams;
+  }
+
+  /**
+   * Runs the range lookups for {@link #multipleRange}, appending each acquired stream to {@code
+   * streams}. Split out so {@code multipleRange} can close the partially-filled list if any
+   * acquisition here throws.
+   */
+  private static void collectRangeStreams(
+      List<Stream<RawPair<Object, RID>>> streams,
+      Index index,
+      SQLCollection fromKey,
+      boolean fromKeyIncluded,
+      SQLCollection toKey,
+      boolean toKeyIncluded,
+      SQLBooleanExpression condition,
+      boolean isOrderAsc,
+      CommandContext ctx) {
+    var session = ctx.getDatabaseSession();
     Set<Stream<RawPair<Object, RID>>> acquiredStreams =
         Collections.newSetFromMap(new IdentityHashMap<>());
     // Expand multi-valued key expressions (from IN or subqueries) into all combinations.
@@ -360,16 +462,12 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
                       // correctly in this
                       // case
                       stream = getStreamForNullKey(session, index);
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
-                      }
+                      addStreamIfNew(stream, streams, acquiredStreams);
                     } else {
                       stream =
                           index.streamEntriesBetween(session,
                               from, fromKeyIncluded, to, toKeyIncluded, isOrderAsc);
-                      if (acquiredStreams.add(stream)) {
-                        streams.add(stream);
-                      }
+                      addStreamIfNew(stream, streams, acquiredStreams);
                     }
                   });
         }
@@ -396,9 +494,7 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
         // manage null value explicitly, as the index API does not seem to work correctly in this
         // case
         stream = getStreamForNullKey(session, index);
-        if (acquiredStreams.add(stream)) {
-          streams.add(stream);
-        }
+        addStreamIfNew(stream, streams, acquiredStreams);
       } else {
         if (from instanceof Collection<?> fromColl) {
           var toColl = (Collection<?>) to;
@@ -418,20 +514,15 @@ public class FetchFromIndexStep extends AbstractExecutionStep {
             stream = index.streamEntriesBetween(session, fromVal, fromKeyIncluded, toVal,
                 toKeyIncluded,
                 isOrderAsc);
-            if (acquiredStreams.add(stream)) {
-              streams.add(stream);
-            }
+            addStreamIfNew(stream, streams, acquiredStreams);
           }
         } else {
           stream = index.streamEntriesBetween(session, from, fromKeyIncluded, to, toKeyIncluded,
               isOrderAsc);
-          if (acquiredStreams.add(stream)) {
-            streams.add(stream);
-          }
+          addStreamIfNew(stream, streams, acquiredStreams);
         }
       }
     }
-    return streams;
   }
 
   /**

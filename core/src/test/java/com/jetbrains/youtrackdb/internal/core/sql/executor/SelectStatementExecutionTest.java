@@ -6974,6 +6974,211 @@ public class SelectStatementExecutionTest extends DbTestBase {
     session.commit();
   }
 
+  // ── ORDER BY null placement: index-accelerated vs in-memory ──
+  //
+  // The in-memory sort treats null as the smallest value: nulls first for ASC, nulls last for DESC.
+  // An index-accelerated sort must produce the same placement even though it never runs a
+  // comparator — null keys live in a separate bucket outside the sorted B-tree, so the code decides
+  // their position purely by where it concatenates the null stream. One explicit test per scenario.
+  // Each asserts (a) whether the index optimization is used — an index-accelerated sort has a
+  // FetchFromIndexStep and no OrderByStep, an in-memory sort has an OrderByStep and no
+  // FetchFromIndexStep (checked by orderedNamesIndexAccelerated / orderedNamesInMemory) — and (b)
+  // the exact null placement. Every scenario pins the same order literal per direction, so ASC and
+  // DESC placement is identical across the index-accelerated and in-memory paths by construction.
+
+  /**
+   * ASC over a NOTUNIQUE (multi-value) indexed field: the planner satisfies ORDER BY from the index
+   * (FetchFromIndexValuesStep, no OrderByStep) and emits the two null-keyed rows first, then the
+   * ascending values.
+   */
+  @Test
+  public void testOrderByAscUsesNotUniqueIndexNullsFirst() {
+    var className = "testOrderByAscIdxNotUnique";
+    createIndexedNameClass(className, INDEX_TYPE.NOTUNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesIndexAccelerated(className, "ASC");
+
+    Assert.assertEquals(Arrays.asList(null, null, "a", "b", "c"), ordered);
+  }
+
+  /**
+   * DESC over a NOTUNIQUE (multi-value) indexed field: index-accelerated, and the null-keyed rows
+   * come LAST. This is the placement the bug got wrong — the index path used to prepend the null
+   * stream unconditionally, so it emitted nulls first for DESC too instead of last.
+   */
+  @Test
+  public void testOrderByDescUsesNotUniqueIndexNullsLast() {
+    var className = "testOrderByDescIdxNotUnique";
+    createIndexedNameClass(className, INDEX_TYPE.NOTUNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesIndexAccelerated(className, "DESC");
+
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null, null), ordered);
+  }
+
+  /**
+   * ASC over a UNIQUE (single-value) indexed field: index-accelerated. Nulls are not ignored by
+   * default (INDEX_IGNORE_NULL_VALUES_DEFAULT = false), so the single null key is stored and
+   * emitted first.
+   */
+  @Test
+  public void testOrderByAscUsesUniqueIndexNullsFirst() {
+    var className = "testOrderByAscIdxUnique";
+    createIndexedNameClass(className, INDEX_TYPE.UNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null));
+
+    var ordered = orderedNamesIndexAccelerated(className, "ASC");
+
+    Assert.assertEquals(Arrays.asList(null, "a", "b", "c"), ordered);
+  }
+
+  /**
+   * DESC over a UNIQUE (single-value) indexed field: index-accelerated, single null key emitted
+   * LAST — the same DESC placement the in-memory sort produces.
+   */
+  @Test
+  public void testOrderByDescUsesUniqueIndexNullsLast() {
+    var className = "testOrderByDescIdxUnique";
+    createIndexedNameClass(className, INDEX_TYPE.UNIQUE);
+    seedNames(className, Arrays.asList("b", "a", "c", null));
+
+    var ordered = orderedNamesIndexAccelerated(className, "DESC");
+
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null), ordered);
+  }
+
+  /**
+   * ASC with no index: the sort runs in memory (OrderByStep, no FetchFromIndexStep) and nulls come
+   * first. Reference behavior the index-accelerated ASC path must match.
+   */
+  @Test
+  public void testOrderByAscInMemoryNullsFirst() {
+    var className = "testOrderByAscNoIdx";
+    createPlainNameClass(className);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesInMemory(className, "ASC");
+
+    Assert.assertEquals(Arrays.asList(null, null, "a", "b", "c"), ordered);
+  }
+
+  /**
+   * DESC with no index: in-memory sort (OrderByStep, no FetchFromIndexStep), nulls last. Reference
+   * behavior the index-accelerated DESC path must match.
+   */
+  @Test
+  public void testOrderByDescInMemoryNullsLast() {
+    var className = "testOrderByDescNoIdx";
+    createPlainNameClass(className);
+    seedNames(className, Arrays.asList("b", "a", "c", null, null));
+
+    var ordered = orderedNamesInMemory(className, "DESC");
+
+    Assert.assertEquals(Arrays.asList("c", "b", "a", null, null), ordered);
+  }
+
+  /** Creates a class with a STRING {@code name} property and an index of {@code type} on it. */
+  private void createIndexedNameClass(String className, INDEX_TYPE type) {
+    var cls = session.getMetadata().getSchema().createClass(className);
+    cls.createProperty("name", PropertyType.STRING);
+    cls.createIndex(className + ".name", type, "name");
+  }
+
+  /**
+   * Creates a class with a STRING {@code name} property and no index, forcing an in-memory sort.
+   */
+  private void createPlainNameClass(String className) {
+    session.getMetadata().getSchema().createClass(className)
+        .createProperty("name", PropertyType.STRING);
+  }
+
+  /**
+   * Inserts one record per entry in {@code names}; a {@code null} entry creates a record that does
+   * not set the {@code name} property, so an index that does not ignore nulls stores it under the
+   * null key. Each record is committed separately, matching the seeding style of the other
+   * index-ordering tests in this class.
+   */
+  private void seedNames(String className, List<String> names) {
+    for (var name : names) {
+      session.begin();
+      var doc = (EntityImpl) session.newEntity(className);
+      if (name != null) {
+        doc.setProperty("name", name);
+      }
+      session.commit();
+    }
+  }
+
+  /**
+   * Runs {@code SELECT name FROM <className> ORDER BY name <direction>}, asserts the planner
+   * satisfied the sort from the index — the plan contains a {@link FetchFromIndexStep} and adds no
+   * in-memory {@link OrderByStep} — and returns the emitted {@code name} values in result order
+   * (nulls included). Use this for a class that has an index on {@code name}.
+   */
+  private List<Object> orderedNamesIndexAccelerated(String className, String direction) {
+    var run = runOrderByQuery(className, direction);
+    Assert.assertTrue(
+        "expected an index-accelerated sort (FetchFromIndexStep), plan was:\n" + run.renderedPlan(),
+        run.fetchFromIndexSteps() >= 1);
+    Assert.assertEquals(
+        "index-accelerated sort must not add an in-memory OrderByStep, plan was:\n"
+            + run.renderedPlan(),
+        0, run.orderBySteps());
+    return run.names();
+  }
+
+  /**
+   * Runs {@code SELECT name FROM <className> ORDER BY name <direction>}, asserts the sort ran in
+   * memory — the plan contains an {@link OrderByStep} and no {@link FetchFromIndexStep} — and
+   * returns the emitted {@code name} values in result order (nulls included). Use this for a class
+   * with no index on {@code name}, so its result is the reference the index-accelerated path must
+   * match.
+   */
+  private List<Object> orderedNamesInMemory(String className, String direction) {
+    var run = runOrderByQuery(className, direction);
+    Assert.assertEquals(
+        "expected an in-memory sort (no index), plan was:\n" + run.renderedPlan(), 0,
+        run.fetchFromIndexSteps());
+    Assert.assertEquals(
+        "in-memory sort must add an OrderByStep, plan was:\n" + run.renderedPlan(), 1,
+        run.orderBySteps());
+    return run.names();
+  }
+
+  /**
+   * Runs {@code SELECT name FROM <className> ORDER BY name <direction>} and returns the plan-step
+   * counts, the rendered plan (for assertion messages), and the emitted {@code name} values in
+   * result order (nulls included). The {@code ResultSet} is closed and the transaction committed
+   * unconditionally, so a failed assertion in a caller cannot leak either. The wrappers {@link
+   * #orderedNamesIndexAccelerated} / {@link #orderedNamesInMemory} add the plan-shape assertion
+   * that tells an index-accelerated sort apart from an in-memory one.
+   */
+  private OrderByRun runOrderByQuery(String className, String direction) {
+    session.begin();
+    try (var result =
+        session.query("SELECT name FROM " + className + " ORDER BY name " + direction)) {
+      var plan = result.getExecutionPlan();
+      var fetchFromIndex =
+          plan.getSteps().stream().filter(step -> step instanceof FetchFromIndexStep).count();
+      var orderBy = plan.getSteps().stream().filter(step -> step instanceof OrderByStep).count();
+      var rendered = plan.prettyPrint(0, 2);
+      var names = new ArrayList<>();
+      while (result.hasNext()) {
+        names.add(result.next().<Object>getProperty("name"));
+      }
+      return new OrderByRun(fetchFromIndex, orderBy, rendered, names);
+    } finally {
+      session.commit();
+    }
+  }
+
+  /** Plan-step counts, rendered plan, and emitted names from one ORDER BY query run. */
+  private record OrderByRun(
+      long fetchFromIndexSteps, long orderBySteps, String renderedPlan, List<Object> names) {
+  }
+
   // ── CASE + MIN/MAX aggregate tests ──
 
   /**

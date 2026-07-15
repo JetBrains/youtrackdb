@@ -3,10 +3,13 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.jetbrains.youtrackdb.internal.common.util.RawPair;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
@@ -42,6 +45,7 @@ import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Stream;
 import org.junit.Test;
 
 /**
@@ -308,6 +312,238 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
 
     assertThat(results).hasSize(2);
     assertThat(keys(results)).containsExactly(10, 20);
+  }
+
+  /**
+   * A full ASCENDING scan over an index that stores null keys emits the null-key group BEFORE the
+   * ascending non-null keys. This is the "null = smallest" placement that {@link
+   * com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrderByItem#compare} produces for ASC, and
+   * it must match whether or not the index accelerates the sort. Two null records are
+   * seeded so the assertion also proves the multi-value (NOTUNIQUE) null bucket yields every RID.
+   */
+  @Test
+  public void fullScanAscendingEmitsNullKeyEntriesFirst() {
+    var fixture = createIndexedClass();
+    var index = getIndex(fixture.indexName);
+    seed(fixture.className, 10, 20);
+    seedNull(fixture.className, 2);
+    var ctx = newContext();
+    var step = new FetchFromIndexStep(new IndexSearchDescriptor(index), true, ctx, false);
+
+    var results = startAndDrain(step, ctx);
+
+    // ASC: null group first, then ascending keys.
+    assertThat(keys(results)).containsExactly(null, null, 10, 20);
+  }
+
+  /**
+   * A full DESCENDING scan places the null-key group LAST, mirroring the in-memory sort's DESC
+   * behavior (nulls last). This pins the fix: {@code processFlatIteration} used to
+   * prepend the null stream unconditionally, so DESC emitted nulls first and diverged from the
+   * in-memory path. Two null records verify the descending scan still surfaces every RID stored
+   * under the null key (the BTreeMultiValueIndexEngine null bucket).
+   */
+  @Test
+  public void fullScanDescendingEmitsNullKeyEntriesLast() {
+    var fixture = createIndexedClass();
+    var index = getIndex(fixture.indexName);
+    seed(fixture.className, 10, 20);
+    var nullRids = seedNullReturningRids(fixture.className, 2);
+    var ctx = newContext();
+    var step = new FetchFromIndexStep(new IndexSearchDescriptor(index), false, ctx, false);
+
+    var results = startAndDrain(step, ctx);
+
+    // DESC: descending keys first, then the null group last.
+    assertThat(keys(results)).containsExactly(20, 10, null, null);
+    // The null bucket must surface every RID that was stored under the null key.
+    var emittedNullRids =
+        results.stream()
+            .filter(r -> r.getProperty("key") == null)
+            .map(r -> r.<RID>getProperty("rid"))
+            .toList();
+    assertThat(emittedNullRids).containsExactlyInAnyOrderElementsOf(nullRids);
+  }
+
+  /**
+   * ASC full scan: the null-key stream is acquired first, then the main scan via {@code
+   * index.stream}. If that main acquisition throws, the already-open null stream must be closed
+   * before the exception propagates — otherwise it leaks, because the caller only closes streams
+   * that {@code init()} actually returns and on a throw the partial list is discarded.
+   */
+  @Test
+  public void fullScanAscClosesNullStreamWhenMainStreamAcquisitionThrows() {
+    assertMainStreamAcquisitionFailureClosesNullStream(true);
+  }
+
+  /**
+   * DESC full scan: same leak guarantee as the ASC case, but the main scan is acquired via {@code
+   * index.descStream}. Both acquisitions sit inside the same guarded block, so this pins the DESC
+   * acquisition method too — a regression that wrapped only {@code stream()} would leak on DESC and
+   * the ASC test alone would not catch it.
+   */
+  @Test
+  public void fullScanDescClosesNullStreamWhenMainStreamAcquisitionThrows() {
+    assertMainStreamAcquisitionFailureClosesNullStream(false);
+  }
+
+  /**
+   * ASC full scan whose main-stream acquisition fails with an {@link AssertionError} — the exact
+   * shape an {@code assert} throws under {@code -ea} while the index scan is being set up. Even
+   * though an AssertionError is an {@link Error} and not a {@link RuntimeException}, the
+   * already-open null-key stream must STILL be closed before the error propagates, and the
+   * AssertionError itself must escape unwrapped.
+   *
+   * <p>This pins the {@code | Error} half of the {@code catch (RuntimeException | Error e)} guard in
+   * {@code processFlatIteration}: the sibling leak tests only inject a {@link RuntimeException}, so
+   * narrowing that clause to {@code catch (RuntimeException e)} would let an -ea AssertionError skip
+   * the close-and-rethrow path and leak the null stream while every RuntimeException test kept
+   * passing. Injecting an Error here is the only assertion that fails under that narrowing.
+   */
+  @Test
+  public void fullScanAscClosesNullStreamWhenMainStreamAcquisitionThrowsError() {
+    var fixture = createIndexedClass();
+    // Borrow a real NOTUNIQUE definition — it does not ignore nulls, so fetchNullKeys runs.
+    var definition = getIndex(fixture.indexName).getDefinition();
+    var ctx = newContext();
+
+    // A null-key stream whose close() we can observe.
+    var nullStreamClosed = new AtomicBoolean(false);
+    Stream<RID> nullRids = Stream.<RID>empty().onClose(() -> nullStreamClosed.set(true));
+
+    // Index that yields the null-key stream but fails the main (non-null) scan with an Error
+    // (AssertionError), not a RuntimeException — mirrors an -ea assertion tripping during setup.
+    var failingIndex = mock(Index.class);
+    when(failingIndex.getDefinition()).thenReturn(definition);
+    when(failingIndex.getName()).thenReturn(fixture.indexName);
+    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    var mainStreamFailure = new AssertionError("index scan assertion failed");
+    when(failingIndex.stream(any())).thenThrow(mainStreamFailure);
+
+    var desc = new IndexSearchDescriptor(failingIndex);
+
+    assertThatThrownBy(() -> FetchFromIndexStep.init(desc, true, ctx))
+        .isInstanceOf(AssertionError.class)
+        .hasMessage("index scan assertion failed");
+    assertThat(nullStreamClosed)
+        .as("null-key stream must be closed even when the failure is an Error, not leaked")
+        .isTrue();
+  }
+
+  /**
+   * Drives a full scan whose main-stream acquisition throws and asserts the already-open null-key
+   * stream is closed and the original failure propagates unwrapped. Stubs whichever main-scan
+   * method the direction uses: {@code stream} for ASC, {@code descStream} for DESC.
+   */
+  private void assertMainStreamAcquisitionFailureClosesNullStream(boolean isOrderAsc) {
+    var fixture = createIndexedClass();
+    // Borrow a real NOTUNIQUE definition — it does not ignore nulls, so fetchNullKeys runs.
+    var definition = getIndex(fixture.indexName).getDefinition();
+    var ctx = newContext();
+
+    // A null-key stream whose close() we can observe.
+    var nullStreamClosed = new AtomicBoolean(false);
+    Stream<RID> nullRids = Stream.<RID>empty().onClose(() -> nullStreamClosed.set(true));
+
+    // Index that yields the null-key stream but fails when the main (non-null) scan is opened.
+    var failingIndex = mock(Index.class);
+    when(failingIndex.getDefinition()).thenReturn(definition);
+    when(failingIndex.getName()).thenReturn(fixture.indexName);
+    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    var mainStreamFailure = new IllegalStateException("index scan failed");
+    if (isOrderAsc) {
+      when(failingIndex.stream(any())).thenThrow(mainStreamFailure);
+    } else {
+      when(failingIndex.descStream(any())).thenThrow(mainStreamFailure);
+    }
+
+    var desc = new IndexSearchDescriptor(failingIndex);
+
+    assertThatThrownBy(() -> FetchFromIndexStep.init(desc, isOrderAsc, ctx))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("index scan failed");
+    assertThat(nullStreamClosed).as("null-key stream must be closed, not leaked").isTrue();
+  }
+
+  /**
+   * When the main-stream acquisition throws AND closing the already-open null stream itself throws,
+   * the ORIGINAL acquisition failure must stay the propagated exception and the close failure must
+   * be attached to it as a suppressed exception. Pins {@code closeSuppressing}'s contract: it wraps
+   * {@code close()} in try/catch precisely because a real B-tree stream close can fail, and that
+   * failure must not mask the root cause.
+   */
+  @Test
+  public void fullScanKeepsOriginalFailureWhenNullStreamCloseAlsoThrows() {
+    var fixture = createIndexedClass();
+    var definition = getIndex(fixture.indexName).getDefinition();
+    var ctx = newContext();
+
+    // A null-key stream whose own close() throws.
+    var closeFailure = new IllegalStateException("null stream close failed");
+    Stream<RID> nullRids =
+        Stream.<RID>empty()
+            .onClose(
+                () -> {
+                  throw closeFailure;
+                });
+
+    var failingIndex = mock(Index.class);
+    when(failingIndex.getDefinition()).thenReturn(definition);
+    when(failingIndex.getName()).thenReturn(fixture.indexName);
+    when(failingIndex.getRids(any(), nullable(Object.class))).thenReturn(nullRids);
+    when(failingIndex.stream(any())).thenThrow(new IllegalStateException("index scan failed"));
+
+    var desc = new IndexSearchDescriptor(failingIndex);
+
+    assertThatThrownBy(() -> FetchFromIndexStep.init(desc, true, ctx))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("index scan failed") // original acquisition failure stays the thrown one
+        .satisfies(t -> assertThat(t.getSuppressed()).contains(closeFailure));
+  }
+
+  /**
+   * A range scan that expands to several key ranges (here {@code WHERE key IN [10, 30]}, two
+   * ranges) acquires one stream per range. If a later range acquisition throws, the streams already
+   * acquired for earlier ranges must be closed before the exception propagates — the same leak the
+   * full-scan path guards against. The index is mocked so the first {@code streamEntriesBetween}
+   * yields an observable stream and the second throws; the test asserts the first stream was closed
+   * and the original failure propagates unwrapped.
+   */
+  @Test
+  public void multipleRangeClosesEarlierStreamsWhenLaterRangeAcquisitionThrows() {
+    var fixture = createIndexedClass();
+    var definition = getIndex(fixture.indexName).getDefinition();
+    var ctx = newContext();
+
+    // First range yields a stream whose close() we can observe; second range acquisition throws.
+    var firstStreamClosed = new AtomicBoolean(false);
+    Stream<RawPair<Object, RID>> firstStream =
+        Stream.<RawPair<Object, RID>>empty().onClose(() -> firstStreamClosed.set(true));
+
+    var failingIndex = mock(Index.class);
+    when(failingIndex.getDefinition()).thenReturn(definition);
+    when(failingIndex.getName()).thenReturn(fixture.indexName);
+    doReturn(firstStream)
+        .doThrow(new IllegalStateException("range scan failed"))
+        .when(failingIndex)
+        .streamEntriesBetween(any(), any(), anyBoolean(), any(), anyBoolean(), anyBoolean());
+
+    var inCondition = new SQLInCondition(-1);
+    inCondition.setLeft(fieldExpr("key"));
+    inCondition.setRightMathExpression(valueMathExpr(List.of(10, 30)));
+    var desc = new IndexSearchDescriptor(failingIndex, andBlockOf(inCondition));
+
+    // multipleRange reads the active transaction, so the range path needs one open (the full-scan
+    // path does not); rolled back afterward since nothing is committed.
+    session.begin();
+    try {
+      assertThatThrownBy(() -> FetchFromIndexStep.init(desc, true, ctx))
+          .isInstanceOf(IllegalStateException.class)
+          .hasMessage("range scan failed");
+      assertThat(firstStreamClosed).as("earlier range stream must be closed, not leaked").isTrue();
+    } finally {
+      session.rollback();
+    }
   }
 
   // =========================================================================
@@ -1021,12 +1257,24 @@ public class FetchFromIndexStepTest extends TestUtilsFixture {
    * index stores them under the {@code null} key if the index does not ignore nulls.
    */
   private void seedNull(String className, int count) {
+    // Delegates to seedNullReturningRids so the transaction/seeding logic lives in one place; the
+    // returned RIDs are irrelevant when the caller only needs the null-keyed records to exist.
+    seedNullReturningRids(className, count);
+  }
+
+  /**
+   * Like {@link #seedNull(String, int)} but returns the RIDs of the created null records, so a test
+   * can assert the null-key stream surfaces exactly those RIDs.
+   */
+  private List<RID> seedNullReturningRids(String className, int count) {
     session.begin();
     try {
+      var entities = new ArrayList<EntityImpl>();
       for (var i = 0; i < count; i++) {
-        session.newEntity(className);
+        entities.add((EntityImpl) session.newEntity(className));
       }
       session.commit();
+      return entities.stream().<RID>map(EntityImpl::getIdentity).toList();
     } catch (Exception e) {
       session.rollback();
       throw e;
