@@ -1,6 +1,6 @@
 # Maintenance Prompt — Refreshing the Book Against a Newer Source Tree
 
-Use this document when the YouTrackDB source tree has moved past the commit recorded in `docs/ytdb-internals-book/README.md` and the book needs to be realigned.
+Use this document when the YouTrackDB source tree has moved past the commit recorded in `docs/yql-internals-book/README.md` and the book needs to be realigned.
 
 You can paste the "Prompt" section below into a fresh Claude Code session. The rest of this file is context — the prompt is self-contained and will re-read what it needs.
 
@@ -8,26 +8,26 @@ You can paste the "Prompt" section below into a fresh Claude Code session. The r
 
 ## Prompt (copy-paste this block into a new Claude Code session)
 
-> You are the maintainer of *Inside the YouTrackDB Query Engine*, a Java-developer-facing book at `docs/ytdb-internals-book/` in this repository. The book's citations were verified against a specific YouTrackDB commit, recorded in `docs/ytdb-internals-book/README.md` under **Source-tree baseline**. The source tree has since moved, and the book needs to be refreshed.
+> You are the maintainer of *Inside the YouTrackDB Query Engine*, a Java-developer-facing book at `docs/yql-internals-book/` in this repository. The book's citations were verified against a specific YouTrackDB commit, recorded in `docs/yql-internals-book/README.md` under **Source-tree baseline**. The source tree has since moved, and the book needs to be refreshed.
 >
 > Your job in this session is to run a **drift-aware refresh cycle**. Do not rewrite chapters from scratch. Change only what the code change forces.
 >
 > ### Phase 0 — establish the drift window
 >
-> 1. Read `docs/ytdb-internals-book/README.md` and note the baseline SHA (call it `BOOK_SHA`). Note also the current `HEAD` SHA (call it `NEW_SHA`).
+> 1. Read `docs/yql-internals-book/README.md` and note the baseline SHA (call it `BOOK_SHA`). Note also the current `HEAD` SHA (call it `NEW_SHA`).
 > 2. Compute the drift window: `git log BOOK_SHA..NEW_SHA --name-only -- core/src/main/java/com/jetbrains/youtrackdb/internal/core/sql/ core/src/main/grammar/YouTrackDBSql.jjt core/src/main/java/com/jetbrains/youtrackdb/internal/core/config/GlobalConfiguration.java core/src/main/java/com/jetbrains/youtrackdb/internal/core/index/engine/`
-> 3. Save the commit summary, along with the changed-file list, to `docs/ytdb-internals-book/maintenance/drift-<NEW_SHA_SHORT>.md`. Group the changed files by subsystem (parser, planner, executor, optimisations, cost model, configuration, index engine).
+> 3. Save the commit summary, along with the changed-file list, to `docs/yql-internals-book/maintenance/drift-<NEW_SHA_SHORT>.md`. Group the changed files by subsystem (parser, planner, executor, optimisations, cost model, configuration, index engine).
 >
 > ### Phase 1 — identify impacted chapters
 >
-> The chapter-to-source map is documented in `docs/ytdb-internals-book/TOC.md` under the "Cross-reference matrix" plus the per-chapter briefs. For each changed file, identify which chapters cite it. Produce an impact table in `docs/ytdb-internals-book/maintenance/drift-<NEW_SHA_SHORT>.md`:
+> The chapter-to-source map is documented in `docs/yql-internals-book/TOC.md` under the "Cross-reference matrix" plus the per-chapter briefs. For each changed file, identify which chapters cite it. Produce an impact table in `docs/yql-internals-book/maintenance/drift-<NEW_SHA_SHORT>.md`:
 >
 > | Changed file | Chapters citing it | Risk | Reason |
 > |---|---|---|---|
 >
 > Risk is one of: **structural** (renamed class, removed method, new phase), **numeric** (line numbers moved), **semantic** (same API, different behaviour). Structural and semantic changes require author attention; numeric-only changes can be handled by a citation sweep.
 >
-> Also scan `docs/ytdb-internals-book/chapters/17-reference.md` Tables 17.1 and 17.2 for any file path or configuration knob that has been renamed, removed, or whose default changed.
+> Also scan `docs/yql-internals-book/chapters/17-reference.md` Tables 17.1 and 17.2 for any file path or configuration knob that has been renamed, removed, or whose default changed.
 >
 > ### Phase 2 — triage
 >
@@ -35,28 +35,28 @@ You can paste the "Prompt" section below into a fresh Claude Code session. The r
 >
 > - **Clean chapters**: record them in the drift file with a `-- clean` note. Skip.
 > - **Sweep chapters**: run a single revisor agent that reads the chapter, re-verifies each `file:line` citation, and updates the number where it has shifted. The sweep never changes factual claims — only line numbers.
-> - **Review chapters**: spawn one author agent per chapter. Give it (a) the original chapter, (b) the drift report for the files it cites, (c) the book brief (`ytdb-internals-book-builder/BOOK_BRIEF.md`). Ask it to re-read the relevant code in the new tree and produce a revised chapter.
+> - **Review chapters**: spawn one author agent per chapter. Give it (a) the original chapter, (b) the drift report for the files it cites, (c) the book brief (`yql-internals-book-builder/BOOK_BRIEF.md`). Ask it to re-read the relevant code in the new tree and produce a revised chapter.
 >
 > ### Phase 3 — technical review of touched chapters
 >
-> Only the chapters that were swept or rewritten need to be reviewed. Batch them across 2–3 reviewer agents in parallel. Each reviewer verifies `file:line` citations against the new tree and flags blockers / fixes / nits in `ytdb-internals-book-builder/reviews/technical-refresh-<NEW_SHA_SHORT>-<range>.md`.
+> Only the chapters that were swept or rewritten need to be reviewed. Batch them across 2–3 reviewer agents in parallel. Each reviewer verifies `file:line` citations against the new tree and flags blockers / fixes / nits in `yql-internals-book-builder/reviews/technical-refresh-<NEW_SHA_SHORT>-<range>.md`.
 >
 > Apply blockers and important fixes in a short revision pass.
 >
 > ### Phase 4 — beta re-read (optional, at your discretion)
 >
-> If Phase 2 affected five or more chapters, run one beta reader (the "target reader" persona from `ytdb-internals-book-builder/beta-feedback/beta-reader-1-target-reader.md`). Ask them to read only the touched chapters, in context, and flag anything that now reads as disconnected or confusing. Apply the top issues they raise.
+> If Phase 2 affected five or more chapters, run one beta reader (the "target reader" persona from `yql-internals-book-builder/beta-feedback/beta-reader-1-target-reader.md`). Ask them to read only the touched chapters, in context, and flag anything that now reads as disconnected or confusing. Apply the top issues they raise.
 >
 > Skip Phase 4 if the refresh touched four or fewer chapters — the cost/benefit doesn't pay off at that size.
 >
 > ### Phase 5 — update the baseline
 >
-> Update `docs/ytdb-internals-book/README.md`'s **Source-tree baseline** table: replace the SHA, short SHA, date, and subject with the new commit. Append a one-line entry to a **Refresh history** sub-section (create it if absent) recording when this refresh was done and which chapters were touched.
+> Update `docs/yql-internals-book/README.md`'s **Source-tree baseline** table: replace the SHA, short SHA, date, and subject with the new commit. Append a one-line entry to a **Refresh history** sub-section (create it if absent) recording when this refresh was done and which chapters were touched.
 >
 > ### Rules that apply to the whole refresh
 >
 > 1. **Every new citation is verified against the current tree.** Use `sed -n 'Np' <file>` or the Read tool. Never trust the drift report's line ranges as final.
-> 2. **Voice rules still apply.** `ytdb-internals-book-builder/BOOK_BRIEF.md` is non-negotiable even during a refresh. A revision that fixes a line number but introduces a bullet-dump or a class-name-first opening must be rewritten.
+> 2. **Voice rules still apply.** `yql-internals-book-builder/BOOK_BRIEF.md` is non-negotiable even during a refresh. A revision that fixes a line number but introduces a bullet-dump or a class-name-first opening must be rewritten.
 > 3. **Terminology is canonical.** If Chapter 2 uses "collection" and Chapter 14 uses "collection ID", a refresh must not silently re-introduce "cluster" because the new source uses that word — raise it as a drift note, then reconcile in favour of the book's terminology (or update Chapter 2 too if the source truly changed semantic meaning).
 > 4. **Deprecated or removed features.** If a chapter documents a feature that no longer exists, do NOT delete the chapter silently. Flag it in the drift report; discuss with the user whether to remove, rewrite as "historical note", or replace with the successor mechanism.
 > 5. **New features not in the book.** If the drift window added a genuine new feature (new planner phase, new traverser variant, new optimisation layer) that the book should cover, this is outside a refresh — log it in the drift report as "new content required" and stop. The user decides whether to start a new cycle like cycle 1 / cycle 2, or defer.
@@ -65,10 +65,10 @@ You can paste the "Prompt" section below into a fresh Claude Code session. The r
 >
 > At the end of the refresh session you must have:
 >
-> - `docs/ytdb-internals-book/maintenance/drift-<NEW_SHA_SHORT>.md` — the drift report.
-> - Updated chapters under `docs/ytdb-internals-book/chapters/` (only those that changed).
-> - New review reports under `ytdb-internals-book-builder/reviews/technical-refresh-<NEW_SHA_SHORT>-*.md`.
-> - An updated **Source-tree baseline** and a new row in the **Refresh history** in `docs/ytdb-internals-book/README.md`.
+> - `docs/yql-internals-book/maintenance/drift-<NEW_SHA_SHORT>.md` — the drift report.
+> - Updated chapters under `docs/yql-internals-book/chapters/` (only those that changed).
+> - New review reports under `yql-internals-book-builder/reviews/technical-refresh-<NEW_SHA_SHORT>-*.md`.
+> - An updated **Source-tree baseline** and a new row in the **Refresh history** in `docs/yql-internals-book/README.md`.
 >
 > Work in isolation if possible (`mode: plan` first to preview the scope), then execute. Parallelise author and reviewer agents across non-overlapping chapter sets. Use the TaskCreate tool to track phases.
 
@@ -93,10 +93,10 @@ You can paste the "Prompt" section below into a fresh Claude Code session. The r
 
 ### Files the refresh prompt reads first
 
-- `docs/ytdb-internals-book/README.md` — for the baseline SHA.
-- `docs/ytdb-internals-book/TOC.md` — for the chapter-to-source map.
-- `ytdb-internals-book-builder/BOOK_BRIEF.md` — for voice rules that must survive a refresh.
-- `docs/ytdb-internals-book/chapters/17-reference.md` — Tables 17.1 and 17.2 are the master index of source files and configuration knobs; they almost always need attention.
+- `docs/yql-internals-book/README.md` — for the baseline SHA.
+- `docs/yql-internals-book/TOC.md` — for the chapter-to-source map.
+- `yql-internals-book-builder/BOOK_BRIEF.md` — for voice rules that must survive a refresh.
+- `docs/yql-internals-book/chapters/17-reference.md` — Tables 17.1 and 17.2 are the master index of source files and configuration knobs; they almost always need attention.
 
 ### What this prompt deliberately does NOT do
 

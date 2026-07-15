@@ -143,4 +143,4 @@ YouTrackDB Query Engine*, a deep-dive book explaining how YouTrackDB
 compiles and runs MATCH/YQL queries — from SQL text through the parser,
 pattern graph, cost-based planner, execution steps, and traversers —
 starting at
-[Chapter 1 — Why a Graph Database Has Its Own Query Engine](docs/ytdb-internals-book/chapters/01-why-a-graph-database.md).
+[Chapter 1 — Why a Graph Database Has Its Own Query Engine](docs/yql-internals-book/chapters/01-why-a-graph-database.md).

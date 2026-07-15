@@ -4,7 +4,7 @@ A teaching book for Java developers who want to understand how YouTrackDB's quer
 
 Produced by reorganising the reference-style `match-book/` material into a narrative with gradual ramp-up, then running it through a multi-agent production pipeline.
 
-This tree is the book target. The production machinery — the book brief, the maintenance/refresh pipeline, and the technical-review and beta-reader artifacts — lives in a separate tree at [`../../ytdb-internals-book-builder/`](../../ytdb-internals-book-builder/).
+This tree is the book target. The production machinery — the book brief, the maintenance/refresh pipeline, and the technical-review and beta-reader artifacts — lives in a separate tree at [`../../yql-internals-book-builder/`](../../yql-internals-book-builder/).
 
 ## Source-tree baseline
 
@@ -18,7 +18,7 @@ Every `file:line` citation in the book refers to the YouTrackDB source at this c
 | Subject | `YTDB-650: Back-reference hash join for MATCH patterns (#946)` |
 | Branch | `develop` |
 
-When the book is refreshed against a newer tree, bump this table and re-run the refresh procedure described in [`../../ytdb-internals-book-builder/MAINTENANCE_PROMPT.md`](../../ytdb-internals-book-builder/MAINTENANCE_PROMPT.md).
+When the book is refreshed against a newer tree, bump this table and re-run the refresh procedure described in [`../../yql-internals-book-builder/MAINTENANCE_PROMPT.md`](../../yql-internals-book-builder/MAINTENANCE_PROMPT.md).
 
 
 ## Contents
@@ -27,17 +27,17 @@ When the book is refreshed against a newer tree, bump this table and re-run the 
 - [`chapters/`](chapters/) — the 17 chapters (01–17).
 - [`maintenance/`](maintenance/) — per-refresh drift reports written by the maintenance pipeline.
 
-The production artifacts live under [`../../ytdb-internals-book-builder/`](../../ytdb-internals-book-builder/):
+The production artifacts live under [`../../yql-internals-book-builder/`](../../yql-internals-book-builder/):
 
-- [`../../ytdb-internals-book-builder/BOOK_BRIEF.md`](../../ytdb-internals-book-builder/BOOK_BRIEF.md) — voice rules, conventions, and production principles.
-- [`../../ytdb-internals-book-builder/MAINTENANCE_PROMPT.md`](../../ytdb-internals-book-builder/MAINTENANCE_PROMPT.md) — the drift-aware refresh pipeline.
-- [`../../ytdb-internals-book-builder/reviews/`](../../ytdb-internals-book-builder/reviews/) — technical-review reports from five reviewers.
-- [`../../ytdb-internals-book-builder/beta-feedback/`](../../ytdb-internals-book-builder/beta-feedback/) — three beta-reader reports plus a revision-plan synthesis.
+- [`../../yql-internals-book-builder/BOOK_BRIEF.md`](../../yql-internals-book-builder/BOOK_BRIEF.md) — voice rules, conventions, and production principles.
+- [`../../yql-internals-book-builder/MAINTENANCE_PROMPT.md`](../../yql-internals-book-builder/MAINTENANCE_PROMPT.md) — the drift-aware refresh pipeline.
+- [`../../yql-internals-book-builder/reviews/`](../../yql-internals-book-builder/reviews/) — technical-review reports from five reviewers.
+- [`../../yql-internals-book-builder/beta-feedback/`](../../yql-internals-book-builder/beta-feedback/) — three beta-reader reports plus a revision-plan synthesis.
 
 ## Start here
 
 1. Readers — open [`TOC.md`](TOC.md) and pick your entry: cover-to-cover from Chapter 1, the symptoms index at the top of the TOC, or the reference appendix in Chapter 17.
-2. Maintainers — start with [`../../ytdb-internals-book-builder/BOOK_BRIEF.md`](../../ytdb-internals-book-builder/BOOK_BRIEF.md) for the voice rules before adding or rewriting any chapter, then run the drift-aware refresh procedure in [`../../ytdb-internals-book-builder/MAINTENANCE_PROMPT.md`](../../ytdb-internals-book-builder/MAINTENANCE_PROMPT.md) to realign the book against a newer source tree. The voice rules are non-negotiable, and every later cycle assumes them.
+2. Maintainers — start with [`../../yql-internals-book-builder/BOOK_BRIEF.md`](../../yql-internals-book-builder/BOOK_BRIEF.md) for the voice rules before adding or rewriting any chapter, then run the drift-aware refresh procedure in [`../../yql-internals-book-builder/MAINTENANCE_PROMPT.md`](../../yql-internals-book-builder/MAINTENANCE_PROMPT.md) to realign the book against a newer source tree. The voice rules are non-negotiable, and every later cycle assumes them.
 
 ## Production record
 
@@ -47,9 +47,9 @@ Two full cycles of the pipeline have been completed. Final body: 17 chapters, ~6
 
 1. **TOC + briefs** — 17 chapters across 7 parts, each scoped to one teaching moment, with concrete-before-abstract pacing.
 2. **Author wave** — 17 author agents (batched in 5 waves) drafted chapters in parallel from the source match-book plus live-tree code inspection.
-3. **Technical review** — 5 reviewers split the 17 chapters, verified every code citation, line number, and factual claim against the live tree. Reports in [`../../ytdb-internals-book-builder/reviews/`](../../ytdb-internals-book-builder/reviews/). Blockers found: 3 (all fixed in a fix pass).
+3. **Technical review** — 5 reviewers split the 17 chapters, verified every code citation, line number, and factual claim against the live tree. Reports in [`../../yql-internals-book-builder/reviews/`](../../yql-internals-book-builder/reviews/). Blockers found: 3 (all fixed in a fix pass).
 4. **Copy edit** — 3 editors pass for voice consistency, pacing, bullet-dump conversion, and transition polish.
-5. **Beta read** — 3 readers with distinct personas (target reader / skeptical veteran / time-constrained practitioner) produced independent reports in [`../../ytdb-internals-book-builder/beta-feedback/`](../../ytdb-internals-book-builder/beta-feedback/).
+5. **Beta read** — 3 readers with distinct personas (target reader / skeptical veteran / time-constrained practitioner) produced independent reports in [`../../yql-internals-book-builder/beta-feedback/`](../../yql-internals-book-builder/beta-feedback/).
 6. **Revision** — 3 revisors applied 8 high-value beta fixes (selectivity-tier table, Phase 5 sub-list, hash-join variant bridge, cluster→collection sweep, greedy-DFS→hash-join connection, PROFILE signposting, intersection glossary, TOC symptoms index); 3 substantive additions deferred to cycle 2.
 
 ### Cycle 2 — deferred additions + final polish
