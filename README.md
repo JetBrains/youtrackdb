@@ -7,7 +7,7 @@
 [![Reddit](https://img.shields.io/badge/Reddit-%23FF4500.svg?style=for-the-badge&logo=Reddit&logoColor=white)](https://www.reddit.com/r/youtrackdb/)<br/>
 
 ------
-[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Getting started](docs/getting-started.md)
+[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Getting started](docs/getting-started.md) | [Daily LDBC benchmarks](https://bench.youtrackdb.io/)
 
 ### Join our Zulip community!
 
@@ -131,12 +131,6 @@ For more examples covering both server and embedded deployments, check out the
 [examples](examples/src/main/java/io/youtrackdb/examples) project.
 
 ### Contributing
-
-YouTrackDB runs every non-trivial change through a structured development
-workflow: research, design, plan review, track-by-track implementation, and
-review. The full protocol and contributor role guidelines live in the
-internal documentation — start at the
-[project-internal documentation index](docs-internal/README.md).
 
 To understand how the query engine itself works, read *Inside the
 YouTrackDB Query Engine*, a deep-dive book explaining how YouTrackDB
