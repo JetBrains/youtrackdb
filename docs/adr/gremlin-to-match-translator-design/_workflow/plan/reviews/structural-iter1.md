@@ -1,43 +1,64 @@
-<!-- workflow-sha: e9377f7f133f5cd6ec3028936f28be2819e4ae96 -->
-# Structural review — iteration 1
+<!-- workflow-sha: d2dfcc2d44fabd3ac76c5fd7620f1e6013675ad9 -->
+<!-- MANIFEST
+findings: 2   severity: {blocker: 0, should-fix: 1, suggestion: 1}
+index:
+  - {id: S1, sev: should-fix, loc: "implementation-plan.md:445", anchor: "### S1 ", cert: "", basis: "Track 6 checklist intro runs 4 substantive sentences over the 1-3 cap; per-session re-read cost, detail duplicated in track-6.md"}
+  - {id: S2, sev: suggestion, loc: "implementation-plan.md:370,405", anchor: "### S2 ", cert: "", basis: "Completed Tracks 2 & 3 Strategy-refresh notes name pre-split downstream ranges (Tracks 3-6, 4-6) the A1 split superseded"}
+evidence_base: {section: "## Evidence base", certs: 0, matches: 0}
+flags: [CONTRACT_OK]
+-->
 
-Phase 2 structural review of the Gremlin-to-MATCH translator implementation plan.
-Plan-internal quality only; no codebase read. Three findings, none a blocker.
+# Structural review — iteration 1 (post-split State-0 re-run)
+
+Phase 2 structural review of the Gremlin-to-MATCH translator implementation plan
+after the A1 inline replan split former Track 4 into Track 4 (predicate surface)
++ Track 5 (logical filters + sub-walker + `GremlinPlanCache` D5), renumbering old
+Track 5→6 (result shaping) and old Track 6→7 (advanced + hardening). Plan-internal
+quality only; no codebase read. Design gate = yes.
+
+The split is structurally executable. The intended chain 1 → (2, 3) → 4 → 5 → 6 → 7
+is acyclic: every pending track's `**Depends on:**` points strictly backward
+(4→{3,1}, 5→{4,1}, 6→{4,5,1}, 7→{6}), no forward references. Every cross-track
+reference in the pending track files resolves to the correct renumbered track; no
+phantom (Track 8+) references exist. Track 4 and Track 5 do not contradict each
+other on the seam (NotStep ownership, `has(key)` vs `hasNot(key)`, the inline-literal
+→ positional-parameter handoff, and AND-composition reuse all agree). The Checklist,
+the Implementation-state table, and the Architecture-Notes `**Implemented in**` lines
+(D5→Track 5, D11→Track 6, D8→Track 7) name one consistent 7-track structure. Scope
+footprints for the pending tracks (~16 / ~16 / ~20 / ~20) all sit inside the
+two-sided `~12–25` bound; the Track 4→5 split from a realized ~29–38-file merged
+track is documented in both track files (A1, user-approved 2026-07-15) — a
+documented split passes. No superseded DRs, no `- [ ] Step:` / *(provisional)*
+markers, no per-section or plan-file bloat over budget (plan is 499 lines).
+
+Two minor findings, neither a blocker.
 
 ## Findings
 
 ### S1 [should-fix]
-**Location**: Plan file `implementation-plan.md`, Architecture Notes → Decision Records (the count-short-circuit unification is described in Goals line 29-31, Constraints line 42-44, Component Map `SelectExecutionPlanner` bullet line 81 / 113, Integration Points line 298-300, and implemented by Track 5 — but no `#### D<N>` block covers it).
-**Issue**: The plan makes a substantial, non-obvious design decision with no Decision Record: unify the exact `count(*)` fast path inside the MATCH engine so SQL, GQL, and translated Gremlin share one snapshot-isolated short-circuit, factored out of `SelectExecutionPlanner.handleHardwiredCountOnClass*` and invoked by `MatchExecutionPlanner`. This is the *one* change the Constraints section carves out as an exception to "Engine surface is preserved … Existing constructors, the IR classes, the execution steps … are not modified" (line 42-44), it edits two engine planner classes, it reverses the prior "decline class-count to keep an O(1) count" rationale (explicitly invalidated by YTDB-609 per design §"Aggregation barrier semantics"), and it has live alternatives (keep declining class-count to `YTDBGraphCountStrategy`; leave the SELECT fast path un-factored). Every comparable non-obvious choice in this plan carries a DR (D1–D10, D-IS-DEFINED, D-TEXT-OPS); this one is traceable only through prose scattered across five plan locations and a design section. A reader cannot find the alternatives / rationale / risks / track-reference in under 10 seconds, which is the DR's job.
-**Proposed fix**: Add a Decision Record (e.g. `#### D11: Unify the exact count(*) fast path in the MATCH engine`) with the four-bullet form — **Alternatives considered** (decline single-class count to the reordered `YTDBGraphCountStrategy` as today; leave `handleHardwiredCountOnClass*` SELECT-private); **Rationale** (one count path across three front-ends; the fast path stopped being O(1)/non-SI at YTDB-609 so the old decline rationale no longer holds; `CountFromClassStep` reads the same `countClass` primitive so cost and result are unchanged); **Risks/Caveats** (`YTDBGraphCountStrategy` must stay as a reordered fallback for multi-label / non-polymorphic counts; `CountFromClassStep.canBeCached()==false` keeps these plans uncached); **Implemented in**: Track 5; **Full design**: design.md §"Aggregation barrier semantics". Keep the body within the ~30-line DR budget — the long-form material already lives in the design section, so the DR links rather than duplicates.
-**Classification**: design-decision
-**Justification**: "Missing Decision Record for a non-obvious choice. The user has the rationale" (§Classification → `design-decision`); the alternatives and rationale are a design call the user must articulate.
-
-### S2 [should-fix]
-**Location**: Plan file `implementation-plan.md`, Track 4 checklist intro paragraph, lines 363-373 (the prose block between the track heading and `**Scope:**`).
-**Issue**: The intro paragraph runs four sentences ("Merges … diff." / "Fills out … (D-TEXT-OPS)." / "Bare presence forms … (D-IS-DEFINED)." / "Logical steps descend … (D9)."), exceeding the 1–3-sentence checklist-intro cap. Sentences 2–4 enumerate per-recogniser detail (`SQLEndsWithCondition`, the `TraversalFilterStepRecogniser` / `NotFilterStepRecogniser` desugar routing, the And/Or/Not asymmetry) that already lives verbatim in track-4.md's `## Purpose / Big Picture` and `## Plan of Work`. The plan checklist is loaded at every `/execute-tracks` session startup, so this detail is re-paid by every Phase A/B/C session for the life of the plan.
-**Proposed fix**: Trim the intro to 1–3 high-level sentences, e.g. keep "Merges predicate translation and the logical-filter steps into one reviewable filtering diff" plus one sentence naming the surface ("the full `P`/`Text`/`TextP` predicate algebra, the `has`/`hasLabel`/`hasId` recognisers, bare-presence `has(key)`/`hasNot(key)` → `IS DEFINED`/`IS NOT DEFINED`, and the `and`/`or`/`not`/`where` logical filters; D-TEXT-OPS, D-IS-DEFINED, D9"). The per-recogniser desugar and AST-node detail stays in track-4.md, where it already is.
+**Location**: Plan file `implementation-plan.md`, Track 6 checklist intro paragraph, lines 445-457 (the `>` prose block between the track heading and `**Scope:**`).
+**Issue**: The intro runs four substantive sentences plus the `Detail in plan/track-6.md.` pointer, over the 1–3-sentence checklist-intro cap. Sentence 2 alone is a ~9-line enumeration naming specific classes and flags (`GremlinProjectionAssembler`, `EntityImpl.hasProperty(key)`, `OrderGlobalStep` / `RangeGlobalStep`, the `count`/`sum`/`min`/`max`/`mean`/`group`/`groupCount` set, `SQLProjection` / `SQLGroupBy`, the count short-circuit, `dropNullRows` / `dropOnAbsent`); sentences 3–4 add the boundary-output-type pin and the shared by-modulator translator. This per-recogniser detail already lives near-verbatim in `plan/track-6.md`'s `## Purpose / Big Picture` (line 9) and `## Context and Orientation`. The plan checklist is loaded at every `/execute-tracks` session startup, so the duplicated detail is re-paid by every Phase A/B/C session for the life of the plan. (For contrast, Track 4's intro is 3 substantive sentences + pointer and Track 7's is 2 + pointer — both within cap; only Track 6 is over. Track 6 is old Track 5 renumbered, so this is a pre-existing intro, not introduced by the split.)
+**Proposed fix**: Trim the intro to 1–3 high-level sentences, e.g. keep sentence 1 ("Merges the four result-producing step families — step labels + dedup, projections, order/pagination, and aggregations") plus one sentence naming the two load-bearing hazards ("distinguishing absent from null-valued properties via `EntityImpl.hasProperty`, and unifying the exact `count(*)` fast path through the shared engine count short-circuit; D11") and the `Detail in plan/track-6.md.` pointer. The class/flag inventory stays in track-6.md, where it already is.
 **Classification**: mechanical
 **Justification**: The TRACK DESCRIPTIONS intro-length rule ("An intro that runs 4+ sentences … has expanded into territory that belongs in the track file"); the fix is a single unambiguous trim that moves no intent (the detail already exists in the track file), so it is `mechanical` per §`mechanical` (scope/format-class single-edit findings).
 
-### S3 [should-fix]
-**Location**: Plan file `implementation-plan.md`, Track 6 checklist intro paragraph, lines 404-413.
-**Issue**: The intro paragraph runs four sentences ("Completes … feature." / "Handles `UnionStep` … (D8)." / "Adds the four list-shaping terminators … (D3)." / "Final hardening: … benchmarks."), exceeding the 1–3-sentence cap. Sentences 2–4 carry the `MultiPlanMatchStep` mechanism, the `BoundaryOutputType.LIST` / `unfoldOutput` / `reverseOutput` / `tailLimit` flag inventory, and the Cucumber/JMH hardening detail that is already stated in track-6.md's `## Purpose / Big Picture` and `## Context and Orientation`. Same per-session re-read cost as S2.
-**Proposed fix**: Trim to 1–3 sentences, e.g. "Completes the recognized set and hardens the feature: `union(...)` via `MultiPlanMatchStep` (D8) and the four list-shaping terminators (`fold`/`unfold`/`reverse`/`tail`) as last-step recognisers, then the full TinkerPop Cucumber suite green with the strategy registered plus a Gremlin-on-vs-off JMH baseline." The flag inventory and concatenation mechanism stay in track-6.md.
-**Classification**: mechanical
-**Justification**: Same rule as S2 — TRACK DESCRIPTIONS intro-length (4+ sentences); single unambiguous trim, no intent change (detail duplicated in the track file), so `mechanical`.
+### S2 [suggestion]
+**Location**: Plan file `implementation-plan.md`, the `**Strategy refresh:**` notes inside the completed Track 2 entry (line 370, "no scope, dependency, or ordering change to **Tracks 3–6**") and the completed Track 3 entry (line 405, "Scope, dependencies, and ordering for **Tracks 4–6** unchanged").
+**Issue**: Both ranges name the pre-split downstream track count (six tracks total). The A1 split later added a track and renumbered, so the plan now carries seven tracks (Track 7 is the advanced + hardening track). Read as current forward-looking guidance, "Tracks 3–6" / "Tracks 4–6" no longer denote "all downstream tracks." A reader arriving at the resume protocol could momentarily mistake these for a live claim that Track 7 is out of scope for those refresh assessments.
+**Proposed fix**: No mechanical range-widening. These are completion-boundary audit assessments recorded when the plan had six tracks; widening "Tracks 3–6" to "Tracks 3–7" would assert a broader "unchanged" claim across the split boundary that the A1 restructure made false (the split changed downstream scope, so the original "unchanged" conclusion cannot simply be extended to the new Track 7). If the user judges the notes worth touching, the correct edit is a one-clause annotation that these ranges are as-of-completion (pre-A1-split) assessments — not a range rewrite. Editing completed-track content is user-pause-gated. Leaving them as-is is defensible: they are explicitly labeled completion-boundary history and do not contradict any live track.
+**Classification**: design-decision
+**Justification**: Editing completed-track (`[x]`) content is user-pause-gated, and whether/how to annotate a superseded historical assessment is a planner judgment, not a clean mechanical stale-range sweep (§`design-decision` — the fix requires the user's rationale, and over-widening would introduce a false claim).
 
 ## Evidence base
 
-certs: 0 (structural review reads no codebase and emits no certificates).
+No certificates — this review reads no codebase and produces plan-quality findings only.
 
-Mechanical checks run:
-- Plan-file length: 425 lines / ~6.3K tokens (chars/4) — well under the ~1,500-line / ~30K-token budget.
-- DR body lengths (heading through final bullet): D1=12, D2=14, D3=14, D4=12, D5=14, D6=13, D7=11, D8=15, D9=15, D10=13, D-IS-DEFINED=15, D-TEXT-OPS=17 — all within the ~30-line cap.
-- No `- [ ] Step:` items or `(provisional)` markers (deferred to Phase 3, correctly absent).
-- No `(SUPERSEDED …)` / "see DN" DR blocks retained.
-- All 12 DRs carry an `**Implemented in**: Track N` reference.
-- All six tracks carry a `**Scope:**` line; five `**Depends on:**` lines (Track 1 is the foundation, none); Track 1's under-floor `**Size:**` justification present (line 324).
-- Dependency DAG acyclic and forward-ordered: T1←T2←T3←T4(+T1)←T5(+T1)←T6; every `Depends on` points to a lower-numbered track.
-- Track sizing: T1 ~7 (under floor, justified), T2 ~19, T3 ~15, T4 ~20, T5 ~20, T6 ~20 — none over the ~20-25 ceiling; no undocumented non-consecutive file-overlap split (`MatchWhereBuilder` T1→T4 and `MatchExecutionPlanner` T2→T5 splits are both documented via D6/D-TEXT-OPS and D2/Aggregation-barrier respectively).
-- design.md exists (2088 lines), has an Overview (line 4), a `classDiagram` (line 172), a `sequenceDiagram` (line 435), and dedicated sections for the load-bearing/complex topics (Aggregation barrier semantics, Parameter binding, Union semantics divergence, Schema polymorphism, Boundary-step lifecycle, Track 5 commitment). Broadly consistent with the plan's Architecture Notes, DRs, and track descriptions.
+Mechanical checks run (all clean unless noted in a finding above):
+- Plan-file length: 499 lines — well under the ~1,500-line / ~30K-token budget.
+- Dependency DAG acyclic and forward-ordered: every pending `**Depends on:**` points to a lower-numbered track (4→{3,1}, 5→{4,1}, 6→{4,5,1}, 7→{6}); no cycle, no forward reference.
+- Track sizing (pending): T4 ~16, T5 ~16, T6 ~20, T7 ~20 — all inside the `~12–25` two-sided bound. Documented Track 4↔5 split (A1) passes.
+- No `- [ ] Step:` items or `(provisional)` markers.
+- No `(SUPERSEDED …)` / "see DN" DR blocks retained in any pending track's `## Decision Log`.
+- Architecture-Notes `**Implemented in**` reassignments verified against the 7-track structure: D5→Track 5, D11→Track 6, D8→Track 7; D9 per-class entries "Tracks 2–7"; all other DRs unchanged and consistent.
+- No phantom track references (no "Track 8"+). Every "Track N" reference in the plan and the four pending track files resolves to the correct renumbered track.
+- Design gate yes: design.md exists (2113 lines), has an Overview, a `classDiagram`, a `sequenceDiagram`/flowcharts, and dedicated sections for the load-bearing topics (Aggregation barrier semantics, Parameter binding, Union semantics divergence, Schema polymorphism, Track 5 commitment, Boundary-step lifecycle). Its track-number labels are pre-split (e.g. logical filters tagged Track 4, projections Track 5, union/list-shaping Track 6) — expected: the design is frozen post-Phase-1 and reconciled in Phase 4, so these are not findings. The class diagram (~21 classes) and sequence diagram (~11 participants) exceed the soft ~12 / ~8 caps, but this predates the split, passed the prior gate, and is unactionable on a frozen doc — noted, not filed.

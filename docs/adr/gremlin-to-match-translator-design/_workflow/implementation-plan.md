@@ -443,17 +443,12 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > `and` / `or` / `not`).
 
 - [ ] Track 6: Result shaping — labels + dedup, projections, order/pagination, aggregations
-  > Merges the four result-producing step families. Adds `as(label)`
-  > propagation and `DedupStep` recognition; `GremlinProjectionAssembler` for
-  > `select` / `values` / `valueMap` / `elementMap` / `project`, using
-  > `EntityImpl.hasProperty(key)` to distinguish absent from null-valued (the
-  > load-bearing "Track 5 commitment"); `OrderGlobalStep` + `RangeGlobalStep`;
-  > and aggregation recognition (`count` / `sum` / `min` / `max` / `mean` /
-  > `group` / `groupCount`) mapped to `SQLProjection` aggregates + `SQLGroupBy`,
-  > with the count short-circuit factored out of `SelectExecutionPlanner` and the
-  > `dropNullRows` / `dropOnAbsent` flags for empty-input and absent-vs-null
-  > semantics. Pins the boundary output type per terminal step. Shares the
-  > by-modulator translator across order/select/dedup/group/project.
+  > Merges the four result-producing step families — labels + dedup,
+  > projections, order / pagination, and aggregations — pinning the boundary
+  > output type per terminal step. The load-bearing cases are absent-vs-null
+  > (`EntityImpl.hasProperty(key)`) and the empty-input aggregate divergence,
+  > handled by the `dropOnAbsent` / `dropNullRows` boundary flags, with a shared
+  > `ByModulatorTranslator` serving the `by(...)` modulator across the families.
   > Detail in plan/track-6.md.
   > **Scope:** ~20 files covering as-label + dedup walker extensions,
   > `GremlinProjectionAssembler` + projection recognisers, the shared
