@@ -1,411 +1,217 @@
-<!-- manifest
-phase: 2
-review: consistency
-iteration: 1
-verdict: PASS
-findings: 0
-evidence_base: 28 certificates (25 Ref MATCHES, 1 Flow MATCHES, 2 Invariant ENFORCED/ASPIRATIONAL-noted); all current-state symbols verified present with the described shape.
-index: []
+<!-- MANIFEST
+findings: 1   severity: {blocker: 0, should-fix: 0, suggestion: 1}
+index:
+  - {id: CR1, sev: suggestion, loc: "design.md:169-346 (Class Design)", anchor: "### CR1 ", cert: "RC-ADDEDGE,RC-WALKERCTX,RC-NOTREC", basis: "frozen design class diagram lags as-built Track 2/3 surface; already Phase-4-scheduled, no impact on pending tracks"}
+evidence_base: {section: "## Evidence base", certs: 31, matches: 28}
+flags: [CONTRACT_OK]
 -->
-
-# Consistency Review — iteration 1
-
-Plan: `docs/adr/gremlin-to-match-translator-design/_workflow/implementation-plan.md`
-Design: `docs/adr/gremlin-to-match-translator-design/_workflow/design.md`
-Tracks: `plan/track-1.md` … `plan/track-6.md` (all six pending `[ ]`)
-
-**Verdict: PASS — no blocker / should-fix / suggestion findings.**
-
-Every current-state symbol the plan and design reference exists in this
-worktree's source tree with the described shape. The DR→track mapping
-resolves, the track dependency chain is acyclic, and no orphan tracks /
-DRs / design sections were found. Target-state references (the new
-translator classes) were pre-screened out per the intent-axis rule and
-all resolve to reachable construction over verified primitives.
-
-**Tooling caveat.** mcp-steroid's open IntelliJ project is the main
-checkout, not this worktree (cwd mismatch), so PSI was not used. Every
-current-state symbol below was verified with `grep -rn` + `Read` inside
-this worktree's source tree, which is authoritative for this branch.
-The certificates are plain existence-and-shape checks (class/method/field
-present, signature, line-cited grammar production, jar-membership of a
-fork class) — the category where grep+Read is reliable. No certificate
-below depends on reference-completeness (find-all-callers / find-all-
-overrides), so the grep-miss failure modes (polymorphic call sites,
-Javadoc matches, renamed symbols) do not affect any verdict. Had a
-finding turned on "X has no other caller" it would carry an explicit
-reference-accuracy caveat; none did.
-
----
 
 ## Findings
 
-(none)
-
----
+### CR1 [suggestion]
+**Certificate**: RC-ADDEDGE, RC-WALKERCTX, RC-NOTREC (Design ↔ Code / Design ↔ Plan)
+**Location**: `design.md` §"Class Design" (lines 169-346), plus §"Scope: recognized step set" lines 117/124; as-built code in `MatchPatternBuilder.java`, `WalkerContext.java`.
+**Issue**: The frozen `design.md` class diagram describes the pre-Track-2/3-rework translator surface, so several class shapes it draws no longer match the code the completed tracks landed. None mislead the pending tracks (4-7 all cite the real current shapes), but the class-diagram drift is not individually captured in any track's Surprises log the way §"Parameter binding" and §"Schema polymorphism" already are, so Phase-4 `design-final.md` has no pointer to it.
+**Evidence**:
+- `MatchPatternBuilder` diagram shows `addEdge(from, to, dir, label, edgeAlias, edgeFilter, while_, maxDepth)` (8 params incl. `edgeAlias`). As-built `addEdge` has 7 params and no `edgeAlias`; the edge-alias/edge-filter form is a separate `addEdgeAsNode(...)` method added by Track 3's rework (`MatchPatternBuilder.java:122`, `:189`). The plan's Track 3 entry already notes "edge filtering needs an edge-as-node builder extension the plan had assumed away," so this is a known consequence.
+- `WalkerContext` diagram lists fields `traversal`, `aliasRids`, `boundParams`, `anonAliasGenerator`/`anonEdgeAliasGenerator`, `stepIndex`, and methods `rebindBoundaryProjection(alias)` / `bindParam(Object)`. As-built `WalkerContext` has none of `traversal`/`aliasRids`/`stepIndex`; anon generators are `AliasSequence anonVertexAliases`/`edgeAliases`; the projection re-pin method is `setSingleReturnColumn(alias)`, not `rebindBoundaryProjection`. `boundParams`/`bindParam` are legitimately deferred (Track 5 adds them). Track 4's Context even states "there is no `aliasRids`/`aliasClasses` slot on the context," confirming the plan tracks the real shape while the diagram does not.
+- §Scope table + Class Design name a `NotFilterStepRecogniser` (for `hasNot(key)`) alongside a separate `HasStepRecogniser` family; the plan consolidated this to one `NotStepRecogniser` under `NotStep.class` (adversarial A2) and moved `has(key)` to `TraversalFilterStepRecogniser`. This is a documented replan divergence (Design ↔ Plan), expected per the frozen-DR rule.
+**Proposed fix**: No change to the plan or tracks — they are correct. Record in the Phase-4 `design-final.md` reconciliation scope that the class diagram must be redrawn to the as-built surface: the `addEdge` + `addEdgeAsNode` split, the real `WalkerContext` field set (no `aliasRids`/`stepIndex`/`traversal`; `setSingleReturnColumn`; `AliasSequence` generators), and the single-`NotStepRecogniser` consolidation. Optionally add a one-line pointer to a track Surprises log so the Phase-4 sweep does not miss it.
+**Classification**: design-decision
+**Justification**: `design.md` is frozen and never edited during execution; the correction is a Phase-4 design-final reconciliation choice (like the §"Parameter binding" / §"Schema polymorphism" items the tracks already flag), not a single unambiguous mechanical edit the orchestrator can auto-apply — and it touches a frozen artifact, so it must not be silently rewritten.
 
 ## Evidence base
 
-### Design ↔ Code
+**Tooling note.** mcp-steroid PSI (`steroid_execute_code`) was non-responsive this session — every call, including a trivial `DumbService.isDumb` probe, hit the ~60 s MCP HTTP timeout (IDE apparently stuck indexing). Per the consistency-review fallback rule I verified symbols with `grep`/`find` and, for the load-bearing shapes, by reading the full source of the cited files (`Read`, not a name-match). Reference-accuracy caveat: caller-set / "no-other-reference" negatives were not machine-confirmed via find-usages; none of the certificates below rely on such a negative — each is a declaration-existence or declaration-shape check read directly from source, which grep+Read establishes reliably. The one finding (CR1) is grounded in full-source reads of `MatchPatternBuilder.java` and `WalkerContext.java` against the `design.md` diagram text, not a symbol search.
 
-#### Ref: MatchExecutionPlanner — 3 existing constructors
-- **Document claim**: design class diagram annotates the new ctor
-  `"ADDITIVE: 3 existing ctors preserved"`; D2 / constraints say one
-  additive `MatchExecutionPlanner(MatchPlanInputs)` ctor leaves the
-  three existing ones untouched.
-- **Search performed**: `grep -nE 'public MatchExecutionPlanner'`
-  in `…/sql/executor/match/MatchExecutionPlanner.java`.
-- **Code location**: lines 385, 398, 424.
-- **Actual signature/role**: `MatchExecutionPlanner(Pattern, Map)`,
-  `MatchExecutionPlanner(Pattern, Map, …)`, `MatchExecutionPlanner(SQLMatchStatement)`
-  — exactly three.
-- **Verdict**: MATCHES
+### Plan ↔ Code / Track ↔ Code certificates
 
-#### Ref: MatchExecutionPlanner.createExecutionPlan(ctx, prof, useCache)
-- **Document claim**: workflow diagram calls
-  `createExecutionPlan(ctx, prof, useCache=true)`; track-2 Signatures list
-  `createExecutionPlan(ctx, prof, useCache)`.
-- **Search performed**: `Read` of MatchExecutionPlanner.java:472-483.
-- **Code location**: line 472.
-- **Actual signature/role**:
-  `public InternalExecutionPlan createExecutionPlan(CommandContext context, boolean enableProfiling, boolean useCache)`.
-  3-arg form; honours the cache when `useCache && !enableProfiling`.
-- **Verdict**: MATCHES (a stale 2-arg javadoc cross-ref at line 135 does
-  not reflect the real signature; not a plan/design claim).
+#### RC-PATTERNIR — `MatchPatternBuilder.build()` → `PatternIR`
+- **Document claim**: design/plan; Track 5 "MatchPatternBuilder.build() (:255 — positive PatternIR only)".
+- **Search**: Read `MatchPatternBuilder.java` in full.
+- **Code location**: `MatchPatternBuilder.java:255` (`public PatternIR build()`); `PatternIR` is a nested `record` at `:46`.
+- **Verdict**: MATCHES. `PatternIR(Pattern, Map aliasClasses, Map aliasFilters)`; `build()` at exactly :255. The earlier "no PatternIR.java file" signal was a nested-type false alarm.
 
-#### Ref: MatchExecutionPlanner internally calls handleProjectionsBlock
-- **Document claim**: D2 + Workflow — the planner already calls
-  `SelectExecutionPlanner.handleProjectionsBlock` inside
-  `createExecutionPlan`; the strategy must NOT call it (double-append).
-- **Search performed**: `grep -nE 'handleProjectionsBlock' MatchExecutionPlanner.java`.
-- **Code location**: line 623 (call site), after pattern finalization.
-- **Actual signature/role**: `SelectExecutionPlanner.handleProjectionsBlock(result, info, context, enableProfiling)`.
-- **Verdict**: MATCHES
+#### RC-MPI-NOTMATCH — `MatchPlanInputs.notMatchExpressions` (:48, :154)
+- **Document claim**: Track 5 Signatures "MatchPlanInputs.notMatchExpressions (:48, :154)".
+- **Search**: Read `MatchPlanInputs.java`.
+- **Code location**: record component at `:48`; `Builder.notMatchExpressions(...)` at `:154`.
+- **Verdict**: MATCHES. Exact line numbers.
 
-#### Ref: MatchExecutionPlanner.buildPatterns / manageNotPatterns / DEFAULT_ALIAS_PREFIX
-- **Document claim**: design references count short-circuit "after
-  `buildPatterns`", NOT-pattern precondition in `manageNotPatterns`, and
-  generator aliases avoiding `MatchExecutionPlanner.DEFAULT_ALIAS_PREFIX`.
-- **Search performed**: `grep -nE 'buildPatterns|manageNotPatterns|DEFAULT_ALIAS_PREFIX'`.
-- **Code location**: `buildPatterns` line 4583 (called at 490);
-  `manageNotPatterns` line 673 (called at 550);
-  `DEFAULT_ALIAS_PREFIX = "$YOUTRACKDB_DEFAULT_ALIAS_"` line 248.
-- **Actual signature/role**: all three present with the described roles.
-- **Verdict**: MATCHES
+#### RC-MEP-CTOR — additive `MatchExecutionPlanner(MatchPlanInputs)` ctor (D2)
+- **Document claim**: plan D2 / design §Overview; one additive ctor, existing ctors preserved.
+- **Search**: grep ctors in `MatchExecutionPlanner.java`.
+- **Code location**: ctors at `:403`, `:416`, `:442` (SQLMatchStatement), `:499` (`MatchPlanInputs`).
+- **Verdict**: MATCHES. The `MatchPlanInputs` ctor is additive alongside the pre-existing ones.
 
-#### Ref: SelectExecutionPlanner.handleProjectionsBlock / handleHardwiredCountOnClass / …UsingIndex
-- **Document claim**: D2 + design "Aggregation barrier semantics" — count
-  short-circuit factored from `handleHardwiredCountOnClass` /
-  `handleHardwiredCountOnClassUsingIndex`; `handleProjectionsBlock` is the
-  shared projection helper.
-- **Search performed**: `grep -nE 'handleProjectionsBlock|handleHardwiredCountOnClass…'`
-  in SelectExecutionPlanner.java.
-- **Code location**: `handleProjectionsBlock` line 320 (public static);
-  `handleHardwiredCountOnClass` line 488 (private);
-  `handleHardwiredCountOnClassUsingIndex` line 553 (private).
-- **Actual signature/role**: present; both count methods are private (the
-  factor-out to a shared helper is target-state work owned by Track 5,
-  not a current-state mismatch).
-- **Verdict**: MATCHES
+#### RC-MANAGENOT — `MatchExecutionPlanner.manageNotPatterns` two throws
+- **Document claim**: Track 5 A6 — second throw fires on `exp.getOrigin().getFilter() != null` (":766-771"); first on NOT origin alias absent from positive pattern.
+- **Search**: grep + `sed` 755-775 of `MatchExecutionPlanner.java`.
+- **Code location**: method `:750`; throw #1 at `:760-762` (`pattern.aliasToNode.get(exp.getOrigin().getAlias()) == null`); throw #2 at `:767-770` (`exp.getOrigin().getFilter() != null`).
+- **Verdict**: MATCHES. Substance exact; both throws present, on origin-alias-absent and origin-filter as described (band :766-771 covers throw #2).
 
-#### Ref: GqlMatchStatement.buildPlan / buildWhereClause / toLiteral
-- **Document claim**: design §Overview + §GQL refactor + track-1 — refactor
-  `buildPlan`, the static `buildWhereClause(Map<String,Object>)` called by
-  `GqlMatchVisitor`, and `toLiteral(Object)` onto the shared builders.
-- **Search performed**: `grep -nE 'buildPlan|buildWhereClause|toLiteral'`
-  in `gql/parser/GqlMatchStatement.java`.
-- **Code location**: `buildPlan` line 86 (private → GqlExecutionPlan);
-  `buildWhereClause(Map<String, Object>)` line 127 (static → SQLWhereClause);
-  `toLiteral(Object)` line 151 (private static → SQLExpression).
-- **Actual signature/role**: all three present; `buildWhereClause` is
-  `static`, matching the "static helper" description.
-- **Verdict**: MATCHES
+#### RC-PROMOTERID — `MatchExecutionPlanner.promoteStaticRidsFromFilters`
+- **Document claim**: Track 4 R3 — RID-inline preserves this direct-RID fast path; Signatures cite it.
+- **Search**: grep in `MatchExecutionPlanner.java`.
+- **Code location**: `static ... promoteStaticRidsFromFilters(...)` at `:4758`; invoked at `:4677`, `:4729`.
+- **Verdict**: MATCHES.
 
-#### Ref: SQLIsDefinedCondition / SQLIsNotDefinedCondition — AST shape + isDefinedFor + isIndexAware
-- **Document claim**: D-IS-DEFINED + design §"Phase 1 dependency" + track-1
-  — existing AST nodes routing through `isDefinedFor`, `isIndexAware()==false`,
-  builder constructs them and wires the `SQLExpression` child.
-- **Search performed**: `grep -nE 'class|ctor|expression|isDefinedFor|isIndexAware|evaluate'`
-  in both AST files.
-- **Code location**: `SQLIsDefinedCondition` — `protected SQLExpression expression;`
-  line 23; ctors `(int id)` line 25, `(YouTrackDBSql, int)` line 29;
-  `evaluate(Identifiable,ctx)` → `expression.isDefinedFor(db,(Entity)elem)` line 45;
-  `evaluate(Result,ctx)` → `expression.isDefinedFor(currentRecord)` line 59;
-  `isIndexAware` line 141; `copy()` uses `new SQLIsDefinedCondition(-1)`.
-- **Actual signature/role**: a builder can `new SQLIsDefinedCondition(-1)`
-  and set `.expression` — exactly the design's factory mechanism.
-- **Verdict**: MATCHES
+#### RC-QOE — `QueryOperatorEquals.equals` singleton-unbox + null short-circuit
+- **Document claim**: design §"Predicate translation" / Track 4 — "lines 63-69 auto-unbox a singleton collection against a scalar; lines 71-73 short-circuit null operands to false".
+- **Search**: `sed` 60-75 of `QueryOperatorEquals.java`.
+- **Code location**: `:63-69` singleton-collection-vs-scalar unbox (`col.size() == 1`, both operand orders); `:71-73` `if (iLeft == null || iRight == null) return false;`.
+- **Verdict**: MATCHES. Exact line numbers and semantics.
 
-#### Ref: Grammar IsDefinedCondition / IsNotDefinedCondition productions
-- **Document claim**: design §"Phase 1 dependency" + track-1 — jjt lines
-  ≈2897-2913: `Expression() <IS> <DEFINED>` / `Expression() <IS> <NOT> <DEFINED>`.
-- **Search performed**: `grep -nE 'IsDefinedCondition|<DEFINED>'`
-  in `core/src/main/grammar/YouTrackDBSql.jjt`.
-- **Code location**: `IsDefinedCondition()` line 2897 (body
-  `Expression() <IS> <DEFINED>` line 2901); `IsNotDefinedCondition()` line
-  2905 (body `Expression() <IS> <NOT> <DEFINED>` line 2909).
-- **Actual signature/role**: matches the cited production text and line band.
-- **Verdict**: MATCHES
+#### RC-RECOGCONTRACT — `StepRecogniser.recognize(StepCursor, RecognitionContext): Outcome`
+- **Document claim**: Track 4/5 — post-Track-3 contract `Outcome recognize(StepCursor, RecognitionContext)`, head via `cursor.take()`, trailing via `takeIf`/`takeWhile`, returns `ACCEPTED`/`DECLINE`.
+- **Search**: Read `StepRecogniser.java`, `StepCursor.java`, `Outcome.java`.
+- **Code location**: `StepRecogniser.java:47` (`Outcome recognize(StepCursor cursor, RecognitionContext ctx)`); `StepCursor` has `take()`, `takeIf(Class,Predicate)`, `takeWhile(Class,Predicate)`, `peek()`, `peek(int)`; `Outcome{ACCEPTED, DECLINE}`.
+- **Verdict**: MATCHES.
 
-#### Ref: Grammar IDENTIFIER production accepts $-prefix
-- **Document claim**: design §"Anonymous alias generation" — jjt ~line 590
-  `IDENTIFIER : (<DOLLAR>|<LETTER>)(<PART_LETTER>)*`, so `$`-prefix
-  restriction is translator policy, not a lexical constraint.
-- **Search performed**: `sed -n '585,595p'` of the jjt.
-- **Code location**: `< IDENTIFIER: ( ((<DOLLAR>) | <LETTER>) (<PART_LETTER>)* ) >`.
-- **Actual signature/role**: matches; minor line-number drift only.
-- **Verdict**: MATCHES
+#### RC-WALKER-POLY — `WalkerContext.polymorphic()`
+- **Document claim**: Track 4 — folded-`hasLabel` narrowing gated on `ctx.polymorphic()`.
+- **Search**: Read `WalkerContext.java` + `RecognitionContext.java`.
+- **Code location**: `WalkerContext.java:173` (`public boolean polymorphic()`), backing field `:77`; declared on `RecognitionContext.java:37`.
+- **Verdict**: MATCHES.
 
-#### Ref: QueryOperatorEquals singleton-unbox (63-69) + null short-circuit (71-73)
-- **Document claim**: design §"NULL and collection comparison" — lines 63-69
-  auto-unbox a size-1 collection against a non-collection scalar; lines
-  71-73 short-circuit null operands to FALSE.
-- **Search performed**: `sed -n '60,75p'` of
-  `sql/operator/QueryOperatorEquals.java`.
-- **Code location**: `static boolean equals(session, iLeft, iRight)` —
-  `iLeft/iRight instanceof Collection && !(other instanceof Collection) && col.size()==1` → unbox (lines ≈63-69);
-  `if (iLeft == null || iRight == null) return false;` (lines ≈71-73).
-- **Actual signature/role**: exactly the two branches the truth table relies on.
-- **Verdict**: MATCHES
+#### RC-SETSINGLECOL — `WalkerContext.setSingleReturnColumn` (:253-263)
+- **Document claim**: Track 5 A4 — `setSingleReturnColumn` clears and replaces the projection (WalkerContext.java:253-263).
+- **Search**: Read `WalkerContext.java`.
+- **Code location**: `setSingleReturnColumn(String alias)` at `:253-263` (clears three parallel lists, adds one column).
+- **Verdict**: MATCHES. Exact line band.
 
-#### Ref: EntityImpl.getPropertyAndType / hasProperty
-- **Document claim**: design §"Track 5 commitment" + track-5 — projection
-  uses `EntityImpl.getPropertyAndType(key)` (null only when absent) and
-  `EntityImpl.hasProperty(key)` for absent-vs-null classification.
-- **Search performed**: `grep -nE 'getPropertyAndType|hasProperty'`
-  in `record/impl/EntityImpl.java` + `Read` of the method body.
-- **Code location**: `getPropertyAndType(String)` line 390 (returns null
-  when `!isPropertyAccessible`, else delegates to
-  `getPropertyAndChooseReturnValue`); `hasProperty(String)` line 3180 (public).
-- **Actual signature/role**: both present and public/usable. The design's
-  cited absent-check line (488-491) has drifted into
-  `getPropertyAndChooseReturnValue`, but the behavioral contract holds and
-  the method is the entry point the plan names.
-- **Verdict**: MATCHES
+#### RC-VERTEXHOP — `VertexHopRecogniser` re-pins boundary/single column
+- **Document claim**: Track 5 A4 — VertexHopRecogniser re-pins boundary / single RETURN column to its target (:80-84).
+- **Search**: `sed` 75-90 of `VertexHopRecogniser.java`.
+- **Code location**: re-pin comment `:79-81`, `GremlinPatternAssembler.appendFoldedHop(...)` call `:84`.
+- **Verdict**: MATCHES. Substance correct; the actual mutation is inside `appendFoldedHop`.
 
-#### Ref: YTDBElementImpl.readFromEntity uses getPropertyAndType / propFactory.empty
-- **Document claim**: design §"Track 5 commitment" — `YTDBElementImpl.readFromEntity`
-  calls `getPropertyAndType` and returns `propFactory.empty()` for absent,
-  a real property for present-with-null.
-- **Search performed**: `grep -nE 'readFromEntity|getPropertyAndType|propFactory.empty'`
-  in `gremlin/YTDBElementImpl.java`.
-- **Code location**: `readFromEntity(...)` line 128; `source.getPropertyAndType(key)`
-  line 136; `propFactory.empty()` used at line 110.
-- **Actual signature/role**: present; the wrapper-level absent-vs-null
-  distinction the commitment relies on is real.
-- **Verdict**: MATCHES
+#### RC-PUTALIASFILTER — `WalkerContext.putAliasFilter` overwrites today (Track 4 modifies to AND-compose)
+- **Document claim**: Track 4 — `putAliasFilter` (+ `buildResult` merge) must AND-compose, not overwrite.
+- **Search**: Read `WalkerContext.java`/`RecognitionContext.java`.
+- **Code location**: `WalkerContext.java:236-238` (`aliasFilters.put(alias, where)` — overwrite; comment "entries here override builder entries").
+- **Verdict**: MATCHES (current-state accurate). The AND-compose behavior is a Track-4 target-state modification; the track correctly lists it under "In scope (modified)".
 
-#### Ref: ResultInternal.getProperty (query-layer absent/null collapse)
-- **Document claim**: design §"Track 5 commitment" — `Result.getProperty`
-  returns null for both absent and null-valued (query-layer collapses them).
-- **Search performed**: `grep -nE 'getProperty'` in `sql/executor/ResultInternal.java`.
-- **Code location**: `getProperty(String)` line 462.
-- **Actual signature/role**: present at the cited band (460-476); the
-  collapse behavior is the documented motivation for the entity-layer
-  presence check.
-- **Verdict**: MATCHES
+#### RC-BINDPARAM — `bindParam` sink absent from context today
+- **Document claim**: Track 5 — adds `bindParam(value) → SQLPositionalParameter` to `RecognitionContext`, implemented by `WalkerContext`.
+- **Search**: Read both files.
+- **Code location**: NOT present on `RecognitionContext` or `WalkerContext` at HEAD.
+- **Verdict**: MATCHES (target-state). Correctly absent — Track 5 creates it; Track 4 renders inline literals.
 
-#### Ref: SQLMatchPathItem.filter (edge-side filter slot)
-- **Document claim**: D10 + design §"Edge filtering" + track-3 — the IR
-  already supports edge-side filters via `SQLMatchPathItem.filter`, so no
-  executor/planner change is needed.
-- **Search performed**: `grep -nE 'filter'` in `sql/parser/SQLMatchPathItem.java`.
-- **Code location**: `protected SQLMatchFilter filter;` line 22.
-- **Actual signature/role**: field present; `addEdge(..., edgeFilter, …)`
-  parking onto this slot is feasible (target-state builder work).
-- **Verdict**: MATCHES
+#### RC-SQLPOSPARAM — `SQLPositionalParameter.getValue(params)`
+- **Document claim**: Track 5 Signatures.
+- **Search**: grep `SQLPositionalParameter.java`.
+- **Code location**: `:49` `public Object getValue(Map<Object,Object> params)`.
+- **Verdict**: MATCHES.
 
-#### Ref: Reused MATCH execution steps (14 classes)
-- **Document claim**: design §"Reused execution steps" — table of
-  MatchFirstStep, MatchStep, OptionalMatchStep, FilterNotMatchPatternStep,
-  CartesianProductStep, ReturnMatch{Elements,Paths,Patterns,PathElements}Step,
-  ProjectionCalculationStep, DistinctExecutionStep, OrderByStep,
-  SkipExecutionStep, LimitExecutionStep — all consumed unchanged.
-- **Search performed**: `find -name '<Class>.java'` for each.
-- **Code location**: all 14 found under `sql/executor` (or `…/match`).
-- **Actual signature/role**: present.
-- **Verdict**: MATCHES
+#### RC-CMDCTX — `CommandContext.setInputParameters(map)` (:106)
+- **Document claim**: Track 5 Signatures.
+- **Search**: grep `CommandContext.java`.
+- **Code location**: `:106` `void setInputParameters(Map<Object,Object> inputParameters)`.
+- **Verdict**: MATCHES. Exact line.
 
-#### Ref: CountFromClassStep / CountFromIndexWithKeyStep + canBeCached + session.countClass
-- **Document claim**: design §"Aggregation barrier semantics" + track-5 —
-  count short-circuit produces `CountFromClassStep` /
-  `CountFromIndexWithKeyStep`; `CountFromClassStep.canBeCached()==false`;
-  reads `session.countClass(name, true)`.
-- **Search performed**: `find` for both classes; `grep -nE 'canBeCached'`
-  in CountFromClassStep; `grep -rnE 'countClass'` in DatabaseSessionEmbedded.
-- **Code location**: both step classes present; `CountFromClassStep.canBeCached()`
-  line 79; `DatabaseSessionEmbedded.countClass(String)` line 3010,
-  `countClass(String, boolean)` line 3019.
-- **Actual signature/role**: present; `countClass(name, polymorphic)` matches
-  the design's single-class-fast-path call.
-- **Verdict**: MATCHES
+#### RC-SHAREDCTX — `SharedContext` cache field + `MetadataUpdateListener` invalidation pattern
+- **Document claim**: Track 5 — `SharedContext` gains a `GremlinPlanCache` field + schema-listener invalidation wiring mirroring `YqlExecutionPlanCache`.
+- **Search**: grep `SharedContext.java`.
+- **Code location**: `class SharedContext extends ListenerManger<MetadataUpdateListener>` `:30`; `YqlExecutionPlanCache yqlExecutionPlanCache` `:43`, constructed `:86`, `registerListener(...)` `:91`.
+- **Verdict**: MATCHES. The exact pattern Track 5 mirrors exists.
 
-#### Ref: YTDBHasLabelStep / YTDBClassCountStep
-- **Document claim**: design §"Recogniser dispatch" — `YTDBHasLabelStep extends HasStep`
-  routes via concrete getClass(); design §"Aggregation barrier" —
-  `YTDBClassCountStep` reads the same `countClass`.
-- **Search performed**: `find -name 'YTDBHasLabelStep.java' / 'YTDBClassCountStep.java'`.
-- **Code location**: `gremlin/traversal/step/filter/YTDBHasLabelStep.java`;
-  `gremlin/traversal/step/map/YTDBClassCountStep.java`.
-- **Actual signature/role**: present (target-state recogniser keys on the
-  former; the latter is a current-state count step).
-- **Verdict**: MATCHES
+#### RC-TRANSLRESULT — `GremlinToMatchTranslator.TranslationResult`
+- **Document claim**: Track 5 — `GremlinToMatchTranslator` (`TranslationResult` carries the per-walk parameter values).
+- **Search**: grep `GremlinToMatchTranslator.java`.
+- **Code location**: `final class GremlinToMatchTranslator` `:33`; `record TranslationResult(...)` `:66`; `translate(...)` `:50`.
+- **Verdict**: MATCHES (declaration). Carrying param values is a Track-5 target-state addition.
 
-#### Ref: TinkerPop fork strategy + step classes (io.youtrackdb gremlin-core 3.8.1)
-- **Document claim**: constraints + design — recognizers key on the fork's
-  `Step` classes; `IncidentToAdjacentStrategy` / `ConnectiveStrategy` /
-  `LazyBarrierStrategy` fold before the strategy fires; NoOpBarrierStep,
-  TraversalFilterStep, RangeGlobalStep, TailGlobalStep, UnfoldStep,
-  FoldStep, ReverseStep, OptionalStep, UnionStep, NotStep, AndStep, OrStep,
-  WhereTraversalStep, WherePredicateStep, HasStep, HasContainer,
-  EdgeVertexStep, VertexStep, GraphStep, PropertiesStep, PropertyMapStep,
-  SelectStep, ProjectStep, OrderGlobalStep, DedupGlobalStep.
-- **Search performed**: `<gremlin.version>` resolved to
-  `3.8.1-af9db90-SNAPSHOT`; `unzip -l` of that jar grepped for each class.
-- **Code location**: all three strategies present under
-  `…/strategy/{decoration,optimization}/`; every named step present under
-  `…/step/{branch,filter,map,util}/`. `EdgeOtherVertexStep` (for `otherV()`)
-  also present.
-- **Actual signature/role**: the full set the recognizers dispatch on exists
-  in the build's resolved fork jar.
-- **Verdict**: MATCHES
+#### RC-WALKER-REGISTRY — `GremlinStepWalker` `Map.of` registry (duplicate-key throw)
+- **Document claim**: Track 5 A2 — two registry entries for one class throw a `Map.of` duplicate-key `IllegalArgumentException` at class init (GremlinStepWalker.java:90-93).
+- **Search**: `sed` 85-95.
+- **Code location**: `PRODUCTION_RECOGNISERS = Map.of(GraphStep.class -> StartStepRecogniser, VertexStep.class -> VertexStepRecogniser)` at `:90-93`.
+- **Verdict**: MATCHES. `Map.of` duplicate-key semantics confirmed.
 
-### Plan ↔ Code (integration points)
+#### RC-STRATEGY-NET — `GremlinToMatchStrategy` RuntimeException net
+- **Document claim**: Track 5 A2/R4 — the strategy's `RuntimeException` net catches `manageNotPatterns`'s `CommandExecutionException` → native decline, while `Error`/`AssertionError` propagate (GremlinToMatchStrategy.java:105-110).
+- **Search**: `sed` 100-115.
+- **Code location**: Javadoc `:100-115` documents the catch narrowed to `RuntimeException`, with `Error`/`AssertionError` propagating untouched.
+- **Verdict**: MATCHES. (A `Map.of` duplicate key throws `IllegalArgumentException` at static-init → `ExceptionInInitializerError`, surfaced loudly regardless; the A2 conclusion "every Gremlin compile fails, not declines" holds.)
 
-#### Ref: ProviderOptimizationStrategy + half-measure strategies are standard editable strategies (D4)
-- **Document claim**: D4 + design §Strategy — each half-measure strategy
-  lists `GremlinToMatchStrategy` in its own `applyPrior()`; the translator
-  declares empty prior/post; registered in the provider optimization chain.
-- **Search performed**: `grep -nE 'applyPrior|ProviderOptimizationStrategy|class'`
-  in YTDBGraphStepStrategy.java; `grep -rln 'YTDBGraphStepStrategy'`.
-- **Code location**: `YTDBGraphStepStrategy extends AbstractTraversalStrategy<ProviderOptimizationStrategy>
-  implements ProviderOptimizationStrategy` lines 21-23; registered via
-  `gremlin/YTDBGraphImplAbstract.java`.
-- **Actual signature/role**: standard TinkerPop strategy classes whose
-  `applyPrior()` is editable — D4's ordering mechanism is feasible against
-  the real strategy shape.
-- **Verdict**: MATCHES
+#### RC-NOTSTEP-FINAL — fork `NotStep` is `final`; `TraversalFilterStep` exists
+- **Document claim**: Track 5 A2 — fork `NotStep` is `final` (`javap`); Track 4 — `has(key)` desugars to `TraversalFilterStep(__.values(key))`.
+- **Search**: `javap` from `io.youtrackdb:gremlin-core:3.8.1-af9db90-SNAPSHOT`.
+- **Code location**: `public final class org.apache.tinkerpop...filter.NotStep extends FilterStep`; `public final class ...filter.TraversalFilterStep extends FilterStep`.
+- **Verdict**: MATCHES. Both final; exact-class dispatch cannot separate `hasNot(key)`/`not(...)` → one `NotStep` recogniser, as A2 concludes.
 
-#### Ref: YqlExecutionPlanCache schema-change invalidation hook (D5)
-- **Document claim**: D5 + Integration Points + design §"Parameter binding"
-  — `GremlinPlanCache` reuses the YQL plan-cache schema-change invalidation
-  hook; CREATE CLASS / CREATE INDEX flushes plans.
-- **Search performed**: `grep -nE 'public|invalidat|class'`
-  in `sql/parser/YqlExecutionPlanCache.java`.
-- **Code location**: `class YqlExecutionPlanCache implements MetadataUpdateListener`
-  line 23; `onSchemaUpdate→invalidate()` line 149; `onIndexManagerUpdate→invalidate()`
-  line 155; `invalidate()` line 141; `getLastInvalidation` line 41.
-- **Actual signature/role**: a real `MetadataUpdateListener`-driven
-  invalidation hook exists to reuse.
-- **Verdict**: MATCHES
+#### RC-PREDADAPTER — `GremlinPredicateAdapter` skeleton exists
+- **Document claim**: Track 4 — Track 3 left a `GremlinPredicateAdapter` skeleton; Track 4 makes it the full chokepoint.
+- **Search**: grep `GremlinPredicateAdapter.java`.
+- **Code location**: `final class GremlinPredicateAdapter` `:56`; `SQLBooleanExpression toFilter(HasContainer container)` `:72`.
+- **Verdict**: MATCHES.
 
-#### Ref: SQLPositionalParameter.toGenericStatement / getValue (D5 / Parameter binding)
-- **Document claim**: design §"Parameter binding" — `toGenericStatement`
-  renders each slot as `PARAMETER_PLACEHOLDER` (value-independent key);
-  `getValue(params)` reads `params.get(paramNumber)` at run time.
-- **Search performed**: `grep -nE 'getValue|toGenericStatement|PARAMETER_PLACEHOLDER'`
-  in `sql/parser/SQLPositionalParameter.java`.
-- **Code location**: `toGenericStatement` line 44 appends `PARAMETER_PLACEHOLDER`
-  line 45; `getValue(Map<Object,Object> params)` line 49.
-- **Actual signature/role**: matches exactly.
-- **Verdict**: MATCHES
+#### RC-WHEREBUILDER — `MatchWhereBuilder` existing vs new methods
+- **Document claim**: Track 4 — `classEquals` (used, no prod caller yet), `startsWith` (exists), `isDefined`/`isNotDefined` (exist), `and`/`or`/`not`/`containsText` (exist); `endsWith`/`matchesRegex` are NEW here.
+- **Search**: Read `MatchWhereBuilder.java` in full.
+- **Code location**: present — `classEquals` `:65`, `startsWith` `:152`, `isDefined` `:263`, `isNotDefined` `:276`, `and` `:172`, `or` `:180`, `not` `:288`, `containsText` `:133`. Absent — `endsWith`, `matchesRegex`.
+- **Verdict**: MATCHES. Existing methods present; new ones correctly absent (Track 4 target-state).
 
-#### Ref: CommandContext.setInputParameters (boundary-step parameter install)
-- **Document claim**: design §"Parameter binding" — the boundary step
-  installs the per-walk param map via `ctx.setInputParameters(map)`.
-- **Search performed**: `grep -rnE 'setInputParameters'`
-  in CommandContext.java / BasicCommandContext.java.
-- **Code location**: `CommandContext.setInputParameters(Map<Object,Object>)`
-  interface line 106; impl line 499.
-- **Actual signature/role**: present; signature matches `setInputParameters(map)`.
-- **Verdict**: MATCHES
+#### RC-DELETED — `MatchClassFilters` deleted; `SQLEndsWithCondition` not yet created
+- **Document claim**: Track 4/plan — `MatchClassFilters` deleted in Track 3 rework; `SQLEndsWithCondition` is a new Track-4 AST node.
+- **Search**: `find -name`.
+- **Code location**: neither `.java` exists at HEAD.
+- **Verdict**: MATCHES. `MatchClassFilters` absence confirms the deletion claim; `SQLEndsWithCondition` absence is correct target-state.
 
-#### Ref: YTDBStrategyUtil.isPolymorphic(traversal)
-- **Document claim**: design §"Schema polymorphism" + track-2 — translator
-  reads the polymorphic flag via `YTDBStrategyUtil.isPolymorphic(traversal)`
-  once per apply().
-- **Search performed**: `grep -nE 'isPolymorphic'`
-  in `gremlin/traversal/strategy/YTDBStrategyUtil.java`.
-- **Code location**: `public static Boolean isPolymorphic(Admin<?,?> traversal)` line 29.
-- **Actual signature/role**: matches `isPolymorphic(traversal)`.
-- **Verdict**: MATCHES
+#### RC-SQLMATCHES — `SQLMatchesCondition` full-match today (find-mode is new)
+- **Document claim**: Track 4 — add a find-mode flag on `SQLMatchesCondition`.
+- **Search**: grep `SQLMatchesCondition.java`.
+- **Code location**: `matches(...)` uses `p.matcher(value).matches()` (full match) `:59-68`; no `findMode` field.
+- **Verdict**: MATCHES (current-state). Find-mode flag is a Track-4 target-state addition.
 
-#### Ref: MatchExecutionPlanner.createExecutionPlan honours plan cache via executinPlanCanBeCached
-- **Document claim**: design §"Aggregation barrier" — a MATCH plan ending in
-  `CountFromClassStep` is not cached (`canBeCached()==false`), consistent
-  with the planner's cache gate.
-- **Search performed**: `Read` of MatchExecutionPlanner.java:472-490.
-- **Code location**: gate `useCache && !enableProfiling && statement.executinPlanCanBeCached(session)`
-  line 478.
-- **Actual signature/role**: planner consults a cacheability predicate; an
-  uncacheable count plan is naturally skipped. (Note: the cache gate keys on
-  `statement` — wiring the translator's cacheability is target-state Track 2
-  work, not a current-state mismatch.)
-- **Verdict**: MATCHES
+#### RC-CONTAINSTEXT — `SQLContainsTextCondition` no collate today (collate transform is new)
+- **Document claim**: Track 4 — add collate transform to `SQLContainsTextCondition` (makes SQL `CONTAINSTEXT` collation-aware too).
+- **Search**: grep `SQLContainsTextCondition.java`.
+- **Code location**: `setLeft`/`setRight`/`evaluateAny`/`evaluateAllFunction`; no collate field.
+- **Verdict**: MATCHES (current-state). Collate transform is Track-4 target-state.
 
-### Design ↔ Plan
+#### RC-ENTITY-COUNT — Track 6 existing-code references (`EntityImpl.hasProperty`, count helpers)
+- **Document claim**: Track 6 Signatures — `EntityImpl.hasProperty(key)`, `getPropertyAndType`; `SelectExecutionPlanner.handleHardwiredCountOnClass` / `...UsingIndex`.
+- **Search**: grep.
+- **Code location**: `EntityImpl.java:3180` `hasProperty`, `:390` `getPropertyAndType`; `SelectExecutionPlanner.java:491` `handleHardwiredCountOnClass`, `:556` `handleHardwiredCountOnClassUsingIndex` (called from `:475`/`:478`).
+- **Verdict**: MATCHES.
 
-#### Flow: applyStrategies → walk → MatchPlanInputs → createExecutionPlan → handleProjectionsBlock (internal) → YTDBMatchPlanStep
-- **Document claim**: design §Workflow sequence diagram — strategy walks the
-  step list, builds `MatchPlanInputs`, calls
-  `new MatchExecutionPlanner(inputs)` then `createExecutionPlan(ctx, prof, true)`;
-  the planner internally calls `handleProjectionsBlock`; strategy does NOT
-  call it; result wrapped in `YTDBMatchPlanStep`.
-- **Trace**:
-  1. `createExecutionPlan(ctx, prof, useCache)` @ MatchExecutionPlanner.java:472
-     — cache check, then `buildPatterns(ctx)` @490, `splitDisjointPatterns()` @492.
-  2. `manageNotPatterns(...)` @550 — NOT-pattern handling (the precondition
-     the NotStep recogniser pre-validates).
-  3. `SelectExecutionPlanner.handleProjectionsBlock(result, info, ctx, prof)` @623
-     — projection/order/limit chain appended internally.
-  4. Returns `SelectExecutionPlan` (target-state boundary `YTDBMatchPlanStep`
-     wraps it — target, not asserted against current code).
-- **Divergence point**: none for the current-state portion (steps 1-3). The
-  additive ctor and the boundary step are target-state.
-- **Verdict**: MATCHES — the existing planner pipeline the diagram targets
-  is real; the strategy-side double-append hazard is correctly documented as
-  "do not call handleProjectionsBlock from the strategy."
+#### RC-TARGET-NEW — Track 4/5/6/7 new recognisers / builders correctly absent
+- **Document claim**: `HasStepRecogniser`, `TraversalFilterStepRecogniser` (T4); `AndStepRecogniser`, `OrStepRecogniser`, `NotStepRecogniser`, `WhereTraversalStepRecogniser`, `WherePredicateStepRecogniser`, `SubTraversalPredicateAdapter`, `GremlinPlanCache` (T5); `GremlinProjectionAssembler`, `ByModulatorTranslator` (T6); `UnionStepRecogniser`, `MultiPlanMatchStep` (T7).
+- **Search**: `find -name`.
+- **Code location**: none present at HEAD.
+- **Verdict**: MATCHES (target-state). All correctly absent — these `[ ]` tracks create them; not findings per the intent-axis pre-screen.
 
-#### Ref: DR→track mapping resolves; no orphan DRs/tracks; acyclic deps
-- **Document claim**: each DR carries `Implemented in: Track N`; six tracks
-  with linear dependencies.
-- **Search performed**: `grep -nE 'Implemented in'` and
-  `grep -nE 'Track [0-9]|Depends on:'` in implementation-plan.md.
-- **Code location**: D1-D7,D9→T2; D6,D-IS-DEFINED→T1; D8→T6; D10→T3;
-  D-TEXT-OPS→T4. Tracks: T1 (no dep); T2←T1; T3←T2,T1; T4←T3,T1; T5←T4,T1;
-  T6←T5.
-- **Actual signature/role**: every DR targets an existing track; every track
-  1-6 has a matching `plan/track-N.md`; the dependency graph is acyclic
-  (T1 is the root foundation; chain is single-threaded with T1 fan-in).
-- **Verdict**: MATCHES — no orphan DR, no orphan track, no dependency cycle.
+### Design ↔ Code / Design ↔ Plan certificates
 
-### Invariants
+#### RC-ADDEDGE — design diagram `addEdge(...edgeAlias...)` vs as-built `addEdge` + `addEdgeAsNode`
+- **Document claim**: `design.md` Class Design draws `MatchPatternBuilder.addEdge(from, to, dir, label, edgeAlias, edgeFilter, while_, maxDepth)`.
+- **Search**: Read `MatchPatternBuilder.java`.
+- **Code location**: `addEdge(fromAlias, toAlias, dir, edgeLabel, edgeFilter, whileCondition, maxDepth)` `:122` (7 params, no `edgeAlias`); separate `addEdgeAsNode(fromAlias, edgeAlias, toAlias, edgeDir, edgeLabel, closingVertexDir, edgeFilter)` `:189` (the edge-alias/edge-filter form).
+- **Verdict**: PARTIAL. Frozen design predates Track 3's edge-as-node rework. Feeds CR1. No pending-track impact (Track 3 done; Track 4/5 cite the real methods).
 
-#### Invariant: handleProjectionsBlock is invoked exactly once (no double-append)
-- **Document claim**: D2 + Workflow — the planner calls
-  `handleProjectionsBlock` internally; the strategy must not call it again.
-- **Code evidence**: MatchExecutionPlanner.java:623 (the single internal
-  call site inside `createExecutionPlan`).
-- **Mechanism**: the translator feeds `MatchPlanInputs` and lets
-  `createExecutionPlan` run unmodified; the projection block is appended
-  exactly once at line 623. The plan/design explicitly forbid a second call
-  from the strategy.
-- **Verdict**: ENFORCED (for the current-state planner side) — the design's
-  guard is consistent with the single internal call site. The
-  no-second-call discipline is a target-state contract on the not-yet-written
-  strategy, correctly stated and reachable.
+#### RC-WALKERCTX — design diagram `WalkerContext` fields vs as-built
+- **Document claim**: diagram lists `traversal`, `aliasRids`, `boundParams`, `anonAliasGenerator`/`anonEdgeAliasGenerator`, `stepIndex`, `rebindBoundaryProjection`, `bindParam`.
+- **Search**: Read `WalkerContext.java`.
+- **Code location**: as-built has no `traversal`/`aliasRids`/`stepIndex`; generators are `AliasSequence anonVertexAliases`/`edgeAliases` `:159`,`:163`; projection re-pin is `setSingleReturnColumn` `:253`, not `rebindBoundaryProjection`; `boundParams`/`bindParam` deferred to Track 5.
+- **Verdict**: PARTIAL. Frozen-design lag from the Track 2/3 step-cursor rework (the plan's Track 2/3 strategy-refresh notes document the shift off `stepIndex`; Track 4 Context notes the missing `aliasRids` slot). Feeds CR1.
 
-#### Invariant: count short-circuit reuses an existing exact, SI primitive (not a new fast path)
-- **Document claim**: design §"Aggregation barrier" — `CountFromClassStep`
-  reads `session.countClass(name, true)`, an exact snapshot-isolated scan;
-  the short-circuit is factored from existing SELECT helpers.
-- **Code evidence**: `handleHardwiredCountOnClass` (SelectExecutionPlanner:488),
-  `handleHardwiredCountOnClassUsingIndex` (:553); `CountFromClassStep`,
-  `CountFromIndexWithKeyStep`; `DatabaseSessionEmbedded.countClass(String,boolean)`:3019.
-- **Mechanism**: the SELECT-side helpers and the count steps already exist;
-  Track 5 factors the two private helpers into a shared method invoked by
-  `MatchExecutionPlanner`.
-- **Verdict**: ASPIRATIONAL (factor-out is target-state Track 5 work) — NOT a
-  finding: the helpers and steps it builds on are all present and the
-  refactor is reachable. The two SELECT helpers being `private` today is the
-  expected pre-refactor state, not a contradiction.
+#### RC-NOTREC — design `NotFilterStepRecogniser` vs plan single `NotStepRecogniser`
+- **Document claim**: `design.md` §Scope line 124 / Class Design name `NotFilterStepRecogniser` (hasNot) separate from `HasStepRecogniser` family.
+- **Search**: cross-read design vs track-5.
+- **Code location**: plan/track-5 consolidates to one `NotStepRecogniser` under `NotStep.class` (adversarial A2, user-approved 2026-07-15); `has(key)` on `TraversalFilterStepRecogniser`.
+- **Verdict**: PARTIAL (Design ↔ Plan). Expected per the frozen-DR-divergence rule (a documented replan supersedes the frozen design); folded into CR1 for Phase-4 visibility, not a standalone finding.
+
+### Gaps
+
+#### RC-GAP-CACHE — `GremlinPlanCache` reuses YQL invalidation hook — existing pattern referenced
+- **Document claim**: D5 / Track 5 — reuse the YQL plan-cache schema-change invalidation hook.
+- **Search**: grep `SharedContext.java`, `find YqlExecutionPlanCache`.
+- **Code location**: `YqlExecutionPlanCache.java` exists; registered as `MetadataUpdateListener` in `SharedContext` `:91`.
+- **Verdict**: MATCHES. Plan correctly anchors the new cache on the existing SPI/pattern (no orphan-construct gap).
+
+#### RC-GAP-COUNT — shared count short-circuit anchors on existing `CountFromClassStep` / `CountFromIndexWithKeyStep`
+- **Document claim**: D11 / Track 6 — factor `handleHardwiredCountOnClass*` into a shared helper; `CountFromClassStep`/`CountFromIndexWithKeyStep` win a constant factor.
+- **Search**: `find` + grep.
+- **Code location**: `CountFromClassStep.java`, `CountFromIndexWithKeyStep.java`, `SelectExecutionPlanner.handleHardwiredCountOnClass*` all present.
+- **Verdict**: MATCHES. No missing-construct gap.
