@@ -137,3 +137,10 @@ workflow: research, design, plan review, track-by-track implementation, and
 review. New contributors can learn to run it end to end in the development
 workflow book, starting at
 [Chapter 1 — The workflow at a glance](docs/workflow-book/chapters/01-workflow-at-a-glance.md).
+
+To understand how the query engine itself works, read *Inside the
+YouTrackDB Query Engine*, a deep-dive book explaining how YouTrackDB
+compiles and runs MATCH/YQL queries — from SQL text through the parser,
+pattern graph, cost-based planner, execution steps, and traversers —
+starting at
+[Chapter 1 — Why a Graph Database Has Its Own Query Engine](docs/ytdb-internals-book/chapters/01-why-a-graph-database.md).
