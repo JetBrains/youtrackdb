@@ -17,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocator.Intention;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
+import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
@@ -852,8 +853,30 @@ public class StorageComponentOptimisticReadTest {
   }
 
   @Test
+  public void testNullRecheckErrorRateLimiterHonorsConfiguredInterval() {
+    // The rate-limit interval is configurable via
+    // GlobalConfiguration.STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS and is
+    // read through the storage's per-database ContextConfiguration. Injecting a 2-second
+    // interval through the mock storage (per-instance injection — no global configuration
+    // mutation) must shrink the suppression window from the default 60 seconds.
+    var contextConfiguration = new ContextConfiguration();
+    contextConfiguration.setValue(
+        GlobalConfiguration.STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS, 2);
+    when(component.storage.getContextConfiguration()).thenReturn(contextConfiguration);
+
+    long t0 = 1L;
+    assertTrue("first emission must be allowed",
+        component.tryAcquireNullRecheckErrorSlot(t0));
+    assertFalse("repeat within the configured 2s interval must be suppressed",
+        component.tryAcquireNullRecheckErrorSlot(t0 + TimeUnit.SECONDS.toNanos(1)));
+    assertTrue("emission after the configured 2s interval must be allowed",
+        component.tryAcquireNullRecheckErrorSlot(t0 + TimeUnit.SECONDS.toNanos(3)));
+  }
+
+  @Test
   public void testNullRecheckErrorRateLimiterSuppressesRepeats() {
-    // The rate limiter allows at most one ERROR per minute per component; tested with
+    // Default interval (60s): no ContextConfiguration is stubbed on the mock storage, so
+    // the limiter takes the GlobalConfiguration-default fallback branch; tested with
     // controlled timestamps against the package-private seam.
     long t0 = 1L;
     assertTrue("first emission must be allowed",

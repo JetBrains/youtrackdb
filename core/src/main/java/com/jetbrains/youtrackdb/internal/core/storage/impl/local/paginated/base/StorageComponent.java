@@ -20,6 +20,7 @@
 
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.common.concur.resource.SharedResourceAbstract;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
@@ -700,8 +701,6 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   // concurrent readers emit at most ~one message per interval.
   private final AtomicLong lastNullRecheckErrorNanos = new AtomicLong();
 
-  private static final long NULL_RECHECK_ERROR_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1);
-
   /**
    * Variant of {@link #executeOptimisticStorageRead(AtomicOperation, OptimisticReadFunction,
    * PinnedReadFunction)} for point lookups whose NULL result is load-bearing — the
@@ -823,7 +822,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
                 + " returned — but this indicates a possible optimistic-read/epoch anomaly:"
                 + " visibility is resolved against a fixed operation snapshot, so a"
                 + " concurrently committed insert cannot explain the miss. Please report this"
-                + " occurrence. At most one such message is logged per minute per component.",
+                + " occurrence. At most one such message is logged per configured interval per"
+                + " component (youtrackdb.storage.optimisticRead.nullRecheckReportIntervalSecs,"
+                + " default 60s).",
             // The explicit null Throwable pins the single
             // error(requester, message, exception, Object...) overload — unlike warn, error
             // has no (requester, dbName, message, ...) sibling that two String arguments
@@ -835,22 +836,46 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   /**
    * Rate limiter for the disagreement ERROR: returns true if the caller won the right to
-   * log at {@code nowNanos} (at most one win per
-   * {@link #NULL_RECHECK_ERROR_INTERVAL_NANOS}). CAS-based so concurrent winners are
-   * unique. Package-private for direct unit testing with controlled timestamps.
+   * log at {@code nowNanos} (at most one win per configured interval, see
+   * {@link GlobalConfiguration#STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS}).
+   * CAS-based so concurrent winners are unique. Package-private for direct unit testing
+   * with controlled timestamps.
    */
   boolean tryAcquireNullRecheckErrorSlot(final long nowNanos) {
+    final long intervalNanos = nullRecheckErrorIntervalNanos();
     while (true) {
       final long last = lastNullRecheckErrorNanos.get();
       // 0 is the "never logged" sentinel; a genuine nanoTime of exactly 0 would merely
       // allow one extra message, which is harmless.
-      if (last != 0 && nowNanos - last < NULL_RECHECK_ERROR_INTERVAL_NANOS) {
+      if (last != 0 && nowNanos - last < intervalNanos) {
         return false;
       }
       if (lastNullRecheckErrorNanos.compareAndSet(last, nowNanos)) {
         return true;
       }
     }
+  }
+
+  /**
+   * Resolves the null-recheck report rate-limit interval in nanoseconds. Components read
+   * configuration through the storage's per-database {@code ContextConfiguration} — the
+   * dominant idiom at this layer (cf. {@code StaleTransactionMonitor}) — falling back to
+   * the {@link GlobalConfiguration} default when no context configuration is available
+   * (unit-test component doubles built around mock storages; production components exist
+   * only for open storages, which always carry one). Resolved lazily on each limiter
+   * check: the check runs only on the rare disagreement path, so the map lookup is
+   * negligible and component construction stays free of configuration-lifecycle ordering
+   * concerns.
+   */
+  private long nullRecheckErrorIntervalNanos() {
+    final var contextConfiguration = storage.getContextConfiguration();
+    final int intervalSecs =
+        contextConfiguration != null
+            ? contextConfiguration.getValueAsInteger(
+                GlobalConfiguration.STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS)
+            : GlobalConfiguration.STORAGE_OPTIMISTIC_READ_NULL_RECHECK_REPORT_INTERVAL_SECS
+                .getValueAsInteger();
+    return TimeUnit.SECONDS.toNanos(intervalSecs);
   }
 
   /**
