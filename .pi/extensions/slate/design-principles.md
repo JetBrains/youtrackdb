@@ -159,7 +159,7 @@ project's load-on-demand guidance (AGENTS.md):
 - **Tier 1 — always loaded.** The doctrine in `mode.ts` is the operational
   distillation of P1–P10, the review discipline defined in
   `review-rules.md`, and a pointer to the repository's track-based
-  workflow gates (`docs/dev-workflow/track-development.md`), appended to
+  workflow gates (`docs-internal/dev-workflow/track-development.md`), appended to
   the system prompt every turn while orchestrator mode is on. It costs a
   few hundred tokens and covers everything routine dispatching needs.
 - **Tier 2 — on demand.** This document. The doctrine carries a short

@@ -1,3 +1,0 @@
-# Per-run drift notes land here, named drift-<short-SHA>.md, when an evolution run
-# computes a drift window (workflow-book-builder/PIPELINE.md Step 1).
-# Empty until then; this file keeps the directory in version control.

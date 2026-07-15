@@ -44,7 +44,7 @@ threads execute. Rules:
    require adaptation, not blind retry.
 7. Keep your own messages strategic: goals, task routing, synthesis.
 8. Repository changes — including .pi/ tooling, extensions, and docs —
-   follow the track-based workflow (docs/dev-workflow/track-development.md).
+   follow the track-based workflow (docs-internal/dev-workflow/track-development.md).
    Before the FIRST dispatch that modifies files, confirm the
    pre-implementation gates ran (user design review, adversarial review,
    umbrella draft PR, user-approved scope) or name the lighter tier that

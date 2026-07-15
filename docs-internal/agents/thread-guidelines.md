@@ -2,7 +2,7 @@
 
 Hands-on engineering rules for worker threads — build commands, code style, testing, committing,
 and codebase navigation (may already be injected automatically by the slate extension). Planning,
-verification-scope, and PR rules live in `docs/agents/orchestrator-guidelines.md`.
+verification-scope, and PR rules live in `docs-internal/agents/orchestrator-guidelines.md`.
 
 ## Build Commands
 

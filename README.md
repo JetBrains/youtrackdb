@@ -134,9 +134,9 @@ For more examples covering both server and embedded deployments, check out the
 
 YouTrackDB runs every non-trivial change through a structured development
 workflow: research, design, plan review, track-by-track implementation, and
-review. New contributors can learn to run it end to end in the development
-workflow book, starting at
-[Chapter 1 — The workflow at a glance](docs/workflow-book/chapters/01-workflow-at-a-glance.md).
+review. The full protocol and contributor role guidelines live in the
+internal documentation — start at the
+[project-internal documentation index](docs-internal/README.md).
 
 To understand how the query engine itself works, read *Inside the
 YouTrackDB Query Engine*, a deep-dive book explaining how YouTrackDB

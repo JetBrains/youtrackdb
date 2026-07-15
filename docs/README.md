@@ -7,9 +7,6 @@
 | [Getting Started](getting-started.md) | Tutorial covering schema, CRUD, MATCH traversals, and transactions using YQL |
 | [Object-Oriented Data Modeling](object-oriented.md) | Inheritance, polymorphic queries, property types, schema evolution |
 | [Fine-Grained Security](security.md) | Predicate-based security policies, per-role filtering, ALTER/REVOKE lifecycle |
+| [YQL Reference](yql/README.md) | Reference for the YouTrackDB Query Language (YQL) — commands, functions, methods, syntax, and MATCH traversals |
 | [Query Engine Internals](yql-internals-book/chapters/01-why-a-graph-database.md) | Deep-dive book on how YouTrackDB's YQL/MATCH queries compile and run — parser, pattern graph, cost-based planner, execution steps, traversers, and optimisation layers — in 17 chapters. Start at Chapter 1. |
-| [Development Workflow](workflow-book/chapters/01-workflow-at-a-glance.md) | Contributor onboarding book for the YouTrackDB development workflow — phases, tiers, tracks, and reviews — in 16 chapters. Start at Chapter 1. |
-| [Track-Based Development](dev-workflow/track-development.md) | Mandatory baseline flow for all changes — research, user design review, adversarial review, umbrella draft PR, per-track code review and mandatory user review gate, marker commits |
-| [Satellite Review PRs](dev-workflow/satellite-pr.md) | Draft-only per-track peer-review PRs for multi-track changes (single-track and trivial peer review runs on the umbrella PR) — pinned base/head branches, observation loop, rebase re-pinning, cleanup at merge |
-| [Orchestrator Guidelines](agents/orchestrator-guidelines.md) | Planning and delivery rules for the orchestrator role — track workflow, test policy, pre-commit verification scope, git/PR conventions, documentation sync |
-| [Worker Thread Guidelines](agents/thread-guidelines.md) | Hands-on engineering rules for worker threads — build commands, code style, Spotless, testing, committing, codebase tips |
+| [Project-Internal Documentation (contributors)](../docs-internal/README.md) | Documentation for people working ON YouTrackDB — development workflow, role guidelines, and the Architecture Decision Record archive |

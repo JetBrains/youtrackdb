@@ -199,7 +199,7 @@ never reused.
 
 Per-track sequence:
 
-1. Implement the track (normal commit/test/push discipline per `docs/agents/orchestrator-guidelines.md` and `docs/agents/thread-guidelines.md`).
+1. Implement the track (normal commit/test/push discipline per `docs-internal/agents/orchestrator-guidelines.md` and `docs-internal/agents/thread-guidelines.md`).
 2. MANDATORY agent code review of the cumulative track diff `git diff <prev-marker>..HEAD` —
    correctness, test coverage, style, API surface, documentation sync.
 3. Fix findings as normal commits.
@@ -209,7 +209,7 @@ Per-track sequence:
 5. Land the marker commit.
 6. Update the umbrella PR Tracks table row (status, satellite link); revise Planned changes only
    if reality diverged from it.
-7. Ask the user whether to open a satellite review PR (see `docs/dev-workflow/satellite-pr.md`) —
+7. Ask the user whether to open a satellite review PR (see `docs-internal/dev-workflow/satellite-pr.md`) —
    a peer-review vehicle for separate reviewers, not the primary user review (that already
    happened in step 4). (This ask is multi-track only — for single-track and trivial changes the
    peer-review ask happens at the flip; see § Ready-for-review flip, merge & cleanup.) Once a
@@ -282,7 +282,7 @@ stay agent duties (below). The flip is gated by this pre-flip checklist, execute
 
 Single-track and trivial changes: at the flip the agent asks whether the user wants a peer
 review. If yes, peers review the ready umbrella PR directly — no satellite branches or PR are
-created; the observation loop of `docs/dev-workflow/satellite-pr.md` applies, run on the
+created; the observation loop of `docs-internal/dev-workflow/satellite-pr.md` applies, run on the
 umbrella PR (fixes land as normal commits; no branch re-pinning is needed since the PR head is
 the working branch).
 
@@ -294,7 +294,7 @@ on its next task. The user's merge act is the final approval.
 
 At merge: close all satellite PRs and delete all satellite review branches — an agent duty,
 executed when the user reports the merge or a later session detects it (the leftover discovery
-procedure lives in `docs/dev-workflow/satellite-pr.md` § Cleanup).
+procedure lives in `docs-internal/dev-workflow/satellite-pr.md` § Cleanup).
 
 ## Layering richer workflows on top
 

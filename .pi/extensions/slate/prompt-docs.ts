@@ -13,8 +13,10 @@
 import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 
-export const DEFAULT_ORCHESTRATOR_PROMPT_DOCS = ["docs/agents/orchestrator-guidelines.md"];
-export const DEFAULT_WORKER_PROMPT_DOCS = ["docs/agents/thread-guidelines.md"];
+export const DEFAULT_ORCHESTRATOR_PROMPT_DOCS = [
+	"docs-internal/agents/orchestrator-guidelines.md",
+];
+export const DEFAULT_WORKER_PROMPT_DOCS = ["docs-internal/agents/thread-guidelines.md"];
 
 /**
  * Read each doc (relative paths resolved against cwd) and return one
