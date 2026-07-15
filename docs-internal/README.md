@@ -2,7 +2,7 @@
 
 Project-internal documentation for contributors and agents: the development
 workflow, role guidelines, and the architecture-decision archive. User-facing
-product documentation lives in [`../docs/`](../docs/README.md).
+product documentation lives in the [user documentation index](../docs/README.md).
 
 ## Table of Contents
 
