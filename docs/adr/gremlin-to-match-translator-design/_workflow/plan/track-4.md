@@ -113,3 +113,4 @@ Log — the conservative migration retained the plan Architecture Notes rather t
 ## Base commit
 <!-- Phase B records the HEAD SHA here at session start; Phase C reads it to compute the
 cumulative track diff (conventions-execution.md §2.1 §15). Added by workflow migration (#1145). -->
+952560e19c388322b09c889f849fe2746f8be12d
