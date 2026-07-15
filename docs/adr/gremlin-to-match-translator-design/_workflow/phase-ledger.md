@@ -7,3 +7,4 @@
 [2026-07-08T23:15Z] [ctx=info] phase=C track=3 reconciled_tag=high substate=review-done-track-open
 [2026-07-15T08:41Z] [ctx=safe] track=4 substate=decomposition-pending
 [2026-07-15T12:23Z] [ctx=safe] phase=0 substate=steps-partial
+[2026-07-15T13:31Z] [ctx=warning] phase=A
