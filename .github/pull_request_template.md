@@ -15,7 +15,7 @@ entities from the code — no file paths, no method signatures. Include the subs
 apply: Current state · What changes (contract/behavior) · How (design level) ·
 Key decisions (chosen vs rejected alternatives) · Out of scope · Risks & accepted
 trade-offs · Verification approach. For trivial changes a 2–3 sentence paragraph suffices.
-Guidance: docs/dev-workflow/track-development.md -->
+Guidance: docs-internal/dev-workflow/track-development.md -->
 
 #### Tracks:
 <!-- Multi-track changes only — display index; the source of truth is the marker commits

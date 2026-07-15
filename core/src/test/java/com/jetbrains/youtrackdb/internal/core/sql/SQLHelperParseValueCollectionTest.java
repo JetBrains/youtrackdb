@@ -94,7 +94,7 @@ public class SQLHelperParseValueCollectionTest extends DbTestBase {
   }
 
   /**
-   * Track 7 convention (see {@code docs/adr/unit-test-coverage/tracks/track-7.md} §Conventions):
+   * Track 7 convention (see {@code docs-internal/adr/unit-test-coverage/tracks/track-7.md} §Conventions):
    * any test that opens a transaction must have an {@code @After} net that rolls back a leaked tx,
    * because {@code DbTestBase}'s session is re-used across the test method (within the same DB
    * lifecycle) and an open tx would cascade-fail every subsequent method in this class. Wrapping

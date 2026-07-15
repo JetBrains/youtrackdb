@@ -8,7 +8,7 @@ umbrella PR itself hosts the optional peer review after the agent flips it ready
 There the observation loop (below) applies only in part: observations are read and fixed as
 normal commits under the same completion signal, but the satellite-only mechanics — head
 force-update, next-track blocking — do not apply; the post-flip duties live in
-`docs/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup. The primary
+`docs-internal/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup. The primary
 user review happens in-session as a mandatory per-track gate (see the same doc) and is never
 replaced by a satellite. Two invariants:
 
@@ -63,7 +63,7 @@ decide (keep waiting vs waive completion). Peer-fix commits land after the track
 approval: on a non-final track they fall inside the next track's commit range and are covered by
 that track's mandatory user review; commits after the last user-approved gate (e.g., final-track
 peer fixes) are presented to the user by the pre-flip checklist (see
-`docs/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup). On a
+`docs-internal/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup). On a
 single-track or trivial change's umbrella PR, post-flip peer fixes are instead presented as
 they land (same section).
 
