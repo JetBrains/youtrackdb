@@ -12,13 +12,14 @@ Extends the recognized set with edge-traversal patterns and non-adjacent edge fi
 - [x] Review + decomposition
 - [x] Step implementation
 - [x] Track-level code review
-- [ ] Track completion
+- [x] Track completion
 
 - [x] 2026-07-08T12:30Z [ctx=info] Review + decomposition complete
 - [x] 2026-07-08T14:02Z [ctx=safe] Step 1 complete (commit eb6b03e18c99a0409e998f0899b97464082011bb)
 - [x] 2026-07-08T20:04Z [ctx=safe] Step 2 complete (commit 68be3ed059db36bffa0677c8fffc4e52ad6a4f16)
 - [x] 2026-07-08T22:09Z [ctx=info] Step 3 complete (commit 66010db103, Review fix 6b5740cb6a)
 - [x] 2026-07-08T23:15Z [ctx=info] Track-level code review complete (1 iteration, PASS; 0 blockers, 7 should-fix + 2 suggestions fixed in 9eb2a8c846, 6 suggestions deferred to completion)
+- [x] 2026-07-15 [ctx=safe] Track completion — completed as-is over a 14-commit post-review step-cursor rework (unreviewed by Phase C, per user decision); see Episodes § Track completion
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -75,6 +76,17 @@ Extends the recognized set with edge-traversal patterns and non-adjacent edge fi
   `outE`/`inE` edge filtering (the LDBC-IC2 case) and plain `both(L)` both work; only the narrow
   BOTH-direction *edge-filtered* shape declines to native. Enabling it later needs a new executor
   `otherV` method or a different encoding — out of Track 3 scope. See Episodes §Step 3.
+- 2026-07-15 (Track completion): **Complete Track 3 as-is over an unreviewed post-review rework.**
+  After Phase C recorded PASS at `41dd1b98e5`, a 14-commit step-cursor / recogniser redesign landed
+  (`41dd1b98e5..HEAD`, ~+3084/−1826 across 35 files): a walker-owned `StepCursor` replaced the
+  `WalkerContext.stepIndex` model, the `StepRecogniser` contract became
+  `Outcome recognize(StepCursor, RecognitionContext)`, `VertexStepRecogniser` became a pure router
+  over `VertexHopRecogniser`/`EdgeHopRecogniser`, and `NoOpBarrierRecogniser`/`MatchClassFilters`
+  were deleted (barrier handling absorbed by the cursor; `@class`-narrowing moved to
+  `MatchWhereBuilder.classEquals`). The rework never went through the dimensional review loop. Per
+  user decision the track completes without a re-review; the redesign is test-covered but flagged
+  unreviewed for a PR-time or Phase-4 pass. See Episodes § Track completion for the full record and
+  cross-track impact.
 
 ## Outcomes & Retrospective
 <!-- Continuous-log. -->
@@ -121,6 +133,12 @@ flowchart LR
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
 
+> **Superseded design note.** The Step 1–3 episodes below record the architecture as of the Phase C
+> review pass (`41dd1b98e5`). A post-review rework (see § Track completion) replaced that design:
+> `EdgeStepRecogniser`, `MatchClassFilters`, and `NoOpBarrierRecogniser` no longer exist, and the
+> `StepRecogniser` contract changed. Read § Track completion for the final HEAD architecture; the
+> per-step episodes are kept intact as the audit trail of what the workflow phases produced.
+
 ### Step 1 — commit eb6b03e18c99a0409e998f0899b97464082011bb, 2026-07-08T14:02Z [ctx=safe]
 **What was done:** Converted `GremlinStepWalker` from a for-each loop to index-driven iteration over `WalkerContext.stepIndex`, so one recogniser can claim several steps in a single call: each iteration dispatches `steps.get(cursor)`, the claiming recogniser advances the cursor past every step it consumed, and the walker no longer does an unconditional `++`. A cursor-advance guard (assert plus a defensive decline) turns a recogniser that returns `true` without advancing — an otherwise silent infinite loop — into a loud `AssertionError` under `-ea`. Removed the `MAX_RECOGNISED_STEPS` upper-bound gate (kept the empty-traversal gate). Added the infrastructure the edge recognisers build on: the reserved-prefix pre-flight scan (declines any traversal carrying a `$`-prefixed user label), the anonymous-alias generator on `WalkerContext` (`$g2m_anon_`/`$g2m_edge_` counters and the `edgeFilters` map), and the cursor-advancing `StartStepRecogniser`. A follow-up `Review fix:` commit (8a43f9bd) null-guarded the reserved-prefix scan: a null step label is reachable through `as((String) null)` (`AbstractStep.addLabel` stores it unguarded) and previously made `startsWith` throw an NPE that the strategy's exception net masked to a native decline; the scan now skips a null label so it declines rather than throws, with a regression test. All exercised core tests pass and changed lines clear the coverage thresholds.
 **What was discovered:** The post-`applyStrategies()` dispatch classes (translator disabled, the native folded shape the recognisers will see): `out(L)`/`in(L)`/`both(L)` and the adjacent folded `outE.inV`/`bothE.otherV` all collapse to a single `VertexStep`; the non-adjacent `outE(L).has(...).inV()` arrives unfolded as `VertexStep` (the edge step, `returnsEdge() == true`) plus `HasStep` plus `EdgeVertexStep`, and the `both` analogue closes on `EdgeOtherVertexStep`. No `VertexStepPlaceholder` appears for a literal string label — a parameterised label may still produce one. So a single `VertexStep` recogniser branching on `returnsEdge()` covers bare hops, folded adjacent chains, and the non-adjacent edge step, as the plan anticipated. A step label can be null, so the Step 2–3 recognisers that read `getLabels()` (`as()` projection, hop targets) must null-guard and prefer decline-not-throw. The registry keys for Steps 2–3 are ready: `VertexStep.class` (branch on `returnsEdge()`), `HasStep.class`, `EdgeVertexStep.class`, `EdgeOtherVertexStep.class`; `WalkerContext.edgeFilters` and `nextAnonVertexAlias()`/`nextEdgeAlias()` are wired for the edge recogniser. `FoldedEdgeStepDispatchClassTest` fails loudly if TinkerPop's fold behaviour changes any of those keys.
@@ -141,6 +159,27 @@ flowchart LR
 **What changed from the plan:** Edge filtering was NOT descoped (planner supports the edge-as-node IR), but BOTH-direction edge filtering (`bothE.has.otherV`) is descoped because the MATCH executor lacks `otherV` — recorded in the Decision Log. Path-item construction landed in a new `sql.parser`-package factory (`MatchEdgePathItems`) in addition to extending `MatchPatternBuilder`, forced by the protected `methodName` field; no generated file was edited. Track 4's predicate work builds on the `GremlinPredicateAdapter` skeleton delivered here.
 **Key files:** `EdgeStepRecogniser.java` (new), `GremlinPatternAssembler.java` (new), `GremlinPredicateAdapter.java` (new), `NoOpBarrierRecogniser.java` (new), `MatchEdgePathItems.java` (new), `GremlinStepWalker.java`, `VertexStepRecogniser.java`, `MatchPatternBuilder.java`; tests `EdgeStepRecogniserTest.java` (new), `NoOpBarrierRecogniserTest.java` (new), `GremlinPredicateAdapterTest.java` (new), `EdgeTraversalEquivalenceTest.java`, `VertexStepRecogniserTest.java`, `MatchPatternBuilderTest.java`.
 **Critical context:** `GremlinPredicateAdapter` is the `has()`→WHERE chokepoint Track 4 extends — today it handles only flat scalar `Compare` predicates (eq/neq/lt/lte/gt/gte over a literal) and declines everything else (Contains, `and`/`or`, `hasLabel`, entity-presence). The reserved-`$` namespace is now guarded on two input surfaces (`as()` labels and `has()` keys). Any future both-direction edge feature needs an executor `otherV` method — MATCH has none today.
+
+### Track completion — 2026-07-15 [ctx=safe]
+Track 3 translates edge traversal — `out`/`in`/`both`, the folded `outE(L).inV()` analogues, and non-adjacent edge filtering `outE(L).has(...).inV()` — with native-multiset equivalence pinned by `EdgeTraversalEquivalenceTest` (29 cases). It carries a post-review architectural rework that replaced the walker's index cursor with a walker-owned step-cursor abstraction; the Step 1–3 episodes above describe the superseded pre-rework design.
+
+**Final architecture (HEAD `a49ce502b9`):**
+- The `StepRecogniser` contract is now `Outcome recognize(StepCursor, RecognitionContext)`. A recogniser reads its head with `cursor.take()`, consumes trailing shape steps with `takeIf`/`takeWhile`, contributes through `RecognitionContext`, and returns `ACCEPTED` or `DECLINE`; consumed-step count is implicit in what it takes. The old `boolean recognize(Step, WalkerContext)` plus manual `ctx.stepIndex` advance is gone, and with it the validate-before-mutate rule — a `DECLINE` discards the whole walk. This is the contract Tracks 4–6 implement against.
+- `GremlinStepWalker` owns a `StepStreamCursor` built from `TRANSPARENT_STEPS`; `NoOpBarrierStep` is a transparent step the cursor skips, so `NoOpBarrierRecogniser` was deleted and the barrier never reaches dispatch.
+- `VertexStepRecogniser` is now a pure router that forwards on the `returnsEdge()` split to `VertexHopRecogniser` (bare hop) or `EdgeHopRecogniser` (edge-filter chain, the cursor-rewritten former `EdgeStepRecogniser`). The registry is `{GraphStep→Start, VertexStep→VertexStepRecogniser}`.
+- `MatchClassFilters` was deleted; its `@class`-narrowing moved to `MatchWhereBuilder.classEquals`, pre-positioned for Track 4's folded `hasLabel` with no Track 3 caller yet. `WalkerContext implements RecognitionContext` and no longer holds the traversal or a step index.
+
+**Behavioural changes on top of the reviewed code:**
+- Label-less `out()`/`outE()` now translates (the all-edge-types form), except under `EdgeLabelVerificationStrategy`, which declines so native raises its label-less error.
+- `has(k, neq(v))` no longer over-matches: `GremlinPredicateAdapter` emits `k IS DEFINED AND k <> v`, because the executor treats `<>` on an absent property as true while native excludes absent. `SQLNeqOperator`/`SQLGeOperator` gained `INSTANCE` singletons.
+- A reserved-`$` user label now throws `ReservedAliasException`, which the strategy catches and re-throws — the one case that fails loudly instead of degrading to native, replacing the old silent native decline.
+- `design.md` was reconciled for the reserved-prefix throw semantics and the edge-returning-terminal / edge-property future-work rows (dropping the proposed `BoundaryOutputType.EDGE` for the existing `returnClass = Edge.class` seam).
+
+3 steps, 0 failed.
+
+**Deviation — the post-review rework is unreviewed by Phase C.** Phase C recorded PASS at `41dd1b98e5`; the 14 commits above (`41dd1b98e5..HEAD`, ~+3084/−1826 across 35 files) landed afterward and did not go through the dimensional review loop. Per user decision (2026-07-15), Track 3 completes as-is without a re-review. The rework is coherent and test-covered — dedicated `StepStreamCursorTest`, `VertexHopRecogniserTest`, `EdgeHopRecogniserTest`, and the extended equivalence suite — but the durable record flags it unreviewed; a PR-time or Phase-4 review is the natural place to close the gap.
+
+**Cross-track impact (Tracks 4–6):** the `StepRecogniser` contract is now `Outcome recognize(StepCursor, RecognitionContext)`, so Track 4's predicate recognisers build against this rather than the old `stepIndex` contract. `GremlinPredicateAdapter` remains the `has()`→WHERE chokepoint Track 4 extends (flat scalar `Compare` only today). `MatchWhereBuilder.classEquals` is ready for Track 4's folded `hasLabel` `@class`-narrowing. The Phase-4 design-reconciliation items in `## Surprises & Discoveries` (edge-filter mechanism T1/A1/R1, schema-polymorphism BC2 T3/A2/R2) remain open — the design refactor addressed reserved-prefix and future-work rows, not those two sections.
 
 ## Validation and Acceptance
 - `out(L)` / `in(L)` / `both(L)` and the folded `outE(L).inV()` analogues translate and return the same multiset as native; the boundary emits `Vertex` from the *last hop's target* alias.
