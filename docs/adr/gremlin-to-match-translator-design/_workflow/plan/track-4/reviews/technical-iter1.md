@@ -1,326 +1,168 @@
 <!-- MANIFEST
-findings: 7   severity: {blocker: 2, should-fix: 4, suggestion: 1}
+findings: 3   severity: {blocker: 0, should-fix: 1, suggestion: 2}
 index:
-  - {id: T1, sev: blocker,    loc: "track-4.md:41", anchor: "### T1 ", cert: C8,  basis: "hasId compiles to HasStep(~id) via addHasContainer; no HasIdStep class exists, so a HasIdStepRecogniser cannot compile or be dispatched"}
-  - {id: T2, sev: blocker,    loc: "track-4.md:35", anchor: "### T2 ", cert: C9,  basis: "translator runs before YTDBGraphStepStrategy and GraphStep is not a HasContainerHolder, so hasLabel is a plain HasStep(~label) at translation time; folded-start and YTDBHasLabelStep paths never fire"}
-  - {id: T3, sev: should-fix, loc: "WalkerContext.java:236", anchor: "### T3 ", cert: C11, basis: "putAliasFilter overwrites; two recognisers contributing to one alias (rid+has, class+has, has+where) silently drop the earlier filter -> over-match"}
-  - {id: T4, sev: should-fix, loc: "track-4.md:46", anchor: "### T4 ", cert: C13, basis: "D5 bindParam is placed on WalkerContext but recognisers/adapter see only RecognitionContext; adapter renders inline literals, not SQLPositionalParameter"}
-  - {id: T5, sev: should-fix, loc: "track-4.md:44", anchor: "### T5 ", cert: C12, basis: "edge-bearing NOT needs a WalkerContext list + RecognitionContext sink + buildResult wiring (unlisted); manageNotPatterns also throws when the NOT origin alias carries a filter"}
-  - {id: T6, sev: should-fix, loc: "track-4.md:34", anchor: "### T6 ", cert: C5,  basis: "classEquals emits exact @class= (non-polymorphic); hasLabel in polymorphic mode must match subclasses, so unconditional classEquals under-matches"}
-  - {id: T7, sev: suggestion, loc: "track-4.md:75", anchor: "### T7 ", cert: C6,  basis: "aliasRids[a]/aliasClasses[a] map references and startsWith stub phrasing do not match HEAD (single id uses @rid IN + planner promotion; startsWith is fully built; endsWith/matchesRegex absent)"}
-evidence_base: {section: "## Evidence base", certs: 15, matches: 9}
+  - {id: T1, sev: should-fix, loc: "core/.../translator/strategy/StartStepRecogniser.java:228; MatchWhereBuilder.java:99", anchor: "### T1 ", cert: "P-hasId, I-ridfilter", basis: "hasId ~id branch needs @rid record-attribute IN; MatchWhereBuilder.in emits a plain-property IN that findRidInList rejects and the executor resolves as an absent property -> empty multiset"}
+  - {id: T2, sev: suggestion, loc: "core/.../sql/parser/SQLMatchesCondition.java:281", anchor: "### T2 ", cert: "E-roundtrip", basis: "R2 round-trip site list (copy + toGenericStatement) omits splitForAggregation/equals/hashCode, which also reconstruct the node; a new findMode field would drop there"}
+  - {id: T3, sev: suggestion, loc: "plan/track-4.md:43", anchor: "### T3 ", cert: "P-ytdbhaslabel", basis: "wording: YTDBHasLabelStep class does exist in the tree; what is absent at translation time is a step-list instance"}
+evidence_base: {section: "## Evidence base", certs: 16, matches: 14}
 cert_index:
-  - {id: C1,  verdict: CONFIRMED, anchor: "#### C1 "}
-  - {id: C2,  verdict: CONFIRMED, anchor: "#### C2 "}
-  - {id: C3,  verdict: CONFIRMED, anchor: "#### C3 "}
-  - {id: C4,  verdict: CONFIRMED, anchor: "#### C4 "}
-  - {id: C5,  verdict: PARTIAL,   anchor: "#### C5 "}
-  - {id: C6,  verdict: PARTIAL,   anchor: "#### C6 "}
-  - {id: C7,  verdict: CONFIRMED, anchor: "#### C7 "}
-  - {id: C8,  verdict: WRONG,     anchor: "#### C8 "}
-  - {id: C9,  verdict: WRONG,     anchor: "#### C9 "}
-  - {id: C10, verdict: CONFIRMED, anchor: "#### C10 "}
-  - {id: C11, verdict: WRONG,     anchor: "#### C11 "}
-  - {id: C12, verdict: PARTIAL,   anchor: "#### C12 "}
-  - {id: C13, verdict: CONFIRMED, anchor: "#### C13 "}
-  - {id: C14, verdict: CONFIRMED, anchor: "#### C14 "}
-  - {id: C15, verdict: CONFIRMED, anchor: "#### C15 "}
+  - {id: P-classlist, verdict: MATCHES, anchor: "#### P-classlist "}
+  - {id: P-wherebuilder, verdict: MATCHES, anchor: "#### P-wherebuilder "}
+  - {id: P-classEquals, verdict: MATCHES, anchor: "#### P-classEquals "}
+  - {id: P-cursor, verdict: MATCHES, anchor: "#### P-cursor "}
+  - {id: P-adapter, verdict: MATCHES, anchor: "#### P-adapter "}
+  - {id: P-promote, verdict: MATCHES, anchor: "#### P-promote "}
+  - {id: P-applyprior, verdict: MATCHES, anchor: "#### P-applyprior "}
+  - {id: P-queryequals, verdict: MATCHES, anchor: "#### P-queryequals "}
+  - {id: P-sqlnodes, verdict: MATCHES, anchor: "#### P-sqlnodes "}
+  - {id: E-haskey, verdict: MATCHES, anchor: "#### E-haskey "}
+  - {id: E-hasstep, verdict: MATCHES, anchor: "#### E-hasstep "}
+  - {id: I-andcompose, verdict: MATCHES, anchor: "#### I-andcompose "}
+  - {id: P-hasId, verdict: PARTIAL, anchor: "#### P-hasId "}
+  - {id: I-ridfilter, verdict: PARTIAL, anchor: "#### I-ridfilter "}
+  - {id: E-roundtrip, verdict: PARTIAL, anchor: "#### E-roundtrip "}
+  - {id: P-ytdbhaslabel, verdict: PARTIAL, anchor: "#### P-ytdbhaslabel "}
 flags: [CONTRACT_OK]
 -->
 
-# Track 4 technical review — iteration 1
-
-Reviewer role reviewer-technical, phase 3A. Two blockers: the `Has*`-family
-recogniser split does not survive contact with the real step shapes. `hasId`
-and `hasLabel` are not distinct step classes at translation time — both are a
-plain TinkerPop `HasStep` distinguished only by their `HasContainer` key
-(`~id` / `~label`), and under D9's exact-class dispatch that means one
-`HasStepRecogniser` must unpack all three of `has` / `hasLabel` / `hasId`. The
-track's separate `HasIdStepRecogniser` (keyed on a class that does not exist)
-and `HasLabelStepRecogniser` (keyed on `YTDBHasLabelStep`, which the translator
-never sees) cannot fire. Four should-fixes cover missing interface surface for
-filter composition, D5 parameter binding, and the edge-bearing NOT path.
-
-**Reference-accuracy caveat.** mcp-steroid PSI timed out repeatedly (IDE
-mid-index), so every symbol claim below rests on `find`/`grep` over source plus
-`javap` decompilation of the exact TinkerPop fork jar the build resolves
-(`io.youtrackdb:gremlin-core:3.8.1-af9db90-SNAPSHOT`, matching `pom.xml`
-`gremlin.version`). For the "what does `hasId`/`hasLabel`/`has(key)` compile to"
-questions the jar bytecode is authoritative — more so than PSI, which indexes
-source not the dependency jar. Class-existence negatives (`HasIdStep` absent)
-were taken from `unzip -l` on that jar, so they are exhaustive for the fork.
-
 ## Findings
 
-### T1 [blocker]
-**Certificate**: C8 (Premise: `hasId` step class)
-**Location**: `track-4.md` `## Plan of Work` item 2 (line 41) and `## Interfaces and Dependencies` (line 74) — the `HasIdStepRecogniser` class
-**Issue**: The plan introduces `HasIdStepRecogniser` as a standalone recogniser
-(implicitly keyed on a `HasIdStep` step class, matching the sibling
-`HasStepRecogniser` / `HasLabelStepRecogniser` pattern). No `HasIdStep` class
-exists. `GraphTraversal.hasId(...)` (both the `P` and `Object,Object...`
-overloads) builds a `HasContainer(T.id.getAccessor(), P)` and calls
-`TraversalHelper.addHasContainer(...)`, which appends the container to a
-trailing `HasStep` (or creates a `HasStep`). So `hasId` produces a `HasStep`
-whose container key is `~id` — the same runtime class as `has(k,v)`. Under D9
-the registry keys on the exact runtime class and permits exactly one recogniser
-per class, so `HasStepRecogniser` and `HasIdStepRecogniser` cannot both bind
-`HasStep.class`; and a `HasIdStepRecogniser` referencing `HasIdStep.class` will
-not compile (no such symbol). Compounding it: the current
-`GremlinPredicateAdapter` declines any `~`-prefixed key via
-`WalkerContext.isReservedHasKey`, so an unmodified pipeline declines `hasId`
-outright.
-**Proposed fix**: Drop `HasIdStepRecogniser`. Fold id handling into the single
-`HasStepRecogniser`: iterate `HasStep.getHasContainers()`, and for a container
-whose key equals `T.id.getAccessor()` (`~id`) extract the `P` value(s), convert
-to RIDs, and emit the `@rid IN [...]` filter (reuse
-`StartStepRecogniser.buildRidInExpression` / `MatchWhereBuilder.literalCollectionExpression`
-— the single-id case relies on the planner's `promoteStaticRidsFromFilters`
-collapse, there is no separate `aliasRids` slot). This detection must run
-before the reserved-key decline in the adapter path.
+### T1 [should-fix]
+**Certificate**: P-hasId, I-ridfilter
+**Location**: track-4.md `## Context and Orientation` (line 43) and `## Plan of Work` step 2 (line 51) — the `~id` → `@rid IN [...]` branch; codebase: `StartStepRecogniser.buildRidInExpression` (StartStepRecogniser.java:228-244), `MatchWhereBuilder.in` (MatchWhereBuilder.java:99), `SQLWhereClause.isBareRidExpression` (SQLWhereClause.java:1155-1166).
+**Issue**: The track routes `hasId(...)` through the HasStep recogniser's `~id` branch to an "`@rid IN [...]` WHERE clause on the alias filter", relying on `promoteStaticRidsFromFilters` for the direct-RID fast path. But the only `IN` builder on the shared `MatchWhereBuilder` is `in(field, values)`, whose left side is `fieldExpression(field)` = a plain `SQLIdentifier` (MatchWhereBuilder.java:99, 364-366). An `@rid IN` built that way is wrong on two counts: (a) `promoteStaticRidsFromFilters` recognises a RID-IN only via `findRidInList` → `isBareRidExpression`, which requires the left side to be a `SQLRecordAttribute` named `@rid` (SQLWhereClause.java:1145, 1155-1166) — a plain identifier is never promoted; and (b) the executor resolves a bare identifier `@rid`/`rid` as an ordinary (absent) property, so the filter matches nothing → an empty multiset instead of the id-selected vertices. The only correct construction in the tree is `StartStepRecogniser.buildRidInExpression` (record-attribute left side, RID literals), which is `private static` and is not called out for reuse; the track's `## Interfaces and Dependencies` does not list `StartStepRecogniser` among the modified files. The track also omits id-normalisation for `~id` (the `normaliseIds` decline-on-unconvertible logic StartStepRecogniser carries), and does not note that `hasId` is a filter (set membership), so it must NOT inherit StartStepRecogniser's duplicate-id decline — that exists only because `g.V(ids)` has one-emission-per-occurrence seek semantics.
+**Proposed fix**: In `## Plan of Work` step 2 / `## Interfaces and Dependencies`, state that the `~id` branch builds `@rid IN` via the record-attribute form — extract `StartStepRecogniser.buildRidInExpression` (and the id-normalisation) into a shared helper both recognisers call, rather than `MatchWhereBuilder.in`. Add `StartStepRecogniser` (or a new shared `RidFilters` helper) to the in-scope-modified file list. Note the seek-vs-filter dedup difference so the `~id` path does not decline on repeated ids. Confirmed by the existing acceptance line "`hasId` (single + multi) translate to the same multiset as native".
 
-### T2 [blocker]
-**Certificate**: C9 (Premise: `hasLabel` shape at translation time), C15 (`YTDBHasLabelStep` producer)
-**Location**: `track-4.md` `## Context and Orientation` (lines 34–35) and `## Plan of Work` item 2 (line 41) — the folded-`hasLabel` start-recogniser path and `HasLabelStepRecogniser`
-**Issue**: Both `hasLabel` paths rest on a false ordering premise. The track
-says "`hasLabel(label)` is usually folded by `YTDBGraphStepStrategy` into the
-start step's `hasContainers`, so the start recogniser pins `aliasClasses[a]`"
-and adds a `HasLabelStepRecogniser` for "the YTDB `YTDBHasLabelStep` subclass".
-Neither can fire at translation time:
-- `YTDBGraphStepStrategy.applyPrior()` returns `Set.of(GremlinToMatchStrategy.class)`
-  (line 182), so the translator runs **before** it. `YTDBGraphStepStrategy` is
-  the sole producer of both the GraphStep fold and `YTDBHasLabelStep` (only
-  `new YTDBHasLabelStep` call, line 149). So at translation time no fold has
-  happened and no `YTDBHasLabelStep` exists — a recogniser keyed on
-  `YTDBHasLabelStep.class` is dead code.
-- `GraphStep` is not a `HasContainerHolder` (it implements `Configuring` +
-  `GraphStepContract`, neither of which extends `HasContainerHolder`), so
-  `addHasContainer` never folds `hasLabel` onto the start step either.
-  `g.V().hasLabel("P")` is `GraphStep` + a separate `HasStep[~label eq P]`.
-- `StartStepRecogniser` explicitly **declines** a start step carrying folded
-  containers (lines 106–111: "a HasContainerHolder start step with non-empty
-  containers must still decline"), so the "start recogniser pins the class"
-  path is contradicted by the recogniser as shipped.
+### T2 [suggestion]
+**Certificate**: E-roundtrip
+**Location**: track-4.md `## Plan of Work` step 4 (line 53, the R2 round-trip note) and `## Validation and Acceptance` (line 72); codebase: `SQLMatchesCondition.splitForAggregation` (SQLMatchesCondition.java:275-289), `SQLContainsTextCondition.splitForAggregation` (SQLContainsTextCondition.java:297-307).
+**Issue**: The R2 note enumerates the round-trip sites a new `SQLMatchesCondition` find-mode field must survive as "`copy()` and `toGenericStatement()`". Both are real (SQLMatchesCondition.java:166, 112), but the same class reconstructs itself field-by-field a third time in `splitForAggregation()` (lines 281-288), and carries `equals()`/`hashCode()` (lines 192, 215) that a new field should join. A find-mode field added to only `copy()`/`toGenericStatement()` is silently dropped by `splitForAggregation`. Live reachability in Phase 1 is low: `splitForAggregation` returns `this` unchanged when `isAggregate()` is false (line 278-280), and a Gremlin-translated regex filter (`field MATCHES literal`) is never an aggregate, so the drop cannot fire until aggregations (Track 6) can compose with a translated regex. This is a completeness gap in the site enumeration, not a live bug — but R2's whole purpose is to prevent a silently-dropped field.
+**Proposed fix**: Broaden the R2 note to "must round-trip through `copy()`, `toGenericStatement()`, and `splitForAggregation()`, and be reflected in `equals()`/`hashCode()`", so the implementer updates every reconstruction site when adding the find-mode flag. (`SQLEndsWithCondition` is new, so its author writes all sites at once; the risk is specific to editing the existing `SQLMatchesCondition`.)
 
-Net effect if built as written: `hasLabel` arrives as `HasStep[~label]`,
-`HasStepRecogniser` routes it through the adapter, the adapter declines the
-`~label` reserved key, and the whole traversal declines — the track's "hasLabel
-translates" acceptance line fails.
-**Proposed fix**: Handle `hasLabel` inside the single `HasStepRecogniser`: for
-a container whose key equals `T.label.getAccessor()` (`~label`), translate via
-`MatchWhereBuilder.classEquals` (gated per T6), before the reserved-key
-decline. Delete `HasLabelStepRecogniser` and the folded-start-recogniser
-narrative. Update `## Context`/`## Plan of Work` to state the real shape:
-`has` / `hasLabel` / `hasId` all arrive as one `HasStep` distinguished by
-`HasContainer` key, so one recogniser unpacks all three.
-
-### T3 [should-fix]
-**Certificate**: C11 (Integration: alias-filter composition)
-**Location**: `WalkerContext.java:236` (`putAliasFilter`), `GremlinStepWalker.java:242` (`buildResult` merge); track-4 `## Plan of Work` items 2/5
-**Issue**: `WalkerContext.putAliasFilter` does `aliasFilters.put(alias, where)`
-(overwrite), and `buildResult` merges builder + recogniser filters with
-`putAll` (overwrite). `RecognitionContext` exposes no read or AND-compose for a
-per-alias filter. Track 4 routinely contributes two filters to one alias:
-`g.V(ids).has(k,v)` (start pins `@rid IN` via `putAliasFilter`, then `has`
-overwrites it), `g.V().hasLabel(L).has(k,v)` (classEquals then `has`),
-`has(k,v).where(__.has(...))`, `has(k,v).and(...)`. Each later contribution
-silently drops the earlier filter, so e.g. `g.V(id1,id2).has("age",30)` returns
-every age-30 vertex instead of the two ids — a wrong multiset, violating the
-core translator-on/off equality contract. The plan's "multiple `HasContainer`s
-AND together" covers only containers within a single `HasStep`, not
-cross-recogniser or cross-alias composition.
-**Proposed fix**: Make same-alias contributions AND-compose. Simplest: have
-`putAliasFilter` (and the `buildResult` merge) AND an incoming clause with any
-existing one via `MatchWhereBuilder.and` rather than overwrite; or add a
-`RecognitionContext` read accessor and have recognisers AND explicitly. Add a
-regression test for `g.V(ids).has(...)` and `hasLabel(...).has(...)` on one
-alias.
-
-### T4 [should-fix]
-**Certificate**: C13 (Premise: positional-parameter APIs), C4 (adapter renders inline literals)
-**Location**: `track-4.md` `## Plan of Work` item 7 (line 46), `## Interfaces` (line 74) — `WalkerContext.bindParam`
-**Issue**: D5 says predicate literals "bind as `SQLPositionalParameter` slots
-via a new `bindParam` on `WalkerContext`". Recognisers and
-`GremlinPredicateAdapter` only ever see `RecognitionContext`, which has no
-`bindParam` (nor does `WalkerContext` today). And the adapter renders literals
-**inline** — `MatchLiteralBuilder.toLiteral(value)` returns a concrete
-`SQLExpression`, not a parameter placeholder (`GremlinPredicateAdapter.java:103`).
-So as specified there is no reachable seam for a recogniser to parameterize a
-value, and the value-independent cache key (D5's whole point) cannot form. The
-underlying mechanism is sound — `SQLPositionalParameter.getValue(params)` reads
-`params.get(paramNumber)` and `CommandContext.setInputParameters(map)` exists —
-but the interface surface is under-specified.
-**Proposed fix**: Put `bindParam(value) -> SQLPositionalParameter` (slot
-allocation + value recording) on `RecognitionContext`, implemented by
-`WalkerContext`. Change `GremlinPredicateAdapter` to emit
-`SQLPositionalParameter` for predicate values via that sink instead of inline
-literals. Explicitly state which literals parameterize (predicate comparison
-values) versus stay structural and must **not** (class names for `classEquals`,
-`~label` values, RIDs for `@rid IN`) — a structural token bound as a param
-would serve a wrong plan (D5 risk note).
-
-### T5 [should-fix]
-**Certificate**: C12 (Integration: NOT patterns)
-**Location**: `track-4.md` `## Plan of Work` item 5 (line 44), `## Interfaces` "In scope (modified)" (line 75); `GremlinStepWalker.java:249` (`buildResult`), `MatchExecutionPlanner.java:759-771` (`manageNotPatterns`)
-**Issue**: Edge-bearing `NotStep` is planned to append an `SQLMatchExpression`
-to `notMatchExpressions`, but the wiring does not exist and is not listed as an
-addition. `WalkerContext` has no `notMatchExpressions` field,
-`RecognitionContext` has no sink for it, and `buildResult` never passes it to
-`MatchPlanInputs.builder(...)` (it sets only pattern / aliasClasses /
-aliasFilters / return*). `## Interfaces` "In scope (modified)" for
-`WalkerContext` lists only `bindParam`. Separately, `manageNotPatterns` throws
-`CommandExecutionException` not only when the first NOT alias is absent from the
-positive pattern (line 760 — the track's stated pre-validation, correctly
-backed by `MatchPatternBuilder.hasAlias`) but **also** when the NOT origin alias
-carries a WHERE filter (lines 766–771). Because the plan is built lazily at
-boundary-step execution, either throw is a hard query failure, not a native
-decline.
-**Proposed fix**: Enumerate the three additions (a `notMatchExpressions` list
-on `WalkerContext`, a `RecognitionContext` sink method, and the
-`.notMatchExpressions(...)` call in `buildResult`) in `## Interfaces`
-"In scope (modified)". Add the second precondition to `NotStepRecogniser`'s
-decline set: decline when the first NOT alias would carry a filter.
-
-### T6 [should-fix]
-**Certificate**: C5 (Premise: `classEquals` semantics)
-**Location**: `track-4.md` `## Context` (line 34); `MatchWhereBuilder.java:65` (`classEquals`)
-**Issue**: `MatchWhereBuilder.classEquals` emits exact `@class = 'className'`,
-which its own Javadoc calls out as selecting "exactly the named class, unlike
-the polymorphic MATCH `class:` node type" — it excludes subclass instances.
-Gremlin `hasLabel` is polymorphism-sensitive (`YTDBHasLabelStep` respects the
-`polymorphicQuery` setting via `YTDBLabelMatcher.matchesAny(..., polymorphic)`).
-In polymorphic mode `hasLabel("Person")` must also match `Person`'s subclasses,
-so an unconditional `classEquals` under-matches — a wrong (smaller) multiset.
-`RecognitionContext.polymorphic()` exists precisely for this gate but the track
-never conditions the `classEquals` translation on it. This overlaps the open
-Phase-4 "schema-polymorphism BC2" reconciliation item, but it is live for this
-track because Track 4 is `classEquals`'s first production caller.
-**Proposed fix**: Specify that the `~label` → `classEquals` translation applies
-only when `ctx.polymorphic()` is false; in polymorphic mode either decline
-(safe, keeps native) or emit a subclass-inclusive predicate. Add a
-polymorphic-vs-non-polymorphic `hasLabel` equivalence test.
-
-### T7 [suggestion]
-**Certificate**: C6 (Premise: `MatchWhereBuilder` string/rid methods)
-**Location**: `track-4.md` `## Context` (line 34), `## Plan of Work` items 2/4 (lines 41,43), `## Interfaces` (lines 75,78)
-**Issue**: Minor accuracy drift against HEAD that will mislead the decomposer:
-(1) `aliasRids[a]` / `aliasClasses[a]` are described as map slots the recogniser
-pins, but HEAD has neither on `WalkerContext` — single-id RID handling goes
-through an `@rid IN` alias filter plus the planner's
-`promoteStaticRidsFromFilters` collapse (`StartStepRecogniser` lines 125–133),
-and class narrowing is a WHERE via `classEquals`, not a map entry. (2)
-"`MatchWhereBuilder` (`startsWith` / `endsWith` / `matchesRegex` bodies if
-stubbed in Track 1)" — `startsWith` is fully implemented (not a stub;
-`MatchWhereBuilder.java:152`), and `endsWith` / `matchesRegex` do not exist at
-all, so Track 4 authors them fresh alongside the new `SQLEndsWithCondition` AST
-node and the `SQLMatchesCondition` find-mode.
-**Proposed fix**: Reword to match HEAD: describe rid/class contribution as
-WHERE clauses on the alias filter (not `aliasRids`/`aliasClasses` slots), and
-drop the "if stubbed" hedge — state that `endsWith`/`matchesRegex` are new.
+### T3 [suggestion]
+**Certificate**: P-ytdbhaslabel
+**Location**: track-4.md `## Context and Orientation` (line 43): "neither `YTDBHasLabelStep` nor a `HasIdStep` class exists at translation time"; codebase: `YTDBHasLabelStep.java` exists.
+**Issue**: `YTDBHasLabelStep` resolves to a real class in the tree (`core/.../gremlin/traversal/step/filter/YTDBHasLabelStep.java`); `HasIdStep` does not. The literal claim "class exists at translation time" is true for `HasIdStep` (no such class) but imprecise for `YTDBHasLabelStep` — the class always exists; what is absent at translation time is a `YTDBHasLabelStep` *instance in the step list* (the GraphStep fold that would mint one runs later, in `YTDBGraphStepStrategy`, after the g2m strategy). The surrounding paragraph ("no GraphStep fold has happened … `hasLabel` is never folded onto the start step") already conveys the correct intent, so this is a wording nit, not a design error.
+**Proposed fix**: Reword to distinguish the two: "no `HasIdStep` class exists, and no `YTDBHasLabelStep` instance appears in the step list at translation time (the fold that mints one runs later)."
 
 ## Evidence base
 
-#### C1 Premise: `StepRecogniser` contract is `Outcome recognize(StepCursor, RecognitionContext)`
-- **Track claim**: recognisers implement the post-Track-3 contract, head via `cursor.take()`, trailing via `takeIf`/`takeWhile`, returning `ACCEPTED`/`DECLINE`.
-- **Search performed**: Read `StepRecogniser.java` (grep fallback; PSI down).
-- **Code location**: `StepRecogniser.java:47`
-- **Actual behavior**: `@FunctionalInterface interface StepRecogniser { Outcome recognize(StepCursor cursor, RecognitionContext ctx); }` — package-private; a DECLINE discards the whole walk.
-- **Verdict**: CONFIRMED
+#### P-classlist: every production class named in the track file resolves (or is correctly marked new/deleted)
+- **Track claim**: The four Phase-1 sections + Plan of Work name `MatchWhereBuilder`, `MatchLiteralBuilder`, `MatchPatternBuilder`, `GremlinPredicateAdapter`, `SQLContainsTextCondition`, `SQLMatchesCondition`, `SQLInCondition`, `SQLNotInCondition`, `SQLBetweenCondition`, `QueryOperatorEquals`, `StartStepRecogniser`, `GremlinStepWalker`, `StepRecogniser`, `StepCursor`, `RecognitionContext`, `WalkerContext`, `GremlinToMatchStrategy`, `YTDBGraphStepStrategy`, `MatchEdgePathItems`, `MatchPlanInputs`, `GremlinPatternAssembler`, `MatchExecutionPlanner`, `SQLIsDefinedCondition`, `SQLIsNotDefinedCondition` as existing; `SQLEndsWithCondition`, `HasStepRecogniser`, `TraversalFilterStepRecogniser` as new; `MatchClassFilters`, `HasLabelStepRecogniser`, `HasIdStepRecogniser`, `HasIdStep` as non-existent.
+- **Search performed**: `find … -name '<Class>.java'` over the working tree (mcp-steroid `steroid_execute_code` was non-functional this session — see caveat — so PSI find-class was unavailable; used `find` fallback per the prompt's fallback rule).
+- **Code location**: all "existing" names resolve to a single `core/src/main/java/...` file each; `MatchClassFilters`, `HasLabelStepRecogniser`, `HasIdStepRecogniser`, `HasIdStep`, `SQLEndsWithCondition`, `HasStepRecogniser`, `TraversalFilterStepRecogniser`, `SubTraversalPredicateAdapter`, `GremlinPlanCache` return zero matches in the current tree.
+- **Actual behavior**: Existing names have exactly one non-worktree match at the expected package. The absent-and-planned-new names (`SQLEndsWithCondition`, `HasStepRecogniser`, `TraversalFilterStepRecogniser`) are explicitly marked "In scope (new)" in `## Interfaces and Dependencies`. The absent-and-claimed-deleted `MatchClassFilters` matches the track's "Track 3's rework deleted the interim `MatchClassFilters`". `HasLabelStepRecogniser`/`HasIdStepRecogniser`/`HasIdStep` matching zero confirms the "no separate recogniser / no `HasIdStep` class" claim. Track 5-only names (`SubTraversalPredicateAdapter`, `GremlinPlanCache`) are absent and correctly listed out-of-scope.
+- **Verdict**: MATCHES
+- **Detail**: Reference-accuracy caveat: filename `find` gives an unambiguous single match per name (package matches the reconstructed FQN), so existence is solid; it cannot see reflective/generated references, but none of these names are reached reflectively.
 
-#### C2 Premise: `StepCursor` exposes `take` / `takeIf` / `takeWhile` / `peek` / `peek(int)`
-- **Track claim**: "head via `cursor.take()`, trailing shape via `takeIf`/`takeWhile`".
-- **Search performed**: Read `StepCursor.java`.
-- **Code location**: `StepCursor.java:41-101`
-- **Actual behavior**: `peek()`, `peek(int)`, `take()`, `takeIf(Class,Predicate)`, `takeWhile(Class,Predicate)` (+ single-arg defaults). Matching is exact-class (`step.getClass() == exact`), barriers skipped transparently.
-- **Verdict**: CONFIRMED
+#### P-wherebuilder: MatchWhereBuilder has classEquals/startsWith/isDefined/and but NOT endsWith/matchesRegex
+- **Track claim**: `startsWith` exists; `endsWith` / `matchesRegex` are new here; `classEquals`, `isDefined`, `and`, `containsText`, `in`, `between` exist.
+- **Search performed**: Read of MatchWhereBuilder.java in full.
+- **Code location**: MatchWhereBuilder.java — `classEquals` L65, `op` L82, `in` L99, `notIn` L112, `between` L121, `containsText` L133, `startsWith` L152, `and` L172, `or` L180, `andOptional` L200, `isNull` L229/238, `isDefined` L263, `isNotDefined` L276, `not` L288.
+- **Actual behavior**: No `endsWith` and no `matchesRegex` method present. `classEquals` emits an exact `@class = 'name'` via `SQLRecordAttribute` (L65-76), matching the track's "excludes subclasses" claim. `startsWith` builds the half-open range `>= p AND < p⁺` (L152-159).
+- **Verdict**: MATCHES
 
-#### C3 Premise: `WalkerContext implements RecognitionContext`; no traversal / step index
-- **Track claim**: "`WalkerContext` now implements `RecognitionContext` and no longer holds the traversal or a step index."
-- **Search performed**: Read `WalkerContext.java`, `RecognitionContext.java`.
-- **Code location**: `WalkerContext.java:28`, `RecognitionContext.java:26`
-- **Actual behavior**: `final class WalkerContext implements RecognitionContext`; interface exposes `polymorphic()`, `edgeLabelVerificationEnabled()`, `boundaryAlias()`, alias minting, `addNode`/`addEdge`/`addEdgeAsNode`, `putAliasFilter`, `putEdgeFilter`, `pinBoundary`, `setSingleReturnColumn`. No traversal, strategy list, or index reachable.
-- **Verdict**: CONFIRMED
+#### P-classEquals: MatchWhereBuilder.classEquals has no production caller yet
+- **Track claim**: "`MatchWhereBuilder.classEquals` has no production caller yet — Track 4's folded `hasLabel` is its first."
+- **Search performed**: `grep -rn "classEquals" core/src/main/java --include=*.java | grep -v /test/`.
+- **Code location**: matches only in MatchWhereBuilder.java:65 (declaration) and three Javadoc/comment mentions (VertexHopRecogniser.java:33, WalkerContext.java:76, GremlinPatternAssembler.java:25). No invocation site.
+- **Actual behavior**: `classEquals` is invoked nowhere in production; the three references are prose in Javadoc.
+- **Verdict**: MATCHES
+- **Detail**: Reference-accuracy caveat: grep (not PSI find-usages) — `classEquals` is a plain public method reached by direct call only, so a grep of the identifier is reliable here; no polymorphic/generic dispatch or reflective call path exists.
 
-#### C4 Premise: `GremlinPredicateAdapter` neq-guard + flat-`Compare`-only + inline literals
-- **Track claim**: adapter emits `has(k, neq(v))` as `k IS DEFINED AND k <> v`; handles only flat scalar `Compare`; declines the rest.
-- **Search performed**: Read `GremlinPredicateAdapter.java`.
-- **Code location**: `GremlinPredicateAdapter.java:107-118`, `72-106`
-- **Actual behavior**: `toFilter(HasContainer)` returns `WHERE.and(WHERE.isDefined(key), comparison)` for `Compare.neq`; declines null/blank/reserved keys, non-`Compare` bi-predicates, null values, and unrenderable literal types. Renders the value **inline** via `MatchLiteralBuilder.toLiteral(value)` (line 103) — no parameter binding.
-- **Verdict**: CONFIRMED (the inline-literal fact feeds T4)
+#### P-cursor: StepCursor / StepRecogniser / Outcome contract matches the track's stated shape
+- **Track claim**: recognisers implement `Outcome recognize(StepCursor, RecognitionContext)`; head via `cursor.take()`, trailing shape via `takeIf`/`takeWhile`, returning `ACCEPTED`/`DECLINE`.
+- **Search performed**: Read of StepCursor.java, StepRecogniser.java; grep of Outcome.java.
+- **Code location**: StepRecogniser.java:47 `Outcome recognize(StepCursor cursor, RecognitionContext ctx)`; StepCursor.java `peek()` L47, `peek(int)` L62, `take()` L72, `takeIf` L81/94, `takeWhile` L91/99; Outcome.java:19 `ACCEPTED, DECLINE`.
+- **Actual behavior**: Exactly the post-Track-3 cursor contract the track describes. Matching is by exact class (`step.getClass() == exact`), consistent with the D9 exact-class dispatch premise.
+- **Verdict**: MATCHES
 
-#### C5 Premise: `MatchWhereBuilder.classEquals` exists and is exact (non-polymorphic)
-- **Track claim**: folded-`hasLabel` `@class` narrowing via `MatchWhereBuilder.classEquals`.
-- **Search performed**: Read `MatchWhereBuilder.java`.
-- **Code location**: `MatchWhereBuilder.java:65-76`
-- **Actual behavior**: builds `@class = 'className'` (`SQLRecordAttribute` + `SQLBinaryCondition`); Javadoc: "selects exactly the named class, unlike the polymorphic MATCH `class:` node type"; throws on null/blank. Method exists, but exactness makes it wrong under a polymorphic `hasLabel`.
-- **Verdict**: PARTIAL (produces T6)
+#### P-adapter: GremlinPredicateAdapter is a Compare-only skeleton with the neq presence guard already in place
+- **Track claim**: Track 3 left a skeleton translating only `has(...)` in edge chains; it "already emits `has(k, neq(v))` as `k IS DEFINED AND k <> v`"; other comparisons need auditing.
+- **Search performed**: Read of GremlinPredicateAdapter.java in full.
+- **Code location**: GremlinPredicateAdapter.java `toFilter(HasContainer)` L72; reserved-key decline via `WalkerContext.isReservedHasKey` L77; `Compare` gate L89; `MatchLiteralBuilder.toLiteral` with `IllegalArgumentException` decline L102-106; neq guard `WHERE.and(WHERE.isDefined(key), comparison)` L108-117.
+- **Actual behavior**: Handles the six scalar `Compare` operators over a single literal; declines null/reserved/non-Compare/unrenderable. The `neq` → `IS DEFINED AND <>` guard is present and its inline comment states the other five comparisons need no guard (absent → operator false → excluded, matching native) — exactly the divergence the track says Track 4 audits.
+- **Verdict**: MATCHES
 
-#### C6 Premise: `MatchWhereBuilder` method inventory (in/notIn/startsWith/containsText/and/or/not; no endsWith/matchesRegex)
-- **Track claim**: Track 4 leans on `startsWith` and adds `endsWith`/`matchesRegex` "if stubbed in Track 1".
-- **Search performed**: grep method signatures + Read `MatchWhereBuilder.java`.
-- **Code location**: `MatchWhereBuilder.java:99,112,133,152,172,180,263,276,288`
-- **Actual behavior**: `eq/op/in/notIn/between/containsText/startsWith/and/or/andOptional/isNull/isDefined/isNotDefined/not/wrap` present; `startsWith` fully implemented (half-open range, throws on empty). `endsWith`/`matchesRegex` absent (not stubs).
-- **Verdict**: PARTIAL (produces T7)
+#### P-promote: MatchExecutionPlanner.promoteStaticRidsFromFilters exists and handles @rid IN
+- **Track claim**: the single-`hasId` case relies on `promoteStaticRidsFromFilters` to collapse an `@rid IN` to the direct-RID fetch; multi routes through `@rid IN`.
+- **Search performed**: Read of MatchExecutionPlanner.java L4758-4877.
+- **Code location**: `promoteStaticRidsFromFilters` L4758 (static); handles `@rid = x` via `findRidEquality` (L4772) and `@rid IN [...]` via `findRidInList`+`toPromotedSqlRidList` (L4790-4806, L4831).
+- **Actual behavior**: An `@rid IN [inline-literal-list]` on an alias filter with no involved aliases and an early-calculable right side is promoted to `aliasPinnedRids`; a size-1 IN collapses to a single pinned RID (direct fetch). Inline literals (the track's Track-4 rendering) are early-calculable, so the fast path fires. `SQLWhereClause.findRidInList` recurses into AND/OR blocks (SQLWhereClause.java:953-975), so AND-composing `@rid IN` with a `has` clause preserves promotion (see I-andcompose).
+- **Verdict**: MATCHES
 
-#### C7 Premise: `SQLEndsWithCondition` is new; `SQLMatchesCondition`/`SQLContainsTextCondition` exist
-- **Track claim**: D-TEXT-OPS adds `SQLEndsWithCondition` + find-mode on `SQLMatchesCondition`; collate on `SQLContainsTextCondition`.
-- **Search performed**: `find -name` on each AST node.
-- **Code location**: `SQLMatchesCondition.java`, `SQLContainsTextCondition.java` exist; `SQLEndsWithCondition.java` NOT FOUND.
-- **Actual behavior**: `SQLContainsTextCondition` has `left`/`right` `SQLExpression` fields and a substring-`indexOf` evaluator (no collation today — collate transform is genuinely new). `SQLMatchesCondition` holds a `String right` regex. `SQLEndsWithCondition` does not exist — correctly a new node this track creates.
-- **Verdict**: CONFIRMED
+#### P-applyprior: YTDBGraphStepStrategy.applyPrior() names GremlinToMatchStrategy
+- **Track claim**: "The g2m translator runs before `YTDBGraphStepStrategy` (`YTDBGraphStepStrategy.applyPrior()` returns `{GremlinToMatchStrategy.class}`)".
+- **Search performed**: grep of YTDBGraphStepStrategy.java.
+- **Code location**: YTDBGraphStepStrategy.java:181-182 `public Set<...> applyPrior() { return Set.of(GremlinToMatchStrategy.class); }`.
+- **Actual behavior**: Verbatim match — the half-measure strategy lists the translator in its prior set, so TinkerPop's topological sort runs the translator first and the GraphStep fold has not happened at translation time.
+- **Verdict**: MATCHES
 
-#### C8 Premise: `hasId(...)` step class
-- **Track claim**: a `HasIdStepRecogniser` recognises `hasId`.
-- **Search performed**: `unzip -l` on `gremlin-core-3.8.1-af9db90-SNAPSHOT.jar`; `javap -c` on `GraphTraversal.hasId`, `TraversalHelper.addHasContainer`, `T`.
-- **Code location**: `GraphTraversal.hasId(Object,Object...)` bytecode offsets 359–399 and `hasId(P)` 48–62 — build `HasContainer(T.id.getAccessor(), P)` then `TraversalHelper.addHasContainer`. No `HasIdStep.class` in the jar (only `IdStep` in `step/map`, the `id()` step).
-- **Actual behavior**: `hasId` → `HasStep` with a `~id` `HasContainer`. `addHasContainer` appends to a trailing `HasContainerHolder` (`HasStep`) or creates one.
-- **Verdict**: WRONG (produces T1)
+#### P-queryequals: QueryOperatorEquals.equals singleton-unbox and null short-circuit at the cited lines
+- **Track claim**: `## Interfaces … Signatures`: "`QueryOperatorEquals.equals` (lines 63-69 unbox, 71-73 null short-circuit)"; D3 declines size-1 collection equality because of the auto-unbox.
+- **Search performed**: Read of QueryOperatorEquals.java L40-109.
+- **Code location**: QueryOperatorEquals.java L63-69 (Collection size-1 unbox against a scalar, symmetric for left/right), L71-73 (`if (iLeft == null || iRight == null) return false;`).
+- **Actual behavior**: The cited line numbers are exact. The size-1 collection is unboxed to its element before comparison, substantiating the D3 rationale that `P.eq([a])` cannot be faithfully represented at translation time when field cardinality is unknown.
+- **Verdict**: MATCHES
 
-#### C9 Premise: `hasLabel` shape at translation time (folded into start step)
-- **Track claim**: "`hasLabel` is usually folded by `YTDBGraphStepStrategy` into the start step's `hasContainers`, so the start recogniser pins the class."
-- **Search performed**: Read `YTDBGraphStepStrategy` (applyPrior line 181-183, fold body 123-156), `GremlinToMatchStrategy` (applyPrior/applyPost 419-426), `StartStepRecogniser` (106-111); `javap` on `GraphStep` interfaces + `Configuring`/`GraphStepContract`.
-- **Code location**: `YTDBGraphStepStrategy.java:182` (`applyPrior()` = `{GremlinToMatchStrategy.class}`), `StartStepRecogniser.java:106-111`, `GraphStep` implements `Configuring, GraphStepContract` (neither extends `HasContainerHolder`).
-- **Actual behavior**: translator runs before `YTDBGraphStepStrategy`, so no fold has happened at translation time; `GraphStep` is not a `HasContainerHolder`, so `addHasContainer` makes a separate `HasStep[~label]`; and `StartStepRecogniser` declines a start step that carries folded containers. The folded-start premise is false on three counts.
-- **Verdict**: WRONG (produces T2)
+#### P-sqlnodes: SQLMatchesCondition / SQLContainsTextCondition current shape supports the D-TEXT-OPS plan
+- **Track claim**: `SQLMatchesCondition` gets a new find-mode flag and must round-trip; `SQLContainsTextCondition` gets a collate transform (making SQL CONTAINSTEXT collation-aware, R5); `SQLEndsWithCondition` is new.
+- **Search performed**: Read of both files in full.
+- **Code location**: SQLMatchesCondition.java — `evaluate` uses `Pattern.compile(regex).matcher(v).matches()` (L59-72, full/anchored, case-sensitive), `copy()` L166, `toGenericStatement()` L112, `splitForAggregation()` L275; no find-mode field. SQLContainsTextCondition.java — `evaluate` is a plain case-sensitive `String.indexOf > -1` (L42, L63) with no collation, `copy()` L156, `splitForAggregation()` L297.
+- **Actual behavior**: MATCHES emits a full-match; a find-mode flag switching to `.find()` is a coherent addition (Gremlin `TextP.regex` is a partial match). CONTAINSTEXT is currently case-sensitive with no collation, so a collate transform genuinely changes existing SQL semantics on `ci`-collated properties (R5 correctly flagged). Both nodes carry a `splitForAggregation` reconstruction — see E-roundtrip / T2.
+- **Verdict**: MATCHES
 
-#### C10 Premise: `has(key)`→`TraversalFilterStep`, `hasNot(key)`→`NotStep`
-- **Track claim**: bare presence forms desugar (TinkerPop 3.8.1) to `TraversalFilterStep(__.values(key))` / `NotStep(__.values(key))`.
-- **Search performed**: `javap -c` on `GraphTraversal.has(String)` and `hasNot(String)`.
-- **Code location**: `has(String)` bytecode `new TraversalFilterStep` + `__.values` + `addStep`; `hasNot(String)` `new NotStep` + `__.values` + `addStep`.
-- **Actual behavior**: exactly as claimed — distinct step classes, so `TraversalFilterStepRecogniser` / `NotFilterStepRecogniser` keyed on those classes is sound (contrast T1/T2).
-- **Verdict**: CONFIRMED
+#### E-haskey: has(key) desugars to TraversalFilterStep(__.values(key)), not HasStep
+- **Trigger**: `has("k")` single-arg presence form at translation time.
+- **Code path trace**:
+  1. `GraphTraversal.has(String)` in the fork `io.youtrackdb:gremlin-core:3.8.1-af9db90` — javap `-c` of the default method shows `new …/step/filter/TraversalFilterStep` (offset 31) with `__.values([String])` (offset 49) as its child traversal (offset 52 `<init>`).
+  2. `TraversalFilterStep` is `public final class` (javap), so the D9 exact-class key `TraversalFilterStep.class` catches it and no subclass can slip through.
+- **Outcome**: `has(key)` lands as a `TraversalFilterStep`, bypassing `HasStep`/`HasStepRecogniser`, exactly as the track's Plan of Work step 3 requires. The new `TraversalFilterStepRecogniser` Case A must accept only the `__.values(key)` single-child shape and decline other TraversalFilterStep shapes (e.g. `filter(traversal)`) under D3 — feasible; no other Phase-1 track registers `TraversalFilterStep.class`.
+- **Track coverage**: yes (line 43, step 3).
 
-#### C11 Integration: per-alias filter composition
-- **Plan claim**: multiple `HasContainer`s AND together; folded `hasLabel`, `hasId`, and `has` all contribute filters.
-- **Actual entry point**: `WalkerContext.putAliasFilter` (`WalkerContext.java:236`), `GremlinStepWalker.buildResult` merge (`GremlinStepWalker.java:242-243`).
-- **Caller analysis**: `putAliasFilter` does `aliasFilters.put` (overwrite); `buildResult` does `finalAliasFilters.putAll(ctx.aliasFilters)` (overwrite); `RecognitionContext` has no read/AND accessor. `StartStepRecogniser.java:132` already occupies the boundary alias with `@rid IN`.
-- **Breaking change risk**: a second contribution to one alias silently drops the first → over-match (wrong multiset).
-- **Verdict**: MISMATCHES (produces T3)
+#### E-hasstep: has(k,v) / hasLabel / hasId all arrive as one plain HasStep at translation time
+- **Trigger**: `has(k,v)`, `hasLabel(L)`, `hasId(id)` before the provider GraphStep fold.
+- **Code path trace**:
+  1. `GraphStep` (fork) implements `Configuring, GraphStepContract` but NOT `HasContainerHolder` (javap) — so no has-container fold onto the start step is possible before `YTDBGraphStepStrategy` runs.
+  2. The g2m strategy runs before `YTDBGraphStepStrategy` (P-applyprior), so the fold has not happened.
+  3. `GraphTraversal.has(String,Object)` → `has(String,P)` → `new HasContainer(String,P)` → `TraversalHelper.addHasContainer(admin, container)` (javap offsets 54/63/66); `hasLabel(String,String...)` and `hasId(Object,Object...)` likewise route through `TraversalHelper.addHasContainer` (javap). `addHasContainer` appends to a trailing `HasStep` or mints one, producing a plain `HasStep` (a `HasContainerHolder`, `getHasContainers()` per javap).
+  4. `HasStep` is a non-final `public class`, but dispatch is by exact runtime class; `has`/`hasLabel`/`hasId` all produce the plain `HasStep`, and no `HasStep` subclass instance exists at translation time.
+- **Outcome**: One `HasStepRecogniser` keyed on `HasStep.class`, iterating `getHasContainers()` and branching on key (`~label`/`~id`/property), is a sound single-recogniser design — validating the collapse recorded in the superseded pre-split T1/T2 blockers.
+- **Track coverage**: yes (line 43-51).
 
-#### C12 Integration: NOT patterns into the planner
-- **Plan claim**: edge-bearing NOT appends `SQLMatchExpression` to `notMatchExpressions`, pre-validating the first NOT alias.
-- **Actual entry point**: `MatchPlanInputs` has a `notMatchExpressions` component + builder `.notMatchExpressions(...)` (`MatchPlanInputs.java:48,154`); consumed by the additive ctor (`MatchExecutionPlanner.java:516`) and `manageNotPatterns` (`:750-807`).
-- **Caller analysis**: `buildResult` (`GremlinStepWalker.java:249-256`) does not call `.notMatchExpressions(...)`; `WalkerContext` has no such list; `RecognitionContext` has no sink. `manageNotPatterns` throws on absent first alias (`:760`) **and** on a filter on the origin alias (`:766-771`). `MatchPatternBuilder.hasAlias` (`:244`) exists for the pre-check.
-- **Breaking change risk**: without the added wiring the edge-bearing NOT cannot reach the planner; the second precondition, if unhandled, throws at execution.
-- **Verdict**: MISMATCHES / CALLERS AT RISK (produces T5)
+#### I-andcompose: same-alias filter contributions must AND-compose; putAliasFilter/buildResult currently overwrite
+- **Plan claim**: "`putAliasFilter` (and the `buildResult` merge) must AND an incoming clause with any existing one via `MatchWhereBuilder.and` rather than replace it"; the scenario `g.V(ids).has(k,v)` contributes `@rid IN` then `has` to one alias.
+- **Actual entry point**: `WalkerContext.putAliasFilter` (WalkerContext.java:236) is `aliasFilters.put(alias, where)` — a Map put that OVERWRITES on a same-alias second call; `GremlinStepWalker.buildResult` (GremlinStepWalker.java:239-243) does `new LinkedHashMap<>(ir.aliasFilters()); finalAliasFilters.putAll(ctx.aliasFilters)` — recogniser entries OVERRIDE builder entries on the same alias (Javadoc L237 says exactly this).
+- **Caller analysis**: `StartStepRecogniser.recognize` writes the `g.V(ids)` `@rid IN` filter for the single AND multi case via `ctx.putAliasFilter(BOUNDARY_ALIAS, …)` (StartStepRecogniser.java:132), using a hand-built `@rid` record-attribute IN (L228-244). Track 4's `HasStepRecogniser` writing a `has` filter to the same `BOUNDARY_ALIAS` via `putAliasFilter` would therefore overwrite the `@rid IN` under today's semantics → the exact over-match the track warns of.
+- **Breaking change risk**: The AND-composition change is behavior-additive (Tracks 2-3 never place two filters on one alias, so no existing translated shape changes). `MatchWhereBuilder.and`/`andOptional` (MatchWhereBuilder.java:172/200) exist to compose the clauses; `findRidInList` recursing into AND (SQLWhereClause.java:953-975) means the composed `(@rid IN) AND (has)` still promotes the RID, so the fast path is retained.
+- **Verdict**: MATCHES — the track correctly identifies both merge points and the fix is feasible.
 
-#### C13 Premise: positional-parameter APIs for D5
-- **Track claim**: literals bind as `SQLPositionalParameter`; boundary installs the map via `ctx.setInputParameters(map)`; `SQLPositionalParameter.getValue(params)`.
-- **Search performed**: Read `SQLPositionalParameter.java`; grep `setInputParameters`.
-- **Code location**: `SQLPositionalParameter.java:49-55` (`getValue` = `params.get(paramNumber)`), `44-46` (`toGenericStatement` → `PARAMETER_PLACEHOLDER`); `CommandContext.java:106` + `BasicCommandContext.java:499` (`setInputParameters`).
-- **Actual behavior**: the resolution + generic-statement fingerprint mechanism exists and is sound. The gap is the missing recogniser-facing `bindParam` seam and the adapter's inline-literal rendering (see C4).
-- **Verdict**: CONFIRMED (mechanism); interface gap surfaced in T4
+#### P-hasId: the ~id → @rid IN construction is under-specified (T1)
+- **Track claim**: "`~id` → an `@rid IN [...]` WHERE clause on the alias filter".
+- **Search performed**: Read of StartStepRecogniser.java, MatchWhereBuilder.java, SQLWhereClause.java (findRidInList/isBareRidExpression).
+- **Code location**: `MatchWhereBuilder.in` L99 (plain-identifier left); `StartStepRecogniser.buildRidInExpression` L228-244 (record-attribute left, private); `SQLWhereClause.isBareRidExpression` L1155-1166 (requires `SQLRecordAttribute` `@rid`).
+- **Actual behavior**: The shared builder cannot produce a promotable/executable `@rid IN`; only the private StartStepRecogniser helper can. The track does not name the record-attribute requirement, the helper reuse, the id-normalisation, or the filter-vs-seek dedup difference.
+- **Verdict**: PARTIAL → T1.
 
-#### C14 Premise: `QueryOperatorEquals.equals` singleton unbox + null short-circuit (D3 rationale)
-- **Track claim**: `QueryOperatorEquals.equals` lines 63-69 unbox singletons, 71-73 null short-circuit — justifying the size-1 collection decline.
-- **Search performed**: Read `QueryOperatorEquals.java:55-80`.
-- **Code location**: `QueryOperatorEquals.java:~62-73`
-- **Actual behavior**: if one operand is a size-1 `Collection` and the other is not a `Collection`, it unboxes the singleton; then `if (iLeft == null || iRight == null) return false`. Confirms `P.eq([a])` on an unknown-cardinality field is ambiguous → decline is the safe call.
-- **Verdict**: CONFIRMED
+#### I-ridfilter: promotion + executor both require the @rid record-attribute IN shape (T1)
+- **Plan claim**: single `hasId` collapses to the direct-RID fetch via `promoteStaticRidsFromFilters`.
+- **Actual entry point**: `promoteStaticRidsFromFilters` → `findRidInList` → `tryExtractRidInFromTerm` → `isBareRidExpression` (SQLWhereClause.java:1137-1166).
+- **Caller analysis**: promotion fires only when the IN's left is a bare `@rid` `SQLRecordAttribute`. A `MatchWhereBuilder.in`-built IN (plain identifier) is neither promoted nor matches any record.
+- **Breaking change risk**: If implemented via `MatchWhereBuilder.in`, `hasId` returns an empty multiset (correctness), and even a corrected non-record-attribute form loses the fast path.
+- **Verdict**: PARTIAL → T1.
 
-#### C15 Premise: `YTDBHasLabelStep` type and sole producer
-- **Track claim**: `HasLabelStepRecogniser` handles "the YTDB `YTDBHasLabelStep` subclass".
-- **Search performed**: Read `YTDBHasLabelStep.java`; grep `new YTDBHasLabelStep`.
-- **Code location**: `YTDBHasLabelStep.java:17` (`extends FilterStep<S>`); `YTDBGraphStepStrategy.java:149` (only `new YTDBHasLabelStep`).
-- **Actual behavior**: `YTDBHasLabelStep` is produced only by `YTDBGraphStepStrategy`, which runs after the translator (C9), so it never exists at translation time. A recogniser keyed on it is dead code.
-- **Verdict**: CONFIRMED (reinforces T2)
+#### E-roundtrip: SQLMatchesCondition find-mode field must survive splitForAggregation too (T2)
+- **Trigger**: a new `findMode` boolean added to `SQLMatchesCondition`, then a plan clone / aggregation split.
+- **Code path trace**:
+  1. `copy()` (L166) and `toGenericStatement()` (L112) — the two sites the R2 note lists.
+  2. `splitForAggregation()` (L275-289) reconstructs a fresh `SQLMatchesCondition` field-by-field and would drop a `findMode` not copied there — BUT returns `this` unchanged when `isAggregate()` is false (L278-280), and a Gremlin regex filter (`field MATCHES literal`) is never an aggregate, so the drop is unreachable until Track 6 aggregations can compose with a translated regex.
+  3. `equals()`/`hashCode()` (L192/215) omit a new field unless updated.
+- **Outcome**: No live Phase-1 bug, but the R2 site enumeration is incomplete; a future aggregate+regex combination would silently revert find-mode to full-match.
+- **Track coverage**: partial (only copy/toGenericStatement listed) → T2.
+
+#### P-ytdbhaslabel: YTDBHasLabelStep class exists in the tree (T3)
+- **Track claim**: "neither `YTDBHasLabelStep` nor a `HasIdStep` class exists at translation time".
+- **Search performed**: `find -name 'YTDBHasLabelStep.java' / 'HasIdStep.java'`.
+- **Code location**: `YTDBHasLabelStep.java` exists at `core/.../gremlin/traversal/step/filter/`; `HasIdStep.java` returns zero matches.
+- **Actual behavior**: The `YTDBHasLabelStep` class exists; only a step-list *instance* is absent at translation time (the fold runs later). `HasIdStep` genuinely does not exist.
+- **Verdict**: PARTIAL → T3 (wording precision only; design intent is correct).

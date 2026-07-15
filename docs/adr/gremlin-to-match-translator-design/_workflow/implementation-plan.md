@@ -412,7 +412,9 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > inline literals here; Track 5 flips them to positional parameters when it
   > lands the plan cache. The logical filters and the cache split off to
   > Track 5 (adversarial A1). Detail in plan/track-4.md.
-  > **Scope:** ~16 files covering the predicate adapter (full `P` set), a
+  > **Scope:** ~16 files (+2 if the R2 collation-consistency checks require
+  > editing `QueryOperatorContainsText` / the fulltext path) covering the
+  > predicate adapter (full `P` set), a
   > single `HasStep` recogniser (property / `~label` / `~id` containers) plus
   > the `has(key)` presence recogniser, the two new SQL operators plus the
   > `SQLContainsTextCondition` collate change, and predicate-equivalence +
