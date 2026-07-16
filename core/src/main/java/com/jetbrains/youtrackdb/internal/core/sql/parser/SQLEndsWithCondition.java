@@ -5,6 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
+import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
@@ -58,11 +59,7 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-    // No getCollate(Identifiable) overload exists, so wrap the record in a Result to reuse the same
-    // collation resolution as the Result path. The record is already loaded by the left.execute
-    // above, so the wrapper adds no I/O.
-    var collate = resolveCollate(new ResultInternal(ctx.getDatabaseSession(), currentRecord), ctx);
-    return endsWithCollated(leftValue, rightValue, collate);
+    return endsWithCollated(leftValue, rightValue, resolveCollate(currentRecord, ctx));
   }
 
   @Override
@@ -90,6 +87,45 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
       collate = right.getCollate(record, ctx);
     }
     return collate;
+  }
+
+  /**
+   * Resolves the collation for the {@code evaluate(Identifiable)} scan path without the per-row
+   * {@link ResultInternal} wrapper the {@link Result} overload needs. When the left operand is a
+   * plain property reference on a schema entity, the collation is read straight from the record's
+   * schema class — the same value {@link SQLSuffixIdentifier#getCollate} yields through the wrapper.
+   * A declared property always resolves to a non-null collate (default or {@code ci}), so on the
+   * unindexed ENDSWITH hot path the wrapper is never allocated. Any other shape — a schema-less
+   * field, a nested link chain, a non-entity record — falls through to the wrapper-based resolution
+   * so behavior is unchanged off the common path.
+   */
+  @Nullable
+  private Collate resolveCollate(Identifiable record, CommandContext ctx) {
+    if (left.isBaseIdentifier() && record instanceof EntityImpl entity) {
+      var collate = collateFromSchema(entity, left.getDefaultAlias().getStringValue(), ctx);
+      if (collate != null) {
+        return collate;
+      }
+    }
+    return resolveCollate(new ResultInternal(ctx.getDatabaseSession(), record), ctx);
+  }
+
+  /**
+   * Reads the declared collation of {@code propertyName} straight from {@code entity}'s schema
+   * class. Returns {@code null} for a schema-less record or an undeclared property, which the caller
+   * treats as the raw case-sensitive default.
+   */
+  @Nullable
+  private static Collate collateFromSchema(EntityImpl entity, String propertyName,
+      CommandContext ctx) {
+    var schemaClass = entity.getImmutableSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass != null) {
+      var property = schemaClass.getProperty(propertyName);
+      if (property != null) {
+        return property.getCollate();
+      }
+    }
+    return null;
   }
 
   /** Applies {@code collate} (if any) to both operands, then tests the suffix. */

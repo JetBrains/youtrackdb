@@ -39,11 +39,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-    // No getCollate(Identifiable) overload exists, so wrap the record in a Result to reuse the same
-    // collation resolution as the Result path. The record is already loaded by the left.execute
-    // above, so the wrapper adds no I/O.
-    var collate = resolveCollate(new ResultInternal(ctx.getDatabaseSession(), currentRecord), ctx);
-    return containsCollated(leftValue, rightValue, collate);
+    return containsCollated(leftValue, rightValue, resolveCollate(currentRecord, ctx));
   }
 
   @Override
@@ -116,6 +112,27 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   }
 
   /**
+   * Resolves the collation for the {@code evaluate(Identifiable)} scan path without the per-row
+   * {@link ResultInternal} wrapper the {@link Result} overload needs. When the left operand is a
+   * plain property reference on a schema entity, the collation is read straight from the record's
+   * schema class — the same value {@link SQLSuffixIdentifier#getCollate} yields through the wrapper.
+   * A declared property always resolves to a non-null collate (default or {@code ci}), so on the
+   * unindexed CONTAINSTEXT hot path the wrapper is never allocated. Any other shape — a schema-less
+   * field, a nested link chain, a non-entity record — falls through to the wrapper-based resolution
+   * so behavior is unchanged off the common path.
+   */
+  @Nullable
+  private Collate resolveCollate(Identifiable record, CommandContext ctx) {
+    if (left.isBaseIdentifier() && record instanceof EntityImpl entity) {
+      var collate = collateFromSchema(entity, left.getDefaultAlias().getStringValue(), ctx);
+      if (collate != null) {
+        return collate;
+      }
+    }
+    return resolveCollate(new ResultInternal(ctx.getDatabaseSession(), record), ctx);
+  }
+
+  /**
    * Resolves the declared collation of one named property on {@code record}'s class, for the
    * {@code any()} / {@code all()} paths where the left operand is not a single property reference.
    * Returns {@code null} when the record is not a schema entity or the property has no declared
@@ -123,16 +140,25 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
    */
   @Nullable
   private static Collate collateForProperty(Result record, String propertyName, CommandContext ctx) {
-    if (record != null && record.isEntity()) {
-      var entity = record.asEntityOrNull();
-      if (entity instanceof EntityImpl impl) {
-        var schemaClass = impl.getImmutableSchemaClass(ctx.getDatabaseSession());
-        if (schemaClass != null) {
-          var property = schemaClass.getProperty(propertyName);
-          if (property != null) {
-            return property.getCollate();
-          }
-        }
+    if (record != null && record.isEntity() && record.asEntityOrNull() instanceof EntityImpl impl) {
+      return collateFromSchema(impl, propertyName, ctx);
+    }
+    return null;
+  }
+
+  /**
+   * Reads the declared collation of {@code propertyName} straight from {@code entity}'s schema
+   * class. Returns {@code null} for a schema-less record or an undeclared property, which the callers
+   * treat as the raw case-sensitive default.
+   */
+  @Nullable
+  private static Collate collateFromSchema(EntityImpl entity, String propertyName,
+      CommandContext ctx) {
+    var schemaClass = entity.getImmutableSchemaClass(ctx.getDatabaseSession());
+    if (schemaClass != null) {
+      var property = schemaClass.getProperty(propertyName);
+      if (property != null) {
+        return property.getCollate();
       }
     }
     return null;

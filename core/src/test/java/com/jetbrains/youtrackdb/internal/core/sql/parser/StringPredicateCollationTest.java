@@ -196,6 +196,30 @@ public class StringPredicateCollationTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * On a schema-less (undeclared) field the {@code evaluate(Identifiable)} path has no declared
+   * collation to read, so both CONTAINSTEXT and ENDSWITH fall back to a raw case-sensitive
+   * comparison. This drives the fast-path collate resolution to its miss branch — the schema lookup
+   * finds no property, so the resolution falls through to the operand-based path and yields no
+   * collate — which is the behavior a case-sensitive match confirms.
+   */
+  @Test
+  public void containsTextAndEndsWith_schemalessField_identifiablePathStaysCaseSensitive() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("extra", "Hello World"); // undeclared field: no schema-declared collation
+    var ctx = ctx();
+
+    // CONTAINSTEXT: exact case matches, differing case does not (no ci collation applies).
+    assertTrue(builder.containsText("extra", "World").evaluate((Identifiable) e, ctx));
+    assertFalse(builder.containsText("extra", "world").evaluate((Identifiable) e, ctx));
+
+    // ENDSWITH: same raw case-sensitive fallback on the schema-less field.
+    assertTrue(builder.endsWith("extra", "World").evaluate((Identifiable) e, ctx));
+    assertFalse(builder.endsWith("extra", "WORLD").evaluate((Identifiable) e, ctx));
+    session.commit();
+  }
+
   // ── regex evaluation (find-mode SQLMatchesCondition) ──
 
   /**
