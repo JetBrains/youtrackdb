@@ -29,6 +29,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.CommonStorageComponentEx
 import com.jetbrains.youtrackdb.internal.core.exception.CoreException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ComponentEpochRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
@@ -68,24 +69,40 @@ public class AtomicOperationsManager {
   private final OperationsFreezer writeOperationsFreezer = new OperationsFreezer();
   private final AtomicOperationsTable atomicOperationsTable;
 
-  // Apply-phase epoch shared by all atomic operations of this storage. Owned here (one
-  // manager per storage) rather than by ReadCache, because on the disk engine a single
-  // read cache is shared by all storages of the engine — an engine-global epoch would
-  // let commits in one database spuriously invalidate optimistic reads in another.
-  // Writers bump it around the cache-apply section of commitChanges; readers capture
-  // and validate it via OptimisticReadScope.
-  private final ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
+  // Per-storage registry mapping every component-owned fileId to the owning component's
+  // apply-phase epoch (YTDB-1203). Owned here (one manager per storage) rather than by
+  // ReadCache, because on the disk engine a single read cache is shared by all storages
+  // of the engine — engine-global epochs would let commits in one database spuriously
+  // invalidate optimistic reads in another. Populated by the
+  // StorageComponent.addFile/openFile funnel — possibly under the storage stateLock READ
+  // side (SharedLinkBagBTree creation during normal transactions), hence the lock-free
+  // concurrent registry; entries are never removed. Writers resolve their mutated
+  // fileIds through the registry in AtomicOperationBinaryTracking.commitChanges and bump
+  // each distinct resolved epoch around the cache-apply section; readers capture and
+  // validate their component's epoch via OptimisticReadScope.
+  private final ComponentEpochRegistry componentEpochRegistry = new ComponentEpochRegistry();
 
   /**
-   * TEST-ONLY accessor for this storage's apply-phase epoch, exposed package-private for
-   * the test bridge in the same test package (used by the YTDB-1178 mixed-apply-state
-   * regression tests to make baseline-relative assertions on the epoch counters).
-   * Production code must not call this — writers bump the epoch only through
-   * {@code AtomicOperationBinaryTracking.commitChanges} and readers observe it only
-   * through {@code OptimisticReadScope}.
+   * Maps {@code fileId} to the given component's apply-phase epoch in this storage's
+   * registry. Called exclusively from the {@link StorageComponent#addFile}/{@code
+   * openFile} funnel; overwrites any previous mapping (fileId reuse on same-name
+   * recreate) and never removes entries — see {@link ComponentEpochRegistry}.
    */
-  ApplyPhaseEpoch getApplyPhaseEpoch() {
-    return applyPhaseEpoch;
+  public void registerComponentEpoch(final long fileId, @Nonnull final ApplyPhaseEpoch epoch) {
+    componentEpochRegistry.register(fileId, epoch);
+  }
+
+  /**
+   * Returns this storage's fileId → component-epoch registry. Consulted by
+   * {@code AtomicOperationBinaryTracking.commitChanges} to resolve the epochs of the
+   * components a commit mutates, and by the -ea-only invariant checks in
+   * {@link StorageComponent}; tests resolve per-component epochs through the test bridge.
+   * Production code must not bump epochs directly — writers bump them only through
+   * {@code commitChanges} and readers observe them only through
+   * {@code OptimisticReadScope}.
+   */
+  public ComponentEpochRegistry getComponentEpochRegistry() {
+    return componentEpochRegistry;
   }
 
   public AtomicOperationsManager(
@@ -121,7 +138,7 @@ public class AtomicOperationsManager {
         snapshot, storage.getSharedSnapshotIndex(), storage.getVisibilityIndex(),
         storage.getSnapshotIndexSize(),
         storage.getSharedEdgeSnapshotIndex(), storage.getEdgeVisibilityIndex(),
-        storage.getEdgeSnapshotIndexSize(), applyPhaseEpoch);
+        storage.getEdgeSnapshotIndexSize(), componentEpochRegistry);
   }
 
   public void startToApplyOperations(AtomicOperation atomicOperation) {

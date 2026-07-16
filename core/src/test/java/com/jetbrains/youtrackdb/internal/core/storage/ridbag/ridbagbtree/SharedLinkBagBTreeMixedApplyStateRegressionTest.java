@@ -243,10 +243,14 @@ public class SharedLinkBagBTreeMixedApplyStateRegressionTest {
    * </ol>
    */
   private void runMixedStateScenario(LookupAssertion lookup) throws Exception {
-    final var epoch = AtomicOperationTestBridge.applyPhaseEpoch(atomicOperationsManager);
+    // Per-component epoch (YTDB-1203): resolve the epoch of the SLBB component under
+    // test through its file id — the writer's commit mutates only this component's file,
+    // so its epoch carries the single bump pair the assertions below track.
+    final var epoch = AtomicOperationTestBridge.applyPhaseEpoch(
+        atomicOperationsManager, bTree.getFileId());
     // Baseline is captured while no operation is running (setUp's operations have
     // committed). Never assert absolute epoch values — every commit that mutates
-    // shared cache state bumps the epoch, and this storage is shared across tests.
+    // this component's files bumps the epoch, and this storage is shared across tests.
     final long baseEnter = epoch.enterSeq();
     final long baseExit = epoch.exitSeq();
     assertEquals("epoch must be quiescent at baseline", baseEnter, baseExit);

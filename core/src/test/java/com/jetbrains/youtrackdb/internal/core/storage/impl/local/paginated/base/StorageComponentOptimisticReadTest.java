@@ -519,9 +519,10 @@ public class StorageComponentOptimisticReadTest {
   public void testFallbackToPinnedWhenApplyPhaseInFlightAtCapture() throws IOException {
     // A commit apply phase already in flight when the read starts must fail epoch
     // validation (the capture sees enterSeq != exitSeq) and run the pinned lambda —
-    // even though the page's stamp stays valid the whole time.
-    var epoch = new ApplyPhaseEpoch();
-    scope = new OptimisticReadScope(epoch);
+    // even though the page's stamp stays valid the whole time. The component under test
+    // resets the scope against ITS OWN epoch (YTDB-1203), so the test bumps that epoch.
+    var epoch = component.testApplyPhaseEpoch();
+    scope = new OptimisticReadScope();
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
@@ -550,9 +551,10 @@ public class StorageComponentOptimisticReadTest {
   public void testFallbackToPinnedWhenApplyPhaseBeginsMidRead() throws IOException {
     // Epoch quiescent at capture, but a writer enters (and even completes) an apply
     // phase between the page read and validation. The live enterSeq no longer matches
-    // the captured value → epoch check fails → pinned fallback runs.
-    var epoch = new ApplyPhaseEpoch();
-    scope = new OptimisticReadScope(epoch);
+    // the captured value → epoch check fails → pinned fallback runs. The component under
+    // test resets the scope against ITS OWN epoch (YTDB-1203), so the test bumps that.
+    var epoch = component.testApplyPhaseEpoch();
+    scope = new OptimisticReadScope();
     when(mockAtomicOp.getOptimisticReadScope()).thenReturn(scope);
 
     var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
@@ -971,6 +973,10 @@ public class StorageComponentOptimisticReadTest {
 
     long testAddFile(AtomicOperation op, String fileName) throws IOException {
       return addFile(op, fileName);
+    }
+
+    ApplyPhaseEpoch testApplyPhaseEpoch() {
+      return applyPhaseEpoch();
     }
 
     <T> T testExecuteOptimisticStorageReadWithNullRecheck(

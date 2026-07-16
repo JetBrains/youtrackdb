@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.StorageComponent;
@@ -36,12 +37,33 @@ public final class CollectionDirtyPageBitSet extends StorageComponent {
   /** Internal file ID assigned by the disk cache when the .dpb file is opened/created. */
   private long fileId;
 
+  /**
+   * Standalone constructor (tests only): the bit set owns a private apply-phase epoch.
+   * Production instances are created by {@link PaginatedCollectionV2} via the
+   * epoch-taking overload below.
+   */
   public CollectionDirtyPageBitSet(
       @Nonnull AbstractStorage storage,
       @Nonnull String name,
       String extension,
       String lockName) {
     super(storage, name, extension, lockName, true);
+  }
+
+  /**
+   * Production constructor used by {@link PaginatedCollectionV2}: the bit set shares the
+   * parent collection's apply-phase epoch (YTDB-1203). The bit set is never read
+   * optimistically, so sharing the parent epoch only means commits touching {@code .dpb}
+   * pages bump the family epoch — harmless for readers, and it keeps every family file
+   * resolvable at commit time.
+   */
+  CollectionDirtyPageBitSet(
+      @Nonnull AbstractStorage storage,
+      @Nonnull String name,
+      String extension,
+      String lockName,
+      @Nonnull ApplyPhaseEpoch parentEpoch) {
+    super(storage, name, extension, lockName, true, parentEpoch);
   }
 
   /**

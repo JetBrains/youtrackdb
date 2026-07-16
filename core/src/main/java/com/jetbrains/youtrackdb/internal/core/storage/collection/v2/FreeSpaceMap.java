@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
@@ -87,12 +88,31 @@ public final class FreeSpaceMap extends StorageComponent {
   /** Internal file ID assigned by the disk cache when the .fsm file is opened/created. */
   private volatile long fileId;
 
+  /**
+   * Standalone constructor (tests only): the free-space map owns a private apply-phase
+   * epoch. Production instances are created by {@link PaginatedCollectionV2} via the
+   * epoch-taking overload below.
+   */
   public FreeSpaceMap(
       @Nonnull AbstractStorage storage,
       @Nonnull String name,
       String extension,
       String lockName) {
     super(storage, name, extension, lockName, true);
+  }
+
+  /**
+   * Production constructor used by {@link PaginatedCollectionV2}: the free-space map
+   * shares the parent collection's apply-phase epoch (YTDB-1203) so its optimistic reads
+   * and the collection's commits agree on a single epoch for the whole family.
+   */
+  FreeSpaceMap(
+      @Nonnull AbstractStorage storage,
+      @Nonnull String name,
+      String extension,
+      String lockName,
+      @Nonnull ApplyPhaseEpoch parentEpoch) {
+    super(storage, name, extension, lockName, true, parentEpoch);
   }
 
   public boolean exists(final AtomicOperation atomicOperation) {

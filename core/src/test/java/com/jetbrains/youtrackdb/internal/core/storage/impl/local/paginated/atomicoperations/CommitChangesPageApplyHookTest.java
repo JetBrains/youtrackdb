@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ComponentEpochRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
@@ -132,7 +133,10 @@ public class CommitChangesPageApplyHookTest {
         new ConcurrentSkipListMap<>(),
         new ConcurrentSkipListMap<>(),
         new AtomicLong(),
-        epoch);
+        // Uniform registry: every fileId resolves to the single shared test epoch,
+        // mirroring the pre-per-component (storage-wide) bump semantics these tests
+        // assert on (YTDB-1203 compile adaptation; full test rework tracked separately).
+        ComponentEpochRegistry.uniform(epoch));
     op.startToApplyOperations(42);
     return op;
   }
@@ -281,8 +285,8 @@ public class CommitChangesPageApplyHookTest {
 
       // Overlapping reader (a different operation sharing the storage epoch): capture
       // now → validation must fail deterministically.
-      var readerScope = new OptimisticReadScope(epoch);
-      readerScope.reset();
+      var readerScope = new OptimisticReadScope();
+      readerScope.reset(epoch);
       try {
         readerScope.validateOrThrow();
         Assert.fail("Reader overlapping a mid-apply writer must fail epoch validation");
@@ -302,8 +306,8 @@ public class CommitChangesPageApplyHookTest {
     Assert.assertEquals(List.of(0L, 1L), appliedPageOrder);
     Assert.assertEquals(1, epoch.enterSeq());
     Assert.assertEquals(1, epoch.exitSeq());
-    var readerScope = new OptimisticReadScope(epoch);
-    readerScope.reset();
+    var readerScope = new OptimisticReadScope();
+    readerScope.reset(epoch);
     readerScope.validateOrThrow();
   }
 
@@ -332,8 +336,8 @@ public class CommitChangesPageApplyHookTest {
     // Bracket balanced despite the exception — a fresh reader capture passes.
     Assert.assertEquals(1, epoch.enterSeq());
     Assert.assertEquals(1, epoch.exitSeq());
-    var readerScope = new OptimisticReadScope(epoch);
-    readerScope.reset();
+    var readerScope = new OptimisticReadScope();
+    readerScope.reset(epoch);
     readerScope.validateOrThrow();
   }
 

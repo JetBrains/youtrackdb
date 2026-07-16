@@ -26,6 +26,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.common.function.TxFunction;
 import com.jetbrains.youtrackdb.internal.common.log.LogManager;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
@@ -90,14 +91,45 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
   private final boolean durable;
 
+  // Apply-phase epoch guarding optimistic reads of this component's files (YTDB-1203).
+  // Top-level components own a private instance; sub-components receive their parent's
+  // instance so one optimistic read spanning parent and sub-component files (e.g., a
+  // collection's .pcl + its position map's .cpm) validates a single epoch. Every fileId
+  // this component creates or opens is mapped to this epoch in the per-storage
+  // ComponentEpochRegistry (see addFile/openFile below); committing operations resolve
+  // their mutated fileIds through that registry and bump each distinct resolved epoch.
+  private final ApplyPhaseEpoch applyPhaseEpoch;
+
+  /**
+   * Constructor for top-level components: allocates a private {@link ApplyPhaseEpoch}
+   * for this component. Sub-components constructed and owned by another component must
+   * use the epoch-taking overload with the parent's {@link #applyPhaseEpoch()} instead.
+   */
   public StorageComponent(
       @Nonnull final AbstractStorage storage,
       @Nonnull final String name,
       final String extension,
       final String lockName,
       final boolean durable) {
+    this(storage, name, extension, lockName, durable, new ApplyPhaseEpoch());
+  }
+
+  /**
+   * Constructor for sub-components that share their parent component's apply-phase
+   * epoch (YTDB-1203) — e.g., {@code CollectionPositionMapV2}, {@code FreeSpaceMap} and
+   * {@code CollectionDirtyPageBitSet} receive {@code PaginatedCollectionV2}'s epoch so
+   * one optimistic read spanning the family's files validates a single epoch.
+   */
+  protected StorageComponent(
+      @Nonnull final AbstractStorage storage,
+      @Nonnull final String name,
+      final String extension,
+      final String lockName,
+      final boolean durable,
+      @Nonnull final ApplyPhaseEpoch applyPhaseEpoch) {
     super();
 
+    assert applyPhaseEpoch != null : "applyPhaseEpoch must not be null";
     this.extension = extension;
     this.storage = storage;
     this.fullName = name + extension;
@@ -107,6 +139,16 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     this.writeCache = storage.getWriteCache();
     this.lockName = lockName;
     this.durable = durable;
+    this.applyPhaseEpoch = applyPhaseEpoch;
+  }
+
+  /**
+   * Returns the apply-phase epoch guarding optimistic reads of this component's files.
+   * A component that constructs sub-components must hand them this instance (via the
+   * epoch-taking constructor overload) so the whole family shares one epoch.
+   */
+  protected final ApplyPhaseEpoch applyPhaseEpoch() {
+    return applyPhaseEpoch;
   }
 
   /** Returns {@code true} if this component participates in WAL crash recovery. */
@@ -276,7 +318,51 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       @Nonnull final AtomicOperation atomicOperation, final long fileId, final long pageIndex)
       throws IOException {
     assert atomicOperation != null;
+    // -ea-only pinned-inside-optimistic guard (YTDB-1203, review finding AR-1): a pinned
+    // read issued while an optimistic attempt is in flight (the pattern used by the
+    // position-map delegates and the BTree/SharedLinkBagBTree firstItem/lastItem
+    // descents) is epoch-safe only if the file belongs to the same epoch the scope
+    // captured at reset — the scope records nothing for pinned pages, so a pinned
+    // delegate into a DIFFERENT top-level component would escape epoch validation
+    // entirely, silently resurrecting the YTDB-1178 mixed-apply-state bug.
+    assert pinnedReadEpochConsistent(atomicOperation, fileId)
+        : "Pinned read of file " + fileId + " inside an optimistic attempt of component "
+            + getLockName() + " whose captured epoch does not guard that file";
     return atomicOperation.loadPageForRead(fileId, pageIndex);
+  }
+
+  /**
+   * -ea-only helper backing the pinned-inside-optimistic guard in
+   * {@link #loadPageForRead(AtomicOperation, long, long)}. Passes trivially when no
+   * optimistic attempt is in flight (plain pinned reads are epoch-independent — this
+   * includes the pinned fallback lambdas, which run after the attempt was closed) or
+   * when no scope/registry is reachable (mock operations and managers in unit tests).
+   */
+  private boolean pinnedReadEpochConsistent(
+      final AtomicOperation atomicOperation, final long fileId) {
+    final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    if (scope == null || !scope.isAttemptActive()) {
+      return true;
+    }
+    return registeredEpochIs(fileId, scope.capturedEpoch());
+  }
+
+  /**
+   * -ea-only helper: whether the per-storage component-epoch registry maps
+   * {@code fileId} to exactly (reference equality) the given epoch. Lenient when no
+   * registry is reachable (mock managers in unit tests); with a real registry, both a
+   * missing entry and a different owner are violations — either way the page would not
+   * be covered by the epoch the current scope validates.
+   */
+  private boolean registeredEpochIs(final long fileId, final ApplyPhaseEpoch expected) {
+    if (atomicOperationsManager == null) {
+      return true;
+    }
+    final var registry = atomicOperationsManager.getComponentEpochRegistry();
+    if (registry == null) {
+      return true;
+    }
+    return registry.epochFor(fileId) == expected;
   }
 
   protected void releasePageFromWrite(
@@ -295,13 +381,24 @@ public abstract class StorageComponent extends SharedResourceAbstract {
   protected long addFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.addFile(fileName, !durable);
+    final long fileId = atomicOperation.addFile(fileName, !durable);
+    // Map the new file to this component's epoch so commit-time apply phases and
+    // optimistic readers agree on which epoch guards its pages (YTDB-1203). Entries are
+    // never removed — the commit that later deletes the file must itself resolve this
+    // fileId to bump the epoch; a same-name recreate that reuses the fileId simply
+    // overwrites the mapping with the new owner.
+    atomicOperationsManager.registerComponentEpoch(fileId, applyPhaseEpoch);
+    return fileId;
   }
 
   protected long openFile(@Nonnull final AtomicOperation atomicOperation, final String fileName)
       throws IOException {
     assert atomicOperation != null;
-    return atomicOperation.loadFile(fileName);
+    final long fileId = atomicOperation.loadFile(fileName);
+    // See the registration comment in addFile above — open re-registers on every storage
+    // open, which also refreshes the mapping after a same-name delete/recreate cycle.
+    atomicOperationsManager.registerComponentEpoch(fileId, applyPhaseEpoch);
+    return fileId;
   }
 
   protected void deleteFile(@Nonnull final AtomicOperation atomicOperation, final long fileId)
@@ -570,6 +667,14 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     }
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
+    // -ea-only epoch-coverage invariant (YTDB-1203): the recorded page must belong to a
+    // file guarded by the same epoch the scope captured at reset — i.e., an optimistic
+    // lambda must not span files of two different top-level components, because one
+    // attempt validates exactly one epoch. Sub-component files pass because they are
+    // registered under the parent component's epoch instance.
+    assert registeredEpochIs(fileId, scope.capturedEpoch())
+        : "Optimistic read of file " + fileId + " in component " + getLockName()
+            + " whose registered epoch differs from the scope's captured epoch";
     scope.record(frame, stamp);
 
     return new PageView(frame.getBuffer(), frame, stamp);
@@ -599,7 +704,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset();
+    // Capture THIS component's epoch for the attempt: the scope is shared across all
+    // components read by the same atomic operation, so the epoch is re-captured per
+    // attempt rather than fixed at scope construction (YTDB-1203).
+    scope.reset(applyPhaseEpoch);
     // -ea-only guard against nested optimistic read attempts: a nested
     // executeOptimisticStorageRead call from inside an optimistic lambda would wipe the
     // outer scope's stamps via reset(), silently voiding the outer validation. Kept
@@ -668,8 +776,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset();
-    // See the nesting-guard comments in the T-returning overload above.
+    // See the epoch-capture and nesting-guard comments in the T-returning overload above.
+    scope.reset(applyPhaseEpoch);
     assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
     var attemptClosedByFallback = false;
@@ -742,8 +850,8 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     assert atomicOperation != null;
 
     final OptimisticReadScope scope = atomicOperation.getOptimisticReadScope();
-    scope.reset();
-    // See the nesting-guard comments in executeOptimisticStorageRead.
+    // See the epoch-capture and nesting-guard comments in executeOptimisticStorageRead.
+    scope.reset(applyPhaseEpoch);
     assert scope.enterAttempt() : "Nested optimistic read attempt on " + getLockName();
 
     final T result;

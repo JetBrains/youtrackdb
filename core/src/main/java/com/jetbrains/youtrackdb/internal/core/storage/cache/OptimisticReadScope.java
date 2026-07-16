@@ -14,14 +14,21 @@ import java.util.Arrays;
  *       committing transaction applies its changes page-by-page, so a reader overlapping
  *       that apply window can see a mix of pre- and post-commit pages while every stamp
  *       stays valid.
- *   <li><b>Apply-phase epoch</b> — the cross-page consistency guarantee. {@link #reset()}
- *       captures the storage's {@link ApplyPhaseEpoch} counters and
+ *   <li><b>Apply-phase epoch</b> — the cross-page consistency guarantee.
+ *       {@link #reset(ApplyPhaseEpoch)} captures the counters of the target
+ *       <em>component's</em> {@link ApplyPhaseEpoch} (YTDB-1203) and
  *       {@link #validateOrThrow()} re-checks them after the stamp loop; the read fails if
- *       any commit-time apply phase overlapped the read window.
+ *       a commit-time apply phase of that component overlapped the read window. One
+ *       attempt validates exactly one epoch, so an optimistic lambda must not span files
+ *       of two different top-level components (sub-components share the parent's epoch
+ *       instance, which is what makes multi-file reads like collection + position map
+ *       sound).
  * </ul>
  *
  * <p>Stored in {@code AtomicOperation} and reused across optimistic read attempts within
- * the same transaction. {@link #reset()} is called before each attempt.
+ * the same transaction — including attempts on <em>different</em> components, which is
+ * why the epoch is re-captured per attempt via {@link #reset(ApplyPhaseEpoch)} rather
+ * than fixed at construction.
  *
  * <p>Not thread-safe — each AtomicOperation belongs to a single thread.
  */
@@ -29,8 +36,11 @@ public final class OptimisticReadScope {
 
   private static final int INITIAL_CAPACITY = 8;
 
-  // Per-storage apply-phase epoch shared with all writers of the same storage.
-  private final ApplyPhaseEpoch applyPhaseEpoch;
+  // Apply-phase epoch of the component the CURRENT read attempt targets; set by
+  // reset(ApplyPhaseEpoch) before each attempt. Initialized to a private, never-bumped
+  // epoch so scopes used without a reset (standalone tests, tooling) trivially pass the
+  // epoch check and only per-page stamp validation applies.
+  private ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
 
   private PageFrame[] frames;
   private long[] stamps;
@@ -52,20 +62,13 @@ public final class OptimisticReadScope {
   private boolean nestedResetDetected;
 
   /**
-   * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
-   * with concurrent writers: allocates a private {@link ApplyPhaseEpoch} that no writer
-   * ever bumps, so epoch validation trivially passes and only per-page stamp validation
-   * applies. Production code must pass the storage-wide epoch owned by
-   * {@code AtomicOperationsManager} (via {@code AtomicOperationBinaryTracking}), otherwise
-   * commit-time apply phases would be invisible to this scope.
+   * Creates an empty scope. No epoch is bound at construction — production readers
+   * capture the target component's epoch per attempt via {@link #reset(ApplyPhaseEpoch)}.
+   * Until the first reset, the scope holds a private, never-bumped epoch so standalone
+   * use (tests, tooling) that records and validates stamps without a reset gets a
+   * trivially passing epoch check.
    */
   public OptimisticReadScope() {
-    this(new ApplyPhaseEpoch());
-  }
-
-  public OptimisticReadScope(ApplyPhaseEpoch applyPhaseEpoch) {
-    assert applyPhaseEpoch != null : "ApplyPhaseEpoch must not be null";
-    this.applyPhaseEpoch = applyPhaseEpoch;
     this.frames = new PageFrame[INITIAL_CAPACITY];
     this.stamps = new long[INITIAL_CAPACITY];
     this.count = 0;
@@ -130,15 +133,23 @@ public final class OptimisticReadScope {
   }
 
   /**
-   * Resets the scope for reuse and captures the apply-phase epoch for the upcoming read
-   * attempt. Nulls frame references up to the current count to avoid preventing garbage
-   * collection of evicted PageFrames.
+   * Resets the scope for reuse and captures the given component's apply-phase epoch for
+   * the upcoming read attempt (YTDB-1203: the scope serves sequential attempts on
+   * different components within one atomic operation, so the epoch is bound per attempt,
+   * not per scope). Nulls frame references up to the current count to avoid preventing
+   * garbage collection of evicted PageFrames.
    *
    * <p>Contract: this method must never throw — it is invoked outside the try/fallback
    * block of {@code StorageComponent.executeOptimisticStorageRead}, so an exception here
-   * would escape past the pinned fallback instead of triggering it.
+   * would escape past the pinned fallback instead of triggering it. (The null-check
+   * assert below can only fire on a programming error: production callers pass their
+   * component's final epoch field.)
+   *
+   * @param componentEpoch the apply-phase epoch of the component this attempt reads
    */
-  public void reset() {
+  public void reset(final ApplyPhaseEpoch componentEpoch) {
+    assert componentEpoch != null : "componentEpoch must not be null";
+    applyPhaseEpoch = componentEpoch;
     // Nesting detection (-ea builds only): attemptActive can be true here only when a
     // surrounding executeOptimisticStorageRead is still in flight — i.e., this reset
     // belongs to a nested attempt that is about to wipe the outer scope's stamps.
@@ -192,6 +203,28 @@ public final class OptimisticReadScope {
     attemptActive = false;
     nestedResetDetected = false;
     return wellFormed;
+  }
+
+  /**
+   * Returns the epoch captured by the last {@link #reset(ApplyPhaseEpoch)} (or the
+   * private standalone epoch if the scope was never reset). Consumed by the -ea-only
+   * invariant checks in {@code StorageComponent}: every page recorded — or pinned-read
+   * while an optimistic attempt is in flight — must belong to a file whose registered
+   * epoch IS (reference equality) this captured epoch.
+   */
+  public ApplyPhaseEpoch capturedEpoch() {
+    return applyPhaseEpoch;
+  }
+
+  /**
+   * Returns whether an optimistic read attempt is currently in flight. The underlying
+   * flag is maintained only under {@code -ea} ({@link #enterAttempt()}/
+   * {@link #exitAttempt()} are invoked via {@code assert}), so this accessor must itself
+   * only be consulted from {@code assert} statements — with assertions disabled it is
+   * always {@code false}.
+   */
+  public boolean isAttemptActive() {
+    return attemptActive;
   }
 
   /**

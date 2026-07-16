@@ -23,6 +23,7 @@ package com.jetbrains.youtrackdb.internal.core.storage.collection.v2;
 import com.jetbrains.youtrackdb.internal.common.util.CommonConst;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.CollectionPositionMapException;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.collection.CollectionPositionMap;
@@ -111,13 +112,31 @@ public final class CollectionPositionMapV2 extends CollectionPositionMap {
   /** Internal file ID assigned by the disk cache when the .cpm file is opened/created. */
   private volatile long fileId;
 
-  /** Package-private constructor; instances are created by {@link PaginatedCollectionV2}. */
+  /**
+   * Standalone constructor (tests only): the position map owns a private apply-phase
+   * epoch. Production instances are created by {@link PaginatedCollectionV2} via the
+   * epoch-taking overload below.
+   */
   CollectionPositionMapV2(
       final AbstractStorage storage,
       final String name,
       final String lockName,
       final String extension) {
     super(storage, name, extension, lockName, true);
+  }
+
+  /**
+   * Production constructor used by {@link PaginatedCollectionV2}: the position map
+   * shares the parent collection's apply-phase epoch (YTDB-1203) so one optimistic read
+   * spanning {@code .pcl} and {@code .cpm} pages validates a single epoch.
+   */
+  CollectionPositionMapV2(
+      final AbstractStorage storage,
+      final String name,
+      final String lockName,
+      final String extension,
+      @Nonnull final ApplyPhaseEpoch parentEpoch) {
+    super(storage, name, extension, lockName, true, parentEpoch);
   }
 
   /** Opens an existing position-map file by name through the disk cache. */

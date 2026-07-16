@@ -282,11 +282,15 @@ public final class PaginatedCollectionV2 extends PaginatedCollection {
     super(storage, name, dataExtension, name + dataExtension, true);
 
     systemCollection = MetadataInternal.SYSTEM_COLLECTION.contains(name);
+    // Sub-components share this collection's apply-phase epoch (YTDB-1203): readRecord
+    // spans .pcl + .cpm pages in one optimistic scope, and the scope validates exactly
+    // one epoch per attempt, so the whole component family must map to one instance.
     collectionPositionMap = new CollectionPositionMapV2(storage, getName(), getFullName(),
-        cpmExtension);
-    freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName());
+        cpmExtension, applyPhaseEpoch());
+    freeSpaceMap = new FreeSpaceMap(storage, name, fsmExtension, getFullName(),
+        applyPhaseEpoch());
     dirtyPageBitSet = new CollectionDirtyPageBitSet(
-        storage, name, dpbExtension, getFullName());
+        storage, name, dpbExtension, getFullName(), applyPhaseEpoch());
     storageName = storage.getName();
   }
 

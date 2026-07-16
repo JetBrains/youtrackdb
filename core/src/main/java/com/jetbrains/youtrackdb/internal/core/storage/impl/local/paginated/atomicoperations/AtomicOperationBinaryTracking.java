@@ -30,6 +30,7 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ComponentEpochRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ReadCache;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
@@ -163,18 +164,25 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   // separate writer thread.
   @Nullable private volatile PageApplyHook pageApplyHook;
 
-  // Per-storage apply-phase epoch, owned by AtomicOperationsManager and shared by all
-  // atomic operations of the same storage. Bumped around the cache-apply section of
-  // commitChanges so concurrent optimistic readers can detect overlap with a partially
-  // applied commit (per-page stamps alone cannot — they are a temporal check only).
-  private final ApplyPhaseEpoch applyPhaseEpoch;
+  // Per-storage registry resolving each fileId to the owning component's apply-phase
+  // epoch (YTDB-1203), owned by AtomicOperationsManager and shared by all atomic
+  // operations of the same storage. At commit time the epochs of all mutated components
+  // are bumped around the cache-apply section of commitChanges so concurrent optimistic
+  // readers of those components can detect overlap with a partially applied commit
+  // (per-page stamps alone cannot — they are a temporal check only).
+  private final ComponentEpochRegistry componentEpochRegistry;
 
   /**
-   * Convenience constructor for standalone use (tests, tooling) where no epoch is shared
-   * with concurrent optimistic readers: allocates a private {@link ApplyPhaseEpoch}.
-   * Production code must use the primary constructor with the storage-wide epoch owned by
-   * {@link AtomicOperationsManager} — a private epoch would make commit-time applies
-   * invisible to optimistic readers of other operations on the same storage.
+   * Convenience constructor for standalone use (tests, tooling) where no epoch registry
+   * is shared with concurrent optimistic readers: wires a private single-epoch registry
+   * that resolves EVERY fileId to one epoch nobody else observes (see
+   * {@link ComponentEpochRegistry#uniform}), so the fail-loud mutated-fileId resolution
+   * in {@link #commitChanges} always succeeds and standalone commits keep the
+   * pre-per-component behaviour of exactly one enter/exit pair per commit. Production
+   * code must use the primary constructor with the registry owned by
+   * {@link AtomicOperationsManager} and populated by the StorageComponent funnel — a
+   * private registry would make commit-time applies invisible to optimistic readers of
+   * other operations on the same storage.
    */
   AtomicOperationBinaryTracking(
       final ReadCache readCache,
@@ -190,7 +198,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull AtomicLong edgeSnapshotIndexSize) {
     this(readCache, writeCache, writeAheadLog, storageId, snapshot, sharedSnapshotIndex,
         sharedVisibilityIndex, snapshotIndexSize, sharedEdgeSnapshotIndex,
-        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize, new ApplyPhaseEpoch());
+        sharedEdgeVisibilityIndex, edgeSnapshotIndexSize,
+        ComponentEpochRegistry.uniform(new ApplyPhaseEpoch()));
   }
 
   AtomicOperationBinaryTracking(
@@ -205,7 +214,7 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       @Nonnull ConcurrentSkipListMap<EdgeSnapshotKey, LinkBagValue> sharedEdgeSnapshotIndex,
       @Nonnull ConcurrentSkipListMap<EdgeVisibilityKey, EdgeSnapshotKey> sharedEdgeVisibilityIndex,
       @Nonnull AtomicLong edgeSnapshotIndexSize,
-      @Nonnull ApplyPhaseEpoch applyPhaseEpoch) {
+      @Nonnull ComponentEpochRegistry componentEpochRegistry) {
     this.snapshot = snapshot;
     newFileNamesId.defaultReturnValue(-1);
     deletedFileNameIdMap.defaultReturnValue(-1);
@@ -220,8 +229,10 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     this.sharedEdgeSnapshotIndex = sharedEdgeSnapshotIndex;
     this.sharedEdgeVisibilityIndex = sharedEdgeVisibilityIndex;
     this.edgeSnapshotIndexSize = edgeSnapshotIndexSize;
-    this.applyPhaseEpoch = applyPhaseEpoch;
-    this.optimisticReadScope = new OptimisticReadScope(applyPhaseEpoch);
+    this.componentEpochRegistry = componentEpochRegistry;
+    // No epoch is bound at scope construction: the scope re-captures the epoch of the
+    // component each read attempt targets via reset(ApplyPhaseEpoch) (YTDB-1203).
+    this.optimisticReadScope = new OptimisticReadScope();
     this.active = true;
   }
 
@@ -1119,29 +1130,30 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
         flushEdgeSnapshotBuffers();
       }
 
-      // Apply-phase epoch bracket: exactly ONE enter/exit pair spanning the entire
-      // shared-cache mutation section — the readCache.deleteFile loop plus the whole
-      // per-file apply loop (addFile/truncateFile/loadOrAddForWrite/releaseFromWrite).
-      // Pages are applied one at a time in hash order, so a concurrent optimistic
-      // reader overlapping this section could see a mix of pre- and post-commit pages
-      // with every per-page stamp still valid; the epoch lets it detect the overlap
-      // and fall back to the pinned path. The exit MUST be in a finally block: an
-      // exception escaping this section must not leave the epoch permanently "in
-      // apply", which would disable optimistic reads for the storage's lifetime.
+      // Apply-phase epoch bracket (per component, YTDB-1203): exactly ONE enter/exit
+      // pair per MUTATED COMPONENT, spanning the entire shared-cache mutation section —
+      // the readCache.deleteFile loop plus the whole per-file apply loop
+      // (addFile/truncateFile/loadOrAddForWrite/releaseFromWrite). Pages are applied one
+      // at a time in hash order, so a concurrent optimistic reader overlapping this
+      // section could see a mix of pre- and post-commit pages with every per-page stamp
+      // still valid; the epoch lets it detect the overlap and fall back to the pinned
+      // path. Epochs are per top-level component, so this commit only invalidates
+      // optimistic reads of the components it actually mutates — readers of unrelated
+      // components are untouched. The exits MUST be in a finally block: an exception
+      // escaping this section must not leave any epoch permanently "in apply", which
+      // would disable optimistic reads of that component for the storage's lifetime.
       // Rolled-back operations never reach commitChanges (see the gate in
-      // AtomicOperationsManager.endAtomicOperation), so rollback does not bump the
-      // epoch. The WAL phase and snapshot-buffer flushes above are deliberately NOT
-      // bracketed — they do not mutate shared cache pages (snapshot-index entries are
-      // SI-filtered on read).
+      // AtomicOperationsManager.endAtomicOperation), so rollback bumps no epoch. The WAL
+      // phase and snapshot-buffer flushes above are deliberately NOT bracketed — they do
+      // not mutate shared cache pages (snapshot-index entries are SI-filtered on read).
       //
-      // The bracket is gated on the commit actually having shared-cache mutations:
-      // zero-change commits — read-only atomic operations, pure metadata ops —
-      // perform no readCache calls in the section below, so bumping the epoch for them
-      // would only spuriously invalidate every concurrently overlapping optimistic
-      // read in the storage.
-      final var mutatesSharedCache = commitMutatesSharedCache();
-      if (mutatesSharedCache) {
-        applyPhaseEpoch.enterApplyPhase();
+      // Zero-change commits — read-only atomic operations, pure metadata ops — resolve
+      // an empty mutated set, perform no readCache calls in the section below, and bump
+      // nothing; bumping would only spuriously invalidate concurrently overlapping
+      // optimistic reads.
+      final var mutatedComponentEpochs = collectMutatedComponentEpochs();
+      for (final var epoch : mutatedComponentEpochs) {
+        epoch.enterApplyPhase();
       }
       try {
         deletedFilesIterator = deletedFiles.longIterator();
@@ -1211,8 +1223,8 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           }
         }
       } finally {
-        if (mutatesSharedCache) {
-          applyPhaseEpoch.exitApplyPhase();
+        for (final var epoch : mutatedComponentEpochs) {
+          epoch.exitApplyPhase();
         }
       }
 
@@ -1287,27 +1299,81 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
   }
 
   /**
-   * Returns whether this commit will mutate shared read-cache state in the apply
-   * section: any file deletion, any new/truncated file, or any page with accumulated
-   * changes. Zero-change commits (read-only atomic operations) return {@code false}
-   * and skip the apply-phase epoch bracket entirely.
+   * Resolves the apply-phase epochs of every component this commit will mutate in the
+   * shared read-cache apply section: the owners of all deleted files plus of every file
+   * with a new/truncate flag or at least one page with accumulated changes — exactly the
+   * set of files the apply section acts on. Merely-loaded files (empty
+   * {@link FileChanges}) resolve nothing, so zero-change commits (read-only atomic
+   * operations) return an empty list and skip the epoch bracket entirely.
+   *
+   * <p>Epochs are deduplicated BY IDENTITY: sub-components share their parent
+   * component's epoch instance, and one commit frequently touches several files of the
+   * same component family, which must produce exactly one enter/exit pair on that epoch.
+   *
+   * <p>Fail-loud contract (review finding AR-2): a mutated fileId with no registry entry
+   * throws {@link IllegalStateException}. Every production file is registered by the
+   * {@code StorageComponent.addFile/openFile} funnel before it can be mutated, so a miss
+   * means a file was created or loaded behind the funnel's back — its optimistic readers
+   * would silently lose epoch protection if the bump were skipped. Operations built via
+   * the standalone convenience constructor cannot miss: their private
+   * {@link ComponentEpochRegistry#uniform} registry resolves every fileId to one
+   * universal epoch. Tests using the primary constructor must register an epoch for
+   * every fileId they mutate, exactly as the production funnel does.
    */
-  private boolean commitMutatesSharedCache() {
-    if (!deletedFiles.isEmpty()) {
-      return true;
+  private ArrayList<ApplyPhaseEpoch> collectMutatedComponentEpochs() {
+    final var epochs = new ArrayList<ApplyPhaseEpoch>();
+    final var deletedFilesIterator = deletedFiles.longIterator();
+    while (deletedFilesIterator.hasNext()) {
+      addMutatedComponentEpoch(epochs, deletedFilesIterator.nextLong());
     }
     for (final var fileChangesEntry : fileChanges.long2ObjectEntrySet()) {
       final var changes = fileChangesEntry.getValue();
-      if (changes.isNew || changes.truncate) {
-        return true;
+      if (changes.isNew || changes.truncate || anyPageHasChanges(changes)) {
+        addMutatedComponentEpoch(epochs, fileChangesEntry.getLongKey());
       }
-      for (final var pageEntry : changes.pageChangesMap.long2ObjectEntrySet()) {
-        if (pageEntry.getValue().changes.hasChanges()) {
-          return true;
-        }
+    }
+    return epochs;
+  }
+
+  /**
+   * Returns whether any page of the given file carries accumulated binary changes — the
+   * per-page half of the mutated-file predicate in {@link #collectMutatedComponentEpochs}
+   * (the apply loop applies exactly the pages for which this holds).
+   */
+  private static boolean anyPageHasChanges(final FileChanges changes) {
+    for (final var pageEntry : changes.pageChangesMap.long2ObjectEntrySet()) {
+      if (pageEntry.getValue().changes.hasChanges()) {
+        return true;
       }
     }
     return false;
+  }
+
+  /**
+   * Resolves {@code fileId} to its component epoch and appends it to {@code epochs}
+   * unless the identical instance is already present. See
+   * {@link #collectMutatedComponentEpochs} for the fail-loud contract on misses.
+   */
+  private void addMutatedComponentEpoch(
+      final ArrayList<ApplyPhaseEpoch> epochs, final long fileId) {
+    final var epoch = componentEpochRegistry.epochFor(fileId);
+    if (epoch == null) {
+      throw new IllegalStateException(
+          "No component apply-phase epoch registered for mutated file " + fileId
+              + " in storage " + writeCache.getStorageName()
+              + " — the file was created or loaded outside the"
+              + " StorageComponent.addFile/openFile funnel, so optimistic readers of its"
+              + " pages would not be protected against this commit's apply phase");
+    }
+    // Identity-based dedupe: sub-components share the parent's epoch INSTANCE, and the
+    // mutated set is small (typically 1-3 components per commit), so a linear reference
+    // scan beats a hash-based identity set.
+    for (final var existing : epochs) {
+      if (existing == epoch) {
+        return;
+      }
+    }
+    epochs.add(epoch);
   }
 
   /**

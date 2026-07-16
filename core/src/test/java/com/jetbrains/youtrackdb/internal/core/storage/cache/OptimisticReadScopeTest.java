@@ -122,7 +122,7 @@ public class OptimisticReadScopeTest {
     scope.record(frame, frame.tryOptimisticRead());
     assertEquals(1, scope.count());
 
-    scope.reset();
+    scope.reset(new ApplyPhaseEpoch());
     assertEquals(0, scope.count());
 
     // Empty scope should validate fine
@@ -206,7 +206,7 @@ public class OptimisticReadScopeTest {
 
     scope.record(frame, frame.tryOptimisticRead());
     scope.validateOrThrow();
-    scope.reset();
+    scope.reset(new ApplyPhaseEpoch());
 
     // Record a fresh stamp and validate again
     scope.record(frame, frame.tryOptimisticRead());
@@ -242,10 +242,10 @@ public class OptimisticReadScopeTest {
     // read window must fail validateOrThrow() even though every recorded stamp is still
     // valid — the pages could be a mix of pre- and post-commit state.
     var epoch = new ApplyPhaseEpoch();
-    var scope = new OptimisticReadScope(epoch);
+    var scope = new OptimisticReadScope();
     var frame = pool.acquire(true, Intention.TEST);
 
-    scope.reset(); // capture the quiescent epoch
+    scope.reset(epoch); // capture the quiescent epoch
     scope.record(frame, frame.tryOptimisticRead());
 
     // A writer enters the apply phase mid-read; the frame's stamp is untouched.
@@ -269,10 +269,10 @@ public class OptimisticReadScopeTest {
     // With an apply phase in flight, validateLastOrThrow must still pass for a valid
     // stamp while validateOrThrow on the same scope must fail.
     var epoch = new ApplyPhaseEpoch();
-    var scope = new OptimisticReadScope(epoch);
+    var scope = new OptimisticReadScope();
     var frame = pool.acquire(true, Intention.TEST);
 
-    scope.reset();
+    scope.reset(epoch);
     scope.record(frame, frame.tryOptimisticRead());
 
     epoch.enterApplyPhase();

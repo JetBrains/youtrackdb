@@ -3,7 +3,8 @@ package com.jetbrains.youtrackdb.internal.core.storage.cache;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Per-storage epoch bracketing the commit-time page-apply phase of atomic operations.
+ * Per-component epoch bracketing the commit-time page-apply phase of atomic operations
+ * for the files of one top-level storage component.
  *
  * <p>Optimistic multi-page reads validate each page individually via {@link
  * com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame} stamps, but per-page
@@ -19,23 +20,27 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <ul>
  *   <li>{@code applyEnterSeq} — incremented immediately <em>before</em> a committing
- *       operation starts mutating shared cache state (file deletion/creation/truncation
- *       and the per-page apply loop);
+ *       operation that mutates this component's files starts mutating shared cache state
+ *       (file deletion/creation/truncation and the per-page apply loop);
  *   <li>{@code applyExitSeq} — incremented immediately <em>after</em> that section
  *       completes (in a {@code finally} block, so an escaping exception cannot leave the
  *       epoch permanently "in apply" and shut down optimistic reads).
  * </ul>
  *
  * <p>Two independent counters are used instead of a single odd/even parity word because
- * apply phases of <em>different</em> components may run concurrently within one storage:
- * with parity, a second writer entering while the first is still applying would flip the
- * bit back to "idle" and mask the overlap. With separate counters the idle condition is
- * {@code enterSeq == exitSeq}, which holds only when no apply phase is in flight.
+ * apply phases bumping the <em>same</em> epoch may overlap: an epoch instance is shared
+ * between a parent component and its sub-components (e.g., a collection and its position
+ * map), and two commits that locked different components of that family can apply
+ * concurrently. With parity, a second writer entering while the first is still applying
+ * would flip the bit back to "idle" and mask the overlap. With separate counters the idle
+ * condition is {@code enterSeq == exitSeq}, which holds only when no apply phase is in
+ * flight.
  *
  * <p>Reader protocol (see {@link OptimisticReadScope}):
  *
  * <ol>
- *   <li>At {@link OptimisticReadScope#reset()}, capture {@code exitSeq} first, then
+ *   <li>At {@link OptimisticReadScope#reset(ApplyPhaseEpoch)}, capture {@code exitSeq}
+ *       first, then
  *       {@code enterSeq}. Reading exit before enter is deliberate: if the two captured
  *       values are equal, every apply that had entered by the time {@code enterSeq} was
  *       read had already exited <em>before</em> the capture started, so no apply phase
@@ -53,11 +58,18 @@ import java.util.concurrent.atomic.AtomicLong;
  * unchanged {@code enterSeq} therefore observed either none or all of any committed
  * apply's effects — never a partial mix.
  *
- * <p>Ownership: one instance per storage, owned by
- * {@code AtomicOperationsManager}. Deliberately <em>not</em> placed on {@code ReadCache}:
- * on the disk engine a single read cache is shared by all storages of the engine, and an
- * engine-global epoch would let commits in one database spuriously invalidate optimistic
- * reads in another.
+ * <p>Ownership (YTDB-1203): one instance per <em>top-level</em>
+ * {@code StorageComponent}; sub-components (position map, free-space map, dirty-page
+ * bit set) share their parent collection's instance so one optimistic read spanning
+ * parent and sub-component files validates a single epoch. Every file id a component
+ * creates or opens is mapped to the component's epoch in the per-storage
+ * {@link ComponentEpochRegistry} (owned by {@code AtomicOperationsManager}); committing
+ * operations resolve their mutated file ids through that registry and bracket every
+ * distinct resolved epoch. The epoch is per component rather than per storage so a
+ * commit into one component does not spuriously invalidate concurrent optimistic reads
+ * of unrelated components, and deliberately <em>not</em> engine-global (on
+ * {@code ReadCache}) because on the disk engine a single read cache is shared by all
+ * storages of the engine.
  */
 public final class ApplyPhaseEpoch {
 
