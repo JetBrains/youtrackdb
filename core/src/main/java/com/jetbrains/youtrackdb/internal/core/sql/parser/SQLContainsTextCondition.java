@@ -23,6 +23,17 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   protected SQLExpression left;
   protected SQLExpression right;
 
+  /**
+   * Cached property name of the base-identifier left operand for the {@link #evaluate(Identifiable)}
+   * scan path. {@code left.getDefaultAlias()} allocates a fresh {@link SQLIdentifier} on every call,
+   * so reading it per record would reintroduce a per-row allocation heavier than the {@link
+   * ResultInternal} wrapper the fast path was added to avoid. The name is derived from the
+   * row-invariant {@code left} operand, so it is resolved once and reused; {@code null} means not yet
+   * resolved. A benign data race resolves the same immutable String, so no synchronization is needed.
+   */
+  @Nullable
+  private String baseIdentifierName;
+
   public SQLContainsTextCondition(int id) {
     super(id);
   }
@@ -124,7 +135,16 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   @Nullable
   private Collate resolveCollate(Identifiable record, CommandContext ctx) {
     if (left.isBaseIdentifier() && record instanceof EntityImpl entity) {
-      var collate = collateFromSchema(entity, left.getDefaultAlias().getStringValue(), ctx);
+      var name = baseIdentifierName;
+      if (name == null) {
+        // The name comes from the left operand's structure, not the record, so it is row-invariant.
+        // Resolve it once here rather than per record: getDefaultAlias() allocates a fresh
+        // SQLIdentifier on every call, which on a scan would dominate the allocation the fast path
+        // was added to remove.
+        name = left.getDefaultAlias().getStringValue();
+        baseIdentifierName = name;
+      }
+      var collate = collateFromSchema(entity, name, ctx);
       if (collate != null) {
         return collate;
       }
