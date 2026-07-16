@@ -19,6 +19,7 @@ import com.jetbrains.youtrackdb.internal.core.config.StoragePaginatedCollectionC
 import com.jetbrains.youtrackdb.internal.core.config.StorageSegmentConfiguration;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.RID;
 import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
+import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.exception.SerializationException;
 import com.jetbrains.youtrackdb.internal.core.exception.StorageException;
 import com.jetbrains.youtrackdb.internal.core.id.RecordId;
@@ -92,7 +93,23 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   private static final String PROPERTY_PREFIX_PROPERTY = "property_";
 
   private static final String ENGINE_PREFIX_PROPERTY = "engine_";
-  private static final int INDEX_ENGINE_PROPERTY_VERSION = 1;
+  // 2: the entry carries the engine's stable fileBaseId after the indexId. Engine entries are
+  // delete+add only — storeProperty never rewrites the version tag on an in-place update, so an
+  // entry's tag always matches the format of its bytes (see the storeProperty update-branch
+  // assert).
+  private static final int INDEX_ENGINE_PROPERTY_VERSION = 2;
+
+  /**
+   * The persisted allocation floor of the index-engine file-base-id counter, written alongside
+   * every allocation inside the allocating atomic operation (so a rolled-back engine create
+   * reverts the floor with the files, while the in-process high-water mark keeps the burned value
+   * from ever being handed out again). The key deliberately starts with none of the
+   * {@code collection_} / {@code property_} / {@code engine_} scan prefixes, so the prefix
+   * iterations ({@code preloadCollections}, {@code getProperties}, {@code indexEngines}) never
+   * misparse it as one of theirs.
+   */
+  private static final String INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY =
+      "indexEngineFileBaseIdFloor";
 
   private static final String PROPERTIES = "properties";
   private static final String COLLECTIONS = "collections";
@@ -106,7 +123,8 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
           RECORD_SERIALIZER_VERSION_PROPERTY,
           PAGE_SIZE_PROPERTY,
           FREE_LIST_BOUNDARY_PROPERTY,
-          MAX_KEY_SIZE_PROPERTY
+          MAX_KEY_SIZE_PROPERTY,
+          INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY
       };
 
   private static final String[] STRING_PROPERTIES =
@@ -271,6 +289,14 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       readConfiguration(atomicOperation);
 
       preloadIntProperties(atomicOperation);
+      // Reject-and-redirect gate for the storage format (the storage-format arm of the same
+      // policy SchemaShared.fromStream applies to the schema record). It must run here — before
+      // any engine, index, or collection component touches its files — because this load is the
+      // single choke point every open path funnels through (AbstractStorage.open,
+      // DiskStorage.initConfiguration, and the incremental-restore reopen), and letting a
+      // mismatched format continue would crash later inside openIndexes with a raw
+      // file-does-not-exist error instead of a clear redirect.
+      validateStorageFormatVersion();
       preloadStringProperties(atomicOperation);
       preloadConfigurationProperties(atomicOperation);
       preloadCollections(atomicOperation);
@@ -285,10 +311,56 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       final var properties = (Map<String, String>) cache.get(PROPERTIES);
       validation = properties != null
           && "true".equalsIgnoreCase(properties.get(VALIDATION_PROPERTY));
+    } catch (ConfigurationException e) {
+      // The format-version gate's rejection is the user-facing redirect; rethrow it unwrapped so
+      // the export/import message is the primary error, not a cause buried under a generic
+      // "can not load storage configuration".
+      cache.clear();
+      throw e;
     } catch (Exception e) {
       cache.clear();
       throw BaseException.wrapException(new StorageException(storage.getName(),
           "Can not load storage configuration."), e, storage.getName());
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Rejects a database whose persisted storage-format version does not exactly match
+   * {@link #CURRENT_VERSION}. Both directions are rejected: an older format cannot be upgraded in
+   * place (the engine-file-id format has no computable default for pre-24 entries), and a newer
+   * format cannot be read by these binaries. Reads the just-preloaded cache directly instead of
+   * {@code getVersion} because the caller holds the non-reentrant write lock.
+   */
+  private void validateStorageFormatVersion() {
+    final var version = (Integer) cache.get(VERSION_PROPERTY);
+    if (version == null || version < CURRENT_VERSION) {
+      throw new ConfigurationException(storage.getName(),
+          "Storage format version " + (version == null ? "<missing>" : version)
+              + " of database '" + storage.getName() + "' predates the current format (version "
+              + CURRENT_VERSION + "). Direct upgrade of the storage format is not supported:"
+              + " please export your old database with the previous version of YouTrackDB and"
+              + " reimport it using the current one.");
+    }
+    if (version > CURRENT_VERSION) {
+      throw new ConfigurationException(storage.getName(),
+          "Storage format version " + version + " of database '" + storage.getName()
+              + "' is newer than the format this version of YouTrackDB supports (version "
+              + CURRENT_VERSION + "). Please open the database with the YouTrackDB version that"
+              + " created it.");
+    }
+  }
+
+  /**
+   * Rewrites the persisted storage-format version — FOR TESTS ONLY. Production code writes the
+   * version once, at creation ({@code init()}); this seam lets the format-gate tests fabricate a
+   * database that reads as older or newer than {@link #CURRENT_VERSION}.
+   */
+  public void updateVersionForTesting(AtomicOperation atomicOperation, int version) {
+    lock.writeLock().lock();
+    try {
+      updateIntProperty(atomicOperation, VERSION_PROPERTY, version);
     } finally {
       lock.writeLock().unlock();
     }
@@ -1297,6 +1369,64 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   @Override
+  public int getIndexEngineFileBaseIdFloor(AtomicOperation atomicOperation) {
+    lock.readLock().lock();
+    try {
+      // Deliberately a direct b-tree read, not a cache lookup: the floor participates in the
+      // high-water-mark allocator's seeding, and the in-memory cache map is not transactional (a
+      // failed storeProperty clears it wholesale), so allocation state must only ever derive from
+      // durable bytes.
+      final var pair = readProperty(INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, atomicOperation);
+      if (pair == null) {
+        // init() seeds the floor on every v24 creation, so a missing property is corruption —
+        // and answering a made-up floor (e.g. 0) could hand out an already-used file base id.
+        throw new StorageException(storage.getName(),
+            "The index-engine file-base-id floor is missing from the configuration of database '"
+                + storage.getName() + "'; the configuration is corrupted");
+      }
+      return IntegerSerializer.deserializeNative(pair.first, 0);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  /**
+   * Persists a new index-engine file-base-id floor. Called by the storage's high-water-mark
+   * allocator with every allocation, inside the allocating atomic operation, so the floor commits
+   * or reverts together with the engine files the allocation is for.
+   */
+  public void setIndexEngineFileBaseIdFloor(AtomicOperation atomicOperation, final int floor) {
+    lock.writeLock().lock();
+    try {
+      updateIntProperty(atomicOperation, INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, floor);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  /**
+   * Stores an index-engine entry under an explicit property version tag — FOR TESTS ONLY.
+   * Production engine entries are always written at {@link #INDEX_ENGINE_PROPERTY_VERSION}; this
+   * seam lets tests fabricate a stale-versioned entry to pin the deserializer's hard-fail gate.
+   */
+  public void storeIndexEngineEntryForTesting(
+      final AtomicOperation atomicOperation,
+      final String name,
+      final IndexEngineData engineData,
+      final int propertyVersion) {
+    lock.writeLock().lock();
+    try {
+      storeProperty(
+          atomicOperation,
+          ENGINE_PREFIX_PROPERTY + name,
+          serializeIndexEngineProperty(engineData),
+          propertyVersion);
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  @Override
   public Set<String> indexEngines(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
@@ -1326,8 +1456,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
                       entry.second().getCollectionPosition(), atomicOperation)
                       .toRawBuffer();
                   return deserializeIndexEngineProperty(
-                      name, buffer.buffer(), Integer.MIN_VALUE, entry.second().getCollectionId(),
-                      atomicOperation);
+                      name, buffer.buffer(), Integer.MIN_VALUE, entry.second().getCollectionId());
                 } catch (IOException e) {
                   throw BaseException.wrapException(
                       new StorageException(storage.getName(),
@@ -1353,8 +1482,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       }
 
       final var property = pair.first;
-      return deserializeIndexEngineProperty(name, property, defaultIndexId, pair.second,
-          atomicOperation);
+      return deserializeIndexEngineProperty(name, property, defaultIndexId, pair.second);
     } finally {
       lock.readLock().unlock();
     }
@@ -1476,7 +1604,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     final List<byte[]> entries = new ArrayList<>(16);
 
     final var numericProperties =
-        new byte[4 * IntegerSerializer.INT_SIZE + 5 * ByteSerializer.BYTE_SIZE];
+        new byte[5 * IntegerSerializer.INT_SIZE + 5 * ByteSerializer.BYTE_SIZE];
     totalSize += numericProperties.length;
     entries.add(numericProperties);
     {
@@ -1506,6 +1634,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
       IntegerSerializer.serializeNative(
           indexEngineData.getIndexId(), numericProperties, pos);
+      pos += IntegerSerializer.INT_SIZE;
+
+      // Engine-property binary version 2: the stable file base id follows the indexId.
+      IntegerSerializer.serializeNative(
+          indexEngineData.getFileBaseId(), numericProperties, pos);
     }
 
     final var algorithm = serializeStringValue(indexEngineData.getAlgorithm());
@@ -1557,8 +1690,26 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
   }
 
   private IndexEngineData deserializeIndexEngineProperty(
-      final String name, final byte[] property, final int defaultIndexId, final int binaryVersion,
-      AtomicOperation atomicOperation) {
+      final String name, final byte[] property, final int defaultIndexId,
+      final int binaryVersion) {
+    // Hard gate, no default and no sentinel: a pre-2 entry has no fileBaseId and there is no
+    // computable fallback for one (file base ids must be unique for the storage's lifetime, so
+    // fabricating one risks a file collision). The storage-format gate rejects every pre-24
+    // database at load, so on a healthy database this branch is unreachable; reaching it means a
+    // mixed-version write or corruption, and failing loudly beats silently mis-keying engine
+    // files.
+    // ConfigurationException (a HighLevelException) deliberately: this is a controlled
+    // format rejection with a user-facing redirect, like the load-time version gate — it must
+    // not flip the storage into the restart-requiring error state.
+    if (binaryVersion < INDEX_ENGINE_PROPERTY_VERSION) {
+      throw new ConfigurationException(storage.getName(),
+          "Index engine entry '" + name + "' of database '" + storage.getName()
+              + "' is stored under engine-property version " + binaryVersion
+              + ", which predates the engine-file-id format (version "
+              + INDEX_ENGINE_PROPERTY_VERSION + ") and carries no file base id. The database"
+              + " must be exported with the previous version of YouTrackDB and reimported using"
+              + " the current one.");
+    }
     var pos = 0;
 
     final var version = IntegerSerializer.deserializeNative(property, pos);
@@ -1585,8 +1736,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     final var keySize = IntegerSerializer.deserializeNative(property, pos);
     pos += IntegerSerializer.INT_SIZE;
 
+    // The entry is version >= 2 (gated above), so the indexId and fileBaseId are always present
+    // — the historical "config version >= 23 or entry version >= 1" disjunct that guarded the
+    // indexId read collapsed to constant-true once pre-24 databases were rejected at load.
     final int indexId;
-    if (getVersion(atomicOperation) >= 23 || binaryVersion >= 1) {
+    {
       final var iid = IntegerSerializer.deserializeNative(property, pos);
       if (iid == Integer.MIN_VALUE) {
         indexId = defaultIndexId;
@@ -1595,9 +1749,10 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       }
 
       pos += IntegerSerializer.INT_SIZE;
-    } else {
-      indexId = defaultIndexId;
     }
+
+    final var fileBaseId = IntegerSerializer.deserializeNative(property, pos);
+    pos += IntegerSerializer.INT_SIZE;
 
     final var algorithm = deserializeStringValue(property, pos);
     pos += getSerializedStringSize(property, pos);
@@ -1635,6 +1790,7 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     return new IndexEngineData(
         indexId,
+        fileBaseId,
         name,
         algorithm,
         indexType,
@@ -1825,6 +1981,16 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
         identity = new RecordId(propertyBinaryVersion, position.collectionPosition);
         btree.put(atomicOperation, name, identity);
       } else {
+        // The property's version tag rides the b-tree value's collection-id component and is
+        // written only on create — this update branch keeps the existing tag. A caller that
+        // bumps a property's format version must therefore delete+add, never update in place
+        // (the discipline engine entries rely on for INDEX_ENGINE_PROPERTY_VERSION); assert the
+        // tags agree so a version-crossing in-place update fails loudly under -ea instead of
+        // persisting bytes that disagree with their tag.
+        assert identity.getCollectionId() == propertyBinaryVersion
+            : "property '" + name + "' is stored under version tag " + identity.getCollectionId()
+                + " but an in-place update was attempted with version " + propertyBinaryVersion
+                + "; version-bumped properties must be deleted and re-added";
         collection.updateRecord(identity.getCollectionPosition(), property, (byte) 0,
             atomicOperation);
       }
@@ -1933,6 +2099,11 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
     updateIntProperty(
         atomicOperation, RECORD_SERIALIZER_VERSION_PROPERTY, 0);
+
+    // Seed the index-engine file-base-id floor so the very first read (the allocator seeding at
+    // open, or a genesis-bootstrap allocation on this virgin configuration) finds a durable
+    // value; a missing floor on a v24 database reads as corruption.
+    updateIntProperty(atomicOperation, INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, 0);
   }
 
   private void copy(
@@ -1963,6 +2134,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     setCollectionSelection(atomicOperation, storageConfiguration.getCollectionSelection());
     setConflictStrategy(atomicOperation, storageConfiguration.getConflictStrategy());
     setValidation(atomicOperation, storageConfiguration.isValidationEnabled());
+
+    // Carry the source's file-base-id floor BEFORE copying the engine entries: the copied
+    // entries keep their source fileBaseIds, and a copy that restarted the floor at init()'s 0
+    // would hand the first new engine an already-used file base id.
+    setIndexEngineFileBaseIdFloor(
+        atomicOperation, storageConfiguration.getIndexEngineFileBaseIdFloor(atomicOperation));
 
     var counter = 0;
     final var indexEngines = storageConfiguration.indexEngines(atomicOperation);

@@ -116,10 +116,10 @@ public class DefaultIndexFactoryTest extends DbTestBase {
 
   /** Build a minimal IndexEngineData for the given multivalue flag using the full constructor. */
   private static IndexEngineData buildEngineData(int id, String name, boolean multivalue) {
-    // Full constructor: indexId, name, algorithm, indexType, durableInNonTxMode,
+    // Full constructor: indexId, fileBaseId, name, algorithm, indexType, durableInNonTxMode,
     // version, apiVersion, multivalue, valueSerializerId, keySerializedId, isAutomatic,
     // keyTypes, nullValuesSupport, keySize, encryption, encryptionOptions, engineProperties
-    return new IndexEngineData(id, name, DefaultIndexFactory.BTREE_ALGORITHM,
+    return new IndexEngineData(id, id, name, DefaultIndexFactory.BTREE_ALGORITHM,
         multivalue
             ? SchemaClass.INDEX_TYPE.NOTUNIQUE.toString()
             : SchemaClass.INDEX_TYPE.UNIQUE.toString(),
@@ -171,7 +171,7 @@ public class DefaultIndexFactoryTest extends DbTestBase {
   @Test(expected = IndexException.class)
   public void createIndexEngine_nullAlgorithm_throwsIndexException() {
     var storage = session.getStorage();
-    var data = new IndexEngineData(2, "null_algo_test", null,
+    var data = new IndexEngineData(2, 2, "null_algo_test", null,
         SchemaClass.INDEX_TYPE.UNIQUE.toString(),
         true, -1, 1, false, (byte) 0, (byte) 0, true, null, true, 1, null, null, null);
     factory.createIndexEngine(storage, data);

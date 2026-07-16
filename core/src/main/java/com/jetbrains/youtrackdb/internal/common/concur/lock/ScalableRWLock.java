@@ -276,6 +276,17 @@ public class ScalableRWLock implements ReadWriteLock, java.io.Serializable {
   }
 
   /**
+   * Whether the exclusive (write) lock is currently held by some thread. The underlying
+   * {@link StampedLock} tracks no owner, so this cannot distinguish the current thread from
+   * another holder; it exists for assertions that a code path runs inside an exclusive-lock
+   * window (a caller that must itself hold the lock cannot be foiled by another holder anyway,
+   * because that holder would have blocked it).
+   */
+  public boolean isWriteLocked() {
+    return stampedLock.isWriteLocked();
+  }
+
+  /**
    * Creates a new ReadersEntry instance for the current thread and its associated AtomicInteger to
    * store the state of the Reader
    *

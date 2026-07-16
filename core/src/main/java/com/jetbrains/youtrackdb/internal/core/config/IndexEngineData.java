@@ -11,6 +11,17 @@ import javax.annotation.Nullable;
 public final class IndexEngineData {
 
   private final int indexId;
+
+  /**
+   * The engine's stable file base id: a monotonically allocated, never-reused number that keys
+   * the engine's storage files (stem {@code ie_<fileBaseId>}). Unlike {@link #indexId} — a
+   * first-null-slot registry index that is deliberately reused after a drop or a failed commit —
+   * the file base id is unique for the storage's whole lifetime, so a drop-and-recreate of a
+   * same-named index can never collide on files, and an index rename never has to touch them.
+   * Allocated by the storage's high-water-mark allocator inside the creating atomic operation and
+   * persisted with the engine entry (engine-property binary version 2+).
+   */
+  private final int fileBaseId;
   @Nonnull
   private final String name;
   private final String algorithm;
@@ -39,6 +50,7 @@ public final class IndexEngineData {
 
   public IndexEngineData(
       int indexId,
+      int fileBaseId,
       final IndexMetadata metadata,
       final Boolean durableInNonTxMode,
       final byte valueSerializerId,
@@ -49,6 +61,7 @@ public final class IndexEngineData {
       final String encryptionOptions,
       final Map<String, String> engineProperties) {
     this.indexId = indexId;
+    this.fileBaseId = fileBaseId;
     var definition = metadata.getIndexDefinition();
     this.name = metadata.getName();
     this.algorithm = metadata.getAlgorithm();
@@ -73,6 +86,7 @@ public final class IndexEngineData {
 
   public IndexEngineData(
       int indexId,
+      int fileBaseId,
       @Nonnull final String name,
       final String algorithm,
       String indexType,
@@ -90,6 +104,7 @@ public final class IndexEngineData {
       final String encryptionOptions,
       final Map<String, String> engineProperties) {
     this.indexId = indexId;
+    this.fileBaseId = fileBaseId;
     this.name = name;
     this.algorithm = algorithm;
     this.indexType = indexType;
@@ -114,6 +129,13 @@ public final class IndexEngineData {
 
   public int getIndexId() {
     return indexId;
+  }
+
+  /**
+   * The engine's stable, never-reused file base id. See {@link #fileBaseId}.
+   */
+  public int getFileBaseId() {
+    return fileBaseId;
   }
 
   public int getKeySize() {
@@ -175,8 +197,7 @@ public final class IndexEngineData {
     return nullValuesSupport;
   }
 
-  @Nullable
-  public Map<String, String> getEngineProperties() {
+  @Nullable public Map<String, String> getEngineProperties() {
     if (engineProperties == null) {
       return null;
     }
