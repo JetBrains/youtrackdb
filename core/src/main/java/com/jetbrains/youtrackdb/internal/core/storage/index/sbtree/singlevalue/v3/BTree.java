@@ -681,12 +681,15 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
               final var serializedKey =
                   keySerializer.serializeNativeAsWhole(serializerFactory, key, (Object[]) keyTypes);
               if (maxKeySize > 0 && serializedKey.length > maxKeySize) {
+                // The display name (the index's logical name), not the internal ie_<fileBaseId>
+                // component stem — this exception is user-facing.
                 throw new TooBigIndexKeyException(storage.getName(),
-                    "Key size is more than allowed, operation was canceled. Current key size "
+                    "Key size is more than allowed for index '" + getDisplayName()
+                        + "', operation was canceled. Current key size "
                         + serializedKey.length
                         + ", allowed  "
                         + maxKeySize,
-                    getName());
+                    getDisplayName());
               }
               var bucketSearchResult =
                   findBucketForUpdate(key, serializedKey, atomicOperation);

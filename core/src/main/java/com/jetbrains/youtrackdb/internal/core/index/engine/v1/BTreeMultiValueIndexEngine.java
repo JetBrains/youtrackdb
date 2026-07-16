@@ -105,10 +105,13 @@ public final class BTreeMultiValueIndexEngine
           new BTree<>(
               stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       svTree.setEngineId(id);
+      // User-facing diagnostics report the index's logical name, never the ie_<n> file stems.
+      svTree.setDisplayName(name);
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       nullTree.setEngineId(id);
+      nullTree.setDisplayName(name + AbstractStorage.NULL_TREE_SUFFIX);
       // Explicit null-tree identity for the tombstone-GC snapshot lookup — the component name
       // is a file key, not an identity carrier.
       nullTree.setNullTree(true);

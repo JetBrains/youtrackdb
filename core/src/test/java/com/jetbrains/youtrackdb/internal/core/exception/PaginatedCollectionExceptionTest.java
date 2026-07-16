@@ -38,6 +38,9 @@ public class PaginatedCollectionExceptionTest {
   public void componentConstructorPropagatesComponentName() {
     var component = mock(PaginatedCollection.class);
     when(component.getName()).thenReturn("paginated-coll-x");
+    // The exception reports the user-facing display name (real components fall back
+    // to the component name when no display name is installed; a mock must stub it).
+    when(component.getDisplayName()).thenReturn("paginated-coll-x");
 
     var ex = new PaginatedCollectionException("dbA", "store failed", component);
 
@@ -54,6 +57,9 @@ public class PaginatedCollectionExceptionTest {
   public void copyConstructorPreservesMessageAndDbName() {
     var component = mock(PaginatedCollection.class);
     when(component.getName()).thenReturn("paginated-coll-y");
+    // The exception reports the user-facing display name (real components fall back
+    // to the component name when no display name is installed; a mock must stub it).
+    when(component.getDisplayName()).thenReturn("paginated-coll-y");
 
     var original = new PaginatedCollectionException("dbA", "store failed", component);
     var copy = new PaginatedCollectionException(original);

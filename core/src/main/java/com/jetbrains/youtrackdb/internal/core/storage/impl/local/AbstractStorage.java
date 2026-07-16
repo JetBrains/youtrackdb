@@ -1095,23 +1095,62 @@ public abstract class AbstractStorage
 
   /**
    * Extracts the file base id from an engine file name of the shape
-   * {@code ie_<n>[$null].<extension>}, or {@code -1} when the name is not an engine file (e.g. a
-   * user collection that happens to start with the prefix but has a non-numeric remainder).
+   * {@code ie_<n>[$null].<engine extension>}, or {@code -1} when the name cannot be an engine
+   * file. Three rejection filters keep foreign artifacts from polluting the HWM seed:
+   *
+   * <ul>
+   *   <li>the extension must belong to the engine family ({@code .cbt}/{@code .nbt}/{@code .ixs})
+   *       — a user collection legally named {@code ie_123} produces files with collection
+   *       extensions and is ignored;
+   *   <li>the id must be pure digits — names with signs or other characters are not ours;
+   *   <li>the id must fit the allocator's {@code (0, Integer.MAX_VALUE]} range — an
+   *       out-of-range value cannot have been allocated, and accepting it would push the
+   *       high-water mark past the persistable ceiling and permanently brick index creation.
+   * </ul>
+   *
+   * <p>Accepted matches can still include a crash-window orphan: a kill between the physical
+   * file creation inside {@code commitChanges} and the WAL end-record becoming durable leaves a
+   * registered empty {@code ie_*} file whose atomic unit is discarded on replay. That file leaks
+   * (bounded, one family per crashed create, never collected) and its id is burned by this sweep
+   * — accepted behavior: burning the id is exactly what keeps the leaked file from ever
+   * colliding with a future engine's family.
    */
   private static long parseIndexEngineFileBaseId(final String fileName) {
     final var extensionStart = fileName.lastIndexOf('.');
-    var stem = extensionStart > 0 ? fileName.substring(0, extensionStart) : fileName;
+    if (extensionStart <= 0) {
+      return -1;
+    }
+    if (!isIndexEngineFileExtension(fileName.substring(extensionStart))) {
+      return -1;
+    }
+    var stem = fileName.substring(0, extensionStart);
     if (stem.endsWith(NULL_TREE_SUFFIX)) {
       stem = stem.substring(0, stem.length() - NULL_TREE_SUFFIX.length());
     }
     if (!stem.startsWith(INDEX_ENGINE_FILE_STEM_PREFIX)) {
       return -1;
     }
-    try {
-      return Long.parseLong(stem.substring(INDEX_ENGINE_FILE_STEM_PREFIX.length()));
-    } catch (final NumberFormatException ignore) {
+    final var digits = stem.substring(INDEX_ENGINE_FILE_STEM_PREFIX.length());
+    if (digits.isEmpty()) {
       return -1;
     }
+    for (var i = 0; i < digits.length(); i++) {
+      final var c = digits.charAt(i);
+      if (c < '0' || c > '9') {
+        return -1;
+      }
+    }
+    final long parsed;
+    try {
+      parsed = Long.parseLong(digits);
+    } catch (final NumberFormatException ignore) {
+      // More digits than a long can carry — certainly not an allocated id.
+      return -1;
+    }
+    if (parsed <= 0 || parsed > Integer.MAX_VALUE) {
+      return -1;
+    }
+    return parsed;
   }
 
   /**
@@ -3677,14 +3716,21 @@ public abstract class AbstractStorage
    *
    * @param engine the captured engine removed from the registry, used to delete its files.
    */
-  private void revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
+  // Package-private for tests: the guarded config-delete and the non-B-tree skip are
+  // failure-path arms that production only reaches through an injected commit fault.
+  void revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
     // The file family is keyed by the engine's stable file base id, so only an engine that
     // carries one (every local B-tree engine) can be swept for survivors. A non-B-tree engine
     // cannot be created by the local commit window, so the conservative skip is unreachable in
-    // production and assert-guarded.
+    // production. Deliberately a logged warning, NOT an assert: this runs on the failure path
+    // while the primary commit exception propagates, and an -ea AssertionError thrown here would
+    // mask that primary failure.
     if (!(engine instanceof BTreeIndexEngine btreeEngine)) {
-      assert false
-          : "failed-commit engine cleanup reached a non-B-tree engine: " + engine.getName();
+      LogManager.instance()
+          .warn(this,
+              "Failed-commit engine cleanup reached a non-B-tree engine '" + engine.getName()
+                  + "'; its surviving files (if any) cannot be swept and may leak",
+              null);
       return;
     }
     try {
@@ -3703,7 +3749,23 @@ public abstract class AbstractStorage
             if (!engineFilesPresent(btreeEngine.getFileBaseId())) {
               return;
             }
-            doDeleteIndexEngine(atomicOperation, engine);
+            // Drop the surviving files, but NOT doDeleteIndexEngine's name-keyed config delete:
+            // this fresh operation COMMITS, and after the failed commit's rollback the config
+            // entry under this engine's name is either absent (pure failed create — the entry
+            // write reverted with the rolled-back operation) or the restored OLD engine's entry
+            // (a failed commit that dropped and re-created the same index name). A name-keyed
+            // delete here would durably clobber that restored entry while the drop-restore arm
+            // re-publishes the old engine in memory — config/registry divergence that loses the
+            // committed index's engine at the next reopen. The fileBaseId-guarded delete below
+            // removes the entry only when it provably belongs to the engine being reverted.
+            engine.delete(atomicOperation);
+            final var storedEntry =
+                configuration.getIndexEngine(engine.getName(), -1, atomicOperation);
+            if (storedEntry != null
+                && storedEntry.getFileBaseId() == btreeEngine.getFileBaseId()) {
+              ((CollectionBasedStorageConfiguration) configuration)
+                  .deleteIndexEngine(atomicOperation, engine.getName());
+            }
           });
     } catch (final IOException | RuntimeException | AssertionError e) {
       LogManager.instance()
@@ -3726,10 +3788,17 @@ public abstract class AbstractStorage
    * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
    * surviving stem match is exactly an orphan to clean up.
    *
+   * <p>Matching is restricted to the engine file-extension family (see
+   * {@link #isIndexEngineFileExtension}): a user artifact whose name happens to share the stem
+   * shape (e.g. a collection named {@code ie_7}, whose files carry collection extensions) must
+   * never false-positive the cleanup arm into a spurious delete attempt.
+   *
+   * <p>Package-private for tests.
+   *
    * @param fileBaseId the dropped/created engine's stable file base id.
    * @return {@code true} when at least one file of the engine's family survives.
    */
-  private boolean engineFilesPresent(final int fileBaseId) {
+  boolean engineFilesPresent(final int fileBaseId) {
     final var wc = writeCache;
     if (wc == null) {
       return false;
@@ -3738,13 +3807,31 @@ public abstract class AbstractStorage
     final var nullTreeStem = stem + NULL_TREE_SUFFIX;
     for (final var fileName : wc.files().keySet()) {
       final var extensionStart = fileName.lastIndexOf('.');
-      final var fileStem =
-          extensionStart > 0 ? fileName.substring(0, extensionStart) : fileName;
+      if (extensionStart <= 0) {
+        continue;
+      }
+      if (!isIndexEngineFileExtension(fileName.substring(extensionStart))) {
+        continue;
+      }
+      final var fileStem = fileName.substring(0, extensionStart);
       if (fileStem.equals(stem) || fileStem.equals(nullTreeStem)) {
         return true;
       }
     }
     return false;
+  }
+
+  /**
+   * Whether {@code extension} (with the leading dot) is one an {@code ie_<fileBaseId>}-stemmed
+   * engine file can carry: the B-tree data file, its null bucket, or the histogram stats file.
+   * Both the open-time HWM sweep and the failed-commit file-presence check are restricted to
+   * this family so files of other components (or user artifacts) that merely share the stem
+   * shape are never mistaken for engine files.
+   */
+  private static boolean isIndexEngineFileExtension(final String extension) {
+    return BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION.equals(extension)
+        || BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION.equals(extension)
+        || IndexHistogramManager.IXS_EXTENSION.equals(extension);
   }
 
   /**
@@ -4294,6 +4381,9 @@ public abstract class AbstractStorage
         histogramKeySerializer,
         componentsFactory.binarySerializerFactory,
         histogramSerializerId);
+
+    // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
+    mgr.setDisplayName(engineData.getName());
 
     int keyFieldCount = (keyTypes != null) ? keyTypes.length : 1;
     mgr.setKeyFieldCount(keyFieldCount);
