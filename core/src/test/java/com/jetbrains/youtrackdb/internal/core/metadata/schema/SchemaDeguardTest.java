@@ -420,10 +420,11 @@ public class SchemaDeguardTest extends DbTestBase {
    * overwrote the pending definition in the overlay's create category — the OBS-8 gap — so the
    * in-tx branch now carries the same duplicate-name guard as the committed branch. Both halves
    * stay pinned: the legacy path throws, and the in-transaction path throws the same
-   * IndexException while leaving the shared registry untouched and recording no changed class
-   * (the guard fires before the create routes into the tx-local view). A same-tx
-   * drop-then-recreate of the name stays allowed — the documented replace flow, covered by
-   * CommitTimeIndexBuildTest.
+   * IndexException while leaving the shared registry untouched, seeding no tx-local schema state
+   * and engaging no metadata-write mutex (the guard fires before ensureTxSchemaState, so a
+   * rejected duplicate cannot block other schema writers for the rest of the transaction — the
+   * resolve-before-seed pattern). A same-tx drop-then-recreate of the name stays allowed — the
+   * documented replace flow, covered by CommitTimeIndexBuildTest.
    */
   @Test
   public void duplicateIndexNameInsideTransactionIsRejectedLoudly() {
@@ -459,11 +460,12 @@ public class SchemaDeguardTest extends DbTestBase {
             cls.getPolymorphicCollectionIds(),
             null,
             null));
-    var state = session.getTxSchemaState();
-    assertNotNull("the rejected create still seeds the tx-local state (the guard needs it to"
-        + " consult the overlay)", state);
-    assertFalse("a rejected duplicate create must not record the owning class as changed",
-        state.getChangedClasses().contains("DupIdx"));
+    // The guard runs before ensureTxSchemaState (reading the overlay through the nullable
+    // probe), so the rejected duplicate seeds nothing: no tx-local schema state means the
+    // single-permit metadata-write mutex was never engaged, and other schema writers stay
+    // unblocked for the rest of this transaction.
+    assertNull("a rejected duplicate create must not seed tx-local schema state (nor engage the"
+        + " metadata-write mutex)", session.getTxSchemaState());
     session.rollback();
 
     // The shared registry still holds exactly the original committed index.
@@ -1303,6 +1305,66 @@ public class SchemaDeguardTest extends DbTestBase {
           assertNull("a cancelled add/remove pair must record no removal",
               overlay.getMembershipRemoved().get(indexName));
         });
+  }
+
+  /**
+   * The SQL CREATE INDEX statement's existence precheck is overlay-aware (BG104): a repeated
+   * same-tx {@code CREATE INDEX … IF NOT EXISTS} must be a silent no-op, because the tx-created
+   * name reads as existing in the transaction's view. A committed-only precheck missed the
+   * tx-created name and fell through to the manager's duplicate-name guard, turning the
+   * documented IF NOT EXISTS no-op contract into an "already exists" failure.
+   */
+  @Test
+  public void sameTxRepeatedCreateIndexIfNotExistsIsSilentNoOp() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("IfNotExistsTx");
+    cls.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    try {
+      session.execute(
+          "create index IfNotExistsTx.name IF NOT EXISTS on IfNotExistsTx (name) notunique")
+          .close();
+      // The repeat inside the same transaction must be a silent no-op, not a throw.
+      try (var repeat = session.execute(
+          "create index IfNotExistsTx.name IF NOT EXISTS on IfNotExistsTx (name) notunique")) {
+        assertFalse("the repeated IF NOT EXISTS create must report a no-op", repeat.hasNext());
+      }
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * The statement-layer half of the drop-then-recreate replace flow (BG104): after an in-tx DROP
+   * INDEX, a SQL {@code CREATE INDEX} of the same name must pass the statement's existence
+   * precheck (the tx-dropped name reads as absent in the transaction's view) and reach the
+   * manager's replace flow. A committed-only precheck still saw the registry entry (it survives
+   * until the commit publishes the drop) and rejected the documented replace with "already
+   * exists" — making the replace flow reachable only through the internal API.
+   */
+  @Test
+  public void inTxDropIndexThenSqlCreateIndexReachesReplaceFlow() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("SqlReplaceTx");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "SqlReplaceTx.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    session.begin();
+    try {
+      indexManager.dropIndex(session, indexName);
+      session.execute("create index SqlReplaceTx.name on SqlReplaceTx (name) notunique").close();
+      var overlay = session.getTxSchemaState().getIndexOverlay();
+      assertNotNull("the replace must have recorded index deltas", overlay);
+      assertTrue("the recreated name must be tx-created in the overlay (the replace flow)",
+          overlay.isTxCreated(indexName));
+      assertTrue("the old committed name must stay tx-dropped (the replace flow)",
+          overlay.isTxDropped(indexName));
+    } finally {
+      session.rollback();
+    }
   }
 
   /**

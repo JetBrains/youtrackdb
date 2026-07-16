@@ -247,6 +247,42 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // return true so the caller skips the eager shared apply too.
       return true;
     }
+    // A ripple can target an index created in this same transaction — including the recreate half
+    // of a drop-then-recreate replace. That handle lives only in the overlay: the committed
+    // registry either misses the name entirely (pure tx-created target) or, in the replace case,
+    // still resolves the STALE old committed handle, whose record the commit's dropped loop
+    // deletes before the membership loops run (a RecordNotFound crash at commit). Fold the change
+    // directly into the deferred handle's covered-collection set instead of the overlay's
+    // membership category: the handle's live set is what every commit phase reads (the v1
+    // emptiness bound, the population scan and the enroll-phase record write), and the folded
+    // name carries the same committed-or-provisional <class>_<counter> shape the create-time
+    // resolver produces, so it flows through the exact machinery a create-time covered collection
+    // uses.
+    final var foldTxState = session.getTxSchemaState();
+    final var foldOverlay = foldTxState != null ? foldTxState.getIndexOverlay() : null;
+    if (foldOverlay != null && foldOverlay.isTxCreated(indexName)) {
+      final var deferredHandle = (IndexAbstract) foldOverlay.getTxCreated(indexName);
+      final var owningClass =
+          deferredHandle.getDefinition() != null
+              ? deferredHandle.getDefinition().getClassName()
+              : null;
+      if (owningClass == null) {
+        // Same fail-loud discipline as the committed branch below: a class index without a class
+        // name is a regression, and silently skipping would drop the membership change.
+        throw new IndexException(session,
+            "Index " + indexName + " has no owning class to record the membership change against"
+                + " inside a transaction; a class index must carry a class name");
+      }
+      if (isAdd) {
+        deferredHandle.addCollectionToDeferred(collectionName);
+      } else {
+        deferredHandle.removeCollectionFromDeferred(collectionName);
+      }
+      // Idempotent for the common case (the create already marked the owning class changed), but
+      // load-bearing when the ripple's class differs from the index's owner in future shapes.
+      foldTxState.markClassChanged(owningClass);
+      return true;
+    }
     // Resolve the index's owning class BEFORE seeding the tx-local state so the engage does not run
     // when the change cannot be routed into the tx-local view. The shared read lock here is a read,
     // not a shared-state mutation, so it does not break the in-tx isolation the seam protects.
@@ -392,6 +428,30 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
     }
     return false;
+  }
+
+  /**
+   * Overlay-aware existence probe: the transaction's effective view is the committed registry
+   * minus the names this transaction dropped plus the names it created. Keeps the SQL CREATE
+   * INDEX statement's precheck consistent with the manager's in-tx duplicate-name guard, so a
+   * same-tx repeated {@code CREATE INDEX … IF NOT EXISTS} is a silent no-op (the tx-created name
+   * reads as existing) and an in-tx {@code DROP INDEX} followed by {@code CREATE INDEX} of the
+   * same name reaches the manager's documented replace flow (the tx-dropped name reads as
+   * absent). Outside a schema/index transaction it is the committed behaviour unchanged.
+   */
+  @Override
+  public boolean existsIndex(DatabaseSessionEmbedded session, final String iName) {
+    final var overlay = activeOverlay(session);
+    if (overlay == null) {
+      return super.existsIndex(session, iName);
+    }
+    if (overlay.isTxCreated(iName)) {
+      return true;
+    }
+    if (overlay.isTxDropped(iName)) {
+      return false;
+    }
+    return existsIndex(iName);
   }
 
   private void resolveClassIndexesWithOverlay(
@@ -577,14 +637,27 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // tx-created index is not query-usable until commit and a rollback leaves the shared index
       // manager untouched. A definition-only instance is returned so the caller has a non-null
       // handle; it is intentionally absent from the shared registry.
-      var txState = session.ensureTxSchemaState();
-      // Duplicate-name guard, mirroring the committed branch below: a name already created in
-      // this same transaction, or registered as a committed index and NOT dropped in this
-      // transaction, must fail loudly — without it the overlay's create category (a plain map
-      // put) silently discarded the first definition (last-wins). A committed name that IS
-      // tx-dropped stays allowed: drop-then-recreate of the same name in one transaction is the
-      // documented replace flow.
-      final var existingCreateOverlay = txState.getIndexOverlay();
+      // Duplicate-name guard, mirroring the committed branch below — and run BEFORE the tx-local
+      // schema state is seeded, so a rejected duplicate neither seeds tx schema state nor engages
+      // the single-permit metadata-write mutex (which would block every other schema writer until
+      // this transaction ends): the file's resolve-before-seed pattern. The overlay is read
+      // through the nullable probe — no seeded state means no tx-created or tx-dropped names to
+      // consider. A name already created in this same transaction, or registered as a committed
+      // index and NOT dropped in this transaction, must fail loudly — without the guard the
+      // overlay's create category (a plain map put) silently discarded the first definition
+      // (last-wins). A committed name that IS tx-dropped stays allowed: drop-then-recreate of the
+      // same name in one transaction is the documented replace flow.
+      //
+      // Legacy non-transactional bypass (both directions): the legacy top-level createIndex /
+      // dropIndex paths mutate the committed registry without engaging the metadata-write mutex,
+      // so a foreign session can slip a same-name create past this guard (degrades to a loud
+      // duplicate-engine-name failure when this commit builds) or drop-and-recreate a name this
+      // transaction tx-dropped (this commit would then resolve and delete the foreign replacement
+      // silently). Both exposures ride the legacy path's mutex bypass and disappear with its
+      // planned removal.
+      final var preSeedTxState = session.getTxSchemaState();
+      final var existingCreateOverlay =
+          preSeedTxState != null ? preSeedTxState.getIndexOverlay() : null;
       final boolean committedNameExists;
       acquireSharedLock();
       try {
@@ -598,6 +671,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         throw new IndexException(session.getDatabaseName(),
             "Index with name " + iName + " already exists.");
       }
+      var txState = session.ensureTxSchemaState();
       if (indexDefinition.getClassName() != null) {
         txState.markClassChanged(indexDefinition.getClassName());
       }
@@ -1173,6 +1247,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * updated entity whose collection the index covers contributes its key through the index's
    * definition; a deleted record is skipped. Feeds {@code doPut} directly on the built engine.
    */
+  // Package-private (not private) as a deliberate test seam: the enroll-phase guards shadow this
+  // method's invariant guards end-to-end, so its fail-loud branches are only exercisable by
+  // direct invocation from same-package tests.
   void populateTxCreatedIndex(
       DatabaseSessionEmbedded session, FrontendTransactionImpl transaction, IndexAbstract handle)
       throws InvalidIndexEngineIdException {
@@ -1207,9 +1284,22 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         continue;
       }
       final var rid = entity.getIdentity();
-      // Coverage first: a record outside the index's covered collections is irrelevant to this
-      // build (and a null identity cannot name a collection at all), so skip it.
-      if (rid == null || !coveredCollectionIds.contains(rid.getCollectionId())) {
+      if (rid == null) {
+        continue;
+      }
+      // Post-apply no record operation may still carry a provisional collection id: the commit's
+      // record apply rewrote every provisional id to its real collection before this build runs.
+      // A provisional id here is an apply-phase invariant violation; letting the coverage filter
+      // below skip it silently (covered ids are always >= 0) would hide exactly the kind of
+      // missing-row corruption the other guards in this method fail loudly on.
+      if (SchemaShared.isProvisionalCollectionId(rid.getCollectionId())) {
+        throw new IllegalStateException(
+            "record " + rid + " still carries a provisional collection id at commit-time build of"
+                + " index '" + handle.getName() + "'");
+      }
+      // Coverage next: a record outside the index's covered collections is irrelevant to this
+      // build, so skip it.
+      if (!coveredCollectionIds.contains(rid.getCollectionId())) {
         continue;
       }
       // The record apply has already assigned persistent RIDs to every surviving operation, so a
