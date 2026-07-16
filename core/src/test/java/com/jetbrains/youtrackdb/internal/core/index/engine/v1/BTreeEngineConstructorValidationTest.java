@@ -184,4 +184,22 @@ public class BTreeEngineConstructorValidationTest {
     assertEquals("getEngineAPIVersion must return V1IndexEngine.API_VERSION",
         V1IndexEngine.API_VERSION, engine.getEngineAPIVersion());
   }
+
+  /**
+   * The {@link CellBTreeSingleValue} identity-seam defaults ({@code setEngineId},
+   * {@code setNullTree}, {@code setDisplayName}) are no-ops by contract: implementations that do
+   * not participate in GC or user-facing diagnostics may ignore them, and the owning engine's
+   * construction-time calls must be safe against such implementations. Pinned by invoking the
+   * real default bodies on an implementation that overrides none of them.
+   */
+  @Test
+  public void cellBTreeIdentitySeamDefaultsAreNoOps() {
+    var tree = org.mockito.Mockito.mock(
+        com.jetbrains.youtrackdb.internal.core.storage.index.sbtree.singlevalue.CellBTreeSingleValue.class,
+        org.mockito.Mockito.CALLS_REAL_METHODS);
+    // Must not throw — the defaults are deliberate no-ops.
+    tree.setEngineId(7);
+    tree.setNullTree(true);
+    tree.setDisplayName("logical-name");
+  }
 }

@@ -39,6 +39,9 @@ public class CollectionPositionMapExceptionTest {
   public void componentConstructorPropagatesComponentName() {
     var component = mock(CollectionPositionMap.class);
     when(component.getName()).thenReturn("collMap-x");
+    // The exception reports the user-facing display name (real components fall back
+    // to the component name when no display name is installed; a mock must stub it).
+    when(component.getDisplayName()).thenReturn("collMap-x");
 
     var ex = new CollectionPositionMapException("dbA", "boom", component);
 
@@ -54,6 +57,9 @@ public class CollectionPositionMapExceptionTest {
   public void copyConstructorPreservesMessageAndDbName() {
     var component = mock(CollectionPositionMap.class);
     when(component.getName()).thenReturn("collMap-y");
+    // The exception reports the user-facing display name (real components fall back
+    // to the component name when no display name is installed; a mock must stub it).
+    when(component.getDisplayName()).thenReturn("collMap-y");
 
     var original = new CollectionPositionMapException("dbA", "boom", component);
     var copy = new CollectionPositionMapException(original);

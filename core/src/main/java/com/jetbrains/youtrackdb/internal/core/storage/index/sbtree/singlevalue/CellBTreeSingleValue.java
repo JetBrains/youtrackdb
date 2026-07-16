@@ -142,6 +142,16 @@ public interface CellBTreeSingleValue<K> {
   }
 
   /**
+   * Installs the user-facing name this tree reports in diagnostics. The owning engine passes the
+   * index's logical name so user-facing errors never surface the internal
+   * {@code ie_<fileBaseId>} component stem. Default no-op for implementations whose component
+   * name already is the user-facing identity.
+   */
+  default void setDisplayName(String displayName) {
+    // no-op by default
+  }
+
+  /**
    * Recovery-time orphan-truncation hook invoked by
    * {@code AbstractStorage.truncateOrphansAfterRecovery()} after WAL replay has settled
    * logical state. Reads the entry-point's logical-pages counter, computes the expected

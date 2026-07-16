@@ -209,19 +209,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  public void create(
-      final AtomicOperation atomicOperation,
-      final ContextConfiguration contextConfiguration,
-      final StorageConfiguration source) {
-    lock.writeLock().lock();
-    try {
-      create(atomicOperation, contextConfiguration);
-      copy(atomicOperation, source);
-    } finally {
-      lock.writeLock().unlock();
-    }
-  }
-
   public void delete(AtomicOperation atomicOperation) {
     lock.writeLock().lock();
     try {
@@ -286,17 +273,19 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
       collection.open(atomicOperation);
       btree.load(COMPONENT_NAME, 1, null, StringSerializer.INSTANCE, atomicOperation);
 
-      readConfiguration(atomicOperation);
-
       preloadIntProperties(atomicOperation);
       // Reject-and-redirect gate for the storage format (the storage-format arm of the same
       // policy SchemaShared.fromStream applies to the schema record). It must run here — before
-      // any engine, index, or collection component touches its files — because this load is the
-      // single choke point every open path funnels through (AbstractStorage.open,
-      // DiskStorage.initConfiguration, and the incremental-restore reopen), and letting a
-      // mismatched format continue would crash later inside openIndexes with a raw
-      // file-does-not-exist error instead of a clear redirect.
+      // readConfiguration or any other property parse, and before any engine, index, or
+      // collection component touches its files — because this load is the single choke point
+      // every open path funnels through (AbstractStorage.open, DiskStorage.initConfiguration,
+      // and the incremental-restore reopen). Gating first means a mismatched format always
+      // surfaces as the clear redirect, never as a downstream parse error against a layout these
+      // binaries cannot know (and never as a raw file-does-not-exist crash in openIndexes).
       validateStorageFormatVersion();
+
+      readConfiguration(atomicOperation);
+
       preloadStringProperties(atomicOperation);
       preloadConfigurationProperties(atomicOperation);
       preloadCollections(atomicOperation);
@@ -1368,7 +1357,12 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     }
   }
 
-  @Override
+  /**
+   * The persisted allocation floor of the index-engine file-base-id counter: the highest
+   * {@code fileBaseId} any successfully committed engine create has allocated. The storage's
+   * in-process high-water-mark allocator seeds from (among other inputs) this floor at open, so
+   * a file base id is never reused across restarts.
+   */
   public int getIndexEngineFileBaseIdFloor(AtomicOperation atomicOperation) {
     lock.readLock().lock();
     try {
@@ -1959,6 +1953,13 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
 
   private void updateIntProperty(
       AtomicOperation atomicOperation, final String name, final int value) {
+    // PINNED: the cache map is NOT rollback-aware — this put survives a rolled-back
+    // atomicOperation while the storeProperty write below reverts, leaving the cached value
+    // permanently ahead of the durable bytes. Any property that can be written inside a
+    // caller-owned (rollback-able) operation must therefore be read btree-direct via
+    // readProperty, never through the cache; getIndexEngineFileBaseIdFloor already does
+    // exactly that. Properties written only in self-contained operations (create-time init,
+    // close) may keep using the cache-backed readIntProperty.
     cache.put(name, value);
 
     final var property = new byte[IntegerSerializer.INT_SIZE];
@@ -2104,67 +2105,6 @@ public final class CollectionBasedStorageConfiguration implements StorageConfigu
     // open, or a genesis-bootstrap allocation on this virgin configuration) finds a durable
     // value; a missing floor on a v24 database reads as corruption.
     updateIntProperty(atomicOperation, INDEX_ENGINE_FILE_BASE_ID_FLOOR_PROPERTY, 0);
-  }
-
-  private void copy(
-      AtomicOperation atomicOperation, final StorageConfiguration storageConfiguration) {
-    setCharset(atomicOperation, storageConfiguration.getCharset());
-    setSchemaRecordId(atomicOperation, storageConfiguration.getSchemaRecordId());
-    setIndexMgrRecordId(atomicOperation, storageConfiguration.getIndexMgrRecordId());
-
-    final var timeZone = storageConfiguration.getTimeZone();
-    assert timeZone != null;
-
-    setTimeZone(atomicOperation, timeZone);
-    setDateFormat(atomicOperation, storageConfiguration.getDateFormat());
-    setDateTimeFormat(atomicOperation, storageConfiguration.getDateTimeFormat());
-
-    this.configuration = storageConfiguration.getContextConfiguration();
-
-    setMinimumCollections(storageConfiguration.getMinimumCollections());
-
-    setLocaleCountry(atomicOperation, storageConfiguration.getLocaleCountry());
-    setLocaleLanguage(atomicOperation, storageConfiguration.getLocaleLanguage());
-
-    final var properties = storageConfiguration.getProperties();
-    for (final var property : properties) {
-      setProperty(atomicOperation, property.name, property.value);
-    }
-
-    setCollectionSelection(atomicOperation, storageConfiguration.getCollectionSelection());
-    setConflictStrategy(atomicOperation, storageConfiguration.getConflictStrategy());
-    setValidation(atomicOperation, storageConfiguration.isValidationEnabled());
-
-    // Carry the source's file-base-id floor BEFORE copying the engine entries: the copied
-    // entries keep their source fileBaseIds, and a copy that restarted the floor at init()'s 0
-    // would hand the first new engine an already-used file base id.
-    setIndexEngineFileBaseIdFloor(
-        atomicOperation, storageConfiguration.getIndexEngineFileBaseIdFloor(atomicOperation));
-
-    var counter = 0;
-    final var indexEngines = storageConfiguration.indexEngines(atomicOperation);
-
-    for (final var engine : indexEngines) {
-      addIndexEngine(atomicOperation, engine,
-          storageConfiguration.getIndexEngine(engine, counter, atomicOperation));
-      counter++;
-    }
-
-    setRecordSerializer(atomicOperation, storageConfiguration.getRecordSerializer());
-    setRecordSerializerVersion(atomicOperation,
-        storageConfiguration.getRecordSerializerVersion());
-
-    final var collections = storageConfiguration.getCollections();
-    for (final var collection : collections) {
-      if (collection != null) {
-        updateCollection(atomicOperation, collection);
-      }
-    }
-
-    setCreationVersion(atomicOperation, storageConfiguration.getCreatedAtVersion());
-    setPageSize(atomicOperation, storageConfiguration.getPageSize(atomicOperation));
-    setFreeListBoundary(atomicOperation, storageConfiguration.getFreeListBoundary(atomicOperation));
-    setMaxKeySize(atomicOperation, storageConfiguration.getMaxKeySize(atomicOperation));
   }
 
   private void autoInitCollections() {

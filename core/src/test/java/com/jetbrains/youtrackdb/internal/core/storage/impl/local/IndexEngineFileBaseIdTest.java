@@ -1,6 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.storage.impl.local;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -170,6 +173,191 @@ public class IndexEngineFileBaseIdTest {
               op -> config.getIndexEngine("FbiSweepA.val", -1, op));
       assertEquals("the next allocation must skip past the orphan's id",
           10000, newEngineData.getFileBaseId());
+    }
+  }
+
+  /**
+   * The HWM sweep accepts only genuine engine-family artifacts: a stem whose digits exceed the
+   * allocator's int ceiling (an id that can never have been allocated) is rejected instead of
+   * pushing the mark past the persistable ceiling and bricking index creation; a file with a
+   * non-engine extension is ignored even with a plausible stem; and a user collection legally
+   * named {@code ie_<digits>} (whose files carry collection extensions) does not pollute the
+   * seed. CS-104/CN-108/BG-105.
+   */
+  @Test
+  public void sweepIgnoresForeignAndOutOfRangeStems() throws Exception {
+    final var dbName = "fbiSweepFilters";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    final long floorBeforeClose;
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      floorBeforeClose = floorOf(storage);
+      // Out-of-int-range digits on a real engine extension: cannot be an allocated id.
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "9999999999.cbt");
+      // More digits than even a long can carry.
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "99999999999999999999.cbt");
+      // Plausible in-range digits, but a non-engine extension: not an engine file.
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "8888.pcl");
+      // Prefix with no digits at all, and a stem with a non-digit character.
+      storage.getWriteCache().addFile(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + ".cbt");
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "12x34.cbt");
+      // A file with no extension at all.
+      storage.getWriteCache().addFile(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "6000");
+      // A user collection whose name shares the stem shape: its files carry collection
+      // extensions and must be invisible to the sweep.
+      session.addCollection(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "2000000000");
+    }
+
+    ytdb.close();
+    ytdb = (YouTrackDBImpl) YourTracks.instance(testDir);
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      assertEquals(
+          "none of the foreign/out-of-range artifacts may move the high-water mark",
+          floorBeforeClose, storage.indexEngineFileBaseIdHwmForTesting());
+
+      // Index creation still works and continues the small-id sequence.
+      createIndexedClass(session, "FbiSweepFilterA");
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+      final var newEngineData =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiSweepFilterA.val", -1, op));
+      assertEquals("the next allocation must continue the real sequence, not a polluted one",
+          floorBeforeClose + 1, newEngineData.getFileBaseId());
+    }
+  }
+
+  /**
+   * The failed-commit file-presence check matches only engine-family extensions: a user artifact
+   * that shares the {@code ie_<n>} stem but carries a foreign extension must not false-positive
+   * the cleanup arm into a spurious delete attempt (BG-105).
+   */
+  @Test
+  public void engineFilesPresentMatchesOnlyEngineFamilyExtensions() throws Exception {
+    final var dbName = "fbiPresence";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "4242.pcl");
+      assertFalse("a foreign-extension file must not read as a surviving engine file",
+          storage.engineFilesPresent(4242));
+
+      // An extensionless file sharing the stem must be skipped, not matched.
+      storage.getWriteCache().addFile(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "5050");
+      assertFalse("an extensionless file must not read as a surviving engine file",
+          storage.engineFilesPresent(5050));
+
+      // The histogram stats file alone is a surviving family member too.
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "4244.ixs");
+      assertTrue("a histogram stats file must read as a surviving engine file",
+          storage.engineFilesPresent(4244));
+
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "4242.cbt");
+      assertTrue("an engine-family data file must read as a surviving engine file",
+          storage.engineFilesPresent(4242));
+
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "4243"
+              + AbstractStorage.NULL_TREE_SUFFIX + ".nbt");
+      assertTrue("a null-tree family file must read as a surviving engine file",
+          storage.engineFilesPresent(4243));
+    }
+  }
+
+  /**
+   * Direct pins for the two failure-path arms of the create-side engine revert that production
+   * reaches only through an injected commit fault: (1) a non-B-tree engine (carrying no file
+   * base id) is skipped with a warning instead of an assert — an {@code -ea} AssertionError on
+   * this path would mask the primary commit exception (CQ-106); (2) when the config entry under
+   * the reverted engine's name provably belongs to it (matching fileBaseId), the guarded delete
+   * removes it — the ownership-checked counterpart of the CS-101 mismatch case.
+   */
+  @Test
+  public void revertArmSkipsForeignEnginesAndDeletesOwnedConfigEntry() throws Exception {
+    final var dbName = "fbiRevertArm";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+
+      // Arm 1: a non-B-tree engine is skipped without throwing (and without touching config).
+      final var foreign = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.index.engine.BaseIndexEngine.class);
+      org.mockito.Mockito.when(foreign.getName()).thenReturn("foreignEngine");
+      storage.revertCreatedIndexEngineStructure(foreign);
+
+      // Arm 2: an owned config entry (matching fileBaseId) is deleted by the guarded arm.
+      final var owned = org.mockito.Mockito.mock(
+          com.jetbrains.youtrackdb.internal.core.index.engine.v1.BTreeIndexEngine.class);
+      org.mockito.Mockito.when(owned.getName()).thenReturn("revertprobe");
+      org.mockito.Mockito.when(owned.getFileBaseId()).thenReturn(6100);
+      // A surviving family file makes the presence guard pass, and a config entry with the SAME
+      // fileBaseId marks the entry as the reverted engine's own.
+      storage.getWriteCache().addFile(
+          AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX + "6100.cbt");
+      final var ownedData = new IndexEngineData(
+          61, 6100, "revertprobe", "CELL_BTREE", "UNIQUE", true, 4, 1, false,
+          (byte) 0, (byte) 0, false,
+          new PropertyTypeInternal[] {PropertyTypeInternal.STRING},
+          true, 1, null, null, null);
+      storage.getAtomicOperationsManager().executeInsideAtomicOperation(
+          op -> config.storeIndexEngineEntryForTesting(op, "revertprobe", ownedData, 2));
+
+      storage.revertCreatedIndexEngineStructure(owned);
+
+      final var afterRevert =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("revertprobe", -1, op));
+      assertNull("the guarded arm must delete a config entry the reverted engine owns",
+          afterRevert);
+    }
+  }
+
+  /**
+   * CQ-107: the too-big-key rejection is user-facing and must name the index's LOGICAL name, not
+   * the internal {@code ie_<fileBaseId>} component stem the engine files are keyed by.
+   */
+  @Test
+  public void tooBigIndexKeyNamesTheLogicalIndexNotTheFileStem() throws Exception {
+    final var dbName = "fbiKeyTooBig";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var cls = session.getMetadata().getSchema().createClass("FbiKeyTooBig");
+      cls.createProperty("val", PropertyType.STRING);
+      cls.createIndex("FbiKeyTooBigIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+
+      final var hugeKey = "x".repeat(200_000);
+      try {
+        session.executeInTx(
+            tx -> tx.newEntity("FbiKeyTooBig").setProperty("val", hugeKey));
+        fail("an over-limit index key must be rejected");
+      } catch (final Exception e) {
+        // The rejection must speak the user's language: the logical index name, no ie_ stem.
+        assertMessageChainContains(e, "FbiKeyTooBigIdx");
+        var current = (Throwable) e;
+        while (current != null) {
+          final var message = current.getMessage();
+          assertFalse(
+              "no message in the rejection chain may leak the internal ie_ file stem, got: "
+                  + message,
+              message != null
+                  && message.contains(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX));
+          current = current.getCause();
+        }
+      }
     }
   }
 
@@ -415,6 +603,78 @@ public class IndexEngineFileBaseIdTest {
       assertTrue("the retried engine's data file must exist under its fresh stem",
           storage.getWriteCache().exists(
               AbstractStorage.indexEngineFileStem(retriedData.getFileBaseId()) + ".cbt"));
+    }
+  }
+
+  /**
+   * CS-101 regression: a failed schema commit that DROPS and RE-CREATES the same-named index in
+   * one transaction, on the IN-MEMORY profile, must leave the old (committed) engine intact in
+   * BOTH identity domains — the storage-configuration entry and the in-memory registry. The
+   * hazard: the create-side revert's file cleanup runs in a fresh committed atomic operation and
+   * used to delete the config entry BY NAME — but after the rollback that entry is the restored
+   * OLD engine's, so the name-keyed delete clobbered it while the drop-restore arm re-published
+   * the old engine in memory, leaving the config and the registry divergent (the index would
+   * lose its engine at the next reopen). The disk profile is immune by construction (the
+   * file-presence guard is false there), which is why this test forces a MEMORY database
+   * regardless of the active test profile.
+   */
+  @Test
+  public void failedDropRecreateSameNameKeepsOldEngineConfigEntry() throws Exception {
+    final var dbName = "fbiDropRecreateFail";
+    ytdb.create(dbName, DatabaseType.MEMORY, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+
+      final var cls = session.getMetadata().getSchema().createClass("FbiDropRecreateFail");
+      cls.createProperty("val", PropertyType.STRING);
+      cls.createIndex("FbiDRFIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+      final int oldFileBaseId =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiDRFIdx", -1, op)).getFileBaseId();
+
+      // Fault after the commit window dropped the old engine AND built the replacement (family
+      // files booked, registries mutated), so the failure path runs BOTH the create-side revert
+      // (with its file cleanup — the in-memory eager install survives rollback) and the
+      // drop-side restore of the old engine.
+      storage.setPostEngineBuildTestHook(() -> {
+        throw new CommandInterruptedException(dbName, "injected post-build drop+recreate fault");
+      });
+      try {
+        session.begin();
+        session.getSharedContext().getIndexManager().dropIndex(session, "FbiDRFIdx");
+        session.getMetadata().getSchema().getClass("FbiDropRecreateFail")
+            .createIndex("FbiDRFIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+        try {
+          session.commit();
+          fail("the drop+recreate commit must fail when the post-build fault hook throws");
+        } catch (final RuntimeException expected) {
+          // Routed through rollback + both engine undo arms.
+        }
+      } finally {
+        storage.setPostEngineBuildTestHook(null);
+      }
+
+      // Both identity domains must still hold the OLD engine consistently.
+      final var restored =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiDRFIdx", -1, op));
+      assertNotNull(
+          "the rolled-back drop must leave the old engine's config entry in place — the"
+              + " create-side revert must not clobber it by name",
+          restored);
+      assertEquals("the surviving config entry must be the OLD engine's",
+          oldFileBaseId, restored.getFileBaseId());
+      assertTrue("the in-memory registry must still resolve the old engine",
+          storage.loadIndexEngine("FbiDRFIdx") >= 0);
+
+      // The invariant bar: the index is still fully usable after the failed commit.
+      session.executeInTx(tx -> tx.newEntity("FbiDropRecreateFail").setProperty("val", "alive"));
+      final var index = session.getSharedContext().getIndexManager().getIndex("FbiDRFIdx");
+      final var rids = session.computeInTx(tx -> index.getRids(session, "alive").toList());
+      assertEquals("the surviving index must answer lookups after the failed commit",
+          1, rids.size());
     }
   }
 

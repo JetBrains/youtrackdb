@@ -91,6 +91,8 @@ public final class BTreeSingleValueIndexEngine
               AbstractStorage.indexEngineFileStem(fileBaseId),
               DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       this.sbTree.setEngineId(id);
+      // User-facing diagnostics report the index's logical name, never the ie_<n> file stem.
+      this.sbTree.setDisplayName(name);
       indexesSnapshot = storage.subIndexSnapshot(id);
     } else {
       throw new IllegalStateException("Invalid tree version " + version);

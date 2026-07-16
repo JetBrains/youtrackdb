@@ -100,6 +100,22 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
+   * The write cache's engine-family file names (any {@code ie_<n>} stem, any extension). Used to
+   * assert that a failed engine-creating commit leaves the engine-file set at its pre-commit
+   * baseline — the direct leak detector for the in-memory profile's create-side file-cleanup
+   * arm, whose eager installs survive the rollback.
+   */
+  private Set<String> engineFileNames(AbstractStorage storage) {
+    var result = new HashSet<String>();
+    for (var fileName : storage.getWriteCache().files().keySet()) {
+      if (fileName.startsWith(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX)) {
+        result.add(fileName);
+      }
+    }
+    return result;
+  }
+
+  /**
    * An index created inside a transaction that also inserts rows into the indexed class has its
    * engine built at commit and populated from the transaction's final record state (guarding the
    * silent-untracking regression where a same-transaction insert into a new index is dropped). The
@@ -326,8 +342,10 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
    * at the fault point, so the post-failure assertions are load-bearing (a broken revert arm would
    * leave a real registration behind rather than pass vacuously). The default in-memory profile is the
    * one that caught the equivalent collection-arm leak (the in-memory cache does not revert an eager
-   * file addFile on rollback), so the surviving engine files this arm drops would otherwise block the
-   * id-reusing rebuild with a "file already exists" error.
+   * file addFile on rollback), so the create-side revert arm must drop the surviving engine files
+   * there. Under never-reused fileBaseIds a leaked family can no longer collide with a rebuild (the
+   * rebuild allocates a fresh {@code ie_<n>} stem), so the leak is detected directly: the write
+   * cache's {@code ie_*} file set must be back at its pre-commit baseline after the failed commit.
    */
   @Test
   public void failedEngineCreatingCommitLeavesNoPhantomEngineAndReusesId() {
@@ -336,6 +354,8 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     var cls = schema.createClass("FailBuildTarget");
     cls.createProperty("name", PropertyType.STRING);
     var indexName = "FailBuildTarget.name";
+    // Baseline of engine files before the failing commit: the failed build must not add to it.
+    var engineFilesBefore = engineFileNames(storage);
 
     // A retry-family fault (CommandInterruptedException) keeps the storage OPEN after the failure,
     // as the collection-arm failed-commit test relies on, so the phantom-registration check is
@@ -370,6 +390,17 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertFalse("a failed index-building commit must leave no phantom engine registration",
         engineIsRegistered(indexName));
 
+    // The create-side file-cleanup arm actually ran: no ie_* engine file of the failed build
+    // survives in the write cache. This is the load-bearing leak detector on the in-memory
+    // profile, where the eager addFile installs survive the rollback and only the cleanup arm
+    // removes them (never-reused fileBaseIds mean a leak would no longer surface as a
+    // file-collision on rebuild — it would just silently accumulate). On the disk profile the
+    // rollback itself reverted the bookings, so the assertion holds there trivially.
+    assertEquals(
+        "a failed engine-creating commit must leave the write cache's engine-file set at its"
+            + " pre-commit baseline (the in-memory cleanup arm must drop the surviving files)",
+        engineFilesBefore, engineFileNames(storage));
+
     // The durable arm: re-parse the index manager's persisted records and reopen the session, so
     // the no-phantom assertions are re-derived from durable state instead of the in-memory undo's
     // leftovers. On the disk profile this catches a regression where the engine's configuration
@@ -382,10 +413,12 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     assertFalse("a failed engine-creating commit must leave no phantom engine after a reopen",
         engineIsRegistered(indexName));
 
-    // The next successful build reuses the freed engine id (the allocator finds the slot free again)
-    // and publishes cleanly, proving the failed commit leaked no engine slot AND that the create-side
-    // engine-file revert arm dropped the surviving in-memory-profile engine files (otherwise this
-    // id-reusing rebuild would fail with a "file already exists" error).
+    // The next successful build reuses the freed engine SLOT id (the allocator finds the slot
+    // free again) and publishes cleanly, proving the failed commit leaked no engine slot. Note
+    // the slot id is the only thing reused: the rebuild's FILES live under a freshly allocated,
+    // never-reused ie_<fileBaseId> stem, so a leaked file family could not make this rebuild
+    // fail — which is exactly why the write-cache baseline assertion above (not this rebuild)
+    // is the file-cleanup regression detector.
     var freedEngineId = storage().loadIndexEngine(indexName);
     assertEquals("the failed build's engine must be fully unregistered", -1, freedEngineId);
     session.executeInTx(tx -> session.getMetadata().getSchema().getClass("FailBuildTarget")

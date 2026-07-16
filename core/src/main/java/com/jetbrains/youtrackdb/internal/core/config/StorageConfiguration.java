@@ -55,14 +55,6 @@ public interface StorageConfiguration {
 
   @Nullable IndexEngineData getIndexEngine(String name, int defaultIndexId, AtomicOperation atomicOperation);
 
-  /**
-   * The persisted allocation floor of the index-engine file-base-id counter: the highest
-   * {@code fileBaseId} any successfully committed engine create has allocated. The storage's
-   * in-process high-water-mark allocator seeds from (among other inputs) this floor at open, so
-   * a file base id is never reused across restarts.
-   */
-  int getIndexEngineFileBaseIdFloor(AtomicOperation atomicOperation);
-
   String getRecordSerializer();
 
   int getRecordSerializerVersion();

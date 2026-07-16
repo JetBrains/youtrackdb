@@ -54,6 +54,9 @@ public class StorageComponentExceptionTest {
   public void componentConstructorPropagatesComponentName() {
     var component = mock(StorageComponent.class);
     when(component.getName()).thenReturn("storage-comp-x");
+    // The exception reports the user-facing display name (real components fall back
+    // to the component name when no display name is installed; a mock must stub it).
+    when(component.getDisplayName()).thenReturn("storage-comp-x");
 
     var ex = new ConcreteStorageComponentException("dbX", "boom", component);
 
@@ -68,6 +71,9 @@ public class StorageComponentExceptionTest {
   public void copyConstructorPreservesMessageAndDbName() {
     var component = mock(StorageComponent.class);
     when(component.getName()).thenReturn("storage-comp-y");
+    // The exception reports the user-facing display name (real components fall back
+    // to the component name when no display name is installed; a mock must stub it).
+    when(component.getDisplayName()).thenReturn("storage-comp-y");
 
     var original = new ConcreteStorageComponentException("dbX", "boom", component);
     var copy = new ConcreteStorageComponentException(original);
