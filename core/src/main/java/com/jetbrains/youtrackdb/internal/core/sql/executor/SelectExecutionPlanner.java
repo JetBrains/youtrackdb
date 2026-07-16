@@ -112,17 +112,17 @@ import javax.annotation.Nullable;
  *     (COUNT(*) short-circuits) |
  *  4. Global LET                | handleGlobalLet()
  *  5. Fetch from target         | handleFetchFromTarget()
- *  5b. LET pre-filter           | handleLetPreFilter()
+ *  6. LET pre-filter            | handleLetPreFilter()
  *      (push LET-independent    |   (skips LET subqueries for
  *       WHERE before LET)       |    filtered-out rows)
- *  6. Per-record LET            | handleLet()
- *  7. WHERE filtering           | handleWhere()
- *  8. Projections block         | handleProjectionsBlock()
+ *  7. Per-record LET            | handleLet()
+ *  8. WHERE filtering           | handleWhere()
+ *  9. Projections block         | handleProjectionsBlock()
  *     (projections, EXPAND,     |
  *      UNWIND, ORDER BY,        |
  *      SKIP, LIMIT, DISTINCT)   |
- *  9. Timeout                   | AccumulatingTimeoutStep
- *  10. Cache plan (optional)    | YqlExecutionPlanCache.put()
+ *  10. Timeout                  | AccumulatingTimeoutStep
+ *  11. Cache plan (optional)    | YqlExecutionPlanCache.put()
  * </pre>
  *
  * <h2>Projection splitting for aggregation</h2>
