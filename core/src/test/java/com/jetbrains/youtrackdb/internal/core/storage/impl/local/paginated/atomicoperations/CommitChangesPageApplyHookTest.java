@@ -3,7 +3,10 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atom
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
@@ -17,6 +20,8 @@ import com.jetbrains.youtrackdb.internal.core.storage.cache.WriteCache;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationBinaryTracking.PageApplyHook;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.atomicoperations.AtomicOperationsTable.AtomicOperationsSnapshot;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base.DurablePage;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.AtomicUnitEndRecord;
+import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.FileCreatedWALRecord;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.LogSequenceNumber;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.TestPageOperation;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.wal.WALRecordsFactory;
@@ -308,7 +313,7 @@ public class CommitChangesPageApplyHookTest {
       } catch (Throwable t) {
         writerError.set(t);
       }
-    });
+    }, "mid-apply-writer");
     writer.start();
 
     try {
@@ -333,10 +338,13 @@ public class CommitChangesPageApplyHookTest {
         // expected — apply phase in flight at capture time
       }
     } finally {
+      // Always release AND join the writer inside the finally: an assertion failure
+      // above must not leak a running writer thread past the test method (review
+      // finding TS-2; pattern from SharedLinkBagBTreeMixedApplyStateRegressionTest).
       resume.countDown();
+      writer.join(TimeUnit.SECONDS.toMillis(10));
     }
 
-    writer.join(TimeUnit.SECONDS.toMillis(10));
     Assert.assertFalse("Writer thread did not finish", writer.isAlive());
     Assert.assertNull("Writer failed: " + writerError.get(), writerError.get());
     Assert.assertNotNull(txEndLsn.get());
@@ -569,7 +577,7 @@ public class CommitChangesPageApplyHookTest {
       } catch (Throwable t) {
         writerError.set(t);
       }
-    });
+    }, "untouched-component-writer");
     writer.start();
 
     try {
@@ -599,10 +607,12 @@ public class CommitChangesPageApplyHookTest {
         // expected — A's apply phase in flight at capture time
       }
     } finally {
+      // Always release AND join the writer inside the finally — see the join comment
+      // in testReaderFailsDeterministicallyWhileWriterPausedMidApply (review TS-2).
       resume.countDown();
+      writer.join(TimeUnit.SECONDS.toMillis(10));
     }
 
-    writer.join(TimeUnit.SECONDS.toMillis(10));
     Assert.assertFalse("Writer thread did not finish", writer.isAlive());
     Assert.assertNull("Writer failed: " + writerError.get(), writerError.get());
 
@@ -713,6 +723,73 @@ public class CommitChangesPageApplyHookTest {
     // The resolution failure happens BEFORE any epoch is entered — nothing was applied
     // to the shared cache and no bracket was left open.
     Assert.assertEquals(0, appliedPageOrder.size());
+
+    // And BEFORE any WAL side effect of the commit (review finding CS-1): no file
+    // lifecycle record and — critically — no AtomicUnitEndRecord may have been logged,
+    // otherwise the failed commit would already be durable (WAL says committed, cache
+    // never applied) and crash recovery would replay it as a torn state interleaved
+    // with later transactions. The page-operation records flushed during setup are
+    // expected; the commit itself must add nothing.
+    verify(wal, never()).log(any(FileCreatedWALRecord.class));
+    verify(wal, never()).log(any(AtomicUnitEndRecord.class));
+  }
+
+  @Test
+  public void testTruncatingCommitBumpsComponentEpoch() throws IOException {
+    // Mutated-set predicate, truncate limb (review finding TQ-1): a commit whose only
+    // shared-cache mutation is a file truncation must resolve the file's owner epoch
+    // and bump it exactly once — readCache.truncateFile runs inside the apply section,
+    // so skipping the bump would expose concurrent optimistic readers of that
+    // component to mixed apply state (the YTDB-1178 bug on the truncate path).
+    var op = createOperation();
+    var truncateEpoch = new ApplyPhaseEpoch();
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.loadFile("truncated.dat")).thenReturn(fileId);
+    registry.register(fileId, truncateEpoch);
+
+    Assert.assertEquals(fileId, op.loadFile("truncated.dat"));
+    op.truncateFile(fileId);
+
+    // Truncate emits no WAL record (unsafe-operation warning only), so the commit
+    // returns a null txEndLsn — but it still mutates the shared cache and must bump.
+    Assert.assertNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(1, truncateEpoch.enterSeq());
+    Assert.assertEquals(1, truncateEpoch.exitSeq());
+    verify(readCache).truncateFile(fileId, writeCache);
+  }
+
+  @Test
+  public void testPageChangesOnLoadedFileBumpComponentEpoch() throws IOException {
+    // Mutated-set predicate, page-changes limb (review finding TQ-2): a pre-existing
+    // LOADED file (isNew=false, no truncate) whose only mutation is accumulated binary
+    // page changes must be resolved via the anyPageHasChanges limb and bump its owner
+    // epoch. This is the everyday update-commit shape; the other fixtures in this
+    // suite all use isNew=true, so without this case the anyPageHasChanges limb would
+    // only be covered remotely by the SLBB integration test.
+    var op = createOperation();
+    var updateEpoch = new ApplyPhaseEpoch();
+    long fileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.loadFile("updated.dat")).thenReturn(fileId);
+    // The write overlay for an EXISTING page first loads the committed page through
+    // the read cache.
+    when(readCache.loadForRead(eq(fileId), eq(0L), any(), anyBoolean()))
+        .thenAnswer(inv -> newCacheEntry(fileId, 0));
+    registry.register(fileId, updateEpoch);
+
+    Assert.assertEquals(fileId, op.loadFile("updated.dat"));
+    var page = op.loadPageForWrite(fileId, 0, 1, false);
+    Assert.assertNotNull(page);
+    page.getChanges().setByteValue(null, (byte) 1, 100);
+    op.registerPageOperation(fileId, 0,
+        new TestPageOperation(0, fileId, 0, new LogSequenceNumber(0, 0), 0));
+    op.flushPendingOperations();
+
+    Assert.assertNotNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(List.of(0L), appliedPageOrder);
+    Assert.assertEquals(1, updateEpoch.enterSeq());
+    Assert.assertEquals(1, updateEpoch.exitSeq());
   }
 
   @Test

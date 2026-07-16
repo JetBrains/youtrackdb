@@ -1006,6 +1006,20 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
     try {
       LogSequenceNumber txEndLsn;
 
+      // Resolve the mutated components' epochs FIRST — before flushPendingOperations
+      // and before any WAL record is written. The mutated set is frozen at entry:
+      // flushPendingOperations only assigns changeLSNs to already-registered page
+      // overlays (it creates no FileChanges entries and adds no binary changes), and
+      // the WAL phase below only prunes page entries WITHOUT changes — so resolving
+      // early is result-identical on the success path. What it changes is the failure
+      // point: the fail-loud IllegalStateException for an unregistered mutated file
+      // (see collectMutatedComponentEpochs) now fires BEFORE the durability point of
+      // no return. Resolving after the AtomicUnitEndRecord would leave a torn state on
+      // a miss — WAL says committed, the cache apply never ran, and recovery would
+      // replay the orphaned unit against later transactions' writes (review finding
+      // CS-1).
+      final var mutatedComponentEpochs = collectMutatedComponentEpochs();
+
       // Precompute non-durable classification once per file to guarantee
       // consistent classification between the WAL phase and cache application
       // phase. Reading the volatile nonDurableFileIds twice could see different
@@ -1148,10 +1162,9 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
       // not mutate shared cache pages (snapshot-index entries are SI-filtered on read).
       //
       // Zero-change commits — read-only atomic operations, pure metadata ops — resolve
-      // an empty mutated set, perform no readCache calls in the section below, and bump
-      // nothing; bumping would only spuriously invalidate concurrently overlapping
-      // optimistic reads.
-      final var mutatedComponentEpochs = collectMutatedComponentEpochs();
+      // an empty mutated set (computed at method entry, before the WAL phase), perform
+      // no readCache calls in the section below, and bump nothing; bumping would only
+      // spuriously invalidate concurrently overlapping optimistic reads.
       for (final var epoch : mutatedComponentEpochs) {
         epoch.enterApplyPhase();
       }
@@ -1223,8 +1236,11 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
           }
         }
       } finally {
-        for (final var epoch : mutatedComponentEpochs) {
-          epoch.exitApplyPhase();
+        // Indexed loop on purpose: no Iterator allocation inside this finally, so the
+        // bracket exit cannot itself fail under allocation pressure while unwinding
+        // (review finding CS-3). exitApplyPhase() never throws.
+        for (var i = 0; i < mutatedComponentEpochs.size(); i++) {
+          mutatedComponentEpochs.get(i).exitApplyPhase();
         }
       }
 
@@ -1305,6 +1321,13 @@ final class AtomicOperationBinaryTracking implements AtomicOperation {
    * set of files the apply section acts on. Merely-loaded files (empty
    * {@link FileChanges}) resolve nothing, so zero-change commits (read-only atomic
    * operations) return an empty list and skip the epoch bracket entirely.
+   *
+   * <p>Invoked at the very top of {@link #commitChanges} — before
+   * {@code flushPendingOperations} and before any WAL record is written — so the
+   * fail-loud miss below aborts the commit cleanly instead of firing after the
+   * {@code AtomicUnitEndRecord} durability point (which would produce a
+   * recovery-visible torn state: WAL committed, cache never applied). The early call is
+   * safe because the mutated set is frozen at {@code commitChanges} entry.
    *
    * <p>Epochs are deduplicated BY IDENTITY: sub-components share their parent
    * component's epoch instance, and one commit frequently touches several files of the

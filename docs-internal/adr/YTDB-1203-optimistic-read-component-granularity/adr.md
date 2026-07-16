@@ -9,15 +9,19 @@ the shared read cache one page at a time, so an optimistic multi-page reader
 overlapping that window could observe a mix of pre- and post-commit pages
 with every per-page stamp still valid — by bracketing the commit-time apply
 section with a two-counter seqlock-style epoch that readers capture before
-the attempt and re-validate after the stamp loop. That epoch was
-storage-wide, so *every* commit invalidated *every* concurrent optimistic
-read in the storage, including reads of components the commit never touched.
+the attempt and re-validate after the stamp loop. (YTDB-1178 has no ADR of
+its own; it landed in PR #1222, commit `8950fe0282`, with its rationale in
+code javadocs.) That epoch was storage-wide, so every *mutating* commit
+invalidated *every* concurrent optimistic read in the storage, including
+reads of components the commit never touched (zero-change commits were
+already gated out by the since-replaced `commitMutatesSharedCache()` check).
 This change makes `ApplyPhaseEpoch` a per-component instance held by the
 `StorageComponent` base class, adds a writer-side `ComponentEpochRegistry`
 (fileId → epoch) so commits resolve and bump only the epochs of components
 they actually mutate, and adds `-ea`-only guards enforcing that one
-optimistic read scope reads exactly one high-level component. Public API,
-WAL format, and the on-disk format are unchanged.
+optimistic read attempt reads exactly one high-level component (the scope is
+re-bound to the target component's epoch at each attempt's `reset`). Public
+API, WAL format, and the on-disk format are unchanged.
 
 ## Goals
 
@@ -100,11 +104,12 @@ flowchart TD
   not per scope — the scope lives in the `AtomicOperation` and serves
   sequential attempts on different components within one transaction.
 - `AtomicOperationBinaryTracking.commitChanges` computes the mutated-epoch
-  set before mutating shared cache state and brackets the whole apply
-  section (file deletion/creation/truncation plus the per-page apply loop)
-  with one `enterApplyPhase`/`exitApplyPhase` pair per distinct epoch; exits
-  run in a `finally` block so an escaping exception cannot leave an epoch
-  permanently "in apply".
+  set at method entry — before `flushPendingOperations` and before any WAL
+  record is written (see D4) — and brackets the whole apply section (file
+  deletion/creation/truncation plus the per-page apply loop) with one
+  `enterApplyPhase`/`exitApplyPhase` pair per distinct epoch; exits run in a
+  `finally` block so an escaping exception cannot leave an epoch permanently
+  "in apply".
 
 ### Decision Records
 
@@ -134,8 +139,11 @@ already makes ownership explicit at the only place it matters.
 `applyPhaseEpoch` field to `OptimisticReadScope.reset(epoch)` at attempt
 start. No registry lookup, no indirection — the optimistic hot path gains
 zero cost over the YTDB-1178 storage-wide design. The registry (D3) exists
-solely for the writer side, which cannot know component identity from the
-fileIds it tracks.
+primarily for the writer side, which cannot know component identity from the
+fileIds it tracks; the only reader-side accesses are the `-ea`-only guard
+lookups of D5 (`StorageComponent.loadPageOptimistic` / `loadPageForRead` via
+`registeredEpochIs`), which sit inside `assert` operands and never run on
+the production hot path.
 
 **Alternatives rejected**: a striped per-file epoch array indexed by
 `fileId % stripes`, with lazy per-file capture as the reader touches each
@@ -188,16 +196,30 @@ commit frequently touches several files of the same family, which must
 produce exactly one enter/exit pair per epoch; the mutated set is small
 (typically 1–3 components), so a linear reference scan beats an identity
 hash set. A mutated fileId with no registry entry throws
-`IllegalStateException` (review finding AR-2): every production file is
-registered by the funnel before it can be mutated, so a miss means a file
-was created or loaded behind the funnel's back and its optimistic readers
-would silently lose epoch protection if the bump were skipped.
+`IllegalStateException` (pre-implementation review finding AR-2, which asked
+for an explicit fail-loud policy instead of a silent skip on a registry
+miss; the review artifacts themselves are not archived in-repo): every
+production file is registered by the funnel before it can be mutated, so a
+miss means a file was created or loaded behind the funnel's back and its
+optimistic readers would silently lose epoch protection if the bump were
+skipped.
+
+The resolution runs at the very top of `commitChanges` — before
+`flushPendingOperations` and before any WAL record is written — so the
+fail-loud miss aborts the commit cleanly *before* the durability point of no
+return. Resolving after the `AtomicUnitEndRecord` (as an earlier revision
+did) would turn a miss into a recovery-visible torn state: WAL says
+committed, the cache apply never ran, and replay would apply the orphaned
+unit against later transactions' writes. The early call is safe because the
+mutated set is frozen at `commitChanges` entry — `flushPendingOperations`
+only assigns changeLSNs to already-registered page overlays, and the WAL
+phase only prunes page entries without changes.
 
 **Alternatives rejected**: skip-and-log on a registry miss (converts a
 correctness hole into a silent one); bumping every epoch in the registry on
 a miss (re-creates storage-wide over-invalidation to paper over a bug).
 
-#### D5: `-ea`-only one-component-per-scope guards with a latched-violation protocol
+#### D5: `-ea`-only one-component-per-attempt guards with a latched-violation protocol
 
 One optimistic attempt validates exactly one epoch, so an optimistic lambda
 must not read files of two different top-level components. This invariant
@@ -221,7 +243,11 @@ attempt-active flag and per-page registry lookups into the hot path for a
 design-time-verified invariant); throwing directly from the guard (swallowed
 by the fallback catch, see above).
 
-#### D6: Accepted narrowing on same-name drop+recreate (adversarial finding AR-3)
+#### D6: Accepted narrowing on same-name drop+recreate
+
+Raised as pre-implementation adversarial-review finding AR-3, which asked
+for this residual risk to be documented explicitly (the review artifacts
+themselves are not archived in-repo).
 
 A stale component reference that survives a same-name drop+recreate cycle
 reads the reused fileId's pages under the dead component's epoch: the
@@ -237,8 +263,8 @@ require registry removal hooks that break I2.
 
 ### Invariants & Contracts
 
-- **I1.** One optimistic read scope reads exactly one high-level component
-  per attempt: every page recorded — or pinned-read while an attempt is in
+- **I1.** One optimistic read attempt reads exactly one high-level
+  component (the scope re-binds per attempt at `reset`): every page recorded — or pinned-read while an attempt is in
   flight — belongs to a file whose registered epoch is reference-equal to
   the epoch captured at `reset`. Verified across all optimistic call sites
   at design time; enforced at runtime under `-ea` via the latched-violation
@@ -274,8 +300,8 @@ require registry removal hooks that break I2.
 - `BTreeMultiValueIndexEngine` — creates two `BTree` instances (main and
   `$null` sub-tree); each is its own top-level component with its own epoch.
 - `AtomicOperationBinaryTracking.commitChanges` — computes
-  `collectMutatedComponentEpochs()` before mutating shared cache state and
-  brackets the apply section per resolved epoch.
+  `collectMutatedComponentEpochs()` at method entry, before any WAL side
+  effect (D4), and brackets the apply section per resolved epoch.
 - `AtomicOperationBinaryTracking` standalone constructor — wires
   `ComponentEpochRegistry.uniform(new ApplyPhaseEpoch())` so operations
   built outside a storage keep pre-per-component semantics with the
@@ -290,16 +316,19 @@ require registry removal hooks that break I2.
 
 ### Non-Goals
 
-- **Restoring cross-component invalidation for stale references** (the AR-3
-  narrowing, D6) — use-after-drop is an orthogonal, pre-existing defect
-  class.
+- **Restoring cross-component invalidation for stale references** (the
+  stale-reader narrowing accepted in D6) — use-after-drop is an orthogonal,
+  pre-existing defect class.
 - **Production-grade enforcement of the one-component-per-scope invariant**
   — deliberately `-ea`-only (D5).
 - **Per-file or striped epoch granularity** — rejected (D2); per-component
   is the finest granularity that keeps single-capture semantics.
 - **Registry entry reclamation** — entries are permanent by contract (I2);
-  the footprint is one map entry per file ever opened, which is bounded by
-  the storage's file population.
+  the footprint is one map entry (plus a possibly-dead epoch) per file ever
+  opened or created in the storage's lifetime — monotonic under
+  unique-name create/drop churn, not bounded by the *live* file population.
+  Accepted: entries are ~100 bytes and DDL churn at a scale where this
+  matters is not an existing workload.
 - **Engine-global epoch placement** (on `ReadCache`) — on the disk engine a
   single read cache is shared by all storages of the engine, which would be
   even coarser than per-storage.
@@ -332,9 +361,9 @@ require registry removal hooks that break I2.
 - **Fail-loud epoch resolution needs a standalone escape hatch.** Atomic
   operations constructed outside a storage (tests, tooling) have no funnel
   to populate a registry; without `ComponentEpochRegistry.uniform`, the
-  AR-2 fail-loud contract would make every standalone commit throw. The
-  uniform registry reproduces storage-wide semantics privately, keeping the
-  production contract strict.
+  fail-loud registry-miss contract of D4 would make every standalone commit
+  throw. The uniform registry reproduces storage-wide semantics privately,
+  keeping the production contract strict.
 - **Rename never intersects the epoch machinery.** `renameFile` operates
   directly on the write cache with a preserved fileId and never enters the
   atomic-operation `deletedFiles`/`fileChanges` tracking, so renames need no

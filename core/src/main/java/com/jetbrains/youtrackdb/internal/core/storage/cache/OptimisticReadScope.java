@@ -36,11 +36,19 @@ public final class OptimisticReadScope {
 
   private static final int INITIAL_CAPACITY = 8;
 
+  // Shared never-bumped sentinel bound to scopes that were not yet reset(...). Safe to
+  // share across all scopes because no writer ever bumps it — its counters stay 0/0
+  // forever, so epoch validation against it trivially passes and no cross-scope
+  // interference is possible. Avoids allocating a throwaway epoch (plus two
+  // AtomicLongs) per scope that the first reset immediately discards (review findings
+  // CN-2/PF-1).
+  private static final ApplyPhaseEpoch NEVER_BUMPED_SENTINEL = new ApplyPhaseEpoch();
+
   // Apply-phase epoch of the component the CURRENT read attempt targets; set by
-  // reset(ApplyPhaseEpoch) before each attempt. Initialized to a private, never-bumped
-  // epoch so scopes used without a reset (standalone tests, tooling) trivially pass the
-  // epoch check and only per-page stamp validation applies.
-  private ApplyPhaseEpoch applyPhaseEpoch = new ApplyPhaseEpoch();
+  // reset(ApplyPhaseEpoch) before each attempt. Initialized to the never-bumped
+  // sentinel so scopes used without a reset (standalone tests, tooling) trivially pass
+  // the epoch check and only per-page stamp validation applies.
+  private ApplyPhaseEpoch applyPhaseEpoch = NEVER_BUMPED_SENTINEL;
 
   private PageFrame[] frames;
   private long[] stamps;
@@ -69,9 +77,9 @@ public final class OptimisticReadScope {
   /**
    * Creates an empty scope. No epoch is bound at construction — production readers
    * capture the target component's epoch per attempt via {@link #reset(ApplyPhaseEpoch)}.
-   * Until the first reset, the scope holds a private, never-bumped epoch so standalone
-   * use (tests, tooling) that records and validates stamps without a reset gets a
-   * trivially passing epoch check.
+   * Until the first reset, the scope holds the shared never-bumped sentinel epoch so
+   * standalone use (tests, tooling) that records and validates stamps without a reset
+   * gets a trivially passing epoch check.
    */
   public OptimisticReadScope() {
     this.frames = new PageFrame[INITIAL_CAPACITY];
@@ -158,9 +166,14 @@ public final class OptimisticReadScope {
     // Nesting detection (-ea builds only): attemptActive can be true here only when a
     // surrounding executeOptimisticStorageRead is still in flight — i.e., this reset
     // belongs to a nested attempt that is about to wipe the outer scope's stamps.
-    // Record the violation; the outer exitAttempt() assert will surface it.
+    // Record the violation; the outer exitAttempt() assert will surface it. With no
+    // attempt in flight, any latched violation is stale (recorded by an out-of-protocol
+    // call outside enterAttempt/exitAttempt) and is cleared so it cannot be
+    // misattributed to the attempt this reset opens (review finding CQ-2).
     if (attemptActive) {
       attemptViolationDetected = true;
+    } else {
+      attemptViolationDetected = false;
     }
 
     // Capture the epoch. Exit is read BEFORE enter deliberately: if the two values are

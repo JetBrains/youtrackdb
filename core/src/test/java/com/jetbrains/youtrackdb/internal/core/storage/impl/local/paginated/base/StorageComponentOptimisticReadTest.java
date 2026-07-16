@@ -3,7 +3,9 @@ package com.jetbrains.youtrackdb.internal.core.storage.impl.local.paginated.base
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -741,25 +743,27 @@ public class StorageComponentOptimisticReadTest {
     long foreignFileId = 777L;
     registry.register(foreignFileId, new ApplyPhaseEpoch()); // another component's epoch
 
+    // assertThrows keeps the expected-error window scoped to the lambda alone: a
+    // non-firing guard fails assertThrows itself instead of a fail() call satisfying
+    // the test's own catch (review finding TS-3).
     final boolean[] pinnedFallbackRan = {false};
-    try {
-      component.testExecuteOptimisticStorageRead(
-          mockAtomicOp,
-          () -> {
-            component.testLoadPageForRead(mockAtomicOp, foreignFileId, 0);
-            return "optimistic-result";
-          },
-          () -> {
-            pinnedFallbackRan[0] = true;
-            return "pinned-result";
-          });
-      fail("Expected AssertionError from the pinned-inside-optimistic epoch guard");
-    } catch (AssertionError e) {
-      assertTrue(
-          "Expected the protocol-violation assert, got: " + e.getMessage(),
-          String.valueOf(e.getMessage())
-              .contains("Optimistic attempt protocol violation"));
-    }
+    var violation = assertThrows(
+        "Expected AssertionError from the pinned-inside-optimistic epoch guard",
+        AssertionError.class,
+        () -> component.testExecuteOptimisticStorageRead(
+            mockAtomicOp,
+            () -> {
+              component.testLoadPageForRead(mockAtomicOp, foreignFileId, 0);
+              return "optimistic-result";
+            },
+            () -> {
+              pinnedFallbackRan[0] = true;
+              return "pinned-result";
+            }));
+    assertTrue(
+        "Expected the protocol-violation assert, got: " + violation.getMessage(),
+        String.valueOf(violation.getMessage())
+            .contains("Optimistic attempt protocol violation"));
     assertEquals(false, pinnedFallbackRan[0]);
 
     // exitAttempt() cleared the latch: a well-formed read on the same scope works.
@@ -787,21 +791,36 @@ public class StorageComponentOptimisticReadTest {
     installRealRegistryWithOwnFile();
     long unregisteredFileId = 778L;
 
-    try {
-      component.testExecuteOptimisticStorageRead(
-          mockAtomicOp,
-          () -> {
-            component.testLoadPageForRead(mockAtomicOp, unregisteredFileId, 0);
-            return "optimistic-result";
-          },
-          () -> "pinned-result");
-      fail("Expected AssertionError for the unregistered pinned file");
-    } catch (AssertionError e) {
-      assertTrue(
-          "Expected the protocol-violation assert, got: " + e.getMessage(),
-          String.valueOf(e.getMessage())
-              .contains("Optimistic attempt protocol violation"));
-    }
+    // See the assertThrows-scoping comment in the foreign-file variant above (TS-3).
+    var violation = assertThrows(
+        "Expected AssertionError for the unregistered pinned file",
+        AssertionError.class,
+        () -> component.testExecuteOptimisticStorageRead(
+            mockAtomicOp,
+            () -> {
+              component.testLoadPageForRead(mockAtomicOp, unregisteredFileId, 0);
+              return "optimistic-result";
+            },
+            () -> "pinned-result"));
+    assertTrue(
+        "Expected the protocol-violation assert, got: " + violation.getMessage(),
+        String.valueOf(violation.getMessage())
+            .contains("Optimistic attempt protocol violation"));
+  }
+
+  @Test
+  public void testTopLevelComponentsOwnDistinctEpochInstances() {
+    // The per-component granularity (YTDB-1203) rests on every TOP-LEVEL component
+    // allocating its OWN ApplyPhaseEpoch in the default StorageComponent constructor.
+    // All other epoch tests inject manually built epochs through the registry seam, so
+    // a regression to a shared/static epoch (silently reverting to storage-wide
+    // invalidation) would keep them green — pin the constructor behavior directly on
+    // two real component instances (review finding TS-1).
+    var other = new TestStorageComponent(component.storage);
+    assertNotSame(
+        "Two top-level components must not share an ApplyPhaseEpoch instance",
+        component.testApplyPhaseEpoch(),
+        other.testApplyPhaseEpoch());
   }
 
   @Test
@@ -856,21 +875,21 @@ public class StorageComponentOptimisticReadTest {
     var frame = acquireFrameWithCoordinates(foreignFileId, 0);
     when(mockReadCache.getPageFrameOptimistic(foreignFileId, 0)).thenReturn(frame);
 
-    try {
-      component.testExecuteOptimisticStorageRead(
-          mockAtomicOp,
-          () -> {
-            component.testLoadPageOptimistic(mockAtomicOp, foreignFileId, 0);
-            return "optimistic-result";
-          },
-          () -> "pinned-result");
-      fail("Expected AssertionError from the optimistic epoch-coverage guard");
-    } catch (AssertionError e) {
-      assertTrue(
-          "Expected the protocol-violation assert, got: " + e.getMessage(),
-          String.valueOf(e.getMessage())
-              .contains("Optimistic attempt protocol violation"));
-    }
+    // See the assertThrows-scoping comment in the pinned foreign-file variant (TS-3).
+    var violation = assertThrows(
+        "Expected AssertionError from the optimistic epoch-coverage guard",
+        AssertionError.class,
+        () -> component.testExecuteOptimisticStorageRead(
+            mockAtomicOp,
+            () -> {
+              component.testLoadPageOptimistic(mockAtomicOp, foreignFileId, 0);
+              return "optimistic-result";
+            },
+            () -> "pinned-result"));
+    assertTrue(
+        "Expected the protocol-violation assert, got: " + violation.getMessage(),
+        String.valueOf(violation.getMessage())
+            .contains("Optimistic attempt protocol violation"));
     releaseFrame(frame);
   }
 

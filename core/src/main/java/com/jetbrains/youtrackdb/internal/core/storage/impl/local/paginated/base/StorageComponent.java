@@ -365,6 +365,14 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    */
   private boolean optimisticRecordEpochConsistent(
       final long fileId, final OptimisticReadScope scope) {
+    if (!scope.isAttemptActive()) {
+      // Out-of-protocol call — no attempt in flight (e.g., a direct loadPageOptimistic
+      // invocation outside executeOptimisticStorageRead, which only tests do). Mirror
+      // pinnedReadEpochConsistent's gate: there is no captured epoch to check against,
+      // and latching here would misattribute the violation to the NEXT legitimate
+      // attempt's exitAttempt() (review finding CQ-2).
+      return true;
+    }
     if (registeredEpochIs(fileId, scope.capturedEpoch())) {
       return true;
     }
@@ -770,13 +778,12 @@ public abstract class StorageComponent extends SharedResourceAbstract {
 
       // Close the attempt before the pinned fallback runs: the fallback may itself
       // legitimately start fresh optimistic reads (e.g., via helper methods), which
-      // must not trip a stale nesting flag. If a nested reset was detected during the
-      // failed attempt, this assert surfaces it (the nested AssertionError itself was
-      // swallowed by this catch).
+      // must not trip a stale nesting flag. If a violation was latched during the
+      // failed attempt, the helper surfaces it as an AssertionError carrying the
+      // original lambda throwable as suppressed — the guard must not silently replace
+      // a genuine corruption-signaling exception (review finding CS-2).
       attemptClosedByFallback = true;
-      assert scope.exitAttempt()
-          : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
-              + getLockName();
+      assert closeAttemptAfterFallback(scope, e);
 
       acquireSharedLock();
       try {
@@ -820,9 +827,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt()
-          : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
-              + getLockName();
+      assert closeAttemptAfterFallback(scope, e);
 
       acquireSharedLock();
       try {
@@ -837,6 +842,28 @@ public abstract class StorageComponent extends SharedResourceAbstract {
                 + getLockName();
       }
     }
+  }
+
+  /**
+   * -ea-only attempt-closing check for the optimistic-fallback catch blocks: behaves
+   * like {@code assert scope.exitAttempt()} but, when the attempt was ill-formed
+   * (nested read or epoch-coverage breach latched on the scope), raises the
+   * AssertionError with the original lambda throwable attached as SUPPRESSED instead
+   * of silently replacing it — the original exception may itself signal corruption and
+   * must stay visible (review finding CS-2). Invoked exclusively via {@code assert},
+   * so {@code -da} builds skip the call entirely, exactly like the plain assert this
+   * replaces.
+   */
+  private boolean closeAttemptAfterFallback(
+      final OptimisticReadScope scope, final Throwable original) {
+    if (scope.exitAttempt()) {
+      return true;
+    }
+    final var violation = new AssertionError(
+        "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+            + getLockName());
+    violation.addSuppressed(original);
+    throw violation;
   }
 
   // Rate limiter state for the null-recheck disagreement ERROR: nanoTime of the last
@@ -900,9 +927,7 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // Same fallback semantics as executeOptimisticStorageRead — and deliberately NO
       // re-check on this path: the pinned result below is already authoritative.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt()
-          : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
-              + getLockName();
+      assert closeAttemptAfterFallback(scope, e);
 
       acquireSharedLock();
       try {
