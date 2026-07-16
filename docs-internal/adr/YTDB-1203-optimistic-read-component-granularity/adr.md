@@ -319,8 +319,8 @@ require registry removal hooks that break I2.
 - **Restoring cross-component invalidation for stale references** (the
   stale-reader narrowing accepted in D6) — use-after-drop is an orthogonal,
   pre-existing defect class.
-- **Production-grade enforcement of the one-component-per-scope invariant**
-  — deliberately `-ea`-only (D5).
+- **Production-grade enforcement of the one-component-per-attempt
+  invariant** — deliberately `-ea`-only (D5).
 - **Per-file or striped epoch granularity** — rejected (D2); per-component
   is the finest granularity that keeps single-capture semantics.
 - **Registry entry reclamation** — entries are permanent by contract (I2);
