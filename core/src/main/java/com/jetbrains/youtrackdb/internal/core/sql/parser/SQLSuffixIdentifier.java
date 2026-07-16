@@ -13,6 +13,7 @@ import com.jetbrains.youtrackdb.internal.core.exception.BaseException;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandExecutionException;
 import com.jetbrains.youtrackdb.internal.core.id.ContextualRecordId;
 import com.jetbrains.youtrackdb.internal.core.id.RecordIdInternal;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.SchemaShared;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -172,24 +173,43 @@ public class SQLSuffixIdentifier extends SimpleNode {
           return null;
         }
 
-        // Edge-management accessor names (out_*, in_*) are rejected by
-        // VertexEntityImpl.validatePropertyName and EdgeEntityImpl
-        // .validatePropertyName — getProperty would throw
-        // IllegalArgumentException on those record types. These names do
-        // appear in real SQL projections (e.g. `select out_[...].in_ from
-        // V`), so we route them through hasProperty-first, which does NOT
-        // run validatePropertyName and returns false safely when the entry
-        // is absent, true when present (e.g. `out_drives` on a vertex with
-        // a `drives` edge).
+        // Safe path (hasProperty-first, which never runs validatePropertyName)
+        // for any name on which getProperty could throw. The getProperty-first
+        // hot path below is entered only for names that base
+        // validatePropertyName accepts; anything else is routed here so it
+        // resolves like the old hasProperty-first code (absent → null) instead
+        // of throwing. Two families of unsafe names:
         //
-        // KEEP IN SYNC: the only EntityImpl subclasses that override
-        // validatePropertyName today are VertexEntityImpl and
-        // EdgeEntityImpl, both rejecting the same out_/in_ prefixes. If a
-        // future subclass adds further reserved-name validation, extend
-        // this guard to cover those names — otherwise the getProperty-first
-        // branch below will throw on them.
+        //   * Names rejected by the base EntityImpl.validatePropertyName —
+        //     empty, a forbidden character (':', ',', ';', ' ', '='), or a
+        //     first char that is not a letter/'_'/'@'/'~'. These reach us via
+        //     real SQL through backtick-quoted identifiers, e.g. SELECT
+        //     `123prop` FROM V: the property is usually absent, and
+        //     getProperty-first would throw IllegalArgumentException/
+        //     DatabaseException where hasProperty-first returns null. The
+        //     predicate is isSafeForGetProperty (mirrors validatePropertyName).
+        //   * Vertex edge-management accessors: VertexEntityImpl rejects the
+        //     out_/in_ PREFIXES (e.g. `out_drives`), which pass base validation
+        //     but throw on a vertex record. These appear in real projections
+        //     such as `select out_[...].in_ from V`.
+        //
+        // (EdgeEntityImpl additionally rejects the EXACT names "out"/"in" via
+        // EdgeInternal.checkPropertyName — not the out_/in_ prefixes — but that
+        // pre-existing edge-only case is outside this guard and behaves
+        // identically to the old code, so it is left untouched here.)
+        //
+        // hasProperty does NOT validate: it returns false when the entry is
+        // absent (→ fall through to the metadata/temporary-property lookup
+        // below, then null) and true when present, so no name can throw here.
+        //
+        // KEEP IN SYNC with EntityImpl.validatePropertyName /
+        // SchemaShared.checkPropertyNameIfValid (base rules, mirrored by
+        // isSafeForGetProperty) and VertexEntityImpl/EdgeEntityImpl
+        // .validatePropertyName (subclass edge rules). If those change, update
+        // this guard so getProperty is only called first for accepted names.
         if (varName.startsWith(Vertex.DIRECTION_OUT_PREFIX)
-            || varName.startsWith(Vertex.DIRECTION_IN_PREFIX)) {
+            || varName.startsWith(Vertex.DIRECTION_IN_PREFIX)
+            || !isSafeForGetProperty(varName)) {
           if (iCurrentRecord.hasProperty(varName)) {
             return iCurrentRecord.getProperty(varName);
           }
@@ -224,6 +244,42 @@ public class SQLSuffixIdentifier extends SimpleNode {
     }
 
     return null;
+  }
+
+  /**
+   * Non-throwing mirror of {@link EntityImpl#validatePropertyName(String, boolean)} with {@code
+   * allowMetadata = true} (the mode used by {@code EntityImpl.getProperty}). Returns {@code true}
+   * only for names that base entity validation accepts — i.e. names for which {@code getProperty}
+   * will NOT throw. Names that would be rejected must instead be resolved through {@code
+   * hasProperty}-first, which never validates.
+   *
+   * <p>The forbidden-character set is delegated to {@link
+   * SchemaShared#checkPropertyNameIfValid(String)} so it cannot drift from the real validation;
+   * only the small first-character and metadata rules are mirrored here.
+   *
+   * <p>KEEP IN SYNC with EntityImpl.validatePropertyName. This covers only base validation; the
+   * out_/in_ subclass rules (VertexEntityImpl/EdgeEntityImpl) are handled separately at the call
+   * site.
+   */
+  private static boolean isSafeForGetProperty(String name) {
+    // Empty (or whitespace-only, which trims to empty) names make
+    // checkPropertyNameIfValid throw — treat them as unsafe for the hot path.
+    if (name.trim().isEmpty()) {
+      return false;
+    }
+    var firstChar = name.charAt(0);
+    // Metadata accessors are accepted under allowMetadata regardless of the rest
+    // of the name (validatePropertyName returns before its char checks).
+    if (firstChar == '@' || firstChar == '~') {
+      return true;
+    }
+    // Forbidden characters (':', ',', ';', ' ', '='): reuse the schema-level
+    // predicate so this stays in sync with validatePropertyName.
+    if (SchemaShared.checkPropertyNameIfValid(name) != null) {
+      return false;
+    }
+    // First char must be a letter or underscore.
+    return firstChar == '_' || Character.isLetter(firstChar);
   }
 
   @Nullable

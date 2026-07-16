@@ -1102,6 +1102,31 @@ public class CommandExecutorSQLSelectTest extends DbTestBase {
     assertThat(doc.<Integer>getProperty("r")).isEqualTo(10);
   }
 
+  /**
+   * BG1 regression (SQLSuffixIdentifier property-name dispatch): projecting a backtick-quoted
+   * identifier that (a) does NOT exist on the record and (b) would be rejected by
+   * {@code EntityImpl.validatePropertyName} (first char is a digit, or the name contains ':',
+   * ' ' or '=') must resolve to null rather than throwing. The previous getProperty-first hot
+   * path called {@code EntityImpl.getProperty} unconditionally on these names, which threw
+   * {@code IllegalArgumentException}/{@code DatabaseException}; the guard now routes any name that
+   * base validation would reject through hasProperty-first (which never validates), restoring the
+   * pre-regression behaviour of returning null. The TestBacktick record only has {@code foo},
+   * {@code bar} and {@code `foo-bar`}, so every name below is genuinely absent.
+   */
+  @Test
+  public void testBacktickInvalidAbsentPropertyReturnsNullInsteadOfThrowing() {
+    var invalidAbsentNames = List.of("123prop", "prop:value", "my property", "key=value");
+    for (var name : invalidAbsentNames) {
+      var query = "SELECT `" + name + "` as r from TestBacktick";
+      // A throw here (the pre-fix behaviour) would fail the query and abort the test.
+      var results = session.query(query).stream().toList();
+      assertEquals("query [" + query + "] must return exactly one row", 1, results.size());
+      assertNull(
+          "projection of invalid, absent backtick name [" + name + "] must be null, not throw",
+          results.getFirst().getProperty("r"));
+    }
+  }
+
   @Test
   public void testOrderByEmbeddedParams() {
     // issue #4949
