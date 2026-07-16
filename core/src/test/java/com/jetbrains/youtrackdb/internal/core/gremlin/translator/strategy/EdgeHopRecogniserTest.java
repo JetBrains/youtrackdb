@@ -6,6 +6,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
+import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
@@ -262,12 +263,17 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   }
 
   /**
-   * A {@code has} predicate the adapter cannot translate ({@code P.within(...)}) declines the whole
-   * chain — no half-applied edge filter that would diverge from native.
+   * A {@code has} predicate the adapter cannot translate (a custom {@code BiPredicate} — not {@code
+   * Compare} / {@code Contains} / {@code Text}) declines the whole chain — no half-applied edge
+   * filter that would diverge from native. (The adapter now translates {@code
+   * within} / {@code and} / {@code between} and the string predicates, so the untranslatable case is
+   * a user lambda the translator cannot reproduce.)
    */
   @Test
   public void untranslatablePredicate_declines() {
-    var admin = graph.traversal().V().outE("knows").has("w", P.within(1, 2)).inV().asAdmin();
+    PBiPredicate<Object, Object> custom = (a, b) -> true;
+    var admin =
+        graph.traversal().V().outE("knows").has("w", new P<>(custom, 1)).inV().asAdmin();
     var ctx = contextWithStartBoundary();
     var cursor = cursorAfterStart(admin);
 
