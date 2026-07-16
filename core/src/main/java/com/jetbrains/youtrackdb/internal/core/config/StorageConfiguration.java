@@ -13,7 +13,10 @@ public interface StorageConfiguration {
   String DEFAULT_CHARSET = "UTF-8";
   String DEFAULT_DATE_FORMAT = "yyyy-MM-dd";
   String DEFAULT_DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
-  int CURRENT_VERSION = 23;
+  // 24: engine entries carry a persisted fileBaseId (the stable engine-file base) and the
+  // configuration carries the fileBaseId allocation floor; pre-24 databases are rejected at
+  // open with an export/import redirect (no in-place storage-format migration is supported).
+  int CURRENT_VERSION = 24;
   int CURRENT_BINARY_FORMAT_VERSION = 14;
 
   SimpleDateFormat getDateTimeFormatInstance();
@@ -30,8 +33,7 @@ public interface StorageConfiguration {
 
   String getIndexMgrRecordId();
 
-  @Nullable
-  TimeZone getTimeZone();
+  @Nullable TimeZone getTimeZone();
 
   String getDateFormat();
 
@@ -51,8 +53,15 @@ public interface StorageConfiguration {
 
   boolean isValidationEnabled();
 
-  @Nullable
-  IndexEngineData getIndexEngine(String name, int defaultIndexId, AtomicOperation atomicOperation);
+  @Nullable IndexEngineData getIndexEngine(String name, int defaultIndexId, AtomicOperation atomicOperation);
+
+  /**
+   * The persisted allocation floor of the index-engine file-base-id counter: the highest
+   * {@code fileBaseId} any successfully committed engine create has allocated. The storage's
+   * in-process high-water-mark allocator seeds from (among other inputs) this floor at open, so
+   * a file base id is never reused across restarts.
+   */
+  int getIndexEngineFileBaseIdFloor(AtomicOperation atomicOperation);
 
   String getRecordSerializer();
 
@@ -64,13 +73,11 @@ public interface StorageConfiguration {
   @SuppressWarnings("unused")
   int getVersion(AtomicOperation atomicOperation);
 
-  @Nullable
-  String getName();
+  @Nullable String getName();
 
   String getProperty(String graphConsistencyMode);
 
-  @Nullable
-  String getDirectory();
+  @Nullable String getDirectory();
 
   List<StorageCollectionConfiguration> getCollections();
 

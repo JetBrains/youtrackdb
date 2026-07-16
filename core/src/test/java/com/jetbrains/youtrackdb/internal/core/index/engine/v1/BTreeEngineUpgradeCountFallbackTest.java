@@ -129,7 +129,7 @@ public class BTreeEngineUpgradeCountFallbackTest {
 
   private static IndexEngineData createIndexEngineData(String name, int keySize) {
     return new IndexEngineData(
-        0, name, "CELL_BTREE", "UNIQUE", true, 4, 1, false,
+        0, 0, name, "CELL_BTREE", "UNIQUE", true, 4, 1, false,
         (byte) 0, (byte) 0, false,
         new PropertyTypeInternal[] {PropertyTypeInternal.INTEGER},
         true, keySize, null, null, null);

@@ -226,6 +226,15 @@ public abstract class AbstractStorage
   public static final String NULL_TREE_SUFFIX = "$null";
 
   /**
+   * The stem prefix of file-base-id-keyed index-engine files ({@code ie_<fileBaseId>} plus the
+   * usual extensions and the {@link #NULL_TREE_SUFFIX} variant). The open-time high-water-mark
+   * seeding sweeps the write cache for stems of this shape so an engine file that survived a
+   * rolled-back create on the in-memory profile (whose eager cache install does not revert) can
+   * never have its file base id handed out again.
+   */
+  public static final String INDEX_ENGINE_FILE_STEM_PREFIX = "ie_";
+
+  /**
    * Version comparator for index snapshot visibility-index maps: orders by the
    * last key element (the committing TX's version = newVersion), falling back
    * to full element-wise comparison for uniqueness. Enables efficient
@@ -293,6 +302,19 @@ public abstract class AbstractStorage
   private final Map<String, BaseIndexEngine> indexEngineNameMap = new HashMap<>();
   private final List<BaseIndexEngine> indexEngines = new ArrayList<>();
   private final AtomicOperationIdGen idGen = new AtomicOperationIdGen();
+
+  /**
+   * In-process high-water mark of the index-engine file-base-id allocator. Strictly monotonic for
+   * the storage instance's lifetime and deliberately NOT reverted by a rolled-back engine create:
+   * the persisted floor (written alongside every allocation inside the allocating atomic
+   * operation) reverts with the files, but on the in-memory profile a rolled-back create's eager
+   * file install survives, so a reverting allocator would re-issue the burned id and wedge every
+   * subsequent create against the surviving orphan. Burning the value instead keeps allocation
+   * collision-free on both profiles. Seeded at {@link #openIndexes} from
+   * max(persisted floor, max persisted engine {@code fileBaseId}, max swept
+   * {@code ie_<n>} file stem) — see {@link #seedIndexEngineFileBaseIdHwm}.
+   */
+  private final AtomicLong indexEngineFileBaseIdHwm = new AtomicLong();
 
   /**
    * Storage-level shared cache for histogram snapshots, keyed by engine ID.
@@ -981,6 +1003,13 @@ public abstract class AbstractStorage
     if (cf == null) {
       throw new StorageException(name, "Storage '" + name + "' is not properly initialized");
     }
+
+    // Seed the file-base-id allocator before any engine loads: openIndexes is on every path that
+    // brings persisted engines back to life (normal open and the incremental-restore reopen), so
+    // seeding here guarantees no later allocation can collide with a persisted or orphaned file
+    // base id.
+    seedIndexEngineFileBaseIdHwm(atomicOperation);
+
     final var indexNames = configuration.indexEngines(atomicOperation);
     var counter = 0;
 
@@ -1011,6 +1040,108 @@ public abstract class AbstractStorage
       indexEngines.set(engineData.getIndexId(), engine);
       counter++;
     }
+  }
+
+  /**
+   * Seeds the in-process file-base-id high-water mark from every durable trace an allocation can
+   * leave, taking the max of three inputs:
+   *
+   * <ol>
+   *   <li>the persisted floor — the last successfully committed allocation;
+   *   <li>the max {@code fileBaseId} across the persisted engine entries — defends against a
+   *       floor that lags the entries (e.g. a partially restored configuration);
+   *   <li>the max {@code ie_<n>} stem among the write cache's files — defends against an orphaned
+   *       engine file that survived a rolled-back create on the in-memory profile (the eager
+   *       cache install does not revert) and would otherwise collide with a re-issued id.
+   * </ol>
+   *
+   * <p>Never lowers the mark: the update takes {@code max(current, seed)}, so a re-seed (an
+   * incremental restore into an already-open storage) keeps the monotonicity guarantee.
+   */
+  private void seedIndexEngineFileBaseIdHwm(final AtomicOperation atomicOperation) {
+    long seed = ((CollectionBasedStorageConfiguration) configuration)
+        .getIndexEngineFileBaseIdFloor(atomicOperation);
+
+    for (final var engineName : configuration.indexEngines(atomicOperation)) {
+      final var engineData = configuration.getIndexEngine(engineName, -1, atomicOperation);
+      if (engineData != null && engineData.getFileBaseId() > seed) {
+        seed = engineData.getFileBaseId();
+      }
+    }
+
+    final var wc = writeCache;
+    if (wc != null) {
+      for (final var fileName : wc.files().keySet()) {
+        final var swept = parseIndexEngineFileBaseId(fileName);
+        if (swept > seed) {
+          seed = swept;
+        }
+      }
+    }
+
+    final var finalSeed = seed;
+    indexEngineFileBaseIdHwm.updateAndGet(current -> Math.max(current, finalSeed));
+  }
+
+  /**
+   * Extracts the file base id from an engine file name of the shape
+   * {@code ie_<n>[$null].<extension>}, or {@code -1} when the name is not an engine file (e.g. a
+   * user collection that happens to start with the prefix but has a non-numeric remainder).
+   */
+  private static long parseIndexEngineFileBaseId(final String fileName) {
+    final var extensionStart = fileName.lastIndexOf('.');
+    var stem = extensionStart > 0 ? fileName.substring(0, extensionStart) : fileName;
+    if (stem.endsWith(NULL_TREE_SUFFIX)) {
+      stem = stem.substring(0, stem.length() - NULL_TREE_SUFFIX.length());
+    }
+    if (!stem.startsWith(INDEX_ENGINE_FILE_STEM_PREFIX)) {
+      return -1;
+    }
+    try {
+      return Long.parseLong(stem.substring(INDEX_ENGINE_FILE_STEM_PREFIX.length()));
+    } catch (final NumberFormatException ignore) {
+      return -1;
+    }
+  }
+
+  /**
+   * Allocates the next index-engine file base id and persists the new floor inside
+   * {@code atomicOperation}. The returned value is unique for the storage's whole lifetime: the
+   * in-process high-water mark only ever grows (a rolled-back allocation burns its value — see
+   * {@link #indexEngineFileBaseIdHwm}), and the floor write makes the allocation durable together
+   * with the engine files it is for.
+   *
+   * <p>Must be called with {@code stateLock.writeLock()} held (both engine-create paths — the
+   * public {@link #addIndexEngine(IndexMetadata, Map)} and the commit-window
+   * {@link #createIndexEngineInCommitWindow}) — hold it): the exclusive lock serializes the
+   * increment-then-persist pair against concurrent creates. The lock carries no owner, so the
+   * assert can only check that the exclusive window is held by somebody; a caller that must
+   * itself hold the lock cannot race another holder anyway.
+   *
+   * <p>Package-private for tests.
+   */
+  int allocateIndexEngineFileBaseId(final AtomicOperation atomicOperation) {
+    assert stateLock.isWriteLocked()
+        : "index-engine file-base-id allocation requires stateLock.writeLock(): the high-water"
+            + " mark increment and the floor write must be serialized against concurrent engine"
+            + " creates";
+    final var allocated = indexEngineFileBaseIdHwm.incrementAndGet();
+    if (allocated > Integer.MAX_VALUE) {
+      throw new StorageException(name,
+          "The index-engine file-base-id space of storage '" + name + "' is exhausted ("
+              + allocated + " exceeds the persistable ceiling " + Integer.MAX_VALUE + ")");
+    }
+    ((CollectionBasedStorageConfiguration) configuration)
+        .setIndexEngineFileBaseIdFloor(atomicOperation, (int) allocated);
+    return (int) allocated;
+  }
+
+  /**
+   * The current value of the index-engine file-base-id high-water mark — FOR TESTS ONLY (seeding
+   * assertions).
+   */
+  long indexEngineFileBaseIdHwmForTesting() {
+    return indexEngineFileBaseIdHwm.get();
   }
 
   protected final void openCollections(final AtomicOperation atomicOperation) throws IOException {
@@ -3341,9 +3472,14 @@ public abstract class AbstractStorage
     final var generatedId = nextFreeIndexEngineId();
     assert generatedId >= indexEngines.size() || indexEngines.get(generatedId) == null
         : "commit-local index-engine allocator returned an occupied slot " + generatedId;
+    // Unlike the reusable slot id above, the file base id is never reused: allocated from the
+    // monotonic high-water mark inside this commit's atomic operation (the floor write reverts
+    // with a failed commit; the mark itself burns the value).
+    final var fileBaseId = allocateIndexEngineFileBaseId(atomicOperation);
     final var engineData =
         new IndexEngineData(
             generatedId,
+            fileBaseId,
             indexMetadata,
             true,
             StreamSerializerRID.INSTANCE.getId(),
@@ -3864,77 +4000,19 @@ public abstract class AbstractStorage
   public int loadExternalIndexEngine(
       final IndexMetadata indexMetadata, final Map<String, String> engineProperties,
       AtomicOperation atomicOperation) {
-    final var indexDefinition = indexMetadata.getIndexDefinition();
-    try {
-      stateLock.writeLock().lock();
-      try {
-
-        checkOpennessAndMigration();
-
-        // this method introduced for binary compatibility only
-        if (configuration.getBinaryFormatVersion(atomicOperation) > 15) {
-          return -1;
-        }
-        if (indexEngineNameMap.containsKey(indexMetadata.getName())) {
-          throw new IndexException(name,
-              "Index with name " + indexMetadata.getName() + " already exists");
-        }
-        makeStorageDirty();
-
-        final var valueSerializerId = StreamSerializerRID.INSTANCE.getId();
-
-        final var keySerializer = determineKeySerializer(indexDefinition, atomicOperation);
-        if (keySerializer == null) {
-          throw new IndexException(name, "Can not determine key serializer");
-        }
-        final var keySize = determineKeySize(indexDefinition);
-        final var keyTypes =
-            Optional.of(indexDefinition).map(IndexDefinition::getTypes).orElse(null);
-        var generatedId = indexEngines.size();
-        final var engineData =
-            new IndexEngineData(
-                generatedId,
-                indexMetadata,
-                true,
-                valueSerializerId,
-                keySerializer.getId(),
-                keyTypes,
-                keySize,
-                null,
-                null,
-                engineProperties);
-
-        final var engine = Indexes.createIndexEngine(this, engineData);
-
-        engine.load(engineData, atomicOperation);
-
-        // Wire histogram manager for B-tree engines (migration path —
-        // binary format version <= 15 has no .ixs files)
-        if (engine instanceof BTreeIndexEngine btreeEngine) {
-          wireHistogramManagerOnLoad(btreeEngine, engineData, atomicOperation);
-        }
-
-        indexEngineNameMap.put(indexMetadata.getName(), engine);
-        indexEngines.add(engine);
-        ((CollectionBasedStorageConfiguration) configuration)
-            .addIndexEngine(atomicOperation, indexMetadata.getName(), engineData);
-
-        return generateIndexId(engineData.getIndexId(), engine);
-      } catch (final IOException e) {
-        throw BaseException.wrapException(
-            new StorageException(name,
-                "Cannot add index engine " + indexMetadata.getName() + " in storage."),
-            e, name);
-      } finally {
-        stateLock.writeLock().unlock();
-      }
-    } catch (final RuntimeException ee) {
-      throw logAndPrepareForRethrow(ee);
-    } catch (final Error ee) {
-      throw logAndPrepareForRethrow(ee, false);
-    } catch (final Throwable t) {
-      throw logAndPrepareForRethrow(t, false);
-    }
+    // Legacy re-attach of an externally created engine (binary format <= 15). The storage-format
+    // gate rejects every pre-24 database at open, so a database that legitimately needs this
+    // path can no longer be opened; reaching it on a current database means the index-manager
+    // record references an engine the storage configuration does not know (corruption or a
+    // partially deleted index). The pre-gate code would fabricate an engine entry without a
+    // stable file base id and try to load name-stemmed files, failing later with a cryptic
+    // file-does-not-exist error; fail loudly and explainably here instead.
+    throw new IndexException(name,
+        "Index '" + indexMetadata.getName() + "' has no registered engine in storage '" + name
+            + "'. Re-attaching an externally created legacy index engine is no longer supported:"
+            + " if this database was created by a previous version of YouTrackDB, export it with"
+            + " that version and reimport it using the current one; otherwise drop and recreate"
+            + " the index.");
   }
 
   public int addIndexEngine(
@@ -3988,9 +4066,14 @@ public abstract class AbstractStorage
               // The public method appends at the live registry size; the commit
               // window passes a commit-local-allocated id instead.
               final var generatedId = indexEngines.size();
+              // The never-reused stable file base id, allocated inside this same atomic
+              // operation (the held stateLock.writeLock() serializes it against concurrent
+              // creates).
+              final var fileBaseId = allocateIndexEngineFileBaseId(atomicOperation);
               final var engineData =
                   new IndexEngineData(
                       generatedId,
+                      fileBaseId,
                       indexMetadata,
                       true,
                       valueSerializerId,
