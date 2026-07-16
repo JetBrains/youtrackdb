@@ -149,10 +149,15 @@ public class SQLFunctionOutTxDroppedIndexTest extends DbTestBase {
   }
 
   /**
-   * The MATCH-side companion: a MATCH traversal over the same mid-tx post-drop state must return
-   * all three neighbours. MATCH's filtered edge traversal shares the {@code out()} shortcut probed
-   * above (its other involved-indexes uses are selectivity estimation only), so this pins the
-   * user-visible query surface end-to-end with the same lowered threshold.
+   * The MATCH-side companion is a pinned mid-tx correctness BASELINE, not a red-to-green proof of
+   * the shortcut seam: with a bare right-hand alias the traversal passes {@code null}
+   * possibleResults ({@code SQLMatchPathItem.traversePatternEdge}), bypassing the
+   * {@code SQLFunctionMoveFiltered} threshold check entirely, and whether a filtered pattern binds
+   * the right node first (producing non-null possibleResults that would route through the
+   * shortcut) is a cost-based planner decision that cannot be pinned deterministically from here.
+   * The shortcut seam itself is red-to-green proven by the direct {@code out()} test above; this
+   * test pins that the MATCH query surface returns the transaction's own post-drop writes over
+   * the same fixture and lowered threshold.
    */
   @Test
   public void matchTraversalSeesPostDropWritesAfterSameTxIndexDrop() {

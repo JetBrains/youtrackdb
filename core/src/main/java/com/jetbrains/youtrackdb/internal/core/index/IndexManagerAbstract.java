@@ -188,6 +188,17 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return indexes.containsKey(iName);
   }
 
+  /**
+   * Session-aware existence probe. The base behaviour is the committed registry, identical to
+   * {@link #existsIndex(String)}; the embedded subclass overrides it to answer from the
+   * transaction's effective view (committed minus tx-dropped plus tx-created), so statement-level
+   * prechecks (e.g. SQL {@code CREATE INDEX … IF NOT EXISTS}) agree with the manager's own in-tx
+   * duplicate handling.
+   */
+  public boolean existsIndex(DatabaseSessionEmbedded session, final String iName) {
+    return existsIndex(iName);
+  }
+
   protected void load(FrontendTransactionImpl transaction, EntityImpl entity) {
     indexes.clear();
     classPropertyIndex.clear();

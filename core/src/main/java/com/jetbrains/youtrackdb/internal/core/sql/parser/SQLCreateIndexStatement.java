@@ -72,7 +72,11 @@ public class SQLCreateIndexStatement extends DDLStatement {
   Object execute(CommandContext ctx) {
     final var session = ctx.getDatabaseSession();
 
-    if (session.getSharedContext().getIndexManager().existsIndex(name.getValue())) {
+    // Overlay-aware probe (session overload): answers from the transaction's effective view
+    // (committed minus tx-dropped plus tx-created), so a same-tx repeated IF NOT EXISTS create is
+    // a silent no-op and an in-tx DROP INDEX + CREATE INDEX of the same name reaches the
+    // manager's replace flow instead of dying here on the still-registered committed entry.
+    if (session.getSharedContext().getIndexManager().existsIndex(session, name.getValue())) {
       if (ifNotExists) {
         return null;
       } else {

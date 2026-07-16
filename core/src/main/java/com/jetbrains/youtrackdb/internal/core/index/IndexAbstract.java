@@ -335,6 +335,40 @@ public abstract class IndexAbstract implements Index {
   }
 
   /**
+   * Folds a collection-membership ripple into this deferred (transaction-created, unregistered)
+   * handle's covered-collection set — e.g. a subclass created under the indexed class in the same
+   * transaction, whose collection the commit-built index must cover. Only the live
+   * {@code collectionsToIndex} set is mutated: every commit phase reads it (the v1 emptiness
+   * bound, the population scan's coverage set, and the enroll-phase record write), while the
+   * deferred metadata's create-time collection snapshot is not re-read after {@link #markDeferred}
+   * and intentionally stays untouched. The folded name carries the same committed-or-provisional
+   * {@code <class>_<counter>} shape the create-time resolver produces, so the commit re-resolves
+   * it exactly like a create-time covered collection.
+   */
+  void addCollectionToDeferred(final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.add(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * The remove mirror of {@link #addCollectionToDeferred}: a same-tx detach (or subclass drop)
+   * takes the collection back out of the deferred handle's covered set before the commit builds
+   * the engine.
+   */
+  void removeCollectionFromDeferred(final String collectionName) {
+    acquireExclusiveLock();
+    try {
+      collectionsToIndex.remove(collectionName);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
    * Restores an in-memory membership remove applied by {@link #removeCollectionRecordAtCommit} on a
    * failed commit, without touching the record. Package-visible for the failure-path revert.
    */

@@ -1020,6 +1020,96 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
+   * The replace-then-ripple sequence (BG103): one transaction drops a committed index on the
+   * parent, recreates the same name, and then creates a subclass under the parent. The ripple
+   * targets the RECREATED tx-created handle — resolving it via the committed-only registry instead
+   * returns the stale old committed handle, whose record the commit's dropped loop deletes before
+   * the membership loops run, crashing the commit with RecordNotFound. With the overlay-aware fold
+   * the commit succeeds and the recreated index covers the subclass's real collection, so a
+   * polymorphic lookup returns subclass rows.
+   */
+  @Test
+  public void replaceThenSubclassRippleCommitsWithRecreatedIndexCoveringSubclass() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("RepRipParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "RepRipParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    session.executeInTx(
+        tx -> {
+          var s = session.getMetadata().getSchema();
+          indexManager.dropIndex(session, indexName);
+          s.getClass("RepRipParent")
+              .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+          s.createClass("RepRipChild", s.getClass("RepRipParent"));
+        });
+
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("RepRipChild").getCollectionIds()[0]);
+    assertNotNull("the committed subclass must own a real collection", childCollectionName);
+    var recreated = indexManager.getIndex(indexName);
+    assertNotNull("the recreated index must be published after the commit", recreated);
+    assertTrue("the recreated index must cover the same-tx subclass's collection",
+        new HashSet<>(recreated.getCollections()).contains(childCollectionName));
+
+    // Functional arm: a subclass row inserted after commit is indexed under the recreated index.
+    session.begin();
+    var childRow = (EntityImpl) session.newEntity("RepRipChild");
+    childRow.setProperty("name", "replacedChild");
+    session.commit();
+    var rids = session.computeInTx(tx -> recreated.getRids(session, "replacedChild").toList());
+    assertEquals("a polymorphic lookup through the recreated index must return the subclass row",
+        1, rids.size());
+  }
+
+  /**
+   * The pure tx-created-index-then-ripple sequence (BG103's sibling, the already-filed BG102
+   * shape): one transaction creates an index on the parent and then creates a subclass under it.
+   * The ripple targets the tx-created handle, which the committed-only registry misses entirely —
+   * pre-fix the resolution threw IndexException from the createClassInternal index-update loop
+   * (and the setSuperClasses ripple's copy of the failure was swallowed into a dropped
+   * polymorphic collection id). With the overlay-aware fold the subclass's carried collection
+   * name joins the deferred handle's covered set, flows through the commit build, and the
+   * committed index covers the subclass collection.
+   */
+  @Test
+  public void txCreatedIndexThenSubclassRippleCommitsWithMembershipFolded() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("TxIdxRipParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "TxIdxRipParent.name";
+
+    session.executeInTx(
+        tx -> {
+          var s = session.getMetadata().getSchema();
+          s.getClass("TxIdxRipParent")
+              .createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+          s.createClass("TxIdxRipChild", s.getClass("TxIdxRipParent"));
+        });
+
+    var childCollectionName =
+        session.getCollectionNameById(
+            session.getMetadata().getSchema().getClass("TxIdxRipChild").getCollectionIds()[0]);
+    assertNotNull("the committed subclass must own a real collection", childCollectionName);
+    var index = session.getSharedContext().getIndexManager().getIndex(indexName);
+    assertNotNull("the tx-created index must be published after the commit", index);
+    assertTrue("the folded membership must cover the same-tx subclass's collection",
+        new HashSet<>(index.getCollections()).contains(childCollectionName));
+
+    // Functional arm: a subclass row inserted after commit is indexed and found polymorphically.
+    session.begin();
+    var childRow = (EntityImpl) session.newEntity("TxIdxRipChild");
+    childRow.setProperty("name", "foldedChild");
+    session.commit();
+    var rids = session.computeInTx(tx -> index.getRids(session, "foldedChild").toList());
+    assertEquals("a polymorphic lookup through the tx-created index must return the subclass row",
+        1, rids.size());
+  }
+
+  /**
    * A subclass created AND dropped under an indexed parent in the same transaction must net to no
    * membership change: the create ripple records the subclass's carried provisional
    * {@code <class>_<counter>} name into the overlay's membership-added category, and the drop
@@ -1418,6 +1508,38 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
               () -> manager.populateTxCreatedIndex(session, transaction, handle));
       assertTrue("the failure must name the definition-less handle, got: " + thrown,
           thrown.getMessage().contains("carries no definition at commit-time build"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * The commit-time population throws on a record operation whose RID still carries a provisional
+   * collection id (≤ -2) — post-apply every provisional id has been rewritten to its real
+   * collection, so a leftover is an apply-phase invariant violation that the coverage filter
+   * (covered ids are always ≥ 0) would otherwise skip silently. Direct-call seam: mid-transaction
+   * a fresh entity of a tx-created class carries exactly that provisional-id shape.
+   */
+  @Test
+  public void populateThrowsOnProvisionalCollectionIdRid() {
+    session.begin();
+    try {
+      session.getMetadata().getSchema().createClass("ProvRidGuardClass");
+      var row = (EntityImpl) session.newEntity("ProvRidGuardClass");
+      row.setProperty("name", "pending");
+      var handle =
+          deferredHandle(
+              "ProvRidGuard.idx",
+              new PropertyIndexDefinition("ProvRidGuardClass", "name",
+                  PropertyTypeInternal.STRING),
+              Set.of());
+      var transaction = (FrontendTransactionImpl) session.getTransactionInternal();
+      var manager = session.getSharedContext().getIndexManager();
+      var thrown =
+          assertThrows(IllegalStateException.class,
+              () -> manager.populateTxCreatedIndex(session, transaction, handle));
+      assertTrue("the failure must name the provisional-id violation, got: " + thrown,
+          thrown.getMessage().contains("provisional collection id"));
     } finally {
       session.rollback();
     }
