@@ -60,14 +60,18 @@ interface RecognitionContext {
   // --- Schema-aware type gating -----------------------------------------------------------------
 
   /**
-   * Whether {@code propertyKey} is declared on {@code className} with a non-String schema type. A
+   * Whether {@code propertyKey} is declared with a non-String schema type on {@code className} or a
+   * supertype it inherits from, and — in polymorphic mode — on any subclass a hierarchy-aware
+   * {@code hasLabel(className)} also matches. A
    * {@link org.apache.tinkerpop.gremlin.process.traversal.Text} / regex predicate on such a property
    * errors natively (native string predicates test String operands), so the {@code has(...)}
    * recogniser declines it to native rather than emit a filter that returns rows where native
-   * throws. Returns {@code false} — translate best-effort — when {@code className} is {@code null}
-   * (a generic {@code V} boundary whose leaf class is unknown), the class or property is not
-   * declared (schema-less / mixed), or the schema is unavailable. Resolved against the schema
-   * snapshot {@link GremlinStepWalker} pins once per walk.
+   * throws. The subclass sweep is polymorphic-only: non-polymorphic {@code hasLabel} adds an exact
+   * {@code @class = 'className'} leaf filter, so subclass rows never reach the predicate. Returns
+   * {@code false} — translate best-effort — when {@code className} is {@code null} (a generic
+   * {@code V} boundary whose leaf class is unknown), the class or property is not declared
+   * (schema-less / mixed), or the schema is unavailable. Resolved against the schema snapshot
+   * {@link GremlinStepWalker} pins once per walk.
    */
   boolean isNonStringProperty(@Nullable String className, String propertyKey);
 
