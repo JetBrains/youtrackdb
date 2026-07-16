@@ -15,6 +15,7 @@ Fills out the predicate adapter with the full `P` set, adds a single `HasStep` r
 - [ ] Track completion
 
 - [x] 2026-07-15T15:33Z [ctx=info] Review + decomposition complete (narrowed-scope trio: Technical PASS iter1, Risk PASS iter1, Adversarial PASS iter2 gate-verified; 3 `high` steps, reconciled tag `high`)
+- [ ] 2026-07-16T08:21Z [ctx=safe] Step 1 attempt 2 (recovered from RESULT_MISSING). The attempt-1 implementer applied the full Step 1 change (+241 lines across the four AST/builder files plus `SQLEndsWithCondition` and `StringPredicateCollationTest`) and ran the tests, then stalled before committing or returning a RESULT block — a contract violation. Left state: 62/64 tests green; the 2 errors are a test-helper bug in `StringPredicateCollationTest.aggregateLeftExpression` (its parser-wrapper peel loop does not unwrap the WHERE shape the grammar produces for `max(cs) = 'x'`, throwing `unexpected WHERE shape: SQLNotBlock` before the product `splitForAggregation` assertions run). Recovery: re-spawn WITH_GUIDANCE on the preserved dirty tree to fix the helper and finish. Consumes one step-implementation attempt.
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
