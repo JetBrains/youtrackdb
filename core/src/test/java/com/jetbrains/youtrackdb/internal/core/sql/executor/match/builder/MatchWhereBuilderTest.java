@@ -2,7 +2,9 @@ package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -13,6 +15,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBetweenCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsTextCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEndsWithCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
@@ -21,6 +24,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotDefinedCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
@@ -243,6 +247,87 @@ public class MatchWhereBuilderTest {
   @Test
   public void startsWith_emptyPrefix_throws() {
     assertThrows(IllegalArgumentException.class, () -> b.startsWith("name", ""));
+  }
+
+  // ── endsWith (SQLEndsWithCondition) ──
+
+  /**
+   * {@code endsWith("name", "son")} produces an {@link SQLEndsWithCondition} rendering
+   * {@code name ENDSWITH "son"}. The full-string render assertion catches an operand swap (a
+   * substring check would pass on {@code "son" ENDSWITH name}).
+   */
+  @Test
+  public void endsWith_producesSQLEndsWithCondition() {
+    var expr = b.endsWith("name", "son");
+    assertTrue(expr instanceof SQLEndsWithCondition);
+    assertEquals("name ENDSWITH \"son\"", render(expr));
+  }
+
+  /**
+   * A copied {@link SQLEndsWithCondition} equals the original by value with a matching hashCode and
+   * a distinct identity, and renders the same generic-statement fingerprint. This pins the
+   * plan-clone round-trip the SQL engine relies on: a copy that dropped an operand would render a
+   * broken predicate.
+   */
+  @Test
+  public void endsWith_copyRoundTripsByValue() {
+    var expr = (SQLEndsWithCondition) b.endsWith("name", "son");
+    var copy = expr.copy();
+    assertNotSame("copy must be a fresh instance", expr, copy);
+    assertEquals("copy must equal the original by value", expr, copy);
+    assertEquals("equal nodes must share a hashCode", expr.hashCode(), copy.hashCode());
+    assertEquals("copy must round-trip the generic statement",
+        genericStatement(expr), genericStatement(copy));
+  }
+
+  /** Two {@link SQLEndsWithCondition}s differing only in the suffix are not equal. */
+  @Test
+  public void endsWith_distinctSuffixesAreNotEqual() {
+    assertNotEquals(b.endsWith("name", "son"), b.endsWith("name", "sen"));
+  }
+
+  // ── matchesRegex (find-mode SQLMatchesCondition) ──
+
+  /**
+   * {@code matchesRegex} produces an {@link SQLMatchesCondition} with {@code findMode == true}
+   * (Gremlin {@code Text.regex} is an unanchored find, not a full-value match). The pattern is
+   * carried as an expression, not the quoted-literal {@code right} field, so no quote stripping
+   * applies at evaluation time.
+   */
+  @Test
+  public void matchesRegex_producesFindModeMatchesCondition() {
+    var expr = b.matchesRegex("name", "^Jo.*");
+    assertTrue(expr instanceof SQLMatchesCondition);
+    var matches = (SQLMatchesCondition) expr;
+    assertTrue("matchesRegex must set find mode", matches.isFindMode());
+  }
+
+  /** A copied find-mode {@link SQLMatchesCondition} preserves {@code findMode} and equals by value. */
+  @Test
+  public void matchesRegex_copyPreservesFindMode() {
+    var expr = (SQLMatchesCondition) b.matchesRegex("name", "^Jo.*");
+    var copy = expr.copy();
+    assertTrue("copy must preserve find mode", copy.isFindMode());
+    assertEquals("copy must equal the original by value", expr, copy);
+    assertEquals("equal nodes must share a hashCode", expr.hashCode(), copy.hashCode());
+  }
+
+  /**
+   * A find-mode node and a full-match node on the same expression and pattern must NOT be
+   * fingerprint-equal: the plan cache keys on the generic statement, so the mode
+   * must change the fingerprint or a full-match plan would be served for a find-mode query. They
+   * must also be unequal by value. The two nodes differ only in {@code findMode} (the full-match one
+   * is a copy with the flag cleared).
+   */
+  @Test
+  public void matchesRegex_findModeIsFingerprintDistinctFromFullMatch() {
+    var findNode = (SQLMatchesCondition) b.matchesRegex("name", "^Jo.*");
+    var fullNode = findNode.copy();
+    fullNode.setFindMode(false);
+
+    assertNotEquals("find-mode and full-match generic statements must differ",
+        genericStatement(findNode), genericStatement(fullNode));
+    assertNotEquals("find-mode and full-match nodes must be unequal by value", findNode, fullNode);
   }
 
   /** Extracts the upper-bound string literal from a startsWith range AndBlock. */
@@ -660,6 +745,13 @@ public class MatchWhereBuilderTest {
   private static String render(SQLWhereClause clause) {
     var sb = new StringBuilder();
     clause.toString(new HashMap<>(), sb);
+    return sb.toString();
+  }
+
+  /** Renders a {@link SQLBooleanExpression} to its value-independent generic-statement fingerprint. */
+  private static String genericStatement(SQLBooleanExpression expr) {
+    var sb = new StringBuilder();
+    expr.toGenericStatement(sb);
     return sb.toString();
   }
 }
