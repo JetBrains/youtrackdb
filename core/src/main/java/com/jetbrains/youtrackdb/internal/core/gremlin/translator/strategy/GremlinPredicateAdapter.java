@@ -94,7 +94,13 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *       upper bound is undefined) or every code point is the maximum ({@link
  *       Character#MAX_CODE_POINT}, so there is no finite exclusive upper bound) — a {@code within}
  *       / {@code without} member or a scalar comparand is null, or the comparand is a type {@link
- *       MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue} parameter).
+ *       MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue} parameter);
+ *   <li>a {@link Text} / regex string predicate targets a property the {@link PropertyTypeGate}
+ *       reports as a declared non-String type. Native {@code Text} predicates operate on String
+ *       values ({@code Text} implements {@code PBiPredicate<String, String>}), so on a declared
+ *       non-String property native errors; a translated {@code CONTAINSTEXT} / prefix range /
+ *       {@code ENDSWITH} / {@code MATCHES} would instead return rows, diverging. Declining keeps
+ *       the traversal on the native pipeline, which errors as native does.
  * </ul>
  */
 final class GremlinPredicateAdapter {
@@ -105,15 +111,44 @@ final class GremlinPredicateAdapter {
   /** Stateless builder for the WHERE AST; construction is trivial so a shared instance is fine. */
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
 
+  /**
+   * Decides whether a property key resolves to a declared non-String schema type, so a {@link Text}
+   * / regex string predicate on it must decline (native errors on a non-String value; see the
+   * class Javadoc). A recogniser builds this from the element's class and the resolved schema — the
+   * adapter itself has no schema input, so the gate is passed in per call. Callers with no schema
+   * context (unit tests, a generic {@code V} boundary whose leaf class is unknown) pass {@link
+   * #NO_TYPE_INFO}, which never declines on type.
+   */
+  @FunctionalInterface
+  interface PropertyTypeGate {
+    boolean isNonString(String key);
+  }
+
+  /** Type gate for callers with no schema context: never declines on type, so string predicates
+   *  translate best-effort (the schema-less reality where the value type is unknown). */
+  static final PropertyTypeGate NO_TYPE_INFO = key -> false;
+
   private GremlinPredicateAdapter() {
     // Singleton — instantiate via INSTANCE.
   }
 
   /**
-   * Translates one {@link HasContainer} into a {@code WHERE} boolean expression, or returns {@code
-   * null} to decline (see the class Javadoc for the decline cases). Never throws.
+   * Translates one {@link HasContainer} into a {@code WHERE} boolean expression with no schema
+   * context (never declines a string predicate on type grounds). Prefer {@link #toFilter(
+   * HasContainer, PropertyTypeGate)} from a recogniser that can resolve the element's class, so a
+   * {@link Text} predicate on a declared non-String property declines to native.
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container) {
+    return toFilter(container, NO_TYPE_INFO);
+  }
+
+  /**
+   * Translates one {@link HasContainer} into a {@code WHERE} boolean expression, or returns {@code
+   * null} to decline (see the class Javadoc for the decline cases). Never throws. The {@code
+   * typeGate} declines a {@link Text} / regex predicate on a declared non-String property so the
+   * translated filter never returns rows where native errors.
+   */
+  @Nullable SQLBooleanExpression toFilter(HasContainer container, PropertyTypeGate typeGate) {
     if (container == null) {
       return null;
     }
@@ -130,7 +165,7 @@ final class GremlinPredicateAdapter {
     if (predicate == null) {
       return null;
     }
-    return translate(key, predicate);
+    return translate(key, predicate, typeGate);
   }
 
   /**
@@ -139,24 +174,25 @@ final class GremlinPredicateAdapter {
    * one of the leaf types, so checking it first would misroute the whole predicate to a decline.
    * Returns {@code null} to decline (propagated to a whole-traversal decline by the caller).
    */
-  private @Nullable SQLBooleanExpression translate(String key, P<?> predicate) {
+  private @Nullable SQLBooleanExpression translate(String key, P<?> predicate,
+      PropertyTypeGate typeGate) {
     if (predicate instanceof NotP<?> notP) {
       // NotP has no public getter for its wrapped predicate, but negate() returns it (a NotP is
       // built by P.negate(), and negating it back yields the original). Translate the inner
       // predicate positively, negate the SQL, and guard for absent: native NotP excludes an absent
       // property (HasContainer.test's empty iterator is false whatever the inner predicate), so
       // without IS DEFINED the NOT of a false-on-absent inner would wrongly include absent rows.
-      var inner = translate(key, notP.negate());
+      var inner = translate(key, notP.negate(), typeGate);
       if (inner == null) {
         return null;
       }
       return guarded(key, WHERE.not(inner));
     }
     if (predicate instanceof AndP<?> andP) {
-      return combine(key, andP.getPredicates(), /* and= */ true);
+      return combine(key, andP.getPredicates(), /* and= */ true, typeGate);
     }
     if (predicate instanceof OrP<?> orP) {
-      return combine(key, orP.getPredicates(), /* and= */ false);
+      return combine(key, orP.getPredicates(), /* and= */ false, typeGate);
     }
     // Leaf predicate — dispatch on the concrete bi-predicate type.
     var biPredicate = predicate.getBiPredicate();
@@ -168,12 +204,12 @@ final class GremlinPredicateAdapter {
       return translateContains(key, contains, value);
     }
     if (biPredicate instanceof Text text) {
-      return translateText(key, text, value);
+      return translateText(key, text, value, typeGate);
     }
     if (biPredicate instanceof Text.RegexPredicate regex) {
       // Text.regex / Text.notRegex do not use a Text enum constant; their bi-predicate is a
       // RegexPredicate carrying the pattern and a negate flag.
-      return translateRegex(key, regex);
+      return translateRegex(key, regex, typeGate);
     }
     // Custom BiPredicate (a user lambda or a predicate type the translator does not model) —
     // decline rather than guess at its semantics.
@@ -187,14 +223,14 @@ final class GremlinPredicateAdapter {
    * membership without a connective-level guard.
    */
   private @Nullable SQLBooleanExpression combine(String key, List<? extends P<?>> children,
-      boolean and) {
+      boolean and, PropertyTypeGate typeGate) {
     if (children == null || children.isEmpty()) {
       // A connective with no children is degenerate; decline rather than emit an empty block.
       return null;
     }
     var translated = new ArrayList<SQLBooleanExpression>(children.size());
     for (var child : children) {
-      var expr = translate(key, child);
+      var expr = translate(key, child, typeGate);
       if (expr == null) {
         return null;
       }
@@ -276,8 +312,14 @@ final class GremlinPredicateAdapter {
    * rather than throwing.
    */
   private @Nullable SQLBooleanExpression translateText(String key, Text text,
-      @Nullable Object value) {
+      @Nullable Object value, PropertyTypeGate typeGate) {
     if (!(value instanceof String string)) {
+      return null;
+    }
+    if (typeGate.isNonString(key)) {
+      // The property is declared with a non-String type, so native's Text predicate errors on every
+      // value (Text tests String operands). A translated CONTAINSTEXT / prefix range / ENDSWITH
+      // would return rows instead — decline so the traversal runs native and errors as native does.
       return null;
     }
     return switch (text) {
@@ -330,7 +372,13 @@ final class GremlinPredicateAdapter {
    * absent property, so it takes the absent-property guard. Regex stays case-sensitive
    * regardless of collation (collate-transforming a pattern would change its meaning).
    */
-  private @Nullable SQLBooleanExpression translateRegex(String key, Text.RegexPredicate regex) {
+  private @Nullable SQLBooleanExpression translateRegex(String key, Text.RegexPredicate regex,
+      PropertyTypeGate typeGate) {
+    if (typeGate.isNonString(key)) {
+      // A regex predicate matches String values; on a declared non-String property native errors,
+      // so a translated find-mode MATCHES would return rows instead. Decline to native.
+      return null;
+    }
     var pattern = regex.getPattern();
     if (pattern == null) {
       return null;

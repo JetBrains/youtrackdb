@@ -30,9 +30,12 @@ interface RecognitionContext {
   /**
    * Whether the traversal runs as a polymorphic query ({@code YTDBStrategyUtil.isPolymorphic}).
    * Resolved once by {@link GremlinStepWalker}; a {@code null} resolution declines the whole walk
-   * before any recogniser runs, so this is always a resolved value. Reserved for the explicit-class
-   * narrowing path (the folded {@code hasLabel} of a later track); the Phase 1 recognisers root every
-   * node at the generic {@code V} class regardless of it.
+   * before any recogniser runs, so this is always a resolved value. The {@code hasLabel(L)}
+   * recogniser reads it to pick the boundary-node re-typing: polymorphic re-types to {@code {class:
+   * L}} (MATCH matches subclasses, mirroring native hierarchy-aware {@code hasLabel}), while
+   * non-polymorphic re-types to {@code L} and adds an exact {@code @class = 'L'} filter (leaf-exact,
+   * mirroring native non-polymorphic {@code hasLabel}). The vertex-source and bare-hop recognisers
+   * root every node at the generic {@code V} class regardless of it.
    */
   boolean polymorphic();
 
@@ -53,6 +56,31 @@ interface RecognitionContext {
    * boundary as its "I am the start" guard.
    */
   @Nullable String boundaryAlias();
+
+  // --- Schema-aware type gating -----------------------------------------------------------------
+
+  /**
+   * Whether {@code propertyKey} is declared on {@code className} with a non-String schema type. A
+   * {@link org.apache.tinkerpop.gremlin.process.traversal.Text} / regex predicate on such a property
+   * errors natively (native string predicates test String operands), so the {@code has(...)}
+   * recogniser declines it to native rather than emit a filter that returns rows where native
+   * throws. Returns {@code false} — translate best-effort — when {@code className} is {@code null}
+   * (a generic {@code V} boundary whose leaf class is unknown), the class or property is not
+   * declared (schema-less / mixed), or the schema is unavailable. Resolved against the schema
+   * snapshot {@link GremlinStepWalker} pins once per walk.
+   */
+  boolean isNonStringProperty(@Nullable String className, String propertyKey);
+
+  /**
+   * Whether {@code className} is a declared vertex class in the resolved schema. The {@code
+   * hasLabel(L)} recogniser re-types the boundary node to {@code L}, which builds a {@code SELECT
+   * FROM L} scan; a non-existent class (a typo'd or never-used label) or an edge class would make
+   * that scan error or return the wrong element type, while native {@code hasLabel} simply matches no
+   * vertex and returns empty. The recogniser declines to native when this is {@code false} so the two
+   * pipelines agree. Returns {@code false} when the schema is unavailable, so a walk with no schema
+   * never re-types.
+   */
+  boolean isVertexClass(String className);
 
   // --- Alias minting ----------------------------------------------------------------------------
 

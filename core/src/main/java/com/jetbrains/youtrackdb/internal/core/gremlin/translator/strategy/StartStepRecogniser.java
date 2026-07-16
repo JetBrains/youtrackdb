@@ -140,22 +140,19 @@ final class StartStepRecogniser implements StepRecogniser {
 
   /**
    * Normalises the start step's heterogeneous {@code Object[] ids} into a list of distinct {@link
-   * RecordIdInternal} in a single pass, returning {@code null} as a "decline" sentinel when the shape
-   * cannot be translated faithfully. Two conditions decline: an element that does not normalise, or
-   * the same RID appearing more than once.
+   * RecordIdInternal}, returning {@code null} as a "decline" sentinel when the shape cannot be
+   * translated faithfully. Two conditions decline: an element that does not normalise (delegated to
+   * {@link #toRecordIds}), or the same RID appearing more than once.
    *
-   * <p>{@link Identifiable} (Gremlin {@code Vertex}/{@code Edge}, YTDB record handles) and RID-shaped
-   * {@link String}s ({@code "#X:Y"}) normalise; anything else (numbers, arbitrary objects) declines.
-   * An empty or null input maps to an empty list — the {@code g.V()} no-ID case — which the caller
-   * tells apart from a {@code null} decline.
-   *
-   * <p>The duplicate check shares this pass. Native {@code g.V(ids)} ({@code
-   * YTDBGraphImplAbstract.elements}) streams the id array one-to-one with no dedup, so a repeated id
-   * emits its vertex once per occurrence; a translated {@code @rid IN [...]} filter has set semantics
-   * and emits each vertex once. MATCH cannot express "emit the same vertex twice", so a duplicated id
-   * is a shape this recogniser cannot match exactly — decline rather than return a smaller multiset
-   * than the native pipeline. The single-id path (one native emission, one aliasRids lookup) can never
-   * trip this.
+   * <p>The duplicate decline is specific to {@code g.V(ids)} seek semantics. Native {@code g.V(ids)}
+   * ({@code YTDBGraphImplAbstract.elements}) streams the id array one-to-one with no dedup, so a
+   * repeated id emits its vertex once per occurrence; a translated {@code @rid IN [...]} filter has
+   * set semantics and emits each vertex once. MATCH cannot express "emit the same vertex twice", so a
+   * duplicated id is a shape the start step cannot match exactly — decline rather than return a
+   * smaller multiset than the native pipeline. The single-id path (one native emission, one aliasRids
+   * lookup) can never trip this. The set-membership {@code hasId(...)} branch does NOT inherit this
+   * decline — it calls {@link #toRecordIds} directly, because {@code hasId(a, a)} is membership and
+   * maps to the same {@code @rid IN [a]} filter.
    *
    * <p>Dedup keys on the RID value ({@link RidKey}: collection id + position), not the {@link
    * RecordIdInternal} instance: ids arrive from two paths — {@link RecordIdInternal#fromString} and
@@ -164,21 +161,43 @@ final class StartStepRecogniser implements StepRecogniser {
    * IN} filter is emitted regardless of which subtype carried the value.
    */
   @Nullable private static List<RecordIdInternal> normaliseIds(Object[] ids) {
+    var rids = toRecordIds(ids);
+    if (rids == null) {
+      return null;
+    }
+    var seen = new HashSet<RidKey>(rids.size());
+    for (var rid : rids) {
+      if (!seen.add(new RidKey(rid.getCollectionId(), rid.getCollectionPosition()))) {
+        // Repeated id — the set-semantics @rid IN filter cannot reproduce the native pipeline's
+        // one-emission-per-occurrence multiset. Decline.
+        return null;
+      }
+    }
+    return rids;
+  }
+
+  /**
+   * Normalises a heterogeneous {@code Object[] ids} into a list of {@link RecordIdInternal} in one
+   * pass, returning {@code null} as a decline sentinel when any element does not normalise. Shared
+   * by the {@code g.V(ids)} start-step path (through {@link #normaliseIds}, which layers a
+   * seek-semantics duplicate decline on top) and the set-membership {@code hasId(...)} branch of
+   * {@code HasStepRecogniser}, which calls this directly with no duplicate decline.
+   *
+   * <p>{@link Identifiable} (Gremlin {@code Vertex}/{@code Edge}, YTDB record handles) and RID-shaped
+   * {@link String}s ({@code "#X:Y"}) normalise; anything else (numbers, arbitrary objects) declines.
+   * An empty or null input maps to an empty list — the {@code g.V()} no-ID case — which the caller
+   * tells apart from a {@code null} decline.
+   */
+  @Nullable static List<RecordIdInternal> toRecordIds(Object[] ids) {
     if (ids == null || ids.length == 0) {
       return List.of();
     }
     var rids = new ArrayList<RecordIdInternal>(ids.length);
-    var seen = new HashSet<RidKey>(ids.length);
     for (var id : ids) {
       var rid = toRecordId(id);
       if (rid == null) {
-        // Unconvertible id — decline so the traversal stays on the native pipeline, which knows how to
-        // resolve every Gremlin id shape.
-        return null;
-      }
-      if (!seen.add(new RidKey(rid.getCollectionId(), rid.getCollectionPosition()))) {
-        // Repeated id — the set-semantics @rid IN filter cannot reproduce the native pipeline's
-        // one-emission-per-occurrence multiset. Decline.
+        // Unconvertible id — decline so the traversal stays on the native pipeline, which knows how
+        // to resolve every Gremlin id shape.
         return null;
       }
       rids.add(rid);
@@ -224,8 +243,12 @@ final class StartStepRecogniser implements StepRecogniser {
    * side must be a {@link SQLRecordAttribute} — {@code @rid} is a record attribute, not a regular
    * property reference, and the runtime evaluator dispatches the two shapes through different code
    * paths in {@code SQLSuffixIdentifier.execute}.
+   *
+   * <p>Shared as-is with the {@code hasId(...)} branch of {@code HasStepRecogniser}: {@code hasId} is
+   * set membership over RIDs, the same {@code @rid IN [...]} shape, and needs the same
+   * record-attribute left side so {@code promoteStaticRidsFromFilters} can lift it to pinned RIDs.
    */
-  private static SQLBooleanExpression buildRidInExpression(List<RecordIdInternal> rids) {
+  static SQLBooleanExpression buildRidInExpression(List<RecordIdInternal> rids) {
     var ridAttr = new SQLRecordAttribute(-1);
     ridAttr.setName("@rid");
     var leftExpr = new SQLExpression(ridAttr, null);

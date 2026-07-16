@@ -2,13 +2,31 @@ package com.jetbrains.youtrackdb.internal.core.gremlin;
 
 import static org.junit.Assert.assertEquals;
 
+import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.step.sideeffect.YTDBGraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 public class GraphStepStrategyTest extends GraphBaseTest {
+
+  /**
+   * Isolate the native {@code YTDBGraphStepStrategy} has-container fold under test. With the
+   * Gremlin-to-MATCH translator on (its default), a fully recognised {@code g.V().has(...)} shape is
+   * rewritten to a single boundary step before the native fold runs, so this test would see one
+   * {@code YTDBMatchPlanStep} rather than the folded {@code YTDBGraphStep} it asserts on. Disabling
+   * the translator exercises the native folding path this test targets.
+   */
+  @Before
+  public void disableGremlinToMatchTranslator() {
+    var tx = (YTDBTransaction) graph.tx();
+    tx.readWrite();
+    tx.getDatabaseSession()
+        .getConfiguration()
+        .setValue(GlobalConfiguration.QUERY_GREMLIN_TO_MATCH_TRANSLATOR_ENABLED, false);
+  }
 
   @Test
   public void shouldFoldInHasContainers() {
