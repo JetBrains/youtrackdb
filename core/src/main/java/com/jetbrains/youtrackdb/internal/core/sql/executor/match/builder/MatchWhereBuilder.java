@@ -9,6 +9,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBinaryCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLBooleanExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLCollection;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLContainsTextCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEndsWithCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
@@ -20,6 +21,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNotDefinedConditio
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLevelZeroIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
@@ -156,6 +158,36 @@ public final class MatchWhereBuilder {
     var lower = op(field, new SQLGeOperator(-1), stringExpression(prefix));
     var upper = op(field, SQLLtOperator.INSTANCE, stringExpression(incrementLastCodePoint(prefix)));
     return and(lower, upper);
+  }
+
+  /**
+   * Builds a suffix match {@code field ENDSWITH suffix} via the hand-written {@link
+   * SQLEndsWithCondition} node. Unlike {@link #startsWith}, a suffix match has no index range
+   * representation, so it is always a full scan ({@code isIndexAware() == false}); it does honor the
+   * property collation, so a {@code ci} property matches case-insensitively.
+   */
+  public SQLBooleanExpression endsWith(String field, String suffix) {
+    var condition = new SQLEndsWithCondition(-1);
+    condition.setLeft(fieldExpression(field));
+    condition.setRight(stringExpression(suffix));
+    return condition;
+  }
+
+  /**
+   * Builds a regex match {@code field MATCHES pattern} in find mode — an unanchored match anywhere
+   * in the value, which is Gremlin {@code Text.regex} semantics. Sets {@link
+   * SQLMatchesCondition#setFindMode} so the evaluator uses {@link java.util.regex.Matcher#find()}
+   * rather than {@link java.util.regex.Matcher#matches()}, and supplies the pattern as an expression
+   * (not the quoted-literal {@code right} field the parser fills) so no quote stripping applies.
+   * Regex stays case-sensitive regardless of the property collation: collate-transforming a pattern
+   * would change its meaning.
+   */
+  public SQLBooleanExpression matchesRegex(String field, String pattern) {
+    var condition = new SQLMatchesCondition(-1);
+    condition.setExpression(fieldExpression(field));
+    condition.setRightExpression(stringExpression(pattern));
+    condition.setFindMode(true);
+    return condition;
   }
 
   /**
