@@ -214,6 +214,9 @@ __pycache__/
 # slate runtime data (thread sessions, episodes)
 .pi/slate/
 
+# project-scope pi package installs (auto-installed from .pi/settings.json "packages")
+.pi/npm/
+
 # Agent-authored issue reports (local only, not committed)
 /.issues/*
 !/.issues/README.md
