@@ -35,7 +35,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void singleValue_version3_constructsSuccessfully() {
     var engine = new BTreeSingleValueIndexEngine(
-        7, "sv-v3", BTreeEngineTestFixtures.createMockStorage(), 3);
+        7, 7, "sv-v3", BTreeEngineTestFixtures.createMockStorage(), 3);
     // getId and getName are covered by this construction path
     assertEquals("Engine id must match constructor arg", 7, engine.getId());
     assertEquals("Engine name must match constructor arg", "sv-v3", engine.getName());
@@ -47,7 +47,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void singleValue_version4_constructsSuccessfully() {
     var engine = new BTreeSingleValueIndexEngine(
-        0, "sv-v4", BTreeEngineTestFixtures.createMockStorage(), 4);
+        0, 0, "sv-v4", BTreeEngineTestFixtures.createMockStorage(), 4);
     assertEquals(0, engine.getId());
     assertEquals("sv-v4", engine.getName());
   }
@@ -59,7 +59,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalStateException.class)
   public void singleValue_version2_throwsIllegalStateException() {
     new BTreeSingleValueIndexEngine(
-        0, "sv", BTreeEngineTestFixtures.createMockStorage(), 2);
+        0, 0, "sv", BTreeEngineTestFixtures.createMockStorage(), 2);
   }
 
   /**
@@ -68,7 +68,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalStateException.class)
   public void singleValue_version1_throwsIllegalStateException() {
     new BTreeSingleValueIndexEngine(
-        0, "sv", BTreeEngineTestFixtures.createMockStorage(), 1);
+        0, 0, "sv", BTreeEngineTestFixtures.createMockStorage(), 1);
   }
 
   /**
@@ -77,7 +77,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalStateException.class)
   public void singleValue_negativeVersion_throwsIllegalStateException() {
     new BTreeSingleValueIndexEngine(
-        0, "sv", BTreeEngineTestFixtures.createMockStorage(), -1);
+        0, 0, "sv", BTreeEngineTestFixtures.createMockStorage(), -1);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -90,7 +90,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void multiValue_version4_constructsSuccessfully() {
     var engine = new BTreeMultiValueIndexEngine(
-        5, "mv-v4", BTreeEngineTestFixtures.createMockStorage(), 4);
+        5, 5, "mv-v4", BTreeEngineTestFixtures.createMockStorage(), 4);
     assertEquals("Engine id must match constructor arg", 5, engine.getId());
     assertEquals("Engine name must match constructor arg", "mv-v4", engine.getName());
   }
@@ -102,7 +102,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalArgumentException.class)
   public void multiValue_version1_throwsIllegalArgumentException() {
     new BTreeMultiValueIndexEngine(
-        0, "mv", BTreeEngineTestFixtures.createMockStorage(), 1);
+        0, 0, "mv", BTreeEngineTestFixtures.createMockStorage(), 1);
   }
 
   /**
@@ -111,7 +111,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalArgumentException.class)
   public void multiValue_version2_throwsIllegalArgumentException() {
     new BTreeMultiValueIndexEngine(
-        0, "mv", BTreeEngineTestFixtures.createMockStorage(), 2);
+        0, 0, "mv", BTreeEngineTestFixtures.createMockStorage(), 2);
   }
 
   /**
@@ -120,7 +120,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalArgumentException.class)
   public void multiValue_version3_throwsIllegalArgumentException() {
     new BTreeMultiValueIndexEngine(
-        0, "mv", BTreeEngineTestFixtures.createMockStorage(), 3);
+        0, 0, "mv", BTreeEngineTestFixtures.createMockStorage(), 3);
   }
 
   /**
@@ -130,7 +130,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test(expected = IllegalStateException.class)
   public void multiValue_version99_throwsIllegalStateException() {
     new BTreeMultiValueIndexEngine(
-        0, "mv", BTreeEngineTestFixtures.createMockStorage(), 99);
+        0, 0, "mv", BTreeEngineTestFixtures.createMockStorage(), 99);
   }
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -144,7 +144,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void singleValueEngine_isMultiValue_returnsFalse() {
     var engine = new BTreeSingleValueIndexEngine(
-        0, "sv", BTreeEngineTestFixtures.createMockStorage(), 4);
+        0, 0, "sv", BTreeEngineTestFixtures.createMockStorage(), 4);
     assertFalse("Single-value engine must report isMultiValue() = false",
         engine.isMultiValue());
   }
@@ -156,7 +156,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void multiValueEngine_isMultiValue_returnsTrue() {
     var engine = new BTreeMultiValueIndexEngine(
-        0, "mv", BTreeEngineTestFixtures.createMockStorage(), 4);
+        0, 0, "mv", BTreeEngineTestFixtures.createMockStorage(), 4);
     assertTrue("Multi-value engine must report isMultiValue() = true",
         engine.isMultiValue());
   }
@@ -172,7 +172,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void singleValueEngine_getEngineAPIVersion_returnsV1ApiVersion() {
     var engine = new BTreeSingleValueIndexEngine(
-        0, "sv", BTreeEngineTestFixtures.createMockStorage(), 4);
+        0, 0, "sv", BTreeEngineTestFixtures.createMockStorage(), 4);
     assertEquals("getEngineAPIVersion must return V1IndexEngine.API_VERSION",
         V1IndexEngine.API_VERSION, engine.getEngineAPIVersion());
   }
@@ -180,7 +180,7 @@ public class BTreeEngineConstructorValidationTest {
   @Test
   public void multiValueEngine_getEngineAPIVersion_returnsV1ApiVersion() {
     var engine = new BTreeMultiValueIndexEngine(
-        0, "mv", BTreeEngineTestFixtures.createMockStorage(), 4);
+        0, 0, "mv", BTreeEngineTestFixtures.createMockStorage(), 4);
     assertEquals("getEngineAPIVersion must return V1IndexEngine.API_VERSION",
         V1IndexEngine.API_VERSION, engine.getEngineAPIVersion());
   }

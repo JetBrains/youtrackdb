@@ -159,7 +159,7 @@ public final class BTreeEngineTestFixtures {
       when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
       manager = mock(IndexHistogramManager.class);
 
-      engine = new BTreeSingleValueIndexEngine(0, "test-sv", storage, 4);
+      engine = new BTreeSingleValueIndexEngine(0, 0, "test-sv", storage, 4);
       // Replace the real sbTree with our mock via reflection
       injectField(engine, "sbTree", sbTree);
       engine.setHistogramManager(manager);
@@ -197,7 +197,7 @@ public final class BTreeEngineTestFixtures {
       when(op.getOrCreateIndexCountDeltas()).thenReturn(new IndexCountDeltaHolder());
       manager = mock(IndexHistogramManager.class);
 
-      engine = new BTreeMultiValueIndexEngine(0, "test-mv", storage, 4);
+      engine = new BTreeMultiValueIndexEngine(0, 0, "test-mv", storage, 4);
       injectField(engine, "svTree", svTree);
       injectField(engine, "nullTree", nullTree);
       engine.setHistogramManager(manager);
