@@ -860,12 +860,24 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
-   * Result of splitting a WHERE clause by LET variable dependency.
+   * Result of splitting a WHERE clause by LET variable dependency. Always
+   * non-null when returned from {@link #splitByLetDependency}; its two nullable
+   * components encode the outcome:
    *
-   * @param independent conditions that do NOT reference any LET variable and do NOT
-   *     reference {@code $parent}, or {@code null} if all conditions are LET-dependent
-   * @param dependent conditions that reference at least one LET variable or
-   *     {@code $parent}, or {@code null} if all conditions are LET-independent
+   * <ul>
+   *   <li>{@code independent == null} &hArr; nothing is LET-independent &rarr;
+   *       the caller pushes nothing.</li>
+   *   <li>{@code dependent == null} &hArr; the entire WHERE is LET-independent
+   *       &rarr; the caller pushes everything (and clears its WHERE).</li>
+   *   <li>both non-null &hArr; a mixed split: {@code independent} is pushed
+   *       before the per-record LET steps, {@code dependent} stays after.</li>
+   * </ul>
+   *
+   * @param independent conjuncts that do NOT reference any LET variable and do
+   *     NOT reference {@code $parent}, or {@code null} if every conjunct is
+   *     LET-dependent
+   * @param dependent conjuncts that reference at least one LET variable or
+   *     {@code $parent}, or {@code null} if every conjunct is LET-independent
    */
   public record LetSplitResult(
       @Nullable SQLWhereClause independent,
@@ -883,24 +895,31 @@ public class SQLWhereClause extends SimpleNode {
    * no branch references any LET variable or {@code $parent}; otherwise the entire
    * WHERE stays after LET.
    *
-   * @param letVarNames names of all per-record LET variables (without the
-   *     {@code $} prefix, matching the convention of
-   *     {@link SQLBooleanExpression#varMightBeInUse})
-   * @return split result, or {@code null} if the clause does not reference any
-   *     LET variable or {@code $parent} at all (the caller should push the entire
-   *     WHERE down)
+   * <p>This method never returns {@code null}. The outcome is encoded by the two
+   * (nullable) components of the result, per {@link LetSplitResult}:
+   * {@code independent == null} means nothing can be pushed;
+   * {@code dependent == null} means the whole clause can be pushed; both non-null
+   * means a mixed split.
+   *
+   * @param letVarNames names of all per-record LET variables. Each name may be
+   *     given with or without the leading {@code $}: {@code varMightBeInUse}
+   *     ultimately delegates to {@link SQLIdentifier#isVariable(String)}, which
+   *     accepts both forms.
+   * @return a non-null split result; see {@link LetSplitResult} for how its
+   *     nullable components encode push-none / push-all / mixed
    */
-  @Nullable
   public LetSplitResult splitByLetDependency(Set<String> letVarNames) {
     if (baseExpression == null) {
-      return null;
+      // No expression to evaluate — nothing to push.
+      return new LetSplitResult(null, this);
     }
 
-    // Quick check: if no LET variable is referenced and no $parent, no split needed —
-    // the caller pushes the entire WHERE.
+    // Quick check: if no LET variable is referenced and no $parent, the entire
+    // WHERE is LET-independent — the caller pushes it all. Reuse this clause
+    // (the cheap path) instead of rebuilding it.
     if (!expressionReferencesAnyLetVar(baseExpression, letVarNames)
         && !baseExpression.refersToParent()) {
-      return null;
+      return new LetSplitResult(this, null);
     }
 
     var expr = baseExpression;

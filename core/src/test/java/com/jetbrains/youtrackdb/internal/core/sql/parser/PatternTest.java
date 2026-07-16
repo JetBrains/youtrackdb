@@ -654,14 +654,20 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should return split result for mixed dependencies", result);
     assertNotNull("Should have independent part", result.independent());
     assertNotNull("Should have dependent part", result.dependent());
-    // Verify independent part does not reference $scores
+    // Verify independent part does not reference $scores: re-splitting it yields
+    // a push-all result (dependent() == null under the never-null contract).
+    var indepReSplit = result.independent().splitByLetDependency(Set.of("scores"));
+    assertNotNull("Re-split of independent part is never null", indepReSplit);
     assertNull(
-        "Independent part should not reference LET vars",
-        result.independent().splitByLetDependency(Set.of("scores")));
-    // Verify dependent part still references $scores
-    assertNotNull(
-        "Dependent part should still reference LET vars",
-        result.dependent().splitByLetDependency(Set.of("scores")));
+        "Independent part should be fully LET-independent (push-all)",
+        indepReSplit.dependent());
+    // Verify dependent part still references $scores: re-splitting it yields a
+    // fully-dependent result (independent() == null).
+    var depReSplit = result.dependent().splitByLetDependency(Set.of("scores"));
+    assertNotNull("Re-split of dependent part is never null", depReSplit);
+    assertNull(
+        "Dependent part should be fully LET-dependent (nothing to push)",
+        depReSplit.independent());
     // Verify actual content of both halves
     var indepStr = result.independent().toString();
     assertTrue("Independent part should contain 'age' condition: " + indepStr,
@@ -675,13 +681,18 @@ public class PatternTest extends ParserTestAbstract {
 
   /**
    * Fully independent: WHERE age > 25 AND name = 'Alice' with LET $x.
-   * No conjunct references $x → returns null (caller pushes the whole WHERE).
+   * No conjunct references $x → push-all result: independent() is the whole
+   * (reused) clause and dependent() is null (caller pushes everything).
    */
   @Test
   public void testSplitByLetDependency_fullyIndependent() throws ParseException {
     var where = parseWhere("age > 25 AND name = 'Alice'");
     var result = where.splitByLetDependency(Set.of("x"));
-    assertNull("Should return null when no LET variable is referenced", result);
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Fully independent → dependent() is null (push everything)",
+        result.dependent());
+    assertSame("Push-all path reuses this clause as the independent part",
+        where, result.independent());
   }
 
   /**
@@ -700,13 +711,18 @@ public class PatternTest extends ParserTestAbstract {
 
   /**
    * Multi-OR all independent: WHERE (a > 5) OR (b < 10) with LET $x.
-   * No branch references $x → returns null (push entire WHERE).
+   * No branch references $x → the quick check fires first, yielding a push-all
+   * result: independent() is the whole (reused) clause, dependent() is null.
    */
   @Test
   public void testSplitByLetDependency_multiOrAllIndependent() throws ParseException {
     var where = parseWhere("a > 5 OR b < 10");
     var result = where.splitByLetDependency(Set.of("x"));
-    assertNull("Should return null for multi-OR all independent", result);
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Multi-OR all independent → dependent() is null (push everything)",
+        result.dependent());
+    assertSame("Push-all path reuses this clause as the independent part",
+        where, result.independent());
   }
 
   /**
@@ -727,14 +743,19 @@ public class PatternTest extends ParserTestAbstract {
 
   /**
    * Single condition independent: WHERE age > 25 with LET $x.
-   * Does not reference $x → returns null (push entire WHERE).
+   * Does not reference $x → push-all result: independent() is the whole
+   * (reused) clause, dependent() is null.
    */
   @Test
   public void testSplitByLetDependency_singleConditionIndependent()
       throws ParseException {
     var where = parseWhere("age > 25");
     var result = where.splitByLetDependency(Set.of("x"));
-    assertNull("Should return null for independent single condition", result);
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Independent single condition → dependent() is null (push everything)",
+        result.dependent());
+    assertSame("Push-all path reuses this clause as the independent part",
+        where, result.independent());
   }
 
   /**
@@ -789,14 +810,20 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should return split result", result);
     assertNotNull("Should have independent part (b > 5)", result.independent());
     assertNotNull("Should have dependent part (a=$x, c=$y)", result.dependent());
-    // Independent part should not reference any LET vars
+    // Independent part should not reference any LET vars: re-splitting it yields
+    // a push-all result (dependent() == null under the never-null contract).
+    var indepReSplit = result.independent().splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Re-split of independent part is never null", indepReSplit);
     assertNull(
-        "Independent part should not reference LET vars",
-        result.independent().splitByLetDependency(Set.of("x", "y")));
-    // Verify dependent part still references LET vars
-    assertNotNull(
-        "Dependent part should still reference LET vars",
-        result.dependent().splitByLetDependency(Set.of("x", "y")));
+        "Independent part should be fully LET-independent (push-all)",
+        indepReSplit.dependent());
+    // Verify dependent part still references LET vars: re-splitting it yields a
+    // fully-dependent result (independent() == null).
+    var depReSplit = result.dependent().splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Re-split of dependent part is never null", depReSplit);
+    assertNull(
+        "Dependent part should be fully LET-dependent (nothing to push)",
+        depReSplit.independent());
     // Verify actual content of both halves
     var indepStr = result.independent().toString();
     assertTrue("Independent part should contain 'b > 5': " + indepStr,
@@ -810,12 +837,20 @@ public class PatternTest extends ParserTestAbstract {
         depStr.contains("$y"));
   }
 
-  /** Null baseExpression: returns null without NPE. */
+  /**
+   * Null baseExpression: no expression to evaluate, so nothing can be pushed.
+   * Under the never-null contract this yields (independent = null, dependent =
+   * this) without NPE — the caller pushes nothing and keeps the clause.
+   */
   @Test
   public void testSplitByLetDependency_nullBaseExpression() {
     var where = new SQLWhereClause(-1);
     var result = where.splitByLetDependency(Set.of("x"));
-    assertNull("Should return null for null baseExpression", result);
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Null baseExpression → nothing to push (independent() is null)",
+        result.independent());
+    assertSame("Dependent part should be the original clause",
+        where, result.dependent());
   }
 
   /**
@@ -862,6 +897,46 @@ public class PatternTest extends ParserTestAbstract {
     var depStr = result.dependent().toString();
     assertTrue("Dependent part should contain '$x': " + depStr,
         depStr.contains("$x"));
+  }
+
+  /**
+   * Guards the refersToParent-into-subquery invariant: a {@code $parent}
+   * reference that appears ONLY inside a nested subquery in the WHERE (here, an
+   * IN-subquery's own WHERE) must still be detected, so the enclosing conjunct
+   * is classified LET-dependent and never pushed down. An empty LET set is used
+   * so that only the {@code $parent} reference can trigger dependency, isolating
+   * this behavior.
+   *
+   * <p>WHERE: {@code a > 5 AND b IN (SELECT FROM Foo WHERE x = $parent.$total)}.
+   * Expected: {@code a > 5} is independent; the IN-subquery conjunct (which
+   * carries the subquery-borne {@code $parent}) is dependent. This proves
+   * {@code refersToParent()} recurses into {@code SQLInCondition.rightStatement}
+   * so a subquery-borne parent reference is kept out of the pushed-down half.
+   */
+  @Test
+  public void testSplitByLetDependency_subqueryParentRefClassifiedAsDependent()
+      throws ParseException {
+    var where = parseWhere(
+        "a > 5 AND b IN (SELECT FROM Foo WHERE x = $parent.$total)");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull(
+        "Should return split result due to subquery-borne $parent ref", result);
+    assertNotNull("Should have independent part (a > 5)", result.independent());
+    assertNotNull(
+        "Should have dependent part (IN-subquery conjunct)", result.dependent());
+    // The independent half must be only 'a > 5' — no subquery, no $parent.
+    var indepStr = result.independent().toString();
+    assertTrue("Independent part should contain 'a > 5': " + indepStr,
+        indepStr.contains("a > 5"));
+    assertFalse(
+        "Independent part should NOT contain the IN-subquery or $parent: "
+            + indepStr,
+        indepStr.contains("$parent") || indepStr.contains("SELECT"));
+    // The dependent half must carry the subquery with its $parent reference.
+    var depStr = result.dependent().toString();
+    assertTrue(
+        "Dependent part should contain the IN-subquery's $parent ref: " + depStr,
+        depStr.contains("$parent"));
   }
 
   // ====== findRidEquality tests ======

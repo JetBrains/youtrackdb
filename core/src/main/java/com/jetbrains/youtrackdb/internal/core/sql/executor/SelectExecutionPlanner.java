@@ -1928,7 +1928,7 @@ public class SelectExecutionPlanner {
     // dangerous for mixed splits where info.whereClause retains a non-null
     // dependent part — tryPushDownFilterIntoExpand would try to push the
     // dependent WHERE (which references LET vars) into the subquery's expand.
-    // For full push-downs (split == null), info.whereClause becomes null and
+    // For full push-downs (dependent == null), info.whereClause becomes null and
     // tryPushDownFilterIntoExpand bails out at its null check, so the
     // adjacency is harmless.
     var steps = plan.getSteps();
@@ -1944,26 +1944,35 @@ public class SelectExecutionPlanner {
       }
     }
 
+    // splitByLetDependency never returns null; the outcome is encoded by the
+    // nullability of independent()/dependent() (see LetSplitResult).
     var split = info.whereClause.splitByLetDependency(letVarNames);
+    if (split.independent() == null) {
+      // No LET-independent conjuncts to push — leave the WHERE for handleWhere.
+      return;
+    }
+
     long timeout =
         info.timeout != null ? info.timeout.getVal().longValue() : -1;
 
-    if (split == null) {
-      // No LET variable is referenced — push the entire WHERE down.
-      // Safe even after SubQueryStep: info.whereClause becomes null, so
-      // tryPushDownFilterIntoExpand will bail out at its null guard.
-      plan.chain(new FilterStep(info.whereClause, ctx, timeout, profilingEnabled));
+    if (split.dependent() == null) {
+      // Entire WHERE is LET-independent — push it all. Safe even after a
+      // SubQueryStep: info.whereClause becomes null, so
+      // tryPushDownFilterIntoExpand bails at its null guard.
+      plan.chain(new FilterStep(split.independent(), ctx, timeout, profilingEnabled));
       info.whereClause = null;
-    } else if (split.independent() != null && !afterSubQuery) {
-      // Mixed split: push independent conjuncts, keep dependent for
-      // handleWhere. Blocked after SubQueryStep to avoid false adjacency
-      // for tryPushDownFilterIntoExpand (info.whereClause would still be
-      // non-null with the dependent part).
-      plan.chain(
-          new FilterStep(split.independent(), ctx, timeout, profilingEnabled));
-      info.whereClause = split.dependent();
+      return;
     }
-    // else: all conjuncts are LET-dependent — no push-down, leave as-is.
+
+    // Mixed split. Blocked after a SubQueryStep because info.whereClause would
+    // stay non-null with the dependent part, creating a false
+    // SubQueryStep -> FilterStep adjacency that tryPushDownFilterIntoExpand
+    // would incorrectly match.
+    if (afterSubQuery) {
+      return;
+    }
+    plan.chain(new FilterStep(split.independent(), ctx, timeout, profilingEnabled));
+    info.whereClause = split.dependent();
   }
 
   /**
