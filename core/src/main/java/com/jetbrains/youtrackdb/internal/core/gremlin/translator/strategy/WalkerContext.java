@@ -3,6 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -221,8 +222,33 @@ final class WalkerContext implements RecognitionContext {
     if (clazz == null) {
       return false;
     }
-    // getProperty resolves inherited properties (it walks superclasses), so a property declared on
-    // a supertype is found under the leaf class too.
+    // The named class covers a property declared on className or any supertype: getProperty walks
+    // superclasses (per its own contract), so a property inherited by the leaf class is found too.
+    if (declaresNonString(clazz, propertyKey)) {
+      return true;
+    }
+    // Polymorphic hasLabel(L) also matches subclasses of L, so an included-subclass row reaches
+    // the same predicate. A property declared non-String on a subclass alone -- absent from L and
+    // its supertypes -- makes a native Text predicate error on that row, while the translated
+    // CONTAINSTEXT silently returns false; that divergence is the escape this branch closes.
+    // Non-polymorphic mode adds an exact @class = 'L' leaf filter (see HasStepRecogniser), so
+    // subclass rows never reach the predicate and the named-class check above suffices there.
+    if (polymorphic) {
+      for (var subclass : clazz.getAllSubclasses()) {
+        if (declaresNonString(subclass, propertyKey)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Whether {@code clazz} resolves {@code propertyKey} to a declared, non-String schema type.
+   * {@code getProperty} walks superclasses, so a property {@code clazz} inherits counts; an
+   * undeclared property (schema-less / mixed) or a String property returns {@code false}.
+   */
+  private static boolean declaresNonString(SchemaClass clazz, String propertyKey) {
     var property = clazz.getProperty(propertyKey);
     if (property == null) {
       return false;

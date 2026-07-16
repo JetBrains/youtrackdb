@@ -349,6 +349,47 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V().hasLabel("Person").has("name", TextP.containing("li")));
   }
 
+  /**
+   * A polymorphic {@code hasLabel(parent).has(subclassOnlyProp, Text...)} declines to native when
+   * the non-String property is declared only on the subclass — the type gate must sweep subclasses,
+   * not just the named class. Here {@code age} is {@code INTEGER} on {@code Employee} only (absent
+   * from its {@code Person} parent). In polymorphic mode {@code hasLabel("Person")} is
+   * hierarchy-aware, so an {@code Employee} row (with an {@code Integer} {@code age}) reaches the
+   * {@code Text} predicate and native errors. A gate resolving the type only against {@code Person}
+   * would miss the subclass declaration, translate a {@code CONTAINSTEXT} that silently returns no
+   * rows, and diverge; the gate must decline instead, so both runs throw. This is the
+   * polymorphic-subclass companion to the named-class non-String decline test above.
+   */
+  @Test
+  public void polymorphicNonStringTextOnSubclassOnlyProperty_declinesToNative_andBothError() {
+    var person = session.createVertexClass("Person");
+    var employee = session.getSchema().createClass("Employee", person);
+    employee.createProperty("age", PropertyType.INTEGER); // non-String, on the subclass only
+    graph.addVertex(T.label, "Employee", "name", "Eve", "age", 30);
+    graph.tx().commit();
+
+    withPolymorphicDefault(true, () -> {
+      withTranslator(true, () -> {
+        var onAdmin =
+            graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")).asAdmin();
+        onAdmin.applyStrategies();
+        assertThat(countBoundarySteps(onAdmin.getSteps()))
+            .as("a Text predicate on a subclass-only non-String property must decline in "
+                + "polymorphic mode — no boundary step")
+            .isEqualTo(0);
+        assertThatThrownBy(onAdmin::toList)
+            .as("the declined shape runs native, which errors on a Text predicate over the "
+                + "Employee's int age")
+            .isInstanceOf(RuntimeException.class);
+      });
+      withTranslator(false, () -> assertThatThrownBy(
+          () -> graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")).toList())
+          .as("native polymorphic hasLabel(Person) matches the Employee, so its int age errors on "
+              + "a Text predicate")
+          .isInstanceOf(RuntimeException.class));
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Fixture + assertion helpers.
   // ---------------------------------------------------------------------------
