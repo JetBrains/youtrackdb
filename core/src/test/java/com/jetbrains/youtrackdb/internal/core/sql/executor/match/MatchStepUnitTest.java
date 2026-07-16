@@ -2470,6 +2470,169 @@ public class MatchStepUnitTest extends DbTestBase {
     session.commit();
   }
 
+  // -- matchesClassCached tests (instance memo + per-traverser schema snapshot) --
+
+  /**
+   * Verifies the single-slot memo HIT path of {@code matchesClassCached}: two calls with the same
+   * class name and RIDs in the SAME cluster must both return the correct answer. The first call is
+   * cold — it resolves the class from the RID's cluster via the schema snapshot and stores the
+   * {@code (className, collectionId) -> true} decision. The second call uses a DIFFERENT
+   * {@link ResultInternal} wrapping a bare RID in the same cluster, so it hits the memo and returns
+   * the cached answer without consulting the schema or loading the record. Also asserts the
+   * RID-only invariant: neither result is materialized into an Entity by the class check.
+   */
+  @Test
+  public void testMatchesClassCachedMemoHitSameCluster() {
+    session.createVertexClass("Person");
+    session.begin();
+    var vertex = session.newVertex("Person");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var traverser = createBaseTraverser();
+
+    // Cold call: populates the memo (Person, cluster) -> true via the schema snapshot.
+    var firstResult = new ResultInternal(session, rid);
+    assertTrue(traverser.matchesClassCached(ctx, "Person", firstResult));
+
+    // Distinct bare RID in the SAME cluster -> same (className, collectionId) -> memo hit.
+    var sameClusterRid =
+        new RecordId(rid.getCollectionId(), rid.getCollectionPosition() + 1);
+    var secondResult = new ResultInternal(session, sameClusterRid);
+    assertTrue(traverser.matchesClassCached(ctx, "Person", secondResult));
+
+    // RID-only path: the class check must not have loaded either record.
+    assertFalse("memo hit must not trigger entity loading",
+        firstResult.asIdentifiableOrNull() instanceof Entity);
+    assertFalse("memo hit must not trigger entity loading",
+        secondResult.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies the memo MISS path when the cluster changes: the single-slot memo must NOT return a
+   * stale answer for a RID in a different cluster (owned by a different, unrelated class). The
+   * sequence Person(cluster A) -> Other(cluster B) -> Person(cluster A) forces two memo misses
+   * (collectionId differs from the stored slot each time) and confirms each result is recomputed
+   * correctly: {@code true} for the Person cluster, {@code false} for the Other cluster, then
+   * {@code true} again. Without correct collectionId comparison the third call would wrongly return
+   * the memoized {@code false}. No entity loading occurs on either RID-only path.
+   */
+  @Test
+  public void testMatchesClassCachedMemoMissOnDifferentClusterIsNotStale() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Other");
+    session.begin();
+    var personVertex = session.newVertex("Person");
+    var otherVertex = session.newVertex("Other");
+    session.commit();
+    var personRid = personVertex.getIdentity();
+    var otherRid = otherVertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var traverser = createBaseTraverser();
+
+    var personResult = new ResultInternal(session, personRid);
+    var otherResult = new ResultInternal(session, otherRid);
+
+    // Memo now holds (Person, personCluster) -> true.
+    assertTrue(traverser.matchesClassCached(ctx, "Person", personResult));
+    // Different cluster -> memo miss -> recompute. Other is not a subclass of Person.
+    // Memo now holds (Person, otherCluster) -> false.
+    assertFalse(traverser.matchesClassCached(ctx, "Person", otherResult));
+    // Back to the Person cluster -> memo miss again (collectionId differs from the stored
+    // otherCluster slot) -> must recompute true, NOT return the stale false.
+    assertTrue(traverser.matchesClassCached(ctx, "Person", personResult));
+
+    assertFalse("matchesClassCached must not trigger entity loading",
+        personResult.asIdentifiableOrNull() instanceof Entity);
+    assertFalse("matchesClassCached must not trigger entity loading",
+        otherResult.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  /**
+   * Verifies matchesClassCached resolves subclass membership via the cached schema snapshot without
+   * loading the record: a bare RID pointing to a Dog (subclass of Animal) matches both {@code Dog}
+   * and {@code Animal}. Because the two calls use different class names, each is a memo miss that
+   * exercises the {@code isSubClassOf} walk over the cached snapshot rather than the memo shortcut.
+   */
+  @Test
+  public void testMatchesClassCachedSubclassViaSnapshotNoLoad() {
+    session.createVertexClass("Animal");
+    session.createClass("Dog", "Animal");
+    session.begin();
+    var vertex = session.newVertex("Dog");
+    session.commit();
+    var rid = vertex.getIdentity();
+
+    session.begin();
+    var ctx = createCommandContext();
+    var traverser = createBaseTraverser();
+    var result = new ResultInternal(session, rid);
+
+    assertTrue(traverser.matchesClassCached(ctx, "Dog", result));
+    assertTrue(traverser.matchesClassCached(ctx, "Animal", result));
+    assertFalse("subclass check must not trigger entity loading",
+        result.asIdentifiableOrNull() instanceof Entity);
+    session.commit();
+  }
+
+  // -- matchesClass fallback tests (RID cluster not owned by a schema class) --
+
+  /**
+   * Verifies the {@code matchesClass} fallback that is taken when the RID's cluster is not owned by
+   * any schema class. A blob lives in a blob cluster, so {@code getClassByCollectionId} returns
+   * null and the zero-I/O snapshot path cannot resolve a class. The method then falls back to
+   * loading the record; a blob is not an entity, so {@code asEntityOrNull()} returns null and
+   * matchesClass must return {@code false} for any class constraint, WITHOUT throwing. Drives
+   * the fallback entry condition plus the {@code entity == null -> false} arm.
+   */
+  @Test
+  public void testMatchesClassFallbackBlobClusterReturnsFalse() {
+    // Class name need not exist: the fallback never reaches the isSubClassOf check for a blob.
+    var blobRid =
+        session.computeInTx(tx -> tx.newBlob("payload".getBytes()).getIdentity());
+
+    session.begin();
+    var ctx = createCommandContext();
+    var result = new ResultInternal(session, blobRid);
+
+    assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Person", result));
+    session.commit();
+  }
+
+  /**
+   * Verifies the positive arm of the {@code matchesClass} fallback: when the RID's cluster is not
+   * owned by a schema class but the record loads as a real entity, the stored schema class is
+   * consulted via {@code isSubClassOf}. This state cannot occur naturally (every entity lives in a
+   * cluster owned by its own class), so it is simulated with a stub that reports a bare RID in an
+   * unowned (blob) cluster from {@code getIdentity()}/{@code asIdentifiableOrNull()} while
+   * returning a real Person entity from {@code asEntityOrNull()}. matchesClass must consult the
+   * entity's class and return {@code true} for {@code Person} and {@code false} for another class.
+   */
+  @Test
+  public void testMatchesClassFallbackLoadsEntityAndChecksStoredClass() {
+    session.createVertexClass("Person");
+    // A blob cluster is guaranteed NOT owned by any schema class, giving a deterministic
+    // "unowned collection id" for the stub's reported identity.
+    var unownedRid =
+        session.computeInTx(tx -> tx.newBlob("payload".getBytes()).getIdentity());
+
+    session.begin();
+    var ctx = createCommandContext();
+    var personVertex = session.newVertex("Person");
+    var stub = new UnownedClusterEntityResult(session, unownedRid, personVertex);
+
+    // Fallback loads the entity and checks its stored class: Person matches, Animal does not.
+    assertTrue(MatchEdgeTraverser.matchesClass(ctx, "Person", stub));
+    assertFalse(MatchEdgeTraverser.matchesClass(ctx, "Animal", stub));
+    session.commit();
+  }
+
   // -- matchesFilters tests --
 
   /** Verifies matchesFilters returns true when filter is null (no constraint). */
@@ -5322,6 +5485,16 @@ public class MatchStepUnitTest extends DbTestBase {
     return new EdgeTraversal(createTestPatternEdge(), true);
   }
 
+  /**
+   * Creates a bare {@link MatchEdgeTraverser} for exercising the instance-level
+   * {@code matchesClassCached} directly. {@code matchesClassCached} only touches the traverser's
+   * cache/memo fields, not {@code sourceRecord}/{@code item}, so a minimal source row and path item
+   * suffice.
+   */
+  private MatchEdgeTraverser createBaseTraverser() {
+    return new MatchEdgeTraverser(new ResultInternal(session), new SQLMatchPathItem(-1));
+  }
+
   /** Creates a sub-step that always returns an empty stream. */
   private AbstractExecutionStep createEmptySubStep(CommandContext ctx) {
     return new AbstractExecutionStep(ctx, false) {
@@ -5340,6 +5513,48 @@ public class MatchStepUnitTest extends DbTestBase {
         return this;
       }
     };
+  }
+
+  /**
+   * {@link ResultInternal} subclass that simulates the otherwise-impossible state driving the
+   * positive arm of {@code matchesClass}'s fallback: a record whose reported RID lives in a cluster
+   * NOT owned by any schema class, yet which loads as a real entity.
+   *
+   * <p>{@code getIdentity()} and {@code asIdentifiableOrNull()} report a bare RID in an unowned
+   * (blob) cluster — the bare RID keeps the fast path from short-circuiting on an already-loaded
+   * entity, and the unowned cluster makes {@code getClassByCollectionId} return null so the
+   * snapshot path falls through. {@code asEntityOrNull()} then returns the real entity so the
+   * fallback can consult its stored schema class. This mismatch (entity in a cluster it doesn't
+   * belong to) cannot arise in a real database, so the branch is only reachable via a stub.
+   */
+  private static final class UnownedClusterEntityResult extends ResultInternal {
+
+    private final RID unownedRid;
+    private final Entity entity;
+
+    UnownedClusterEntityResult(
+        DatabaseSessionEmbedded session, RID unownedRid, Entity entity) {
+      super(session);
+      this.unownedRid = unownedRid;
+      this.entity = entity;
+    }
+
+    @Override
+    public RID getIdentity() {
+      return unownedRid;
+    }
+
+    @Override
+    public Identifiable asIdentifiableOrNull() {
+      // Return the bare RID (not the entity) so matchesClassFastPath does not short-circuit
+      // on an already-materialized EntityImpl and instead proceeds to the RID/fallback path.
+      return unownedRid;
+    }
+
+    @Override
+    public Entity asEntityOrNull() {
+      return entity;
+    }
   }
 
   /**

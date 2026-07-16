@@ -802,6 +802,80 @@ public class MatchStatementExecutionNewTest extends DbTestBase {
     session.commit();
   }
 
+  /**
+   * Exercises the recursive WHILE traversal in {@code LazyRecursiveTraversalStream}, which
+   * class-checks every visited vertex through {@code MatchEdgeTraverser.matchesClassCached}. The
+   * pattern recurses with {@code while:(true)} and constrains the traversal with {@code class:
+   * Robot}. In this engine a {@code class:} constraint on a recursive edge PRUNES traversal — the
+   * recursion does not continue through a vertex whose class does not match — so the graph is a
+   * tree in which the only non-Robot vertex ({@code g}, a Gadget) is a LEAF hanging off the root.
+   * That keeps the expected result independent of whether the class check prunes at traversal time
+   * or at emission time, while still demonstrating: (a) multi-hop recursion (start -> a -> c at
+   * depth 2), (b) subclass resolution via the cached class check ({@code c} is a
+   * {@code SuperRobot extends Robot}), and (c) exclusion of the Gadget leaf {@code g}. A control
+   * query without the class constraint confirms {@code g} is reachable, proving the cached class
+   * check is what removes it.
+   */
+  @Test
+  public void testRecursiveWhileWithClassConstraintFiltersByCachedClass() {
+    // Tree wired via Wired edges:
+    //   start(Robot) --> a(Robot) --> c(SuperRobot extends Robot)
+    //   start(Robot) --> g(Gadget)          [non-Robot leaf]
+    session.execute("CREATE class Robot extends V").close();
+    session.execute("CREATE class Gadget extends V").close();
+    session.execute("CREATE class SuperRobot extends Robot").close();
+    session.execute("CREATE class Wired extends E").close();
+
+    session.begin();
+    session.execute("CREATE VERTEX Robot set name = 'start'").close();
+    session.execute("CREATE VERTEX Robot set name = 'a'").close();
+    session.execute("CREATE VERTEX SuperRobot set name = 'c'").close();
+    session.execute("CREATE VERTEX Gadget set name = 'g'").close();
+
+    var edges = new String[][] {{"start", "a"}, {"a", "c"}, {"start", "g"}};
+    for (var pair : edges) {
+      session.execute(
+          "CREATE EDGE Wired from (select from V where name = ?) to (select from V where name = ?)",
+          pair[0],
+          pair[1]);
+    }
+    session.commit();
+
+    session.begin();
+    // Recursive WHILE traversal with a class: constraint on the target alias. The Robot closure
+    // reachable through Robot vertices is {start, a, c} (c via the SuperRobot subclass check); the
+    // Gadget leaf g is excluded.
+    var constrained =
+        collectNameSet(
+            "select node.name as name from (match {class:Robot, where:(name = 'start')}"
+                + ".out('Wired'){as:node, class:Robot, while:(true)} return node)");
+    Assert.assertEquals(Set.of("start", "a", "c"), constrained);
+
+    // Control: identical recursion without the class constraint also reaches the Gadget leaf g,
+    // proving the cached class check (not the traversal shape) is what removed g above.
+    var unconstrained =
+        collectNameSet(
+            "select node.name as name from (match {class:Robot, where:(name = 'start')}"
+                + ".out('Wired'){as:node, while:(true)} return node)");
+    Assert.assertEquals(Set.of("start", "a", "c", "g"), unconstrained);
+    session.commit();
+  }
+
+  /**
+   * Runs {@code query} and collects the {@code name} projection of every row into a set (the caller
+   * manages the surrounding transaction). Distinct from {@link #collectNames(String)}, which reads
+   * the {@code dname} projection, sorts into a list, and owns its own begin/commit.
+   */
+  private Set<String> collectNameSet(String query) {
+    var names = new HashSet<String>();
+    var qResult = session.query(query);
+    while (qResult.hasNext()) {
+      names.add(qResult.next().getProperty("name"));
+    }
+    qResult.close();
+    return names;
+  }
+
   @Test
   public void testMaxDepth() throws Exception {
     session.begin();
