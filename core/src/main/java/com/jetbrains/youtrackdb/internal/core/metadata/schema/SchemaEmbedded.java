@@ -515,6 +515,14 @@ public class SchemaEmbedded extends SchemaShared {
               "a tx-local drop must run with a seeded tx-local schema state");
         }
         txState.markClassChanged(className);
+        // Keep the D17 class-rename bookkeeping sound: a dropped class's rename entry must be
+        // purged and its committed name retired, or a later class recycling one of its names
+        // would wrongly re-associate the dropped class's committed indexes at commit. Only an
+        // existing overlay needs the hook — with no overlay there are no renames to purge.
+        var overlay = txState.getIndexOverlay();
+        if (overlay != null) {
+          overlay.recordClassDropped(className);
+        }
       } else {
         for (var id : cls.getCollectionIds()) {
           if (id != -1) {

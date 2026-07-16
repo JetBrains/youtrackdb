@@ -326,7 +326,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
             throw new IllegalStateException(
                 "a tx-local rename must run with a seeded tx-local schema state");
           }
-          txState.ensureIndexOverlay().recordRenamed(oldName, name);
+          txState.ensureIndexOverlay().recordClassRenamed(oldName, name);
         }
       } else {
         session.getSharedContext().getIndexManager()
