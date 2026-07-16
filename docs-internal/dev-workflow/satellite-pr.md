@@ -8,9 +8,11 @@ umbrella PR itself hosts the optional peer review after the agent flips it ready
 There the observation loop (below) applies only in part: observations are read and fixed as
 normal commits under the same completion signal, but the satellite-only mechanics — head
 force-update, next-track blocking — do not apply; the post-flip duties live in
-`docs-internal/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup. The primary
-user review happens in-session as a mandatory per-track gate (see the same doc) and is never
-replaced by a satellite. Two invariants:
+pr-publishing.md (shipped with the ytdb-slate package and cited by absolute path in the
+orchestrator doctrine) § After the flip. The primary user review happens in-session as a
+mandatory per-track gate (track-workflow.md, same package) and is never replaced by a
+satellite. YTDB deltas on that baseline live in
+`docs-internal/dev-workflow/track-development.md`. Two invariants:
 
 - It is **never merged**.
 - It is **never marked "ready for review"** — it stays DRAFT for its whole life.
@@ -62,10 +64,9 @@ or states the review is done; if the signal is ambiguous or absent, the agent as
 decide (keep waiting vs waive completion). Peer-fix commits land after the track's user
 approval: on a non-final track they fall inside the next track's commit range and are covered by
 that track's mandatory user review; commits after the last user-approved gate (e.g., final-track
-peer fixes) are presented to the user by the pre-flip checklist (see
-`docs-internal/dev-workflow/track-development.md` § Ready-for-review flip, merge & cleanup). On a
-single-track or trivial change's umbrella PR, post-flip peer fixes are instead presented as
-they land (same section).
+peer fixes) are presented to the user by the pre-flip checklist (pr-publishing.md
+§ Ready-for-review flip). On a single-track or trivial change's umbrella PR, post-flip peer
+fixes are instead presented as they land (pr-publishing.md § After the flip).
 
 Caveat: if later tracks have started (i.e., the user waived completion), the updated head
 pollutes the satellite's diff with later-track commits. Mitigations: GitHub's "changes since
