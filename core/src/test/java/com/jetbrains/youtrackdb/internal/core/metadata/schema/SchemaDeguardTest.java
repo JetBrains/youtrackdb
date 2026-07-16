@@ -414,17 +414,19 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
-   * Creating an index inside a transaction whose name already exists in the shared registry does not
-   * throw and does not eagerly register a second index: the de-guarded create records the owning
-   * class into the tx-local changed-class set and returns a deferred handle, deferring collision
-   * detection to the commit-time reconciliation a later track owns. This is the intentional
-   * divergence from the legacy top-level path, which rejects a duplicate name loudly. The test pins
-   * both halves so a later track that moves the collision check is a deliberate, test-visible change
-   * rather than a silent contract drift: the legacy path still throws, the in-transaction path still
-   * defers.
+   * Creating an index inside a transaction whose name already exists in the shared registry is
+   * rejected loudly, matching the legacy top-level contract. The earlier deferred shape (pinned by
+   * this test's previous incarnation as an explicitly provisional contract) silently last-wins
+   * overwrote the pending definition in the overlay's create category — the OBS-8 gap — so the
+   * in-tx branch now carries the same duplicate-name guard as the committed branch. Both halves
+   * stay pinned: the legacy path throws, and the in-transaction path throws the same
+   * IndexException while leaving the shared registry untouched and recording no changed class
+   * (the guard fires before the create routes into the tx-local view). A same-tx
+   * drop-then-recreate of the name stays allowed — the documented replace flow, covered by
+   * CommitTimeIndexBuildTest.
    */
   @Test
-  public void duplicateIndexNameInsideTransactionDefersInsteadOfThrowing() {
+  public void duplicateIndexNameInsideTransactionIsRejectedLoudly() {
     var schema = session.getMetadata().getSchema();
     var cls = schema.createClass("DupIdx");
     cls.createProperty("name", PropertyType.STRING);
@@ -444,30 +446,27 @@ public class SchemaDeguardTest extends DbTestBase {
         () -> cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
 
     session.begin();
-    // Inside a transaction the duplicate name does not throw: the create is routed into the tx-local
-    // view and collision detection is deferred to commit (a later track). It records the owning class
-    // as changed and leaves the shared registry untouched.
-    var deferred =
-        indexManager.createIndex(
+    // Inside a transaction the duplicate name now throws exactly like the top-level path; the
+    // guard fires before the create routes anything into the tx-local view.
+    assertThrows(
+        "re-creating an existing index name inside a transaction must be rejected loudly",
+        IndexException.class,
+        () -> indexManager.createIndex(
             session,
             indexName,
             SchemaClass.INDEX_TYPE.NOTUNIQUE.name(),
             new PropertyIndexDefinition("DupIdx", "name", PropertyTypeInternal.STRING),
             cls.getPolymorphicCollectionIds(),
             null,
-            null);
-    assertNotNull(
-        "a duplicate-name create inside a transaction must defer (return a handle), not throw",
-        deferred);
+            null));
     var state = session.getTxSchemaState();
-    assertNotNull("the duplicate-name in-transaction create must have seeded the tx-local state",
-        state);
-    assertTrue("the duplicate-name create must record the owning class as changed",
+    assertNotNull("the rejected create still seeds the tx-local state (the guard needs it to"
+        + " consult the overlay)", state);
+    assertFalse("a rejected duplicate create must not record the owning class as changed",
         state.getChangedClasses().contains("DupIdx"));
     session.rollback();
 
-    // The shared registry still holds exactly the original committed index; the deferred duplicate
-    // was never registered.
+    // The shared registry still holds exactly the original committed index.
     assertTrue("the original committed index must remain registered after rollback",
         indexManager.existsIndex(indexName));
   }
@@ -1304,6 +1303,100 @@ public class SchemaDeguardTest extends DbTestBase {
           assertNull("a cancelled add/remove pair must record no removal",
               overlay.getMembershipRemoved().get(indexName));
         });
+  }
+
+  /**
+   * The committed-only involved-index lookups hide an index dropped inside the open transaction
+   * (the OBS-7 gap): a tx-dropped index keeps its live engine and committed-registry entry until
+   * commit, but ClassIndexManager stops maintaining it at drop time, so any consumer that still
+   * resolves it through {@code getClassInvolvedIndexes}/{@code areIndexed} (the MATCH planner and
+   * the out()/in() supernode shortcut) would read a stale engine and miss the transaction's own
+   * post-drop writes. Mid-tx after DROP INDEX all three lookup shapes must hide the dropped index;
+   * after rollback the committed view is restored. Tx-created indexes stay invisible in these
+   * lookups per the adjudicated D13 design — this fix is hide-only.
+   */
+  @Test
+  public void involvedIndexLookupsHideTxDroppedIndex() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("DropInvolved");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "DropInvolved.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    session.begin();
+    try {
+      indexManager.dropIndex(session, indexName);
+
+      assertTrue("getClassInvolvedIndexes must hide the tx-dropped index mid-tx",
+          indexManager.getClassInvolvedIndexes(session, "DropInvolved", "name").isEmpty());
+      assertFalse("areIndexed must not report the tx-dropped index mid-tx",
+          indexManager.areIndexed(session, "DropInvolved", "name"));
+      // The snapshot-level path MATCH and out()/in() actually consult.
+      var snapshotClass = session.getMetadata().getImmutableSchemaSnapshot()
+          .getClassInternal("DropInvolved");
+      assertTrue("the snapshot's involved-indexes lookup must hide the tx-dropped index mid-tx",
+          snapshotClass.getInvolvedIndexesInternal(session, "name").isEmpty());
+    } finally {
+      session.rollback();
+    }
+
+    // The rollback restores the committed view: the lookups see the index again.
+    assertFalse("after rollback the committed involved-index view must be restored",
+        indexManager.getClassInvolvedIndexes(session, "DropInvolved", "name").isEmpty());
+    assertTrue("after rollback areIndexed must report the committed index again",
+        indexManager.areIndexed(session, "DropInvolved", "name"));
+  }
+
+  /**
+   * A same-transaction duplicate CREATE INDEX must fail loudly (the OBS-8 silent last-wins gap):
+   * the overlay's create category is a plain map put, so without a guard the second create
+   * silently discarded the first definition — no error at execute or commit time. The guard
+   * mirrors the committed branch's duplicate-name rejection.
+   */
+  @Test
+  public void sameTxDuplicateCreateIndexFailsLoudly() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("DupTxCreate");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "DupTxCreate.name";
+
+    session.begin();
+    try {
+      cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+      var thrown = assertThrows(IndexException.class,
+          () -> cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
+      assertTrue("the duplicate create must name the collision, got: " + thrown.getMessage(),
+          thrown.getMessage().contains("already exists"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * An in-transaction CREATE INDEX colliding with a COMMITTED index name must fail loudly too,
+   * mirroring the committed branch's guard — but a drop-then-recreate of the same name in one
+   * transaction stays allowed (the documented replace flow, covered end-to-end by
+   * CommitTimeIndexBuildTest); this test pins the non-dropped collision only.
+   */
+  @Test
+  public void inTxCreateIndexOverCommittedNameFailsLoudly() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("DupCommittedCreate");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "DupCommittedCreate.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    try {
+      var thrown = assertThrows(IndexException.class,
+          () -> cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name"));
+      assertTrue("the committed-name collision must name the collision, got: "
+          + thrown.getMessage(),
+          thrown.getMessage().contains("already exists"));
+    } finally {
+      session.rollback();
+    }
   }
 
   /**

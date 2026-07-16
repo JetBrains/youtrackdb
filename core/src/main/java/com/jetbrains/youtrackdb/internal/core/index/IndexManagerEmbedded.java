@@ -340,6 +340,60 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * resolution ({@code resolveClassRawIndexes}) intentionally serves both — extracting the
    * dance keeps the raw and non-raw views from drifting apart silently.
    */
+  /**
+   * Hides overlay-tx-dropped names from the involved-indexes lookup. An index dropped inside the
+   * open transaction keeps its live engine and its committed-registry entry until commit, but
+   * {@code ClassIndexManager} stops maintaining it the moment the drop is recorded (the overlay
+   * hides it from the per-class raw set), so a consumer that still accelerates through this
+   * committed-only lookup — the out()/in() supernode shortcut and the MATCH planner — would read
+   * a stale engine and miss the transaction's own post-drop writes. Only the hide-half of the
+   * overlay applies here: tx-CREATED indexes stay invisible in these lookups by design (D13 — a
+   * tx-created index is unbuilt and not query-usable until commit).
+   */
+  @Override
+  public Set<Index> getClassInvolvedIndexes(
+      DatabaseSessionEmbedded session, final String className, Collection<String> fields) {
+    final var involved = super.getClassInvolvedIndexes(session, className, fields);
+    final var overlay = activeOverlay(session);
+    if (overlay == null || involved.isEmpty()) {
+      return involved;
+    }
+    involved.removeIf(index -> overlay.isTxDropped(index.getName()));
+    return involved;
+  }
+
+  /**
+   * The boolean probe mirror of {@link #getClassInvolvedIndexes}: with an active overlay,
+   * {@code areIndexed} answers true only when at least one involved index survives the tx-dropped
+   * filter, so a transaction that dropped the only index over the fields no longer advertises
+   * them as indexed. Without an overlay this is the committed behaviour unchanged. The base
+   * committed set is consulted directly (not through {@code getClassInvolvedIndexes}) because
+   * {@code areIndexed} deliberately skips the null-values partial-match filter the involved
+   * lookup applies.
+   */
+  @Override
+  public boolean areIndexed(DatabaseSessionEmbedded session, final String className,
+      Collection<String> fields) {
+    final var overlay = activeOverlay(session);
+    if (overlay == null) {
+      return super.areIndexed(session, className, fields);
+    }
+    final var propertyIndex = getIndexOnProperty(className);
+    if (propertyIndex == null) {
+      return false;
+    }
+    final var involved = propertyIndex.get(new MultiKey(fields));
+    if (involved == null) {
+      return false;
+    }
+    for (final var index : involved) {
+      if (!overlay.isTxDropped(index.getName())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private void resolveClassIndexesWithOverlay(
       DatabaseSessionEmbedded session,
       final String className,
@@ -524,6 +578,26 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // manager untouched. A definition-only instance is returned so the caller has a non-null
       // handle; it is intentionally absent from the shared registry.
       var txState = session.ensureTxSchemaState();
+      // Duplicate-name guard, mirroring the committed branch below: a name already created in
+      // this same transaction, or registered as a committed index and NOT dropped in this
+      // transaction, must fail loudly — without it the overlay's create category (a plain map
+      // put) silently discarded the first definition (last-wins). A committed name that IS
+      // tx-dropped stays allowed: drop-then-recreate of the same name in one transaction is the
+      // documented replace flow.
+      final var existingCreateOverlay = txState.getIndexOverlay();
+      final boolean committedNameExists;
+      acquireSharedLock();
+      try {
+        committedNameExists = indexes.containsKey(iName);
+      } finally {
+        releaseSharedLock();
+      }
+      if ((existingCreateOverlay != null && existingCreateOverlay.isTxCreated(iName))
+          || (committedNameExists
+              && (existingCreateOverlay == null || !existingCreateOverlay.isTxDropped(iName)))) {
+        throw new IndexException(session.getDatabaseName(),
+            "Index with name " + iName + " already exists.");
+      }
       if (indexDefinition.getClassName() != null) {
         txState.markClassChanged(indexDefinition.getClassName());
       }
@@ -898,9 +972,18 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     for (final var droppedName : overlay.getTxDroppedNames()) {
       final var committed = indexes.get(droppedName);
       if (committed == null) {
-        // A tx-dropped name with no committed index cannot happen: recordDropped cancels a pending
-        // create instead of recording a drop, so a tx-dropped name always names a committed index.
-        continue;
+        // A tx-dropped name always names a committed index at record time (recordDropped cancels a
+        // pending create instead of recording a drop, and gates on the shared registry), and the
+        // MetadataWriteMutex serializes schema-writing sessions so the registry entry survives
+        // until this commit publishes its removal. The one documented bypass is the legacy
+        // non-transactional dropIndex path, which removes from the registry without engaging the
+        // mutex — an unsupported interleaving. Silently skipping here would commit the transaction
+        // with the index fully alive and stale (its engine deletion and registry removal all key
+        // off this plan entry), so fail the commit loudly instead; a throw mid-enrollment is
+        // anticipated and fully revertible (the plan is assigned before enrollment runs).
+        throw new IllegalStateException(
+            "tx-dropped index '" + droppedName
+                + "' is not registered as a committed index at commit time");
       }
       // Enroll only the record-level removal here: unlink the index entity from the index-manager
       // link set and delete the index entity record. The engine deletion runs lock-free in the build
@@ -921,23 +1004,40 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // polymorphic lookup returns the subclass rows.
     for (final var entry : overlay.getMembershipAdded().entrySet()) {
       final var committed = indexes.get(entry.getKey());
-      if (committed instanceof IndexAbstract abstractIndex) {
-        for (final var collectionName : entry.getValue()) {
-          if (abstractIndex.addCollectionRecordAtCommit(transaction, collectionName)) {
-            plan.appliedMembership()
-                .add(new AppliedMembership(abstractIndex, collectionName, true));
-          }
+      if (!(committed instanceof IndexAbstract abstractIndex)) {
+        // Every membership delta provably names a committed IndexAbstract: non-registry names
+        // already throw loudly at record time (recordMembershipChangeIntoTxLocalView), recordDropped
+        // purges the deltas of a same-tx-dropped index, and the MetadataWriteMutex keeps the entry
+        // registered until this commit publishes. A miss here is an invariant violation (the one
+        // documented bypass is the legacy non-transactional dropIndex path); skipping it would
+        // silently ship a parent index that never gains the subclass collection — missed
+        // polymorphic query rows — so fail the commit loudly instead.
+        throw new IllegalStateException(
+            "membership add for index '" + entry.getKey()
+                + "' does not resolve to a committed index at commit time (found " + committed
+                + ")");
+      }
+      for (final var collectionName : entry.getValue()) {
+        if (abstractIndex.addCollectionRecordAtCommit(transaction, collectionName)) {
+          plan.appliedMembership()
+              .add(new AppliedMembership(abstractIndex, collectionName, true));
         }
       }
     }
     for (final var entry : overlay.getMembershipRemoved().entrySet()) {
       final var committed = indexes.get(entry.getKey());
-      if (committed instanceof IndexAbstract abstractIndex) {
-        for (final var collectionName : entry.getValue()) {
-          if (abstractIndex.removeCollectionRecordAtCommit(transaction, collectionName)) {
-            plan.appliedMembership()
-                .add(new AppliedMembership(abstractIndex, collectionName, false));
-          }
+      if (!(committed instanceof IndexAbstract abstractIndex)) {
+        // Mirror of the membership-add guard: a silent skip here would leave a phantom stale
+        // membership durably covering a collection the transaction detached.
+        throw new IllegalStateException(
+            "membership remove for index '" + entry.getKey()
+                + "' does not resolve to a committed index at commit time (found " + committed
+                + ")");
+      }
+      for (final var collectionName : entry.getValue()) {
+        if (abstractIndex.removeCollectionRecordAtCommit(transaction, collectionName)) {
+          plan.appliedMembership()
+              .add(new AppliedMembership(abstractIndex, collectionName, false));
         }
       }
     }
@@ -976,12 +1076,25 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       DatabaseSessionEmbedded session, Index handle, AtomicOperation atomicOperation) {
     final var definition = handle.getDefinition();
     if (definition == null) {
-      return;
+      // A tx-created handle always carries a definition (manual/definition-less indexes are
+      // rejected at create). Returning here would waive the emptiness bound entirely and later
+      // commit a completely empty index, so treat it as the invariant violation it is.
+      throw new IllegalStateException(
+          "tx-created index '" + handle.getName()
+              + "' carries no definition at commit time; the emptiness bound cannot be checked");
     }
     for (final var collectionName : handle.getCollections()) {
       final var collectionId = session.getCollectionIdByName(collectionName);
       if (collectionId < 0) {
-        continue;
+        // This check runs AFTER reconcileCollections, so every legal name — including a
+        // same-transaction-created collection, which was just materialized under exactly this
+        // carried name and passes via the zero count below — resolves to a real id. An
+        // unresolvable name is an invariant violation; skipping it would bypass both count stages
+        // and ship a committed index silently missing that collection's rows. (An overlay-keyed
+        // exemption would only be warranted if this check ever moved before reconciliation.)
+        throw new IndexException(session.getDatabaseName(),
+            "Collection '" + collectionName + "' covered by tx-created index '" + handle.getName()
+                + "' does not resolve to a real collection at commit time");
       }
       final var abstractStorage = (AbstractStorage) storage;
       final var nonEmpty =
@@ -1060,19 +1173,30 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * updated entity whose collection the index covers contributes its key through the index's
    * definition; a deleted record is skipped. Feeds {@code doPut} directly on the built engine.
    */
-  private void populateTxCreatedIndex(
+  void populateTxCreatedIndex(
       DatabaseSessionEmbedded session, FrontendTransactionImpl transaction, IndexAbstract handle)
       throws InvalidIndexEngineIdException {
     final var definition = handle.getDefinition();
     if (definition == null) {
-      return;
+      // A tx-created handle always carries a definition (manual indexes are rejected at create,
+      // and the enroll phase's emptiness bound already threw on a definition-less handle).
+      // Returning here would silently commit a completely empty index.
+      throw new IllegalStateException(
+          "tx-created index '" + handle.getName()
+              + "' carries no definition at commit-time build; the index cannot be populated");
     }
     final var coveredCollectionIds = new IntOpenHashSet();
     for (final var collectionName : handle.getCollections()) {
       final var id = session.getCollectionIdByName(collectionName);
-      if (id >= 0) {
-        coveredCollectionIds.add(id);
+      if (id < 0) {
+        // Post-reconciliation every covered name resolves (see rejectNonEmptySourceCollection,
+        // which already enforced this in the enroll phase); an unresolvable name here would drop
+        // the collection from the coverage set and build an index silently missing its rows.
+        throw new IndexException(session.getDatabaseName(),
+            "Collection '" + collectionName + "' covered by tx-created index '" + handle.getName()
+                + "' does not resolve to a real collection at commit-time build");
       }
+      coveredCollectionIds.add(id);
     }
     for (final var recordOperation : transaction.getRecordOperationsInternal()) {
       if (recordOperation.type == RecordOperation.DELETED) {
@@ -1083,13 +1207,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
         continue;
       }
       final var rid = entity.getIdentity();
-      // The record apply has already assigned persistent RIDs; a still-non-persistent RID cannot be
-      // indexed (doPut stores the RID as the value), so skip it defensively.
-      if (rid == null || !rid.isPersistent()) {
+      // Coverage first: a record outside the index's covered collections is irrelevant to this
+      // build (and a null identity cannot name a collection at all), so skip it.
+      if (rid == null || !coveredCollectionIds.contains(rid.getCollectionId())) {
         continue;
       }
-      if (!coveredCollectionIds.contains(rid.getCollectionId())) {
-        continue;
+      // The record apply has already assigned persistent RIDs to every surviving operation, so a
+      // COVERED row whose RID is still non-persistent is an apply-phase invariant violation;
+      // indexing it would store a temporary RID as the index value, and skipping it would build an
+      // index missing the row. Checked after the coverage filter so irrelevant operations cannot
+      // misfire it.
+      if (!rid.isPersistent()) {
+        throw new IllegalStateException(
+            "record " + rid + " of a collection covered by tx-created index '" + handle.getName()
+                + "' still carries a non-persistent RID at commit-time build");
       }
       final var key = definition.getDocumentValueToIndex(transaction, entity);
       if (key instanceof Collection<?> keys) {

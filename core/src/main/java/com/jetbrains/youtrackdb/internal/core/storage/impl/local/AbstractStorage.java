@@ -2616,15 +2616,21 @@ public abstract class AbstractStorage
                   schemaContext.txSchemaState().getResolvedCollectionIds());
           schemaContext.txLocalSchema().acquireSchemaWriteLock(session);
           // Suppress the bidirectional-link-consistency tracker around schema serialization AND the
-          // index-record enrollment below. The root's "classes" LINKSET and the index-manager's
-          // CONFIG_INDEXES LINKSET are structural internal links, not user graph links: the per-class
-          // and index-entity records carry no reverse back-reference link-bag property, so when a drop
-          // removes a class record from the root or unlinks a dropped index entity from the
-          // index-manager set, the tracker would (incorrectly) try to decrement a non-existent
-          // back-reference on the target record and throw LinksConsistencyException. The tracker is
-          // meant for user vertex/edge links only; schema and index-manager records are exempt. The
-          // enroll phase's indexLinkSet.remove + deleteRecordAtCommit run inside this same window so a
-          // drop of a tx-created-then-committed index (a replace) does not trip the tracker.
+          // index-record enrollment below. The honest justification is a mixed-tracking asymmetry,
+          // not a blanket "structural records carry no back-reference bag" (legacy-created index
+          // entities DO carry bags from their historical tracked adds): the tracker stays
+          // self-consistent only when both halves of a link edit run tracked (a tracked add
+          // auto-creates the back-reference bag that the tracked deletion arm later consumes),
+          // which is how the legacy committed create/drop path never threw. The tx commit path
+          // breaks that symmetry — the enroll phase edits the root's "classes" LINKSET and the
+          // index-manager's CONFIG_INDEXES LINKSET manually (indexLinkSet.remove +
+          // deleteRecordAtCommit, in reversed order), and its own creates run inside this
+          // suppressed window and are therefore bag-less — so an unsuppressed tracker throws on
+          // either arm (a missing bag on decrement, or a linkset entry the enroll already
+          // removed). Empirically forced, not preemptive: deleting a dropped class's per-class
+          // record during toStream tripped LinksConsistencyException on the root's classes
+          // linkset (Track 4). The window is minimal — user-record link checks complete at commit
+          // entry, before this window opens.
           //
           // Capture and restore the prior flag rather than forcing it back on: a schema-carry
           // commit can run inside an outer scope that already disabled the check (for example an
