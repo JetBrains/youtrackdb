@@ -88,7 +88,12 @@ public abstract class IndexAbstract implements Index {
 
   @Nonnull
   protected Set<String> collectionsToIndex = new HashSet<>();
-  @Nullable protected IndexMetadata im;
+  // Volatile: the D17 class-rename re-association swaps this reference on a LIVE, already
+  // published index (installReassociatedMetadataAtCommit), and getName()/getDefinition()/
+  // getMetadata() read it lock-free — without volatile those readers have no happens-before edge
+  // to the write-locked swap and could observe IndexMetadata's non-final fields (version,
+  // metadata) stale through a racing read of the new reference.
+  @Nullable protected volatile IndexMetadata im;
 
   @Nullable protected RID identity;
 
@@ -334,12 +339,14 @@ public abstract class IndexAbstract implements Index {
 
   /**
    * Re-associates a transaction-private DEFERRED handle's definition with a same-transaction class
-   * rename, in place: the handle was created before the rename, so its definition still names the
-   * old class, and unlike a committed index it is reachable only by the owning transaction — no
-   * concurrent reader exists to observe the write, so no replacement copy is needed. Run at the
-   * top of the commit's enroll phase, before the handle's record is written.
+   * rename, in place: the handle is reachable only by the owning transaction — no concurrent
+   * reader exists to observe the write, so no replacement copy is needed. Called EAGERLY from
+   * {@link IndexOverlay#recordClassRenamed} at each rename event, which is what keeps a handle
+   * created at a mid-chain name (or under a recycled name, or across a swap-shaped rename)
+   * attached to the right class: at the moment a rename runs, exactly the handles naming the old
+   * name belong to the class being renamed.
    */
-  void reassociateDeferredClassNameAtCommit(
+  void reassociateDeferredClassName(
       final String oldClassName, final String newClassName) {
     acquireExclusiveLock();
     try {
@@ -1042,6 +1049,13 @@ public abstract class IndexAbstract implements Index {
    * the D17 class-rename re-association can write the record from a replacement metadata object
    * WITHOUT installing it in memory first (the record write must revert with a failed commit
    * while the in-memory install is deferred to the publish phase).
+   *
+   * <p>PINNED: the collection set is deliberately serialized from the live
+   * {@code collectionsToIndex} FIELD, not from {@code source} — the field is the authoritative
+   * membership carrier, and the commit's enroll ordering (membership saves before the rename
+   * re-association) relies on exactly this: the re-association's final record write picks up the
+   * membership mutations the earlier loops applied to the field, so neither write clobbers the
+   * other's axis.
    */
   private void saveFrom(final IndexMetadata source, FrontendTransaction transaction) {
     Entity entity;

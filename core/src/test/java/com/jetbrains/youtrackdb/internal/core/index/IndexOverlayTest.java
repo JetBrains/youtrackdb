@@ -48,7 +48,7 @@ public class IndexOverlayTest {
     assertTrue("a fresh overlay must be empty", overlay.isEmpty());
     assertTrue("a fresh overlay has no tx-created names", overlay.getTxCreatedNames().isEmpty());
     assertTrue("a fresh overlay has no tx-dropped names", overlay.getTxDroppedNames().isEmpty());
-    assertTrue("a fresh overlay has no renames", overlay.getRenamed().isEmpty());
+    assertTrue("a fresh overlay has no renames", overlay.getClassRenames().isEmpty());
     assertTrue("a fresh overlay has no membership adds", overlay.getMembershipAdded().isEmpty());
     assertTrue("a fresh overlay has no membership removes",
         overlay.getMembershipRemoved().isEmpty());
@@ -159,17 +159,124 @@ public class IndexOverlayTest {
   }
 
   /**
-   * The rename category records the old-to-new name mapping. The rename is applied commit-only, so
-   * the overlay only carries the intent; this pins that intent is stored and readable.
+   * The class-rename category records the committed-to-current name mapping. The re-association
+   * is applied commit-only, so the overlay only carries the intent; this pins that intent is
+   * stored and readable, and that both direction probes resolve it.
    */
   @Test
-  public void recordRenamedStoresMapping() {
+  public void recordClassRenamedStoresMapping() {
     var overlay = new IndexOverlay();
-    overlay.recordRenamed("old.name", "new.name");
+    overlay.recordClassRenamed("OldClass", "NewClass");
 
-    assertFalse("an overlay with a rename is not empty", overlay.isEmpty());
-    assertEquals("the rename must map the old name to the new name", "new.name",
-        overlay.getRenamed().get("old.name"));
+    assertFalse("an overlay with a class rename is not empty", overlay.isEmpty());
+    assertEquals("the rename must map the committed name to the current name", "NewClass",
+        overlay.getClassRenames().get("OldClass"));
+    assertTrue(overlay.isClassRenamedAway("OldClass"));
+    assertEquals("OldClass", overlay.getClassRenameSource("NewClass"));
+  }
+
+  /**
+   * Chained renames collapse at record time (A→B then B→C stores A→C — the committed maps never
+   * held B), and a rename back to the committed name drops the entry entirely (net no-op).
+   */
+  @Test
+  public void classRenameChainsCollapseAndRenameBackNetsOut() {
+    var overlay = new IndexOverlay();
+    overlay.recordClassRenamed("A", "B");
+    overlay.recordClassRenamed("B", "C");
+    assertEquals("the chain must collapse to committed→final", "C",
+        overlay.getClassRenames().get("A"));
+    assertEquals(1, overlay.getClassRenames().size());
+
+    overlay.recordClassRenamed("C", "A");
+    assertTrue("a rename back to the committed name must net out",
+        overlay.getClassRenames().isEmpty());
+  }
+
+  /**
+   * A vacated (renamed-away) name recycled by a NEW class must not clobber the committed class's
+   * entry when the impostor is renamed again: the impostor owns no committed indexes, so its
+   * rename records nothing.
+   */
+  @Test
+  public void impostorOnVacatedNameRecordsNothing() {
+    var overlay = new IndexOverlay();
+    overlay.recordClassRenamed("A", "B");
+    // A new class took the vacated name "A" and moves on — must not touch the A→B entry.
+    overlay.recordClassRenamed("A", "D");
+
+    assertEquals("the committed class's entry must survive the impostor's rename", "B",
+        overlay.getClassRenames().get("A"));
+    assertEquals(1, overlay.getClassRenames().size());
+    assertTrue("no entry may target the impostor's final name",
+        overlay.getClassRenameSource("D") == null);
+  }
+
+  /**
+   * Dropping the renamed class purges its entry and retires the committed name, so (a) a later
+   * class renaming TO the vacated target gets a clean, deterministic association, and (b) a later
+   * class recycling the retired committed name records nothing.
+   */
+  @Test
+  public void dropPurgesRenameEntryAndRetiresCommittedName() {
+    var overlay = new IndexOverlay();
+    overlay.recordClassRenamed("A", "B");
+    overlay.recordClassDropped("B");
+    assertTrue("the dropped class's rename entry must be purged",
+        overlay.getClassRenames().isEmpty());
+
+    overlay.recordClassRenamed("C", "B");
+    assertEquals("the re-target must be unambiguous after the purge", "C",
+        overlay.getClassRenameSource("B"));
+
+    // The retired committed name: a new class recycling "A" records nothing.
+    overlay.recordClassRenamed("A", "E");
+    assertTrue("a retired committed name must never re-record",
+        overlay.getClassRenameSource("E") == null);
+  }
+
+  /**
+   * Dropping a class that held its own committed name (no rename first) retires the name, so a
+   * later class recycling it records nothing; dropping an impostor squatting a vacated key
+   * purges nothing — the committed class of that name lives on under its renamed name.
+   */
+  @Test
+  public void dropRetirementAndImpostorDropSemantics() {
+    var overlay = new IndexOverlay();
+    // Committed class dropped under its own name.
+    overlay.recordClassDropped("Gone");
+    overlay.recordClassRenamed("Gone", "Reborn");
+    assertTrue("a name retired by a direct drop must never re-record",
+        overlay.getClassRenames().isEmpty());
+
+    // Impostor drop: A renamed away, a new class took "A", then that impostor is dropped.
+    overlay.recordClassRenamed("A", "B");
+    overlay.recordClassDropped("A");
+    assertEquals("dropping the impostor must not purge the committed class's entry", "B",
+        overlay.getClassRenames().get("A"));
+    // The committed class can still rename back — its name was never retired.
+    overlay.recordClassRenamed("B", "A");
+    assertTrue(overlay.getClassRenames().isEmpty());
+    overlay.recordClassRenamed("A", "C");
+    assertEquals("the committed class must still record after its rename-back", "C",
+        overlay.getClassRenames().get("A"));
+  }
+
+  /**
+   * Swap-shaped renames ({X→Y, Z→X}) coexist: a name may be a key of one entry and the value of
+   * another, and both probes resolve each side independently.
+   */
+  @Test
+  public void swapShapedRenamesCoexist() {
+    var overlay = new IndexOverlay();
+    overlay.recordClassRenamed("X", "Y");
+    overlay.recordClassRenamed("Z", "X");
+
+    assertEquals("Y", overlay.getClassRenames().get("X"));
+    assertEquals("X", overlay.getClassRenames().get("Z"));
+    assertTrue("committed X's entries moved away", overlay.isClassRenamedAway("X"));
+    assertEquals("committed Z's entries now answer under X", "Z",
+        overlay.getClassRenameSource("X"));
   }
 
   /**

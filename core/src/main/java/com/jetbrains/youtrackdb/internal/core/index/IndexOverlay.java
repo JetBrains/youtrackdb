@@ -81,13 +81,29 @@ public final class IndexOverlay {
   private final Set<String> txDropped = new HashSet<>();
 
   /**
-   * Classes renamed inside the transaction, mapping the pre-transaction (old) class name to the
-   * name the class holds at commit. Chained renames collapse at record time (A&rarr;B then
-   * B&rarr;C stores A&rarr;C; a rename back to the original drops the entry), so each entry's key
-   * is a name the committed {@code classPropertyIndex} may actually hold and its value is the
-   * final tx-local name. The re-association is applied commit-only.
+   * Committed classes renamed inside the transaction, mapping the pre-transaction (committed)
+   * class name to the name the class holds NOW in the tx-local view. Names are unstable
+   * identities inside a transaction (a vacated name can be reused by a new class, chains and
+   * swaps re-shuffle them), so the bookkeeping keeps one invariant: every entry's key is the
+   * committed name of a LIVE committed-origin class and its value is that same class's current
+   * name — maintained by advancing the entry on every further rename of the class (matched by
+   * current name), skipping renames of impostor classes squatting a vacated key, and purging the
+   * entry when the class is dropped ({@link #recordClassDropped}). The re-association of the
+   * committed indexes is applied commit-only; transaction-private deferred handles are instead
+   * fixed eagerly at record time (event-time semantics — the only reading that stays correct
+   * under chains, swaps, and name reuse).
    */
-  private final Map<String, String> renamed = new HashMap<>();
+  private final Map<String, String> classRenames = new HashMap<>();
+
+  /**
+   * Committed class names whose class was dropped inside this transaction (directly, or after
+   * renames — the drop purge resolves the current name back to the committed key). A retired name
+   * must never be recorded as a rename source again: any later class holding that name is a new,
+   * never-committed class whose renames concern no committed index. Never stale: a dropped class
+   * cannot come back within the transaction, and a live entry's rename-back removes only its
+   * {@link #classRenames} entry, never retires the name.
+   */
+  private final Set<String> retiredCommittedClassNames = new HashSet<>();
 
   /**
    * Collection-membership additions per committed index name (index name &rarr; set of collection
@@ -147,28 +163,87 @@ public final class IndexOverlay {
 
   /**
    * Records a class renamed inside the transaction (the D17 commit-only re-association of the
-   * class's indexes). Chained renames collapse: when {@code oldName} is itself the target of an
-   * earlier rename in this transaction, that earlier entry's value advances to {@code newName}
-   * instead of recording an intermediate name the committed maps never held — and a rename back
-   * to the original name drops the entry entirely (net no-op).
+   * class's indexes). Two things happen here, both at EVENT time because a rename identifies its
+   * class unambiguously only at the moment it runs (exactly one tx-local class holds
+   * {@code oldName} then):
+   *
+   * <ul>
+   *   <li>every transaction-private deferred index handle whose definition names {@code oldName}
+   *       is re-associated in place — fixing handles eagerly is the only reading that stays
+   *       correct for an index created at a mid-chain name, under swap-shaped renames, and when a
+   *       vacated name is reused (a commit-time fix keyed by pre-transaction names cannot tell
+   *       those apart);
+   *   <li>the committed-class rename map advances: an entry whose VALUE is {@code oldName} means
+   *       the renamed class is that entry's committed-origin class, so the entry's value moves to
+   *       {@code newName} (a move back to the committed name drops the entry — net no-op).
+   *       Otherwise, when {@code oldName} is a vacated map KEY or a retired (dropped) committed
+   *       name, the renamed class is an impostor squatting a recycled name and no committed index
+   *       is affected — nothing is recorded. Otherwise a fresh entry is added ({@code oldName}
+   *       may also be a never-committed name; the commit finds no committed indexes under it and
+   *       the entry is harmless).
+   * </ul>
    *
    * @param oldName the class name before this rename.
    * @param newName the class name after this rename.
    */
-  public void recordRenamed(@Nonnull String oldName, @Nonnull String newName) {
-    final var earlierSource = getClassRenameSource(oldName);
-    if (earlierSource != null) {
-      if (earlierSource.equals(newName)) {
-        renamed.remove(earlierSource);
+  public void recordClassRenamed(@Nonnull String oldName, @Nonnull String newName) {
+    // Event-time deferred-handle fix: exactly the handles currently naming oldName belong to the
+    // class being renamed, whatever its history.
+    for (final var handle : txCreated.values()) {
+      ((IndexAbstract) handle).reassociateDeferredClassName(oldName, newName);
+    }
+
+    final var committedSource = getClassRenameSource(oldName);
+    if (committedSource != null) {
+      if (committedSource.equals(newName)) {
+        classRenames.remove(committedSource);
       } else {
-        renamed.put(earlierSource, newName);
+        classRenames.put(committedSource, newName);
       }
+      return;
+    }
+    if (classRenames.containsKey(oldName) || retiredCommittedClassNames.contains(oldName)) {
+      // The committed class of this name was renamed away or dropped earlier in this transaction;
+      // the class being renamed now is a new class recycling the name — no committed index moves.
       return;
     }
     if (oldName.equals(newName)) {
       return;
     }
-    renamed.put(oldName, newName);
+    classRenames.put(oldName, newName);
+  }
+
+  /**
+   * Records that the class currently named {@code currentName} was dropped inside this
+   * transaction, keeping the rename bookkeeping sound: a dropped committed-origin class's rename
+   * entry is purged (its committed indexes must not be re-associated to a name another class may
+   * later take) and its committed name is retired so a later class recycling it never reads as
+   * the committed class. Dropping an impostor that squats a vacated key purges nothing — the
+   * vacated key still describes the live committed class that moved away.
+   *
+   * <p>What this deliberately does NOT do: record the dropped class's committed indexes as
+   * tx-dropped. The tx-local {@code dropClass} has never dropped the class's indexes (the
+   * pre-existing commit-reconciliation seam this overlay category inherits); this hook only keeps
+   * the RENAME map from amplifying that seam into a wrong re-association.
+   *
+   * @param currentName the dropped class's name at drop time.
+   */
+  public void recordClassDropped(@Nonnull String currentName) {
+    final var committedSource = getClassRenameSource(currentName);
+    if (committedSource != null) {
+      // The dropped class is the committed-origin class of this entry: purge and retire.
+      classRenames.remove(committedSource);
+      retiredCommittedClassNames.add(committedSource);
+      return;
+    }
+    if (classRenames.containsKey(currentName)) {
+      // The dropped class squatted a vacated name; the committed class of that name lives on
+      // under its renamed name. Nothing to purge or retire.
+      return;
+    }
+    // The dropped class held its own (possibly committed) name: retire it. Retiring a
+    // never-committed name is harmless — nothing commits under it anyway.
+    retiredCommittedClassNames.add(currentName);
   }
 
   /**
@@ -176,16 +251,18 @@ public final class IndexOverlay {
    * {@code classPropertyIndex} entries under this name no longer belong to any tx-visible class.
    */
   public boolean isClassRenamedAway(@Nonnull String className) {
-    return renamed.containsKey(className);
+    return classRenames.containsKey(className);
   }
 
   /**
    * The pre-transaction class name that was renamed TO {@code className} inside this transaction,
    * or {@code null} when no rename targets it. The committed {@code classPropertyIndex} entries
-   * under the returned name belong to {@code className} in the transaction's view.
+   * under the returned name belong to {@code className} in the transaction's view. Deterministic:
+   * entry values are current names of distinct live classes, so at most one entry can match
+   * (drops purge their entry before a name can be re-targeted).
    */
   @Nullable public String getClassRenameSource(@Nonnull String className) {
-    for (final var entry : renamed.entrySet()) {
+    for (final var entry : classRenames.entrySet()) {
       if (entry.getValue().equals(className)) {
         return entry.getKey();
       }
@@ -263,10 +340,12 @@ public final class IndexOverlay {
     return new HashSet<>(txDropped);
   }
 
-  /** A read-only view of the class renames (old class name &rarr; new class name). */
+  /**
+   * A read-only view of the class renames (committed class name &rarr; current tx-local name).
+   */
   @Nonnull
-  public Map<String, String> getRenamed() {
-    return Map.copyOf(renamed);
+  public Map<String, String> getClassRenames() {
+    return Map.copyOf(classRenames);
   }
 
   /** A read-only view of the per-index collection-membership additions. */
@@ -307,15 +386,10 @@ public final class IndexOverlay {
     }
     for (final var index : txCreated.values()) {
       final var definition = index.getDefinition();
-      if (definition == null || definition.getClassName() == null) {
-        continue;
-      }
-      // A handle created BEFORE a same-tx class rename still carries the old class name (its
-      // definition is re-associated only at commit), so match through the rename map: the
-      // handle belongs to the class the transaction now knows under the renamed name.
-      final var effectiveClassName =
-          renamed.getOrDefault(definition.getClassName(), definition.getClassName());
-      if (className.equals(effectiveClassName)) {
+      // Plain equality suffices: deferred handles are re-associated EAGERLY at each rename
+      // ({@link #recordClassRenamed}), so a handle always carries its class's current tx-local
+      // name.
+      if (definition != null && className.equals(definition.getClassName())) {
         effective.add(index);
       }
     }
@@ -327,9 +401,11 @@ public final class IndexOverlay {
    * overlay, so the routing seam can skip the resolution entirely when this returns {@code true}.
    */
   public boolean isEmpty() {
+    // retiredCommittedClassNames is deliberately excluded: it is record-time bookkeeping (it only
+    // guards future recordings), never a commit-consumable or read-resolvable delta.
     return txCreated.isEmpty()
         && txDropped.isEmpty()
-        && renamed.isEmpty()
+        && classRenames.isEmpty()
         && membershipAdded.isEmpty()
         && membershipRemoved.isEmpty();
   }

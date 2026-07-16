@@ -1252,6 +1252,49 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   // --- counter-only collection-name shape pins (c_<counter>) ---
 
   /**
+   * D11 squat-skip pin: the collection-name generator treats the counter as a candidate supply,
+   * not a guarantee — a counter value whose {@code c_<counter>} name is already taken in storage
+   * (a database import recreates the source's generated names without advancing the counter, and
+   * the public API accepts arbitrary names) is burned and the generator moves on, instead of
+   * failing the class create with a duplicate-collection error.
+   */
+  @Test
+  public void testCollectionNameGeneratorSkipsSquattedCounterValues() {
+    // Squat a generous run of upcoming counter values: the next class create needs 8 collections,
+    // so squatting 12 consecutive names starting past the current maximum guarantees the
+    // generator MUST hit at least one squatted value and skip it.
+    var maxSuffix = -1;
+    for (var name : session.getCollectionNames()) {
+      var idx = name.lastIndexOf('_');
+      if (idx >= 0) {
+        try {
+          maxSuffix = Math.max(maxSuffix, Integer.parseInt(name.substring(idx + 1)));
+        } catch (NumberFormatException ignore) {
+          // not a counter-shaped name
+        }
+      }
+    }
+    var squatted = new java.util.HashSet<String>();
+    for (var i = 1; i <= 12; i++) {
+      var name = "c_" + (maxSuffix + i);
+      session.addCollection(name);
+      squatted.add(name);
+    }
+
+    // The create must succeed (no duplicate-name failure) and its collections must all avoid the
+    // squatted names.
+    var cls = session.getMetadata().getSchema().createClass("SquatSkipProbe");
+    for (var collectionId : cls.getCollectionIds()) {
+      var collectionName = session.getCollectionNameById(collectionId);
+      assertFalse(
+          "the generator must skip the squatted name " + collectionName,
+          squatted.contains(collectionName));
+      assertTrue("the generated name must still be counter-only, got " + collectionName,
+          collectionName.matches("c_\\d+"));
+    }
+  }
+
+  /**
    * Pins the counter-only collection-name shape on the committed (non-transactional) create path:
    * a class created outside a transaction gets collections named {@code c_<counter>} with no
    * class-name component. A class-derived name would re-couple class rename to the non-WAL-safe
