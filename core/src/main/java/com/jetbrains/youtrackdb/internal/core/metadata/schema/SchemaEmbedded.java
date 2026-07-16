@@ -375,11 +375,11 @@ public class SchemaEmbedded extends SchemaShared {
 
     var collectionIds = new int[minimumCollections];
     for (var i = 0; i < minimumCollections; i++) {
-      // The name still advances the tx-local collection counter so a single transaction creating
-      // several classes generates distinct names; the commit uses these names when it creates the
-      // real collections. The name is computed even on the provisional branch to keep the counter in
-      // step with the eager branch.
-      var collectionName = lowerName + "_" + nextCollectionIndex();
+      // The counter-only name (c_<counter>, no class-name component) still advances the tx-local
+      // collection counter so a single transaction creating several classes generates distinct
+      // names; the commit uses these names when it creates the real collections. The name is
+      // computed even on the provisional branch to keep the counter in step with the eager branch.
+      var collectionName = nextCollectionName(session);
       if (provisional) {
         // Carry the generated name with the provisional id: the commit creates the real collection
         // under this name, and the tx-local counter has advanced past it by commit time, so the

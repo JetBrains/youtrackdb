@@ -342,7 +342,8 @@ public abstract class IndexAbstract implements Index {
    * bound, the population scan's coverage set, and the enroll-phase record write), while the
    * deferred metadata's create-time collection snapshot is not re-read after {@link #markDeferred}
    * and intentionally stays untouched. The folded name carries the same committed-or-provisional
-   * {@code <class>_<counter>} shape the create-time resolver produces, so the commit re-resolves
+   * counter-only ({@code c_<counter>}) shape the create-time resolver produces, so the commit
+   * re-resolves
    * it exactly like a create-time covered collection.
    */
   void addCollectionToDeferred(final String collectionName) {

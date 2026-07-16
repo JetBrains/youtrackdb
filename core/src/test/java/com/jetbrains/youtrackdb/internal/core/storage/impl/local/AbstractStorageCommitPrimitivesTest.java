@@ -124,17 +124,18 @@ public class AbstractStorageCommitPrimitivesTest {
 
   // The public addCollection wrapper (now doCreateCollection + registerCollection) must
   // still publish the collection into the in-memory registry: a freshly created class's
-  // collections appear in the name registry and resolve to real ids. A vertex class names
-  // its collections "<class>_<counter>" (lower-cased), so the assertion matches the prefix.
+  // collections appear in the name registry and resolve to real ids. Collection names are
+  // counter-only (c_<counter>, no class-name component), so the class's collections are
+  // resolved through its collection ids.
   @Test
   public void addCollectionWrapperPublishesCollectionIntoRegistry() {
-    db.createVertexClass("CollPublishProbe");
+    var cls = db.createVertexClass("CollPublishProbe");
 
     var storage = (AbstractStorage) db.getStorage();
 
     var published =
-        storage.getCollectionNames().stream()
-            .filter(n -> n.startsWith("collpublishprobe"))
+        java.util.Arrays.stream(cls.getCollectionIds())
+            .mapToObj(db::getCollectionNameById)
             .toList();
     assertThat(published)
         .as("addCollection wrapper must publish the class collections into the name registry")
@@ -202,17 +203,14 @@ public class AbstractStorageCommitPrimitivesTest {
   public void getPhysicalCollectionNameByIdResolvesLockFreeWhileWriteLockHeld() throws Exception {
     db.activateOnCurrentThread();
 
-    db.createVertexClass("NameLookupProbe");
+    var nameLookupCls = db.createVertexClass("NameLookupProbe");
     var storage = (AbstractStorage) db.getStorage();
 
-    // Pick one real collection id of the class and its expected name from the normal
-    // (read-lock) path, captured before we take the write lock.
-    var collectionName =
-        storage.getCollectionNames().stream()
-            .filter(n -> n.startsWith("namelookupprobe"))
-            .findFirst()
-            .orElseThrow();
-    int collectionId = storage.getCollectionIdByName(collectionName);
+    // Pick one real collection id of the class (names are counter-only, so the class's own id
+    // list is the link) and its expected name from the normal (read-lock) path, captured before
+    // we take the write lock.
+    int collectionId = nameLookupCls.getCollectionIds()[0];
+    var collectionName = db.getCollectionNameById(collectionId);
     assertThat(collectionId).as("precondition: a real collection id").isGreaterThanOrEqualTo(0);
 
     // Hold the write lock exactly as a schema-carrying commit does, then open the commit window
@@ -314,12 +312,9 @@ public class AbstractStorageCommitPrimitivesTest {
         .isFalse();
 
     // After the window closes, the normal record-read path resolves with the read lock again.
-    db.createVertexClass("PostWindowProbe");
-    var collectionName =
-        storage.getCollectionNames().stream()
-            .filter(n -> n.startsWith("postwindowprobe"))
-            .findFirst()
-            .orElseThrow();
+    // (The class's collection is resolved via its id — counter-only names carry no class name.)
+    var postWindowCls = db.createVertexClass("PostWindowProbe");
+    var collectionName = db.getCollectionNameById(postWindowCls.getCollectionIds()[0]);
     assertThat(storage.getPhysicalCollectionNameById(storage.getCollectionIdByName(collectionName)))
         .as("the normal read-lock path still resolves once the window is closed")
         .isEqualTo(collectionName);

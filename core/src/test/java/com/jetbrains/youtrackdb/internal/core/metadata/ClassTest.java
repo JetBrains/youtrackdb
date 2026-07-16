@@ -16,13 +16,20 @@ public class ClassTest extends BaseMemoryInternalDatabase {
   public static final String SHORTNAME_CLASS_NAME = "TestShortName";
 
   /**
-   * Verifies that renaming a class renames its underlying collection file.
-   * Collection names use counter-based format (e.g., classname_0).
+   * Verifies that renaming a class is metadata-only at the storage-file level: collection names
+   * are counter-only ({@code c_<counter>}, no class-name component), so the class's collection
+   * file keeps its exact name across renames — no file is renamed, created, or dropped. The
+   * pre-D11 behavior renamed the collection file through the non-WAL-safe
+   * {@code writeCache.renameFile} path, which a crash could leave half-renamed; this pins its
+   * removal. Data written before the rename must stay reachable through the renamed class.
    */
   @Test
   public void testRename() {
     Schema schema = session.getMetadata().getSchema();
     var oClass = schema.createClass("ClassName");
+
+    // Write a record before renaming, so reachability through the renamed class is provable.
+    session.executeInTx(tx -> tx.newEntity("ClassName").setProperty("marker", "kept"));
 
     final var storage = session.getStorage();
     final var paginatedStorage = (AbstractStorage) storage;
@@ -34,16 +41,28 @@ public class ClassTest extends BaseMemoryInternalDatabase {
 
     oClass.setName("ClassNameNew");
 
-    // After rename, the collection file is renamed too
-    var newCollectionName = session.getCollectionNameById(oClass.getCollectionIds()[0]);
-    assertFalse(writeCache.exists(collectionName + PaginatedCollection.DEF_EXTENSION));
-    Assert.assertTrue(writeCache.exists(newCollectionName + PaginatedCollection.DEF_EXTENSION));
+    // The rename touched no storage file: the collection keeps its name and its data file.
+    assertEquals("a class rename must not rename the class's collection",
+        collectionName, session.getCollectionNameById(oClass.getCollectionIds()[0]));
+    Assert.assertTrue("the collection file must survive the rename under its original name",
+        writeCache.exists(collectionName + PaginatedCollection.DEF_EXTENSION));
 
+    // Rename back: still metadata-only.
     oClass.setName("ClassName");
 
-    var finalCollectionName = session.getCollectionNameById(oClass.getCollectionIds()[0]);
-    assertFalse(writeCache.exists(newCollectionName + PaginatedCollection.DEF_EXTENSION));
-    Assert.assertTrue(writeCache.exists(finalCollectionName + PaginatedCollection.DEF_EXTENSION));
+    assertEquals("a rename back must not rename the class's collection either",
+        collectionName, session.getCollectionNameById(oClass.getCollectionIds()[0]));
+    Assert.assertTrue(
+        writeCache.exists(collectionName + PaginatedCollection.DEF_EXTENSION));
+
+    // The pre-rename record is still reachable through the class.
+    session.executeInTx(tx -> {
+      try (var rs = session.query("SELECT FROM ClassName")) {
+        var rows = rs.stream().toList();
+        assertEquals(1, rows.size());
+        assertEquals("kept", rows.get(0).getProperty("marker"));
+      }
+    });
   }
 
   @Test

@@ -42,7 +42,6 @@ import com.jetbrains.youtrackdb.internal.core.metadata.security.Role;
 import com.jetbrains.youtrackdb.internal.core.metadata.security.Rule;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
-import com.jetbrains.youtrackdb.internal.core.storage.StorageCollection;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
@@ -1437,47 +1436,6 @@ public abstract class SchemaClassImpl {
     hashCode = result;
   }
 
-  /**
-   * Renames collections belonging to this class when the class is renamed.
-   * For each collection, replaces the old lowercase class name prefix with
-   * the new one, preserving any counter suffix (e.g., {@code oldname_3}
-   * becomes {@code newname_3}).
-   */
-  protected void renameCollection(DatabaseSessionEmbedded session, String oldName, String newName) {
-    var oldPrefix = oldName.toLowerCase(Locale.ENGLISH);
-    var newPrefix = newName.toLowerCase(Locale.ENGLISH);
-
-    for (var collectionId : getCollectionIds()) {
-      if (collectionId < 0) {
-        continue;
-      }
-      var currentName = session.getCollectionNameById(collectionId);
-      if (currentName == null) {
-        continue;
-      }
-
-      String renamedName;
-      if (currentName.equals(oldPrefix)) {
-        // Legacy collection name (no counter suffix)
-        renamedName = newPrefix;
-      } else if (currentName.startsWith(oldPrefix + "_")) {
-        // Counter-based collection name — replace prefix, keep suffix
-        renamedName = newPrefix + currentName.substring(oldPrefix.length());
-      } else {
-        // Collection was not created by the class naming convention — leave unchanged
-        continue;
-      }
-
-      // Skip if a collection with the target name already exists
-      if (session.getCollectionIdByName(renamedName) != -1) {
-        continue;
-      }
-
-      session.getStorage()
-          .setCollectionAttribute(collectionId, StorageCollection.ATTRIBUTES.NAME, renamedName);
-    }
-  }
-
   protected abstract SchemaPropertyImpl addProperty(
       DatabaseSessionEmbedded session, final String propertyName,
       final PropertyTypeInternal type,
@@ -1625,7 +1583,7 @@ public abstract class SchemaClassImpl {
     if (session.getStorage() instanceof AbstractStorage) {
       // Provisional-aware mirror of the add-side ripple (addCollectionIdToIndexes): a subclass
       // created in this same transaction carries a provisional id, whose committed name lookup
-      // answers null. Resolving through the shared resolver returns the carried <class>_<counter>
+      // answers null. Resolving through the shared resolver returns the carried c_<counter>
       // name — the same name the add side recorded — so a same-tx create-then-drop (or detach) of
       // the subclass cancels the pending membership add in the overlay. A null here instead would
       // fail to cancel, and the commit would persist a phantom collection name into the committed

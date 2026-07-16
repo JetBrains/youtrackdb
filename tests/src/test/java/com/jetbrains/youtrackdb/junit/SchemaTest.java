@@ -190,12 +190,12 @@ public class SchemaTest extends BaseDBJUnit5Test {
     final int collectionId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
     collectionId = dropTestClass.getCollectionIds()[0];
-    // Collection names now use a numeric suffix (e.g., "droptestclass_N"),
+    // Collection names are counter-only ("c_N", no class-name component),
     // so we look up via collectionId rather than class name.
     var collectionName = session.getCollectionNameById(collectionId);
     assertNotNull(collectionName);
-    assertTrue(collectionName.matches("droptestclass_\\d+"),
-        "Expected collection name like 'droptestclass_N' but got: " + collectionName);
+    assertTrue(collectionName.matches("c_\\d+"),
+        "Expected counter-only collection name like 'c_N' but got: " + collectionName);
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNotNull(dropTestClass);
@@ -229,12 +229,12 @@ public class SchemaTest extends BaseDBJUnit5Test {
     final int collectionId;
     var dropTestClass = session.getMetadata().getSchema().createClass(testClassName);
     collectionId = dropTestClass.getCollectionIds()[0];
-    // Collection names now use a numeric suffix (e.g., "droptestclass_N"),
+    // Collection names are counter-only ("c_N", no class-name component),
     // so we look up via collectionId rather than class name.
     var collectionName = session.getCollectionNameById(collectionId);
     assertNotNull(collectionName);
-    assertTrue(collectionName.matches("droptestclass_\\d+"),
-        "Expected collection name like 'droptestclass_N' but got: " + collectionName);
+    assertTrue(collectionName.matches("c_\\d+"),
+        "Expected counter-only collection name like 'c_N' but got: " + collectionName);
 
     dropTestClass = session.getMetadata().getSchema().getClass(testClassName);
     assertNotNull(dropTestClass);

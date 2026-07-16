@@ -636,8 +636,10 @@ public class SchemaDeguardTest extends DbTestBase {
    * self-committed a real storage collection, which survived the user transaction's rollback as an
    * orphan. With the provisional allocation the create touches no storage collection during the
    * transaction, so the storage collection set is byte-for-byte identical before and after the
-   * rolled-back transaction, and the committed schema never sees the class. The class is also
-   * absent from the storage-level collection registry (no {@code <class>_<n>} collection leaked).
+   * rolled-back transaction, and the committed schema never sees the class. Collection names are
+   * counter-only ({@code c_<counter>}, no class-name component), so the before/after set equality
+   * is the whole no-stray-collection guarantee: any leaked collection would appear as a new name
+   * in the set.
    *
    * <p>This covers the explicit-{@code rollback()} half of the no-stray-collection guarantee. The
    * crash-before-commit half (close without flush, then WAL replay) is verified once the
@@ -663,12 +665,6 @@ public class SchemaDeguardTest extends DbTestBase {
         collectionsBefore, collectionsAfter);
     assertFalse("after rollback the created class must be absent from the committed schema",
         committed.existsClass("StrayCollectionProbe"));
-    // No collection carrying the class's naming prefix leaked into the storage registry.
-    for (var collectionName : collectionsAfter) {
-      assertFalse(
-          "no collection for the rolled-back class may survive on disk, found " + collectionName,
-          collectionName.startsWith("straycollectionprobe_"));
-    }
   }
 
   /**
@@ -718,12 +714,6 @@ public class SchemaDeguardTest extends DbTestBase {
         collectionsBefore, collectionsAfter);
     assertTrue("after rollback the class must remain abstract in the committed schema",
         committed.getClass("AbstractToConcreteProbe").isAbstract());
-    // No collection carrying the class's naming prefix leaked into the storage registry.
-    for (var collectionName : collectionsAfter) {
-      assertFalse(
-          "no collection for the rolled-back alter may survive on disk, found " + collectionName,
-          collectionName.startsWith("abstracttoconcreteprobe_"));
-    }
   }
 
   /**
