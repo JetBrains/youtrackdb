@@ -932,11 +932,17 @@ public class SQLWhereClause extends SimpleNode {
       expr = orBlock.subBlocks.getFirst();
     }
     if (!(expr instanceof SQLAndBlock andBlock)) {
-      // Single condition (not AND): it's LET-dependent (we already checked above).
+      // Defensive/unreachable via the SQL parser: WhereClause always parses to
+      // OrBlock -> AndBlock (see the grammar), so unwrapping a single-OR block
+      // always yields an SQLAndBlock. This guards a caller that hand-built a
+      // bare-condition baseExpression. Treat as fully LET-dependent.
       return new LetSplitResult(null, this);
     }
     if (andBlock.subBlocks.size() < 2) {
-      // Single-element AND block: it's LET-dependent.
+      // Single-condition WHERE: the parser still wraps it as AndBlock[condition]
+      // (one sub-block), so this is the branch that handles a lone dependent
+      // condition (the quick-check above already proved it references a LET var
+      // or $parent). Nothing to split — it's fully LET-dependent.
       return new LetSplitResult(null, this);
     }
 

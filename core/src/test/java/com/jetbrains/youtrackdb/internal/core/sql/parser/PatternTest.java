@@ -760,7 +760,10 @@ public class PatternTest extends ParserTestAbstract {
 
   /**
    * Single condition dependent: WHERE name = $x with LET $x.
-   * References $x → independent = null, dependent = this.
+   * References $x → independent = null, dependent = this. The parser wraps this
+   * lone condition as OrBlock[AndBlock[condition]] (one sub-block), so it
+   * exercises the {@code AndBlock.subBlocks.size() < 2} branch of
+   * splitByLetDependency via a LET-variable dependency.
    */
   @Test
   public void testSplitByLetDependency_singleConditionDependent()
@@ -769,6 +772,28 @@ public class PatternTest extends ParserTestAbstract {
     var result = where.splitByLetDependency(Set.of("x"));
     assertNotNull("Should return split result for dependent single condition", result);
     assertNull("Should have null independent part", result.independent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
+  }
+
+  /**
+   * Single-element AND block via a $parent-only dependency: WHERE
+   * out('X').@rid = $parent.$current.@rid with an EMPTY LET set. No LET var is
+   * referenced, but the $parent reference alone makes it LET-dependent. The
+   * parser wraps this lone condition as OrBlock[AndBlock[condition]] (a
+   * single-element AND block), so this explicitly exercises the
+   * {@code AndBlock.subBlocks.size() < 2} branch of splitByLetDependency (which
+   * the SQL grammar makes reachable — a single condition is never collapsed
+   * below an AndBlock). Expected: independent = null, dependent = this.
+   */
+  @Test
+  public void testSplitByLetDependency_singleElementAndBlockParentDependent()
+      throws ParseException {
+    var where = parseWhere("out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull("Should return split result for single-element AND block", result);
+    assertNull("Nothing is independent (the lone conjunct is $parent-dependent)",
+        result.independent());
     assertSame("Dependent part should be the original WHERE",
         where, result.dependent());
   }

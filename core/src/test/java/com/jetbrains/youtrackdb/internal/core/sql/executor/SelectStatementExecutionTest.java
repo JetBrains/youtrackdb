@@ -10388,62 +10388,120 @@ public class SelectStatementExecutionTest extends DbTestBase {
     return (String) explain.getFirst().getProperty("executionPlanAsString");
   }
 
+  /** Counts non-overlapping occurrences of {@code needle} in {@code haystack}. */
+  private static int countOccurrences(String haystack, String needle) {
+    var count = 0;
+    var idx = haystack.indexOf(needle);
+    while (idx >= 0) {
+      count++;
+      idx = haystack.indexOf(needle, idx + needle.length());
+    }
+    return count;
+  }
+
   /**
-   * Asserts a FULL push-down: the (single) FilterStep appears BEFORE the
-   * per-record LET step and NO FilterStep appears after it (the whole WHERE was
-   * pushed and {@code info.whereClause} cleared). Both markers must be present.
+   * Asserts a FULL push-down: the outer FilterStep is pushed BEFORE the
+   * per-record LET step, and the pushed WHERE was fully cleared (nothing left
+   * after LET).
+   *
+   * <p>Rather than trusting marker positions alone, this matches the exact
+   * {@code pushedPredicate} text (as rendered into the plan): it must appear
+   * BEFORE the LET marker, must NOT appear after it, and must appear exactly
+   * ONCE overall (a duplicate would mean the same filter was both pushed and
+   * retained). Matching the predicate text — not just the {@code FILTER ITEMS
+   * WHERE} marker — keeps the check robust to a NESTED filter marker printed
+   * inside a LET/FROM subquery's boxed sub-plan, which carries a different
+   * predicate. Choose a distinctive {@code pushedPredicate} that cannot collide
+   * with a nested sub-plan or a projection.
    */
-  private static void assertFullPushDown(String plan) {
-    var filterIdx = plan.indexOf(LPF_FILTER_MARKER);
+  private static void assertFullPushDown(String plan, String pushedPredicate) {
     var letIdx = plan.indexOf(LPF_LET_MARKER);
-    Assert.assertTrue("EXPLAIN should contain a FILTER step, plan:\n" + plan,
-        filterIdx >= 0);
     Assert.assertTrue("EXPLAIN should contain a per-record LET step, plan:\n" + plan,
         letIdx >= 0);
+    var filterIdx = plan.indexOf(LPF_FILTER_MARKER);
     Assert.assertTrue(
-        "FilterStep should appear before LET step (push-down), plan:\n" + plan,
-        filterIdx < letIdx);
-    // Compute the first FILTER at or after the LET position: none must exist.
+        "A FilterStep should appear before the LET step (push-down), plan:\n" + plan,
+        filterIdx >= 0 && filterIdx < letIdx);
+    Assert.assertEquals(
+        "Pushed predicate '" + pushedPredicate + "' should appear exactly once"
+            + " (pushed, not also retained), plan:\n" + plan,
+        1, countOccurrences(plan, pushedPredicate));
+    Assert.assertTrue(
+        "Pushed predicate '" + pushedPredicate + "' should appear before the LET"
+            + " step, plan:\n" + plan,
+        plan.indexOf(pushedPredicate) < letIdx);
+  }
+
+  /**
+   * Asserts NO push-down: the outer FilterStep stays AFTER the per-record LET
+   * step (the WHERE was left in place for {@code handleWhere}).
+   *
+   * <p>{@code retainedPredicate} must appear exactly once, AFTER the LET marker,
+   * and there must be NO FilterStep before the LET marker — the latter catches
+   * an over-eager optimization that wrongly pushes a LET-dependent conjunct
+   * ahead of LET. (Valid because none of the no-push tests use a LET/FROM
+   * subquery containing a WHERE, so no nested filter marker precedes LET.)
+   */
+  private static void assertNoPushDown(String plan, String retainedPredicate) {
+    var letIdx = plan.indexOf(LPF_LET_MARKER);
+    Assert.assertTrue("EXPLAIN should contain a per-record LET step, plan:\n" + plan,
+        letIdx >= 0);
+    var filterIdx = plan.indexOf(LPF_FILTER_MARKER);
+    Assert.assertTrue(
+        "The (only) FilterStep should appear after the LET step (no push-down),"
+            + " plan:\n" + plan,
+        filterIdx > letIdx);
+    Assert.assertEquals(
+        "Retained predicate '" + retainedPredicate + "' should appear exactly"
+            + " once, plan:\n" + plan,
+        1, countOccurrences(plan, retainedPredicate));
+    Assert.assertTrue(
+        "Retained predicate '" + retainedPredicate + "' should appear after the"
+            + " LET step (not pushed), plan:\n" + plan,
+        plan.indexOf(retainedPredicate) > letIdx);
+  }
+
+  /**
+   * Asserts a MIXED push-down: one FilterStep before the per-record LET step
+   * carrying {@code pushedPredicate} (the LET-independent conjunct) and another
+   * after it carrying {@code retainedPredicate} (the LET-dependent conjunct).
+   *
+   * <p>Each predicate must appear exactly once and on the correct side of the
+   * LET marker. The exactly-once checks catch a duplicated FilterStep (e.g. the
+   * pushed conjunct also appearing after LET), and the content checks catch the
+   * wrong conjunct being pushed. Choose distinctive predicate substrings (the
+   * bare LET var name is NOT distinctive — it also appears in the LET step
+   * label and the projection — so use the full dependent predicate).
+   */
+  private static void assertMixedPushDown(
+      String plan, String pushedPredicate, String retainedPredicate) {
+    var letIdx = plan.indexOf(LPF_LET_MARKER);
+    Assert.assertTrue("EXPLAIN should contain a per-record LET step, plan:\n" + plan,
+        letIdx >= 0);
+    var preLetFilterIdx = plan.indexOf(LPF_FILTER_MARKER);
+    Assert.assertTrue(
+        "A FilterStep should appear before the LET step (mixed push), plan:\n" + plan,
+        preLetFilterIdx >= 0 && preLetFilterIdx < letIdx);
     var postLetFilterIdx = plan.indexOf(LPF_FILTER_MARKER, letIdx);
     Assert.assertTrue(
-        "Full push-down should NOT produce a post-LET FilterStep, plan:\n" + plan,
-        postLetFilterIdx < 0);
-  }
-
-  /**
-   * Asserts NO push-down: the (single) FilterStep appears AFTER the per-record
-   * LET step, i.e. the WHERE was left in place for {@code handleWhere}. Both
-   * markers must be present.
-   */
-  private static void assertNoPushDown(String plan) {
-    var filterIdx = plan.indexOf(LPF_FILTER_MARKER);
-    var letIdx = plan.indexOf(LPF_LET_MARKER);
-    Assert.assertTrue("EXPLAIN should contain a FILTER step, plan:\n" + plan,
-        filterIdx >= 0);
-    Assert.assertTrue("EXPLAIN should contain a per-record LET step, plan:\n" + plan,
-        letIdx >= 0);
+        "A FilterStep should appear after the LET step (mixed push), plan:\n" + plan,
+        postLetFilterIdx > letIdx);
+    Assert.assertEquals(
+        "Pushed predicate '" + pushedPredicate + "' should appear exactly once,"
+            + " plan:\n" + plan,
+        1, countOccurrences(plan, pushedPredicate));
     Assert.assertTrue(
-        "FilterStep should appear after LET step (no push-down), plan:\n" + plan,
-        filterIdx > letIdx);
-  }
-
-  /**
-   * Asserts a MIXED push-down: one FilterStep appears BEFORE the per-record LET
-   * step (the pushed independent conjuncts) and another appears AFTER it (the
-   * retained dependent conjuncts).
-   */
-  private static void assertMixedPushDown(String plan) {
-    var firstFilterIdx = plan.indexOf(LPF_FILTER_MARKER);
-    var letIdx = plan.indexOf(LPF_LET_MARKER);
-    Assert.assertTrue("EXPLAIN should contain a per-record LET step, plan:\n" + plan,
-        letIdx >= 0);
+        "Pushed predicate '" + pushedPredicate + "' should appear before the LET"
+            + " step, plan:\n" + plan,
+        plan.indexOf(pushedPredicate) < letIdx);
+    Assert.assertEquals(
+        "Retained predicate '" + retainedPredicate + "' should appear exactly"
+            + " once, plan:\n" + plan,
+        1, countOccurrences(plan, retainedPredicate));
     Assert.assertTrue(
-        "EXPLAIN should contain a pre-LET FILTER step, plan:\n" + plan,
-        firstFilterIdx >= 0 && firstFilterIdx < letIdx);
-    var secondFilterIdx = plan.indexOf(LPF_FILTER_MARKER, letIdx);
-    Assert.assertTrue(
-        "EXPLAIN should contain a post-LET FILTER step, plan:\n" + plan,
-        secondFilterIdx > letIdx);
+        "Retained predicate '" + retainedPredicate + "' should appear after the"
+            + " LET step, plan:\n" + plan,
+        plan.indexOf(retainedPredicate) > letIdx);
   }
 
   /**
@@ -10472,8 +10530,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     // age values: 0,10,20,30,40,50,60,70,80,90 → 5 rows have age >= 50
     Assert.assertEquals("Should return 5 rows with age >= 50", 5, list.size());
 
-    // Verify EXPLAIN: full push-down — a FilterStep before LET, none after.
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: full push-down — age >= 50 is pushed before LET, none after.
+    assertFullPushDown(explainPlan(query), "age >= 50");
     // Verify row contents, not just count
     var names = list.stream()
         .map(r -> (String) r.getProperty("name"))
@@ -10515,8 +10573,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("Should contain exactly {n0, n1, n2, n3, n4}",
         Set.of("n0", "n1", "n2", "n3", "n4"), names);
 
-    // Verify EXPLAIN: no push-down — the FilterStep appears after LET.
-    assertNoPushDown(explainPlan(query));
+    // Verify EXPLAIN: no push-down — the $total[0].cnt > 0 filter stays after LET.
+    assertNoPushDown(explainPlan(query), "$total[0].cnt > 0");
     session.commit();
   }
 
@@ -10555,8 +10613,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("Should contain exactly {n5, n6, n7, n8, n9}",
         Set.of("n5", "n6", "n7", "n8", "n9"), names);
 
-    // Verify EXPLAIN: mixed push-down — a FILTER before LET and one after.
-    assertMixedPushDown(explainPlan(query));
+    // Verify EXPLAIN: mixed push-down — age >= 50 pushed before LET,
+    // $total[0].cnt > 7 retained after LET.
+    assertMixedPushDown(explainPlan(query), "age >= 50", "$total[0].cnt > 7");
     session.commit();
   }
 
@@ -10625,9 +10684,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .collect(Collectors.toSet());
     Assert.assertEquals(Set.of("n2", "n3", "n4"), names);
 
-    // Verify EXPLAIN: fully-independent WHERE is pushed before LET even after
-    // a SubQueryStep target (full push-down, no post-LET FilterStep).
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: fully-independent WHERE (val >= 2) is pushed before LET
+    // even after a SubQueryStep target (full push-down, none retained after).
+    assertFullPushDown(explainPlan(query), "val >= 2");
     // Verify $info is still populated (LET subquery ran after the filter)
     for (var row : list) {
       Assert.assertNotNull("$info should be populated", row.getProperty("$info"));
@@ -10669,8 +10728,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals(Set.of("n1", "n2", "n3", "n4"), names);
 
     // Verify EXPLAIN: mixed WHERE after a SubQueryStep is NOT pushed down
-    // (the FilterStep stays after LET).
-    assertNoPushDown(explainPlan(query));
+    // (the $info IS NOT NULL filter stays after LET).
+    assertNoPushDown(explainPlan(query), "$info IS NOT NULL");
     session.commit();
   }
 
@@ -10701,9 +10760,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("Only n9 should match the OR condition", 1, list.size());
     Assert.assertEquals("n9", list.getFirst().getProperty("name"));
 
-    // Verify EXPLAIN: multi-OR with a LET ref prevents push-down (FILTER stays
-    // after LET).
-    assertNoPushDown(explainPlan(query));
+    // Verify EXPLAIN: multi-OR with a LET ref prevents push-down (the
+    // $total[0].cnt > 100 branch keeps the whole WHERE after LET).
+    assertNoPushDown(explainPlan(query), "$total[0].cnt > 100");
     session.commit();
   }
 
@@ -10745,8 +10804,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("$info count should reflect all 6 records",
         6L, ((Number) infoRow.getProperty("count(*)")).longValue());
 
-    // Verify EXPLAIN: single independent condition is a full push-down.
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: single independent condition (val > 3) is a full push-down.
+    assertFullPushDown(explainPlan(query), "val > 3");
     session.commit();
   }
 
@@ -10778,8 +10837,8 @@ public class SelectStatementExecutionTest extends DbTestBase {
         "Dependent filter should reject all rows (count=4, threshold=5)",
         0, list.size());
 
-    // Verify EXPLAIN: single dependent condition is NOT pushed down.
-    assertNoPushDown(explainPlan(query));
+    // Verify EXPLAIN: single dependent condition ($cnt[0].c > 5) is NOT pushed down.
+    assertNoPushDown(explainPlan(query), "$cnt[0].c > 5");
     session.commit();
   }
 
@@ -10821,8 +10880,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("$info count should reflect all 10 records",
         10L, ((Number) infoRow.getProperty("count(*)")).longValue());
 
-    // Verify EXPLAIN: multi-OR all-independent is a full push-down.
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: multi-OR all-independent is a full push-down (val > 7 is
+    // the distinctive second branch of the pushed WHERE).
+    assertFullPushDown(explainPlan(query), "val > 7");
     session.commit();
   }
 
@@ -10865,9 +10925,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("$bonus for n4 (score=20) should be 120",
         120, ((Number) n4.getProperty("$bonus")).intValue());
 
-    // Verify EXPLAIN: expression-LET with an independent WHERE is a full
-    // push-down.
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: expression-LET with an independent WHERE (score >= 20) is
+    // a full push-down.
+    assertFullPushDown(explainPlan(query), "score >= 20");
     session.commit();
   }
 
@@ -10903,8 +10963,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .collect(Collectors.toSet());
     Assert.assertEquals(Set.of("n4", "n5"), names);
 
-    // Verify EXPLAIN: expression-LET with a dependent WHERE is NOT pushed down.
-    assertNoPushDown(explainPlan(query));
+    // Verify EXPLAIN: expression-LET with a dependent WHERE ($bonus > 130) is
+    // NOT pushed down.
+    assertNoPushDown(explainPlan(query), "$bonus > 130");
     session.commit();
   }
 
@@ -10935,9 +10996,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     var list = session.query(query).toList();
     Assert.assertEquals("Should return 0 rows", 0, list.size());
 
-    // Verify EXPLAIN: the independent filter is a full push-down even though it
-    // rejects every row (the pushed FilterStep still precedes LET).
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: the independent filter (val > 100) is a full push-down even
+    // though it rejects every row (the pushed FilterStep still precedes LET).
+    assertFullPushDown(explainPlan(query), "val > 100");
     session.commit();
   }
 
@@ -10979,8 +11040,9 @@ public class SelectStatementExecutionTest extends DbTestBase {
     Assert.assertEquals("$info for n3 (val=3) should be 6",
         6, ((Number) n3.getProperty("$info")).intValue());
 
-    // Verify EXPLAIN: a WHERE on the second LET var prevents push-down.
-    assertNoPushDown(explainPlan(query));
+    // Verify EXPLAIN: a WHERE on the second LET var ($cnt[0].c > 0) prevents
+    // push-down.
+    assertNoPushDown(explainPlan(query), "$cnt[0].c > 0");
     session.commit();
   }
 
@@ -11029,7 +11091,7 @@ public class SelectStatementExecutionTest extends DbTestBase {
         "EXPLAIN should contain a global LET step (\"LET (once)\") for $g,"
             + " plan:\n" + plan,
         plan.contains("LET (once)"));
-    assertFullPushDown(plan);
+    assertFullPushDown(plan, "age >= $g");
     session.commit();
   }
 
@@ -11070,8 +11132,68 @@ public class SelectStatementExecutionTest extends DbTestBase {
         .collect(Collectors.toSet());
     Assert.assertEquals(Set.of("n5", "n6", "n7", "n8", "n9"), names);
 
-    // Verify EXPLAIN: full push-down of the $current WHERE before per-record LET.
-    assertFullPushDown(explainPlan(query));
+    // Verify EXPLAIN: full push-down of the $current.age >= 50 WHERE before LET.
+    assertFullPushDown(explainPlan(query), "$current.age >= 50");
+    session.commit();
+  }
+
+  /**
+   * Full push-down guarded against the flat-string nested-marker trap: the
+   * per-record LET subquery itself contains a WHERE, so the EXPLAIN plan has a
+   * NESTED "FILTER ITEMS WHERE age > $parent.$current.age" boxed AFTER the LET
+   * marker. The outer WHERE (age >= 50) is fully LET-independent and pushed
+   * BEFORE the LET step. assertFullPushDown must still pass because it matches
+   * the OUTER predicate text ("age >= 50"), which appears exactly once and
+   * before the LET marker; it must NOT be fooled by the different nested
+   * predicate that appears after the marker. A correlated subquery (referencing
+   * $parent) keeps the LET per-record, so its filter renders inside the
+   * per-record LET box rather than being promoted to a global "LET (once)".
+   */
+  @Test
+  public void testLetPreFilter_fullPushDownWithFilteringLetSubquery() {
+    var cls = "LpfNestedFilter";
+    session.execute("CREATE CLASS " + cls).close();
+
+    for (var i = 0; i < 10; i++) {
+      session.begin();
+      var doc = session.newInstance(cls);
+      doc.setProperty("name", "n" + i);
+      doc.setProperty("age", i * 10);
+      session.commit();
+    }
+
+    // Correlated LET subquery (references $parent) stays per-record; its WHERE
+    // renders a nested FILTER after the LET marker. Outer WHERE age >= 50 is
+    // LET-independent → full push-down before the per-record LET.
+    session.begin();
+    var query = "SELECT name, $info FROM " + cls
+        + " LET $info = (SELECT count(*) as c FROM " + cls
+        + " WHERE age > $parent.$current.age)"
+        + " WHERE age >= 50";
+    var list = session.query(query).toList();
+    // age >= 50 → n5..n9 (age 50,60,70,80,90)
+    Assert.assertEquals("Should return 5 rows with age >= 50", 5, list.size());
+    var names = list.stream()
+        .map(r -> (String) r.getProperty("name"))
+        .collect(Collectors.toSet());
+    Assert.assertEquals(Set.of("n5", "n6", "n7", "n8", "n9"), names);
+    // The correlated subquery must be evaluated per record: n5 (age 50) sees 4
+    // rows with a greater age (60,70,80,90); n9 (age 90) sees none.
+    var n5Info = (List<?>) list.stream()
+        .filter(r -> "n5".equals(r.getProperty("name")))
+        .findFirst().orElseThrow().getProperty("$info");
+    Assert.assertEquals("n5 (age 50) should see 4 rows with a greater age",
+        4L, ((Number) ((Result) n5Info.getFirst()).getProperty("c")).longValue());
+    var n9Info = (List<?>) list.stream()
+        .filter(r -> "n9".equals(r.getProperty("name")))
+        .findFirst().orElseThrow().getProperty("$info");
+    Assert.assertEquals("n9 (age 90) should see 0 rows with a greater age",
+        0L, ((Number) ((Result) n9Info.getFirst()).getProperty("c")).longValue());
+
+    // The plan has a nested "FILTER ITEMS WHERE age > $parent.$current.age"
+    // after the LET marker; assertFullPushDown must still confirm the OUTER
+    // "age >= 50" filter is pushed before LET and not duplicated after it.
+    assertFullPushDown(explainPlan(query), "age >= 50");
     session.commit();
   }
 
