@@ -784,16 +784,19 @@ public class BTreeTombstoneGCTest {
 
   @Test
   public void testNullTreeGCQueriesNullSnapshotMap() throws Exception {
-    // BTreeMultiValueIndexEngine creates a nullTree with name ending in
-    // "$null". GC must query sharedNullIndexesSnapshot (not the regular
-    // sharedIndexesSnapshot) for demotion decisions. This test verifies
-    // that markers on a null tree are preserved when the null snapshot
-    // map has active entries — proving isNullTree routes correctly.
+    // BTreeMultiValueIndexEngine marks its nullTree with an explicit
+    // setNullTree(true) at construction (component names are ie_<n> file
+    // keys and are never parsed for identity). GC must query
+    // sharedNullIndexesSnapshot (not the regular sharedIndexesSnapshot)
+    // for demotion decisions. This test verifies that markers on a null
+    // tree are preserved when the null snapshot map has active entries —
+    // proving the explicit isNullTree flag routes correctly.
     var nullEngineName =
         ENGINE_NAME + AbstractStorage.NULL_TREE_SUFFIX;
     var nullTree =
         new BTree<CompositeKey>(nullEngineName, ".cbt", ".nbt", storage);
     nullTree.setEngineId(STUB_ENGINE_ID);
+    nullTree.setNullTree(true);
     atomicOperationsManager.executeInsideAtomicOperation(
         op -> nullTree.create(
             op,

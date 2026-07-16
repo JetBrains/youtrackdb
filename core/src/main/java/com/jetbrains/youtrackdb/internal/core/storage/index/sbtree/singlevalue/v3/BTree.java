@@ -125,6 +125,12 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   // -1 means not set (GC will skip snapshot-entry checks).
   private volatile long engineId = -1;
 
+  // Whether this tree is a multi-value engine's dedicated null-key tree. Explicit identity set
+  // by the owning engine via setNullTree() — the component name is a file key
+  // (ie_<fileBaseId>$null) and must not be parsed for identity. False for single-value trees,
+  // the config b-tree, and any other non-engine use.
+  private volatile boolean nullTree;
+
   public BTree(
       @Nonnull final String name,
       final String dataFileExtension,
@@ -164,6 +170,11 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
   @Override
   public void setEngineId(long engineId) {
     this.engineId = engineId;
+  }
+
+  @Override
+  public void setNullTree(final boolean nullTree) {
+    this.nullTree = nullTree;
   }
 
   @Override
@@ -2922,7 +2933,9 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       if (lwm < 0) {
         lwm = storage.computeGlobalLowWaterMark();
         assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
-        isNullTree = getName().endsWith(AbstractStorage.NULL_TREE_SUFFIX);
+        // Explicit identity flag set by the owning engine — component names are file keys
+        // (ie_<fileBaseId>), never parsed for identity.
+        isNullTree = nullTree;
       }
 
       final var key = keyBucket.getKey(i, keySerializer, serializerFactory);

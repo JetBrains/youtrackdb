@@ -235,6 +235,16 @@ public abstract class AbstractStorage
   public static final String INDEX_ENGINE_FILE_STEM_PREFIX = "ie_";
 
   /**
+   * The storage-component name stem of the engine with the given stable file base id — the
+   * single derivation site for the {@code ie_<fileBaseId>} shape. Every file of the engine's
+   * family carries this stem (the multi-value null tree appends {@link #NULL_TREE_SUFFIX}), so
+   * neither the index name nor a class name ever keys a storage file.
+   */
+  public static String indexEngineFileStem(final int fileBaseId) {
+    return INDEX_ENGINE_FILE_STEM_PREFIX + fileBaseId;
+  }
+
+  /**
    * Version comparator for index snapshot visibility-index maps: orders by the
    * last key element (the committing TX's version = newVersion), falling back
    * to full element-wise comparison for uniqueness. Enables efficient
@@ -3668,6 +3678,15 @@ public abstract class AbstractStorage
    * @param engine the captured engine removed from the registry, used to delete its files.
    */
   private void revertCreatedIndexEngineStructure(final BaseIndexEngine engine) {
+    // The file family is keyed by the engine's stable file base id, so only an engine that
+    // carries one (every local B-tree engine) can be swept for survivors. A non-B-tree engine
+    // cannot be created by the local commit window, so the conservative skip is unreachable in
+    // production and assert-guarded.
+    if (!(engine instanceof BTreeIndexEngine btreeEngine)) {
+      assert false
+          : "failed-commit engine cleanup reached a non-B-tree engine: " + engine.getName();
+      return;
+    }
     try {
       atomicOperationsManager.executeInsideAtomicOperation(
           atomicOperation -> {
@@ -3681,7 +3700,7 @@ public abstract class AbstractStorage
             // files actually survived: false on the disk profile (rollback removed them) and true on
             // the in-memory profile (the eager cache install survived), so the cleanup runs exactly
             // where an orphan exists.
-            if (!engineFilesPresent(engine.getName())) {
+            if (!engineFilesPresent(btreeEngine.getFileBaseId())) {
               return;
             }
             doDeleteIndexEngine(atomicOperation, engine);
@@ -3696,34 +3715,31 @@ public abstract class AbstractStorage
   }
 
   /**
-   * Whether any physical file of the named index engine survives in the write cache — the
-   * in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the engine analogue of
-   * the collection arm's {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. A v1 BTree
-   * engine's file names are an engine-derived stem plus an extension: the data-tree and
-   * histogram files use the engine name itself as the stem and the null-tree files append
-   * {@link #NULL_TREE_SUFFIX} to it, so the check strips each file name's extension and
-   * matches the remaining stem exactly against the engine name or its null-tree variant. An
-   * exact stem match cannot false-positive across sibling index names that share a prefix (an
-   * engine must not report a longer-named sibling's files as its own), which a bare prefix
-   * match did. The write cache reflects the committed physical files: the eager cache install
+   * Whether any physical file of the engine with the given file base id survives in the write
+   * cache — the in-memory-vs-disk discriminator for the failed-commit engine cleanup arms, the
+   * engine analogue of the collection arm's
+   * {@code LinkCollectionsBTreeManagerShared.isComponentPresent}. Every file of an engine's
+   * family carries the {@code ie_<fileBaseId>} stem (the multi-value null tree appends
+   * {@link #NULL_TREE_SUFFIX}), so the check strips each file name's extension and matches the
+   * remaining stem exactly — keyed by the stable id, never by parsing an index name out of a
+   * file name. The write cache reflects the committed physical files: the eager cache install
    * survives a rollback on the in-memory profile and is reverted on the disk profile, so a
    * surviving stem match is exactly an orphan to clean up.
    *
-   * @param engineName the dropped/created engine's name.
-   * @return {@code true} when at least one file of the named engine survives.
+   * @param fileBaseId the dropped/created engine's stable file base id.
+   * @return {@code true} when at least one file of the engine's family survives.
    */
-  private boolean engineFilesPresent(final String engineName) {
+  private boolean engineFilesPresent(final int fileBaseId) {
     final var wc = writeCache;
     if (wc == null) {
       return false;
     }
-    final var stem = engineName.toLowerCase(Locale.ROOT);
+    final var stem = indexEngineFileStem(fileBaseId);
     final var nullTreeStem = stem + NULL_TREE_SUFFIX;
     for (final var fileName : wc.files().keySet()) {
-      final var lowerCaseName = fileName.toLowerCase(Locale.ROOT);
-      final var extensionStart = lowerCaseName.lastIndexOf('.');
+      final var extensionStart = fileName.lastIndexOf('.');
       final var fileStem =
-          extensionStart > 0 ? lowerCaseName.substring(0, extensionStart) : lowerCaseName;
+          extensionStart > 0 ? fileName.substring(0, extensionStart) : fileName;
       if (fileStem.equals(stem) || fileStem.equals(nullTreeStem)) {
         return true;
       }
@@ -4269,7 +4285,9 @@ public abstract class AbstractStorage
 
     var mgr = new IndexHistogramManager(
         this,
-        engineData.getName(),
+        // The stats file is part of the engine's file family and is keyed by the stable file
+        // base id like every other member — the index name keys no file.
+        indexEngineFileStem(engineData.getFileBaseId()),
         engineData.getIndexId(),
         isSingleValue,
         histogramSnapshotCache,
@@ -8393,6 +8411,10 @@ public abstract class AbstractStorage
    * Checks whether any snapshot entries exist for the given user-key prefix with
    * {@code version >= lwm} in the index identified by {@code engineName}.
    * For null-key trees (name ending with {@code "$null"}), the null snapshot is used.
+   *
+   * <p>{@code engineName} is the LOGICAL index-engine name (the {@code indexEngineNameMap}
+   * key, optionally suffixed with {@code "$null"}) — never an {@code ie_<fileBaseId>} file
+   * stem: storage-component/file names and logical engine names are distinct domains.
    *
    * <p>Queries the shared {@code ConcurrentSkipListMap} directly without creating
    * an intermediate {@link IndexesSnapshot} instance.

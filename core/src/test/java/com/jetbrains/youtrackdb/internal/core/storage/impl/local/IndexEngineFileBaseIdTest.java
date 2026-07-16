@@ -10,6 +10,7 @@ import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.config.IndexEngineData;
 import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.YouTrackDBImpl;
+import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
 import com.jetbrains.youtrackdb.internal.core.exception.ConfigurationException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
@@ -306,6 +307,208 @@ public class IndexEngineFileBaseIdTest {
   }
 
   /**
+   * Dropping and recreating a same-named index allocates a fresh file base id, so the recreated
+   * engine's file family lives under a different {@code ie_<n>} stem and can never collide with
+   * any residue of the dropped one — the core D16 regression the stable key exists to prevent.
+   */
+  @Test
+  public void dropAndRecreateSameNamedIndexGetsFreshFileStems() throws Exception {
+    final var dbName = "fbiDropRecreate";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+
+      final var cls = session.getMetadata().getSchema().createClass("FbiDrop");
+      cls.createProperty("val", PropertyType.STRING);
+      cls.createIndex("FbiDropIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+
+      final int firstFileBaseId =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiDropIdx", -1, op)).getFileBaseId();
+      final var firstStem = AbstractStorage.indexEngineFileStem(firstFileBaseId);
+      assertTrue("the created engine's data file must carry the ie_ stem",
+          storage.getWriteCache().exists(firstStem + ".cbt"));
+
+      session.execute("DROP INDEX FbiDropIdx").close();
+      assertTrue("the dropped engine's files must be gone",
+          collectEngineFiles(storage, firstStem).isEmpty());
+
+      // Recreate under the SAME index name: a fresh, never-reused stem — no possible collision
+      // with anything the dropped incarnation might have left behind.
+      cls.createIndex("FbiDropIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+      final int secondFileBaseId =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiDropIdx", -1, op)).getFileBaseId();
+      assertTrue("the recreated same-named index must get a strictly newer file base id",
+          secondFileBaseId > firstFileBaseId);
+      final var secondStem = AbstractStorage.indexEngineFileStem(secondFileBaseId);
+      assertTrue("the recreated engine's data file must live under the new stem",
+          storage.getWriteCache().exists(secondStem + ".cbt"));
+      assertTrue("no file of the dropped incarnation may reappear",
+          collectEngineFiles(storage, firstStem).isEmpty());
+    }
+  }
+
+  /**
+   * AD-10: a schema-carrying commit that fails AFTER the commit window built the engine (all
+   * family files booked as WAL-reverted intent in the commit's atomic operation) must revert
+   * cleanly: no engine file survives on the disk profile, the burned file base id is never
+   * reissued, and a retry of the same-named create succeeds under a fresh stem.
+   */
+  @Test
+  public void failedCommitWindowIndexCreateRevertsBookedFamilyFiles() throws Exception {
+    final var dbName = "fbiFailedCommit";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+      final var hwmBefore = storage.indexEngineFileBaseIdHwmForTesting();
+      final var engineFilesBefore = allEngineFiles(storage);
+
+      // The class and property are committed up front (property creation is not yet
+      // transactional); only the index create runs inside the transaction, which is exactly the
+      // commit-window engine build AD-10 targets.
+      final var cls = session.getMetadata().getSchema().createClass("FbiCrash");
+      cls.createProperty("val", PropertyType.STRING);
+
+      // Fault after the commit window BUILT the engines (family files booked in the commit's
+      // atomic operation, registries published) and before the record apply — the post-build
+      // hook, not the pre-build commitWindowTestHook, which fires before any engine exists. The
+      // NeedRetryException family keeps the storage OPEN (moveToErrorStateIfNeeded skips it),
+      // so the retry below runs against the same storage instance.
+      storage.setPostEngineBuildTestHook(() -> {
+        throw new CommandInterruptedException(dbName, "injected post-engine-build commit fault");
+      });
+      try {
+        session.begin();
+        session.getMetadata().getSchema().getClass("FbiCrash")
+            .createIndex("FbiCrashIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+        try {
+          session.commit();
+          fail("the schema commit must fail when the in-window fault hook throws");
+        } catch (final RuntimeException expected) {
+          // Routed through rollback + the engine-create undo arms.
+        }
+      } finally {
+        storage.setPostEngineBuildTestHook(null);
+      }
+
+      // Disk profile: the booked family files were never physically created, so the write cache
+      // is byte-for-byte back at the baseline — no orphan of the failed create.
+      assertEquals("a failed commit must leave no engine file behind",
+          engineFilesBefore, allEngineFiles(storage));
+      // The failed allocation burned its value: the mark advanced and never reverts.
+      assertTrue("the failed create's file base id must be burned, not reverted",
+          storage.indexEngineFileBaseIdHwmForTesting() > hwmBefore);
+
+      // The retry succeeds under a fresh stem strictly past the burned value.
+      session.executeInTx(tx -> session.getMetadata().getSchema().getClass("FbiCrash")
+          .createIndex("FbiCrashIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val"));
+      final var retriedData =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiCrashIdx", -1, op));
+      assertTrue("the retried create must allocate past the burned id",
+          retriedData.getFileBaseId() > hwmBefore);
+      assertTrue("the retried engine's data file must exist under its fresh stem",
+          storage.getWriteCache().exists(
+              AbstractStorage.indexEngineFileStem(retriedData.getFileBaseId()) + ".cbt"));
+    }
+  }
+
+  /**
+   * D16 end-goal pin: a class rename touches no engine storage file. The engine's whole file
+   * family is keyed by the stable file base id — not by the index or class name — so the
+   * rename leaves the write cache's engine-file set and the engine entry byte-identical.
+   * Complements the collection-side rename pin (D11) in {@code ClassTest.testRename}.
+   */
+  @Test
+  public void classRenameLeavesEngineFilesUntouched() throws Exception {
+    final var dbName = "fbiRename";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+
+      final var cls = session.getMetadata().getSchema().createClass("FbiRenameOld");
+      cls.createProperty("val", PropertyType.STRING);
+      cls.createIndex("FbiRenameIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+      session.executeInTx(tx -> tx.newEntity("FbiRenameOld").setProperty("val", "pinned"));
+
+      final int fileBaseIdBefore =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiRenameIdx", -1, op)).getFileBaseId();
+      final var engineFilesBefore = allEngineFiles(storage);
+      assertTrue("precondition: the index's engine files exist",
+          engineFilesBefore.stream().anyMatch(
+              f -> f.startsWith(AbstractStorage.indexEngineFileStem(fileBaseIdBefore))));
+
+      cls.setName("FbiRenameNew");
+
+      assertEquals("a class rename must leave the engine-file set byte-identical",
+          engineFilesBefore, allEngineFiles(storage));
+      assertEquals("a class rename must not touch the engine entry's file base id",
+          fileBaseIdBefore,
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiRenameIdx", -1, op)).getFileBaseId());
+    }
+  }
+
+  /**
+   * AD-6: dropping the database removes the engine's whole five-file family from disk —
+   * {@code .cbt}+{@code .nbt} for the main tree, the {@code $null} variants of both for the
+   * multi-value null tree, and the {@code .ixs} histogram. The {@code .nbt} extension was
+   * missing from {@code DiskStorage.ALL_FILE_EXTENSIONS}, so null-bucket files used to leak and
+   * kept the database directory from being deleted.
+   */
+  @Test
+  public void databaseDropRemovesWholeEngineFileFamily() throws Exception {
+    final var dbName = "fbiDropDb";
+    ytdb.create(dbName, DatabaseType.DISK, ADMIN, PWD, "admin");
+
+    final int fileBaseId;
+    try (var session = (DatabaseSessionEmbedded) ytdb.open(dbName, ADMIN, PWD)) {
+      final var storage = (AbstractStorage) session.getStorage();
+      final var config = (CollectionBasedStorageConfiguration) storage.configuration;
+      final var cls = session.getMetadata().getSchema().createClass("FbiDropDb");
+      cls.createProperty("val", PropertyType.STRING);
+      // NOTUNIQUE → multi-value engine → the full five-file family.
+      cls.createIndex("FbiDropDbIdx", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+      fileBaseId =
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiDropDbIdx", -1, op)).getFileBaseId();
+    }
+
+    final var dbDir = new File(testDir, dbName);
+    assertTrue("precondition: the database directory exists", dbDir.isDirectory());
+    final var onDisk = dbDir.list();
+    assertTrue("precondition: the database directory lists files", onDisk != null);
+    final var stem = AbstractStorage.indexEngineFileStem(fileBaseId);
+    final var nullStem = stem + AbstractStorage.NULL_TREE_SUFFIX;
+    // The write cache stores files on disk under an internal name that inserts the numeric file
+    // id before the extension (<stem>_<fileId>.<ext>), so the presence check matches
+    // stem-underscore prefix + extension instead of exact names.
+    for (final var expected : new String[][] {
+        {stem, ".cbt"}, {stem, ".nbt"}, {nullStem, ".cbt"}, {nullStem, ".nbt"},
+        {stem, ".ixs"}}) {
+      final var memberStem = expected[0];
+      final var extension = expected[1];
+      assertTrue(
+          "precondition: family file " + memberStem + "*" + extension + " must exist on disk",
+          java.util.Arrays.stream(onDisk).anyMatch(
+              f -> f.startsWith(memberStem + "_") && f.endsWith(extension)));
+    }
+
+    ytdb.drop(dbName);
+
+    assertTrue("the drop must remove every family file and the (then-empty) directory",
+        !dbDir.exists());
+  }
+
+  /**
    * Creates a disk database, rewrites its persisted storage-format version to
    * {@code tamperedVersion}, and fully closes the {@code YourTracks} instance so the next open
    * re-runs the gate.
@@ -332,6 +535,35 @@ public class IndexEngineFileBaseIdTest {
     final var cls = session.getMetadata().getSchema().createClass(className);
     cls.createProperty("val", PropertyType.STRING);
     cls.createIndex(className + ".val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+  }
+
+  /**
+   * The write cache's engine-family file names carrying the given {@code ie_<n>} stem (any
+   * extension, including the {@code $null} variants).
+   */
+  private static java.util.Set<String> collectEngineFiles(final AbstractStorage storage,
+      final String stem) {
+    final var result = new java.util.HashSet<String>();
+    for (final var fileName : storage.getWriteCache().files().keySet()) {
+      if (fileName.startsWith(stem + ".")
+          || fileName.startsWith(stem + AbstractStorage.NULL_TREE_SUFFIX + ".")) {
+        result.add(fileName);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Every engine-family file name in the write cache (any {@code ie_} stem).
+   */
+  private static java.util.Set<String> allEngineFiles(final AbstractStorage storage) {
+    final var result = new java.util.HashSet<String>();
+    for (final var fileName : storage.getWriteCache().files().keySet()) {
+      if (fileName.startsWith(AbstractStorage.INDEX_ENGINE_FILE_STEM_PREFIX)) {
+        result.add(fileName);
+      }
+    }
+    return result;
   }
 
   /**

@@ -220,11 +220,11 @@ public class BTreeIndexEngineHistogramTest {
 
   private static BTreeSingleValueIndexEngine createSingleValueEngine() {
     return new BTreeSingleValueIndexEngine(
-        0, "test-sv-idx", createMockStorage(), 4);
+        0, 0, "test-sv-idx", createMockStorage(), 4);
   }
 
   private static BTreeMultiValueIndexEngine createMultiValueEngine() {
     return new BTreeMultiValueIndexEngine(
-        0, "test-mv-idx", createMockStorage(), 4);
+        0, 0, "test-mv-idx", createMockStorage(), 4);
   }
 }

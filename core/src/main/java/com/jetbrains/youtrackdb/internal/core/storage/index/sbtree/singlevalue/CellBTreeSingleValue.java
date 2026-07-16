@@ -132,6 +132,16 @@ public interface CellBTreeSingleValue<K> {
   }
 
   /**
+   * Marks this tree as a multi-value engine's dedicated null-key tree, so tombstone GC queries
+   * the null-snapshot map. Explicit identity set by the owning engine at construction — the
+   * component name is a file key ({@code ie_<fileBaseId>$null}) and must not be parsed for
+   * identity. Default no-op for implementations that don't support GC.
+   */
+  default void setNullTree(boolean nullTree) {
+    // no-op by default
+  }
+
+  /**
    * Recovery-time orphan-truncation hook invoked by
    * {@code AbstractStorage.truncateOrphansAfterRecovery()} after WAL replay has settled
    * logical state. Reads the entry-point's logical-pages counter, computes the expected

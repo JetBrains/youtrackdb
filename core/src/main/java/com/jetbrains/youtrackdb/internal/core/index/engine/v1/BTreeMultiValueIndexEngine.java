@@ -37,7 +37,9 @@ public final class BTreeMultiValueIndexEngine
     implements MultiValueIndexEngine, BTreeIndexEngine {
 
   public static final String DATA_FILE_EXTENSION = ".cbt";
-  private static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
+  // Public so DiskStorage.ALL_FILE_EXTENSIONS can register it: a drop must sweep the null-bucket
+  // files of both trees, or they leak on disk after database deletion.
+  public static final String NULL_BUCKET_FILE_EXTENSION = ".nbt";
   public static final String M_CONTAINER_EXTENSION = ".mbt";
 
   @Nonnull
@@ -53,6 +55,14 @@ public final class BTreeMultiValueIndexEngine
   private final int id;
   private final String nullTreeName;
   private final AbstractStorage storage;
+
+  /**
+   * The engine's stable, never-reused file base id. All storage-component names derive from it
+   * ({@code ie_<fileBaseId>} and {@code ie_<fileBaseId>$null}), so the logical index name
+   * ({@link #name}) never touches a file: a drop-and-recreate of a same-named index gets fresh
+   * files, and a rename never moves any.
+   */
+  private final int fileBaseId;
   @Nullable private volatile IndexHistogramManager histogramManager;
 
   // Approximate count of visible index entries (svTree + nullTree), used by the
@@ -78,23 +88,30 @@ public final class BTreeMultiValueIndexEngine
   private final AtomicBoolean firstUnderflowDumped = new AtomicBoolean(false);
 
   public BTreeMultiValueIndexEngine(
-      int id, @Nonnull String name, AbstractStorage storage, final int version) {
+      int id, int fileBaseId, @Nonnull String name, AbstractStorage storage, final int version) {
     this.id = id;
+    this.fileBaseId = fileBaseId;
     this.name = name;
     this.storage = storage;
-    nullTreeName = name + AbstractStorage.NULL_TREE_SUFFIX;
+    // Both components (and therefore their files) are keyed by the stable file base id, not the
+    // index name — the single name domain for engine storage components.
+    final var stem = AbstractStorage.indexEngineFileStem(fileBaseId);
+    nullTreeName = stem + AbstractStorage.NULL_TREE_SUFFIX;
 
     if (version == 1 || version == 2 || version == 3) {
       throw new IllegalArgumentException("Unsupported version of index : " + version);
     } else if (version == 4) {
       svTree =
           new BTree<>(
-              name, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
+              stem, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       svTree.setEngineId(id);
       nullTree =
           new BTree<>(
               nullTreeName, DATA_FILE_EXTENSION, NULL_BUCKET_FILE_EXTENSION, storage);
       nullTree.setEngineId(id);
+      // Explicit null-tree identity for the tombstone-GC snapshot lookup — the component name
+      // is a file key, not an identity carrier.
+      nullTree.setNullTree(true);
       indexesSnapshot = storage.subIndexSnapshot(id);
       nullIndexesSnapshot = storage.subNullIndexSnapshot(id);
     } else {
@@ -105,6 +122,11 @@ public final class BTreeMultiValueIndexEngine
   @Override
   public int getId() {
     return id;
+  }
+
+  @Override
+  public int getFileBaseId() {
+    return fileBaseId;
   }
 
   @Override
@@ -214,12 +236,17 @@ public final class BTreeMultiValueIndexEngine
 
   @Override
   public void load(IndexEngineData data, @Nonnull AtomicOperation atomicOperation) {
-    var name = data.getName();
+    assert data.getFileBaseId() == fileBaseId
+        : "engine constructed for fileBaseId " + fileBaseId + " but loaded with "
+            + data.getFileBaseId();
     var keySize = data.getKeySize();
     var keyTypes = data.getKeyTypes();
     final var sbTypes = calculateTypes(keyTypes);
 
-    svTree.load(name, keySize + 1, sbTypes, new IndexMultiValuKeySerializer(), atomicOperation);
+    // Load under the file-base-id stems the components were constructed with — never the index
+    // name, which keys no file.
+    svTree.load(AbstractStorage.indexEngineFileStem(fileBaseId), keySize + 1, sbTypes,
+        new IndexMultiValuKeySerializer(), atomicOperation);
     nullTree.load(
         nullTreeName, 2,
         new PropertyTypeInternal[] {PropertyTypeInternal.LINK, PropertyTypeInternal.LONG},
