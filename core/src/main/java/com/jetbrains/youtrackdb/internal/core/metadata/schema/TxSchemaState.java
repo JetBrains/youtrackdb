@@ -127,9 +127,10 @@ public final class TxSchemaState {
   private final Int2IntOpenHashMap provisionalToReal = new Int2IntOpenHashMap();
 
   /**
-   * Maps each provisional collection id this transaction allocated to the {@code <class>_<counter>}
-   * name computed at allocation time. The commit creates the real collection under this name, so the
-   * name must be carried from the producer to the commit: the tx-local collection counter has already
+   * Maps each provisional collection id this transaction allocated to the counter-only
+   * ({@code c_<counter>}) name computed at allocation time. The commit creates the real
+   * collection under this name, so the name must be carried from the producer to the commit: the
+   * tx-local collection counter has already
    * advanced past it by commit time, so the commit cannot regenerate it. Empty until a class create
    * (or an abstract&rarr;concrete alter) allocates its first provisional id.
    */
@@ -243,7 +244,8 @@ public final class TxSchemaState {
 
   /**
    * Allocates the next provisional collection id for a class created inside this transaction,
-   * carrying the {@code <class>_<counter>} name the commit creates the real collection under. The
+   * carrying the counter-only ({@code c_<counter>}) name the commit creates the real collection
+   * under. The
    * ids run {@code -2, -3, -4, ...} down to {@link Short#MIN_VALUE}: each is unique within the
    * transaction (the counter never repeats) and is disjoint from the abstract-class marker
    * {@code -1}. The id is a placeholder a record can carry through the transaction; the commit
@@ -259,8 +261,8 @@ public final class TxSchemaState {
    * <p>The name must be carried here because the producer computes it from the tx-local collection
    * counter, which has already advanced by commit time, so the commit cannot regenerate it.
    *
-   * @param collectionName the {@code <class>_<counter>} name the commit creates the real collection
-   *     under; must be non-null.
+   * @param collectionName the counter-only ({@code c_<counter>}) name the commit creates the real
+   *     collection under; must be non-null.
    */
   public int allocateProvisionalCollectionId(@Nonnull String collectionName) {
     final var allocated = nextProvisionalCollectionId;
@@ -278,8 +280,8 @@ public final class TxSchemaState {
   }
 
   /**
-   * The {@code <class>_<counter>} name recorded for {@code provisionalCollectionId} when it was
-   * allocated. The commit creates the real collection under this name. Throws
+   * The counter-only ({@code c_<counter>}) name recorded for {@code provisionalCollectionId} when
+   * it was allocated. The commit creates the real collection under this name. Throws
    * {@link IllegalStateException} when no name was recorded for the id: a missing name means the
    * id was never allocated by this transaction, and returning {@code null} instead would silently
    * reintroduce the null-placeholder index-membership bug in any JVM running without {@code -ea},

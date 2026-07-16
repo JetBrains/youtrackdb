@@ -305,10 +305,13 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
-      final var oldName = this.name;
       owner.changeClassName(session, this.name, name, this);
       this.name = name;
-      renameCollection(session, oldName, this.name);
+      // A class rename is metadata-only: collection names are generated from a counter alone
+      // (c_<counter>, no class-name component), so there is no collection to rename and no
+      // storage file is touched. The removed collection-rename path went through the
+      // non-WAL-safe writeCache.renameFile, which was rollback-unsafe and could deadlock when
+      // reached inside a commit.
     } finally {
       releaseSchemaWriteLock(session);
     }
@@ -568,8 +571,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
         // re-creates committed classes through other paths and never through setAbstract, but the
         // guard keeps the recording uniform. Outside a transaction (or while seeding) the legacy
         // eager allocation is kept: there is no user transaction to defer the create to.
-        var collectionName = name.toLowerCase(Locale.ENGLISH) + "_"
-            + ((SchemaEmbedded) owner).nextCollectionIndex();
+        var collectionName = owner.nextCollectionName(database);
         final boolean provisional = owner.txLocal && !database.isSeedingTxSchemaState();
         final int collectionId;
         if (provisional) {
@@ -675,7 +677,7 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
   protected void addCollectionIdToIndexes(DatabaseSessionEmbedded session, int iId,
       boolean requireEmpty) {
     // Provisional-aware resolution: a collection allocated in this same transaction carries a
-    // provisional id (<= -2) that resolves to the carried <class>_<counter> name the commit
+    // provisional id (<= -2) that resolves to the carried c_<counter> name the commit
     // creates the real collection under (the commit's collection reconciliation runs before the
     // membership enroll). Recording the plain getCollectionNameById null instead would persist a
     // null placeholder into the committed index's collectionsToIndex. The shared resolver keeps

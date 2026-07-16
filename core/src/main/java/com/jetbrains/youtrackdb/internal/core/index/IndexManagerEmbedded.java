@@ -255,7 +255,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // directly into the deferred handle's covered-collection set instead of the overlay's
     // membership category: the handle's live set is what every commit phase reads (the v1
     // emptiness bound, the population scan and the enroll-phase record write), and the folded
-    // name carries the same committed-or-provisional <class>_<counter> shape the create-time
+    // name carries the same committed-or-provisional counter-only (c_<counter>) shape the
+    // create-time
     // resolver produces, so it flows through the exact machinery a create-time covered collection
     // uses.
     final var foldTxState = session.getTxSchemaState();
@@ -686,7 +687,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       // and the handle is not registered in the shared manager until commit. Resolve collection ids
       // through the provisional-aware path: indexing a class created in this same transaction hands
       // a provisional collection id (<= -2), which getCollectionNameById returns null for; the
-      // provisional-aware resolver reads the carried <class>_<counter> name off TxSchemaState so the
+      // provisional-aware resolver reads the carried c_<counter> name off TxSchemaState so the
       // deferred handle stores the right collection name and the commit-time build re-resolves it.
       var deferredCollections =
           resolveDeferredCollectionNames(collectionIdsToIndex, session);
@@ -855,7 +856,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * Resolves the collection names for a deferred (transaction-created) index handle, tolerating a
    * provisional collection id (<= -2) that a class created in this same transaction carries. A real
    * committed id (>= 0) resolves through the storage name map as usual; a provisional id resolves to
-   * the {@code <class>_<counter>} name the transaction recorded on {@link TxSchemaState} when it
+   * the {@code c_<counter>} name the transaction recorded on {@link TxSchemaState} when it
    * allocated the id, because {@code getCollectionNameById} returns null for any negative id and the
    * real collection does not exist until commit. This is why the deferred create no longer throws
    * {@code IndexException("Collection with id -2 does not exist")} when indexing a same-transaction

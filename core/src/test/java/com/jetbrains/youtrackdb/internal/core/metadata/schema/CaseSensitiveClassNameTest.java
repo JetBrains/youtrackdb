@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.metadata.schema;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -300,8 +301,9 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * Verifies that making an abstract class concrete generates a collection
-   * using the counter-based naming scheme.
+   * Verifies that making an abstract class concrete generates a collection using the counter-only
+   * naming scheme ({@code c_<counter>}): the name carries no component of the (mixed-case) class
+   * name in any case form.
    */
   @Test
   public void testAbstractToConcreteCreatesCounterBasedCollection() {
@@ -316,8 +318,8 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     assertTrue("Should have a valid collection ID", ids[0] >= 0);
 
     String collectionName = session.getCollectionNameById(ids[0]);
-    assertTrue("Collection name should start with lowercase class name",
-        collectionName.startsWith("mixedcase_"));
+    assertTrue("Collection name must be counter-only (c_<counter>), got " + collectionName,
+        collectionName.matches("c_\\d+"));
   }
 
   // --- Index case-sensitivity tests (Track 2) ---
@@ -870,12 +872,12 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     assertNotNull("Original class should still exist", schema.getClass("Existing"));
   }
 
-  // --- renameCollection edge cases ---
+  // --- class rename is metadata-only: it renames no collection ---
 
   /**
-   * Verifies that renaming an abstract class (collectionId == -1) does not
-   * attempt to rename any collections. The renameCollection loop should skip
-   * negative collection IDs gracefully.
+   * Verifies that renaming an abstract class (collectionId == -1) succeeds as a pure metadata
+   * change: an abstract class owns no collection, so there is nothing storage-side the rename
+   * could touch.
    */
   @Test
   public void testRenameAbstractClassSkipsCollectionRename() {
@@ -892,31 +894,54 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * Verifies that renaming a concrete class correctly renames its underlying
-   * collection(s) from the old lowercase prefix to the new one, preserving
-   * the counter suffix. For example, "oldname_5" becomes "newname_5".
+   * Verifies that renaming a concrete class is metadata-only: the class's collection keeps its
+   * counter-only ({@code c_<counter>}) name unchanged, the class's collection ids stay the same,
+   * and data written before the rename stays reachable through the renamed class. Collection
+   * names carry no class-name component, so the rename has no collection file to rename — the
+   * pre-D11 behavior (renaming the collection through the non-WAL-safe storage file rename) must
+   * not resurface.
    */
   @Test
-  public void testRenameClassRenamesCounterBasedCollection() {
+  public void testRenameClassLeavesCollectionUntouched() {
     Schema schema = session.getMetadata().getSchema();
     var cls = schema.createClass("RenColl");
 
-    // Record the collection name before rename
-    int collectionId = cls.getCollectionIds()[0];
-    String oldCollName = session.getCollectionNameById(collectionId);
-    assertTrue("Collection name should start with lowercase class name",
-        oldCollName.startsWith("rencoll_"));
+    // Write a record through the class before the rename, so reachability can be asserted after.
+    session.executeInTx(tx -> {
+      var entity = tx.newEntity("RenColl");
+      entity.setProperty("marker", "survives-rename");
+    });
+
+    // Record the full collection id -> name mapping before the rename.
+    int[] idsBefore = cls.getCollectionIds().clone();
+    var namesBefore = new java.util.ArrayList<String>();
+    for (var collectionId : idsBefore) {
+      namesBefore.add(session.getCollectionNameById(collectionId));
+    }
+    var allCollectionsBefore = Set.copyOf(session.getCollectionNames());
 
     cls.setName("NewColl");
 
-    // After rename, collection name should use the new prefix
-    String newCollName = session.getCollectionNameById(collectionId);
-    assertTrue("Renamed collection should start with new lowercase prefix",
-        newCollName.startsWith("newcoll_"));
-    // The numeric suffix should be preserved
-    assertEquals("Counter suffix should be preserved after rename",
-        oldCollName.substring(oldCollName.lastIndexOf('_')),
-        newCollName.substring(newCollName.lastIndexOf('_')));
+    // The rename touched no collection: same ids, same names, same storage-level registry.
+    assertArrayEquals("Class rename must not change the class's collection ids",
+        idsBefore, cls.getCollectionIds());
+    for (var i = 0; i < idsBefore.length; i++) {
+      assertEquals("Class rename must not rename the class's collection",
+          namesBefore.get(i), session.getCollectionNameById(idsBefore[i]));
+    }
+    assertEquals("Class rename must leave the storage collection set unchanged",
+        allCollectionsBefore, Set.copyOf(session.getCollectionNames()));
+
+    // Data written before the rename is reachable through the renamed class.
+    session.executeInTx(tx -> {
+      try (var rs = session.query("SELECT FROM NewColl")) {
+        var rows = rs.stream().toList();
+        assertEquals("The pre-rename record must be reachable through the new class name",
+            1, rows.size());
+        assertEquals("survives-rename", rows.get(0).getProperty("marker"));
+      }
+    });
+    assertNull("The old class name must no longer resolve", schema.getClass("RenColl"));
   }
 
   // --- initCollectionCounterFromExisting tests ---
@@ -1162,13 +1187,13 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
         schemaShared.getClass("NullOld"));
   }
 
-  // --- renameCollection with legacy collection name ---
+  // --- class rename with a legacy (class-derived) collection name ---
 
   /**
-   * Verifies that renameCollection handles legacy collection names (without
-   * counter suffix). When a collection is named "oldname" (no _N suffix),
-   * renaming the class to "NewName" should rename the collection to "newname"
-   * (the new lowercase prefix without suffix).
+   * Verifies that a class rename leaves even a legacy class-derived collection name untouched.
+   * Class rename is metadata-only: the pre-D11 code renamed a legacy-named collection to the new
+   * lowercase class name through the storage file rename, and that path is removed, so the
+   * collection keeps its old name while the class answers to the new one.
    */
   @Test
   public void testRenameClassWithLegacyCollectionName() {
@@ -1186,20 +1211,19 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     // Verify the rename took effect
     assertEquals("legacycol", session.getCollectionNameById(collectionId));
 
-    // Now rename the class — renameCollection should detect the legacy name
-    // and rename it from "legacycol" to "newlegacy"
+    // Rename the class — the metadata-only rename must leave the legacy-named collection alone.
     cls.setName("NewLegacy");
 
-    String newCollName = session.getCollectionNameById(collectionId);
-    assertEquals("Legacy collection should be renamed to new lowercase prefix",
-        "newlegacy", newCollName);
+    assertEquals("A class rename must not rename a legacy class-derived collection",
+        "legacycol", session.getCollectionNameById(collectionId));
+    assertNotNull("The renamed class must be findable", schema.getClass("NewLegacy"));
   }
 
   /**
-   * Verifies that renameCollection skips collections whose names don't match
-   * the expected pattern (neither legacy nor counter-based). This exercises
-   * the final "continue" branch in renameCollection when the collection name
-   * matches neither the legacy prefix nor the counter-based prefix pattern.
+   * Verifies that a class rename leaves a collection with an arbitrary (manually renamed) name
+   * untouched. With the metadata-only rename no collection is ever renamed, whatever its name
+   * shape — this pins the behavior for names that match neither the counter-only convention nor
+   * the legacy class-derived one.
    */
   @Test
   public void testRenameClassSkipsUnrelatedCollectionNames() {
@@ -1216,12 +1240,96 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
     assertEquals("something_unrelated", session.getCollectionNameById(collectionId));
 
-    // Rename the class — renameCollection should skip the unrelated collection
+    // Rename the class — the metadata-only rename touches no collection, whatever its name.
     cls.setName("SkipColRenamed");
 
-    // The collection name should remain unchanged since it didn't match
+    // The collection name must remain unchanged.
     String afterRename = session.getCollectionNameById(collectionId);
     assertEquals("Unrelated collection name should not be changed",
         "something_unrelated", afterRename);
+  }
+
+  // --- counter-only collection-name shape pins (c_<counter>) ---
+
+  /**
+   * Pins the counter-only collection-name shape on the committed (non-transactional) create path:
+   * a class created outside a transaction gets collections named {@code c_<counter>} with no
+   * class-name component. A class-derived name would re-couple class rename to the non-WAL-safe
+   * collection file rename.
+   */
+  @Test
+  public void testCommittedCreateGeneratesCounterOnlyCollectionNames() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("ShapePinCommitted");
+
+    for (var collectionId : cls.getCollectionIds()) {
+      var collectionName = session.getCollectionNameById(collectionId);
+      assertTrue(
+          "A generated collection name must be counter-only (c_<counter>), got " + collectionName,
+          collectionName.matches("c_\\d+"));
+    }
+  }
+
+  /**
+   * Pins the counter-only collection-name shape on the transactional create path: a class created
+   * inside a transaction carries a provisional collection id whose carried name (the name the
+   * commit creates the real collection under) is already counter-only, and after commit the real
+   * collection exists under exactly that {@code c_<counter>} name.
+   */
+  @Test
+  public void testTxCreateCarriesCounterOnlyProvisionalNameAndCommitsIt() {
+    var schema = session.getMetadata().getSchema();
+
+    var carriedNames = new java.util.ArrayList<String>();
+    session.executeInTx(tx -> {
+      var created = schema.createClass("ShapePinTx");
+      var txState = session.getTxSchemaState();
+      assertNotNull("the in-transaction create must have seeded the tx-local state", txState);
+      for (var collectionId : created.getCollectionIds()) {
+        assertTrue("a tx-created class must carry a provisional collection id, got " + collectionId,
+            SchemaShared.isProvisionalCollectionId(collectionId));
+        var carried = txState.getProvisionalCollectionName(collectionId);
+        assertTrue(
+            "The carried provisional collection name must be counter-only (c_<counter>), got "
+                + carried,
+            carried.matches("c_\\d+"));
+        carriedNames.add(carried);
+      }
+    });
+
+    // After commit the real collections exist under exactly the carried counter-only names.
+    // Compared as sets: the class stores its collection ids sorted, which need not match the
+    // provisional allocation order the carried names were recorded in.
+    var committed = session.getMetadata().getSchema().getClass("ShapePinTx");
+    var committedNames = new java.util.ArrayList<String>();
+    for (var collectionId : committed.getCollectionIds()) {
+      assertTrue("the commit must resolve provisional ids to real ones", collectionId >= 0);
+      committedNames.add(session.getCollectionNameById(collectionId));
+    }
+    assertEquals("the commit must create the real collections under the carried names",
+        Set.copyOf(carriedNames), Set.copyOf(committedNames));
+  }
+
+  /**
+   * Pins the counter-only collection-name shape on the abstract-to-concrete alter path (the
+   * second collection-name producer besides the create path): flipping an abstract class to
+   * concrete allocates its collection under a {@code c_<counter>} name.
+   */
+  @Test
+  public void testSetAbstractFalseGeneratesCounterOnlyCollectionName() {
+    Schema schema = session.getMetadata().getSchema();
+    var cls = schema.createAbstractClass("ShapePinFlip");
+
+    cls.setAbstract(false);
+
+    for (var collectionId : cls.getCollectionIds()) {
+      assertTrue("a concrete class must own a real collection id, got " + collectionId,
+          collectionId >= 0);
+      var collectionName = session.getCollectionNameById(collectionId);
+      assertTrue(
+          "The flip-allocated collection name must be counter-only (c_<counter>), got "
+              + collectionName,
+          collectionName.matches("c_\\d+"));
+    }
   }
 }

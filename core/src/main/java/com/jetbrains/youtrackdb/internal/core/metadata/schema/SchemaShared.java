@@ -120,7 +120,7 @@ public abstract class SchemaShared implements CloseableInStorage {
    * Resolves a collection id to its name for the index paths, tolerating a provisional id
    * ({@code <= -2}) allocated by the session's open schema transaction. A non-provisional id
    * resolves through the storage name map as usual (and may answer {@code null} for an unknown
-   * id, which callers handle); a provisional id resolves to the {@code <class>_<counter>} name
+   * id, which callers handle); a provisional id resolves to the {@code c_<counter>} name
    * the transaction recorded on {@link TxSchemaState} when it allocated the id, because
    * {@code getCollectionNameById} deliberately answers {@code null} for any negative id and the
    * real collection does not exist until the commit creates it under exactly that carried name.
@@ -148,10 +148,20 @@ public abstract class SchemaShared implements CloseableInStorage {
 
   /**
    * Monotonically increasing counter for generating unique collection names.
-   * Each new collection gets a name like {@code <lowercase_classname>_<counter>}.
+   * Each new collection gets a counter-only name ({@code c_<counter>}) with no class-name
+   * component, so a class rename is a pure metadata change that renames no collection file.
    * Protected by the schema write lock.
    */
   protected int collectionCounter;
+
+  /**
+   * The fixed stem every generated collection name starts with. The stem is deliberately not
+   * derived from the owning class's name: a class-derived name would force a class rename to
+   * rename the collection's storage files through the non-WAL-safe {@code writeCache.renameFile}
+   * path. It is also deliberately non-numeric, so a generated name can never be mistaken for an
+   * id-based collection reference in SQL or configuration.
+   */
+  public static final String COLLECTION_NAME_PREFIX = "c_";
 
   private final CollectionSelectionFactory collectionSelectionFactory =
       new CollectionSelectionFactory();
@@ -1485,6 +1495,27 @@ public abstract class SchemaShared implements CloseableInStorage {
     assert lock.isWriteLockedByCurrentThread()
         : "nextCollectionIndex() must be called under the schema write lock";
     return collectionCounter++;
+  }
+
+  /**
+   * Generates the next free collection name from the counter alone ({@code c_<counter>}), with no
+   * class-name component. This is the single name-generation site for class-owned collections;
+   * keeping the shape here means a class rename never has a collection file to rename. Must be
+   * called under the schema write lock (the counter advance requires it).
+   *
+   * <p>Counter values whose name already exists in storage are skipped: collections created under
+   * explicit names can squat the counter space (a database import recreates the source's generated
+   * {@code c_<n>} names via {@code addCollection(name)} without advancing this counter, and the
+   * public API accepts arbitrary names), so the raw counter value is a candidate, not a
+   * guarantee. Skipping burns the squatted values and converges because the counter is monotonic
+   * and the collection set is finite.
+   */
+  protected String nextCollectionName(DatabaseSessionEmbedded session) {
+    String candidate;
+    do {
+      candidate = COLLECTION_NAME_PREFIX + nextCollectionIndex();
+    } while (session.getCollectionIdByName(candidate) != -1);
+    return candidate;
   }
 
   /**

@@ -3070,7 +3070,8 @@ public abstract class AbstractStorage
       }
 
       // Creates: each provisional id the transaction allocated becomes a real collection created
-      // under the carried <class>_<counter> name at a commit-local first-null-slot id. Record the
+      // under the carried counter-only (c_<counter>) name at a commit-local first-null-slot id.
+      // Record the
       // resolution so the patch list can rewrite every provisional reference before serialization.
       final var ownedProvisionalIds = txLocalSchema.getOwnedProvisionalCollectionIds();
       for (final var entry : txProvisionalNames.int2ObjectEntrySet()) {
