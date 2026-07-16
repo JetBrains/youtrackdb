@@ -45,13 +45,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Consumer;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -357,14 +358,14 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   public void getClassRawIndexes(
       DatabaseSessionEmbedded session, final String className, final Collection<Index> indexes) {
     resolveClassIndexesWithOverlay(session, className, indexes,
-        committed -> super.getClassRawIndexes(session, className, committed));
+        (name, committed) -> super.getClassRawIndexes(session, name, committed));
   }
 
   @Override
   public void getClassIndexes(
       DatabaseSessionEmbedded session, final String className, final Collection<Index> indexes) {
     resolveClassIndexesWithOverlay(session, className, indexes,
-        committed -> super.getClassIndexes(session, className, committed));
+        (name, committed) -> super.getClassIndexes(session, name, committed));
   }
 
   /**
@@ -390,10 +391,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   @Override
   public Set<Index> getClassInvolvedIndexes(
       DatabaseSessionEmbedded session, final String className, Collection<String> fields) {
-    final var involved = super.getClassInvolvedIndexes(session, className, fields);
     final var overlay = activeOverlay(session);
-    if (overlay == null || involved.isEmpty()) {
-      return involved;
+    if (overlay == null) {
+      return super.getClassInvolvedIndexes(session, className, fields);
+    }
+    // A same-tx class rename re-keys the committed lookup only at commit, so the tx view resolves
+    // through the overlay's rename map: a name renamed AWAY no longer owns its committed entries,
+    // and a name renamed TO pulls the committed entries still keyed under the old name.
+    final Set<Index> involved = new HashSet<>();
+    if (!overlay.isClassRenamedAway(className)) {
+      involved.addAll(super.getClassInvolvedIndexes(session, className, fields));
+    }
+    final var renameSource = overlay.getClassRenameSource(className);
+    if (renameSource != null) {
+      involved.addAll(super.getClassInvolvedIndexes(session, renameSource, fields));
     }
     involved.removeIf(index -> overlay.isTxDropped(index.getName()));
     return involved;
@@ -415,6 +426,28 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     if (overlay == null) {
       return super.areIndexed(session, className, fields);
     }
+    // Resolve the committed source name through the overlay's rename map (mirroring
+    // getClassInvolvedIndexes): a renamed-away name owns nothing, a renamed-to name owns the
+    // entries still keyed under the old name.
+    if (overlay.isClassRenamedAway(className)) {
+      final var renameSource = overlay.getClassRenameSource(className);
+      return renameSource != null && areIndexedCommittedMinusDropped(renameSource, fields, overlay);
+    }
+    if (areIndexedCommittedMinusDropped(className, fields, overlay)) {
+      return true;
+    }
+    final var renameSource = overlay.getClassRenameSource(className);
+    return renameSource != null && areIndexedCommittedMinusDropped(renameSource, fields, overlay);
+  }
+
+  /**
+   * The committed {@code areIndexed} probe for one class-name key, minus the overlay's tx-dropped
+   * indexes. The base committed set is consulted directly (not through
+   * {@code getClassInvolvedIndexes}) because {@code areIndexed} deliberately skips the null-values
+   * partial-match filter the involved lookup applies.
+   */
+  private boolean areIndexedCommittedMinusDropped(
+      final String className, Collection<String> fields, final IndexOverlay overlay) {
     final var propertyIndex = getIndexOnProperty(className);
     if (propertyIndex == null) {
       return false;
@@ -459,14 +492,24 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       DatabaseSessionEmbedded session,
       final String className,
       final Collection<Index> indexes,
-      final Consumer<Collection<Index>> committedReader) {
+      final BiConsumer<String, Collection<Index>> committedReader) {
     var overlay = activeOverlay(session);
     if (overlay == null) {
-      committedReader.accept(indexes);
+      committedReader.accept(className, indexes);
       return;
     }
+    // Collect the committed set through the overlay's class-rename map: a name renamed AWAY in
+    // this transaction no longer owns its committed entries, and a name renamed TO also owns the
+    // committed entries still keyed under the pre-rename name (the shared map re-keys only at
+    // commit).
     final Collection<Index> committed = new ArrayList<>();
-    committedReader.accept(committed);
+    if (!overlay.isClassRenamedAway(className)) {
+      committedReader.accept(className, committed);
+    }
+    final var renameSource = overlay.getClassRenameSource(className);
+    if (renameSource != null) {
+      committedReader.accept(renameSource, committed);
+    }
     indexes.addAll(overlay.resolveClassRawIndexes(className, committed));
   }
 
@@ -964,6 +1007,20 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   /**
+   * A committed index whose class association a class rename re-keys at commit (D17): the
+   * replacement metadata was built and its record written in the enroll phase; the publish phase
+   * installs the replacement in memory and re-keys {@code classPropertyIndex}. Nothing to revert
+   * on failure — the record write reverts with the rolled-back atomic operation and the in-memory
+   * state is untouched until publish.
+   *
+   * @param index       the committed index being re-associated.
+   * @param replacement the private replacement metadata carrying the new class name.
+   */
+  private record ReassociatedIndex(IndexAbstract index, IndexMetadata replacement) {
+
+  }
+
+  /**
    * The plan a schema-carrying commit executes for the transaction's index deltas, carried across
    * the three commit phases (record enrollment before the working set, engine build/drop and
    * population after the record apply, shared-map publication after {@code commitChanges} success).
@@ -978,6 +1035,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * @param created         tx-created deferred handles to build engines for and publish.
    * @param dropped         committed indexes the transaction dropped, to delete engines for and
    *                        unpublish.
+   * @param reassociated    committed indexes whose class association a same-transaction class
+   *                        rename re-keys (records written at enroll; in-memory swap and
+   *                        classPropertyIndex re-key at publish).
    * @param appliedMembership the committed-index membership changes applied eagerly in the enroll
    *                        phase, for the failure-path revert.
    * @param createdEngineExternalIds the built engine ids, recorded by
@@ -991,6 +1051,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   public record ReconciledIndexPlan(
       List<IndexAbstract> created,
       List<Index> dropped,
+      List<ReassociatedIndex> reassociated,
       List<AppliedMembership> appliedMembership,
       List<Integer> createdEngineExternalIds,
       List<AbstractStorage.DroppedIndexEngine> droppedEngines) {
@@ -1032,6 +1093,33 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       AtomicOperation atomicOperation, ReconciledIndexPlan plan) {
     var indexManagerEntity = transaction.loadEntity(indexManagerIdentity);
     var indexLinkSet = indexManagerEntity.getOrCreateLinkSet(CONFIG_INDEXES);
+
+    // The D17 class-rename re-association, enrolled FIRST: a deferred handle created before a
+    // same-tx rename still carries the old class name and must be fixed before the create loop
+    // below writes its record, and each affected committed index's record is rewritten from a
+    // private replacement metadata so the durable bytes carry the new class name while the shared
+    // in-memory object stays untouched until the publish phase installs the replacement.
+    final var classRenames = overlay.getRenamed();
+    for (final var rename : classRenames.entrySet()) {
+      for (final var handle : overlay.getTxCreatedIndexes()) {
+        ((IndexAbstract) handle)
+            .reassociateDeferredClassNameAtCommit(rename.getKey(), rename.getValue());
+      }
+      final var affected = new LinkedHashSet<Index>();
+      super.getClassIndexes(session, rename.getKey(), affected);
+      for (final var index : affected) {
+        if (overlay.isTxDropped(index.getName())) {
+          // The drop loop below deletes this index's record; rewriting it here would be wasted
+          // work at best and a write-after-delete at worst.
+          continue;
+        }
+        final var abstractIndex = (IndexAbstract) index;
+        final var replacement =
+            abstractIndex.buildClassReassociatedMetadata(session, rename.getValue());
+        abstractIndex.reassociateClassRecordAtCommit(transaction, replacement);
+        plan.reassociated().add(new ReassociatedIndex(abstractIndex, replacement));
+      }
+    }
 
     for (final var handle : overlay.getTxCreatedIndexes()) {
       // The v1 build is bounded to an empty source collection: a populated source would hold the
@@ -1130,7 +1218,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       return null;
     }
     return new ReconciledIndexPlan(new ArrayList<>(), new ArrayList<>(), new ArrayList<>(),
-        new ArrayList<>(), new ArrayList<>());
+        new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
   }
 
   /**
@@ -1348,6 +1436,17 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       removeClassPropertyIndexInternal(droppedIndex);
       indexes.remove(droppedIndex.getName());
     }
+    // The D17 re-association's in-memory half: un-key each re-associated index from
+    // classPropertyIndex under its OLD class name (the live definition still carries it), install
+    // the replacement metadata wholesale (a single reference swap — lock-free readers see either
+    // the old or the new fully-built metadata, never a torn mix), and re-key under the new class
+    // name. Runs after the drops (a same-tx dropped index is never re-associated) and before the
+    // creates (which key by their already-fixed definitions).
+    for (final var reassociated : plan.reassociated()) {
+      removeClassPropertyIndexInternal(reassociated.index());
+      reassociated.index().installReassociatedMetadataAtCommit(reassociated.replacement());
+      addIndexInternalNoLock(reassociated.index(), transaction, false);
+    }
     for (final var handle : plan.created()) {
       // The engine is built and the record durable, so register the handle in the shared lookup maps
       // exactly as the non-transactional create's addIndexInternalNoLock does, without re-updating the
@@ -1442,6 +1541,41 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     }
 
     return false;
+  }
+
+  /**
+   * The non-transactional (top-level) arm of the D17 class-rename re-association: applied eagerly
+   * under the index-manager write lock, mirroring how every other top-level DDL self-applies (the
+   * commit-only overlay flow serves the transactional path). Each affected committed index gets a
+   * replacement metadata carrying the new class name; its record is rewritten, the replacement
+   * installed, and {@code classPropertyIndex} re-keyed. The record writes ride an internal
+   * micro-transaction like the sibling {@code addCollectionToIndex} legacy path.
+   *
+   * <p>Called from the schema's rename site while the schema write lock is held; the
+   * schema-lock &rarr; index-manager-lock order matches the design's fixed lock order.
+   */
+  public void reassociateClassIndexesOnRename(
+      DatabaseSessionEmbedded session, final String oldClassName, final String newClassName) {
+    session.executeInTxInternal(transaction -> {
+      acquireExclusiveLock(transaction);
+      try {
+        final var affected = new LinkedHashSet<Index>();
+        super.getClassIndexes(session, oldClassName, affected);
+        for (final var index : affected) {
+          final var abstractIndex = (IndexAbstract) index;
+          final var replacement =
+              abstractIndex.buildClassReassociatedMetadata(session, newClassName);
+          // Un-key under the OLD name while the live definition still carries it, then install
+          // the replacement wholesale (readers see old-or-new, never torn) and re-key.
+          removeClassPropertyIndexInternal(index);
+          abstractIndex.reassociateClassRecordAtCommit(transaction, replacement);
+          abstractIndex.installReassociatedMetadataAtCommit(replacement);
+          addIndexInternalNoLock(index, transaction, false);
+        }
+      } finally {
+        releaseExclusiveLock(session, true);
+      }
+    });
   }
 
   public void removeClassPropertyIndex(DatabaseSessionEmbedded session, final Index idx) {

@@ -85,9 +85,13 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  @Nullable
-  public String getClassName() {
+  @Nullable public String getClassName() {
     return null;
+  }
+
+  @Override
+  public void setClassName(final String className) {
+    // A simple-key (manual) index belongs to no class, so a class rename never re-associates it.
   }
 
   @Override
@@ -96,8 +100,7 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  @Nullable
-  public Object createValue(FrontendTransaction transaction, final Object... params) {
+  @Nullable public Object createValue(FrontendTransaction transaction, final Object... params) {
     if (params == null || params.length == 0) {
       return null;
     }
@@ -167,7 +170,6 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
           new SerializationException("Error serializing index defenition"), e, (String) null);
     }
 
-
   }
 
   @Override
@@ -201,7 +203,8 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
   protected void serializeFromMap(@Nonnull Map<String, ?> map) {
     super.serializeFromMap(map);
 
-    @SuppressWarnings("unchecked") final var keyTypeNames = (List<String>) map.get("keyTypes");
+    @SuppressWarnings("unchecked")
+    final var keyTypeNames = (List<String>) map.get("keyTypes");
     keyTypes = new PropertyTypeInternal[keyTypeNames.size()];
 
     var i = 0;
@@ -214,7 +217,8 @@ public class SimpleKeyIndexDefinition extends AbstractIndexDefinition {
     if (collate != null) {
       setCollate(collate);
     } else {
-      @SuppressWarnings("unchecked") final var collatesNames = (List<String>) map.get("collates");
+      @SuppressWarnings("unchecked")
+      final var collatesNames = (List<String>) map.get("collates");
       if (collatesNames != null) {
         var collates = new CompositeCollate(this);
         for (var collateName : collatesNames) {

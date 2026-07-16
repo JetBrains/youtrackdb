@@ -63,6 +63,11 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
+  public void setClassName(final String className) {
+    this.className = className;
+  }
+
+  @Override
   public List<String> getProperties() {
     return Collections.singletonList(field);
   }
@@ -77,8 +82,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  @Nullable
-  public Object getDocumentValueToIndex(
+  @Nullable public Object getDocumentValueToIndex(
       FrontendTransaction transaction, final EntityImpl entity) {
     if (PropertyTypeInternal.LINK.equals(keyType)) {
       final Identifiable identifiable = entity.getPropertyInternal(field);
@@ -161,7 +165,7 @@ public class PropertyIndexDefinition extends AbstractIndexDefinition {
 
   @Override
   public PropertyTypeInternal[] getTypes() {
-    return new PropertyTypeInternal[]{keyType};
+    return new PropertyTypeInternal[] {keyType};
   }
 
   @Override
