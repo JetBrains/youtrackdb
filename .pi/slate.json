@@ -1,3 +1,8 @@
 {
-  "orchestratorModeDefault": true
+  "orchestratorModeDefault": true,
+  "workflow": { "draftPRs": true },
+  "orchestratorPromptDocs": ["docs-internal/agents/orchestrator-guidelines.md"],
+  "workerPromptDocs": ["docs-internal/agents/thread-guidelines.md"],
+  "doctrineExtraPath": "docs-internal/agents/slate-doctrine-extra.md",
+  "reviewPerspectivesPath": "docs-internal/agents/review-perspectives.md"
 }
