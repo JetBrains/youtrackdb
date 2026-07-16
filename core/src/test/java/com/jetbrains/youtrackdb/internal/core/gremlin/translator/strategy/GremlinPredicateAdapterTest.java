@@ -546,6 +546,81 @@ public class GremlinPredicateAdapterTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Non-String type gate — a Text / regex predicate on a declared
+  // non-String property declines, because native errors on it.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code has("age", TextP.containing("3"))} with a type gate that reports {@code age} as
+   * non-String declines: native {@code Text} predicates test String operands, so a non-String
+   * property errors natively and a translated {@code CONTAINSTEXT} would instead return rows. The
+   * gate makes the adapter decline so the traversal falls back to native.
+   */
+  @Test
+  public void containingOnNonStringProperty_declinesViaTypeGate() {
+    assertThat(
+        GremlinPredicateAdapter.INSTANCE.toFilter(
+            new HasContainer("age", TextP.containing("3")), key -> true))
+        .as("a Text predicate on a declared non-String property declines")
+        .isNull();
+  }
+
+  /**
+   * {@code has("age", TextP.notContaining("3"))} — a negated Text form — also declines under the
+   * non-String gate: the gate fires before the guarded negation is composed.
+   */
+  @Test
+  public void negatedTextOnNonStringProperty_declinesViaTypeGate() {
+    assertThat(
+        GremlinPredicateAdapter.INSTANCE.toFilter(
+            new HasContainer("age", TextP.notContaining("3")), key -> true))
+        .as("a negated Text predicate on a declared non-String property declines")
+        .isNull();
+  }
+
+  /**
+   * {@code has("age", TextP.regex("3"))} declines under the non-String gate: a regex match tests
+   * String values, so on a declared non-String property native errors and the translated find-mode
+   * {@code MATCHES} would return rows. The gate applies to the regex path too.
+   */
+  @Test
+  public void regexOnNonStringProperty_declinesViaTypeGate() {
+    assertThat(
+        GremlinPredicateAdapter.INSTANCE.toFilter(
+            new HasContainer("age", TextP.regex("3")), key -> true))
+        .as("a regex predicate on a declared non-String property declines")
+        .isNull();
+  }
+
+  /**
+   * The non-String gate affects only string predicates: {@code has("age", P.eq(30))} with a gate
+   * that reports {@code age} as non-String still translates — a scalar comparison on an int property
+   * is valid natively, so the gate must not decline it.
+   */
+  @Test
+  public void scalarCompareOnNonStringProperty_stillTranslatesUnderTypeGate() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", P.eq(30)), key -> true);
+    assertThat(expr)
+        .as("a scalar comparison is unaffected by the non-String Text gate")
+        .isInstanceOf(SQLBinaryCondition.class);
+  }
+
+  /**
+   * A String-typed property (the gate reports {@code false}) translates the Text predicate normally:
+   * {@code has("name", TextP.containing("li"))} maps to {@code CONTAINSTEXT}. This is the companion
+   * to the non-String decline — the gate declines only genuinely non-String properties.
+   */
+  @Test
+  public void textOnStringProperty_translatesUnderTypeGate() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("name", TextP.containing("li")), key -> false);
+    assertThat(expr)
+        .as("a Text predicate on a String property translates")
+        .isInstanceOf(SQLContainsTextCondition.class);
+  }
+
+  // ---------------------------------------------------------------------------
   // Decline path — predicates the adapter cannot faithfully reproduce return
   // null so the whole traversal falls back to the native pipeline.
   // ---------------------------------------------------------------------------

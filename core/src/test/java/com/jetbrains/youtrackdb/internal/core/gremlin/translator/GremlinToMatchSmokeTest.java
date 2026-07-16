@@ -373,15 +373,14 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
   }
 
   /**
-   * A {@code g.V().has("name", "Alice")} start declines. Because the translator runs before {@code
-   * YTDBGraphStepStrategy} folds the {@code has} into the start step, at translator time the
-   * traversal is still {@code [GraphStep, HasStep]}: the walker recognizes the vertex source but no
-   * recognizer claims the {@code HasStep} in this track, so under all-or-nothing the whole traversal
-   * declines. The native folder then collapses the {@code has} into a {@code YTDBGraphStep} and
-   * handles the shape.
+   * A {@code g.V().has("name", "Alice")} start translates. The translator runs before {@code
+   * YTDBGraphStepStrategy} folds the {@code has} into the start step, so at translator time the
+   * traversal is {@code [GraphStep, HasStep]}: the start recogniser claims the vertex source and the
+   * {@code has} recogniser claims the {@code HasStep}, translating the whole shape to one boundary
+   * step with a {@code name = 'Alice'} filter. It returns only the Alice vertex, matching native.
    */
   @Test
-  public void startWithHasContainerDeclines() {
+  public void startWithHasContainerTranslates() {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Person", "name", "Bob");
     graph.tx().commit();
@@ -389,8 +388,8 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
     var admin = graph.traversal().V().has("name", "Alice").asAdmin();
     admin.applyStrategies();
     assertThat(countBoundarySteps(admin.getSteps()))
-        .as("g.V().has(...) must decline (no boundary step)")
-        .isEqualTo(0);
+        .as("g.V().has(...) must translate to one boundary step")
+        .isEqualTo(1);
 
     var names =
         admin.toList().stream().map(v -> (String) v.value("name")).sorted().toList();
@@ -579,7 +578,7 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
    * must not. {@code explain()} applies the full strategy chain (including the globally
    * registered {@link GremlinToMatchStrategy}) to a clone, so a recognised {@code g.V()} shows
    * its native step chain collapsed to a single {@link YTDBMatchPlanStep} marker, while a
-   * declined {@code g.V().hasLabel(...)} keeps its native vertex step. This is the signal the
+   * declined {@code g.V().values(...)} keeps its native vertex step. This is the signal the
    * per-track e2e tests assert on to pin "this shape translates / this shape declines". The
    * negative case also asserts the declined explain still renders a native vertex step, so the
    * "no boundary step" assertion is not vacuously true on an empty or errored explanation.
@@ -609,9 +608,9 @@ public class GremlinToMatchSmokeTest extends GraphBaseTest {
             + finalSection)
         .doesNotContain("GraphStep");
 
-    // hasLabel(...) is unrecognised in this track, so the whole traversal declines to the native
+    // values(...) is unrecognised in this track, so the whole traversal declines to the native
     // pipeline: no boundary step, and the native vertex step (a GraphStep) is still rendered.
-    var declinedExplain = graph.traversal().V().hasLabel("Person").explain().toString();
+    var declinedExplain = graph.traversal().V().values("name").explain().toString();
     assertThat(declinedExplain)
         .as("explain() of a declined traversal must not contain a boundary step; was: "
             + declinedExplain)

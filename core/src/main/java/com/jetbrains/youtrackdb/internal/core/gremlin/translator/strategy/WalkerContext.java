@@ -1,7 +1,10 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIdentifier;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNestedProjection;
@@ -67,19 +70,30 @@ final class WalkerContext implements RecognitionContext {
   /** Whether the traversal runs as a polymorphic query, resolved once from the traversal's YTDB
    *  session and query options ({@code YTDBStrategyUtil.isPolymorphic}) by {@link GremlinStepWalker}.
    *
-   *  <p>No Phase 1 recogniser reads it: {@code g.V()}, a bare chain hop, and the start step all root
-   *  at the generic {@code V} class ({@link #VERTEX_ROOT_CLASS}) polymorphically and emit no {@code
-   *  @class} filter regardless, because native Gremlin never class-filters those shapes — narrowing
-   *  one would drop subclass instances the native pipeline keeps. The resolution is kept for its
-   *  decline side effect (a {@code null} result declines the whole walk in the walker) and reserved
-   *  for the explicit-class narrowing path — the folded {@code hasLabel} of a later track, which
-   *  narrows through {@code MatchWhereBuilder.classEquals} when this is {@code false}. */
+   *  <p>The {@code hasLabel(L)} recogniser reads it to pick the boundary-node re-typing (see {@link
+   *  RecognitionContext#polymorphic()}): polymorphic re-types to {@code {class: L}} (MATCH matches
+   *  subclasses), non-polymorphic re-types to {@code L} plus an exact {@code @class = 'L'} filter.
+   *  The vertex-source and bare-hop recognisers root every node at the generic {@code V} class
+   *  ({@link #VERTEX_ROOT_CLASS}) regardless of it — native Gremlin never class-filters those
+   *  shapes, so narrowing one would drop subclass instances the native pipeline keeps. The
+   *  resolution also carries a decline side effect: a {@code null} result declines the whole walk in
+   *  the walker. */
   private final boolean polymorphic;
 
   /** Whether the traversal opts into {@code EdgeLabelVerificationStrategy}, resolved once by
    *  {@link GremlinStepWalker} so {@link GremlinPatternAssembler#resolveEdgeLabel} reads a boolean
    *  rather than scanning the strategy list per hop. */
   private final boolean edgeLabelVerification;
+
+  /** Schema snapshot the walk resolves types against, or {@code null} when the traversal has no
+   *  attached YTDB session. Used only by {@link #isNonStringProperty(String, String)} for the
+   *  {@code has(...)} recogniser's non-String {@code Text} decline; a {@code null} schema resolves
+   *  every property as translate-best-effort (no type gate). */
+  @Nullable private final Schema schema;
+
+  /** Stateless builder used to AND-compose same-alias filter contributions in {@link
+   *  #putAliasFilter}; construction is trivial so a shared instance is fine. */
+  private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
 
   /** Reserved prefix for translator-minted anonymous vertex aliases: {@code $g2m_anon_0},
    *  {@code $g2m_anon_1}, … The {@code $g2m_} namespace is the translator's private space,
@@ -162,9 +176,17 @@ final class WalkerContext implements RecognitionContext {
    *  {@link #nextEdgeAlias()}; see {@link #anonVertexAliases}. */
   private final AliasSequence edgeAliases = new AliasSequence(EDGE_ALIAS_PREFIX);
 
+  /** Convenience constructor with no schema snapshot — used by unit tests that exercise recogniser
+   *  logic without a live session. Every property resolves as translate-best-effort (no non-String
+   *  {@code Text} type gate). */
   WalkerContext(boolean polymorphic, boolean edgeLabelVerification) {
+    this(polymorphic, edgeLabelVerification, null);
+  }
+
+  WalkerContext(boolean polymorphic, boolean edgeLabelVerification, @Nullable Schema schema) {
     this.polymorphic = polymorphic;
     this.edgeLabelVerification = edgeLabelVerification;
+    this.schema = schema;
   }
 
   // --- RecognitionContext: resolved flags -------------------------------------------------------
@@ -184,6 +206,42 @@ final class WalkerContext implements RecognitionContext {
   @Nullable @Override
   public String boundaryAlias() {
     return boundaryAlias;
+  }
+
+  // --- RecognitionContext: schema-aware type gating ---------------------------------------------
+
+  @Override
+  public boolean isNonStringProperty(@Nullable String className, String propertyKey) {
+    if (schema == null || className == null || propertyKey == null) {
+      // No class context or no schema: cannot prove the property is non-String, so translate
+      // best-effort (the schema-less / generic-V reality where the value type is unknown).
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    if (clazz == null) {
+      return false;
+    }
+    // getProperty resolves inherited properties (it walks superclasses), so a property declared on
+    // a supertype is found under the leaf class too.
+    var property = clazz.getProperty(propertyKey);
+    if (property == null) {
+      return false;
+    }
+    var type = property.getType();
+    // A declared type other than STRING means every value is non-String, so a native Text predicate
+    // errors on it; report non-String so the adapter declines. An undeclared property returns above.
+    return type != null && type != PropertyType.STRING;
+  }
+
+  @Override
+  public boolean isVertexClass(String className) {
+    if (schema == null || className == null) {
+      // No schema to verify against: decline the re-type so a hasLabel never builds a scan over an
+      // unverifiable class (the walker already declines a schema-less traversal, so this is defensive).
+      return false;
+    }
+    var clazz = schema.getClass(className);
+    return clazz != null && clazz.isVertexType();
   }
 
   // --- RecognitionContext: alias minting --------------------------------------------------------
@@ -234,7 +292,17 @@ final class WalkerContext implements RecognitionContext {
 
   @Override
   public void putAliasFilter(String alias, SQLWhereClause where) {
-    aliasFilters.put(alias, where);
+    var existing = aliasFilters.get(alias);
+    if (existing == null) {
+      aliasFilters.put(alias, where);
+      return;
+    }
+    // A second contribution to the same alias AND-composes rather than replaces: a has(...)
+    // recogniser routinely contributes two clauses to one alias — a g.V(ids) @rid IN then a
+    // has(...) predicate, or a hasLabel(L) @class narrowing then a has(...) predicate. Overwriting
+    // would silently drop the earlier filter and return a wrong (over-large) multiset.
+    var merged = WHERE.and(existing.getBaseExpression(), where.getBaseExpression());
+    aliasFilters.put(alias, WHERE.wrap(merged));
   }
 
   @Override
