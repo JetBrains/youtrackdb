@@ -1,7 +1,9 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.traversal.strategy.YTDBStrategyUtil;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.MatchPlanInputs;
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,6 +12,8 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
@@ -81,16 +85,22 @@ final class GremlinStepWalker {
    * Production recogniser registry, keyed on the exact step class. {@link StartStepRecogniser} claims
    * the vertex source under {@link GraphStep}; {@link VertexStepRecogniser} owns {@link VertexStep}
    * and routes it on {@code returnsEdge()} — a folded bare hop to {@link VertexHopRecogniser}, an
-   * edge-returning {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}. The barrier
-   * needs no entry: the cursor skips it as a transparent step, so the walker never dispatches one.
-   * Later tracks add one entry per step class they translate. Class-keyed dispatch is O(1) and fails
-   * safe: a step whose runtime class has no entry — an unregistered type, or an unexpected subclass —
-   * declines the whole traversal rather than being misrouted through a parent recogniser.
+   * edge-returning {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}. {@link
+   * HasStepRecogniser} owns {@link HasStep} — the single class {@code has(...)} / {@code hasLabel(...)}
+   * / {@code hasId(...)} all produce at translator time (before the {@code YTDBGraphStep} fold) — and
+   * {@link TraversalFilterStepRecogniser} owns {@link TraversalFilterStep}, the {@code has(key)}
+   * presence form. The barrier needs no entry: the cursor skips it as a transparent step, so the
+   * walker never dispatches one. Later tracks add one entry per step class they translate. Class-keyed
+   * dispatch is O(1) and fails safe: a step whose runtime class has no entry — an unregistered type,
+   * or an unexpected subclass — declines the whole traversal rather than being misrouted through a
+   * parent recogniser.
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
       Map.of(
           GraphStep.class, StartStepRecogniser.INSTANCE,
-          VertexStep.class, VertexStepRecogniser.INSTANCE);
+          VertexStep.class, VertexStepRecogniser.INSTANCE,
+          HasStep.class, HasStepRecogniser.INSTANCE,
+          TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
@@ -99,6 +109,10 @@ final class GremlinStepWalker {
    */
   private static final GremlinStepWalker PRODUCTION_INSTANCE =
       new GremlinStepWalker(PRODUCTION_RECOGNISERS);
+
+  /** Stateless builder used to AND-compose same-alias filters at result-build time; construction is
+   *  trivial so a shared instance is fine. */
+  private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
 
   private final Map<Class<?>, StepRecogniser> recognisers;
 
@@ -154,7 +168,14 @@ final class GremlinStepWalker {
     boolean edgeLabelVerification =
         traversal.getStrategies().getStrategy(EdgeLabelVerificationStrategy.class).isPresent();
 
-    var ctx = new WalkerContext(polymorphic, edgeLabelVerification);
+    // Resolve the schema snapshot once for the has(...) recogniser's non-String Text type gate. The
+    // isPolymorphic resolution above already proved an attached YTDB session (it returns null
+    // otherwise, declining the walk), so the session resolves here too; a null schema is a defensive
+    // fallback that disables the type gate, translating string predicates best-effort.
+    var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
+    Schema schema = session != null ? session.getSchema() : null;
+
+    var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema);
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
 
     // Cursor-driven dispatch. Each iteration peeks the head (barriers skipped by the cursor) and
@@ -234,13 +255,18 @@ final class GremlinStepWalker {
   /**
    * Snapshots the walker context into a {@link GremlinToMatchTranslator.TranslationResult}. Locks the
    * pattern (one-shot {@code build()}), merges builder-supplied alias filters with recogniser-supplied
-   * ones (recogniser entries override on the same alias), and packages the {@link MatchPlanInputs}.
+   * ones (AND-composing on the same alias), and packages the {@link MatchPlanInputs}.
    */
   private static GremlinToMatchTranslator.TranslationResult buildResult(WalkerContext ctx) {
     var ir = ctx.patternBuilder.build();
 
     Map<String, SQLWhereClause> finalAliasFilters = new LinkedHashMap<>(ir.aliasFilters());
-    finalAliasFilters.putAll(ctx.aliasFilters);
+    // AND-compose recogniser-contributed filters with any builder-supplied filter on the same alias
+    // rather than overwriting: a hasLabel(L) @class narrowing and a has(...) predicate can both land
+    // on the boundary alias, and dropping either would return a wrong (over-large) multiset.
+    for (var entry : ctx.aliasFilters.entrySet()) {
+      finalAliasFilters.merge(entry.getKey(), entry.getValue(), GremlinStepWalker::andWhere);
+    }
 
     // Only the fields a single-node g.V() translation actually carries are set; the rest keep their
     // null/false defaults (matchExpressions/notMatchExpressions normalise to empty lists in the
@@ -257,5 +283,11 @@ final class GremlinStepWalker {
 
     return new GremlinToMatchTranslator.TranslationResult(
         inputs, ctx.boundaryAlias, ctx.outputType, ctx.returnClass);
+  }
+
+  /** AND-composes two same-alias {@code WHERE} clauses into one — the merge function used when both
+   *  the pattern builder and a recogniser contribute a filter to the same alias. */
+  private static SQLWhereClause andWhere(SQLWhereClause a, SQLWhereClause b) {
+    return WHERE.wrap(WHERE.and(a.getBaseExpression(), b.getBaseExpression()));
   }
 }

@@ -104,11 +104,16 @@ final class EdgeHopRecogniser implements StepRecogniser {
     var closingDirection = closing.getDirection();
 
     // Translate every has() container into an edge WHERE; a predicate the adapter cannot translate
-    // declines the whole traversal — no half-applied edge filter that would under- or over-match.
+    // declines the whole traversal — no half-applied edge filter that would under- or over-match. The
+    // type gate keys on the edge class (the resolved label) so a Text predicate on a declared
+    // non-String edge property declines rather than emitting a filter that returns rows where native
+    // errors. A label-less edge (null label) has no known class, so the gate never fires there.
+    GremlinPredicateAdapter.PropertyTypeGate typeGate =
+        key -> ctx.isNonStringProperty(edgeLabel, key);
     var edgeFilters = new ArrayList<SQLBooleanExpression>();
     for (HasStep<?> has : hasSteps) {
       for (HasContainer container : has.getHasContainers()) {
-        var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container);
+        var filter = GremlinPredicateAdapter.INSTANCE.toFilter(container, typeGate);
         if (filter == null) {
           return Outcome.DECLINE;
         }
