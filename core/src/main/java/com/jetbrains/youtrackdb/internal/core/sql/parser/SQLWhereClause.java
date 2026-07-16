@@ -953,10 +953,20 @@ public class SQLWhereClause extends SimpleNode {
       }
     }
 
+    // All conjuncts are LET-dependent: nothing to push. Return the original
+    // clause unchanged as the dependent part — reuse `this` rather than
+    // rebuilding it. (buildWhereWith with an empty index list would yield a
+    // degenerate empty-AND clause, not null, breaking the "independent == null
+    // means push nothing" contract.)
     if (independentIndices.isEmpty()) {
       return new LetSplitResult(null, this);
     }
 
+    // Mixed split: some conjuncts are LET-independent (pushed) and the rest
+    // stay after LET. dependentIndices is guaranteed non-empty here — the
+    // quick-check above already proved the whole expression references a LET
+    // var or $parent, so at least one conjunct is dependent; the isEmpty()
+    // guard is defensive.
     var independentWhere = buildWhereWith(andBlock, independentIndices);
     var dependentWhere = dependentIndices.isEmpty()
         ? null : buildWhereWith(andBlock, dependentIndices);
