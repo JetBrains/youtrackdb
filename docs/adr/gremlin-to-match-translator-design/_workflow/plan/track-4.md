@@ -10,7 +10,7 @@ Fills out the predicate adapter with the full `P` set, adds a single `HasStep` r
 
 ## Progress
 - [x] Review + decomposition
-- [ ] Step implementation
+- [x] Step implementation
 - [ ] Track-level code review
 - [ ] Track completion
 

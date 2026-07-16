@@ -9,3 +9,4 @@
 [2026-07-15T12:23Z] [ctx=safe] phase=0 substate=steps-partial
 [2026-07-15T13:31Z] [ctx=warning] phase=A
 [2026-07-15T15:33Z] [ctx=info] phase=C track=4 reconciled_tag=high substate=steps-partial
+[2026-07-16T14:24Z] [ctx=safe] phase=C track=4 reconciled_tag=high substate=steps-done-review-pending
