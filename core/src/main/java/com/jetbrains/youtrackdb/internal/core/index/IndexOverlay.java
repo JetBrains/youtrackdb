@@ -48,9 +48,12 @@ import javax.annotation.Nullable;
  *       force-rebuild and this category exist to prevent).
  *   <li><b>tx-dropped</b> — an index dropped inside the transaction. The shared {@code Index} stays
  *       registered (the commit removes it), so the overlay hides the name from the effective set.
- *   <li><b>in-place rename</b> — an index renamed inside the transaction. The rename is a commit-only
- *       metadata re-association; the shared {@code Index} is not mutated mid-transaction. Recorded
- *       here as its own category; the rename accelerator and its commit half are a later track.
+ *   <li><b>class rename</b> — a class renamed inside the transaction (old class name &rarr; new
+ *       class name). The re-association is commit-only metadata (D17): the commit rewrites every
+ *       affected definition's {@code className} through replacement objects and re-keys
+ *       {@code classPropertyIndex}; no shared {@code Index} is mutated mid-transaction. The
+ *       index's own NAME does not change — the inert index-name rename is deferred to YTDB-1066
+ *       and will grow its own category.
  *   <li><b>collection-membership</b> — a collection added to or removed from a committed index (the
  *       polymorphic ripple from {@code addSuperClass} or an alter that adds a collection to a class
  *       whose superclass is indexed). The shared {@code Index.collectionsToIndex} is not mutated
@@ -78,8 +81,11 @@ public final class IndexOverlay {
   private final Set<String> txDropped = new HashSet<>();
 
   /**
-   * Indexes renamed inside the transaction, mapping the committed (old) name to the new name. The
-   * rename is applied commit-only; recorded here as its own category.
+   * Classes renamed inside the transaction, mapping the pre-transaction (old) class name to the
+   * name the class holds at commit. Chained renames collapse at record time (A&rarr;B then
+   * B&rarr;C stores A&rarr;C; a rename back to the original drops the entry), so each entry's key
+   * is a name the committed {@code classPropertyIndex} may actually hold and its value is the
+   * final tx-local name. The re-association is applied commit-only.
    */
   private final Map<String, String> renamed = new HashMap<>();
 
@@ -140,14 +146,51 @@ public final class IndexOverlay {
   }
 
   /**
-   * Records an index renamed inside the transaction (a commit-only metadata re-association). The old
-   * name maps to the new name; the shared {@code Index} is not mutated mid-transaction.
+   * Records a class renamed inside the transaction (the D17 commit-only re-association of the
+   * class's indexes). Chained renames collapse: when {@code oldName} is itself the target of an
+   * earlier rename in this transaction, that earlier entry's value advances to {@code newName}
+   * instead of recording an intermediate name the committed maps never held — and a rename back
+   * to the original name drops the entry entirely (net no-op).
    *
-   * @param oldName the committed index name.
-   * @param newName the name the index takes after the rename.
+   * @param oldName the class name before this rename.
+   * @param newName the class name after this rename.
    */
   public void recordRenamed(@Nonnull String oldName, @Nonnull String newName) {
+    final var earlierSource = getClassRenameSource(oldName);
+    if (earlierSource != null) {
+      if (earlierSource.equals(newName)) {
+        renamed.remove(earlierSource);
+      } else {
+        renamed.put(earlierSource, newName);
+      }
+      return;
+    }
+    if (oldName.equals(newName)) {
+      return;
+    }
     renamed.put(oldName, newName);
+  }
+
+  /**
+   * Whether {@code className} was renamed AWAY inside this transaction — i.e. the committed
+   * {@code classPropertyIndex} entries under this name no longer belong to any tx-visible class.
+   */
+  public boolean isClassRenamedAway(@Nonnull String className) {
+    return renamed.containsKey(className);
+  }
+
+  /**
+   * The pre-transaction class name that was renamed TO {@code className} inside this transaction,
+   * or {@code null} when no rename targets it. The committed {@code classPropertyIndex} entries
+   * under the returned name belong to {@code className} in the transaction's view.
+   */
+  @Nullable public String getClassRenameSource(@Nonnull String className) {
+    for (final var entry : renamed.entrySet()) {
+      if (entry.getValue().equals(className)) {
+        return entry.getKey();
+      }
+    }
+    return null;
   }
 
   /**
@@ -220,7 +263,7 @@ public final class IndexOverlay {
     return new HashSet<>(txDropped);
   }
 
-  /** A read-only view of the in-place renames (old name &rarr; new name). */
+  /** A read-only view of the class renames (old class name &rarr; new class name). */
   @Nonnull
   public Map<String, String> getRenamed() {
     return Map.copyOf(renamed);
@@ -264,7 +307,15 @@ public final class IndexOverlay {
     }
     for (final var index : txCreated.values()) {
       final var definition = index.getDefinition();
-      if (definition != null && className.equals(definition.getClassName())) {
+      if (definition == null || definition.getClassName() == null) {
+        continue;
+      }
+      // A handle created BEFORE a same-tx class rename still carries the old class name (its
+      // definition is re-associated only at commit), so match through the rename map: the
+      // handle belongs to the class the transaction now knows under the renamed name.
+      final var effectiveClassName =
+          renamed.getOrDefault(definition.getClassName(), definition.getClassName());
+      if (className.equals(effectiveClassName)) {
         effective.add(index);
       }
     }

@@ -714,6 +714,22 @@ public class IndexEngineFileBaseIdTest {
           fileBaseIdBefore,
           storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
               op -> config.getIndexEngine("FbiRenameIdx", -1, op)).getFileBaseId());
+
+      // The transactional rename path (D17's commit-only re-association) is equally file-inert:
+      // the commit rewrites index METADATA records and re-keys the lookup map, but the engine
+      // family stays byte-identical, and the re-associated index still resolves under the final
+      // class name.
+      session.executeInTx(tx -> session.getMetadata().getSchema()
+          .getClass("FbiRenameNew").setName("FbiRenameNewer"));
+      assertEquals("an in-tx class rename must leave the engine-file set byte-identical too",
+          engineFilesBefore, allEngineFiles(storage));
+      assertEquals("the commit-only re-association must not touch the engine entry",
+          fileBaseIdBefore,
+          storage.getAtomicOperationsManager().calculateInsideAtomicOperation(
+              op -> config.getIndexEngine("FbiRenameIdx", -1, op)).getFileBaseId());
+      assertEquals("the index must keep resolving under the final class name",
+          1, session.getSharedContext().getIndexManager()
+              .getClassIndexes(session, "FbiRenameNewer").size());
     }
   }
 

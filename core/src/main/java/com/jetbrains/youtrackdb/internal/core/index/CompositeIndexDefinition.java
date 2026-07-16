@@ -46,7 +46,6 @@ import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
-
 public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
   private final List<IndexDefinition> indexDefinitions;
@@ -107,6 +106,25 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   }
 
   /**
+   * A read-only view of the composed sub-definitions, one per indexed property. Each carries its
+   * own {@code className}, which is why the class-rename re-association must recurse into them.
+   */
+  public List<IndexDefinition> getIndexDefinitions() {
+    return Collections.unmodifiableList(indexDefinitions);
+  }
+
+  @Override
+  public void setClassName(final String className) {
+    this.className = className;
+    // The D17 "recursing composites" clause: every composed sub-definition carries its own
+    // className and must follow the re-association, or a reload would resurrect the old name
+    // from the sub-definition maps.
+    for (final var indexDefinition : indexDefinitions) {
+      indexDefinition.setClassName(className);
+    }
+  }
+
+  /**
    * Add new indexDefinition in current composite.
    *
    * @param indexDefinition Index to add.
@@ -152,14 +170,12 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
    * {@inheritDoc}
    */
   @Override
-  @Nullable
-  public Object getDocumentValueToIndex(
+  @Nullable public Object getDocumentValueToIndex(
       FrontendTransaction transaction, final EntityImpl entity) {
     return documentValueToIndexKeyFast(transaction, entity);
   }
 
-  @Nullable
-  private Object documentValueToIndexKeyFast(FrontendTransaction transaction, EntityImpl entity) {
+  @Nullable private Object documentValueToIndexKeyFast(FrontendTransaction transaction, EntityImpl entity) {
     var compositeKey = new CompositeKey();
     for (var i = 0; i < indexDefinitions.size(); i++) {
       final var indexDefinition = indexDefinitions.get(i);
@@ -190,8 +206,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return compositeKey;
   }
 
-  @Nullable
-  private Object documentValueToIndexKeySlow(FrontendTransaction transaction, EntityImpl entity,
+  @Nullable private Object documentValueToIndexKeySlow(FrontendTransaction transaction, EntityImpl entity,
       int indexDefinitionIndex, CompositeKey startCompositeKey) {
     var stream = Stream.of(startCompositeKey);
 
@@ -234,14 +249,11 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
    * {@inheritDoc}
    */
   @Override
-  @Nullable
-  public Object createValue(FrontendTransaction transaction, final List<?> params) {
+  @Nullable public Object createValue(FrontendTransaction transaction, final List<?> params) {
     return createValueFast(transaction, params);
   }
 
-
-  @Nullable
-  private Object createValueFast(FrontendTransaction transaction, List<?> params) {
+  @Nullable private Object createValueFast(FrontendTransaction transaction, List<?> params) {
     var compositeKey = new CompositeKey();
     var currentParamIndex = 0;
     for (var i = 0; i < indexDefinitions.size(); i++) {
@@ -282,8 +294,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return compositeKey;
   }
 
-  @Nullable
-  private Object createValueSlow(FrontendTransaction transaction, List<?> params,
+  @Nullable private Object createValueSlow(FrontendTransaction transaction, List<?> params,
       int indexDefinitionIndex, int currentParamIndex, CompositeKey startCompositeKey) {
     var stream = Stream.of(startCompositeKey);
     for (var i = indexDefinitionIndex; i < indexDefinitions.size(); i++) {
@@ -322,8 +333,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return stream.toList();
   }
 
-  @Nullable
-  private static Stream<CompositeKey> addKey(CompositeKey currentKey, Collection<?> collectionKey) {
+  @Nullable private static Stream<CompositeKey> addKey(CompositeKey currentKey, Collection<?> collectionKey) {
     // in case of collection we split single composite key on several composite keys
     // each of those composite keys contain single collection item.
     // we can not contain more than single collection item in index
@@ -383,8 +393,8 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       Object2IntOpenHashMap<CompositeKey> keysToRemove,
       int propertyIndex,
       Object... params) {
-    assert
-        multiValueDefinitionIndexes != null && multiValueDefinitionIndexes.contains(propertyIndex);
+    assert multiValueDefinitionIndexes != null
+        && multiValueDefinitionIndexes.contains(propertyIndex);
 
     final var indexDefinitionMultiValue =
         (IndexDefinitionMultiValue) indexDefinitions.get(propertyIndex);
@@ -496,8 +506,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   }
 
   @Override
-  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionEmbedded
-      session) {
+  protected void serializeToMap(@Nonnull Map<String, Object> map, DatabaseSessionEmbedded session) {
     super.serializeToMap(map, session);
 
     final List<Map<String, Object>> inds = session.newEmbeddedList(indexDefinitions.size());
@@ -540,8 +549,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     return ddl.toString();
   }
 
-  @Nullable
-  private static String quoteFieldName(String next) {
+  @Nullable private static String quoteFieldName(String next) {
     if (next == null) {
       return null;
     }
@@ -568,9 +576,11 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
     try {
       className = (String) map.get("className");
 
-      @SuppressWarnings("unchecked") final var inds = (List<Map<String, Object>>) map.get(
+      @SuppressWarnings("unchecked")
+      final var inds = (List<Map<String, Object>>) map.get(
           "indexDefinitions");
-      @SuppressWarnings("unchecked") final var indClasses = (List<String>) map.get("indClasses");
+      @SuppressWarnings("unchecked")
+      final var indClasses = (List<String>) map.get("indClasses");
 
       indexDefinitions.clear();
 
@@ -598,10 +608,10 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
 
       setNullValuesIgnored(!Boolean.FALSE.equals(map.get("nullValuesIgnored")));
     } catch (final ClassNotFoundException
-                   | InvocationTargetException
-                   | InstantiationException
-                   | IllegalAccessException
-                   | NoSuchMethodException e) {
+        | InvocationTargetException
+        | InstantiationException
+        | IllegalAccessException
+        | NoSuchMethodException e) {
       throw BaseException.wrapException(
           new IndexException("Error during composite index deserialization"), e, (String) null);
     }
@@ -618,9 +628,9 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   }
 
   private record CompositeWrapperMap(FrontendTransaction transaction,
-                                     Object2IntOpenHashMap<CompositeKey> underlying,
-                                     List<IndexDefinition> indexDefinitions, Object[] params,
-                                     int multiValueIndex, boolean isNullValuesIgnored) implements
+      Object2IntOpenHashMap<CompositeKey> underlying,
+      List<IndexDefinition> indexDefinitions, Object[] params,
+      int multiValueIndex, boolean isNullValuesIgnored) implements
       Object2IntMap<Object> {
 
     @Override
@@ -722,8 +732,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       return underlying.values();
     }
 
-    @Nullable
-    private Object convertToCompositeKeyFast(FrontendTransaction transaction, Object key) {
+    @Nullable private Object convertToCompositeKeyFast(FrontendTransaction transaction, Object key) {
       final var compositeKey = new CompositeKey();
 
       var paramsIndex = 0;
@@ -761,8 +770,7 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
       return compositeKey;
     }
 
-    @Nullable
-    Stream<CompositeKey> convertToCompositeKeySlow(FrontendTransaction transaction,
+    @Nullable Stream<CompositeKey> convertToCompositeKeySlow(FrontendTransaction transaction,
         int currentIndexDefinition, int paramasIndex, CompositeKey startCompositeKey,
         Object key) {
       var stream = Stream.of(startCompositeKey);

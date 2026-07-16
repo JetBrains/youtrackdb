@@ -259,6 +259,100 @@ public abstract class IndexAbstract implements Index {
   }
 
   /**
+   * Builds the replacement {@link IndexMetadata} of the D17 class-rename re-association: a private
+   * copy of this index's metadata whose definition (recursing composites) carries
+   * {@code newClassName}. The copy's definition is rebuilt through the same reflective
+   * {@code toMap}/{@code fromMap} round trip the loader uses, so no reader-visible object is
+   * mutated — the shared definition stays untouched until the commit publishes the replacement
+   * wholesale, which is what keeps lock-free readers from ever seeing a torn {@code className}.
+   */
+  IndexMetadata buildClassReassociatedMetadata(
+      final DatabaseSessionEmbedded session, final String newClassName) {
+    acquireSharedLock();
+    try {
+      final var definition = im.getIndexDefinition();
+      IndexDefinition replacementDefinition = null;
+      if (definition != null) {
+        try {
+          replacementDefinition =
+              definition.getClass().getDeclaredConstructor().newInstance();
+          replacementDefinition.fromMap(definition.toMap(session));
+        } catch (final ReflectiveOperationException e) {
+          throw BaseException.wrapException(
+              new IndexException(session,
+                  "Error while re-associating index '" + im.getName()
+                      + "' with renamed class '" + newClassName + "'"),
+              e, session);
+        }
+        replacementDefinition.setClassName(newClassName);
+      }
+      return new IndexMetadata(
+          im.getName(),
+          replacementDefinition,
+          new HashSet<>(collectionsToIndex),
+          im.getType(),
+          im.getAlgorithm(),
+          im.getVersion(),
+          im.getMetadata());
+    } finally {
+      releaseSharedLock();
+    }
+  }
+
+  /**
+   * Writes this committed index's metadata record from the given replacement metadata into the
+   * commit transaction (the durable half of the D17 class-rename re-association, run in the enroll
+   * phase so the record joins the working set). The in-memory metadata is NOT touched here — a
+   * failed commit's record write reverts with the rolled-back atomic operation and there is then
+   * nothing in memory to undo; the in-memory swap happens in the publish phase
+   * ({@link #installReassociatedMetadataAtCommit}) only after {@code commitChanges} succeeded.
+   */
+  void reassociateClassRecordAtCommit(
+      final FrontendTransaction transaction, final IndexMetadata replacement) {
+    acquireExclusiveLock();
+    try {
+      saveFrom(replacement, transaction);
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Installs the replacement metadata built by {@link #buildClassReassociatedMetadata} — the
+   * in-memory half of the D17 re-association, run in the publish phase after the records are
+   * durable. A single reference swap of a never-shared, fully-built object: readers observe
+   * either the old metadata (old class name, fully consistent) or the new one, never a torn mix.
+   */
+  void installReassociatedMetadataAtCommit(final IndexMetadata replacement) {
+    acquireExclusiveLock();
+    try {
+      this.im = replacement;
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
+   * Re-associates a transaction-private DEFERRED handle's definition with a same-transaction class
+   * rename, in place: the handle was created before the rename, so its definition still names the
+   * old class, and unlike a committed index it is reachable only by the owning transaction — no
+   * concurrent reader exists to observe the write, so no replacement copy is needed. Run at the
+   * top of the commit's enroll phase, before the handle's record is written.
+   */
+  void reassociateDeferredClassNameAtCommit(
+      final String oldClassName, final String newClassName) {
+    acquireExclusiveLock();
+    try {
+      final var definition = im == null ? null : im.getIndexDefinition();
+      if (definition != null && oldClassName.equals(definition.getClassName())) {
+        definition.setClassName(newClassName);
+      }
+    } finally {
+      releaseExclusiveLock();
+    }
+  }
+
+  /**
    * Adds a collection to this committed index's in-memory membership and re-writes its metadata
    * record into the commit transaction (the commit-time membership persistence, run in the enroll
    * phase so the record joins the working set). No emptiness check and no {@code stateLock} — the
@@ -940,6 +1034,16 @@ public abstract class IndexAbstract implements Index {
   }
 
   private void save(FrontendTransaction transaction) {
+    saveFrom(im, transaction);
+  }
+
+  /**
+   * The record-serialization body of {@link #save}, parameterized on the metadata to serialize so
+   * the D17 class-rename re-association can write the record from a replacement metadata object
+   * WITHOUT installing it in memory first (the record write must revert with a failed commit
+   * while the in-memory install is deferred to the publish phase).
+   */
+  private void saveFrom(final IndexMetadata source, FrontendTransaction transaction) {
     Entity entity;
     if (identity == null) {
       entity = transaction.getDatabaseSession().newInternalInstance();
@@ -947,22 +1051,23 @@ public abstract class IndexAbstract implements Index {
       entity = transaction.loadEntity(identity);
     }
 
-    entity.setString(CONFIG_TYPE, im.getType());
-    entity.setString(CONFIG_NAME, im.getName());
-    entity.setInt(INDEX_VERSION, im.getVersion());
+    entity.setString(CONFIG_TYPE, source.getType());
+    entity.setString(CONFIG_NAME, source.getName());
+    entity.setInt(INDEX_VERSION, source.getVersion());
 
-    if (im.getIndexDefinition() != null) {
-      final var indexDefEntity = im.getIndexDefinition().toMap(transaction.getDatabaseSession());
+    if (source.getIndexDefinition() != null) {
+      final var indexDefEntity = source.getIndexDefinition()
+          .toMap(transaction.getDatabaseSession());
       entity.setEmbeddedMap(INDEX_DEFINITION, indexDefEntity);
-      entity.setString(INDEX_DEFINITION_CLASS, im.getIndexDefinition().getClass().getName());
+      entity.setString(INDEX_DEFINITION_CLASS, source.getIndexDefinition().getClass().getName());
     }
 
     var session = transaction.getDatabaseSession();
     entity.setEmbeddedSet(CONFIG_COLLECTIONS, session.newEmbeddedSet(collectionsToIndex));
-    entity.setString(ALGORITHM, im.getAlgorithm());
+    entity.setString(ALGORITHM, source.getAlgorithm());
 
-    if (im.getMetadata() != null) {
-      entity.setEmbeddedMap(METADATA, session.newEmbeddedMap(im.getMetadata()));
+    if (source.getMetadata() != null) {
+      entity.setEmbeddedMap(METADATA, session.newEmbeddedMap(source.getMetadata()));
     }
 
     identity = entity.getIdentity();

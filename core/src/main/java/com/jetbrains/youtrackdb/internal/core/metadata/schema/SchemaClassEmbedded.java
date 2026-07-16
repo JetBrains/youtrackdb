@@ -305,13 +305,33 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     acquireSchemaWriteLock(session);
     try {
       checkEmbedded(session);
+      final var oldName = this.name;
       owner.changeClassName(session, this.name, name, this);
       this.name = name;
       // A class rename is metadata-only: collection names are generated from a counter alone
-      // (c_<counter>, no class-name component), so there is no collection to rename and no
-      // storage file is touched. The removed collection-rename path went through the
-      // non-WAL-safe writeCache.renameFile, which was rollback-unsafe and could deadlock when
-      // reached inside a commit.
+      // (c_<counter>, no class-name component) and engine files are keyed by ie_<fileBaseId>
+      // stems, so no storage file is touched. What DOES follow the rename is the index
+      // re-association (D17): the class's indexes must re-key from the old to the new class name
+      // (classPropertyIndex + each definition's className) or they stop accelerating and stop
+      // being maintained. On the transactional path the re-association is recorded on the
+      // overlay and applied commit-only; on the legacy top-level path it applies eagerly, like
+      // every other non-transactional DDL.
+      if (owner.txLocal) {
+        // The seeding guard mirrors the create and drop sites: copyForTx re-parses committed
+        // classes through other paths and never through a rename, but the guard keeps the
+        // recording uniform.
+        if (!session.isSeedingTxSchemaState()) {
+          final var txState = session.getTxSchemaState();
+          if (txState == null) {
+            throw new IllegalStateException(
+                "a tx-local rename must run with a seeded tx-local schema state");
+          }
+          txState.ensureIndexOverlay().recordRenamed(oldName, name);
+        }
+      } else {
+        session.getSharedContext().getIndexManager()
+            .reassociateClassIndexesOnRename(session, oldName, name);
+      }
     } finally {
       releaseSchemaWriteLock(session);
     }
