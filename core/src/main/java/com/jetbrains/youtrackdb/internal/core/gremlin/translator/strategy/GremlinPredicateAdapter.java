@@ -90,9 +90,11 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *       QueryOperatorEquals} auto-unboxes a singleton against a scalar, and field cardinality is
  *       unknown at translation time, so the two pipelines could disagree. Size 0 and size ≥2
  *       collections translate normally;
- *   <li>a {@code startingWith} prefix is empty (its exclusive upper bound is undefined), a {@code
- *       within} / {@code without} member or a scalar comparand is null, or the comparand is a type
- *       {@link MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue} parameter).
+ *   <li>a {@code startingWith} prefix has no finite prefix range — it is empty (its exclusive
+ *       upper bound is undefined) or every code point is the maximum ({@link
+ *       Character#MAX_CODE_POINT}, so there is no finite exclusive upper bound) — a {@code within}
+ *       / {@code without} member or a scalar comparand is null, or the comparand is a type {@link
+ *       MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue} parameter).
  * </ul>
  */
 final class GremlinPredicateAdapter {
@@ -268,8 +270,10 @@ final class GremlinPredicateAdapter {
   /**
    * Translates the {@link Text} string predicates onto the string-predicate AST nodes. The {@code not*} forms
    * are the negation of their positive counterpart and are true on an absent property, so they take
-   * the absent-property guard. {@code startingWith} / {@code notStartingWith} decline an empty
-   * prefix (its exclusive upper bound is undefined — {@link MatchWhereBuilder#startsWith} throws).
+   * the absent-property guard. {@code startingWith} / {@code notStartingWith} route through {@link
+   * #startsWithRange}, which declines (returns {@code null}) when the prefix has no finite range — an
+   * empty prefix or an all-max-code-point prefix — so a pathological input falls back to native
+   * rather than throwing.
    */
   private @Nullable SQLBooleanExpression translateText(String key, Text text,
       @Nullable Object value) {
@@ -279,12 +283,45 @@ final class GremlinPredicateAdapter {
     return switch (text) {
       case containing -> WHERE.containsText(key, string);
       case notContaining -> guarded(key, WHERE.not(WHERE.containsText(key, string)));
-      case startingWith -> string.isEmpty() ? null : WHERE.startsWith(key, string);
-      case notStartingWith ->
-          string.isEmpty() ? null : guarded(key, WHERE.not(WHERE.startsWith(key, string)));
+      case startingWith -> startsWithRange(key, string);
+      case notStartingWith -> {
+        var range = startsWithRange(key, string);
+        // Decline the whole predicate when the range is unbuildable — do not compose a guarded
+        // negation over a null range.
+        yield range == null ? null : guarded(key, WHERE.not(range));
+      }
       case endingWith -> WHERE.endsWith(key, string);
       case notEndingWith -> guarded(key, WHERE.not(WHERE.endsWith(key, string)));
     };
+  }
+
+  /**
+   * Builds the half-open prefix range for a {@code startingWith} prefix, or declines (returns {@code
+   * null}) when no finite range exists. Two prefixes have no buildable range and both decline so the
+   * traversal falls back to native rather than throwing (the class's never-throws contract):
+   *
+   * <ul>
+   *   <li>an empty prefix — its exclusive upper bound is undefined;
+   *   <li>a prefix whose code points are all {@link Character#MAX_CODE_POINT} — it has no finite
+   *       exclusive upper bound, so {@link MatchWhereBuilder#startsWith} throws {@link
+   *       IllegalArgumentException}. A realistic prefix never produces this, but it must decline
+   *       cleanly rather than let the exception escape.
+   * </ul>
+   *
+   * <p>The empty case is guarded before the call — a normal, non-pathological input should not drive
+   * control flow through an exception. The max-code-point case is caught, mirroring the {@code
+   * toLiteral} exception handling in {@link #translateCompare} / {@link #translateContains}. Both
+   * {@code startingWith} and {@code notStartingWith} share this one decline seam.
+   */
+  private @Nullable SQLBooleanExpression startsWithRange(String key, String prefix) {
+    if (prefix.isEmpty()) {
+      return null;
+    }
+    try {
+      return WHERE.startsWith(key, prefix);
+    } catch (IllegalArgumentException noFiniteUpperBound) {
+      return null;
+    }
   }
 
   /**
