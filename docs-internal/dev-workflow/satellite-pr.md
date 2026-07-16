@@ -4,8 +4,10 @@
 
 A satellite PR is a review vehicle for ONE track's diff, aimed at separate peer reviewers.
 Satellites exist for MULTI-TRACK changes only; for single-track and trivial changes the
-umbrella PR itself hosts the optional peer review after the agent flips it ready for review.
-There the observation loop (below) applies only in part: observations are read and fixed as
+umbrella PR itself hosts the optional peer review: at the ready-for-review flip the agent asks
+whether the user wants one — if yes, peers review the ready umbrella PR directly, with no
+satellite branches or PR created and no re-pinning needed since the PR head is the working
+branch. There the observation loop (below) applies only in part: observations are read and fixed as
 normal commits under the same completion signal, but the satellite-only mechanics — head
 force-update, next-track blocking — do not apply; the post-flip duties live in
 pr-publishing.md (shipped with the ytdb-slate package and cited by absolute path in the
@@ -61,7 +63,11 @@ Once a satellite is open, the track's review loop stays open: the next track doe
 until the peer review is complete or the user explicitly waives completion. Peer review is
 complete when all review observations/threads are resolved AND the reviewer explicitly approves
 or states the review is done; if the signal is ambiguous or absent, the agent asks the user to
-decide (keep waiting vs waive completion). Peer-fix commits land after the track's user
+decide (keep waiting vs waive completion). Record the peer-review state (open / completed /
+waived) in the track's Satellite PR cell of the umbrella PR's Tracks table — same mechanism as
+sticky answers — so a resumed session knows whether the review gate is still blocking; the
+satellite's own PR state cannot tell, since satellites stay open drafts until umbrella-merge
+cleanup. Peer-fix commits land after the track's user
 approval: on a non-final track they fall inside the next track's commit range and are covered by
 that track's mandatory user review; commits after the last user-approved gate (e.g., final-track
 peer fixes) are presented to the user by the pre-flip checklist (pr-publishing.md

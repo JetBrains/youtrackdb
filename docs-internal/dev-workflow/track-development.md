@@ -39,8 +39,9 @@ targets it, and track 01's base is the merge-base with it.
 YTDB layers a per-track peer-review process on the baseline via the slate doctrine
 extension (`doctrineExtraPath` → `docs-internal/agents/slate-doctrine-extra.md`). Full
 mechanics — creation, observation loop, rebase re-pinning, cleanup at merge — live in
-`docs-internal/dev-workflow/satellite-pr.md`. Peer review supplements, never replaces, the
-mandatory per-track user review of track-workflow.md.
+`docs-internal/dev-workflow/satellite-pr.md`. The rule that layered peer review supplements,
+never replaces, the mandatory per-track user review is owned by track-workflow.md § Peer
+review.
 
 ## Verification integration
 

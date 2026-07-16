@@ -15,3 +15,6 @@ these rules only bind the workflow, they do not restate it.
    peer review completes or the user explicitly waives completion.
 4. Sticky answers ("yes/no for all remaining tracks") are honored and
    recorded under the umbrella PR's Tracks table.
+5. Single-track and trivial changes: at the ready-for-review flip, ask
+   the user whether they want a peer review; if yes, it runs directly
+   on the ready umbrella PR — no satellite branches or PR are created.
