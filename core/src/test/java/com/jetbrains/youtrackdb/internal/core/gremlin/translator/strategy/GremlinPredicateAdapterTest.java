@@ -443,6 +443,42 @@ public class GremlinPredicateAdapterTest {
   }
 
   /**
+   * {@code has("name", TextP.startingWith(maxCodePoint))} — a prefix that is a single maximum code
+   * point (U+10FFFF) — declines rather than throwing. Such a prefix has no finite exclusive upper
+   * bound (its only code point is already the maximum and there is no preceding code point to carry
+   * into), so the prefix-range builder cannot produce a range. The adapter must catch that and
+   * decline (return {@code null}) to honour its never-throws contract, falling the traversal back to
+   * native. This is a pathological input a realistic prefix never produces, but it must not escape as
+   * an exception.
+   */
+  @Test
+  public void startingWithMaxCodePointPrefix_declines() {
+    var maxCodePoint = new String(Character.toChars(Character.MAX_CODE_POINT));
+    assertThat(
+        GremlinPredicateAdapter.INSTANCE.toFilter(
+            new HasContainer("name", TextP.startingWith(maxCodePoint))))
+        .as("an all-max-code-point startingWith prefix has no finite upper bound and declines")
+        .isNull();
+  }
+
+  /**
+   * {@code has("name", TextP.notStartingWith(maxCodePoint))} — the negated form of the pathological
+   * single-max-code-point prefix — also declines rather than throwing. {@code notStartingWith} shares
+   * the same prefix-range seam as {@code startingWith}, so an unbuildable range declines the whole
+   * predicate before the guarded negation is composed, rather than letting the builder's exception
+   * escape.
+   */
+  @Test
+  public void notStartingWithMaxCodePointPrefix_declines() {
+    var maxCodePoint = new String(Character.toChars(Character.MAX_CODE_POINT));
+    assertThat(
+        GremlinPredicateAdapter.INSTANCE.toFilter(
+            new HasContainer("name", TextP.notStartingWith(maxCodePoint))))
+        .as("an all-max-code-point notStartingWith prefix has no finite upper bound and declines")
+        .isNull();
+  }
+
+  /**
    * {@code has("name", TextP.notStartingWith("al"))} maps to {@code name IS DEFINED AND NOT(name >=
    * "al" AND name < "al⁺")} — the guarded negation of the prefix range.
    */
