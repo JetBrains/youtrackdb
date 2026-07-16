@@ -337,6 +337,12 @@ public abstract class StorageComponent extends SharedResourceAbstract {
    * optimistic attempt is in flight (plain pinned reads are epoch-independent — this
    * includes the pinned fallback lambdas, which run after the attempt was closed) or
    * when no scope/registry is reachable (mock operations and managers in unit tests).
+   *
+   * <p>On violation the helper LATCHES the failure on the scope before returning
+   * {@code false}: the enclosing assert fires inside the optimistic lambda, where the
+   * fallback catch swallows AssertionError — the latch makes the attempt-closing
+   * {@code exitAttempt()} assert fail instead, so the violation actually reaches the
+   * caller (same surfacing mechanism as nested-attempt detection).
    */
   private boolean pinnedReadEpochConsistent(
       final AtomicOperation atomicOperation, final long fileId) {
@@ -344,7 +350,26 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     if (scope == null || !scope.isAttemptActive()) {
       return true;
     }
-    return registeredEpochIs(fileId, scope.capturedEpoch());
+    if (registeredEpochIs(fileId, scope.capturedEpoch())) {
+      return true;
+    }
+    scope.markAttemptViolation();
+    return false;
+  }
+
+  /**
+   * -ea-only helper backing the epoch-coverage guard in {@code loadPageOptimistic}:
+   * like {@link #pinnedReadEpochConsistent} it latches the violation on the scope
+   * before returning {@code false}, because the enclosing assert fires inside the
+   * optimistic lambda where AssertionError is swallowed by the fallback catch.
+   */
+  private boolean optimisticRecordEpochConsistent(
+      final long fileId, final OptimisticReadScope scope) {
+    if (registeredEpochIs(fileId, scope.capturedEpoch())) {
+      return true;
+    }
+    scope.markAttemptViolation();
+    return false;
   }
 
   /**
@@ -671,8 +696,10 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     // file guarded by the same epoch the scope captured at reset — i.e., an optimistic
     // lambda must not span files of two different top-level components, because one
     // attempt validates exactly one epoch. Sub-component files pass because they are
-    // registered under the parent component's epoch instance.
-    assert registeredEpochIs(fileId, scope.capturedEpoch())
+    // registered under the parent component's epoch instance. The helper latches
+    // violations on the scope (this assert fires inside the optimistic lambda, whose
+    // fallback catch swallows AssertionError — the latch surfaces it at exitAttempt).
+    assert optimisticRecordEpochConsistent(fileId, scope)
         : "Optimistic read of file " + fileId + " in component " + getLockName()
             + " whose registered epoch differs from the scope's captured epoch";
     scope.record(frame, stamp);
@@ -747,7 +774,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // failed attempt, this assert surfaces it (the nested AssertionError itself was
       // swallowed by this catch).
       attemptClosedByFallback = true;
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      assert scope.exitAttempt()
+          : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+              + getLockName();
 
       acquireSharedLock();
       try {
@@ -760,7 +789,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // throwable the catch above does not handle. Skipped when the fallback already
       // closed it (exitAttempt is not idempotent — a second call reports ill-formed).
       if (!attemptClosedByFallback) {
-        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+        assert scope.exitAttempt()
+            : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+                + getLockName();
       }
     }
   }
@@ -789,7 +820,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
     } catch (final RuntimeException | AssertionError e) {
       // See comment in the T-returning overload above.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      assert scope.exitAttempt()
+          : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+              + getLockName();
 
       acquireSharedLock();
       try {
@@ -799,7 +832,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       }
     } finally {
       if (!attemptClosedByFallback) {
-        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+        assert scope.exitAttempt()
+            : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+                + getLockName();
       }
     }
   }
@@ -865,7 +900,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       // Same fallback semantics as executeOptimisticStorageRead — and deliberately NO
       // re-check on this path: the pinned result below is already authoritative.
       attemptClosedByFallback = true;
-      assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+      assert scope.exitAttempt()
+          : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+              + getLockName();
 
       acquireSharedLock();
       try {
@@ -875,7 +912,9 @@ public abstract class StorageComponent extends SharedResourceAbstract {
       }
     } finally {
       if (!attemptClosedByFallback) {
-        assert scope.exitAttempt() : "Nested optimistic read detected on " + getLockName();
+        assert scope.exitAttempt()
+            : "Optimistic attempt protocol violation (nested read or epoch-coverage breach) on "
+                + getLockName();
       }
     }
 

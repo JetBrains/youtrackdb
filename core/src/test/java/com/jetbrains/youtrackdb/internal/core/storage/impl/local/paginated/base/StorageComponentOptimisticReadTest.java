@@ -19,6 +19,8 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.PageFrame;
 import com.jetbrains.youtrackdb.internal.common.directmemory.PageFramePool;
 import com.jetbrains.youtrackdb.internal.core.config.ContextConfiguration;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ComponentEpochRegistry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadFailedException;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.OptimisticReadScope;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.PageView;
@@ -53,6 +55,7 @@ public class StorageComponentOptimisticReadTest {
   private DirectMemoryAllocator allocator;
   private PageFramePool pool;
   private ReadCache mockReadCache;
+  private AtomicOperationsManager mockAtomicOpsMgr;
   private AtomicOperation mockAtomicOp;
   private OptimisticReadScope scope;
   private ErrorCapturingStorageComponent component;
@@ -66,7 +69,7 @@ public class StorageComponentOptimisticReadTest {
     mockReadCache = mock(ReadCache.class);
     var mockWriteCache = mock(WriteCache.class);
     var mockStorage = mock(AbstractStorage.class);
-    var mockAtomicOpsMgr = mock(AtomicOperationsManager.class);
+    mockAtomicOpsMgr = mock(AtomicOperationsManager.class);
     when(mockStorage.getReadCache()).thenReturn(mockReadCache);
     when(mockStorage.getWriteCache()).thenReturn(mockWriteCache);
     when(mockStorage.getAtomicOperationsManager()).thenReturn(mockAtomicOpsMgr);
@@ -580,11 +583,12 @@ public class StorageComponentOptimisticReadTest {
     // Nested executeOptimisticStorageRead calls are a programming error: the inner
     // reset() wipes the outer scope's stamps, silently voiding the outer validation.
     // Detection is -ea-only and involves TWO AssertionErrors: the INNER call's
-    // enterAttempt() assert ("... attempt ...") fires first, but it is thrown inside
-    // the outer optimistic lambda and swallowed by the outer fallback catch; the
-    // violation latched in the scope then fails the OUTER catch's exitAttempt() assert,
-    // and THAT error ("... detected ...") is what escapes to the caller — before the
-    // outer pinned lambda gets a chance to run.
+    // enterAttempt() assert ("Nested optimistic read attempt") fires first, but it is
+    // thrown inside the outer optimistic lambda and swallowed by the outer fallback
+    // catch; the violation latched in the scope then fails the OUTER catch's
+    // exitAttempt() assert, and THAT error ("Optimistic attempt protocol violation")
+    // is what escapes to the caller — before the outer pinned lambda gets a chance to
+    // run.
     var assertionsEnabled = false;
     // Intentional side effect in assert — standard idiom to detect whether -ea is on.
     assert assertionsEnabled = true;
@@ -608,8 +612,9 @@ public class StorageComponentOptimisticReadTest {
       fail("Expected AssertionError from nested optimistic read detection");
     } catch (AssertionError e) {
       assertTrue(
-          "Expected the outer 'detected' assert to escape, got: " + e.getMessage(),
-          String.valueOf(e.getMessage()).contains("Nested optimistic read detected"));
+          "Expected the outer protocol-violation assert to escape, got: " + e.getMessage(),
+          String.valueOf(e.getMessage())
+              .contains("Optimistic attempt protocol violation"));
     }
     assertEquals(false, outerPinnedRan[0]);
 
@@ -693,6 +698,179 @@ public class StorageComponentOptimisticReadTest {
         () -> fail("should not fall back — previous failure must not poison this read"));
     assertEquals(true, optimisticRan[0]);
 
+    releaseFrame(frame);
+  }
+
+  // --- Per-component epoch-coverage guards (-ea only, YTDB-1203 / review AR-1) ---
+
+  /**
+   * Installs a REAL component-epoch registry on the mock manager (setUp leaves it
+   * unstubbed/null so the guards stay lenient for all other tests) and maps the
+   * component's own file to its own epoch — the well-formed baseline the violation
+   * tests deviate from.
+   */
+  private ComponentEpochRegistry installRealRegistryWithOwnFile() {
+    var registry = new ComponentEpochRegistry();
+    when(mockAtomicOpsMgr.getComponentEpochRegistry()).thenReturn(registry);
+    registry.register(FILE_ID, component.testApplyPhaseEpoch());
+    return registry;
+  }
+
+  private static boolean assertionsEnabled() {
+    var enabled = false;
+    // Intentional side effect in assert — standard idiom to detect whether -ea is on.
+    assert enabled = true;
+    return enabled;
+  }
+
+  @Test
+  public void testPinnedReadOfForeignFileInsideOptimisticAttemptFailsEaGuard()
+      throws IOException {
+    // AR-1 counterexample: inside an optimistic attempt, the lambda issues a PINNED
+    // loadPageForRead against a file registered to a DIFFERENT component's epoch (the
+    // hypothetical future "PCV2→SLBB pinned delegate" shape). The scope records nothing
+    // for pinned pages, so under per-component epochs the read would escape epoch
+    // validation entirely — the -ea guard must surface this as an AssertionError to the
+    // caller. Note the surfacing mechanism: the guard's own AssertionError fires inside
+    // the optimistic lambda and is swallowed by the fallback catch; the latched
+    // violation then fails the attempt-closing exitAttempt() assert, and the pinned
+    // fallback must NOT run.
+    Assume.assumeTrue("Epoch-coverage guard requires -ea", assertionsEnabled());
+
+    var registry = installRealRegistryWithOwnFile();
+    long foreignFileId = 777L;
+    registry.register(foreignFileId, new ApplyPhaseEpoch()); // another component's epoch
+
+    final boolean[] pinnedFallbackRan = {false};
+    try {
+      component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageForRead(mockAtomicOp, foreignFileId, 0);
+            return "optimistic-result";
+          },
+          () -> {
+            pinnedFallbackRan[0] = true;
+            return "pinned-result";
+          });
+      fail("Expected AssertionError from the pinned-inside-optimistic epoch guard");
+    } catch (AssertionError e) {
+      assertTrue(
+          "Expected the protocol-violation assert, got: " + e.getMessage(),
+          String.valueOf(e.getMessage())
+              .contains("Optimistic attempt protocol violation"));
+    }
+    assertEquals(false, pinnedFallbackRan[0]);
+
+    // exitAttempt() cleared the latch: a well-formed read on the same scope works.
+    var frame = acquireFrameWithCoordinates(FILE_ID, PAGE_INDEX);
+    when(mockReadCache.getPageFrameOptimistic(FILE_ID, PAGE_INDEX)).thenReturn(frame);
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageOptimistic(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+    assertEquals("optimistic-result", result);
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testPinnedReadOfUnregisteredFileInsideOptimisticAttemptFailsEaGuard()
+      throws IOException {
+    // AR-1, missing-entry flavor: with a real registry installed, a pinned read of a
+    // file that has NO registration at all (created behind the funnel's back) is
+    // equally uncovered by the scope's epoch and must fail the guard.
+    Assume.assumeTrue("Epoch-coverage guard requires -ea", assertionsEnabled());
+
+    installRealRegistryWithOwnFile();
+    long unregisteredFileId = 778L;
+
+    try {
+      component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageForRead(mockAtomicOp, unregisteredFileId, 0);
+            return "optimistic-result";
+          },
+          () -> "pinned-result");
+      fail("Expected AssertionError for the unregistered pinned file");
+    } catch (AssertionError e) {
+      assertTrue(
+          "Expected the protocol-violation assert, got: " + e.getMessage(),
+          String.valueOf(e.getMessage())
+              .contains("Optimistic attempt protocol violation"));
+    }
+  }
+
+  @Test
+  public void testPinnedReadOfOwnFileInsideOptimisticAttemptPassesEaGuard()
+      throws IOException {
+    // The legitimate pinned-inside-optimistic shape (position-map delegates,
+    // firstItem/lastItem descents): the pinned file belongs to the SAME epoch the scope
+    // captured, so the guard passes and the optimistic result is returned normally.
+    var registry = installRealRegistryWithOwnFile();
+    // Sub-component shape: a second file registered to the same epoch instance.
+    long subComponentFileId = 779L;
+    registry.register(subComponentFileId, component.testApplyPhaseEpoch());
+
+    String result = component.testExecuteOptimisticStorageRead(
+        mockAtomicOp,
+        () -> {
+          component.testLoadPageForRead(mockAtomicOp, FILE_ID, PAGE_INDEX);
+          component.testLoadPageForRead(mockAtomicOp, subComponentFileId, 0);
+          return "optimistic-result";
+        },
+        () -> "pinned-result");
+
+    assertEquals("optimistic-result", result);
+  }
+
+  @Test
+  public void testPinnedReadOfForeignFileOutsideOptimisticAttemptPassesEaGuard()
+      throws IOException {
+    // Plain pinned reads (no optimistic attempt in flight) are epoch-independent: the
+    // guard must not constrain them even when the file belongs to another component —
+    // this includes pinned FALLBACK lambdas, which run after the attempt was closed.
+    var registry = installRealRegistryWithOwnFile();
+    long foreignFileId = 780L;
+    registry.register(foreignFileId, new ApplyPhaseEpoch());
+
+    // Direct pinned read, no attempt in flight — must not throw.
+    component.testLoadPageForRead(mockAtomicOp, foreignFileId, 0);
+  }
+
+  @Test
+  public void testOptimisticRecordOfForeignFileFailsEaGuard() throws IOException {
+    // The optimistic-path twin of AR-1: recording a page of a file registered to a
+    // DIFFERENT component's epoch in the scope (an optimistic lambda spanning two
+    // top-level components) must fail the -ea guard through the same latch mechanism —
+    // one attempt validates exactly one epoch, so the foreign page would never be
+    // protected.
+    Assume.assumeTrue("Epoch-coverage guard requires -ea", assertionsEnabled());
+
+    var registry = installRealRegistryWithOwnFile();
+    long foreignFileId = 781L;
+    registry.register(foreignFileId, new ApplyPhaseEpoch());
+    var frame = acquireFrameWithCoordinates(foreignFileId, 0);
+    when(mockReadCache.getPageFrameOptimistic(foreignFileId, 0)).thenReturn(frame);
+
+    try {
+      component.testExecuteOptimisticStorageRead(
+          mockAtomicOp,
+          () -> {
+            component.testLoadPageOptimistic(mockAtomicOp, foreignFileId, 0);
+            return "optimistic-result";
+          },
+          () -> "pinned-result");
+      fail("Expected AssertionError from the optimistic epoch-coverage guard");
+    } catch (AssertionError e) {
+      assertTrue(
+          "Expected the protocol-violation assert, got: " + e.getMessage(),
+          String.valueOf(e.getMessage())
+              .contains("Optimistic attempt protocol violation"));
+    }
     releaseFrame(frame);
   }
 
@@ -973,6 +1151,11 @@ public class StorageComponentOptimisticReadTest {
 
     long testAddFile(AtomicOperation op, String fileName) throws IOException {
       return addFile(op, fileName);
+    }
+
+    CacheEntry testLoadPageForRead(AtomicOperation op, long fileId, long pageIndex)
+        throws IOException {
+      return loadPageForRead(op, fileId, pageIndex);
     }
 
     ApplyPhaseEpoch testApplyPhaseEpoch() {

@@ -41,8 +41,8 @@ import org.junit.Test;
 
 /**
  * Tests for the TEST-ONLY {@link PageApplyHook} seam in
- * {@link AtomicOperationBinaryTracking#commitChanges} and for the apply-phase epoch
- * bracket around the page-apply loop (YTDB-1178).
+ * {@link AtomicOperationBinaryTracking#commitChanges} and for the per-component
+ * apply-phase epoch bracket around the page-apply loop (YTDB-1178 / YTDB-1203).
  *
  * <p>The seam exists because the production page-apply order is fastutil hash order,
  * which makes the mixed-state race (a reader overlapping a partially applied commit)
@@ -51,9 +51,17 @@ import org.junit.Test;
  * <ul>
  *   <li>the hook can dictate and observe the page-apply order;
  *   <li>a reader overlapping a writer paused mid-apply (between two page applications,
- *       inside the epoch bracket) deterministically fails epoch validation;
- *   <li>the epoch bracket is exactly one enter/exit pair per commit, with the exit in a
- *       finally block that runs even when the hook throws.
+ *       inside the epoch bracket) deterministically fails epoch validation, while a
+ *       reader of a component the commit does not touch keeps passing (per-component
+ *       granularity, YTDB-1203);
+ *   <li>the epoch bracket is exactly one enter/exit pair per MUTATED COMPONENT —
+ *       resolved through a real {@link ComponentEpochRegistry}, deduplicated by epoch
+ *       identity across files of the same component — with the exits in a finally
+ *       block that runs even when the hook throws;
+ *   <li>the commit-time mutated-set predicate and registry lifecycle rules hold:
+ *       deleted files bump their owner's epoch, merely-loaded files bump nothing,
+ *       fileId reuse follows the overwritten registration, and a mutated file missing
+ *       from the registry fails the commit loudly (AR-2).
  * </ul>
  */
 public class CommitChangesPageApplyHookTest {
@@ -66,6 +74,14 @@ public class CommitChangesPageApplyHookTest {
   private WriteAheadLog wal;
   private AtomicInteger lsnCounter;
   private AtomicLong fileIdCounter;
+
+  // Real per-storage registry (not uniform()): every file a test creates is explicitly
+  // registered to a component epoch, exercising the same resolution path production
+  // commits take.
+  private ComponentEpochRegistry registry;
+
+  // Default component epoch: files created via the 3-arg setupNewFileWithPages overload
+  // register here, mimicking one storage component owning all of them.
   private ApplyPhaseEpoch epoch;
 
   // Order in which pages hit readCache.loadOrAddForWrite — the authoritative signal of
@@ -80,6 +96,7 @@ public class CommitChangesPageApplyHookTest {
     wal = mock(WriteAheadLog.class);
     lsnCounter = new AtomicInteger(1);
     fileIdCounter = new AtomicLong(100);
+    registry = new ComponentEpochRegistry();
     epoch = new ApplyPhaseEpoch();
     appliedPageOrder = Collections.synchronizedList(new ArrayList<>());
 
@@ -133,10 +150,7 @@ public class CommitChangesPageApplyHookTest {
         new ConcurrentSkipListMap<>(),
         new ConcurrentSkipListMap<>(),
         new AtomicLong(),
-        // Uniform registry: every fileId resolves to the single shared test epoch,
-        // mirroring the pre-per-component (storage-wide) bump semantics these tests
-        // assert on (YTDB-1203 compile adaptation; full test rework tracked separately).
-        ComponentEpochRegistry.uniform(epoch));
+        registry);
     op.startToApplyOperations(42);
     return op;
   }
@@ -148,9 +162,33 @@ public class CommitChangesPageApplyHookTest {
   /**
    * Creates a new durable file with {@code pageCount} changed pages (indexes 0..n-1),
    * registers a logical PageOperation per page, and flushes so every page carries a
-   * changeLSN — the precondition for reaching the commit-time apply loop.
+   * changeLSN — the precondition for reaching the commit-time apply loop. The file is
+   * registered to the default component {@link #epoch}, as the production
+   * StorageComponent funnel would do for the owning component.
    */
   private long setupNewFileWithPages(
+      AtomicOperationBinaryTracking op, String fileName, int pageCount) throws IOException {
+    return setupNewFileWithPages(op, fileName, pageCount, epoch);
+  }
+
+  /**
+   * Variant of {@link #setupNewFileWithPages(AtomicOperationBinaryTracking, String, int)}
+   * registering the file to an explicit component epoch — used by the per-component
+   * granularity tests to simulate files owned by different components.
+   */
+  private long setupNewFileWithPages(
+      AtomicOperationBinaryTracking op, String fileName, int pageCount,
+      ApplyPhaseEpoch componentEpoch) throws IOException {
+    long fileId = setupUnregisteredNewFileWithPages(op, fileName, pageCount);
+    registry.register(fileId, componentEpoch);
+    return fileId;
+  }
+
+  /**
+   * Same file/page setup but WITHOUT registering an epoch for the file — only for the
+   * AR-2 fail-loud test; every other test must register, as the production funnel does.
+   */
+  private long setupUnregisteredNewFileWithPages(
       AtomicOperationBinaryTracking op, String fileName, int pageCount) throws IOException {
     long internalId = fileIdCounter.getAndIncrement();
     long fullFileId = composeFileId(internalId, STORAGE_ID);
@@ -283,8 +321,9 @@ public class CommitChangesPageApplyHookTest {
       Assert.assertEquals(1, epoch.enterSeq());
       Assert.assertEquals(0, epoch.exitSeq());
 
-      // Overlapping reader (a different operation sharing the storage epoch): capture
-      // now → validation must fail deterministically.
+      // Overlapping reader of the SAME component (a different operation that resolved
+      // the mutated file's epoch through the registry): capture now → validation must
+      // fail deterministically.
       var readerScope = new OptimisticReadScope();
       readerScope.reset(epoch);
       try {
@@ -445,10 +484,12 @@ public class CommitChangesPageApplyHookTest {
   }
 
   @Test
-  public void testCommitWithoutHookBumpsEpochExactlyOnce() throws IOException {
-    // The production path (no hook installed) must also bracket the apply section with
-    // exactly one enter/exit pair per commit — one pair for the whole commit, not one
-    // per page or per file.
+  public void testCommitWithoutHookBumpsComponentEpochExactlyOnce() throws IOException {
+    // The production path (no hook installed) must bracket the apply section with
+    // exactly one enter/exit pair per MUTATED COMPONENT. Both files here belong to the
+    // same component (registered to the same epoch instance — the sub-component sharing
+    // shape), so identity dedupe must collapse them into ONE pair for the whole commit,
+    // not one per page or per file.
     var op = createOperation();
     setupNewFileWithPages(op, "no-hook-a.dat", 2);
     setupNewFileWithPages(op, "no-hook-b.dat", 1);
@@ -458,5 +499,240 @@ public class CommitChangesPageApplyHookTest {
     Assert.assertEquals(3, appliedPageOrder.size());
     Assert.assertEquals(1, epoch.enterSeq());
     Assert.assertEquals(1, epoch.exitSeq());
+  }
+
+  @Test
+  public void testTwoComponentCommitBumpsEachComponentEpochOnce() throws IOException {
+    // A commit spanning files of TWO components must bump each component's epoch
+    // exactly once: component A owns two mutated files (deduped to one pair by epoch
+    // identity), component B owns one. This pins the resolved-set semantics of
+    // collectMutatedComponentEpochs — per component, not per commit and not per file.
+    var op = createOperation();
+    var epochA = new ApplyPhaseEpoch();
+    var epochB = new ApplyPhaseEpoch();
+    setupNewFileWithPages(op, "comp-a1.dat", 1, epochA);
+    setupNewFileWithPages(op, "comp-a2.dat", 2, epochA);
+    setupNewFileWithPages(op, "comp-b.dat", 1, epochB);
+
+    Assert.assertNotNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(1, epochA.enterSeq());
+    Assert.assertEquals(1, epochA.exitSeq());
+    Assert.assertEquals(1, epochB.enterSeq());
+    Assert.assertEquals(1, epochB.exitSeq());
+  }
+
+  @Test
+  public void testReaderOfUntouchedComponentSurvivesConcurrentCommitMidApply()
+      throws Exception {
+    // THE per-component granularity payoff (YTDB-1203): a writer thread is paused
+    // mid-apply on component A's file — inside A's epoch bracket, mixed state visible —
+    // while a reader that captured component B's epoch validates successfully, because
+    // the commit never touches B. A reader of A's epoch captured at the same moment
+    // must still fail. Under the old storage-wide epoch both readers failed.
+    var op = createOperation();
+    var epochA = new ApplyPhaseEpoch();
+    var epochB = new ApplyPhaseEpoch();
+    setupNewFileWithPages(op, "touched-a.dat", 2, epochA);
+    // Component B exists in the registry (its file was opened at some point) but the
+    // commit does not mutate it.
+    registry.register(composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID), epochB);
+
+    var midApplyReached = new CountDownLatch(1);
+    var resume = new CountDownLatch(1);
+    op.setPageApplyHook(new PageApplyHook() {
+      @Override
+      public long[] orderPageApplications(long fileId, long[] pageIndexes) {
+        return new long[] {0, 1};
+      }
+
+      @Override
+      public void beforePageApply(long fileId, long pageIndex) {
+        if (pageIndex == 1) {
+          midApplyReached.countDown();
+          try {
+            if (!resume.await(10, TimeUnit.SECONDS)) {
+              throw new IllegalStateException("Timed out waiting for resume signal");
+            }
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+          }
+        }
+      }
+    });
+
+    var writerError = new AtomicReference<Throwable>();
+    var writer = new Thread(() -> {
+      try {
+        op.commitChanges(42L, wal);
+      } catch (Throwable t) {
+        writerError.set(t);
+      }
+    });
+    writer.start();
+
+    try {
+      Assert.assertTrue(
+          "Writer never reached the mid-apply barrier",
+          midApplyReached.await(10, TimeUnit.SECONDS));
+
+      // Writer paused inside A's bracket: A's epoch is mid-apply, B's untouched.
+      Assert.assertEquals(1, epochA.enterSeq());
+      Assert.assertEquals(0, epochA.exitSeq());
+      Assert.assertEquals(0, epochB.enterSeq());
+      Assert.assertEquals(0, epochB.exitSeq());
+
+      // Reader of the UNTOUCHED component B: capture and validation both succeed while
+      // the commit into A is still mid-apply.
+      var readerB = new OptimisticReadScope();
+      readerB.reset(epochB);
+      readerB.validateOrThrow();
+
+      // Reader of the MUTATED component A captured at the same moment must fail.
+      var readerA = new OptimisticReadScope();
+      readerA.reset(epochA);
+      try {
+        readerA.validateOrThrow();
+        Assert.fail("Reader of the mutated component must fail while mid-apply");
+      } catch (OptimisticReadFailedException expected) {
+        // expected — A's apply phase in flight at capture time
+      }
+    } finally {
+      resume.countDown();
+    }
+
+    writer.join(TimeUnit.SECONDS.toMillis(10));
+    Assert.assertFalse("Writer thread did not finish", writer.isAlive());
+    Assert.assertNull("Writer failed: " + writerError.get(), writerError.get());
+
+    // Commit finished: A bumped once, B never touched.
+    Assert.assertEquals(1, epochA.enterSeq());
+    Assert.assertEquals(1, epochA.exitSeq());
+    Assert.assertEquals(0, epochB.enterSeq());
+    Assert.assertEquals(0, epochB.exitSeq());
+  }
+
+  @Test
+  public void testSubComponentFileCommitInvalidatesReaderOfSharedFamilyEpoch()
+      throws IOException {
+    // Sub-component epoch sharing, behavioral half (YTDB-1203): a collection family
+    // registers ALL its files (.pcl data file + .cpm position map + ...) under ONE
+    // shared epoch instance. A reader that captured the family epoch (e.g., while
+    // reading the collection) must be invalidated by a commit that mutates ONLY the
+    // sub-component's file — that is exactly what makes the readRecord .pcl+.cpm
+    // two-file optimistic scope sound under per-component epochs.
+    var op = createOperation();
+    var familyEpoch = new ApplyPhaseEpoch();
+    // .pcl-like file: registered to the family epoch but NOT mutated by this commit.
+    registry.register(composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID),
+        familyEpoch);
+    // .cpm-like file: same family epoch, mutated below.
+    setupNewFileWithPages(op, "family.cpm", 1, familyEpoch);
+
+    var reader = new OptimisticReadScope();
+    reader.reset(familyEpoch); // reader captured the family epoch pre-commit
+
+    Assert.assertNotNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(1, familyEpoch.enterSeq());
+    Assert.assertEquals(1, familyEpoch.exitSeq());
+    try {
+      reader.validateOrThrow();
+      Assert.fail("Commit on the sub-component file must invalidate the family reader");
+    } catch (OptimisticReadFailedException expected) {
+      // expected — the family epoch moved since the reader's capture
+    }
+  }
+
+  @Test
+  public void testDeletingCommitBumpsDeletedFilesComponentEpoch() throws IOException {
+    // Delete-bump ordering (YTDB-1203): a commit whose deletedFiles set contains file F
+    // must resolve F through the registry and bump F's owner epoch. This only works
+    // because registry entries are NEVER removed — the owning component is unregistered
+    // from storage maps before the deleting commit applies, so a remove-on-drop registry
+    // would make this very commit miss its own bump.
+    var op = createOperation();
+    var victimEpoch = new ApplyPhaseEpoch();
+    long victimFileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    registry.register(victimFileId, victimEpoch);
+    when(writeCache.fileNameById(victimFileId)).thenReturn("victim.dat");
+
+    // Delete a PRE-EXISTING file (not created inside this operation): lands in
+    // deletedFiles rather than just dropping an in-TX fileChanges entry.
+    op.deleteFile(victimFileId);
+
+    Assert.assertNotNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(1, victimEpoch.enterSeq());
+    Assert.assertEquals(1, victimEpoch.exitSeq());
+  }
+
+  @Test
+  public void testFileIdReuseFollowsOverwrittenRegistration() throws IOException {
+    // FileId-reuse overwrite (YTDB-1203): re-registering an existing fileId (the disk
+    // engine reuses the internal id on same-name delete+recreate) must overwrite the
+    // mapping — a subsequent commit mutating that fileId bumps ONLY the new owner's
+    // epoch; the dead component's epoch stays untouched.
+    var op = createOperation();
+    var oldOwnerEpoch = new ApplyPhaseEpoch();
+    var newOwnerEpoch = new ApplyPhaseEpoch();
+    long fileId = setupNewFileWithPages(op, "reused.dat", 1, oldOwnerEpoch);
+    // The recreated component re-registers the same fileId before the commit applies.
+    registry.register(fileId, newOwnerEpoch);
+
+    Assert.assertNotNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(0, oldOwnerEpoch.enterSeq());
+    Assert.assertEquals(0, oldOwnerEpoch.exitSeq());
+    Assert.assertEquals(1, newOwnerEpoch.enterSeq());
+    Assert.assertEquals(1, newOwnerEpoch.exitSeq());
+  }
+
+  @Test
+  public void testCommitFailsLoudWhenMutatedFileMissingFromRegistry() throws IOException {
+    // AR-2 fail-loud contract: a mutated fileId with no registry entry must abort the
+    // commit with an IllegalStateException naming the fileId — silently skipping the
+    // bump would leave that component's optimistic readers permanently unprotected
+    // against this commit's apply phase.
+    var op = createOperation();
+    long fileId = setupUnregisteredNewFileWithPages(op, "behind-funnel.dat", 1);
+
+    try {
+      op.commitChanges(42L, wal);
+      Assert.fail("Expected IllegalStateException for the unregistered mutated file");
+    } catch (IllegalStateException e) {
+      Assert.assertTrue(
+          "Message should name the unregistered fileId: " + e.getMessage(),
+          e.getMessage().contains(String.valueOf(fileId)));
+      Assert.assertTrue(
+          "Message should point at the component funnel: " + e.getMessage(),
+          e.getMessage().contains("StorageComponent.addFile/openFile funnel"));
+    }
+
+    // The resolution failure happens BEFORE any epoch is entered — nothing was applied
+    // to the shared cache and no bracket was left open.
+    Assert.assertEquals(0, appliedPageOrder.size());
+  }
+
+  @Test
+  public void testReadOnlyLoadedFileDoesNotBumpItsEpoch() throws IOException {
+    // Mutated-set predicate: a file that was merely LOADED by the operation (present in
+    // fileChanges with an empty change set — the read-only shape) is not part of the
+    // apply section, so its component epoch must NOT be bumped; bumping it would
+    // spuriously invalidate every overlapping optimistic read of that component.
+    var op = createOperation();
+    var readOnlyEpoch = new ApplyPhaseEpoch();
+    long loadedFileId = composeFileId(fileIdCounter.getAndIncrement(), STORAGE_ID);
+    when(writeCache.loadFile("read-only.dat")).thenReturn(loadedFileId);
+    registry.register(loadedFileId, readOnlyEpoch);
+
+    Assert.assertEquals(loadedFileId, op.loadFile("read-only.dat"));
+
+    // Pure read-only commit: nothing to apply, no WAL unit — and no bump.
+    Assert.assertNull(op.commitChanges(42L, wal));
+
+    Assert.assertEquals(0, readOnlyEpoch.enterSeq());
+    Assert.assertEquals(0, readOnlyEpoch.exitSeq());
   }
 }

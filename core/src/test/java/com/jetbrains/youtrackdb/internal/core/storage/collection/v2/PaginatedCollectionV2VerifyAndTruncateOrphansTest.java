@@ -8,6 +8,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -16,6 +17,7 @@ import com.jetbrains.youtrackdb.internal.common.directmemory.DirectMemoryAllocat
 import com.jetbrains.youtrackdb.internal.common.function.TxConsumer;
 import com.jetbrains.youtrackdb.internal.core.db.record.CurrentStorageComponentsFactory;
 import com.jetbrains.youtrackdb.internal.core.serialization.serializer.binary.BinarySerializerFactory;
+import com.jetbrains.youtrackdb.internal.core.storage.cache.ApplyPhaseEpoch;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntry;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CacheEntryImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.cache.CachePointer;
@@ -31,6 +33,7 @@ import java.util.Map;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.invocation.InvocationOnMock;
 
 /**
@@ -71,6 +74,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   private ReadCache mockReadCache;
   private WriteCache mockWriteCache;
   private AbstractStorage mockStorage;
+  private AtomicOperationsManager mockAtomicOperationsManager;
   private AtomicOperation atomicOperation;
 
   // Per-file page count + page-pointer map so reads/writes against the same
@@ -89,7 +93,7 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
     when(mockWriteCache.pageSize()).thenReturn(PAGE_SIZE_BYTES);
     mockStorage = mock(AbstractStorage.class);
 
-    var mockAtomicOperationsManager = mock(AtomicOperationsManager.class);
+    mockAtomicOperationsManager = mock(AtomicOperationsManager.class);
     // PCV2.create() routes through executeInsideComponentOperation; install an
     // Answer that runs the consumer so create()'s body actually executes (otherwise
     // PCV2.fileId stays at 0 and the helper would read a fileId=0 file).
@@ -135,6 +139,32 @@ public class PaginatedCollectionV2VerifyAndTruncateOrphansTest {
   public void createLeavesCollectionInExpectedShape() throws IOException {
     assertThat(collection.getFileId()).isEqualTo(FILE_ID);
     assertThat(readFileSizeFromStatePage()).isEqualTo(0);
+  }
+
+  // Sub-component epoch sharing (YTDB-1203), structural half: PCV2's create() must
+  // register its own .pcl file AND all three sub-component files (.cpm/.fsm/.dpb)
+  // under ONE ApplyPhaseEpoch INSTANCE — the collection's own — because readRecord
+  // spans .pcl + .cpm pages in a single optimistic scope that validates exactly one
+  // epoch per attempt. Verified through the production registration funnel
+  // (AtomicOperationsManager.registerComponentEpoch), i.e., exactly what a real
+  // storage's registry would end up containing. The behavioral half (a commit on the
+  // sub-component file invalidating a family-epoch reader) is pinned in
+  // CommitChangesPageApplyHookTest.testSubComponentFileCommitInvalidatesReaderOfSharedFamilyEpoch.
+  @Test
+  public void createRegistersAllFamilyFilesUnderOneSharedEpoch() {
+    var fileIdCaptor = ArgumentCaptor.forClass(Long.class);
+    var epochCaptor = ArgumentCaptor.forClass(ApplyPhaseEpoch.class);
+    verify(mockAtomicOperationsManager, times(4))
+        .registerComponentEpoch(fileIdCaptor.capture(), epochCaptor.capture());
+
+    assertThat(fileIdCaptor.getAllValues())
+        .containsExactlyInAnyOrder(FILE_ID, CPM_FILE_ID, FSM_FILE_ID, DPB_FILE_ID);
+
+    var epochs = epochCaptor.getAllValues();
+    var familyEpoch = epochs.get(0);
+    for (var epoch : epochs) {
+      assertThat(epoch).isSameAs(familyEpoch);
+    }
   }
 
   // Orphan-present branch: bump the state page's fileSize to a non-zero value and

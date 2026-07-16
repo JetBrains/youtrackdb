@@ -51,15 +51,20 @@ public final class OptimisticReadScope {
   private long enterSeqAtCapture;
   private long exitSeqAtCapture;
 
-  // Nesting-detection state (-ea builds only). attemptActive is flipped exclusively
+  // Attempt-protocol state (-ea builds only). attemptActive is flipped exclusively
   // by enterAttempt()/exitAttempt(), which are invoked from assert statements in
   // StorageComponent.executeOptimisticStorageRead — with assertions disabled neither
   // runs and both fields stay false, so production builds pay only the dead branch
-  // in reset(). A nested executeOptimisticStorageRead call inside an optimistic
-  // lambda would wipe the outer scope's stamps via reset(), silently voiding the
-  // outer validation; this state machine surfaces that as an AssertionError.
+  // in reset(). attemptViolationDetected is the general violation latch: any -ea
+  // check that fires INSIDE an optimistic lambda has its AssertionError swallowed by
+  // the fallback catch, so it latches here instead and the attempt-closing
+  // exitAttempt() assert surfaces the violation to the caller. Latched violations:
+  // a nested executeOptimisticStorageRead call (would wipe the outer scope's stamps
+  // via reset(), silently voiding the outer validation) and an epoch-coverage breach
+  // (a page recorded or pinned-read during the attempt whose file is guarded by a
+  // different component's epoch — see the guards in StorageComponent, YTDB-1203).
   private boolean attemptActive;
-  private boolean nestedResetDetected;
+  private boolean attemptViolationDetected;
 
   /**
    * Creates an empty scope. No epoch is bound at construction — production readers
@@ -155,7 +160,7 @@ public final class OptimisticReadScope {
     // belongs to a nested attempt that is about to wipe the outer scope's stamps.
     // Record the violation; the outer exitAttempt() assert will surface it.
     if (attemptActive) {
-      nestedResetDetected = true;
+      attemptViolationDetected = true;
     }
 
     // Capture the epoch. Exit is read BEFORE enter deliberately: if the two values are
@@ -183,7 +188,7 @@ public final class OptimisticReadScope {
       // The AssertionError raised here (inside the outer optimistic lambda) is
       // swallowed by the outer fallback catch, so the latch is what actually
       // surfaces the bug to the caller.
-      nestedResetDetected = true;
+      attemptViolationDetected = true;
       return false;
     }
     attemptActive = true;
@@ -191,17 +196,31 @@ public final class OptimisticReadScope {
   }
 
   /**
+   * Latches an attempt-protocol violation detected while the current optimistic
+   * attempt is in flight (-ea builds only — called exclusively from the boolean
+   * helpers behind {@code assert} statements in {@code StorageComponent}). Used by the
+   * YTDB-1203 epoch-coverage guards: their AssertionError fires inside the optimistic
+   * lambda and is swallowed by the fallback catch, so the latch makes the
+   * attempt-closing {@link #exitAttempt()} assert fail instead, surfacing the
+   * violation to the caller (the same mechanism nested-attempt detection uses).
+   */
+  public void markAttemptViolation() {
+    attemptViolationDetected = true;
+  }
+
+  /**
    * Marks the end of an optimistic read attempt (successful or falling back). Called only
    * via {@code assert} from {@code StorageComponent.executeOptimisticStorageRead}.
    * Returns {@code false} — failing the assert — if the attempt was not well-formed:
-   * either it was never entered, or a nested reset was detected while it was in flight.
-   * Clears the detection state so a subsequent pinned fallback that legitimately starts
-   * a fresh optimistic read does not trip a stale flag.
+   * either it was never entered, or a violation (nested attempt/reset, epoch-coverage
+   * breach) was latched while it was in flight. Clears the detection state so a
+   * subsequent pinned fallback that legitimately starts a fresh optimistic read does
+   * not trip a stale flag.
    */
   public boolean exitAttempt() {
-    final boolean wellFormed = attemptActive && !nestedResetDetected;
+    final boolean wellFormed = attemptActive && !attemptViolationDetected;
     attemptActive = false;
-    nestedResetDetected = false;
+    attemptViolationDetected = false;
     return wellFormed;
   }
 

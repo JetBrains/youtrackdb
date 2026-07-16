@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.storage.cache;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.fail;
 
 import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
@@ -19,8 +20,9 @@ import org.junit.Test;
  * Covers: record/validate happy path, validateOrThrow on invalid stamp, validateLastOrThrow,
  * reset clears state, grow on overflow, empty scope validates, cross-thread stamp
  * invalidation via PageFrame exclusive lock (review finding R2), and the interplay of
- * per-page stamps with the apply-phase epoch check (YTDB-1178) — see
- * {@link ApplyPhaseEpochTest} for the pure epoch protocol.
+ * per-page stamps with the per-component apply-phase epoch check (YTDB-1178 /
+ * YTDB-1203), including {@code reset(epoch)} rebinding one scope to different component
+ * epochs across attempts — see {@link ApplyPhaseEpochTest} for the pure epoch protocol.
  */
 public class OptimisticReadScopeTest {
 
@@ -258,6 +260,49 @@ public class OptimisticReadScopeTest {
     } finally {
       epoch.exitApplyPhase();
     }
+
+    releaseFrame(frame);
+  }
+
+  @Test
+  public void testSequentialResetsRebindScopeToDifferentComponentEpochs() {
+    // One scope object serves consecutive attempts on DIFFERENT components within the
+    // same atomic operation (YTDB-1203): each reset(epoch) must rebind validation to
+    // the epoch passed for THAT attempt. Bumps on an epoch the scope is NOT currently
+    // bound to must be invisible; bumps on the currently bound one must fail
+    // validation — and rebinding away from a bumped epoch must clear its effect.
+    var epochA = new ApplyPhaseEpoch();
+    var epochB = new ApplyPhaseEpoch();
+    var scope = new OptimisticReadScope();
+    var frame = pool.acquire(true, Intention.TEST);
+
+    // Attempt 1: bound to A. A completed apply on B mid-read is another component's
+    // business — validation must pass.
+    scope.reset(epochA);
+    assertSame(epochA, scope.capturedEpoch());
+    scope.record(frame, frame.tryOptimisticRead());
+    epochB.enterApplyPhase();
+    epochB.exitApplyPhase();
+    scope.validateOrThrow();
+
+    // Attempt 2: rebound to B. Now an apply entering on B must fail validation.
+    scope.reset(epochB);
+    assertSame(epochB, scope.capturedEpoch());
+    scope.record(frame, frame.tryOptimisticRead());
+    epochB.enterApplyPhase();
+    try {
+      scope.validateOrThrow();
+      fail("Expected OptimisticReadFailedException — bound epoch B moved mid-read");
+    } catch (OptimisticReadFailedException expected) {
+      // expected — the scope is now bound to B
+    }
+    epochB.exitApplyPhase();
+
+    // Attempt 3: rebound back to A. B's counters moved since attempt 1, but that is
+    // irrelevant now — the fresh capture of quiescent A passes.
+    scope.reset(epochA);
+    scope.record(frame, frame.tryOptimisticRead());
+    scope.validateOrThrow();
 
     releaseFrame(frame);
   }
