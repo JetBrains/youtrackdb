@@ -286,4 +286,29 @@ public class IndexOverlayTest {
     assertTrue("a tx-created index with no class must not appear in any class's effective set",
         effective.isEmpty());
   }
+
+  /**
+   * Dropping an index purges its recorded membership deltas (both categories): the deltas are moot
+   * once their target is dropped, and an unpurged add would make the commit's enroll phase re-write
+   * the index metadata record the dropped loop already deleted (failing a legal same-tx sequence
+   * with a record-not-found error), while the enroll-phase membership guards would then reject the
+   * commit outright. Deltas of other indexes are untouched.
+   */
+  @Test
+  public void recordDroppedPurgesMembershipDeltasForTheDroppedName() {
+    var overlay = new IndexOverlay();
+    overlay.recordMembershipAdded("Dropped.idx", "c1");
+    overlay.recordMembershipRemoved("Dropped.idx", "c2");
+    overlay.recordMembershipAdded("Kept.idx", "c3");
+
+    overlay.recordDropped("Dropped.idx");
+
+    assertNull("the dropped index's membership adds must be purged",
+        overlay.getMembershipAdded().get("Dropped.idx"));
+    assertNull("the dropped index's membership removes must be purged",
+        overlay.getMembershipRemoved().get("Dropped.idx"));
+    assertTrue("the drop itself must still be recorded", overlay.isTxDropped("Dropped.idx"));
+    assertEquals("other indexes' membership deltas must be untouched",
+        java.util.Set.of("c3"), overlay.getMembershipAdded().get("Kept.idx"));
+  }
 }

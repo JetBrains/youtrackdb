@@ -24,6 +24,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -31,13 +32,16 @@ import com.jetbrains.youtrackdb.api.config.GlobalConfiguration;
 import com.jetbrains.youtrackdb.api.exception.RecordDuplicatedException;
 import com.jetbrains.youtrackdb.internal.DbTestBase;
 import com.jetbrains.youtrackdb.internal.core.exception.CommandInterruptedException;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.PropertyTypeInternal;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.storage.impl.local.AbstractStorage;
+import com.jetbrains.youtrackdb.internal.core.tx.FrontendTransactionImpl;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -1118,6 +1122,346 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
     var rids = session.computeInTx(tx -> reloadedIndex.getRids(session, "detachedValue").toList());
     assertTrue("a lookup through the parent index must not return the detached class's rows",
         rids.isEmpty());
+  }
+
+  /**
+   * A membership ripple recorded for an index that is dropped later in the SAME transaction is
+   * moot and must not break the commit: creating a subclass under an indexed parent records a
+   * membership add for the parent index into the overlay, and the subsequent same-tx drop of that
+   * index must purge the delta. Without the purge the enroll phase's membership apply re-writes
+   * the index's metadata record AFTER the dropped loop already deleted it, failing the commit with
+   * a record-not-found-family error — a legal DDL sequence turned into a commit failure.
+   */
+  @Test
+  public void sameTxMembershipRippleThenIndexDropCommitsCleanly() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("RippleDropParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "RippleDropParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    // One transaction: the subclass create ripples a membership add for the parent index, then
+    // the index itself is dropped. The commit must succeed cleanly.
+    session.executeInTx(
+        tx -> {
+          var s = session.getMetadata().getSchema();
+          s.createClass("RippleDropChild", s.getClass("RippleDropParent"));
+          indexManager.dropIndex(session, indexName);
+        });
+
+    assertFalse("the dropped index must be gone after the commit",
+        indexManager.existsIndex(indexName));
+    // The subclass itself must have committed (the drop invalidated only the index delta).
+    assertNotNull("the subclass must survive the commit",
+        session.getMetadata().getSchema().getClass("RippleDropChild"));
+
+    // Durable arm: re-parse the persisted index-manager state and reopen.
+    session.getSharedContext().getIndexManager().reload(session);
+    reOpen("admin", ADMIN_PASSWORD);
+    assertFalse("the dropped index must stay gone after a reload",
+        session.getSharedContext().getIndexManager().existsIndex(indexName));
+  }
+
+  /**
+   * Builds a deferred (unbuilt, unregistered) index handle carrying the given definition and
+   * covered-collection names, the shape a tx-created index has between create and commit. Used by
+   * the commit-window guard tests to inject invariant-violating handles (a bogus collection name,
+   * a null definition) that no supported flow can produce, so the new fail-loud guards are
+   * exercisable at all.
+   */
+  private IndexAbstract deferredHandle(
+      String name, IndexDefinition definition, Set<String> collections) {
+    var algorithm = Indexes.chooseDefaultIndexAlgorithm("NOTUNIQUE");
+    var handle = (IndexAbstract) Indexes.createIndexInstance("NOTUNIQUE", algorithm, storage());
+    handle.markDeferred(
+        new IndexMetadata(name, definition, collections, "NOTUNIQUE", algorithm, -1, null));
+    return handle;
+  }
+
+  /** Walks the cause chain looking for a message containing {@code fragment}. */
+  private static boolean chainContainsMessage(Throwable thrown, String fragment) {
+    for (var cause = thrown; cause != null;
+        cause = cause.getCause() == cause ? null : cause.getCause()) {
+      if (cause.getMessage() != null && cause.getMessage().contains(fragment)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The enroll phase fails the commit loudly when a tx-dropped index name no longer resolves to a
+   * committed registry entry — instead of silently skipping, which would commit the transaction
+   * with the index fully alive and stale (the engine deletion and registry removal all key off the
+   * plan entry the skip would omit). The invariant is normally protected by the metadata-write
+   * mutex; the one reachable breach is the legacy non-transactional dropIndex path, which removes
+   * the registry entry without engaging the mutex — exactly what this test drives from a second
+   * session while the first session's transactional drop is still uncommitted.
+   */
+  @Test
+  public void commitFailsLoudlyWhenTxDroppedIndexVanishesFromRegistry() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("DropVanishTarget");
+    cls.createProperty("name", PropertyType.STRING);
+    var indexName = "DropVanishTarget.name";
+    cls.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    session.getSharedContext().getIndexManager().dropIndex(session, indexName);
+
+    // The mutex bypass: a second session's legacy (non-transactional) drop removes the committed
+    // registry entry and deletes the engine while the first session's drop is still tx-local.
+    var other = openDatabase();
+    try {
+      other.activateOnCurrentThread();
+      other.getSharedContext().getIndexManager().dropIndex(other, indexName);
+    } finally {
+      other.activateOnCurrentThread();
+      other.close();
+      session.activateOnCurrentThread();
+    }
+
+    try {
+      session.commit();
+      fail("the commit must fail loudly when the tx-dropped index vanished from the registry");
+    } catch (final RuntimeException e) {
+      assertTrue("the failure must name the vanished tx-dropped index, got: " + e,
+          chainContainsMessage(e, "tx-dropped index '" + indexName + "'"));
+    }
+  }
+
+  /**
+   * The membership-add enroll loop fails the commit loudly when its target index no longer
+   * resolves to a committed registry entry (same legacy-bypass seam as the tx-dropped guard test).
+   * A silent skip would ship a parent index that never gains the subclass collection — silently
+   * missed polymorphic query rows. The ripple is recorded by creating a subclass under the indexed
+   * parent inside the transaction; the second session then legacy-drops the parent index before
+   * the commit.
+   */
+  @Test
+  public void commitFailsLoudlyWhenMembershipAddTargetVanishesFromRegistry() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("MemVanishParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "MemVanishParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    session.getMetadata().getSchema()
+        .createClass("MemVanishChild",
+            session.getMetadata().getSchema().getClass("MemVanishParent"));
+
+    var other = openDatabase();
+    try {
+      other.activateOnCurrentThread();
+      other.getSharedContext().getIndexManager().dropIndex(other, indexName);
+    } finally {
+      other.activateOnCurrentThread();
+      other.close();
+      session.activateOnCurrentThread();
+    }
+
+    try {
+      session.commit();
+      fail("the commit must fail loudly when a membership-add target vanished from the registry");
+    } catch (final RuntimeException e) {
+      assertTrue("the failure must name the vanished membership-add target, got: " + e,
+          chainContainsMessage(e, "membership add for index '" + indexName + "'"));
+    }
+  }
+
+  /**
+   * The membership-remove enroll loop's mirror guard: a committed subclass is detached inside the
+   * transaction (recording a membership removal for the parent index), the second session
+   * legacy-drops the parent index, and the commit must fail loudly naming the vanished target
+   * rather than silently skipping — which would leave a phantom stale membership durably covering
+   * the detached collection.
+   */
+  @Test
+  public void commitFailsLoudlyWhenMembershipRemoveTargetVanishesFromRegistry() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("MemRVanishParent");
+    parent.createProperty("name", PropertyType.STRING);
+    var indexName = "MemRVanishParent.name";
+    parent.createIndex(indexName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    // A committed subclass, so the detach ripples a plain committed-collection membership removal.
+    schema.createClass("MemRVanishChild", schema.getClass("MemRVanishParent"));
+
+    session.begin();
+    session.getMetadata().getSchema().getClass("MemRVanishChild")
+        .removeSuperClass(session.getMetadata().getSchema().getClass("MemRVanishParent"));
+
+    var other = openDatabase();
+    try {
+      other.activateOnCurrentThread();
+      other.getSharedContext().getIndexManager().dropIndex(other, indexName);
+    } finally {
+      other.activateOnCurrentThread();
+      other.close();
+      session.activateOnCurrentThread();
+    }
+
+    try {
+      session.commit();
+      fail(
+          "the commit must fail loudly when a membership-remove target vanished from the registry");
+    } catch (final RuntimeException e) {
+      assertTrue("the failure must name the vanished membership-remove target, got: " + e,
+          chainContainsMessage(e, "membership remove for index '" + indexName + "'"));
+    }
+  }
+
+  /**
+   * The enroll-phase emptiness bound fails the commit loudly when a tx-created handle covers a
+   * collection name that does not resolve post-reconciliation — instead of silently skipping the
+   * name, which would bypass both count stages and ship a committed index silently missing that
+   * collection's rows. No supported flow produces such a handle (the deferred create resolves
+   * every name through the shared provisional-aware resolver), so the test injects one directly
+   * into the overlay. The failed commit must also leave no phantom index behind.
+   */
+  @Test
+  public void commitFailsLoudlyOnUnresolvableCoveredCollectionAtEnroll() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("SeamDefClass");
+    cls.createProperty("name", PropertyType.STRING);
+
+    session.begin();
+    // A small genuine schema write seeds the tx-local state the injection needs.
+    session.getMetadata().getSchema().createClass("SeamHostClass");
+    var handle =
+        deferredHandle(
+            "SeamBrokenCover.idx",
+            new PropertyIndexDefinition("SeamDefClass", "name", PropertyTypeInternal.STRING),
+            Set.of("no_such_collection"));
+    session.getTxSchemaState().ensureIndexOverlay().recordCreated(handle);
+
+    try {
+      session.commit();
+      fail("the commit must fail loudly on an unresolvable covered collection");
+    } catch (final RuntimeException e) {
+      assertTrue("the failure must name the unresolvable collection, got: " + e,
+          chainContainsMessage(e, "'no_such_collection'"));
+    }
+    assertFalse("the failed commit must leave no phantom index",
+        session.getSharedContext().getIndexManager().existsIndex("SeamBrokenCover.idx"));
+    assertFalse("the failed commit must roll back the tx-created class",
+        session.getMetadata().getSchema().existsClass("SeamHostClass"));
+  }
+
+  /**
+   * The enroll-phase emptiness bound fails the commit loudly on a definition-less tx-created
+   * handle (an invariant violation — manual indexes are rejected at create) instead of silently
+   * waiving the bound and later committing a completely empty index.
+   */
+  @Test
+  public void commitFailsLoudlyOnDefinitionlessTxCreatedHandle() {
+    session.begin();
+    session.getMetadata().getSchema().createClass("NoDefHostClass");
+    var handle = deferredHandle("NoDefSeam.idx", null, Set.of());
+    session.getTxSchemaState().ensureIndexOverlay().recordCreated(handle);
+
+    try {
+      session.commit();
+      fail("the commit must fail loudly on a definition-less tx-created handle");
+    } catch (final RuntimeException e) {
+      assertTrue("the failure must name the definition-less handle, got: " + e,
+          chainContainsMessage(e, "carries no definition at commit time"));
+    }
+    assertFalse("the failed commit must leave no phantom index",
+        session.getSharedContext().getIndexManager().existsIndex("NoDefSeam.idx"));
+  }
+
+  /**
+   * The commit-time population's coverage-set build throws (rather than silently dropping the
+   * collection from the coverage set, which would build an index missing that collection's rows)
+   * when a covered name does not resolve. Unreachable end-to-end because the enroll-phase bound
+   * throws first for the same handle, so the guard is exercised by calling the package-private
+   * population step directly with an injected broken handle — defense in depth across the two
+   * phases.
+   */
+  @Test
+  public void populateThrowsOnUnresolvableCoveredCollection() {
+    session.begin();
+    try {
+      var handle =
+          deferredHandle(
+              "PopulateBroken.idx",
+              new PropertyIndexDefinition("Whatever", "name", PropertyTypeInternal.STRING),
+              Set.of("no_such_collection"));
+      var transaction = (FrontendTransactionImpl) session.getTransactionInternal();
+      var manager = session.getSharedContext().getIndexManager();
+      var thrown =
+          assertThrows(IndexException.class,
+              () -> manager.populateTxCreatedIndex(session, transaction, handle));
+      assertTrue("the failure must name the unresolvable collection, got: " + thrown,
+          thrown.getMessage().contains("'no_such_collection'"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * The commit-time population throws on a definition-less handle instead of returning silently —
+   * a silent return would commit a completely empty index. Direct-call seam for the same reason as
+   * the sibling coverage-guard test (the enroll-phase guard shadows this one end-to-end).
+   */
+  @Test
+  public void populateThrowsOnDefinitionlessHandle() {
+    session.begin();
+    try {
+      var handle = deferredHandle("PopulateNoDef.idx", null, Set.of());
+      var transaction = (FrontendTransactionImpl) session.getTransactionInternal();
+      var manager = session.getSharedContext().getIndexManager();
+      var thrown =
+          assertThrows(IllegalStateException.class,
+              () -> manager.populateTxCreatedIndex(session, transaction, handle));
+      assertTrue("the failure must name the definition-less handle, got: " + thrown,
+          thrown.getMessage().contains("carries no definition at commit-time build"));
+    } finally {
+      session.rollback();
+    }
+  }
+
+  /**
+   * The commit-time population throws on a COVERED row whose RID is still non-persistent (an
+   * apply-phase invariant violation — indexing it would store a temporary RID as the index value,
+   * skipping it would drop the row from the index). The coverage check runs first, so the guard is
+   * probed mid-transaction: a fresh entity of a committed covered class carries the real
+   * collection id with a temporary position, exactly the covered-but-non-persistent shape.
+   */
+  @Test
+  public void populateThrowsOnCoveredNonPersistentRid() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("RidGuardClass");
+    cls.createProperty("name", PropertyType.STRING);
+    // Cover ALL the class's collections: the collection-selection strategy may assign the fresh
+    // entity to any of them, and the guard only fires for a COVERED non-persistent RID.
+    var collectionNames = new HashSet<String>();
+    for (var collectionId : session.getMetadata().getSchema().getClass("RidGuardClass")
+        .getCollectionIds()) {
+      collectionNames.add(session.getCollectionNameById(collectionId));
+    }
+
+    session.begin();
+    try {
+      var row = (EntityImpl) session.newEntity("RidGuardClass");
+      row.setProperty("name", "pending");
+      var handle =
+          deferredHandle(
+              "RidGuard.idx",
+              new PropertyIndexDefinition("RidGuardClass", "name", PropertyTypeInternal.STRING),
+              collectionNames);
+      var transaction = (FrontendTransactionImpl) session.getTransactionInternal();
+      var manager = session.getSharedContext().getIndexManager();
+      var thrown =
+          assertThrows(IllegalStateException.class,
+              () -> manager.populateTxCreatedIndex(session, transaction, handle));
+      assertTrue("the failure must name the non-persistent covered RID, got: " + thrown,
+          thrown.getMessage().contains("non-persistent RID"));
+    } finally {
+      session.rollback();
+    }
   }
 
   /**

@@ -124,6 +124,13 @@ public final class IndexOverlay {
    * @param indexName the dropped index's name.
    */
   public void recordDropped(@Nonnull String indexName) {
+    // Membership deltas recorded for the dropped name are moot: the commit's enroll phase deletes
+    // the dropped index's metadata record before the membership loops run, so an unpurged delta
+    // would re-write that just-deleted record and fail the commit with a record-not-found error on
+    // a perfectly legal same-tx sequence (e.g. create a subclass under an indexed parent — which
+    // ripples a membership add for the parent index — then drop that index).
+    membershipAdded.remove(indexName);
+    membershipRemoved.remove(indexName);
     if (txCreated.remove(indexName) != null) {
       // A create-then-drop within the same transaction: the index never reached the shared manager,
       // so there is nothing to hide or to delete at commit. Removing the tx-created entry is enough.
