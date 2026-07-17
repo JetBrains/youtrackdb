@@ -240,6 +240,72 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   // -----------------------------------------------------------------------
+  //  getClassIndex (overlay-routed)
+  // -----------------------------------------------------------------------
+
+  /**
+   * An index created inside the open transaction is visible through getClassIndex within that
+   * transaction — the lookup answers from the tx-effective view, not the committed-only registry.
+   */
+  @Test
+  public void getClassIndex_txCreatedIndex_visibleWithinTx() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var createdName = CLS + ".name";
+
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(createdName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var inTx = mgr.getClassIndex(session, CLS, createdName);
+    assertNotNull("a tx-created index must be visible via getClassIndex within the tx", inTx);
+    assertEquals(createdName, inTx.getName());
+    assertNull("the tx-created index must not answer for a different class",
+        mgr.getClassIndex(session, "WrongClass", createdName));
+    session.rollback();
+
+    assertNull("the rolled-back create must leave nothing",
+        mgr.getClassIndex(session, CLS, createdName));
+  }
+
+  /**
+   * An index dropped inside the open transaction is invisible through getClassIndex within that
+   * transaction, even though the shared committed registry still holds it until commit.
+   */
+  @Test
+  public void getClassIndex_txDroppedIndex_invisibleWithinTx() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    mgr.dropIndex(session, IDX);
+    assertNull("a tx-dropped index must be invisible via getClassIndex within the tx",
+        mgr.getClassIndex(session, CLS, IDX));
+    session.rollback();
+
+    assertNotNull("the rolled-back drop must leave the committed index visible again",
+        mgr.getClassIndex(session, CLS, IDX));
+  }
+
+  /**
+   * A class renamed inside the open transaction resolves its committed index through
+   * getClassIndex under the NEW class name (the D17 rename map) and no longer under the old one.
+   */
+  @Test
+  public void getClassIndex_renamedClass_resolvesUnderNewNameOnly() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS).setName("ImeRenamed");
+    var underNew = mgr.getClassIndex(session, "ImeRenamed", IDX);
+    assertNotNull("the committed index must resolve under the renamed class name", underNew);
+    assertEquals(IDX, underNew.getName());
+    assertNull("the old class name must no longer resolve the index",
+        mgr.getClassIndex(session, CLS, IDX));
+    session.rollback();
+
+    assertNotNull("the rolled-back rename must restore the old-name resolution",
+        mgr.getClassIndex(session, CLS, IDX));
+  }
+
+  // -----------------------------------------------------------------------
   //  dropIndex
   // -----------------------------------------------------------------------
 
