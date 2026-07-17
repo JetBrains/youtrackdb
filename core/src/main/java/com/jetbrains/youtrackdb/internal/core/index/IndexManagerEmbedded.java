@@ -481,6 +481,44 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   /**
+   * Overlay-aware lookup of one class-owned index by (class, index) name pair: a tx-dropped name
+   * answers absent, a tx-created handle answers when its definition names the requested class
+   * (handles always carry their class's current tx-local name — the eager rename fix), and the
+   * committed substrate resolves through the D17 rename map like the sibling read paths: a class
+   * name renamed AWAY no longer owns its committed index, and a name renamed TO also owns the
+   * committed index still associated under the pre-rename name. Outside a schema/index
+   * transaction it is the committed behaviour unchanged.
+   */
+  @Override
+  @Nullable public Index getClassIndex(
+      DatabaseSessionEmbedded session, String className, String indexName) {
+    final var overlay = activeOverlay(session);
+    if (overlay == null) {
+      return super.getClassIndex(session, className, indexName);
+    }
+    if (overlay.isTxDropped(indexName)) {
+      return null;
+    }
+    final var created = overlay.getTxCreated(indexName);
+    if (created != null) {
+      final var definition = created.getDefinition();
+      return definition != null && className.equals(definition.getClassName()) ? created : null;
+    }
+    if (overlay.isClassRenamedAway(className)) {
+      // The committed entries under className belong to the class that moved away; only a class
+      // renamed TO className may answer for it.
+      final var renameSource = overlay.getClassRenameSource(className);
+      return renameSource == null ? null : super.getClassIndex(session, renameSource, indexName);
+    }
+    final var committed = super.getClassIndex(session, className, indexName);
+    if (committed != null) {
+      return committed;
+    }
+    final var renameSource = overlay.getClassRenameSource(className);
+    return renameSource == null ? null : super.getClassIndex(session, renameSource, indexName);
+  }
+
+  /**
    * Overlay-aware enumeration of every index: the transaction's effective view is the committed
    * registry minus the names this transaction dropped plus the deferred handles it created.
    * Returns a materialized copy, so callers that drop while iterating (SQL {@code DROP INDEX *})

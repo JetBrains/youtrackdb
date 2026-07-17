@@ -152,13 +152,12 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
   }
 
   /**
-   * COMMITTED-ONLY lookup of one class-owned index by (class, index) name pair — not overlay
-   * routed: inside a schema/index transaction it does not see tx-created indexes, still sees
-   * tx-dropped ones, and knows nothing of same-tx class renames. Kept for the legacy test suites
-   * that consume it against committed state; production code has no callers and new code should
-   * use the session-aware lookups ({@code getClassIndexes(session, …)} /
-   * {@code existsIndex(session, …)}) instead. Flagged as an OBS-11 straggler; overlay-routing or
-   * removal is a tracked follow-up.
+   * Lookup of one class-owned index by (class, index) name pair. The base behaviour is the
+   * committed substrate (the shared registry and the definition's committed class name); the
+   * embedded subclass overlay-routes it to answer from the transaction's effective view —
+   * tx-created indexes visible, tx-dropped ones absent, and the class name resolved through the
+   * D17 rename map — matching the sibling session-aware lookups ({@code getClassIndexes},
+   * {@code getClassInvolvedIndexes}, {@code areIndexed}, {@code existsIndex}).
    */
   @Nullable public Index getClassIndex(
       DatabaseSessionEmbedded session, String className, String indexName) {
