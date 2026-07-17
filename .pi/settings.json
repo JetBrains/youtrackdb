@@ -2,5 +2,5 @@
   "defaultModel": "claude-opus-4-8",
   "defaultThinkingLevel": "xhigh",
   "hideThinkingBlock": true,
-  "packages": ["npm:ytdb-slate@0.1.0"]
+  "packages": ["npm:ytdb-slate@0.1.1"]
 }
