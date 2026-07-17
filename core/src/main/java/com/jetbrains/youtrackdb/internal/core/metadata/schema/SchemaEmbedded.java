@@ -515,6 +515,27 @@ public class SchemaEmbedded extends SchemaShared {
               "a tx-local drop must run with a seeded tx-local schema state");
         }
         txState.markClassChanged(className);
+        // Drop the class's indexes with it, mirroring the non-transactional branch's eager
+        // dropClassIndexes: each index associated with the dropped class in the transaction's
+        // view is recorded into the overlay's drop category (recordDropped cancels a pending
+        // same-tx create and records a committed drop), and the existing commit machinery then
+        // deletes the engine, the files, the entity record, and the shared-registry entries.
+        // Without this recording a dropped class's committed indexes survived the commit as
+        // fully registered orphans over deleted collections (the Track 5 reconciliation seam),
+        // and a same-tx create-then-drop failed the whole commit trying to build an engine over
+        // the dropped class's collection. The overlay-aware getClassIndexes resolves the
+        // effective set — committed indexes (through the rename map when the class was renamed
+        // earlier in this transaction) plus tx-created handles minus already-dropped names —
+        // and must run BEFORE the recordClassDropped purge below, which removes the rename
+        // entry this resolution may need.
+        var indexManager = session.getSharedContext().getIndexManager();
+        var classIndexes = indexManager.getClassIndexes(session, className);
+        if (!classIndexes.isEmpty()) {
+          var overlayForDrops = txState.ensureIndexOverlay();
+          for (var index : classIndexes) {
+            overlayForDrops.recordDropped(index.getName());
+          }
+        }
         // Keep the D17 class-rename bookkeeping sound: a dropped class's rename entry must be
         // purged and its committed name retired, or a later class recycling one of its names
         // would wrongly re-associate the dropped class's committed indexes at commit. Only an
