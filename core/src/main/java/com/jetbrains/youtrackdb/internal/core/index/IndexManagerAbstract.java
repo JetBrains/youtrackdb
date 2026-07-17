@@ -202,6 +202,17 @@ public abstract class IndexManagerAbstract implements CloseableInStorage {
     return indexes.get(iName);
   }
 
+  /**
+   * Session-aware lookup of one index by name. The base behaviour is the committed registry,
+   * identical to {@link #getIndex(String)}; the embedded subclass overrides it to answer from
+   * the transaction's effective view (committed minus tx-dropped plus tx-created), so
+   * statement-level lookups (e.g. SQL {@code REBUILD INDEX} / {@code ANALYZE INDEX}) agree with
+   * the manager's own in-tx state.
+   */
+  @Nullable public Index getIndex(DatabaseSessionEmbedded session, final String iName) {
+    return getIndex(iName);
+  }
+
   public boolean existsIndex(final String iName) {
     return indexes.containsKey(iName);
   }

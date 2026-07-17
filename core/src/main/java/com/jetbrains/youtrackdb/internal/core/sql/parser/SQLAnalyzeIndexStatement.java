@@ -36,18 +36,34 @@ public class SQLAnalyzeIndexStatement extends SQLSimpleExecStatement {
     if (all) {
       // Analyze ALL indexes (not just automatic ones, unlike REBUILD INDEX *).
       // Histogram analysis is read-only and cheap, so there is no reason to
-      // restrict it to automatic indexes.
+      // restrict it to automatic indexes. The session-aware enumeration answers from the
+      // transaction's effective view, so a same-tx dropped index is not analyzed; a tx-created
+      // index is a deferred handle with no engine (and no histogram) until commit
+      // (getIndexId() < 0) and is skipped.
       var results = new ArrayList<ResultInternal>();
-      for (var idx : session.getSharedContext().getIndexManager().getIndexes()) {
-        results.add(buildResult(session, idx));
+      for (var idx : java.util.List.copyOf(
+          session.getSharedContext().getIndexManager().getIndexes(session))) {
+        if (idx.getIndexId() >= 0) {
+          results.add(buildResult(session, idx));
+        }
       }
       return ExecutionStream.resultIterator(results.iterator());
     } else {
+      // The session-aware lookup: a tx-dropped name reads as absent (proper "not found").
       final var idx =
-          session.getSharedContext().getIndexManager().getIndex(name.getValue());
+          session.getSharedContext().getIndexManager().getIndex(session, name.getValue());
       if (idx == null) {
         throw new CommandExecutionException(
             session, "Index '" + name + "' not found");
+      }
+      if (idx.getIndexId() < 0) {
+        // A deferred (transaction-created) handle: its engine — and therefore its histogram —
+        // exists only after the commit builds it. Reject loudly rather than answering with a
+        // meaningless empty analysis.
+        throw new CommandExecutionException(session,
+            "Cannot analyze index '" + name
+                + "' because it was created in the current transaction: its engine is built at"
+                + " commit, so there is nothing to analyze before the transaction commits");
       }
       return ExecutionStream.singleton(buildResult(session, idx));
     }
