@@ -32,7 +32,12 @@ public class SQLDropIndexStatement extends DDLStatement {
     var session = ctx.getDatabaseSession();
     var idxMgr = session.getSharedContext().getIndexManager();
     if (all) {
-      for (var idx : idxMgr.getIndexes()) {
+      // The session-aware enumeration answers from the transaction's effective view (committed
+      // minus tx-dropped plus tx-created) and returns a materialized copy, so a same-transaction
+      // CREATE INDEX is cancelled by DROP INDEX * instead of being silently built at commit, an
+      // already-tx-dropped index is not re-dropped, and the drop loop never iterates a mutating
+      // live registry view.
+      for (var idx : List.copyOf(idxMgr.getIndexes(session))) {
         idxMgr.dropIndex(session, idx.getName());
         var result = new ResultInternal(session);
         result.setProperty("operation", "drop index");
@@ -41,7 +46,10 @@ public class SQLDropIndexStatement extends DDLStatement {
       }
 
     } else {
-      if (!idxMgr.existsIndex(name.getValue()) && !ifExists) {
+      // The session-aware existence probe (the same override CREATE INDEX uses): a name created
+      // earlier in this transaction reads as present (so create-then-drop succeeds), and a name
+      // already dropped in this transaction reads as absent.
+      if (!idxMgr.existsIndex(session, name.getValue()) && !ifExists) {
         throw new CommandExecutionException(ctx.getDatabaseSession(),
             "Index not found: " + name.getValue());
       }
