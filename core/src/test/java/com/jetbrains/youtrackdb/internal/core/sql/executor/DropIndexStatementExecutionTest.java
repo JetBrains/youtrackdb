@@ -184,10 +184,80 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     session.begin();
     session.execute("drop index `" + committedName + "`").close();
-    session.execute("drop index *").close();
+    // TQ-113: pin the EXCLUSION, not just the idempotent outcome — the already-tx-dropped index
+    // must not appear in the DROP INDEX * enumeration (a committed-only enumeration would
+    // re-drop it and report a row for it while still committing cleanly through recordDropped's
+    // idempotence). Other committed indexes — the genesis security ones — legitimately enumerate.
+    var starResult = session.execute("drop index *");
+    var enumerated = new java.util.HashSet<String>();
+    while (starResult.hasNext()) {
+      enumerated.add(starResult.next().getProperty("collectionName"));
+    }
+    starResult.close();
+    Assert.assertFalse("DROP INDEX * must not enumerate the already-tx-dropped index",
+        enumerated.contains(committedName));
     session.commit();
 
     Assert.assertNull("the index must be gone after the composed drops",
         session.getSharedContext().getIndexManager().getIndex(committedName));
+  }
+
+  /**
+   * BG-113 pins for REBUILD/ANALYZE INDEX overlay routing: a tx-dropped name reads as absent
+   * (proper "not found"), and a tx-created (deferred) index is rejected loudly — its engine is
+   * built only at commit, so there is nothing to rebuild or analyze before that.
+   */
+  @Test
+  public void testRebuildAndAnalyzeAreOverlayAware() {
+    var indexName = session.getMetadata().getSchema().createClass("testTxRebuild")
+        .createProperty("bar", PropertyType.STRING)
+        .createIndex(SchemaClass.INDEX_TYPE.NOTUNIQUE);
+
+    // Direction 1: tx-dropped name reads as absent to both statements.
+    session.begin();
+    session.execute("drop index `" + indexName + "`").close();
+    try {
+      session.execute("rebuild index `" + indexName + "`").close();
+      Assert.fail("REBUILD of a tx-dropped index must report not-found");
+    } catch (CommandExecutionException expected) {
+      Assert.assertTrue(expected.getMessage().contains("not found"));
+    }
+    session.rollback();
+    session.begin();
+    session.execute("drop index `" + indexName + "`").close();
+    try {
+      session.execute("analyze index `" + indexName + "`").close();
+      Assert.fail("ANALYZE of a tx-dropped index must report not-found");
+    } catch (CommandExecutionException expected) {
+      Assert.assertTrue(expected.getMessage().contains("not found"));
+    }
+    session.rollback();
+
+    // Direction 2: a tx-created (deferred, engine-unbuilt) index is rejected loudly by name.
+    session.getMetadata().getSchema().createClass("testTxRebuild2")
+        .createProperty("baz", PropertyType.STRING);
+    session.begin();
+    session.execute("create index testTxRebuild2.baz on testTxRebuild2 (baz) NOTUNIQUE").close();
+    try {
+      session.execute("rebuild index `testTxRebuild2.baz`").close();
+      Assert.fail("REBUILD of a tx-created deferred index must be rejected");
+    } catch (CommandExecutionException expected) {
+      Assert.assertTrue(expected.getMessage().contains("created in the current transaction"));
+    }
+    session.rollback();
+    session.begin();
+    session.execute("create index testTxRebuild2.baz on testTxRebuild2 (baz) NOTUNIQUE").close();
+    try {
+      session.execute("analyze index `testTxRebuild2.baz`").close();
+      Assert.fail("ANALYZE of a tx-created deferred index must be rejected");
+    } catch (CommandExecutionException expected) {
+      Assert.assertTrue(expected.getMessage().contains("created in the current transaction"));
+    }
+    // Direction 3: the * variants skip the deferred handle instead of exploding on its
+    // unbuilt engine, and skip the tx-dropped one.
+    session.execute("drop index `" + indexName + "`").close();
+    session.execute("rebuild index *").close();
+    session.execute("analyze index *").close();
+    session.rollback();
   }
 }

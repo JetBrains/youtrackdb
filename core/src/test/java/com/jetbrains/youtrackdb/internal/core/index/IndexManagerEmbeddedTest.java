@@ -285,6 +285,84 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
+   * BG-112: the same-transaction drop-then-recreate REPLACE flow — the recreated (tx-created)
+   * index must be visible through getClassIndex, consistent with every sibling lookup
+   * (existsIndex, getIndexes, getClassIndexes). The dropped committed name stays recorded (the
+   * commit deletes the old engine) while the replacement handle shadows it in the tx view, so
+   * the tx-created probe must run BEFORE the tx-dropped one.
+   */
+  @Test
+  public void getClassIndex_replaceFlow_txRecreatedIndexVisible() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    mgr.dropIndex(session, IDX);
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(IDX, SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+    var replacement = mgr.getClassIndex(session, CLS, IDX);
+    assertNotNull("the same-tx replacement must be visible via getClassIndex", replacement);
+    assertTrue("the visible handle must be the tx-created replacement (deferred engine)",
+        replacement.getIndexId() < 0);
+    session.rollback();
+
+    assertNotNull("the rolled-back replace must leave the committed index visible",
+        mgr.getClassIndex(session, CLS, IDX));
+    assertTrue("and it must be the committed engine again",
+        mgr.getClassIndex(session, CLS, IDX).getIndexId() >= 0);
+  }
+
+  /**
+   * The session-aware {@code getIndex} family member resolves the transaction's effective view:
+   * a tx-dropped name answers absent, an untouched committed name falls through to the committed
+   * registry, and outside any transaction the base (committed) behaviour serves unchanged.
+   */
+  @Test
+  public void getIndexSessionAware_resolvesEffectiveView() {
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+    var otherName = CLS + ".name";
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(otherName, SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+
+    session.begin();
+    mgr.dropIndex(session, IDX);
+    assertNull("a tx-dropped name must answer absent", mgr.getIndex(session, IDX));
+    assertNotNull("an untouched committed name must fall through to the committed registry",
+        mgr.getIndex(session, otherName));
+    session.rollback();
+
+    assertNotNull("outside a transaction the committed behaviour serves unchanged",
+        mgr.getIndex(session, IDX));
+  }
+
+  /**
+   * TQ-114: the swap-shaped rename {X→Y, Z→X} through getClassIndex — the rename-source arm
+   * under a renamed-away class name. Committed X's index answers only under Y; the name X, though
+   * renamed away, answers for committed Z's index (Z was renamed TO X); and X's own committed
+   * index no longer answers under X.
+   */
+  @Test
+  public void getClassIndex_swapShapedRename_resolvesEachSideExactly() {
+    var otherCls = session.getMetadata().getSchema().createClass("ImeSwapZ");
+    otherCls.createProperty("zval", PropertyType.STRING);
+    otherCls.createIndex("ImeSwapZ.zval", SchemaClass.INDEX_TYPE.NOTUNIQUE, "zval");
+    var mgr = (IndexManagerEmbedded) session.getSharedContext().getIndexManager();
+
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS).setName("ImeSwapY");
+    session.getMetadata().getSchema().getClass("ImeSwapZ").setName(CLS);
+
+    assertNotNull("committed X's index must answer under Y",
+        mgr.getClassIndex(session, "ImeSwapY", IDX));
+    assertNull("committed X's index must not answer under the vacated X",
+        mgr.getClassIndex(session, CLS, IDX));
+    assertNotNull("committed Z's index must answer under X (Z renamed TO it)",
+        mgr.getClassIndex(session, CLS, "ImeSwapZ.zval"));
+    assertNull("committed Z's index must not answer under its old name",
+        mgr.getClassIndex(session, "ImeSwapZ", "ImeSwapZ.zval"));
+    session.rollback();
+  }
+
+  /**
    * A class renamed inside the open transaction resolves its committed index through
    * getClassIndex under the NEW class name (the D17 rename map) and no longer under the old one.
    */

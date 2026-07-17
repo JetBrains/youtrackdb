@@ -94,6 +94,7 @@ public class SQLDropIndexStatement extends DDLStatement {
     var result = new SQLDropIndexStatement(-1);
     result.all = all;
     result.name = name == null ? null : name.copy();
+    result.ifExists = ifExists;
     return result;
   }
 
@@ -111,12 +112,16 @@ public class SQLDropIndexStatement extends DDLStatement {
     if (all != that.all) {
       return false;
     }
+    if (ifExists != that.ifExists) {
+      return false;
+    }
     return Objects.equals(name, that.name);
   }
 
   @Override
   public int hashCode() {
     var result = (all ? 1 : 0);
+    result = 31 * result + (ifExists ? 1 : 0);
     result = 31 * result + (name != null ? name.hashCode() : 0);
     return result;
   }

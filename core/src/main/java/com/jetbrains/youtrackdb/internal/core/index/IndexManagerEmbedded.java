@@ -496,13 +496,17 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     if (overlay == null) {
       return super.getClassIndex(session, className, indexName);
     }
-    if (overlay.isTxDropped(indexName)) {
-      return null;
-    }
+    // The tx-created probe runs BEFORE the tx-dropped one: in the same-tx drop-then-recreate
+    // REPLACE flow the name is in BOTH categories (the drop stays recorded so the commit deletes
+    // the old engine, while the new handle shadows it), and the replacement must answer —
+    // consistent with existsIndex/getIndexes/getClassIndexes (BG-112).
     final var created = overlay.getTxCreated(indexName);
     if (created != null) {
       final var definition = created.getDefinition();
       return definition != null && className.equals(definition.getClassName()) ? created : null;
+    }
+    if (overlay.isTxDropped(indexName)) {
+      return null;
     }
     if (overlay.isClassRenamedAway(className)) {
       // The committed entries under className belong to the class that moved away; only a class
@@ -519,11 +523,32 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   /**
+   * Overlay-aware lookup of one index by name: the same-tx drop-then-recreate replacement
+   * answers first (mirroring {@link #getClassIndex}), a tx-dropped name answers absent, a
+   * tx-created name answers its deferred handle, and everything else is the committed registry.
+   */
+  @Override
+  @Nullable public Index getIndex(DatabaseSessionEmbedded session, final String iName) {
+    final var overlay = activeOverlay(session);
+    if (overlay == null) {
+      return super.getIndex(session, iName);
+    }
+    final var created = overlay.getTxCreated(iName);
+    if (created != null) {
+      return created;
+    }
+    if (overlay.isTxDropped(iName)) {
+      return null;
+    }
+    return getIndex(iName);
+  }
+
+  /**
    * Overlay-aware enumeration of every index: the transaction's effective view is the committed
    * registry minus the names this transaction dropped plus the deferred handles it created.
-   * Returns a materialized copy, so callers that drop while iterating (SQL {@code DROP INDEX *})
-   * never iterate a mutating live view. Outside a schema/index transaction it is the committed
-   * behaviour unchanged.
+   * With an active overlay the result is a materialized copy; WITHOUT one it is the committed
+   * registry's live view (the pre-overlay behaviour, unchanged), so callers that drop while
+   * iterating — SQL {@code DROP INDEX *} — must copy before iterating either way.
    */
   @Override
   public Collection<? extends Index> getIndexes(DatabaseSessionEmbedded session) {
