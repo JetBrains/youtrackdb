@@ -143,8 +143,10 @@ public class TxDropClassIndexReconciliationTest extends DbTestBase {
    * is dropped, the recreated class starts index-free, and the retired-name machinery (which
    * blocks rename recording for recycled names) does not cross-contaminate the recorded drops.
    * The recreated class is renamed at the end to prove the retirement guard and the drops
-   * coexist. (An in-transaction index on the recreated class is inexpressible today — property
-   * creation is blocked inside transactions — so the recreation is pinned index-free.)
+   * coexist. (The recreation is pinned index-free because a tx-created class cannot gain its OWN
+   * properties mid-transaction — property creation is blocked inside transactions — so an index
+   * on it is expressible only through properties inherited from a committed superclass; that
+   * variant is covered by {@link #inTxSubclassWithIndexOnInheritedPropertyThenDropNetsOut}.)
    */
   @Test
   public void dropThenRecreateSameClassNameSameTx() {
@@ -168,6 +170,140 @@ public class TxDropClassIndexReconciliationTest extends DbTestBase {
         indexManager.getClassIndexes(session, "TxDropReborn").isEmpty());
     assertNotNull("the recreated class must survive under its final name",
         session.getMetadata().getSchema().getClass("TxDropReborn"));
+  }
+
+  /**
+   * TQ110: the recording loop enumerates ALL of the dropped class's indexes, not just the first
+   * — a class carrying three indexes (two single-property, one composite UNIQUE) loses every one
+   * of them at commit, with every engine unregistered.
+   */
+  @Test
+  public void txDropClassDropsAllItsIndexes() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("TxDropMulti");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createProperty("extra", PropertyType.STRING);
+    cls.createIndex("TxDropMulti.val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+    cls.createIndex("TxDropMulti.extra", SchemaClass.INDEX_TYPE.NOTUNIQUE, "extra");
+    cls.createIndex("TxDropMultiComposite", SchemaClass.INDEX_TYPE.UNIQUE, "val", "extra");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertEquals("precondition: all three indexes are registered",
+        3, indexManager.getClassIndexes(session, "TxDropMulti").size());
+
+    session.begin();
+    session.getMetadata().getSchema().dropClass("TxDropMulti");
+    session.commit();
+
+    var storage = (AbstractStorage) session.getStorage();
+    for (var indexName : new String[] {
+        "TxDropMulti.val", "TxDropMulti.extra", "TxDropMultiComposite"}) {
+      assertFalse("index '" + indexName + "' must be gone",
+          indexManager.existsIndex(indexName));
+      assertEquals("engine of '" + indexName + "' must be unregistered",
+          -1, storage.loadIndexEngine(indexName));
+    }
+    assertTrue("no classPropertyIndex key may survive",
+        indexManager.getClassIndexes(session, "TxDropMulti").isEmpty());
+  }
+
+  /**
+   * TQ111: the expressible in-transaction class-plus-index-then-drop composition — a tx-created
+   * SUBCLASS can be indexed on a property inherited from its committed superclass (own property
+   * creation is blocked in-tx, inherited ones resolve through the superclass walk). Dropping the
+   * subclass in the same transaction cancels the pending create: the commit is clean and nothing
+   * survives — no index, no engine files beyond the pre-transaction baseline, no class.
+   */
+  @Test
+  public void inTxSubclassWithIndexOnInheritedPropertyThenDropNetsOut() {
+    var schema = session.getMetadata().getSchema();
+    var parent = schema.createClass("TxDropInhParent");
+    parent.createProperty("val", PropertyType.STRING);
+
+    var storage = (AbstractStorage) session.getStorage();
+    var filesBefore = allEngineFiles(storage);
+
+    session.begin();
+    session.getMetadata().getSchema()
+        .createClass("TxDropInhChild", session.getMetadata().getSchema()
+            .getClass("TxDropInhParent"));
+    session.getMetadata().getSchema().getClass("TxDropInhChild")
+        .createIndex("TxDropInhChild.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+    session.getMetadata().getSchema().dropClass("TxDropInhChild");
+    session.commit();
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    assertFalse("the cancelled create must publish nothing",
+        indexManager.existsIndex("TxDropInhChild.val"));
+    assertEquals("no engine file may appear for the cancelled create",
+        filesBefore, allEngineFiles(storage));
+    assertNull("the dropped subclass must not survive",
+        session.getMetadata().getSchema().getClass("TxDropInhChild"));
+    assertNotNull("the committed parent must be untouched",
+        session.getMetadata().getSchema().getClass("TxDropInhParent"));
+  }
+
+  /**
+   * TQ112: an explicit {@code DROP INDEX} followed by {@code dropClass} of the owning class in
+   * the same transaction is idempotent — the drop-time enumeration excludes already-tx-dropped
+   * names, so the index is dropped exactly once and the commit is clean.
+   */
+  @Test
+  public void explicitDropIndexThenDropClassSameTxIsIdempotent() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("TxDropTwice");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("TxDropTwice.val", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+
+    var indexManager = session.getSharedContext().getIndexManager();
+
+    session.begin();
+    indexManager.dropIndex(session, "TxDropTwice.val");
+    session.getMetadata().getSchema().dropClass("TxDropTwice");
+    session.commit();
+
+    assertFalse("the index must be gone after the single recorded drop",
+        indexManager.existsIndex("TxDropTwice.val"));
+    assertEquals("the engine must be unregistered",
+        -1, ((AbstractStorage) session.getStorage()).loadIndexEngine("TxDropTwice.val"));
+    assertNull("the class must be gone",
+        session.getMetadata().getSchema().getClass("TxDropTwice"));
+  }
+
+  /**
+   * TQ112: an index NAME freed by a same-transaction class drop can be reused by an index on a
+   * DIFFERENT class in the same transaction — the commit's drop-then-create ordering deletes the
+   * old engine before the new build registers under the recycled name, and the surviving index
+   * belongs to the other class.
+   */
+  @Test
+  public void freedIndexNameReusedOnAnotherClassSameTx() {
+    var schema = session.getMetadata().getSchema();
+    var clsA = schema.createClass("TxDropNameA");
+    clsA.createProperty("val", PropertyType.STRING);
+    clsA.createIndex("TxDropSharedIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+    var clsB = schema.createClass("TxDropNameB");
+    clsB.createProperty("val", PropertyType.STRING);
+
+    session.begin();
+    session.getMetadata().getSchema().dropClass("TxDropNameA");
+    session.getMetadata().getSchema().getClass("TxDropNameB")
+        .createIndex("TxDropSharedIdx", SchemaClass.INDEX_TYPE.UNIQUE, "val");
+    session.commit();
+
+    var indexManager = session.getSharedContext().getIndexManager();
+    var reused = indexManager.getIndex("TxDropSharedIdx");
+    assertNotNull("the recycled index name must resolve to the new index", reused);
+    assertEquals("the surviving index must belong to the OTHER class",
+        "TxDropNameB", reused.getDefinition().getClassName());
+    assertEquals("the other class must own exactly the recycled-name index",
+        1, indexManager.getClassIndexes(session, "TxDropNameB").size());
+    assertTrue("nothing may key under the dropped class",
+        indexManager.getClassIndexes(session, "TxDropNameA").isEmpty());
+    // The recycled name is fully usable: maintained on writes to the new class.
+    session.executeInTx(tx -> tx.newEntity("TxDropNameB").setProperty("val", "reused"));
+    assertEquals("the new index must serve lookups",
+        1, session.computeInTx(tx -> reused.getRids(session, "reused").toList()).size());
   }
 
   /**

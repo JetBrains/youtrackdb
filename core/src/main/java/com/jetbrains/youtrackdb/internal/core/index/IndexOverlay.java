@@ -221,10 +221,13 @@ public final class IndexOverlay {
    * the committed class. Dropping an impostor that squats a vacated key purges nothing — the
    * vacated key still describes the live committed class that moved away.
    *
-   * <p>What this deliberately does NOT do: record the dropped class's committed indexes as
-   * tx-dropped. The tx-local {@code dropClass} has never dropped the class's indexes (the
-   * pre-existing commit-reconciliation seam this overlay category inherits); this hook only keeps
-   * the RENAME map from amplifying that seam into a wrong re-association.
+   * <p>Contract with the drop producer ({@code SchemaEmbedded.dropClassInternal}, tx-local
+   * branch): the caller records the dropped class's index drops FIRST — via
+   * {@link #recordDropped} for each index the rename-aware effective lookup resolves — and only
+   * then invokes this hook. The ordering is load-bearing: this hook purges the class's rename
+   * entry, and the caller's effective-index lookup needs that entry to find committed indexes
+   * still keyed under a pre-rename name. This hook itself touches only the rename bookkeeping,
+   * never the drop category.
    *
    * @param currentName the dropped class's name at drop time.
    */
