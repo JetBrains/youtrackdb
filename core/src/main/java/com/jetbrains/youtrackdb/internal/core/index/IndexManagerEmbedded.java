@@ -480,6 +480,29 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     return existsIndex(iName);
   }
 
+  /**
+   * Overlay-aware enumeration of every index: the transaction's effective view is the committed
+   * registry minus the names this transaction dropped plus the deferred handles it created.
+   * Returns a materialized copy, so callers that drop while iterating (SQL {@code DROP INDEX *})
+   * never iterate a mutating live view. Outside a schema/index transaction it is the committed
+   * behaviour unchanged.
+   */
+  @Override
+  public Collection<? extends Index> getIndexes(DatabaseSessionEmbedded session) {
+    final var overlay = activeOverlay(session);
+    if (overlay == null) {
+      return getIndexes();
+    }
+    final var effective = new ArrayList<Index>();
+    for (final var index : indexes.values()) {
+      if (!overlay.isTxDropped(index.getName())) {
+        effective.add(index);
+      }
+    }
+    effective.addAll(overlay.getTxCreatedIndexes());
+    return effective;
+  }
+
   private void resolveClassIndexesWithOverlay(
       DatabaseSessionEmbedded session,
       final String className,
