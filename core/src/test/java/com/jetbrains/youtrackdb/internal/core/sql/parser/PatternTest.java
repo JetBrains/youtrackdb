@@ -499,6 +499,24 @@ public class PatternTest extends ParserTestAbstract {
     return stm.getWhereClause();
   }
 
+  /**
+   * Asserts a split half serializes to exactly the given WHERE body: the same
+   * conjuncts, no more and no fewer, in the same order. The expected body is
+   * parsed and serialized through the same code path as the half, so the
+   * comparison is exact yet independent of literal quoting or spacing. Exact
+   * equality (rather than substring {@code contains}) is what catches the four
+   * ways a split can be wrong: a LET-dependent conjunct leaking into the
+   * pushed-before-LET half, a conjunct dropped, a conjunct duplicated, or an OR
+   * branch dropped — none of which a presence-only {@code contains} would fail.
+   */
+  private void assertHalfIs(String expectedWhereBody, SQLWhereClause actualHalf)
+      throws ParseException {
+    assertEquals(
+        "Split half should serialize to exactly \"" + expectedWhereBody + "\"",
+        parseWhere(expectedWhereBody).toString(),
+        actualHalf.toString());
+  }
+
   /** @rid = #23:1 → extracted, no remaining */
   @Test
   public void testExtractRidEquality_simple() throws ParseException {
@@ -668,15 +686,12 @@ public class PatternTest extends ParserTestAbstract {
     assertNull(
         "Dependent part should be fully LET-dependent (nothing to push)",
         depReSplit.independent());
-    // Verify actual content of both halves
-    var indepStr = result.independent().toString();
-    assertTrue("Independent part should contain 'age' condition: " + indepStr,
-        indepStr.contains("age > 25"));
-    assertTrue("Independent part should contain 'birthday' condition: " + indepStr,
-        indepStr.contains("birthday") && indepStr.contains("2000-01-01"));
-    var depStr = result.dependent().toString();
-    assertTrue("Dependent part should contain '$scores' condition: " + depStr,
-        depStr.contains("$scores"));
+    // Pin each half to its exact conjuncts. The independent half must be the two
+    // LET-independent conjuncts and nothing else — a leaked "name = $scores" here
+    // would be pushed before the LET step and corrupt results; exact equality
+    // fails on that leak, whereas the old contains-only check would not.
+    assertHalfIs("age > 25 AND birthday > '2000-01-01'", result.independent());
+    assertHalfIs("name = $scores", result.dependent());
   }
 
   /**
@@ -813,15 +828,11 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should have independent part (age > 25)", result.independent());
     assertNotNull(
         "Should have dependent part ($parent conjunct)", result.dependent());
-    // Verify actual content: age > 25 is independent, $parent is dependent
-    var indepStr = result.independent().toString();
-    assertTrue("Independent part should contain 'age > 25': " + indepStr,
-        indepStr.contains("age > 25"));
-    assertFalse("Independent part should not contain '$parent': " + indepStr,
-        indepStr.contains("$parent"));
-    var depStr = result.dependent().toString();
-    assertTrue("Dependent part should contain '$parent': " + depStr,
-        depStr.contains("$parent"));
+    // Pin each half exactly: age > 25 is the whole independent half (no $parent
+    // leak into the pushed-before-LET part), the $parent conjunct is the whole
+    // dependent half.
+    assertHalfIs("age > 25", result.independent());
+    assertHalfIs("out('X').@rid = $parent.$current.@rid", result.dependent());
   }
 
   /**
@@ -849,17 +860,11 @@ public class PatternTest extends ParserTestAbstract {
     assertNull(
         "Dependent part should be fully LET-dependent (nothing to push)",
         depReSplit.independent());
-    // Verify actual content of both halves
-    var indepStr = result.independent().toString();
-    assertTrue("Independent part should contain 'b > 5': " + indepStr,
-        indepStr.contains("b > 5"));
-    assertFalse("Independent part should not contain '$x': " + indepStr,
-        indepStr.contains("$x"));
-    var depStr = result.dependent().toString();
-    assertTrue("Dependent part should contain '$x': " + depStr,
-        depStr.contains("$x"));
-    assertTrue("Dependent part should contain '$y': " + depStr,
-        depStr.contains("$y"));
+    // Pin each half exactly: b > 5 is the whole independent half (neither $x nor
+    // $y leaks into the pushed part), and both LET-dependent conjuncts stay in
+    // the dependent half in their original order.
+    assertHalfIs("b > 5", result.independent());
+    assertHalfIs("a = $x AND c = $y", result.dependent());
   }
 
   /**
@@ -891,15 +896,11 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should return split result due to $parent", result);
     assertNotNull("Should have independent part", result.independent());
     assertNotNull("Should have dependent part", result.dependent());
-    // Verify actual content: age > 25 is independent, $parent is dependent
-    var indepStr = result.independent().toString();
-    assertTrue("Independent part should contain 'age > 25': " + indepStr,
-        indepStr.contains("age > 25"));
-    assertFalse("Independent part should not contain '$parent': " + indepStr,
-        indepStr.contains("$parent"));
-    var depStr = result.dependent().toString();
-    assertTrue("Dependent part should contain '$parent': " + depStr,
-        depStr.contains("$parent"));
+    // Pin each half exactly: age > 25 is the whole independent half, the $parent
+    // conjunct is the whole dependent half (empty LET set, so $parent alone drives
+    // the split).
+    assertHalfIs("age > 25", result.independent());
+    assertHalfIs("out('X').@rid = $parent.$current.@rid", result.dependent());
   }
 
   /**
@@ -913,15 +914,12 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should return split result", result);
     assertNotNull("Should have independent part (c > 5)", result.independent());
     assertNotNull("Should have dependent part (OR sub-block)", result.dependent());
-    // Verify actual content: c > 5 is independent, OR block with $x is dependent
-    var indepStr = result.independent().toString();
-    assertTrue("Independent part should contain 'c > 5': " + indepStr,
-        indepStr.contains("c > 5"));
-    assertFalse("Independent part should not contain '$x': " + indepStr,
-        indepStr.contains("$x"));
-    var depStr = result.dependent().toString();
-    assertTrue("Dependent part should contain '$x': " + depStr,
-        depStr.contains("$x"));
+    // Pin each half exactly: c > 5 is the whole independent half, and the whole
+    // OR block stays dependent with BOTH branches. Exact equality catches a
+    // dropped OR branch (e.g. dependent becoming just "a = $x"), which a
+    // contains("$x") check would pass since $x still appears.
+    assertHalfIs("c > 5", result.independent());
+    assertHalfIs("(a = $x OR b = $x)", result.dependent());
   }
 
   /**
@@ -949,19 +947,12 @@ public class PatternTest extends ParserTestAbstract {
     assertNotNull("Should have independent part (a > 5)", result.independent());
     assertNotNull(
         "Should have dependent part (IN-subquery conjunct)", result.dependent());
-    // The independent half must be only 'a > 5' — no subquery, no $parent.
-    var indepStr = result.independent().toString();
-    assertTrue("Independent part should contain 'a > 5': " + indepStr,
-        indepStr.contains("a > 5"));
-    assertFalse(
-        "Independent part should NOT contain the IN-subquery or $parent: "
-            + indepStr,
-        indepStr.contains("$parent") || indepStr.contains("SELECT"));
-    // The dependent half must carry the subquery with its $parent reference.
-    var depStr = result.dependent().toString();
-    assertTrue(
-        "Dependent part should contain the IN-subquery's $parent ref: " + depStr,
-        depStr.contains("$parent"));
+    // Pin each half exactly: a > 5 is the whole independent half (no subquery, no
+    // $parent pushed before LET), and the IN-subquery conjunct stays dependent
+    // intact with its subquery-borne $parent reference.
+    assertHalfIs("a > 5", result.independent());
+    assertHalfIs(
+        "b IN (SELECT FROM Foo WHERE x = $parent.$total)", result.dependent());
   }
 
   // ====== findRidEquality tests ======
