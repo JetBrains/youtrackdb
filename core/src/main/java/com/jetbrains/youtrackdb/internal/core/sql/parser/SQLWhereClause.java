@@ -860,6 +860,141 @@ public class SQLWhereClause extends SimpleNode {
   }
 
   /**
+   * Result of splitting a WHERE clause by LET variable dependency. Always
+   * non-null when returned from {@link #splitByLetDependency}; its two nullable
+   * components encode the outcome:
+   *
+   * <ul>
+   *   <li>{@code independent == null} &hArr; nothing is LET-independent &rarr;
+   *       the caller pushes nothing.</li>
+   *   <li>{@code dependent == null} &hArr; the entire WHERE is LET-independent
+   *       &rarr; the caller pushes everything (and clears its WHERE).</li>
+   *   <li>both non-null &hArr; a mixed split: {@code independent} is pushed
+   *       before the per-record LET steps, {@code dependent} stays after.</li>
+   * </ul>
+   *
+   * @param independent conjuncts that do NOT reference any LET variable and do
+   *     NOT reference {@code $parent}, or {@code null} if every conjunct is
+   *     LET-dependent
+   * @param dependent conjuncts that reference at least one LET variable or
+   *     {@code $parent}, or {@code null} if every conjunct is LET-independent
+   */
+  public record LetSplitResult(
+      @Nullable SQLWhereClause independent,
+      @Nullable SQLWhereClause dependent) {
+  }
+
+  /**
+   * Splits this WHERE clause into LET-independent and LET-dependent conditions.
+   * A conjunct is LET-dependent if it references any variable in {@code letVarNames}
+   * or if it references {@code $parent} (which may depend on context set by upstream
+   * LET steps).
+   *
+   * <p>For single-OR single-AND blocks, partitions AND-level conjuncts individually.
+   * For multi-OR blocks, checks the entire expression: push-down applies only if
+   * no branch references any LET variable or {@code $parent}; otherwise the entire
+   * WHERE stays after LET.
+   *
+   * <p>This method never returns {@code null}. The outcome is encoded by the two
+   * (nullable) components of the result, per {@link LetSplitResult}:
+   * {@code independent == null} means nothing can be pushed;
+   * {@code dependent == null} means the whole clause can be pushed; both non-null
+   * means a mixed split.
+   *
+   * @param letVarNames names of all per-record LET variables. Each name may be
+   *     given with or without the leading {@code $}: {@code varMightBeInUse}
+   *     ultimately delegates to {@link SQLIdentifier#isVariable(String)}, which
+   *     accepts both forms.
+   * @return a non-null split result; see {@link LetSplitResult} for how its
+   *     nullable components encode push-none / push-all / mixed
+   */
+  public LetSplitResult splitByLetDependency(Set<String> letVarNames) {
+    if (baseExpression == null) {
+      // No expression to evaluate — nothing to push.
+      return new LetSplitResult(null, this);
+    }
+
+    // Quick check: if no LET variable is referenced and no $parent, the entire
+    // WHERE is LET-independent — the caller pushes it all. Reuse this clause
+    // (the cheap path) instead of rebuilding it.
+    if (!expressionReferencesAnyLetVar(baseExpression, letVarNames)
+        && !baseExpression.refersToParent()) {
+      return new LetSplitResult(this, null);
+    }
+
+    var expr = baseExpression;
+    if (expr instanceof SQLOrBlock orBlock) {
+      if (orBlock.subBlocks.size() != 1) {
+        // Multi-OR block: cannot split individual branches.
+        // The entire WHERE is LET-dependent.
+        return new LetSplitResult(null, this);
+      }
+      expr = orBlock.subBlocks.getFirst();
+    }
+    if (!(expr instanceof SQLAndBlock andBlock)) {
+      // Defensive/unreachable via the SQL parser: WhereClause always parses to
+      // OrBlock -> AndBlock (see the grammar), so unwrapping a single-OR block
+      // always yields an SQLAndBlock. This guards a caller that hand-built a
+      // bare-condition baseExpression. Treat as fully LET-dependent.
+      return new LetSplitResult(null, this);
+    }
+    if (andBlock.subBlocks.size() < 2) {
+      // Single-condition WHERE: the parser still wraps it as AndBlock[condition]
+      // (one sub-block), so this is the branch that handles a lone dependent
+      // condition (the quick-check above already proved it references a LET var
+      // or $parent). Nothing to split — it's fully LET-dependent.
+      return new LetSplitResult(null, this);
+    }
+
+    // Partition AND-level conjuncts.
+    List<Integer> independentIndices = new ArrayList<>();
+    List<Integer> dependentIndices = new ArrayList<>();
+    for (var i = 0; i < andBlock.subBlocks.size(); i++) {
+      var sub = andBlock.subBlocks.get(i);
+      if (sub.refersToParent()
+          || expressionReferencesAnyLetVar(sub, letVarNames)) {
+        dependentIndices.add(i);
+      } else {
+        independentIndices.add(i);
+      }
+    }
+
+    // All conjuncts are LET-dependent: nothing to push. Return the original
+    // clause unchanged as the dependent part — reuse `this` rather than
+    // rebuilding it. (buildWhereWith with an empty index list would yield a
+    // degenerate empty-AND clause, not null, breaking the "independent == null
+    // means push nothing" contract.)
+    if (independentIndices.isEmpty()) {
+      return new LetSplitResult(null, this);
+    }
+
+    // Mixed split: some conjuncts are LET-independent (pushed) and the rest
+    // stay after LET. dependentIndices is guaranteed non-empty here — the
+    // quick-check above already proved the whole expression references a LET
+    // var or $parent, so at least one conjunct is dependent; the isEmpty()
+    // guard is defensive.
+    var independentWhere = buildWhereWith(andBlock, independentIndices);
+    var dependentWhere = dependentIndices.isEmpty()
+        ? null : buildWhereWith(andBlock, dependentIndices);
+    return new LetSplitResult(independentWhere, dependentWhere);
+  }
+
+  /**
+   * Returns {@code true} if the expression references any of the given LET
+   * variable names. Uses the existing {@link SQLBooleanExpression#varMightBeInUse}
+   * method for each variable.
+   */
+  private static boolean expressionReferencesAnyLetVar(
+      SQLBooleanExpression expr, Set<String> letVarNames) {
+    for (var varName : letVarNames) {
+      if (expr.varMightBeInUse(varName)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Extracts the subset of AND conditions that flatten to a single OR branch.
    * Conditions involving graph navigation functions (e.g. {@code out('X').name
    * CONTAINS :val}) may flatten to multiple OR branches, which prevents index
@@ -919,6 +1054,12 @@ public class SQLWhereClause extends SimpleNode {
    */
   private static SQLWhereClause buildWhereWith(
       SQLAndBlock andBlock, List<Integer> indices) {
+    // An empty index list would yield a degenerate empty-AND clause that matches
+    // every record — a silent correctness bug. Every caller must pre-filter to a
+    // non-empty list; this guards a future caller or refactor that does not.
+    assert !indices.isEmpty()
+        : "buildWhereWith requires at least one conjunct index; an empty list "
+            + "yields a match-everything WHERE that violates the split contract";
     var newAnd = new SQLAndBlock(-1);
     for (var idx : indices) {
       newAnd.subBlocks.add(andBlock.subBlocks.get(idx));

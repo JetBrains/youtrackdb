@@ -499,6 +499,24 @@ public class PatternTest extends ParserTestAbstract {
     return stm.getWhereClause();
   }
 
+  /**
+   * Asserts a split half serializes to exactly the given WHERE body: the same
+   * conjuncts, no more and no fewer, in the same order. The expected body is
+   * parsed and serialized through the same code path as the half, so the
+   * comparison is exact yet independent of literal quoting or spacing. Exact
+   * equality (rather than substring {@code contains}) is what catches the four
+   * ways a split can be wrong: a LET-dependent conjunct leaking into the
+   * pushed-before-LET half, a conjunct dropped, a conjunct duplicated, or an OR
+   * branch dropped — none of which a presence-only {@code contains} would fail.
+   */
+  private void assertHalfIs(String expectedWhereBody, SQLWhereClause actualHalf)
+      throws ParseException {
+    assertEquals(
+        "Split half should serialize to exactly \"" + expectedWhereBody + "\"",
+        parseWhere(expectedWhereBody).toString(),
+        actualHalf.toString());
+  }
+
   /** @rid = #23:1 → extracted, no remaining */
   @Test
   public void testExtractRidEquality_simple() throws ParseException {
@@ -636,6 +654,328 @@ public class PatternTest extends ParserTestAbstract {
     assertNull(
         "Should have null non-matched part when all conditions reference $matched",
         result.nonMatchedReferencing());
+  }
+
+  // ====== splitByLetDependency tests ======
+
+  /**
+   * Mixed AND: age > 25 is independent of LET $scores, birthday filter is also
+   * independent → both go to independent half. name = $scores is dependent.
+   * Result: independent = "age > 25 AND birthday > '2000-01-01'",
+   *         dependent = "name = $scores".
+   */
+  @Test
+  public void testSplitByLetDependency_mixedAndBlock() throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND name = $scores AND birthday > '2000-01-01'");
+    var result = where.splitByLetDependency(Set.of("scores"));
+    assertNotNull("Should return split result for mixed dependencies", result);
+    assertNotNull("Should have independent part", result.independent());
+    assertNotNull("Should have dependent part", result.dependent());
+    // Verify independent part does not reference $scores: re-splitting it yields
+    // a push-all result (dependent() == null under the never-null contract).
+    var indepReSplit = result.independent().splitByLetDependency(Set.of("scores"));
+    assertNotNull("Re-split of independent part is never null", indepReSplit);
+    assertNull(
+        "Independent part should be fully LET-independent (push-all)",
+        indepReSplit.dependent());
+    // Verify dependent part still references $scores: re-splitting it yields a
+    // fully-dependent result (independent() == null).
+    var depReSplit = result.dependent().splitByLetDependency(Set.of("scores"));
+    assertNotNull("Re-split of dependent part is never null", depReSplit);
+    assertNull(
+        "Dependent part should be fully LET-dependent (nothing to push)",
+        depReSplit.independent());
+    // Pin each half to its exact conjuncts. The independent half must be the two
+    // LET-independent conjuncts and nothing else — a leaked "name = $scores" here
+    // would be pushed before the LET step and corrupt results; exact equality
+    // fails on that leak, whereas the old contains-only check would not.
+    assertHalfIs("age > 25 AND birthday > '2000-01-01'", result.independent());
+    assertHalfIs("name = $scores", result.dependent());
+  }
+
+  /**
+   * Fully independent: WHERE age > 25 AND name = 'Alice' with LET $x.
+   * No conjunct references $x → push-all result: independent() is the whole
+   * (reused) clause and dependent() is null (caller pushes everything).
+   */
+  @Test
+  public void testSplitByLetDependency_fullyIndependent() throws ParseException {
+    var where = parseWhere("age > 25 AND name = 'Alice'");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Fully independent → dependent() is null (push everything)",
+        result.dependent());
+    assertSame("Push-all path reuses this clause as the independent part",
+        where, result.independent());
+  }
+
+  /**
+   * Fully dependent: WHERE name = $x AND age = $y with LET $x, $y.
+   * All conjuncts reference LET vars → independent = null, dependent = this.
+   */
+  @Test
+  public void testSplitByLetDependency_fullyDependent() throws ParseException {
+    var where = parseWhere("name = $x AND age = $y");
+    var result = where.splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Should return split result", result);
+    assertNull("Should have null independent part", result.independent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
+  }
+
+  /**
+   * Multi-OR all independent: WHERE (a > 5) OR (b < 10) with LET $x.
+   * No branch references $x → the quick check fires first, yielding a push-all
+   * result: independent() is the whole (reused) clause, dependent() is null.
+   */
+  @Test
+  public void testSplitByLetDependency_multiOrAllIndependent() throws ParseException {
+    var where = parseWhere("a > 5 OR b < 10");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Multi-OR all independent → dependent() is null (push everything)",
+        result.dependent());
+    assertSame("Push-all path reuses this clause as the independent part",
+        where, result.independent());
+  }
+
+  /**
+   * Multi-OR mixed: WHERE (a > 5) OR (b = $x) with LET $x.
+   * One branch references $x → entire WHERE stays dependent (cannot split OR).
+   */
+  @Test
+  public void testSplitByLetDependency_multiOrMixed() throws ParseException {
+    var where = parseWhere("a > 5 OR b = $x");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result for mixed multi-OR", result);
+    assertNull(
+        "Should have null independent part (cannot split OR)",
+        result.independent());
+    assertSame("Dependent part should be the original WHERE (cannot split OR)",
+        where, result.dependent());
+  }
+
+  /**
+   * Single condition independent: WHERE age > 25 with LET $x.
+   * Does not reference $x → push-all result: independent() is the whole
+   * (reused) clause, dependent() is null.
+   */
+  @Test
+  public void testSplitByLetDependency_singleConditionIndependent()
+      throws ParseException {
+    var where = parseWhere("age > 25");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Independent single condition → dependent() is null (push everything)",
+        result.dependent());
+    assertSame("Push-all path reuses this clause as the independent part",
+        where, result.independent());
+  }
+
+  /**
+   * Single condition dependent: WHERE name = $x with LET $x.
+   * References $x → independent = null, dependent = this. The parser wraps this
+   * lone condition as OrBlock[AndBlock[condition]] (one sub-block), so it
+   * exercises the {@code AndBlock.subBlocks.size() < 2} branch of
+   * splitByLetDependency via a LET-variable dependency.
+   */
+  @Test
+  public void testSplitByLetDependency_singleConditionDependent()
+      throws ParseException {
+    var where = parseWhere("name = $x");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result for dependent single condition", result);
+    assertNull("Should have null independent part", result.independent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
+  }
+
+  /**
+   * Single-element AND block via a $parent-only dependency: WHERE
+   * out('X').@rid = $parent.$current.@rid with an EMPTY LET set. No LET var is
+   * referenced, but the $parent reference alone makes it LET-dependent. The
+   * parser wraps this lone condition as OrBlock[AndBlock[condition]] (a
+   * single-element AND block), so this explicitly exercises the
+   * {@code AndBlock.subBlocks.size() < 2} branch of splitByLetDependency (which
+   * the SQL grammar makes reachable — a single condition is never collapsed
+   * below an AndBlock). Expected: independent = null, dependent = this.
+   */
+  @Test
+  public void testSplitByLetDependency_singleElementAndBlockParentDependent()
+      throws ParseException {
+    var where = parseWhere("out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull("Should return split result for single-element AND block", result);
+    assertNull("Nothing is independent (the lone conjunct is $parent-dependent)",
+        result.independent());
+    assertSame("Dependent part should be the original WHERE",
+        where, result.dependent());
+  }
+
+  /**
+   * $parent reference in conjunct: WHERE age > 25 AND out('X').@rid = $parent.$current.@rid
+   * with LET $x. Neither conjunct references $x, but the $parent conjunct must
+   * be classified as dependent (safety constraint).
+   */
+  @Test
+  public void testSplitByLetDependency_parentRefClassifiedAsDependent()
+      throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result due to $parent reference", result);
+    assertNotNull("Should have independent part (age > 25)", result.independent());
+    assertNotNull(
+        "Should have dependent part ($parent conjunct)", result.dependent());
+    // Pin each half exactly: age > 25 is the whole independent half (no $parent
+    // leak into the pushed-before-LET part), the $parent conjunct is the whole
+    // dependent half.
+    assertHalfIs("age > 25", result.independent());
+    assertHalfIs("out('X').@rid = $parent.$current.@rid", result.dependent());
+  }
+
+  /**
+   * Multiple LET variables: WHERE a = $x AND b > 5 AND c = $y with LET $x, $y.
+   * a=$x and c=$y are dependent, b>5 is independent.
+   */
+  @Test
+  public void testSplitByLetDependency_multipleLetVars() throws ParseException {
+    var where = parseWhere("a = $x AND b > 5 AND c = $y");
+    var result = where.splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (b > 5)", result.independent());
+    assertNotNull("Should have dependent part (a=$x, c=$y)", result.dependent());
+    // Independent part should not reference any LET vars: re-splitting it yields
+    // a push-all result (dependent() == null under the never-null contract).
+    var indepReSplit = result.independent().splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Re-split of independent part is never null", indepReSplit);
+    assertNull(
+        "Independent part should be fully LET-independent (push-all)",
+        indepReSplit.dependent());
+    // Verify dependent part still references LET vars: re-splitting it yields a
+    // fully-dependent result (independent() == null).
+    var depReSplit = result.dependent().splitByLetDependency(Set.of("x", "y"));
+    assertNotNull("Re-split of dependent part is never null", depReSplit);
+    assertNull(
+        "Dependent part should be fully LET-dependent (nothing to push)",
+        depReSplit.independent());
+    // Pin each half exactly: b > 5 is the whole independent half (neither $x nor
+    // $y leaks into the pushed part), and both LET-dependent conjuncts stay in
+    // the dependent half in their original order.
+    assertHalfIs("b > 5", result.independent());
+    assertHalfIs("a = $x AND c = $y", result.dependent());
+  }
+
+  /**
+   * Null baseExpression: no expression to evaluate, so nothing can be pushed.
+   * Under the never-null contract this yields (independent = null, dependent =
+   * this) without NPE — the caller pushes nothing and keeps the clause.
+   */
+  @Test
+  public void testSplitByLetDependency_nullBaseExpression() {
+    var where = new SQLWhereClause(-1);
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return non-null result (never-null contract)", result);
+    assertNull("Null baseExpression → nothing to push (independent() is null)",
+        result.independent());
+    assertSame("Dependent part should be the original clause",
+        where, result.dependent());
+  }
+
+  /**
+   * Empty letVarNames with $parent: the $parent reference alone should trigger
+   * splitting, classifying the $parent conjunct as dependent.
+   */
+  @Test
+  public void testSplitByLetDependency_emptyLetVarsWithParent()
+      throws ParseException {
+    var where = parseWhere(
+        "age > 25 AND out('X').@rid = $parent.$current.@rid");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull("Should return split result due to $parent", result);
+    assertNotNull("Should have independent part", result.independent());
+    assertNotNull("Should have dependent part", result.dependent());
+    // Pin each half exactly: age > 25 is the whole independent half, the $parent
+    // conjunct is the whole dependent half (empty LET set, so $parent alone drives
+    // the split).
+    assertHalfIs("age > 25", result.independent());
+    assertHalfIs("out('X').@rid = $parent.$current.@rid", result.dependent());
+  }
+
+  /**
+   * Nested OR inside AND: WHERE (a = $x OR b = $x) AND c > 5 with LET $x.
+   * The parenthesized OR conjunct references $x → dependent. c > 5 → independent.
+   */
+  @Test
+  public void testSplitByLetDependency_nestedOrInAnd() throws ParseException {
+    var where = parseWhere("(a = $x OR b = $x) AND c > 5");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (c > 5)", result.independent());
+    assertNotNull("Should have dependent part (OR sub-block)", result.dependent());
+    // Pin each half exactly: c > 5 is the whole independent half, and the whole
+    // OR block stays dependent with BOTH branches. Exact equality catches a
+    // dropped OR branch (e.g. dependent becoming just "a = $x"), which a
+    // contains("$x") check would pass since $x still appears.
+    assertHalfIs("c > 5", result.independent());
+    assertHalfIs("(a = $x OR b = $x)", result.dependent());
+  }
+
+  /**
+   * Mirror of {@link #testSplitByLetDependency_nestedOrInAnd}: a nested OR that is
+   * LET-independent must be rebuilt into the pushed-before-LET half. WHERE
+   * (a &gt; 5 OR b &lt; 10) AND c = $x with LET $x → the parenthesized OR conjunct
+   * references no LET var (independent), c = $x is dependent. This is the only
+   * split path where {@code buildWhereWith} reconstructs an OR sub-block into the
+   * independent half, so it guards that reconstruction and its serialization.
+   */
+  @Test
+  public void testSplitByLetDependency_independentNestedOrPushed()
+      throws ParseException {
+    var where = parseWhere("(a > 5 OR b < 10) AND c = $x");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (OR sub-block)", result.independent());
+    assertNotNull("Should have dependent part (c = $x)", result.dependent());
+    // Pin each half exactly: the whole OR block (both branches) is pushed, c = $x
+    // stays dependent. Exact equality catches a dropped OR branch in the pushed
+    // half — which would silently widen the pre-LET filter and admit extra rows.
+    assertHalfIs("(a > 5 OR b < 10)", result.independent());
+    assertHalfIs("c = $x", result.dependent());
+  }
+
+  /**
+   * Guards the refersToParent-into-subquery invariant: a {@code $parent}
+   * reference that appears ONLY inside a nested subquery in the WHERE (here, an
+   * IN-subquery's own WHERE) must still be detected, so the enclosing conjunct
+   * is classified LET-dependent and never pushed down. An empty LET set is used
+   * so that only the {@code $parent} reference can trigger dependency, isolating
+   * this behavior.
+   *
+   * <p>WHERE: {@code a > 5 AND b IN (SELECT FROM Foo WHERE x = $parent.$total)}.
+   * Expected: {@code a > 5} is independent; the IN-subquery conjunct (which
+   * carries the subquery-borne {@code $parent}) is dependent. This proves
+   * {@code refersToParent()} recurses into {@code SQLInCondition.rightStatement}
+   * so a subquery-borne parent reference is kept out of the pushed-down half.
+   */
+  @Test
+  public void testSplitByLetDependency_subqueryParentRefClassifiedAsDependent()
+      throws ParseException {
+    var where = parseWhere(
+        "a > 5 AND b IN (SELECT FROM Foo WHERE x = $parent.$total)");
+    var result = where.splitByLetDependency(Set.of());
+    assertNotNull(
+        "Should return split result due to subquery-borne $parent ref", result);
+    assertNotNull("Should have independent part (a > 5)", result.independent());
+    assertNotNull(
+        "Should have dependent part (IN-subquery conjunct)", result.dependent());
+    // Pin each half exactly: a > 5 is the whole independent half (no subquery, no
+    // $parent pushed before LET), and the IN-subquery conjunct stays dependent
+    // intact with its subquery-borne $parent reference.
+    assertHalfIs("a > 5", result.independent());
+    assertHalfIs(
+        "b IN (SELECT FROM Foo WHERE x = $parent.$total)", result.dependent());
   }
 
   // ====== findRidEquality tests ======
