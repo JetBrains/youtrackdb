@@ -1054,6 +1054,12 @@ public class SQLWhereClause extends SimpleNode {
    */
   private static SQLWhereClause buildWhereWith(
       SQLAndBlock andBlock, List<Integer> indices) {
+    // An empty index list would yield a degenerate empty-AND clause that matches
+    // every record — a silent correctness bug. Every caller must pre-filter to a
+    // non-empty list; this guards a future caller or refactor that does not.
+    assert !indices.isEmpty()
+        : "buildWhereWith requires at least one conjunct index; an empty list "
+            + "yields a match-everything WHERE that violates the split contract";
     var newAnd = new SQLAndBlock(-1);
     for (var idx : indices) {
       newAnd.subBlocks.add(andBlock.subBlocks.get(idx));

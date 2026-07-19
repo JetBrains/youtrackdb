@@ -10750,19 +10750,24 @@ public class SelectStatementExecutionTest extends DbTestBase {
       session.commit();
     }
 
-    // age >= 90 matches only n9; $total[0].cnt > 100 is false (count=10).
-    // So the OR evaluates to: (true for n9) OR (false for all) → only n9.
+    // count(*) = 10, so the LET-dependent branch $total[0].cnt > 5 is true for
+    // every row when correctly evaluated AFTER LET → the OR is always true → all
+    // 10 rows. A wrongful push-before-LET would evaluate $total unbound, making
+    // "$total[0].cnt > 5" false, so only the age >= 90 branch (n9) would match →
+    // 1 row. The row count (10 vs 1) therefore independently detects a leak; the
+    // assertNoPushDown plan-shape check is a second, independent guard.
     session.begin();
     var query = "SELECT name, $total FROM " + cls
         + " LET $total = (SELECT count(*) as cnt FROM " + cls + ")"
-        + " WHERE age >= 90 OR $total[0].cnt > 100";
+        + " WHERE age >= 90 OR $total[0].cnt > 5";
     var list = session.query(query).toList();
-    Assert.assertEquals("Only n9 should match the OR condition", 1, list.size());
-    Assert.assertEquals("n9", list.getFirst().getProperty("name"));
+    Assert.assertEquals(
+        "OR is always true (count 10 > 5) → all rows; a leak would collapse to 1",
+        10, list.size());
 
     // Verify EXPLAIN: multi-OR with a LET ref prevents push-down (the
-    // $total[0].cnt > 100 branch keeps the whole WHERE after LET).
-    assertNoPushDown(explainPlan(query), "$total[0].cnt > 100");
+    // $total[0].cnt > 5 branch keeps the whole WHERE after LET).
+    assertNoPushDown(explainPlan(query), "$total[0].cnt > 5");
     session.commit();
   }
 

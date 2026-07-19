@@ -923,6 +923,29 @@ public class PatternTest extends ParserTestAbstract {
   }
 
   /**
+   * Mirror of {@link #testSplitByLetDependency_nestedOrInAnd}: a nested OR that is
+   * LET-independent must be rebuilt into the pushed-before-LET half. WHERE
+   * (a &gt; 5 OR b &lt; 10) AND c = $x with LET $x → the parenthesized OR conjunct
+   * references no LET var (independent), c = $x is dependent. This is the only
+   * split path where {@code buildWhereWith} reconstructs an OR sub-block into the
+   * independent half, so it guards that reconstruction and its serialization.
+   */
+  @Test
+  public void testSplitByLetDependency_independentNestedOrPushed()
+      throws ParseException {
+    var where = parseWhere("(a > 5 OR b < 10) AND c = $x");
+    var result = where.splitByLetDependency(Set.of("x"));
+    assertNotNull("Should return split result", result);
+    assertNotNull("Should have independent part (OR sub-block)", result.independent());
+    assertNotNull("Should have dependent part (c = $x)", result.dependent());
+    // Pin each half exactly: the whole OR block (both branches) is pushed, c = $x
+    // stays dependent. Exact equality catches a dropped OR branch in the pushed
+    // half — which would silently widen the pre-LET filter and admit extra rows.
+    assertHalfIs("(a > 5 OR b < 10)", result.independent());
+    assertHalfIs("c = $x", result.dependent());
+  }
+
+  /**
    * Guards the refersToParent-into-subquery invariant: a {@code $parent}
    * reference that appears ONLY inside a nested subquery in the WHERE (here, an
    * IN-subquery's own WHERE) must still be detected, so the enclosing conjunct
