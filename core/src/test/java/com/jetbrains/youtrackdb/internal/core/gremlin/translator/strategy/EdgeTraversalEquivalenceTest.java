@@ -761,6 +761,23 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * Nested {@code g.V().and(__.and(__.out("a"), __.out("b")), __.has("age", 30))} must keep both hops
+   * (and the age filter) so the translated multiset matches native. A regression that left the middle
+   * adapter classified pure-filter would drop the hops and over-accept vertices.
+   */
+  @Test
+  public void nestedAndOfOutHops_thenHas_matchesNative() {
+    seedDualLabeledOutEdgesWithAge();
+    assertEquivalent(
+        "g.V().and(and(out(a), out(b)), has(age,30)) nested connective",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .V()
+            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30))));
+  }
+
+  /**
    * A foreign step between the edge and its close declines the whole chain to native:
    * {@code g.V().outE("knows").dedup().inV()}. {@code dedup()} is neither a {@code HasStep} nor a
    * {@code NoOpBarrierStep}, so {@code EdgeHopRecogniser} declines (its peek-ahead window spans only
@@ -828,6 +845,21 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     var targetA = graph.addVertex(T.label, "Person", "name", "TargetA");
     var targetB = graph.addVertex(T.label, "Person", "name", "TargetB");
     var onlyA = graph.addVertex(T.label, "Person", "name", "OnlyA");
+    hub.addEdge("a", targetA);
+    hub.addEdge("b", targetB);
+    onlyA.addEdge("a", targetA);
+    graph.tx().commit();
+  }
+
+  /**
+   * Same topology as {@link #seedDualLabeledOutEdges} plus an {@code age} property so a nested
+   * {@code and(..., has(age))} filter selects the hub and excludes the leaf.
+   */
+  private void seedDualLabeledOutEdgesWithAge() {
+    var hub = graph.addVertex(T.label, "Person", "name", "Hub", "age", 30);
+    var targetA = graph.addVertex(T.label, "Person", "name", "TargetA", "age", 1);
+    var targetB = graph.addVertex(T.label, "Person", "name", "TargetB", "age", 1);
+    var onlyA = graph.addVertex(T.label, "Person", "name", "OnlyA", "age", 30);
     hub.addEdge("a", targetA);
     hub.addEdge("b", targetB);
     onlyA.addEdge("a", targetA);

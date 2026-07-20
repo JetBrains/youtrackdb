@@ -81,8 +81,13 @@ final class ConnectiveStepSupport {
   }
 
   /**
-   * Reads the one WHERE expression a pure-filter child captured on {@code boundary}. Multiple entries
-   * or a missing entry means the child shape is not a single composable OR operand — decline.
+   * Reads the one WHERE expression a pure-filter child captured on {@code boundary}, folding any
+   * boundary-node re-type ({@code hasLabel(L)} via {@code addNode}) into the operand as {@link
+   * MatchWhereBuilder#classEquals}. Under polymorphic mode {@code hasLabel} is re-type-only (no
+   * {@code classEquals} in the child's WHERE), so without this fold an OR of {@code hasLabel+has}
+   * arms would keep only the property predicates and lose label discrimination. Multiple filter
+   * entries, a missing filter, or a re-type on a non-boundary alias means the child is not a single
+   * composable OR operand — decline.
    */
   private static SQLBooleanExpression singleCapturedFilter(
       SubTraversalPredicateAdapter adapter, String boundary) {
@@ -95,6 +100,16 @@ final class ConnectiveStepSupport {
     if (onBoundary.size() != 1) {
       return null;
     }
-    return onBoundary.getFirst().getBaseExpression();
+    var expr = onBoundary.getFirst().getBaseExpression();
+    var reTypes = adapter.capturedPattern().registeredAliasClasses();
+    for (var entry : reTypes.entrySet()) {
+      if (!boundary.equals(entry.getKey())) {
+        // A pure-filter OR child should only re-type the boundary; any other alias is inexpressible
+        // as a boolean operand on this node.
+        return null;
+      }
+      expr = WHERE.and(WHERE.classEquals(entry.getValue()), expr);
+    }
+    return expr;
   }
 }

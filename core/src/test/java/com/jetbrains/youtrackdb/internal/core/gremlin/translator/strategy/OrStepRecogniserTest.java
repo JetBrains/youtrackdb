@@ -71,6 +71,51 @@ public class OrStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
   }
 
+  /**
+   * Under polymorphic mode {@code hasLabel(L)} is re-type-only (no {@code @class} in the child's
+   * WHERE). OR must fold each child's boundary re-type into that child's OR operand as {@code
+   * classEquals}, otherwise {@code or(hasLabel(Person).has(age,30), hasLabel(Company).has(age,40))}
+   * would keep only the age predicates and lose label discrimination.
+   */
+  @Test
+  public void polymorphicHasLabelPlusHas_foldsClassEqualsIntoEachOrOperand() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Company");
+
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .or(
+                __.hasLabel("Person").has("age", P.eq(30)),
+                __.hasLabel("Company").has("age", P.eq(40)))
+            .asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = OrStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    var rendered = renderBoundaryFilter(ctx);
+    // toGenericStatement collapses string class names to '?', so assert shape not literals —
+    // end-to-end Person/Company discrimination is pinned by
+    // PredicateTraversalEquivalenceTest.polymorphicOrHasLabelPlusHas_matchesNative.
+    assertThat(rendered)
+        .contains("@class = ")
+        .contains("age")
+        .contains("OR")
+        .containsIgnoringCase(" AND ");
+    assertThat(countOccurrences(rendered, "@class = ")).isEqualTo(2);
+  }
+
+  private static int countOccurrences(String haystack, String needle) {
+    var count = 0;
+    for (var i = 0; (i = haystack.indexOf(needle, i)) >= 0; i += needle.length()) {
+      count++;
+    }
+    return count;
+  }
+
   /** Without a pinned boundary the recogniser declines rather than inventing an origin alias. */
   @Test
   public void nullBoundary_declines() {

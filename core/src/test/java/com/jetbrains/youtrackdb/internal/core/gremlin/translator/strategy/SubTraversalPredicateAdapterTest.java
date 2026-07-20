@@ -230,13 +230,13 @@ public class SubTraversalPredicateAdapterTest {
 
   /**
    * Nested combinator children merge captured hop fragments through {@link
-   * RecognitionContext#appendPattern} into the enclosing adapter's pattern buffer.
+   * RecognitionContext#appendPattern} into the enclosing adapter's pattern buffer, and the merge
+   * flips {@link SubTraversalPredicateAdapter#hasEdges()} so the enclosing combinator treats the
+   * child as edge-bearing.
    */
   @Test
   public void appendPattern_mergesCapturedHopIntoAdapter() {
-    var parent = mock(RecognitionContext.class);
-    when(parent.boundaryAlias()).thenReturn(BOUNDARY_ALIAS);
-    when(parent.nextAnonVertexAlias()).thenReturn(FIRST_ANON_ALIAS);
+    var parent = parentWithBoundary(Map.of());
     var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
 
     var nested = new MatchPatternBuilder();
@@ -253,7 +253,9 @@ public class SubTraversalPredicateAdapterTest {
 
     adapter.appendPattern(nested);
 
-    assertThat(adapter.hasEdges()).isFalse();
+    assertThat(adapter.hasEdges())
+        .as("merging a hop fragment must classify the enclosing adapter as edge-bearing")
+        .isTrue();
     assertThat(adapter.capturedPattern().hasAlias(FIRST_ANON_ALIAS)).isTrue();
     assertThat(adapter.capturedPattern().build().pattern().getNumOfEdges()).isEqualTo(1);
   }
