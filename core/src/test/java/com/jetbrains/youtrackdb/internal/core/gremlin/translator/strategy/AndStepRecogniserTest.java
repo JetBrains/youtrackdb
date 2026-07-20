@@ -100,6 +100,32 @@ public class AndStepRecogniserTest extends GraphBaseTest {
   }
 
   /**
+   * Nested {@code and(and(out(a), out(b)), has(age))} must keep both hops: the inner combinator merges
+   * edges into the middle adapter via {@link RecognitionContext#appendPattern}, which must flip
+   * {@code hasEdges} so the outer combinator takes the edge-bearing commit path rather than dropping
+   * the hops as a pure-filter child.
+   */
+  @Test
+  public void nestedAndOfOutHops_thenHas_keepsBothHops() {
+    var admin =
+        graph
+            .traversal()
+            .V()
+            .and(__.and(__.out("a"), __.out("b")), __.has("age", P.eq(30)))
+            .asAdmin();
+    var ctx = contextWithRegistry(true, null);
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = AndStepRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isTrue();
+    assertThat(ctx.patternBuilder.hasAlias(SECOND_ANON_ALIAS)).isTrue();
+    assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isEqualTo(2);
+    assertThat(renderBoundaryFilter(ctx)).contains("age");
+  }
+
+  /**
    * End-to-end {@link GremlinStepWalker#production()} walk for {@code and(out, out)} — the same
    * registry path the strategy uses. Pins that the combinator integrates with the start-step
    * recogniser, not only in isolation.

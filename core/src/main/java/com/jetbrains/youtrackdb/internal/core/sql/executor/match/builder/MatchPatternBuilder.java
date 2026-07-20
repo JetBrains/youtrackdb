@@ -240,6 +240,14 @@ public final class MatchPatternBuilder {
   }
 
   /**
+   * Returns the number of edges accumulated so far without locking the builder. A sub-walk capture
+   * context uses this to classify a merged fragment as edge-bearing after {@link #appendFrom}.
+   */
+  public int edgeCount() {
+    return pattern.getNumOfEdges();
+  }
+
+  /**
    * Merges another builder's alias metadata and pattern topology into this one. Alias classes and
    * filters merge through {@link #addNode} (overwrite / monotonic-optional rules apply); edges copy
    * from {@code source}'s pattern graph, skipping duplicates that share the same endpoints and path

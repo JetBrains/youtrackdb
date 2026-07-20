@@ -14,6 +14,7 @@ import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Test;
@@ -769,6 +770,37 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
         "g.V().outE(knows).has(note, containing(ex)).inV() on a String edge property",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().outE("knows").has("note", TextP.containing("ex")).inV());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Logical OR over hasLabel+has — polymorphic re-type fold.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Polymorphic {@code or(hasLabel(Person).has(age,30), hasLabel(Company).has(age,40))} must match
+   * native: each OR arm keeps its label discrimination. Without folding the child's {@code hasLabel}
+   * re-type into the OR operand as {@code classEquals}, the translated WHERE would be roughly
+   * {@code (age=30) OR (age=40)} and wrongly admit cross-label rows.
+   */
+  @Test
+  public void polymorphicOrHasLabelPlusHas_matchesNative() {
+    session.createVertexClass("Person");
+    session.createVertexClass("Company");
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "Bob", "age", 40); // age matches Company arm — must exclude
+    graph.addVertex(T.label, "Company", "name", "Acme", "age", 40);
+    graph.addVertex(T.label, "Company", "name", "Beta", "age", 30); // age matches Person arm — must exclude
+    graph.tx().commit();
+
+    withPolymorphicDefault(true, () -> assertEquivalent(
+        "polymorphic or(hasLabel(Person).has(age,30), hasLabel(Company).has(age,40))",
+        Recognition.RECOGNIZED,
+        () -> graph
+            .traversal()
+            .V()
+            .or(
+                __.hasLabel("Person").has("age", P.eq(30)),
+                __.hasLabel("Company").has("age", P.eq(40)))));
   }
 
   // ---------------------------------------------------------------------------

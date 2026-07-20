@@ -60,8 +60,8 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  *       class through {@link #addNode}, which lands in {@link #capturedPattern()} but introduces no
  *       edge, so it stays pure-filter;
  *   <li>an <b>edge-bearing</b> child contributes at least one hop through {@link #addEdge} / {@link
- *       #addEdgeAsNode} ({@link #hasEdges()} is {@code true}, {@link #capturedPattern()} carries the
- *       edge fragment).
+ *       #addEdgeAsNode} / {@link #appendPattern} of an edge-bearing fragment ({@link #hasEdges()} is
+ *       {@code true}, {@link #capturedPattern()} carries the edge fragment).
  * </ul>
  *
  * The distinction drives every combinator: AND supports both, OR declines any edge-bearing child, NOT
@@ -98,10 +98,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  child never leaves a partial fragment on the parent's pattern builder. */
   private final MatchPatternBuilder capturedPattern = new MatchPatternBuilder();
 
-  /** Whether the child contributed an edge/hop ({@link #addEdge} or {@link #addEdgeAsNode}). {@code
-   *  false} marks a pure-filter child; {@code true} an edge-bearing one. A bare {@link #addNode} does
-   *  not flip it — a folded {@code hasLabel(L)} re-types the boundary node through {@code addNode}
-   *  without adding a hop, which is pure-filter. */
+  /** Whether the child contributed an edge/hop ({@link #addEdge}, {@link #addEdgeAsNode}, or an
+   *  {@link #appendPattern} merge of an edge-bearing fragment). {@code false} marks a pure-filter
+   *  child; {@code true} an edge-bearing one. A bare {@link #addNode} does not flip it — a folded
+   *  {@code hasLabel(L)} re-types the boundary node through {@code addNode} without adding a hop,
+   *  which is pure-filter. */
   private boolean hasEdges;
 
   /** The sub-walk outcome, {@code null} until {@link GremlinStepWalker#subWalk} finishes driving this
@@ -243,7 +244,14 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void appendPattern(MatchPatternBuilder captured) {
+    // Nested combinators (e.g. and(and(out(a), out(b)), has(...))) merge grandchild hops through
+    // appendPattern rather than addEdge. Flip hasEdges when the source contributed any hop so the
+    // enclosing adapter is classified edge-bearing and commitEdgeBearingChild keeps the topology.
+    var sourceHadEdges = captured.edgeCount() > 0;
     capturedPattern.appendFrom(captured);
+    if (sourceHadEdges) {
+      hasEdges = true;
+    }
   }
 
   /**

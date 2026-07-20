@@ -11,7 +11,10 @@ import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
  *
  * <p>Captured filters are composed with {@link MatchWhereBuilder#or} and committed once on the
  * boundary alias. Individual {@link RecognitionContext#putAliasFilter} calls are not used for OR
- * children — that API AND-composes same-alias contributions.
+ * children — that API AND-composes same-alias contributions. Boundary re-types from a child's
+ * {@code hasLabel(L)} are folded into that child's OR operand as {@code classEquals} (including under
+ * polymorphic mode, where {@code hasLabel} otherwise emits no WHERE) so label discrimination is not
+ * dropped.
  */
 final class OrStepRecogniser implements StepRecogniser {
 
