@@ -4,9 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
 import java.util.Set;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.PBiPredicate;
+import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
@@ -223,6 +226,70 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
+  // Text-predicate type path (schema-backed) — the isDeclaredStringProperty
+  // gate routes startingWith; a non-String edge property no longer declines.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A {@code startingWith} on a declared non-String edge property no longer declines: the type gate
+   * ({@code isDeclaredStringProperty}) reports {@code weight} (declared {@code INTEGER} on {@code
+   * knows}) as not-a-declared-String, so the recogniser emits the strict full-scan {@code STARTSWITH}
+   * node rather than declining. This closes the EdgeHopRecogniser type path: previously a Text
+   * predicate on a non-String edge property declined, now it translates strict and throws at
+   * execution like native.
+   */
+  @Test
+  public void nonStringEdgeProperty_startingWith_emitsStrictNode_notDecline() {
+    session.createVertexClass("Person");
+    var knows = session.createEdgeClass("knows");
+    knows.createProperty("weight", PropertyType.INTEGER);
+    var admin =
+        graph.traversal().V().outE("knows").has("weight", TextP.startingWith("1")).inV().asAdmin();
+    var ctx = contextWithStartBoundary(session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a Text predicate on a non-String edge property no longer declines")
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    var where = new StringBuilder();
+    ctx.edgeFilters.get(FIRST_EDGE_ALIAS).toGenericStatement(where);
+    assertThat(where.toString())
+        .as("a non-String edge startingWith emits the strict full-scan STARTSWITH node")
+        .contains("weight STARTSWITH(strict) ");
+  }
+
+  /**
+   * A {@code startingWith} on a declared String edge property uses the index-aware half-open prefix
+   * range (the declared-String routing), not the strict node. {@code note} is {@code STRING} on
+   * {@code knows}, so the type gate reports it a declared String and the recogniser emits the range
+   * pair {@code note >= p AND note < p⁺}.
+   */
+  @Test
+  public void stringEdgeProperty_startingWith_usesIndexAwareRange() {
+    session.createVertexClass("Person");
+    var knows = session.createEdgeClass("knows");
+    knows.createProperty("note", PropertyType.STRING);
+    var admin =
+        graph.traversal().V().outE("knows").has("note", TextP.startingWith("Al")).inV().asAdmin();
+    var ctx = contextWithStartBoundary(session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    var outcome = EdgeHopRecogniser.INSTANCE.recognize(cursor, ctx);
+
+    assertThat(outcome).as("a startingWith on a declared String edge property is accepted")
+        .isEqualTo(Outcome.ACCEPTED);
+    assertThat(ctx.edgeFilters).containsKey(FIRST_EDGE_ALIAS);
+    var where = new StringBuilder();
+    ctx.edgeFilters.get(FIRST_EDGE_ALIAS).toGenericStatement(where);
+    assertThat(where.toString())
+        .as("a declared-String edge startingWith uses the index-aware prefix range")
+        .contains("note >= ").contains("note < ")
+        .doesNotContain("STARTSWITH");
+  }
+
+  // ---------------------------------------------------------------------------
   // Decline paths — a decline discards the whole walk, so the recogniser
   // contributes nothing before declining.
   // ---------------------------------------------------------------------------
@@ -401,7 +468,13 @@ public class EdgeHopRecogniserTest extends GraphBaseTest {
    * one keyed on its target; a declined chain must leave everything as seeded.
    */
   private static WalkerContext contextWithStartBoundary() {
-    var ctx = new WalkerContext(true, false);
+    return contextWithStartBoundary(null);
+  }
+
+  /** As {@link #contextWithStartBoundary()} but with a schema snapshot, so the type gate can resolve
+   *  declared edge-property types (the {@code startingWith} routing). */
+  private static WalkerContext contextWithStartBoundary(Schema schema) {
+    var ctx = new WalkerContext(true, false, schema);
     ctx.addNode(BOUNDARY_ALIAS, "V");
     ctx.pinBoundary(BOUNDARY_ALIAS, BoundaryOutputType.ELEMENT, Vertex.class);
     ctx.setSingleReturnColumn(BOUNDARY_ALIAS);
