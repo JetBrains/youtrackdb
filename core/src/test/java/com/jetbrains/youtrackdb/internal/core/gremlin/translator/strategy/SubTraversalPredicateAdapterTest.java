@@ -117,9 +117,10 @@ public class SubTraversalPredicateAdapterTest {
 
   /**
    * Pattern contributions ({@code addNode} / {@code addEdge} / {@code addEdgeAsNode}) are captured in
-   * the adapter's own pattern builder and flip {@link SubTraversalPredicateAdapter#hasEdges()} to
-   * {@code true} (the edge-bearing classification), never reaching the parent's pattern builder. Edge
-   * filters are captured for observability.
+   * the adapter's own pattern builder, never reaching the parent's. Only an edge/hop ({@code addEdge}
+   * / {@code addEdgeAsNode}) flips {@link SubTraversalPredicateAdapter#hasEdges()} — a bare {@code
+   * addNode} (a boundary-node re-type) is classification-neutral, so the flag is driven by hops alone.
+   * Edge filters are captured for observability.
    */
   @Test
   public void patternAndEdgeFilterContributions_captureAndFlagHasEdges() {
@@ -129,7 +130,12 @@ public class SubTraversalPredicateAdapterTest {
         .isFalse();
 
     adapter.addNode(FIRST_ANON_ALIAS, "V");
+    assertThat(adapter.hasEdges()).as("a bare addNode is a re-type, not a hop — still pure-filter")
+        .isFalse();
+
     adapter.addEdge(BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT, "knows");
+    assertThat(adapter.hasEdges()).as("an addEdge is a hop — the child is now edge-bearing")
+        .isTrue();
     adapter.addEdgeAsNode(
         BOUNDARY_ALIAS,
         "$g2m_edge_0",
@@ -140,7 +146,7 @@ public class SubTraversalPredicateAdapterTest {
         null);
     adapter.putEdgeFilter("$g2m_edge_0", whereClause("since"));
 
-    assertThat(adapter.hasEdges()).as("any pattern fragment makes the child edge-bearing").isTrue();
+    assertThat(adapter.hasEdges()).as("an edge/hop makes the child edge-bearing").isTrue();
     assertThat(adapter.capturedPattern().hasAlias(FIRST_ANON_ALIAS)).isTrue();
     assertThat(adapter.capturedPattern().hasAlias(SECOND_ANON_ALIAS)).isTrue();
     assertThat(adapter.capturedPattern().hasAlias("$g2m_edge_0")).isTrue();
@@ -220,6 +226,43 @@ public class SubTraversalPredicateAdapterTest {
     assertThat(parent.patternBuilder.hasAlias(FIRST_ANON_ALIAS))
         .as("the hop target is not added to the parent's pattern")
         .isFalse();
+  }
+
+  /**
+   * A child that only re-types the boundary node — the shape a folded {@code hasLabel(L)} produces, a
+   * {@code ctx.addNode(boundaryAlias, L)} that narrows the existing boundary's class plus a {@code
+   * @class} alias filter — is <b>pure-filter</b>, not edge-bearing: it adds no hop, so {@code
+   * hasEdges()} stays {@code false}. The re-type still lands in the captured pattern (a class
+   * narrowing), but classification keys on the edge/hop contribution, not on any {@code addNode}. This
+   * is the counterpart to {@link #edgeBearingChild_capturesHopAndSwallowsRePin}: it guards against
+   * mistaking a {@code hasLabel}-bearing pure-filter child for an edge-bearing one, which would make a
+   * later {@code or(hasLabel, hasLabel)} wrongly decline and a {@code not(hasLabel)} route to the
+   * edge-bearing anti-join path.
+   */
+  @Test
+  public void reTypeOnlyChild_isPureFilter() {
+    StepRecogniser labelReType =
+        (cursor, ctx) -> {
+          cursor.take();
+          // Mirrors HasStepRecogniser's folded hasLabel(L) contribution: re-type the boundary node's
+          // class through addNode, then add the leaf-exact @class filter on the same alias.
+          ctx.addNode(ctx.boundaryAlias(), "Person");
+          ctx.putAliasFilter(ctx.boundaryAlias(), whereClause("@class"));
+          return Outcome.ACCEPTED;
+        };
+    var parent = parentWithBoundary(Map.of(VertexStep.class, labelReType));
+
+    var sub = parent.walkChild(__.out("a").asAdmin());
+
+    assertThat(sub.outcome()).isEqualTo(Outcome.ACCEPTED);
+    assertThat(sub.hasEdges()).as("a boundary re-type adds no hop — the child is pure-filter")
+        .isFalse();
+    assertThat(sub.capturedAliasFilters()).containsKey(BOUNDARY_ALIAS);
+    assertThat(sub.capturedPattern().hasAlias(BOUNDARY_ALIAS))
+        .as("the re-type still lands in the captured pattern")
+        .isTrue();
+    assertThat(parent.aliasFilters).as("the captured filter is not committed to the parent")
+        .isEmpty();
   }
 
   /**

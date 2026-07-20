@@ -54,14 +54,20 @@ import org.apache.tinkerpop.gremlin.structure.Element;
  * After a driven walk the adapter exposes {@link #outcome()} and the captured state:
  *
  * <ul>
- *   <li>a <b>pure-filter</b> child contributes only alias filters ({@link #hasEdges()} is {@code
- *       false}, {@link #capturedAliasFilters()} carries its conjoined WHERE);
- *   <li>an <b>edge-bearing</b> child contributes at least one pattern fragment ({@link #hasEdges()} is
- *       {@code true}, {@link #capturedPattern()} carries the fragment).
+ *   <li>a <b>pure-filter</b> child adds no hop ({@link #hasEdges()} is {@code false}). It contributes
+ *       alias filters ({@link #capturedAliasFilters()} carries its conjoined WHERE) and at most a
+ *       boundary-node re-type: a folded {@code hasLabel(L)} narrows the existing boundary alias's
+ *       class through {@link #addNode}, which lands in {@link #capturedPattern()} but introduces no
+ *       edge, so it stays pure-filter;
+ *   <li>an <b>edge-bearing</b> child contributes at least one hop through {@link #addEdge} / {@link
+ *       #addEdgeAsNode} ({@link #hasEdges()} is {@code true}, {@link #capturedPattern()} carries the
+ *       edge fragment).
  * </ul>
  *
  * The distinction drives every combinator: AND supports both, OR declines any edge-bearing child, NOT
- * routes pure-filter to {@code WHERE NOT} and edge-bearing to a detached anti-join pattern.
+ * routes pure-filter to {@code WHERE NOT} and edge-bearing to a detached anti-join pattern. Keying it
+ * on the edge/hop contribution (not on any {@code addNode}) is what keeps an all-pure-filter {@code
+ * or(hasLabel, hasLabel)} translatable and a {@code not(hasLabel)} on the {@code WHERE NOT} path.
  */
 final class SubTraversalPredicateAdapter implements RecognitionContext {
 
@@ -92,8 +98,10 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
    *  child never leaves a partial fragment on the parent's pattern builder. */
   private final MatchPatternBuilder capturedPattern = new MatchPatternBuilder();
 
-  /** Whether the child contributed any pattern fragment (a hop / edge-as-node). {@code false} marks a
-   *  pure-filter child; {@code true} an edge-bearing one. */
+  /** Whether the child contributed an edge/hop ({@link #addEdge} or {@link #addEdgeAsNode}). {@code
+   *  false} marks a pure-filter child; {@code true} an edge-bearing one. A bare {@link #addNode} does
+   *  not flip it — a folded {@code hasLabel(L)} re-types the boundary node through {@code addNode}
+   *  without adding a hop, which is pure-filter. */
   private boolean hasEdges;
 
   /** The sub-walk outcome, {@code null} until {@link GremlinStepWalker#subWalk} finishes driving this
@@ -118,7 +126,8 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     return outcome;
   }
 
-  /** Whether the child was edge-bearing (contributed a pattern fragment) rather than pure-filter. */
+  /** Whether the child was edge-bearing (contributed an edge/hop) rather than pure-filter. A folded
+   *  {@code hasLabel(L)} boundary re-type is pure-filter, so this stays {@code false} for it. */
   boolean hasEdges() {
     return hasEdges;
   }
@@ -179,8 +188,13 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
 
   @Override
   public void addNode(String alias, String className) {
+    // Classification-neutral: a bare addNode does not mark the child edge-bearing. It is either a
+    // boundary-node re-type (a folded hasLabel(L) narrows the existing boundary alias's class through
+    // addNode — a pure-filter contribution with no hop), or a hop target, which is always preceded by
+    // the addEdge / addEdgeAsNode that already flipped hasEdges. Deriving hasEdges from addNode would
+    // misclassify a hasLabel-bearing pure-filter child as edge-bearing, so only the edge contributions
+    // below flip the flag.
     capturedPattern.addNode(alias, className, null, false);
-    hasEdges = true;
   }
 
   @Override
