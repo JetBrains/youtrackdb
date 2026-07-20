@@ -3,7 +3,7 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
-import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 import org.apache.tinkerpop.gremlin.structure.Direction;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 
@@ -94,21 +94,21 @@ final class GremlinPatternAssembler {
   }
 
   /**
-   * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStep}, applying one rule shared by
-   * the bare hop ({@link VertexHopRecogniser}) and the edge-filter chain ({@link EdgeHopRecogniser}): a
-   * single named label translates; a multi-label hop or a blank single label declines; a label-less hop
-   * (all edge types) translates unless the traversal opts into {@code EdgeLabelVerificationStrategy}
-   * (read from {@link RecognitionContext#edgeLabelVerificationEnabled()}, resolved once by the walker).
-   * Centralising the rule keeps the two hop kinds from drifting. A translatable label-less hop yields a
-   * {@code null} label, which the builders render as the all-types {@code out('E')} / bare {@code
-   * outE()} form.
+   * Resolves the Phase 1 edge-label arity of a hop's {@link VertexStepContract}, applying one rule
+   * shared by the bare hop ({@link VertexHopRecogniser}) and the edge-filter chain ({@link
+   * EdgeHopRecogniser}): a single named label translates; a multi-label hop or a blank single label
+   * declines; a label-less hop (all edge types) translates unless the traversal opts into {@code
+   * EdgeLabelVerificationStrategy} (read from {@link RecognitionContext#edgeLabelVerificationEnabled()},
+   * resolved once by the walker). Centralising the rule keeps the two hop kinds from drifting. A
+   * translatable label-less hop yields a {@code null} label, which the builders render as the all-types
+   * {@code out('E')} / bare {@code outE()} form.
    *
    * <p>The {@code EdgeLabelVerificationStrategy} carve-out preserves transparency: that opt-in strategy
    * exists to reject a label-less hop, so translating one into a boundary step would remove it before
    * the verification runs and silently swallow the error the user asked for. Declining leaves the
    * native {@code VertexStep} for the strategy to reject.
    */
-  static EdgeLabelArity resolveEdgeLabel(VertexStep<?> step, RecognitionContext ctx) {
+  static EdgeLabelArity resolveEdgeLabel(VertexStepContract<?> step, RecognitionContext ctx) {
     var labels = step.getEdgeLabels();
     if (labels.length > 1) {
       // Multi-label edge traversal is out of scope for Phase 1: addEdge / the edge-as-node builder

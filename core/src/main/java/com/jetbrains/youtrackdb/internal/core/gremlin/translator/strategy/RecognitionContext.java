@@ -133,6 +133,13 @@ interface RecognitionContext {
   void putEdgeFilter(String edgeAlias, SQLWhereClause where);
 
   /**
+   * Appends a captured sub-walk pattern fragment into this context's positive pattern accumulator.
+   * An {@code AndStep} edge-bearing child reaches this after its sub-walk completes; a nested
+   * combinator forwards into its own capture buffer rather than the top-level {@link WalkerContext}.
+   */
+  void appendPattern(MatchPatternBuilder captured);
+
+  /**
    * Pins the boundary metadata: the alias the matched element appears under in each row, how the row
    * projects onto a traverser, and the TinkerPop element class the boundary emits.
    */

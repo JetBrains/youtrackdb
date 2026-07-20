@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
+import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.__;
 import org.apache.tinkerpop.gremlin.structure.T;
 import org.apache.tinkerpop.gremlin.structure.Vertex;
 import org.junit.Assert;
@@ -741,6 +742,24 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
         () -> graph.traversal().V(aliceId).outE("knows").has("since", P.lt(2015)).inV());
   }
 
+  // ---------------------------------------------------------------------------
+  // Connective AND over edge filters — alias-isolation trap.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code g.V().and(__.out("a"), __.out("b"))} over a source whose {@code a} and {@code b} targets
+   * differ must match native. A per-child alias counter would mint the same anonymous alias twice and
+   * silently require both edges to reach the same vertex, dropping every source whose targets differ.
+   */
+  @Test
+  public void andTwoOutHops_differingTargets_matchesNative() {
+    seedDualLabeledOutEdges();
+    assertEquivalent(
+        "g.V().and(out(a), out(b)) with differing targets",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().and(__.out("a"), __.out("b")));
+  }
+
   /**
    * A foreign step between the edge and its close declines the whole chain to native:
    * {@code g.V().outE("knows").dedup().inV()}. {@code dedup()} is neither a {@code HasStep} nor a
@@ -797,6 +816,21 @@ public class EdgeTraversalEquivalenceTest extends GraphBaseTest {
     var carol = graph.addVertex(T.label, "Person", "name", "Carol");
     alice.addEdge("knows", bob);
     bob.addEdge("knows", carol);
+    graph.tx().commit();
+  }
+
+  /**
+   * Seeds a hub vertex with {@code a} and {@code b} edges to <em>different</em> targets plus a leaf
+   * with only one of the labels — the fixture for {@link #andTwoOutHops_differingTargets_matchesNative}.
+   */
+  private void seedDualLabeledOutEdges() {
+    var hub = graph.addVertex(T.label, "Person", "name", "Hub");
+    var targetA = graph.addVertex(T.label, "Person", "name", "TargetA");
+    var targetB = graph.addVertex(T.label, "Person", "name", "TargetB");
+    var onlyA = graph.addVertex(T.label, "Person", "name", "OnlyA");
+    hub.addEdge("a", targetA);
+    hub.addEdge("b", targetB);
+    onlyA.addEdge("a", targetA);
     graph.tx().commit();
   }
 

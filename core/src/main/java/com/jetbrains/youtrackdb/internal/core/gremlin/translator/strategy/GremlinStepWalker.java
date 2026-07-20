@@ -12,11 +12,14 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import org.apache.tinkerpop.gremlin.process.traversal.Step;
 import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.AndStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.HasStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.filter.OrStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.filter.TraversalFilterStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.GraphStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.NoOpBarrierStep;
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepPlaceholder;
 import org.apache.tinkerpop.gremlin.process.traversal.strategy.verification.EdgeLabelVerificationStrategy;
 
 /**
@@ -84,23 +87,20 @@ final class GremlinStepWalker {
   /**
    * Production recogniser registry, keyed on the exact step class. {@link StartStepRecogniser} claims
    * the vertex source under {@link GraphStep}; {@link VertexStepRecogniser} owns {@link VertexStep}
-   * and routes it on {@code returnsEdge()} — a folded bare hop to {@link VertexHopRecogniser}, an
-   * edge-returning {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}. {@link
-   * HasStepRecogniser} owns {@link HasStep} — the single class {@code has(...)} / {@code hasLabel(...)}
-   * / {@code hasId(...)} all produce at translator time (before the {@code YTDBGraphStep} fold) — and
-   * {@link TraversalFilterStepRecogniser} owns {@link TraversalFilterStep}, the {@code has(key)}
-   * presence form. The barrier needs no entry: the cursor skips it as a transparent step, so the
-   * walker never dispatches one. Later tracks add one entry per step class they translate. Class-keyed
-   * dispatch is O(1) and fails safe: a step whose runtime class has no entry — an unregistered type,
-   * or an unexpected subclass — declines the whole traversal rather than being misrouted through a
-   * parent recogniser.
+   * and {@link VertexStepPlaceholder} (the latter appears on combinator child sub-traversals after
+   * {@code AdjacentToIncidentStrategy} runs recursively during {@code applyStrategies()}) and routes
+   * on {@code returnsEdge()} — a folded bare hop to {@link VertexHopRecogniser}, an edge-returning
+   * {@code outE(L).has(...).inV()} chain to {@link EdgeHopRecogniser}. {@link HasStepRecogniser}
    */
   private static final Map<Class<?>, StepRecogniser> PRODUCTION_RECOGNISERS =
       Map.of(
           GraphStep.class, StartStepRecogniser.INSTANCE,
           VertexStep.class, VertexStepRecogniser.INSTANCE,
+          VertexStepPlaceholder.class, VertexStepRecogniser.INSTANCE,
           HasStep.class, HasStepRecogniser.INSTANCE,
-          TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE);
+          TraversalFilterStep.class, TraversalFilterStepRecogniser.INSTANCE,
+          AndStep.class, AndStepRecogniser.INSTANCE,
+          OrStep.class, OrStepRecogniser.INSTANCE);
 
   /**
    * Pre-built production walker. The walker is stateless — only the immutable {@code recognisers}
