@@ -1,5 +1,6 @@
 package com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder;
 
+import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternEdge;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.PatternNode;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.MatchEdgePathItems;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.Pattern;
@@ -11,6 +12,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import javax.annotation.Nonnull;
 
 /**
@@ -229,6 +231,47 @@ public final class MatchPatternBuilder {
   }
 
   /**
+   * Returns an unmodifiable view of alias→class registrations accumulated so far. Useful before
+   * {@link #build()} when a caller needs to read boundary re-types a sub-walk captured without
+   * locking the builder.
+   */
+  public Map<String, String> registeredAliasClasses() {
+    return Collections.unmodifiableMap(aliasClasses);
+  }
+
+  /**
+   * Merges another builder's alias metadata and pattern topology into this one. Alias classes and
+   * filters merge through {@link #addNode} (overwrite / monotonic-optional rules apply); edges copy
+   * from {@code source}'s pattern graph, skipping duplicates that share the same endpoints and path
+   * item. Both builders must not yet have called {@link #build()}.
+   *
+   * <p>An {@code AndStep} edge-bearing child uses this to append its captured hop fragments to the
+   * parent's positive pattern — MATCH composes multiple edges from the same origin by AND (join).
+   */
+  public MatchPatternBuilder appendFrom(MatchPatternBuilder source) {
+    checkNotBuilt();
+    source.checkNotBuilt();
+    for (var alias : source.aliasClasses.keySet()) {
+      addNode(alias, source.aliasClasses.get(alias), source.aliasFilters.get(alias), false);
+    }
+    for (var entry : source.aliasFilters.entrySet()) {
+      if (!source.aliasClasses.containsKey(entry.getKey())) {
+        addNode(entry.getKey(), null, entry.getValue(), false);
+      }
+    }
+    for (var srcNode : source.pattern.aliasToNode.values()) {
+      var dstNode = getOrCreatePatternNode(srcNode.alias, srcNode.optional);
+      for (var srcEdge : srcNode.out) {
+        var dstTo = getOrCreatePatternNode(srcEdge.in.alias, srcEdge.in.optional);
+        if (!hasOutgoingEdge(dstNode, dstTo, srcEdge)) {
+          pattern.numOfEdges += dstNode.addEdge(srcEdge.item, dstTo);
+        }
+      }
+    }
+    return this;
+  }
+
+  /**
    * Returns {@code true} iff {@code alias} has been registered in the underlying pattern — either
    * via a prior {@link #addNode} call or via {@link Pattern#addExpression}'s implicit
    * {@code getOrCreateNode} from a prior {@link #addEdge}. Callers that need to validate
@@ -259,6 +302,30 @@ public final class MatchPatternBuilder {
         pattern.copy(),
         Collections.unmodifiableMap(aliasClasses),
         Collections.unmodifiableMap(aliasFilters));
+  }
+
+  private PatternNode getOrCreatePatternNode(String alias, boolean optional) {
+    var node =
+        pattern.aliasToNode.computeIfAbsent(
+            alias,
+            a -> {
+              var n = new PatternNode();
+              n.alias = a;
+              return n;
+            });
+    if (optional) {
+      node.optional = true;
+    }
+    return node;
+  }
+
+  private static boolean hasOutgoingEdge(PatternNode from, PatternNode to, PatternEdge template) {
+    for (var edge : from.out) {
+      if (edge.in == to && Objects.equals(edge.item, template.item)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private void checkNotBuilt() {

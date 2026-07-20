@@ -241,6 +241,11 @@ final class SubTraversalPredicateAdapter implements RecognitionContext {
     capturedEdgeFilters.put(edgeAlias, where);
   }
 
+  @Override
+  public void appendPattern(MatchPatternBuilder captured) {
+    capturedPattern.appendFrom(captured);
+  }
+
   /**
    * Swallowed: a child changes the parent's filter, never its result shape. A hop child would
    * otherwise re-pin the boundary to its own target and move the outer result column onto it.

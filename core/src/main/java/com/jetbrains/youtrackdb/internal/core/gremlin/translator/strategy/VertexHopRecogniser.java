@@ -1,6 +1,7 @@
 package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 
 import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStep;
+import org.apache.tinkerpop.gremlin.process.traversal.step.map.VertexStepContract;
 
 /**
  * Recogniser for a single folded vertex hop — the bare {@code out(L)} / {@code in(L)} / {@code
@@ -51,12 +52,24 @@ final class VertexHopRecogniser implements StepRecogniser {
 
   @Override
   public Outcome recognize(StepCursor cursor, RecognitionContext ctx) {
-    // Take the head the router dispatched. Defence in depth: re-assert a VertexStep that is NOT
+    // Take the head the router dispatched. Defence in depth: re-assert a vertex-hop contract that is NOT
     // edge-returning, so a direct mis-call declines cleanly rather than mis-translating an
     // edge-returning outE(L) step as a bare hop.
     var step = cursor.take();
-    if (!(step instanceof VertexStep<?> vertexStep) || vertexStep.returnsEdge()) {
+    if (!(step instanceof VertexStepContract<?> hop)) {
       return Outcome.DECLINE;
+    }
+    // Mis-routed non-adjacent edge-filter chain: EdgeHopRecogniser owns {@code outE.has.inV}. A
+    // singleton edge-returning hop at the top level ({@code outE(L)} with no closing {@code inV})
+    // declines; the same shape inside a combinator child sub-walk ({@link SubTraversalPredicateAdapter})
+    // is an {@code AdjacentToIncidentStrategy} fold artifact and translates as a bare hop.
+    if (hop.returnsEdge()) {
+      if (cursor.peek() != null) {
+        return Outcome.DECLINE;
+      }
+      if (!(ctx instanceof SubTraversalPredicateAdapter)) {
+        return Outcome.DECLINE;
+      }
     }
     // A hop with no boundary to hang off cannot be translated: the "from" endpoint is the current
     // terminator's alias, pinned by the start step (or a prior hop). A null here would mean a
@@ -69,12 +82,12 @@ final class VertexHopRecogniser implements StepRecogniser {
     // GremlinPatternAssembler.resolveEdgeLabel): a single named label or a label-less all-types hop
     // translates; a multi-label or blank single label declines. A null edgeLabel (label-less) flows to
     // appendFoldedHop, which the builder renders as the all-edges out('E') form.
-    var arity = GremlinPatternAssembler.resolveEdgeLabel(vertexStep, ctx);
+    var arity = GremlinPatternAssembler.resolveEdgeLabel(hop, ctx);
     if (!arity.translatable()) {
       return Outcome.DECLINE;
     }
     var edgeLabel = arity.label();
-    var direction = GremlinPatternAssembler.toBuilderDirection(vertexStep.getDirection());
+    var direction = GremlinPatternAssembler.toBuilderDirection(hop.getDirection());
 
     // Contribute. The target is a fresh anonymous alias so a multi-hop chain gets distinct
     // intermediate-node names. The assembler appends the folded hop (edge + target node under the
