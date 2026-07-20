@@ -21,7 +21,7 @@ public class DropIndexStatementTest extends ParserTestAbstract {
   }
 
   /**
-   * CQ-113: {@code copy()}, {@code equals()}, and {@code hashCode()} carry the {@code ifExists}
+   * {@code copy()}, {@code equals()}, and {@code hashCode()} carry the {@code ifExists}
    * flag — a copy of an IF EXISTS statement equals its original (and prints IF EXISTS), and
    * differs from the plain variant, so a statement cache can never conflate the two.
    */

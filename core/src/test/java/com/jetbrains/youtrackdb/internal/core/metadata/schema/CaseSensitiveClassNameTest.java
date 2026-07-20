@@ -322,7 +322,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
         collectionName.matches("c_\\d+"));
   }
 
-  // --- Index case-sensitivity tests (Track 2) ---
+  // --- Index case-sensitivity tests ---
 
   /**
    * Verifies that an index created on a class is retrievable by its exact
@@ -590,10 +590,10 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
     assertEquals("widget.nameIdx", forLower.iterator().next().getName());
   }
 
-  // --- Deferred test scenarios from Track 2 code review ---
+  // --- Index-name case-preservation and security-filter case-matching scenarios ---
 
   /**
-   * TC4: Verifies that index names are preserved with exact original case
+   * Verifies that index names are preserved with exact original case
    * across a session reload (create → persist → reload → case-sensitive
    * lookup). This tests the full round-trip through IndexManager persistence
    * and ImmutableSchema reconstruction.
@@ -630,7 +630,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * TC2: Verifies that the isAllClasses() guard in the security filter works
+   * Verifies that the isAllClasses() guard in the security filter works
    * correctly with case-sensitive class names. A wildcard security rule
    * (database.class.*.property) must match any class regardless of name case,
    * blocking composite index creation on the filtered property.
@@ -675,7 +675,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * TC2: Verifies that a class-specific security rule only matches the
+   * Verifies that a class-specific security rule only matches the
    * exact-case class name. A security rule set for "secexact" (lowercase)
    * should NOT block index creation on "SecExact" (original case) because
    * the equals() comparison is case-sensitive.
@@ -714,7 +714,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * TC3: Verifies that index names survive an export/import cycle with
+   * Verifies that index names survive an export/import cycle with
    * exact case preserved. The import flow uses equals() to compare index
    * names against the EXPORT_IMPORT_INDEX_NAME constant — this test
    * ensures that case-sensitive comparison works correctly in that path.
@@ -777,7 +777,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   }
 
   /**
-   * TC2: Verifies that a class-specific security rule with exact-case class
+   * Verifies that a class-specific security rule with exact-case class
    * name DOES block composite index creation. This is the positive counterpart
    * to testSpecificClassSecurityRuleRequiresExactCaseMatch — together they
    * confirm that equals() (not equalsIgnoreCase()) is used for class name
@@ -898,7 +898,8 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
    * counter-only ({@code c_<counter>}) name unchanged, the class's collection ids stay the same,
    * and data written before the rename stays reachable through the renamed class. Collection
    * names carry no class-name component, so the rename has no collection file to rename — the
-   * pre-D11 behavior (renaming the collection through the non-WAL-safe storage file rename) must
+   * previous class-derived-name behavior (renaming the collection through the non-WAL-safe
+   * storage file rename) must
    * not resurface.
    */
   @Test
@@ -1191,7 +1192,8 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
 
   /**
    * Verifies that a class rename leaves even a legacy class-derived collection name untouched.
-   * Class rename is metadata-only: the pre-D11 code renamed a legacy-named collection to the new
+   * Class rename is metadata-only: the old class-derived-name code renamed a legacy-named
+   * collection to the new
    * lowercase class name through the storage file rename, and that path is removed, so the
    * collection keeps its old name while the class answers to the new one.
    */
@@ -1252,7 +1254,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   // --- counter-only collection-name shape pins (c_<counter>) ---
 
   /**
-   * D11 squat-skip pin: the collection-name generator treats the counter as a candidate supply,
+   * Squat-skip pin: the collection-name generator treats the counter as a candidate supply,
    * not a guarantee — a counter value whose {@code c_<counter>} name is already taken in storage
    * (a database import recreates the source's generated names without advancing the counter, and
    * the public API accepts arbitrary names) is burned and the generator moves on, instead of

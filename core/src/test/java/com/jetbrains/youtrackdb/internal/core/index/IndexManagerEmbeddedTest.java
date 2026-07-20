@@ -241,7 +241,7 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
-   * OBS-12: the deferred-handle membership mutators fail loudly on a null or blank collection
+   * The deferred-handle membership mutators fail loudly on a null or blank collection
    * name — a null reaching them means an unresolved collection (a resolver miss) that would
    * otherwise fold a null placeholder into the covered set the commit persists. An
    * IllegalArgumentException, not a bare assert: production runs with assertions disabled.
@@ -309,7 +309,7 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
-   * BG-112: the same-transaction drop-then-recreate REPLACE flow — the recreated (tx-created)
+   * The same-transaction drop-then-recreate REPLACE flow — the recreated (tx-created)
    * index must be visible through getClassIndex, consistent with every sibling lookup
    * (existsIndex, getIndexes, getClassIndexes). The dropped committed name stays recorded (the
    * commit deletes the old engine) while the replacement handle shadows it in the tx view, so
@@ -359,7 +359,7 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
   }
 
   /**
-   * TQ-114: the swap-shaped rename {X→Y, Z→X} through getClassIndex — the rename-source arm
+   * The swap-shaped rename {X→Y, Z→X} through getClassIndex — the rename-source arm
    * under a renamed-away class name. Committed X's index answers only under Y; the name X, though
    * renamed away, answers for committed Z's index (Z was renamed TO X); and X's own committed
    * index no longer answers under X.
@@ -388,7 +388,8 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
 
   /**
    * A class renamed inside the open transaction resolves its committed index through
-   * getClassIndex under the NEW class name (the D17 rename map) and no longer under the old one.
+   * getClassIndex under the NEW class name (the overlay's class-rename map) and no longer under
+   * the old one.
    */
   @Test
   public void getClassIndex_renamedClass_resolvesUnderNewNameOnly() {

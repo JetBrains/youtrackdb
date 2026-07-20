@@ -18,7 +18,7 @@ import org.junit.Test;
 
 /**
  * Regression coverage for the tx-dropped-index visibility gap in the committed-only
- * involved-indexes lookup (OBS-7): an index dropped inside an open transaction keeps its live
+ * involved-indexes lookup: an index dropped inside an open transaction keeps its live
  * engine and its committed-registry entry until commit, but {@code ClassIndexManager} stops
  * maintaining it the moment the drop is recorded (the overlay hides it from the per-class raw
  * index set). A traversal that accelerates through {@code getInvolvedIndexesInternal} — the
@@ -100,7 +100,8 @@ public class SQLFunctionOutTxDroppedIndexTest extends DbTestBase {
   }
 
   /**
-   * The traced wrong-read (red before the OBS-7 fix): inside a transaction that drops the edge
+   * The traced wrong-read (red before the involved-indexes lookup became overlay-aware): inside
+   * a transaction that drops the edge
    * index and then adds one more edge, the filtered {@code out()} supernode shortcut accelerated
    * through the dropped-but-live index — which no longer tracks the post-drop edge — and returned
    * only the committed neighbours, silently missing the transaction's own write. With the fix the
@@ -192,7 +193,8 @@ public class SQLFunctionOutTxDroppedIndexTest extends DbTestBase {
   /**
    * The SELECT baseline: the planner's per-class index resolution was already overlay-aware (it
    * hides the tx-dropped index and falls back to a scan), so a plain SELECT over the same mid-tx
-   * post-drop state returns the post-drop row both before and after the OBS-7 fix. Pinned so the
+   * post-drop state returns the post-drop row both before and after the overlay-aware lookup
+   * fix. Pinned so the
    * involved-indexes fix is measured against a known-correct sibling read path.
    */
   @Test

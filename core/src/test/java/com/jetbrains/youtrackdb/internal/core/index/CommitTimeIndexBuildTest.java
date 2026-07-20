@@ -1053,7 +1053,7 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
-   * The replace-then-ripple sequence (BG103): one transaction drops a committed index on the
+   * The replace-then-ripple sequence: one transaction drops a committed index on the
    * parent, recreates the same name, and then creates a subclass under the parent. The ripple
    * targets the RECREATED tx-created handle — resolving it via the committed-only registry instead
    * returns the stale old committed handle, whose record the commit's dropped loop deletes before
@@ -1099,8 +1099,9 @@ public class CommitTimeIndexBuildTest extends DbTestBase {
   }
 
   /**
-   * The pure tx-created-index-then-ripple sequence (BG103's sibling, the already-filed BG102
-   * shape): one transaction creates an index on the parent and then creates a subclass under it.
+   * The pure tx-created-index-then-ripple sequence (the sibling of the replace-then-ripple
+   * defect, root-fixed in-branch by the overlay-aware fold): one transaction creates an index on
+   * the parent and then creates a subclass under it.
    * The ripple targets the tx-created handle, which the committed-only registry misses entirely —
    * pre-fix the resolution threw IndexException from the createClassInternal index-update loop
    * (and the setSuperClasses ripple's copy of the failure was swallowed into a dropped

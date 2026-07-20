@@ -376,9 +376,9 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * moment the drop is recorded, so a consumer that still accelerates through this lookup — the
    * out()/in() supernode shortcut and the MATCH planner — would read a stale engine and miss the
    * transaction's own post-drop writes. (2) Class renames resolve through the overlay's rename
-   * map (D17): a name renamed AWAY no longer owns its committed entries, and a name renamed TO
+   * map: a name renamed AWAY no longer owns its committed entries, and a name renamed TO
    * also owns the committed entries still keyed under the old name (the shared map re-keys only
-   * at commit). Tx-CREATED indexes stay invisible here by design (D13 — a tx-created index is
+   * at commit). Tx-CREATED indexes stay invisible here by design (a tx-created index is
    * unbuilt and not query-usable until commit).
    */
   @Override
@@ -485,7 +485,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * Overlay-aware lookup of one class-owned index by (class, index) name pair: a tx-dropped name
    * answers absent, a tx-created handle answers when its definition names the requested class
    * (handles always carry their class's current tx-local name — the eager rename fix), and the
-   * committed substrate resolves through the D17 rename map like the sibling read paths: a class
+   * committed substrate resolves through the class-rename map like the sibling read paths: a class
    * name renamed AWAY no longer owns its committed index, and a name renamed TO also owns the
    * committed index still associated under the pre-rename name. Outside a schema/index
    * transaction it is the committed behaviour unchanged.
@@ -500,7 +500,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // The tx-created probe runs BEFORE the tx-dropped one: in the same-tx drop-then-recreate
     // REPLACE flow the name is in BOTH categories (the drop stays recorded so the commit deletes
     // the old engine, while the new handle shadows it), and the replacement must answer —
-    // consistent with existsIndex/getIndexes/getClassIndexes (BG-112).
+    // consistent with existsIndex/getIndexes/getClassIndexes.
     final var created = overlay.getTxCreated(indexName);
     if (created != null) {
       final var definition = created.getDefinition();
@@ -1086,7 +1086,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   /**
-   * A committed index whose class association a class rename re-keys at commit (D17): the
+   * A committed index whose class association a class rename re-keys at commit: the
    * replacement metadata was built and its record written in the enroll phase; the publish phase
    * installs the replacement in memory and re-keys {@code classPropertyIndex}. Nothing to revert
    * on failure — the record write reverts with the rolled-back atomic operation and the in-memory
@@ -1257,7 +1257,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       }
     }
 
-    // The D17 class-rename re-association, enrolled LAST — deliberately after the membership
+    // The class-rename re-association, enrolled LAST — deliberately after the membership
     // loops: both rewrite the SAME per-index record, and the membership save serializes the
     // definition from the index's live (still old-named) metadata, so a membership save running
     // AFTER the re-association would durably clobber the new class name back to the old one. In
@@ -1515,7 +1515,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
       removeClassPropertyIndexInternal(droppedIndex);
       indexes.remove(droppedIndex.getName());
     }
-    // The D17 re-association's in-memory half: install the replacement metadata wholesale (a
+    // The rename re-association's in-memory half: install the replacement metadata wholesale (a
     // single reference swap — lock-free readers see either the old or the new fully-built
     // metadata, never a torn mix), key the index under the NEW class name, and only then un-key
     // it from the OLD one (captured before the swap). Add-before-remove keeps the index present
@@ -1631,7 +1631,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
   }
 
   /**
-   * The non-transactional (top-level) arm of the D17 class-rename re-association: applied eagerly
+   * The non-transactional (top-level) arm of the class-rename re-association: applied eagerly
    * under the index-manager write lock, mirroring how every other top-level DDL self-applies (the
    * commit-only overlay flow serves the transactional path). Each affected committed index gets a
    * replacement metadata carrying the new class name; its record is rewritten, the replacement
@@ -1643,7 +1643,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    *
    * <p>Two documented parities with the sibling legacy paths rather than new guarantees:
    * (1) this path does NOT engage the metadata-write mutex (no top-level DDL does — the standing
-   * CN103 single-writer-premise gap, which this method folds into rather than widens: the
+   * gap that the single-writer premise holds only for transactional DDL, which this method folds
+   * into rather than widens: the
    * add-under-new-key-BEFORE-remove-under-old-key ordering below keeps the index present under at
    * least one class key throughout, so a concurrent transaction baking a schema snapshot
    * mid-window can observe a benign transient double presence but never a total absence that
@@ -1665,7 +1666,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
               abstractIndex.buildClassReassociatedMetadata(session, newClassName);
           abstractIndex.reassociateClassRecordAtCommit(transaction, replacement);
           // Install the replacement wholesale (readers see old-or-new, never torn), key under
-          // the NEW name first, then un-key from the old (see the javadoc's CN103 note).
+          // the NEW name first, then un-key from the old (see the javadoc's mutex-gap note).
           abstractIndex.installReassociatedMetadataAtCommit(replacement);
           addIndexInternalNoLock(index, transaction, false);
           removeClassPropertyIndexInternal(index, oldClassName);
@@ -1697,7 +1698,7 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
 
   /**
    * The class-name-explicit variant of {@link #removeClassPropertyIndexInternal(Index)}, for the
-   * D17 re-association paths that must un-key an index from its OLD class name after the live
+   * rename re-association paths that must un-key an index from its OLD class name after the live
    * definition already carries the new one (add-under-new-before-remove-under-old ordering).
    */
   private void removeClassPropertyIndexInternal(Index idx, final String className) {

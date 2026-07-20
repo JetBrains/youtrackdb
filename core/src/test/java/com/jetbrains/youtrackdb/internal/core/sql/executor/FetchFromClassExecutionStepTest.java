@@ -293,7 +293,7 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
    * Polymorphic scan includes subclass collections. A parent-class fetch must return records from
    * both parent and subclass instances, proving that {@code getPolymorphicCollectionIds()} feeds
    * the whole subtree into the scan. Pins the defining behavior of
-   * {@code FetchFromClassExecutionStep} vs. {@code FetchFromCollectionExecutionStep} (TC2).
+   * {@code FetchFromClassExecutionStep} vs. {@code FetchFromCollectionExecutionStep}.
    */
   @Test
   public void scanIncludesSubclassCollectionsByDefault() {
@@ -412,7 +412,7 @@ public class FetchFromClassExecutionStepTest extends TestUtilsFixture {
 
   /**
    * A non-zero depth prepends exactly {@code depth * indent} leading spaces to the first line.
-   * Exact-width pin (CQ6): rejects both under-indent and over-indent mutations.
+   * Exact-width pin: rejects both under-indent and over-indent mutations.
    */
   @Test
   public void prettyPrintAppliesIndentation() {

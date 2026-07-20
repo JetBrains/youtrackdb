@@ -89,7 +89,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   }
 
   /**
-   * OBS-11 straggler pin: the existence check is transaction-aware, so a same-transaction
+   * The existence check is transaction-aware, so a same-transaction
    * {@code CREATE INDEX} followed by {@code DROP INDEX} of the same name succeeds — the created
    * index lives only in the transaction's overlay, and a committed-only check used to reject the
    * drop with "Index not found".
@@ -110,7 +110,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   }
 
   /**
-   * OBS-11 straggler pin, the mirror direction: a name already dropped inside this transaction
+   * The mirror direction: a name already dropped inside this transaction
    * reads as absent, so a second {@code DROP INDEX} of it (without IF EXISTS) fails with the
    * proper "Index not found" instead of silently passing against the still-registered committed
    * entry — and the IF EXISTS variant is a clean no-op.
@@ -144,7 +144,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   }
 
   /**
-   * OBS-11 straggler pin for {@code DROP INDEX *}: the enumeration is transaction-aware — it
+   * {@code DROP INDEX *}: the enumeration is transaction-aware — it
    * includes an index created earlier in the same transaction (cancelling its pending create) and
    * the committed indexes, so nothing survives the commit. A committed-only enumeration used to
    * miss the tx-created index, which was then built at commit despite the DROP *.
@@ -172,7 +172,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   }
 
   /**
-   * OBS-11 straggler pin: an index already dropped in this transaction is excluded from the
+   * An index already dropped in this transaction is excluded from the
    * {@code DROP INDEX *} enumeration, so the composition commits cleanly with a single recorded
    * drop.
    */
@@ -184,7 +184,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
 
     session.begin();
     session.execute("drop index `" + committedName + "`").close();
-    // TQ-113: pin the EXCLUSION, not just the idempotent outcome — the already-tx-dropped index
+    // Pin the EXCLUSION, not just the idempotent outcome — the already-tx-dropped index
     // must not appear in the DROP INDEX * enumeration (a committed-only enumeration would
     // re-drop it and report a row for it while still committing cleanly through recordDropped's
     // idempotence). Other committed indexes — the genesis security ones — legitimately enumerate.
@@ -203,7 +203,7 @@ public class DropIndexStatementExecutionTest extends BaseMemoryInternalDatabase 
   }
 
   /**
-   * BG-113 pins for REBUILD/ANALYZE INDEX overlay routing: a tx-dropped name reads as absent
+   * REBUILD/ANALYZE INDEX overlay routing: a tx-dropped name reads as absent
    * (proper "not found"), and a tx-created (deferred) index is rejected loudly — its engine is
    * built only at commit, so there is nothing to rebuild or analyze before that.
    */
