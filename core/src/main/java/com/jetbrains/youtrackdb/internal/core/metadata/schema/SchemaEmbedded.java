@@ -521,9 +521,9 @@ public class SchemaEmbedded extends SchemaShared {
         // same-tx create and records a committed drop), and the existing commit machinery then
         // deletes the engine, the files, the entity record, and the shared-registry entries.
         // Without this recording a dropped class's committed indexes survived the commit as
-        // fully registered orphans over deleted collections (a commit-reconciliation seam predating
-        // this recording),
-        // and a same-tx create-then-drop failed the whole commit trying to build an engine over
+        // fully registered orphans over deleted collections (a commit-reconciliation seam
+        // predating this recording), and a same-tx create-then-drop failed the whole commit
+        // trying to build an engine over
         // the dropped class's collection. The overlay-aware getClassIndexes resolves the
         // effective set — committed indexes (through the rename map when the class was renamed
         // earlier in this transaction) plus tx-created handles minus already-dropped names —

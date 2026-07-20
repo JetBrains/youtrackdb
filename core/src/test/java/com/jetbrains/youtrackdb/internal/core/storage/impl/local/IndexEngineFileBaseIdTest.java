@@ -27,9 +27,9 @@ import org.junit.Before;
 import org.junit.Test;
 
 /**
- * Pins the stable-engine-file-key substrate: the persisted, never-reused index-engine file
- * base id
- * ({@code IndexEngineData.fileBaseId}), its high-water-mark allocator with the persisted floor,
+ * Pins the stable-engine-file-key substrate: the persisted, never-reused index-engine file base
+ * id ({@code IndexEngineData.fileBaseId}), its high-water-mark allocator with the persisted
+ * floor,
  * the open-time seeding inputs, and the storage-format version gate (v24 reject-and-redirect).
  *
  * <p>Uses DISK databases with a full {@code YourTracks}-instance close between phases, because
