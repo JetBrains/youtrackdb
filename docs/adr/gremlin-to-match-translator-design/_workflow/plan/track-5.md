@@ -10,11 +10,11 @@ Split off from Track 4 at decomposition: the merged predicate + logical surface 
 
 ## Progress
 - [x] Review + decomposition (2 iterations: iter1 adversarial FAIL/A1 blocker → fixed; iter2 PASS)
-- [ ] Step implementation
+- [~] Step implementation (1/5 steps complete)
 - [ ] Track-level code review
 - [ ] Track completion
 
-- [x] 2026-07-20T14:50Z [ctx=info] Review + decomposition complete after 2 gate iterations (iter1: Technical PASS, Risk PASS-with-should-fix, **Adversarial FAIL — 1 blocker A1**; iter2 adversarial re-review **PASS**, 0 blockers, blocker A1 confirmed resolved). 5 `high` steps, reconciled tag `high`.
+- [x] 2026-07-20T16:15Z [ctx=info] Step 1 complete (commits 73afe2559a + 5d3bf3d6b7; dim-review bugs iter1→iter2 PASS after BG1 fix; 12 adapter tests green)
 
 ## Surprises & Discoveries
 <!-- Continuous-log. Empty at Phase 1. -->
@@ -70,7 +70,7 @@ The `GremlinPlanCache` (D5) closes the seam Track 4 leaves open. Track 4's predi
 5. **`GremlinPlanCache`** (D5): add the `bindParam` positional-parameter sink to `RecognitionContext` (implemented by `WalkerContext`); switch `GremlinPredicateAdapter` to emit `SQLPositionalParameter` for predicate comparison values while keeping structural tokens inline; install the per-walk param map at the boundary via `ctx.setInputParameters(map)`; key on the post-walk `MatchPlanInputs` fingerprint (A3, refined by the A1 blocker fix + R1/R2 — full IR including `notMatchExpressions`, structural tokens verbatim, taken pre-plan off insertion-ordered structures); reuse the YQL schema-change invalidation hook; bypass the cache for RID-bearing shapes (R3). Pin fingerprint stability, value independence, and the value-fork cases (`eq(null)` vs `eq(v)` into distinct entries, distinct `hasLabel` labels into distinct entries, two NOT-differing shapes into distinct entries, collection-size classes not colliding) with R6 tests.
 
 ## Concrete Steps
-1. **Sub-walker + `SubTraversalPredicateAdapter` (A4)** — nested `StepCursor` over each child sub-traversal against the production registry; sub-context that delegates alias minting to the parent `AliasSequence`, swallows `pinBoundary` / `setSingleReturnColumn`, captures `putAliasFilter` per combinator (OR collects expressions; AND commits pure-filter clauses), forwards pattern contributions for AND edge-bearing children, captures NOT edge output to a separate sink; `decline_doesNotCommitPartialStateToOuterContext` unit test pins the capture boundary (A7). Pin the concrete sub-context type in this step. Detail: Plan of Work item 1, Decision Log A4/A7. — `risk: high` (architecture — the alias-isolation trap is silent wrong results)  [ ]
+1. **Sub-walker + `SubTraversalPredicateAdapter` (A4)** — nested `StepCursor` over each child sub-traversal against the production registry; sub-context that delegates alias minting to the parent `AliasSequence`, swallows `pinBoundary` / `setSingleReturnColumn`, captures `putAliasFilter` per combinator (OR collects expressions; AND commits pure-filter clauses), forwards pattern contributions for AND edge-bearing children, captures NOT edge output to a separate sink; `decline_doesNotCommitPartialStateToOuterContext` unit test pins the capture boundary (A7). Pin the concrete sub-context type in this step. Detail: Plan of Work item 1, Decision Log A4/A7. — `risk: high` (architecture — the alias-isolation trap is silent wrong results)  [x] commit: 5d3bf3d6b7
 2. **`AndStepRecogniser` + `OrStepRecogniser`** — two recognisers keyed on `AndStep.class` / `OrStep.class`: AND accepts pure-filter children (AND-composed via sub-walker capture + `MatchWhereBuilder.and`), edge-bearing children (append pattern / NOT fragments), and mixed; OR requires all children pure-filter (`MatchWhereBuilder.or`) and declines if any child carries edges (`hasEdges` recursive flag). Register both in `GremlinStepWalker`. Equivalence: `and(__.out("a"), __.out("b"))` over differing targets (A4 alias trap). Detail: Plan of Work item 2. — `risk: high` (combinator correctness + sub-walker integration) *(depends on Step 1)*  [ ]
 3. **Single `NotStepRecogniser` + detached NOT builder (A2, A5, A6)** — one recogniser on `NotStep.class`: branch values-child first (`hasNot(key)` → `isNotDefined`, accepting both `PropertyType.VALUE` and `PropertyType.PROPERTY` on the child `PropertiesStep`, mirroring `TraversalFilterStepRecogniser.presenceKey` — A2); then `hasEdgeHops` — pure-filter → `MatchWhereBuilder.not` into alias WHERE; edge-bearing → detached `SQLMatchExpression` into new `WalkerContext.notMatchExpressions`, wired through `buildResult` → `MatchPlanInputs.notMatchExpressions` (T2). A5: add a `MatchPatternBuilder.buildNotExpression(...)` sibling (Decision Log A3 pin), leaving one-shot positive `build()` untouched. Decline only when NOT origin alias absent from positive pattern (`hasAlias` — A6). Tests: `g.V().has("age",30).not(__.out("knows"))` equivalence; `hasNot(key)` presence with both a `values`- and a `properties`-child fixture; `hasNot_propertiesChild_contributesIsNotDefined`; the two disqualifying NOT shapes decline via the eager-build net (R4, no surfaced exception). Detail: Plan of Work item 3, Decision Log A2/A5/A6/R4. — `risk: high` (NOT + executor `manageNotPatterns` contract) *(depends on Step 1)*  [ ]
 4. **`WhereTraversalStepRecogniser` + `WherePredicateStepRecogniser`** — positive `where(traversal)` via sub-walker; `where(P)` via `GremlinPredicateAdapter.toFilter` with class context from boundary when available. Register both step classes. Detail: Plan of Work item 4. — `risk: high` (sub-walker reuse + `$matched` reference shapes) *(depends on Steps 1–2)*  [ ]
@@ -80,6 +80,24 @@ The `GremlinPlanCache` (D5) closes the seam Track 4 leaves open. Track 4's predi
 
 ## Episodes
 <!-- Continuous-log. Empty at Phase 1. -->
+
+### Step 1 — commit 5d3bf3d6b7, 2026-07-20T16:15Z [ctx=info]
+**What was done:** Landed the recogniser→registry sub-walk seam and the capture-boundary adapter. Factored the step-dispatch loop out of `GremlinStepWalker.walk()` into a shared `dispatchAll` driver and a `subWalk` entry point (minus the reserved-prefix scan, flag resolution, boundary-invariant assertion, and `buildResult`). Added `RecognitionContext.walkChild`, implemented by `WalkerContext` (new 4-arg constructor carrying the recogniser registry) and recursively by `SubTraversalPredicateAdapter`. Introduced `SubTraversalPredicateAdapter`: delegates alias minting to the parent's `AliasSequence`, swallows `pinBoundary` / `setSingleReturnColumn`, buffers `putAliasFilter` / `putEdgeFilter` / pattern contributions locally, tracks `hasEdges` and the sub-walk `Outcome`. Added `SubTraversalPredicateAdapterTest` (12 tests) covering delegation, swallowing, capture/AND-composition, sibling distinct-alias minting, nested grandchild walks, empty-child decline, registry-less `walkChild` throwing, and the required `decline_doesNotCommitPartialStateToOuterContext` capture-boundary test. A follow-up `Review fix:` commit closed BG1: `hasEdges` now flips only on `addEdge` / `addEdgeAsNode`, so a folded `hasLabel(L)` boundary re-type (`addNode` only) stays pure-filter; regression test `reTypeOnlyChild_isPureFilter` pins it.
+
+**What was discovered:**
+- The pre-fix `hasEdges` flag conflated "touched the pattern builder" with "added a hop"; a boundary re-type is a pattern-builder touch that is not edge-bearing. A pure-filter `hasLabel` child still lands its class narrowing in `capturedPattern()` (plus `@class` in `capturedAliasFilters()`); Steps 2–3 combinators must read those captures, not assume pure-filter children touched only `capturedAliasFilters()`.
+- BG2 (reserved-`$`-prefix guard for child sub-traversal `as(...)` labels) is latent — deferred until combinators register and Track 6 consumes child labels as aliases.
+
+**What changed from plan:** Chose the hybrid seam the plan allowed: both a shared `dispatchAll` driver factored out of `walk()` and a `RecognitionContext.walkChild` method (implemented by `WalkerContext`), rather than only one. And/Or/Not/Where recognisers intentionally deferred to Steps 2–4.
+
+**Key files:**
+- `core/.../gremlin/translator/strategy/GremlinStepWalker.java` (modified)
+- `core/.../gremlin/translator/strategy/RecognitionContext.java` (modified)
+- `core/.../gremlin/translator/strategy/WalkerContext.java` (modified)
+- `core/.../gremlin/translator/strategy/SubTraversalPredicateAdapter.java` (new)
+- `core/.../gremlin/translator/strategy/SubTraversalPredicateAdapterTest.java` (new)
+
+**Critical context:** Alias minting must stay delegated to the parent's single `AliasSequence` — a per-child counter would collide sibling anonymous aliases (e.g. `and(out("a"), out("b"))` both getting `$g2m_anon_0`). OR-collects-out-of-band / AND-commits-pure-filter combinator wiring is deferred to Steps 2–3; the adapter only captures — it does not decide commit policy. `hasEdges()` means strictly "contributed a hop/edge", not "touched the pattern builder".
 
 ## Validation and Acceptance
 - `and` (pure / edge-bearing / mixed children), `or` (pure-filter children; an edge-bearing child declines), `not` (both shapes), `where(traversal)`, and `where(P)` translate or decline per design; every declined walk leaves the parent context unmutated via whole-context discard.
