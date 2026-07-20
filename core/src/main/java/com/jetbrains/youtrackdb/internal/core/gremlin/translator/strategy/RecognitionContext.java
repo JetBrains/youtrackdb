@@ -4,6 +4,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOu
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
 /**
@@ -143,4 +144,22 @@ interface RecognitionContext {
    * on the source vertex.
    */
   void setSingleReturnColumn(String alias);
+
+  // --- Sub-walk seam ----------------------------------------------------------------------------
+
+  /**
+   * Drives a sub-walk of {@code child} against the same recogniser registry the top-level walk uses,
+   * returning the {@link SubTraversalPredicateAdapter} that captured the child's contributions. This
+   * is the one seam through which a logical-combinator recogniser (a later track) translates a child
+   * sub-traversal without reaching the walker's private registry or dispatch loop: it sees only this
+   * interface, and this method hands it a driven sub-context to read back.
+   *
+   * <p>The returned adapter carries the sub-walk {@link SubTraversalPredicateAdapter#outcome()} —
+   * {@link Outcome#DECLINE} when any child step is unrecognised (or the child is empty) — and, on an
+   * {@link Outcome#ACCEPTED}, the captured classification the combinator composes: {@link
+   * SubTraversalPredicateAdapter#hasEdges()} plus the captured filters and pattern fragments. The
+   * child's contributions are captured, not committed, so a declined child leaves this context
+   * untouched — the caller commits the captured state itself only on success.
+   */
+  SubTraversalPredicateAdapter walkChild(Traversal.Admin<?, ?> child);
 }

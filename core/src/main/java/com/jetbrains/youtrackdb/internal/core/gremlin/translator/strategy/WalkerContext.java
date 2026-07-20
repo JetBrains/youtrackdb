@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.annotation.Nullable;
+import org.apache.tinkerpop.gremlin.process.traversal.Traversal;
 import org.apache.tinkerpop.gremlin.structure.Element;
 
 /**
@@ -90,6 +91,12 @@ final class WalkerContext implements RecognitionContext {
    *  {@code startingWith} translation form and by {@link #isVertexClass(String)} for hasLabel
    *  re-typing; a {@code null} schema resolves every property as "not a declared String". */
   @Nullable private final Schema schema;
+
+  /** The recogniser registry a {@link #walkChild} sub-walk drives child sub-traversals against — the
+   *  same registry the walker dispatches the top-level walk with, so a child dispatches identically.
+   *  {@code null} for the test constructors that never drive a sub-walk; {@link #walkChild} fails
+   *  loudly if reached with a null registry, since production always supplies one. */
+  @Nullable private final Map<Class<?>, StepRecogniser> recognisers;
 
   /** Stateless builder used to AND-compose same-alias filter contributions in {@link
    *  #putAliasFilter}; construction is trivial so a shared instance is fine. */
@@ -178,15 +185,29 @@ final class WalkerContext implements RecognitionContext {
 
   /** Convenience constructor with no schema snapshot — used by unit tests that exercise recogniser
    *  logic without a live session. Every property resolves as "not a declared String", so a
-   *  {@code startingWith} routes to the strict full-scan form. */
+   *  {@code startingWith} routes to the strict full-scan form. Carries no registry, so it cannot drive
+   *  a sub-walk. */
   WalkerContext(boolean polymorphic, boolean edgeLabelVerification) {
-    this(polymorphic, edgeLabelVerification, null);
+    this(polymorphic, edgeLabelVerification, null, null);
   }
 
+  /** Registry-less constructor — used by unit tests that pin single-recogniser mutations without a
+   *  sub-walk. */
   WalkerContext(boolean polymorphic, boolean edgeLabelVerification, @Nullable Schema schema) {
+    this(polymorphic, edgeLabelVerification, schema, null);
+  }
+
+  /** Full constructor the walker uses: carries the recogniser registry so a combinator recogniser can
+   *  drive a child sub-walk through {@link #walkChild}. */
+  WalkerContext(
+      boolean polymorphic,
+      boolean edgeLabelVerification,
+      @Nullable Schema schema,
+      @Nullable Map<Class<?>, StepRecogniser> recognisers) {
     this.polymorphic = polymorphic;
     this.edgeLabelVerification = edgeLabelVerification;
     this.schema = schema;
+    this.recognisers = recognisers;
   }
 
   // --- RecognitionContext: resolved flags -------------------------------------------------------
@@ -327,6 +348,18 @@ final class WalkerContext implements RecognitionContext {
     returnItems.add(new SQLExpression(new SQLIdentifier(alias)));
     returnAliases.add(new SQLIdentifier(alias));
     returnNestedProjections.add(null);
+  }
+
+  @Override
+  public SubTraversalPredicateAdapter walkChild(Traversal.Admin<?, ?> child) {
+    if (recognisers == null) {
+      // Only a test-constructed registry-less context can reach here; the walker always builds the
+      // context with its registry. Fail loud rather than silently declining, so a wiring bug surfaces
+      // as an error instead of a mystery decline.
+      throw new IllegalStateException(
+          "walkChild requires a WalkerContext constructed with a recogniser registry");
+    }
+    return GremlinStepWalker.subWalk(child, this, recognisers);
   }
 
   /**
