@@ -430,7 +430,9 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > predicate values bind as positional parameters so one plan serves every
   > value, keyed on the post-walk generic-statement fingerprint (A3), with
   > RID-bearing shapes bypassing the cache (R3). Detail in plan/track-5.md.
-  > **Scope:** ~16 files covering the `And` / `Or` / `Not` / `WhereTraversal`
+  > **Scope:** ~16–20 files (~22 with a sub-context split + the full R6 suite;
+  > within the ~25 split ceiling — adversarial A5) covering the `And` / `Or` /
+  > `Not` / `WhereTraversal`
   > / `WherePredicate` recognisers, the `SubTraversalPredicateAdapter` +
   > sub-walker, the detached-NOT builder capability (A5), `GremlinPlanCache` +
   > the `bindParam` sink, the D5 integration edits (strategy / translator /
@@ -440,6 +442,10 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > sub-predicates reuse, and the adapter D5 re-points to positional
   > parameters) and Track 1 (`isNotDefined`, `MatchWhereBuilder`
   > `and` / `or` / `not`).
+  >
+  > **Strategy refresh:** ADJUST — Track 4 Phase C pin reversed `eq(null)` to
+  > bare `IS NULL`; Step 5 R6 cache tests must fingerprint null vs scalar eq as
+  > distinct post-walk statements. Sub-walker strict ordering enforced (A1).
 
 - [ ] Track 6: Result shaping — labels + dedup, projections, order/pagination, aggregations
   > Merges the four result-producing step families — labels + dedup,
