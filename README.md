@@ -7,7 +7,7 @@
 [![Reddit](https://img.shields.io/badge/Reddit-%23FF4500.svg?style=for-the-badge&logo=Reddit&logoColor=white)](https://www.reddit.com/r/youtrackdb/)<br/>
 
 ------
-[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Getting started](docs/getting-started.md) | [Daily LDBC benchmarks](https://bench.youtrackdb.io/)
+[Issue tracker](https://youtrack.jetbrains.com/issues/YTDB) | [Getting started](docs/getting-started.md) | [Documentation](docs/README.md) | [Daily LDBC benchmarks](https://bench.youtrackdb.io/)
 
 ### Join our Zulip community!
 
