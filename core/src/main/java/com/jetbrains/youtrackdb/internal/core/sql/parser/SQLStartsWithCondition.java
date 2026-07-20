@@ -15,28 +15,30 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 /**
- * {@code field ENDSWITH suffix} suffix-match condition.
+ * {@code field STARTSWITH prefix} prefix-match condition.
  *
  * <p>This node has no grammar production — it is not reachable from parsed SQL/GQL text and javacc
  * never generates it. It is built programmatically by {@link
- * com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder#endsWith} to
- * back the Gremlin {@code Text.endingWith} predicate, so it lives beside the sibling {@code
+ * com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder#startsWithStrict}
+ * to back the Gremlin {@code Text.startingWith} predicate, so it lives beside the sibling {@code
  * SQL*Condition} nodes and is edited by hand. It extends {@link SQLBooleanExpression} and is
  * constructed with {@code id = -1}, the established builder pattern for a hand-assembled AST node.
  *
- * <p>Semantics mirror {@link SQLContainsTextCondition} but test a suffix ({@link String#endsWith})
- * rather than a substring, and — like CONTAINSTEXT — honor the left property's declared collation so
- * a {@code ci} property matches case-insensitively. The comparison is a full scan ({@link
- * #isIndexAware} is always {@code false}): there is no index representation of a suffix match, unlike
- * the {@code startsWith} half-open range.
+ * <p>Semantics mirror {@link SQLEndsWithCondition} but test a prefix ({@link String#startsWith})
+ * rather than a suffix, and honor the left property's declared collation so a {@code ci} property
+ * matches case-insensitively. Unlike the index-aware half-open range {@link
+ * com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder#startsWith}
+ * builds for the declared-String path, this node is a full scan ({@link #isIndexAware} is always
+ * {@code false}). It exists for the Gremlin strict path, where native TinkerPop {@code Text} parity
+ * requires throwing on a non-String operand — a behavior the range form cannot express.
  *
  * <p>The node round-trips through {@link #copy}, {@link #toGenericStatement}, and {@link
  * #splitForAggregation} and is compared by value in {@link #equals} / {@link #hashCode}. The SQL
  * engine deep-copies plans on {@code clone()} / cache-get and reconstructs conditions field-by-field
- * in {@code splitForAggregation}, so every reconstruction site must carry both operands or a copied
- * plan silently loses the predicate.
+ * in {@code splitForAggregation}, so every reconstruction site must carry both operands and the
+ * strict flag or a copied plan silently loses the predicate (or its strictness).
  */
-public class SQLEndsWithCondition extends SQLBooleanExpression {
+public class SQLStartsWithCondition extends SQLBooleanExpression {
 
   protected SQLExpression left;
   protected SQLExpression right;
@@ -46,20 +48,20 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
   /**
    * When {@code true}, a present non-{@code String} left operand throws {@link
    * com.jetbrains.youtrackdb.internal.core.exception.NonStringTextOperandException} instead of
-   * yielding {@code false}, mirroring native TinkerPop {@code Text.endingWith} (String-only). It is
-   * set only when the node is built programmatically by the Gremlin adapter; parser-built (SQL/GQL)
-   * nodes leave it {@code false}, so their lenient behavior is unchanged. The flag is value-carrying:
-   * it participates in {@link #copy}, {@link #equals} / {@link #hashCode}, and {@link
-   * #splitForAggregation}, and is reflected in {@link #toGenericStatement} so a strict node and a
-   * lenient node on the same operands do not collide on their plan-cache fingerprint.
+   * yielding {@code false}, mirroring native TinkerPop {@code Text.startingWith} (String-only). It is
+   * set only when the node is built programmatically by the Gremlin adapter; a lenient node leaves it
+   * {@code false}. The flag is value-carrying: it participates in {@link #copy}, {@link #equals} /
+   * {@link #hashCode}, and {@link #splitForAggregation}, and is reflected in {@link
+   * #toGenericStatement} so a strict node and a lenient node on the same operands do not collide on
+   * their plan-cache fingerprint.
    */
   protected boolean strict = false;
 
-  public SQLEndsWithCondition(int id) {
+  public SQLStartsWithCondition(int id) {
     super(id);
   }
 
-  public SQLEndsWithCondition(YouTrackDBSql p, int id) {
+  public SQLStartsWithCondition(YouTrackDBSql p, int id) {
     super(p, id);
   }
 
@@ -69,40 +71,43 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
     // non-String, lenient (and null/absent) yields false.
     var leftValue =
         TextCollationResolver.requireStringOperand(left.execute(currentRecord, ctx), strict,
-            "ENDSWITH");
+            "STARTSWITH");
     if (leftValue == null) {
       return false;
     }
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-    return endsWithCollated(leftValue, rightValue, collate.resolve(left, right, currentRecord, ctx));
+    return startsWithCollated(leftValue, rightValue,
+        collate.resolve(left, right, currentRecord, ctx));
   }
 
   @Override
   public boolean evaluate(Result currentRecord, CommandContext ctx) {
     var leftValue =
         TextCollationResolver.requireStringOperand(left.execute(currentRecord, ctx), strict,
-            "ENDSWITH");
+            "STARTSWITH");
     if (leftValue == null) {
       return false;
     }
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-    return endsWithCollated(leftValue, rightValue, collate.resolve(left, right, currentRecord, ctx));
+    return startsWithCollated(leftValue, rightValue,
+        collate.resolve(left, right, currentRecord, ctx));
   }
 
-  /** Applies {@code collate} (if any) to both operands, then tests the suffix. */
-  private static boolean endsWithCollated(String value, String suffix, @Nullable Collate collate) {
+  /** Applies {@code collate} (if any) to both operands, then tests the prefix. */
+  private static boolean startsWithCollated(String value, String prefix,
+      @Nullable Collate collate) {
     return TextCollationResolver.apply(value, collate)
-        .endsWith(TextCollationResolver.apply(suffix, collate));
+        .startsWith(TextCollationResolver.apply(prefix, collate));
   }
 
   @Override
   public void toString(Map<Object, Object> params, StringBuilder builder) {
     left.toString(params, builder);
-    builder.append(" ENDSWITH ");
+    builder.append(" STARTSWITH ");
     right.toString(params, builder);
   }
 
@@ -110,8 +115,8 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
     // Distinct token in strict mode so a strict node and a lenient node on the same operands produce
-    // different plan-cache fingerprints. Parser-built nodes are lenient, so their token is unchanged.
-    builder.append(strict ? " ENDSWITH(strict) " : " ENDSWITH ");
+    // different plan-cache fingerprints.
+    builder.append(strict ? " STARTSWITH(strict) " : " STARTSWITH ");
     right.toGenericStatement(builder);
   }
 
@@ -153,8 +158,8 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
   }
 
   @Override
-  public SQLEndsWithCondition copy() {
-    var result = new SQLEndsWithCondition(-1);
+  public SQLStartsWithCondition copy() {
+    var result = new SQLStartsWithCondition(-1);
     result.left = left.copy();
     result.right = right.copy();
     result.strict = strict;
@@ -181,7 +186,7 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
       return false;
     }
 
-    var that = (SQLEndsWithCondition) o;
+    var that = (SQLStartsWithCondition) o;
 
     if (!Objects.equals(left, that.left)) {
       return false;
@@ -290,7 +295,7 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
     if (!isAggregate(ctx.getDatabaseSession())) {
       return this;
     }
-    var result = new SQLEndsWithCondition(-1);
+    var result = new SQLStartsWithCondition(-1);
     result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
     result.right = right == null ? null : right.splitForAggregation(aggregateProj, ctx);
     result.strict = strict;

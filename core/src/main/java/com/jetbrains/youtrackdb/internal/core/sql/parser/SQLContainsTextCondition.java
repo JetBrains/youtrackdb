@@ -23,6 +23,20 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   private final TextCollationResolver collate = new TextCollationResolver();
 
+  /**
+   * When {@code true}, a present non-{@code String} left operand throws {@link
+   * com.jetbrains.youtrackdb.internal.core.exception.NonStringTextOperandException} instead of
+   * yielding {@code false}, mirroring native TinkerPop {@code Text.containing} (String-only). It is
+   * set only when the node is built programmatically by the Gremlin adapter; parser-built (SQL/GQL)
+   * nodes leave it {@code false}, so their lenient behavior is unchanged. Strict applies only to the
+   * plain-property path; the {@code any()} / {@code all()} function paths are never built by the
+   * Gremlin adapter and stay lenient. The flag is value-carrying: it participates in {@link #copy},
+   * {@link #equals} / {@link #hashCode}, and {@link #splitForAggregation}, and is reflected in {@link
+   * #toGenericStatement} so a strict node and a lenient node on the same operands do not collide on
+   * their plan-cache fingerprint.
+   */
+  protected boolean strict = false;
+
   public SQLContainsTextCondition(int id) {
     super(id);
   }
@@ -33,7 +47,12 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
 
   @Override
   public boolean evaluate(Identifiable currentRecord, CommandContext ctx) {
-    if (!(left.execute(currentRecord, ctx) instanceof String leftValue)) {
+    // Type-check the left operand before any collate transform: strict throws on a present
+    // non-String, lenient (and null/absent) yields false.
+    var leftValue =
+        TextCollationResolver.requireStringOperand(left.execute(currentRecord, ctx), strict,
+            "CONTAINSTEXT");
+    if (leftValue == null) {
       return false;
     }
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
@@ -51,7 +70,10 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     if (left.isFunctionAll()) {
       return evaluateAllFunction(currentRecord, ctx);
     }
-    if (!(left.execute(currentRecord, ctx) instanceof String leftValue)) {
+    var leftValue =
+        TextCollationResolver.requireStringOperand(left.execute(currentRecord, ctx), strict,
+            "CONTAINSTEXT");
+    if (leftValue == null) {
       return false;
     }
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
@@ -115,7 +137,9 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
   @Override
   public void toGenericStatement(StringBuilder builder) {
     left.toGenericStatement(builder);
-    builder.append(" CONTAINSTEXT ");
+    // Distinct token in strict mode so a strict node and a lenient node on the same operands produce
+    // different plan-cache fingerprints. Parser-built nodes are lenient, so their token is unchanged.
+    builder.append(strict ? " CONTAINSTEXT(strict) " : " CONTAINSTEXT ");
     right.toGenericStatement(builder);
   }
 
@@ -161,6 +185,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     var result = new SQLContainsTextCondition(-1);
     result.left = left.copy();
     result.right = right.copy();
+    result.strict = strict;
     return result;
   }
 
@@ -189,13 +214,17 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     if (!Objects.equals(left, that.left)) {
       return false;
     }
-    return Objects.equals(right, that.right);
+    if (!Objects.equals(right, that.right)) {
+      return false;
+    }
+    return strict == that.strict;
   }
 
   @Override
   public int hashCode() {
     var result = left != null ? left.hashCode() : 0;
     result = 31 * result + (right != null ? right.hashCode() : 0);
+    result = 31 * result + (strict ? 1 : 0);
     return result;
   }
 
@@ -263,6 +292,14 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     return right;
   }
 
+  public void setStrict(boolean strict) {
+    this.strict = strict;
+  }
+
+  public boolean isStrict() {
+    return strict;
+  }
+
   @Override
   public boolean isFullTextIndexAware(String indexField) {
     if (left.isBaseIdentifier()) {
@@ -307,6 +344,7 @@ public class SQLContainsTextCondition extends SQLBooleanExpression {
     var result = new SQLContainsTextCondition(-1);
     result.left = left == null ? null : left.splitForAggregation(aggregateProj, ctx);
     result.right = right == null ? null : right.splitForAggregation(aggregateProj, ctx);
+    result.strict = strict;
     return result;
   }
 }

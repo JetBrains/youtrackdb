@@ -2,6 +2,7 @@ package com.jetbrains.youtrackdb.internal.core.sql.parser;
 
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
+import com.jetbrains.youtrackdb.internal.core.exception.NonStringTextOperandException;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
 import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
@@ -108,6 +109,36 @@ class TextCollationResolver {
       if (property != null) {
         return property.getCollate();
       }
+    }
+    return null;
+  }
+
+  /**
+   * Type-checks a text-predicate left operand before any collation transform runs, centralizing the
+   * strict-vs-lenient rule shared by every text-predicate node. The check MUST happen before {@link
+   * #apply} so a non-String value is never handed to {@link Collate#transform}.
+   *
+   * <ul>
+   *   <li>{@code value} is a {@link String} → returned so the caller proceeds to collate + compare.
+   *   <li>{@code value} is {@code null} → returns {@code null}; the caller yields {@code false}. A
+   *       null/absent operand never throws, matching native TinkerPop {@code Text} predicates, which
+   *       exclude an absent property rather than erroring.
+   *   <li>{@code value} is present, non-{@code null}, and not a {@link String} → in strict mode
+   *       throws {@link NonStringTextOperandException} (native String-only parity); in lenient mode
+   *       returns {@code null} so the caller yields {@code false} (unchanged SQL/GQL behavior).
+   * </ul>
+   *
+   * <p>Both the null case and the lenient non-String case return {@code null} because the caller
+   * treats them identically (return {@code false}); only strict mode distinguishes a present
+   * non-String by throwing.
+   */
+  @Nullable
+  static String requireStringOperand(Object value, boolean strict, String operatorToken) {
+    if (value instanceof String s) {
+      return s;
+    }
+    if (value != null && strict) {
+      throw new NonStringTextOperandException(operatorToken, value);
     }
     return null;
   }
