@@ -5,9 +5,7 @@ import com.jetbrains.youtrackdb.internal.core.db.DatabaseSessionEmbedded;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Collate;
 import com.jetbrains.youtrackdb.internal.core.query.Result;
-import com.jetbrains.youtrackdb.internal.core.record.impl.EntityImpl;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.IndexSearchInfo;
-import com.jetbrains.youtrackdb.internal.core.sql.executor.ResultInternal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,16 +41,7 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
   protected SQLExpression left;
   protected SQLExpression right;
 
-  /**
-   * Cached property name of the base-identifier left operand for the {@link #evaluate(Identifiable)}
-   * scan path. {@code left.getDefaultAlias()} allocates a fresh {@link SQLIdentifier} on every call,
-   * so reading it per record would reintroduce a per-row allocation heavier than the {@link
-   * ResultInternal} wrapper the fast path was added to avoid. The name is derived from the
-   * row-invariant {@code left} operand, so it is resolved once and reused; {@code null} means not yet
-   * resolved. A benign data race resolves the same immutable String, so no synchronization is needed.
-   */
-  @Nullable
-  private String baseIdentifierName;
+  private final TextCollationResolver collate = new TextCollationResolver();
 
   public SQLEndsWithCondition(int id) {
     super(id);
@@ -70,7 +59,7 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-    return endsWithCollated(leftValue, rightValue, resolveCollate(currentRecord, ctx));
+    return endsWithCollated(leftValue, rightValue, collate.resolve(left, right, currentRecord, ctx));
   }
 
   @Override
@@ -81,80 +70,13 @@ public class SQLEndsWithCondition extends SQLBooleanExpression {
     if (!(right.execute(currentRecord, ctx) instanceof String rightValue)) {
       return false;
     }
-    return endsWithCollated(leftValue, rightValue, resolveCollate(currentRecord, ctx));
-  }
-
-  /**
-   * Resolves the collation governing the suffix comparison. The left operand is the property
-   * reference, so its declared collation wins; the right operand (the literal suffix) is a fallback,
-   * and {@code null} means schema-less / default (raw case-sensitive comparison). Mirrors {@link
-   * SQLContainsTextCondition} and {@link SQLBinaryCondition}, which collate both operands so
-   * evaluation is consistent regardless of the source path.
-   */
-  @Nullable
-  private Collate resolveCollate(Result record, CommandContext ctx) {
-    var collate = left.getCollate(record, ctx);
-    if (collate == null) {
-      collate = right.getCollate(record, ctx);
-    }
-    return collate;
-  }
-
-  /**
-   * Resolves the collation for the {@code evaluate(Identifiable)} scan path without the per-row
-   * {@link ResultInternal} wrapper the {@link Result} overload needs. When the left operand is a
-   * plain property reference on a schema entity, the collation is read straight from the record's
-   * schema class — the same value {@link SQLSuffixIdentifier#getCollate} yields through the wrapper.
-   * A declared property always resolves to a non-null collate (default or {@code ci}), so on the
-   * unindexed ENDSWITH hot path the wrapper is never allocated. Any other shape — a schema-less
-   * field, a nested link chain, a non-entity record — falls through to the wrapper-based resolution
-   * so behavior is unchanged off the common path.
-   */
-  @Nullable
-  private Collate resolveCollate(Identifiable record, CommandContext ctx) {
-    if (left.isBaseIdentifier() && record instanceof EntityImpl entity) {
-      var name = baseIdentifierName;
-      if (name == null) {
-        // The name comes from the left operand's structure, not the record, so it is row-invariant.
-        // Resolve it once here rather than per record: getDefaultAlias() allocates a fresh
-        // SQLIdentifier on every call, which on a scan would dominate the allocation the fast path
-        // was added to remove.
-        name = left.getDefaultAlias().getStringValue();
-        baseIdentifierName = name;
-      }
-      var collate = collateFromSchema(entity, name, ctx);
-      if (collate != null) {
-        return collate;
-      }
-    }
-    return resolveCollate(new ResultInternal(ctx.getDatabaseSession(), record), ctx);
-  }
-
-  /**
-   * Reads the declared collation of {@code propertyName} straight from {@code entity}'s schema
-   * class. Returns {@code null} for a schema-less record or an undeclared property, which the caller
-   * treats as the raw case-sensitive default.
-   */
-  @Nullable
-  private static Collate collateFromSchema(EntityImpl entity, String propertyName,
-      CommandContext ctx) {
-    var schemaClass = entity.getImmutableSchemaClass(ctx.getDatabaseSession());
-    if (schemaClass != null) {
-      var property = schemaClass.getProperty(propertyName);
-      if (property != null) {
-        return property.getCollate();
-      }
-    }
-    return null;
+    return endsWithCollated(leftValue, rightValue, collate.resolve(left, right, currentRecord, ctx));
   }
 
   /** Applies {@code collate} (if any) to both operands, then tests the suffix. */
   private static boolean endsWithCollated(String value, String suffix, @Nullable Collate collate) {
-    if (collate != null) {
-      value = (String) collate.transform(value);
-      suffix = (String) collate.transform(suffix);
-    }
-    return value.endsWith(suffix);
+    return TextCollationResolver.apply(value, collate)
+        .endsWith(TextCollationResolver.apply(suffix, collate));
   }
 
   @Override
