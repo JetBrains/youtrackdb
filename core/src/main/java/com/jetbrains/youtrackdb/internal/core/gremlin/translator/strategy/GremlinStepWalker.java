@@ -175,34 +175,13 @@ final class GremlinStepWalker {
     var session = YTDBStrategyUtil.resolveYtdbSession(traversal);
     Schema schema = session != null ? session.getSchema() : null;
 
-    var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema);
+    var ctx = new WalkerContext(polymorphic, edgeLabelVerification, schema, recognisers);
     var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
 
-    // Cursor-driven dispatch. Each iteration peeks the head (barriers skipped by the cursor) and
-    // dispatches it to the recogniser registered for its exact runtime class. A missing recogniser
-    // or a DECLINE declines the whole traversal (all-or-nothing).
-    Step<?, ?> head;
-    while ((head = cursor.peek()) != null) {
-      var recogniser = recognisers.get(head.getClass());
-      if (recogniser == null) {
-        return null;
-      }
-      int positionBefore = cursor.position();
-      Outcome outcome = recogniser.recognize(cursor, ctx);
-      if (outcome == Outcome.DECLINE) {
-        return null;
-      }
-      // An ACCEPTED must have advanced the cursor. An accept that consumed nothing would re-dispatch
-      // the same head forever, so it is a recogniser bug: the assert surfaces it loudly under -ea (an
-      // AssertionError, which GremlinToMatchStrategy's RuntimeException-only throw-safety net does not
-      // swallow); under -da the defensive decline keeps such a bug from spinning a live query.
-      assert cursor.position() > positionBefore
-          : "recogniser for "
-              + head.getClass().getSimpleName()
-              + " returned ACCEPTED without consuming any step";
-      if (cursor.position() <= positionBefore) {
-        return null;
-      }
+    // Cursor-driven dispatch. A missing recogniser or a DECLINE declines the whole traversal
+    // (all-or-nothing), returning false; the shared driver is reused by the sub-walk below.
+    if (!dispatchAll(cursor, ctx, recognisers)) {
+      return null;
     }
 
     // Invariant: a fully-recognised non-empty traversal has its terminator metadata pinned — boundary
@@ -220,6 +199,72 @@ final class GremlinStepWalker {
     }
 
     return buildResult(ctx);
+  }
+
+  /**
+   * Runs the cursor-driven dispatch loop over {@code cursor} against {@code recognisers}, contributing
+   * each recognised step to {@code ctx}. Returns {@code true} when every step was recognised, {@code
+   * false} on the first step whose exact class has no recogniser or whose recogniser declines
+   * (all-or-nothing). This is the loop shared by the top-level {@link #walk} and the {@link #subWalk}
+   * sub-walk: the sub-walk needs exactly this loop and none of {@code walk}'s surrounding
+   * machinery — the reserved-prefix scan, the once-per-walk flag resolution, the terminator invariant,
+   * and {@code buildResult} are top-level-only.
+   */
+  private static boolean dispatchAll(
+      StepStreamCursor cursor, RecognitionContext ctx, Map<Class<?>, StepRecogniser> recognisers) {
+    Step<?, ?> head;
+    while ((head = cursor.peek()) != null) {
+      var recogniser = recognisers.get(head.getClass());
+      if (recogniser == null) {
+        return false;
+      }
+      int positionBefore = cursor.position();
+      Outcome outcome = recogniser.recognize(cursor, ctx);
+      if (outcome == Outcome.DECLINE) {
+        return false;
+      }
+      // An ACCEPTED must have advanced the cursor. An accept that consumed nothing would re-dispatch
+      // the same head forever, so it is a recogniser bug: the assert surfaces it loudly under -ea (an
+      // AssertionError, which GremlinToMatchStrategy's RuntimeException-only throw-safety net does not
+      // swallow); under -da the defensive decline keeps such a bug from spinning a live query.
+      assert cursor.position() > positionBefore
+          : "recogniser for "
+              + head.getClass().getSimpleName()
+              + " returned ACCEPTED without consuming any step";
+      if (cursor.position() <= positionBefore) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Drives a sub-walk of {@code child} against {@code recognisers}, capturing the child's
+   * contributions into a fresh {@link SubTraversalPredicateAdapter} that wraps {@code parent}. The
+   * seam a logical-combinator recogniser reaches through {@link RecognitionContext#walkChild}: it runs
+   * the same dispatch loop the top-level walk uses, but over the child's step list and against the
+   * delegating capture context, so alias minting bottoms out at the top-level context while every
+   * contribution stays buffered in the returned adapter until the combinator commits it.
+   *
+   * <p>An empty child declines up front, mirroring {@link #walk}'s empty-traversal gate — a combinator
+   * child with no steps expresses no filter. Otherwise the adapter's {@link
+   * SubTraversalPredicateAdapter#outcome()} is {@link Outcome#ACCEPTED} when every child step was
+   * recognised and {@link Outcome#DECLINE} on the first unrecognised one.
+   */
+  static SubTraversalPredicateAdapter subWalk(
+      Traversal.Admin<?, ?> child,
+      RecognitionContext parent,
+      Map<Class<?>, StepRecogniser> recognisers) {
+    var adapter = new SubTraversalPredicateAdapter(parent, recognisers);
+    var steps = child.getSteps();
+    if (steps.isEmpty()) {
+      adapter.markOutcome(Outcome.DECLINE);
+      return adapter;
+    }
+    var cursor = new StepStreamCursor(steps, TRANSPARENT_STEPS);
+    adapter.markOutcome(
+        dispatchAll(cursor, adapter, recognisers) ? Outcome.ACCEPTED : Outcome.DECLINE);
+    return adapter;
   }
 
   /**
