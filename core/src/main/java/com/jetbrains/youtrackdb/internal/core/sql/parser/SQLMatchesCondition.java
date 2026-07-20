@@ -150,11 +150,9 @@ public class SQLMatchesCondition extends SQLBooleanExpression {
   @Override
   public void toGenericStatement(StringBuilder builder) {
     expression.toGenericStatement(builder);
-    // Distinct operator token per mode so a find-mode node and a full-match node on the same
-    // expression and pattern produce different fingerprints (the plan-cache key is the generic
-    // statement). Parsed SQL is always full-match, so its fingerprint is unchanged.
     // Distinct token per mode combination (find and/or strict) so nodes that differ only in a mode
-    // flag get different fingerprints. Parsed SQL is lenient full-match, so " MATCHES " is unchanged.
+    // flag get different fingerprints (the plan-cache key is the generic statement). Parsed SQL is
+    // lenient full-match, so " MATCHES " is unchanged.
     builder.append(" MATCHES");
     if (findMode) {
       builder.append("(find)");
