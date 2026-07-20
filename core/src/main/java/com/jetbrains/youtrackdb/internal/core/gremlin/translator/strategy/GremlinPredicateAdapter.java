@@ -67,11 +67,12 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *
  * <h2>NULL comparands</h2>
  *
- * {@code eq(null)} rewrites to {@code key IS DEFINED AND key IS NULL}, not a bare {@code IS NULL}:
- * YTDB {@code IS NULL} conflates absent and literal-null, so a bare {@code IS NULL} would match an
- * element that lacks the key, which native excludes. {@code neq(null)} rewrites to {@code NOT(key IS
- * NULL)} ({@code IS NOT NULL}), which is false on absent and needs no guard. A null comparand on the
- * four range comparisons has no defined membership meaning and declines.
+ * {@code eq(null)} rewrites to a bare {@code key IS NULL}. YTDB {@code IS NULL} is true for both
+ * an absent property and a present-null value, which matches native Gremlin membership (pinned in
+ * {@code PredicateTraversalEquivalenceTest.nullComparand_nativeMembership_pinnedBeforeEquivalence}).
+ * {@code neq(null)} rewrites to {@code NOT(key IS NULL)} ({@code IS NOT NULL}), which is false on
+ * absent and present-null and needs no guard. A null comparand on the four range comparisons has no
+ * defined membership meaning and declines.
  *
  * <h2>Decline (return {@code null}) — never throw</h2>
  *
@@ -252,7 +253,7 @@ final class GremlinPredicateAdapter {
       // Only eq/neq have a defined absent-safe null rewrite; a range comparison against null has no
       // membership meaning and declines.
       return switch (compare) {
-        case eq -> guarded(key, WHERE.isNull(key)); // key IS DEFINED AND key IS NULL
+        case eq -> WHERE.isNull(key); // bare IS NULL — absent + present-null (native parity)
         case neq -> WHERE.not(WHERE.isNull(key)); // NOT(key IS NULL) = key IS NOT NULL (false on absent)
         default -> null;
       };

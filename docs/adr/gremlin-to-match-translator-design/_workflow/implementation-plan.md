@@ -404,7 +404,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > and the new `WalkerContext` shape. Scope, dependencies, and ordering for
   > Tracks 4–6 unchanged.
 
-- [ ] Track 4: Filtering — predicates (`has` / `hasLabel` / `hasId`, `P` / `Text` / `TextP`)
+- [x] Track 4: Filtering — predicates (`has` / `hasLabel` / `hasId`, `P` / `Text` / `TextP`)
   > Translates the Gremlin predicate surface into MATCH WHERE clauses: the
   > full `P` / `Text` / `TextP` predicate algebra (string operators per
   > D-TEXT-OPS), `has` / `hasLabel` / `hasId`, and the bare presence form
@@ -412,15 +412,12 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
   > inline literals here; Track 5 flips them to positional parameters when it
   > lands the plan cache. The logical filters and the cache split off to
   > Track 5 (adversarial A1). Detail in plan/track-4.md.
-  > **Scope:** ~16 files (+2 if the R2 collation-consistency checks require
-  > editing `QueryOperatorContainsText` / the fulltext path) covering the
-  > predicate adapter (full `P` set), a
-  > single `HasStep` recogniser (property / `~label` / `~id` containers) plus
-  > the `has(key)` presence recogniser, the two new SQL operators plus the
-  > `SQLContainsTextCondition` collate change, and predicate-equivalence +
-  > NULL / collection-eq + string-predicate tests.
-  > **Depends on:** Track 3 (predicate-adapter skeleton) and Track 1
-  > (`isDefined` factory).
+  >
+  > **Track episode:** Full predicate adapter, HasStep / presence recognisers,
+  > D-TEXT-OPS SQL layer; Phase C A1 pin reversed `eq(null)` to bare `IS NULL`
+  > — see `plan/track-4.md` `## Episodes` § Track completion. (3 steps, 0 failed)
+  >
+  > **Track file:** `plan/track-4.md`
 
 - [ ] Track 5: Logical filters + plan cache — `and` / `or` / `not` / `where`, sub-walker, `GremlinPlanCache` (D5)
   > Splits off from Track 4 at decomposition (adversarial A1: the merged
@@ -478,7 +475,7 @@ schema-less fields; `profile()`. Full table: design.md §"Out of scope (Phase 2+
 
 ## Implementation state
 
-Tracks 1–3 are executed and complete; Tracks 4–7 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites. Track 2 delivered the `GremlinToMatchStrategy` (a translator-first `ProviderOptimizationStrategy` with a kill-switch and a throw-safety net), the `GremlinStepWalker` + `StepRecogniser` registry with `StartStepRecogniser`, and the `YTDBMatchPlanStep` boundary step — translating `g.V()` / `g.V(id)` / `g.V(ids)` into a MATCH plan and surfacing it in `explain()`. Track 3 delivered edge traversal on a walker-owned step-cursor architecture: `out` / `in` / `both`, folded edge chains, and non-adjacent edge filtering via the edge-as-node form. Predicate filtering, logical filters + plan cache, result shaping, and advanced patterns land in Tracks 4–7; plan caching (D5) is assigned to Track 5, split off from Track 4 by adversarial finding A1.
+Tracks 1–4 are executed and complete; Tracks 5–7 are not started. Track 1 delivered the shared `match/builder/` package, the behavior-preserving `GqlMatchStatement` refactor (via `GqlMatchPatternAssembler`), and the `IS DEFINED` / `IS NOT DEFINED` presence factories, verified green by the builder and GQL test suites. Track 2 delivered the `GremlinToMatchStrategy` (a translator-first `ProviderOptimizationStrategy` with a kill-switch and a throw-safety net), the `GremlinStepWalker` + `StepRecogniser` registry with `StartStepRecogniser`, and the `YTDBMatchPlanStep` boundary step — translating `g.V()` / `g.V(id)` / `g.V(ids)` into a MATCH plan and surfacing it in `explain()`. Track 3 delivered edge traversal on a walker-owned step-cursor architecture: `out` / `in` / `both`, folded edge chains, and non-adjacent edge filtering via the edge-as-node form. Track 4 delivered the full Gremlin predicate surface (`GremlinPredicateAdapter`, `HasStepRecogniser`, `TraversalFilterStepRecogniser`, D-TEXT-OPS SQL nodes). Logical filters, plan cache, result shaping, and advanced patterns land in Tracks 5–7; plan caching (D5) is assigned to Track 5, split off from Track 4 by adversarial finding A1.
 
 | Track | Code | Notes |
 |---|---|---|

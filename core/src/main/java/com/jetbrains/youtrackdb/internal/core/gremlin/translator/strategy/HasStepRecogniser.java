@@ -38,15 +38,19 @@ import org.apache.tinkerpop.gremlin.structure.T;
  *       membership, so a repeated id ({@code hasId(a, a)}) does <em>not</em> decline (unlike {@code
  *       g.V(ids)} seek semantics) — it calls {@link StartStepRecogniser#toRecordIds} without the
  *       duplicate decline;
- *   <li>a property key routes through {@link GremlinPredicateAdapter}, with the schema-aware
- *       non-String {@code Text} type gate built from the step's {@code ~label} class (if any).
+ *   <li>a property key routes through {@link GremlinPredicateAdapter#toFilter(HasContainer,
+ *       PropertyTypeGate)}. The {@link GremlinPredicateAdapter.PropertyTypeGate} keys only
+ *       {@code startingWith} routing on the step's {@code ~label} class (if any): declared {@code
+ *       STRING} uses the index-aware prefix range, every other case uses the strict full-scan node.
+ *       All other {@code Text} / {@code TextP} predicates translate in strict mode and throw at
+ *       execution on a present non-{@code String} operand, matching native rather than declining.
  * </ul>
  *
  * <h2>Translate-all-then-contribute</h2>
  *
  * The recogniser validates and translates <em>every</em> container before it mutates the context: an
  * untranslatable container (a reserved key, a multi-label {@code ~label}, an unconvertible id, a
- * non-String {@code Text}, a size-1 collection) declines with zero {@code WalkerContext} mutation.
+ * size-1 collection equality) declines with zero {@code WalkerContext} mutation.
  * The accumulated filters go in through one {@link RecognitionContext#putAliasFilter} on the boundary
  * alias, which AND-composes with any filter an earlier step contributed to the same alias (a {@code
  * g.V(ids)} {@code @rid IN}, or an earlier {@code has}).
@@ -91,7 +95,7 @@ final class HasStepRecogniser implements StepRecogniser {
     }
 
     // First pass: resolve a single-eq ~label class. It drives both the boundary-node re-typing and
-    // the non-String Text type gate for property containers in this same step.
+    // the startsWith-only type gate for property containers in this same step.
     String labelClass = null;
     for (var container : containers) {
       if (!LABEL_KEY.equals(container.getKey())) {
