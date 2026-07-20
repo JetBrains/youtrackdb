@@ -8,6 +8,7 @@ import com.jetbrains.youtrackdb.internal.core.gremlin.GraphBaseTest;
 import com.jetbrains.youtrackdb.internal.core.gremlin.YTDBTransaction;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.YTDBMatchPlanStep;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
+import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.List;
 import java.util.function.Supplier;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
@@ -292,41 +293,30 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   // ---------------------------------------------------------------------------
-  // Non-String Text decline — a Text predicate on a declared non-String
-  // property errors natively, so the translator declines and both pipelines error.
+  // Non-String Text native parity — a Text predicate on a non-String property
+  // now TRANSLATES in strict mode and throws at execution exactly as native
+  // does, instead of declining. Both pipelines error.
   // ---------------------------------------------------------------------------
 
   /**
-   * A {@code Text} predicate on a declared non-String property declines to native. {@code age} is
-   * declared {@code INTEGER} on {@code Person}, so native {@code hasLabel("Person").has("age",
-   * TextP.containing("3"))} errors (a {@code Text} predicate tests String operands). The {@code
-   * hasLabel} gives the recogniser the class context to resolve the property type; with the
-   * translator on the shape must carry no boundary step (the adapter declined the non-String {@code
-   * Text}), and both runs must throw — proving the translator fell back to native rather than
-   * emitting a {@code CONTAINSTEXT} that returns rows.
+   * A {@code Text} predicate on a declared non-String property now translates in strict mode and
+   * throws at execution, matching native. {@code age} is declared {@code INTEGER} on {@code Person},
+   * so native {@code hasLabel("Person").has("age", TextP.containing("3"))} errors (a {@code Text}
+   * predicate tests String operands). With the translator on the shape now carries a boundary step
+   * (the adapter emits a strict {@code CONTAINSTEXT}), and both runs throw — the strict node throws
+   * on the {@code Integer} {@code age} exactly where native throws, so the pipelines agree on the
+   * error rather than one returning rows.
    */
   @Test
-  public void nonStringTextPredicate_declinesToNative_andBothError() {
+  public void nonStringTextPredicate_translatesStrict_andBothThrow() {
     var person = session.createVertexClass("Person");
     person.createProperty("age", PropertyType.INTEGER);
     graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
     graph.tx().commit();
 
-    withTranslator(true, () -> {
-      var onAdmin =
-          graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")).asAdmin();
-      onAdmin.applyStrategies();
-      assertThat(countBoundarySteps(onAdmin.getSteps()))
-          .as("a Text predicate on a declared non-String property must decline — no boundary step")
-          .isEqualTo(0);
-      assertThatThrownBy(onAdmin::toList)
-          .as("the declined shape runs native, which errors on a Text predicate over an int")
-          .isInstanceOf(RuntimeException.class);
-    });
-    withTranslator(false, () -> assertThatThrownBy(
-        () -> graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")).toList())
-        .as("native errors on a Text predicate over an int")
-        .isInstanceOf(RuntimeException.class));
+    assertTranslatedAndNativeThrow(
+        "g.V().hasLabel(Person).has(age, containing(3)) on an int property",
+        () -> graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")));
   }
 
   /**
@@ -361,33 +351,172 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
    * polymorphic-subclass companion to the named-class non-String decline test above.
    */
   @Test
-  public void polymorphicNonStringTextOnSubclassOnlyProperty_declinesToNative_andBothError() {
+  public void polymorphicNonStringTextOnSubclassOnlyProperty_translatesStrict_andBothThrow() {
     var person = session.createVertexClass("Person");
     var employee = session.getSchema().createClass("Employee", person);
     employee.createProperty("age", PropertyType.INTEGER); // non-String, on the subclass only
     graph.addVertex(T.label, "Employee", "name", "Eve", "age", 30);
     graph.tx().commit();
 
-    withPolymorphicDefault(true, () -> {
-      withTranslator(true, () -> {
-        var onAdmin =
-            graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")).asAdmin();
-        onAdmin.applyStrategies();
-        assertThat(countBoundarySteps(onAdmin.getSteps()))
-            .as("a Text predicate on a subclass-only non-String property must decline in "
-                + "polymorphic mode — no boundary step")
-            .isEqualTo(0);
-        assertThatThrownBy(onAdmin::toList)
-            .as("the declined shape runs native, which errors on a Text predicate over the "
-                + "Employee's int age")
-            .isInstanceOf(RuntimeException.class);
-      });
-      withTranslator(false, () -> assertThatThrownBy(
-          () -> graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3")).toList())
-          .as("native polymorphic hasLabel(Person) matches the Employee, so its int age errors on "
-              + "a Text predicate")
-          .isInstanceOf(RuntimeException.class));
-    });
+    // In polymorphic mode hasLabel(Person) is hierarchy-aware, so the Employee row (Integer age)
+    // reaches the predicate. The adapter emits a strict CONTAINSTEXT regardless of the property's
+    // declared type (the type gate no longer gates Text), so the strict node throws on the Integer
+    // age exactly where native throws — no subclass type sweep is needed to stay in parity.
+    withPolymorphicDefault(true, () -> assertTranslatedAndNativeThrow(
+        "polymorphic g.V().hasLabel(Person).has(age, containing(3)) — subclass-only int age",
+        () -> graph.traversal().V().hasLabel("Person").has("age", TextP.containing("3"))));
+  }
+
+  // ---------------------------------------------------------------------------
+  // startingWith routing — declared-String uses the index-aware range and
+  // matches native; every other case uses the strict full-scan node, which
+  // throws on a non-String value exactly as native does.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code startingWith} on a declared, indexed String property translates to the index-aware
+   * half-open prefix range and matches native. {@code name} is {@code STRING} with a NOTUNIQUE
+   * index on {@code Person}, so the declared-String routing picks the range form (a B-tree prefix
+   * scan) and returns the prefix-matching vertices.
+   */
+  @Test
+  public void startingWithDeclaredStringIndexed_matchesNative() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING).createIndex(INDEX_TYPE.NOTUNIQUE);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Albert");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(name, startingWith(Al)) on an indexed String property",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("name", TextP.startingWith("Al")));
+  }
+
+  /**
+   * {@code startingWith} on a declared non-String property translates to the strict full-scan {@code
+   * STARTSWITH} node and throws at execution like native. {@code age} is {@code INTEGER} on {@code
+   * Person}, so the declared-non-String routing avoids the range (which cannot throw) and uses the
+   * strict node; native {@code Text.startingWith} errors on the {@code Integer}, so both throw.
+   */
+  @Test
+  public void startingWithDeclaredNonString_translatesStrict_andBothThrow() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("age", PropertyType.INTEGER);
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    assertTranslatedAndNativeThrow(
+        "g.V().hasLabel(Person).has(age, startingWith(3)) on an int property",
+        () -> graph.traversal().V().hasLabel("Person").has("age", TextP.startingWith("3")));
+  }
+
+  /**
+   * {@code startingWith} on a schema-less property holding a non-String value throws in both
+   * pipelines. With no {@code hasLabel} the boundary is the generic {@code V}, so the property type
+   * is unknown and the routing picks the strict full-scan node; the {@code code} value is an {@code
+   * Integer}, so the strict node throws exactly where native {@code Text.startingWith} throws.
+   */
+  @Test
+  public void startingWithSchemalessNonStringValue_translatesStrict_andBothThrow() {
+    graph.addVertex(T.label, "Thing", "code", 1); // undeclared property, Integer value
+    graph.tx().commit();
+    assertTranslatedAndNativeThrow(
+        "g.V().has(code, startingWith(1)) on a schema-less int value",
+        () -> graph.traversal().V().has("code", TextP.startingWith("1")));
+  }
+
+  /**
+   * {@code startingWith} on a schema-less property holding a String value matches native. The
+   * routing picks the strict full-scan node (unknown type), which on a String value behaves like a
+   * normal prefix match and returns the prefix-matching vertices — no throw, same multiset as
+   * native.
+   */
+  @Test
+  public void startingWithSchemalessStringValue_matchesNative() {
+    graph.addVertex(T.label, "Thing", "code", "Alpha");
+    graph.addVertex(T.label, "Thing", "code", "Beta");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(code, startingWith(Al)) on a schema-less String value",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("code", TextP.startingWith("Al")));
+  }
+
+  /**
+   * {@code endingWith} on a declared non-String property translates strict and throws in both
+   * pipelines — the suffix twin of the {@code startingWith} / {@code containing} non-String parity.
+   */
+  @Test
+  public void endingWithDeclaredNonString_translatesStrict_andBothThrow() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("age", PropertyType.INTEGER);
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    assertTranslatedAndNativeThrow(
+        "g.V().hasLabel(Person).has(age, endingWith(0)) on an int property",
+        () -> graph.traversal().V().hasLabel("Person").has("age", TextP.endingWith("0")));
+  }
+
+  /**
+   * {@code regex} on a declared non-String property translates strict and throws in both pipelines —
+   * the find-mode {@code MATCHES} twin of the non-String parity.
+   */
+  @Test
+  public void regexDeclaredNonString_translatesStrict_andBothThrow() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("age", PropertyType.INTEGER);
+    graph.addVertex(T.label, "Person", "name", "Alice", "age", 30);
+    graph.tx().commit();
+    assertTranslatedAndNativeThrow(
+        "g.V().hasLabel(Person).has(age, regex(3)) on an int property",
+        () -> graph.traversal().V().hasLabel("Person").has("age", TextP.regex("3")));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Edge-property Text parity — the EdgeHopRecogniser type path. A Text
+  // predicate on a non-String edge property translates strict and throws like
+  // native; on a String edge property it matches native.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code outE("knows").has(<int edge prop>, containing(...)).inV()} translates the edge filter
+   * strict and throws in both pipelines. {@code weight} is {@code INTEGER} on the {@code knows} edge
+   * class, so native {@code Text.containing} errors on it and the translated strict {@code
+   * CONTAINSTEXT} edge filter throws at the same point — closing the previously untested
+   * EdgeHopRecogniser type path end-to-end.
+   */
+  @Test
+  public void edgeContainingNonStringProperty_translatesStrict_andBothThrow() {
+    session.createVertexClass("Person");
+    var knows = session.createEdgeClass("knows");
+    knows.createProperty("weight", PropertyType.INTEGER);
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    a.addEdge("knows", b, "weight", 1);
+    graph.tx().commit();
+    assertTranslatedAndNativeThrow(
+        "g.V().outE(knows).has(weight, containing(1)).inV() on an int edge property",
+        () -> graph.traversal().V().outE("knows").has("weight", TextP.containing("1")).inV());
+  }
+
+  /**
+   * {@code outE("knows").has(<String edge prop>, containing(...)).inV()} matches native. {@code note}
+   * is {@code STRING} on the {@code knows} edge class, so the strict {@code CONTAINSTEXT} edge filter
+   * never throws and returns the same target vertices as native.
+   */
+  @Test
+  public void edgeContainingStringProperty_matchesNative() {
+    session.createVertexClass("Person");
+    var knows = session.createEdgeClass("knows");
+    knows.createProperty("note", PropertyType.STRING);
+    var a = graph.addVertex(T.label, "Person", "name", "A");
+    var b = graph.addVertex(T.label, "Person", "name", "B");
+    a.addEdge("knows", b, "note", "hexnut");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().outE(knows).has(note, containing(ex)).inV() on a String edge property",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().outE("knows").has("note", TextP.containing("ex")).inV());
   }
 
   // ---------------------------------------------------------------------------
@@ -443,6 +572,30 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     } finally {
       setTranslatorEnabled(original);
     }
+  }
+
+  /**
+   * Asserts a shape that must error in both pipelines but, unlike a decline, still TRANSLATES: with
+   * the translator on it engages exactly one boundary step (the strict node was emitted, not
+   * declined) and throws at execution; with the translator off native throws. This is the
+   * translate-strict-and-throw contract for a {@code Text} predicate over a non-String value — the
+   * two pipelines agree on the error rather than one returning rows.
+   */
+  private void assertTranslatedAndNativeThrow(
+      String scenario, Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    withTranslator(true, () -> {
+      var onAdmin = traversalSupplier.get().asAdmin();
+      onAdmin.applyStrategies();
+      assertThat(countBoundarySteps(onAdmin.getSteps()))
+          .as(scenario + " (translator on) must translate to a boundary step, not decline")
+          .isEqualTo(1);
+      assertThatThrownBy(onAdmin::toList)
+          .as(scenario + " (translator on) must throw at execution like native")
+          .isInstanceOf(RuntimeException.class);
+    });
+    withTranslator(false, () -> assertThatThrownBy(() -> traversalSupplier.get().toList())
+        .as(scenario + " (native) must throw on a Text predicate over a non-String value")
+        .isInstanceOf(RuntimeException.class));
   }
 
   /** Applies strategies to the supplied traversal (translator on) and returns the boundary step's

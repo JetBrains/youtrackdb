@@ -118,11 +118,12 @@ final class HasStepRecogniser implements StepRecogniser {
       return Outcome.DECLINE;
     }
 
-    // The class context for the non-String Text type gate is the step's own ~label (if any); a
-    // property has() on a generic V boundary has no known leaf class and translates best-effort.
+    // The class context for the startsWith-form type gate is the step's own ~label (if any); a
+    // property has() on a generic V boundary has no known leaf class, so its keys resolve as
+    // not-a-declared-String and a startingWith there routes to the strict full-scan form.
     var typeClass = labelClass;
     GremlinPredicateAdapter.PropertyTypeGate typeGate =
-        key -> ctx.isNonStringProperty(typeClass, key);
+        key -> ctx.isDeclaredStringProperty(typeClass, key);
 
     // Second pass: translate every id / property container into a WHERE expression BEFORE any
     // contribution (so an untranslatable container declines with zero context mutation).

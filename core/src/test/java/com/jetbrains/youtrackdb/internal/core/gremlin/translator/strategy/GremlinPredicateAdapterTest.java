@@ -16,6 +16,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStartsWithCondition;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -391,20 +392,27 @@ public class GremlinPredicateAdapterTest {
   // Text / TextP string predicates.
   // ---------------------------------------------------------------------------
 
-  /** {@code has("name", TextP.containing("li"))} maps to {@code name CONTAINSTEXT "li"}. */
+  /**
+   * {@code has("name", TextP.containing("li"))} maps to a strict {@code name CONTAINSTEXT "li"}. The
+   * strict flag makes the node throw at execution on a present non-String value, matching native
+   * {@code Text.containing} (String-only); the generic statement carries the distinct {@code
+   * CONTAINSTEXT(strict)} token.
+   */
   @Test
-  public void containing_mapsToContainsText() {
+  public void containing_mapsToStrictContainsText() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("name", TextP.containing("li")));
     assertThat(expr).as("containing maps to CONTAINSTEXT")
         .isInstanceOf(SQLContainsTextCondition.class);
-    assertThat(render(expr)).contains("name CONTAINSTEXT ");
+    assertThat(((SQLContainsTextCondition) expr).isStrict())
+        .as("containing translates in strict mode for native type parity").isTrue();
+    assertThat(render(expr)).contains("name CONTAINSTEXT(strict) ");
   }
 
   /**
    * {@code has("name", TextP.notContaining("li"))} maps to {@code name IS DEFINED AND NOT(name
-   * CONTAINSTEXT "li")}. The negated form is true on an absent property, so it takes the
-   * absent-property guard.
+   * CONTAINSTEXT(strict) "li")}. The negated form is true on an absent property, so it takes the
+   * absent-property guard; the inner node is strict.
    */
   @Test
   public void notContaining_mapsToGuardedNotContainsText() {
@@ -413,98 +421,121 @@ public class GremlinPredicateAdapterTest {
     assertThat(expr).as("notContaining is a guarded NOT CONTAINSTEXT")
         .isInstanceOf(SQLAndBlock.class);
     assertThat(render(expr)).containsIgnoringCase("name is defined").contains("NOT")
-        .contains("name CONTAINSTEXT ");
+        .contains("name CONTAINSTEXT(strict) ");
   }
 
   /**
-   * {@code has("name", TextP.startingWith("al"))} maps to the half-open prefix range {@code name >=
-   * "al" AND name < "al⁺"} (an AND block of two range conditions). The range form keeps the
-   * predicate index-aware, unlike a suffix or substring match.
+   * {@code has("name", TextP.startingWith("al"))} on a declared-String property maps to the half-open
+   * prefix range {@code name >= "al" AND name < "al⁺"} — an AND block of two range conditions. A
+   * declared String can only hold String values, so the index-aware range form (a B-tree prefix
+   * scan) is safe; the {@code true} gate models the declared-String routing.
    */
   @Test
-  public void startingWith_mapsToPrefixRange() {
+  public void startingWith_declaredString_mapsToIndexAwareRange() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
-        new HasContainer("name", TextP.startingWith("al")));
-    assertThat(expr).as("startingWith maps to a prefix range AND block")
+        new HasContainer("name", TextP.startingWith("al")), key -> true);
+    assertThat(expr).as("startingWith on a declared String maps to a prefix range AND block")
         .isInstanceOf(SQLAndBlock.class);
+    var and = (SQLAndBlock) expr;
+    assertThat(and.getSubBlocks()).as("the range is a pair of binary conditions").hasSize(2);
+    assertThat(and.getSubBlocks().get(0)).isInstanceOf(SQLBinaryCondition.class);
+    assertThat(and.getSubBlocks().get(1)).isInstanceOf(SQLBinaryCondition.class);
     assertThat(render(expr)).contains("name >= ").contains("name < ").contains(" AND ");
   }
 
   /**
-   * {@code has("name", TextP.startingWith(""))} declines: an empty prefix has no defined exclusive
-   * upper bound, so the range cannot be built and the traversal falls back to native.
+   * {@code has("name", TextP.startingWith("al"))} on an unknown / undeclared / non-String property
+   * (the gate reports not-a-declared-String) maps to the strict full-scan {@code SQLStartsWithCondition}
+   * rather than the index-aware range: the range form cannot throw on a non-String value, so the
+   * strict node is used for native type parity.
    */
   @Test
-  public void startingWithEmptyPrefix_declines() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("name", TextP.startingWith(""))))
-        .as("an empty startingWith prefix has no upper bound and declines")
-        .isNull();
+  public void startingWith_unknownType_mapsToStrictStartsWith() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("name", TextP.startingWith("al")), key -> false);
+    assertThat(expr).as("startingWith on an unknown type maps to the strict full-scan node")
+        .isInstanceOf(SQLStartsWithCondition.class);
+    assertThat(((SQLStartsWithCondition) expr).isStrict()).isTrue();
+    assertThat(render(expr)).contains("name STARTSWITH(strict) ");
   }
 
   /**
-   * {@code has("name", TextP.startingWith(maxCodePoint))} — a prefix that is a single maximum code
-   * point (U+10FFFF) — declines rather than throwing. Such a prefix has no finite exclusive upper
-   * bound (its only code point is already the maximum and there is no preceding code point to carry
-   * into), so the prefix-range builder cannot produce a range. The adapter must catch that and
-   * decline (return {@code null}) to honour its never-throws contract, falling the traversal back to
-   * native. This is a pathological input a realistic prefix never produces, but it must not escape as
-   * an exception.
+   * {@code has("name", TextP.startingWith(""))} maps to a strict full-scan {@code STARTSWITH} node
+   * (no longer declines): an empty prefix has no range upper bound, so even a declared-String
+   * property falls back to the strict node. {@code startsWith("")} matches every present value,
+   * matching native {@code startingWith("")}, and throws on a present non-String like native.
    */
   @Test
-  public void startingWithMaxCodePointPrefix_declines() {
+  public void startingWithEmptyPrefix_mapsToStrictStartsWith() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("name", TextP.startingWith("")), key -> true);
+    assertThat(expr).as("an empty startingWith prefix maps to the strict full-scan node")
+        .isInstanceOf(SQLStartsWithCondition.class);
+    assertThat(((SQLStartsWithCondition) expr).isStrict()).isTrue();
+  }
+
+  /**
+   * {@code has("name", TextP.startingWith(maxCodePoint))} — a single maximum code point (U+10FFFF),
+   * which has no finite exclusive upper bound — maps to the strict full-scan {@code STARTSWITH} node
+   * even on a declared-String property, rather than declining or throwing. The range builder cannot
+   * produce a range for it, so the strict node handles it.
+   */
+  @Test
+  public void startingWithMaxCodePointPrefix_mapsToStrictStartsWith() {
     var maxCodePoint = new String(Character.toChars(Character.MAX_CODE_POINT));
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(
-            new HasContainer("name", TextP.startingWith(maxCodePoint))))
-        .as("an all-max-code-point startingWith prefix has no finite upper bound and declines")
-        .isNull();
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("name", TextP.startingWith(maxCodePoint)), key -> true);
+    assertThat(expr).as("an all-max-code-point prefix maps to the strict full-scan node")
+        .isInstanceOf(SQLStartsWithCondition.class);
   }
 
   /**
-   * {@code has("name", TextP.notStartingWith(maxCodePoint))} — the negated form of the pathological
-   * single-max-code-point prefix — also declines rather than throwing. {@code notStartingWith} shares
-   * the same prefix-range seam as {@code startingWith}, so an unbuildable range declines the whole
-   * predicate before the guarded negation is composed, rather than letting the builder's exception
-   * escape.
+   * {@code has("name", TextP.notStartingWith(maxCodePoint))} — the negated pathological prefix — maps
+   * to a guarded NOT of the strict full-scan node (no longer declines): the prefix-range fallback
+   * routes to the strict node, which the guarded negation then wraps.
    */
   @Test
-  public void notStartingWithMaxCodePointPrefix_declines() {
+  public void notStartingWithMaxCodePointPrefix_mapsToGuardedStrictNegation() {
     var maxCodePoint = new String(Character.toChars(Character.MAX_CODE_POINT));
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(
-            new HasContainer("name", TextP.notStartingWith(maxCodePoint))))
-        .as("an all-max-code-point notStartingWith prefix has no finite upper bound and declines")
-        .isNull();
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("name", TextP.notStartingWith(maxCodePoint)), key -> true);
+    assertThat(expr)
+        .as("a notStartingWith on an all-max prefix is a guarded NOT of the strict node")
+        .isInstanceOf(SQLAndBlock.class);
+    assertThat(render(expr)).containsIgnoringCase("name is defined").contains("NOT")
+        .contains("name STARTSWITH(strict) ");
   }
 
   /**
-   * {@code has("name", TextP.notStartingWith("al"))} maps to {@code name IS DEFINED AND NOT(name >=
-   * "al" AND name < "al⁺")} — the guarded negation of the prefix range.
+   * {@code has("name", TextP.notStartingWith("al"))} with no schema context maps to {@code name IS
+   * DEFINED AND NOT(name STARTSWITH(strict) "al")} — the guarded negation of the strict full-scan
+   * node (the default routing when the type is unknown).
    */
   @Test
   public void notStartingWith_mapsToGuardedNegation() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("name", TextP.notStartingWith("al")));
-    assertThat(expr).as("notStartingWith is a guarded NOT of the prefix range")
+    assertThat(expr).as("notStartingWith is a guarded NOT of the strict full-scan node")
         .isInstanceOf(SQLAndBlock.class);
     assertThat(render(expr)).containsIgnoringCase("name is defined").contains("NOT")
-        .contains("name >= ");
+        .contains("name STARTSWITH(strict) ");
   }
 
-  /** {@code has("name", TextP.endingWith("ce"))} maps to {@code name ENDSWITH "ce"} — the new suffix node. */
+  /** {@code has("name", TextP.endingWith("ce"))} maps to a strict {@code name ENDSWITH "ce"}. */
   @Test
-  public void endingWith_mapsToEndsWith() {
+  public void endingWith_mapsToStrictEndsWith() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("name", TextP.endingWith("ce")));
     assertThat(expr).as("endingWith maps to the ENDSWITH node")
         .isInstanceOf(SQLEndsWithCondition.class);
-    assertThat(render(expr)).contains("name ENDSWITH ");
+    assertThat(((SQLEndsWithCondition) expr).isStrict())
+        .as("endingWith translates in strict mode for native type parity").isTrue();
+    assertThat(render(expr)).contains("name ENDSWITH(strict) ");
   }
 
   /**
    * {@code has("name", TextP.notEndingWith("ce"))} maps to {@code name IS DEFINED AND NOT(name
-   * ENDSWITH "ce")} — the guarded negation of the suffix match.
+   * ENDSWITH(strict) "ce")} — the guarded negation of the strict suffix match.
    */
   @Test
   public void notEndingWith_mapsToGuardedNegation() {
@@ -512,28 +543,30 @@ public class GremlinPredicateAdapterTest {
         new HasContainer("name", TextP.notEndingWith("ce")));
     assertThat(expr).as("notEndingWith is a guarded NOT ENDSWITH").isInstanceOf(SQLAndBlock.class);
     assertThat(render(expr)).containsIgnoringCase("name is defined").contains("NOT")
-        .contains("name ENDSWITH ");
+        .contains("name ENDSWITH(strict) ");
   }
 
   /**
-   * {@code has("name", TextP.regex("a.*e"))} maps to a find-mode {@code MATCHES} — an unanchored
-   * match anywhere in the value, which is Gremlin {@code Text.regex} semantics. The generic
-   * statement uses the distinct {@code MATCHES(find)} token so a find-mode node fingerprints
-   * differently from a full-match {@code MATCHES}.
+   * {@code has("name", TextP.regex("a.*e"))} maps to a strict find-mode {@code MATCHES} — an
+   * unanchored match anywhere in the value (Gremlin {@code Text.regex} semantics) that throws on a
+   * present non-String value like native. The generic statement carries both the {@code (find)} and
+   * {@code (strict)} tokens.
    */
   @Test
-  public void regex_mapsToFindModeMatches() {
+  public void regex_mapsToStrictFindModeMatches() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("name", TextP.regex("a.*e")));
     assertThat(expr).as("regex maps to a MATCHES condition")
         .isInstanceOf(SQLMatchesCondition.class);
-    assertThat(render(expr)).as("regex is unanchored find-mode")
-        .contains("name MATCHES(find) ");
+    assertThat(((SQLMatchesCondition) expr).isStrict())
+        .as("regex translates in strict mode for native type parity").isTrue();
+    assertThat(render(expr)).as("regex is unanchored find-mode, strict")
+        .contains("name MATCHES(find)(strict) ");
   }
 
   /**
    * {@code has("name", TextP.notRegex("a.*e"))} maps to {@code name IS DEFINED AND NOT(name
-   * MATCHES(find) ...)} — the guarded negation of the find-mode match.
+   * MATCHES(find)(strict) ...)} — the guarded negation of the strict find-mode match.
    */
   @Test
   public void notRegex_mapsToGuardedNegation() {
@@ -542,81 +575,81 @@ public class GremlinPredicateAdapterTest {
     assertThat(expr).as("notRegex is a guarded NOT of the find-mode match")
         .isInstanceOf(SQLAndBlock.class);
     assertThat(render(expr)).containsIgnoringCase("name is defined").contains("NOT")
-        .contains("name MATCHES(find) ");
+        .contains("name MATCHES(find)(strict) ");
   }
 
   // ---------------------------------------------------------------------------
-  // Non-String type gate — a Text / regex predicate on a declared
-  // non-String property declines, because native errors on it.
+  // Type gate — no longer declines a Text / regex predicate on a non-String
+  // property; it only routes the startingWith form. Text / regex always
+  // translate strict and throw at execution like native.
   // ---------------------------------------------------------------------------
 
   /**
-   * {@code has("age", TextP.containing("3"))} with a type gate that reports {@code age} as
-   * non-String declines: native {@code Text} predicates test String operands, so a non-String
-   * property errors natively and a translated {@code CONTAINSTEXT} would instead return rows. The
-   * gate makes the adapter decline so the traversal falls back to native.
+   * {@code has("age", TextP.containing("3"))} no longer declines regardless of the type gate: it
+   * produces a strict {@code CONTAINSTEXT} node that throws at execution on a present non-String
+   * value, matching native {@code Text}. The gate ({@code key -> true}, a declared String) does not
+   * affect the {@code containing} form.
    */
   @Test
-  public void containingOnNonStringProperty_declinesViaTypeGate() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(
-            new HasContainer("age", TextP.containing("3")), key -> true))
-        .as("a Text predicate on a declared non-String property declines")
-        .isNull();
+  public void containingWithTypeGate_producesStrictNode() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", TextP.containing("3")), key -> true);
+    assertThat(expr).as("containing no longer declines on type — it produces a strict node")
+        .isInstanceOf(SQLContainsTextCondition.class);
+    assertThat(((SQLContainsTextCondition) expr).isStrict()).isTrue();
   }
 
   /**
-   * {@code has("age", TextP.notContaining("3"))} — a negated Text form — also declines under the
-   * non-String gate: the gate fires before the guarded negation is composed.
+   * {@code has("age", TextP.notContaining("3"))} — a negated Text form — also no longer declines: it
+   * produces a guarded NOT wrapping a strict {@code CONTAINSTEXT} node.
    */
   @Test
-  public void negatedTextOnNonStringProperty_declinesViaTypeGate() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(
-            new HasContainer("age", TextP.notContaining("3")), key -> true))
-        .as("a negated Text predicate on a declared non-String property declines")
-        .isNull();
+  public void negatedTextWithTypeGate_producesGuardedStrictNode() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", TextP.notContaining("3")), key -> false);
+    assertThat(expr).as("a negated Text predicate no longer declines on type")
+        .isInstanceOf(SQLAndBlock.class);
+    assertThat(render(expr)).containsIgnoringCase("age is defined").contains("NOT")
+        .contains("age CONTAINSTEXT(strict) ");
   }
 
   /**
-   * {@code has("age", TextP.regex("3"))} declines under the non-String gate: a regex match tests
-   * String values, so on a declared non-String property native errors and the translated find-mode
-   * {@code MATCHES} would return rows. The gate applies to the regex path too.
+   * {@code has("age", TextP.regex("3"))} no longer declines on type: it produces a strict find-mode
+   * {@code MATCHES} node that throws at execution on a present non-String value, like native regex.
    */
   @Test
-  public void regexOnNonStringProperty_declinesViaTypeGate() {
-    assertThat(
-        GremlinPredicateAdapter.INSTANCE.toFilter(
-            new HasContainer("age", TextP.regex("3")), key -> true))
-        .as("a regex predicate on a declared non-String property declines")
-        .isNull();
+  public void regexWithTypeGate_producesStrictNode() {
+    var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
+        new HasContainer("age", TextP.regex("3")), key -> false);
+    assertThat(expr).as("a regex predicate no longer declines on type — it produces a strict node")
+        .isInstanceOf(SQLMatchesCondition.class);
+    assertThat(((SQLMatchesCondition) expr).isStrict()).isTrue();
   }
 
   /**
-   * The non-String gate affects only string predicates: {@code has("age", P.eq(30))} with a gate
-   * that reports {@code age} as non-String still translates — a scalar comparison on an int property
-   * is valid natively, so the gate must not decline it.
+   * The type gate affects only the {@code startingWith} form: {@code has("age", P.eq(30))} with any
+   * gate still translates — a scalar comparison is unaffected by the gate.
    */
   @Test
   public void scalarCompareOnNonStringProperty_stillTranslatesUnderTypeGate() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("age", P.eq(30)), key -> true);
     assertThat(expr)
-        .as("a scalar comparison is unaffected by the non-String Text gate")
+        .as("a scalar comparison is unaffected by the type gate")
         .isInstanceOf(SQLBinaryCondition.class);
   }
 
   /**
-   * A String-typed property (the gate reports {@code false}) translates the Text predicate normally:
-   * {@code has("name", TextP.containing("li"))} maps to {@code CONTAINSTEXT}. This is the companion
-   * to the non-String decline — the gate declines only genuinely non-String properties.
+   * A {@code containing} on any property (the gate reports {@code false}) translates to a strict
+   * {@code CONTAINSTEXT} — the gate never declines a {@code containing}, it only routes {@code
+   * startingWith}.
    */
   @Test
-  public void textOnStringProperty_translatesUnderTypeGate() {
+  public void textWithTypeGate_translatesToStrictNode() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(
         new HasContainer("name", TextP.containing("li")), key -> false);
     assertThat(expr)
-        .as("a Text predicate on a String property translates")
+        .as("a Text predicate translates to a strict node regardless of the gate")
         .isInstanceOf(SQLContainsTextCondition.class);
   }
 
