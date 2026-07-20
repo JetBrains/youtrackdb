@@ -189,7 +189,7 @@ jobs:
         # week of work is worse than publishing notes that need a
         # human follow-up.
         continue-on-error: true
-        uses: anthropics/claude-code-base-action@4bae506e99a9c8e88eee3e8e19199266ad7f1b32 # main @ 2026-04-20, Claude Code 2.1.116
+        uses: anthropics/claude-code-base-action@9698ea332dcbc603bba3ebca8b676031a5e424ba # main @ 2026-04-20, Claude Code 2.1.116
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # Print Claude's tool calls (and any permission denials) to the
