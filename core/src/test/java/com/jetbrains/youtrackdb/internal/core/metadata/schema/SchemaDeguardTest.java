@@ -70,6 +70,29 @@ public class SchemaDeguardTest extends DbTestBase {
   }
 
   /**
+   * The remove-side mirror of the fold guard: the index-membership ripple on a collection
+   * REMOVAL rejects an unresolvable collection id loudly. A null slipping through would either
+   * silently fail to cancel a pending membership add or record a phantom (index, null) entry —
+   * the same silent-corruption family the add-side guard rejects.
+   */
+  @Test
+  public void removeCollectionFromIndexesRejectsUnresolvableCollectionId() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("UnresolvedRippleProbe");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("UnresolvedRippleProbe.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    var embedded = (SchemaClassImpl) session.getSharedContext().getSchema()
+        .getClass("UnresolvedRippleProbe");
+    var thrown = assertThrows(IllegalStateException.class,
+        () -> embedded.removeCollectionFromIndexes(session, 999_998));
+    assertTrue("the failure must name the unresolvable id",
+        thrown.getMessage().contains("999998"));
+    assertTrue("the failure must name the class",
+        thrown.getMessage().contains("UnresolvedRippleProbe"));
+  }
+
+  /**
    * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock}
    * would busy-spin forever rather than throw, hanging the whole surefire fork with no signal.
    * These tests drive schema-carrying commits (and cross-thread readers) through that substrate,
@@ -1392,8 +1415,8 @@ public class SchemaDeguardTest extends DbTestBase {
    * the out()/in() supernode shortcut) would read a stale engine and miss the transaction's own
    * post-drop writes. Mid-tx after DROP INDEX all three lookup shapes must hide the dropped index;
    * after rollback the committed view is restored. Tx-created indexes stay invisible in these
-   * lookups per the adjudicated design (a tx-created index is not query-usable until commit) —
-   * this fix is hide-only.
+   * lookups by design (a tx-created index is not query-usable until commit) — this fix is
+   * hide-only.
    */
   @Test
   public void involvedIndexLookupsHideTxDroppedIndex() {

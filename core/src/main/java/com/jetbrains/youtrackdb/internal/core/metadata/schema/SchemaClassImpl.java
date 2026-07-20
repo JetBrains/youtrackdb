@@ -1579,7 +1579,9 @@ public abstract class SchemaClassImpl {
     }
   }
 
-  private void removeCollectionFromIndexes(DatabaseSessionEmbedded session, final int iId) {
+  // Package-visible so the unresolvable-id guard below is directly testable (the add-side
+  // sibling, addCollectionIdToIndexes, is protected already).
+  void removeCollectionFromIndexes(DatabaseSessionEmbedded session, final int iId) {
     if (session.getStorage() instanceof AbstractStorage) {
       // Provisional-aware mirror of the add-side ripple (addCollectionIdToIndexes): a subclass
       // created in this same transaction carries a provisional id, whose committed name lookup
@@ -1590,6 +1592,16 @@ public abstract class SchemaClassImpl {
       // index's collectionsToIndex (naming, on the drop path, a collection the reconciliation
       // never creates).
       final var collectionName = SchemaShared.resolveCollectionNameById(session, iId);
+      if (collectionName == null) {
+        // The resolver is nullable by contract (an unknown committed id answers null). Passing a
+        // null onward would either silently fail to cancel a pending membership add or record a
+        // phantom (index, null) entry — exactly the hazard the comment above names. Same
+        // fail-loud intent as the add side's guard (addCollectionIdToIndexes).
+        throw new IllegalStateException(
+            "collection id " + iId + " removed from class '" + name
+                + "' does not resolve to a collection name; refusing to ripple an unresolved"
+                + " collection through the class's index membership");
+      }
       final List<String> indexesToRemove = new ArrayList<>();
 
       final Set<Index> indexes = new HashSet<>();

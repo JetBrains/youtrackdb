@@ -899,8 +899,7 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
    * and data written before the rename stays reachable through the renamed class. Collection
    * names carry no class-name component, so the rename has no collection file to rename — the
    * previous class-derived-name behavior (renaming the collection through the non-WAL-safe
-   * storage file rename) must
-   * not resurface.
+   * storage file rename) must not resurface.
    */
   @Test
   public void testRenameClassLeavesCollectionUntouched() {
@@ -1193,8 +1192,8 @@ public class CaseSensitiveClassNameTest extends BaseMemoryInternalDatabase {
   /**
    * Verifies that a class rename leaves even a legacy class-derived collection name untouched.
    * Class rename is metadata-only: the old class-derived-name code renamed a legacy-named
-   * collection to the new
-   * lowercase class name through the storage file rename, and that path is removed, so the
+   * collection to the new lowercase class name through the storage file rename, and that path is
+   * removed, so the
    * collection keeps its old name while the class answers to the new one.
    */
   @Test

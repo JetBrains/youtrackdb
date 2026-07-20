@@ -116,8 +116,9 @@ public class CompositeIndexDefinition extends AbstractIndexDefinition {
   @Override
   public void setClassName(final String className) {
     this.className = className;
-    // The rename re-association recurses into composites: every composed sub-definition carries its own
-    // className and must follow the re-association, or a reload would resurrect the old name
+    // The rename re-association recurses into composites: every composed sub-definition carries
+    // its own className and must follow the re-association, or a reload would resurrect the old
+    // name
     // from the sub-definition maps.
     for (final var indexDefinition : indexDefinitions) {
       indexDefinition.setClassName(className);

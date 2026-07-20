@@ -707,8 +707,9 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     if (collectionName == null) {
       // The resolver is nullable by contract (an unknown committed id answers null). Folding a
       // null onward would persist a null placeholder into every index's covered set at commit —
-      // the silent-corruption family the tx-schema hardening rejects loudly everywhere (mirrors
-      // the resolveDeferredCollectionNames guard). Fail loudly naming the class and the id.
+      // the silent-corruption family the tx-schema hardening rejects loudly everywhere (the
+      // same fail-loud intent as resolveDeferredCollectionNames, which throws IndexException at
+      // the manager layer). Fail loudly naming the class and the id.
       throw new IllegalStateException(
           "collection id " + iId + " added to class '" + name
               + "' does not resolve to a collection name; refusing to fold an unresolved"

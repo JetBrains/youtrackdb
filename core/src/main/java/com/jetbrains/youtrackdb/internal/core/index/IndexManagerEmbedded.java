@@ -1644,8 +1644,8 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
    * <p>Two documented parities with the sibling legacy paths rather than new guarantees:
    * (1) this path does NOT engage the metadata-write mutex (no top-level DDL does — the standing
    * gap that the single-writer premise holds only for transactional DDL, which this method folds
-   * into rather than widens: the
-   * add-under-new-key-BEFORE-remove-under-old-key ordering below keeps the index present under at
+   * into rather than widens: the add-under-new-key-BEFORE-remove-under-old-key ordering below
+   * keeps the index present under at
    * least one class key throughout, so a concurrent transaction baking a schema snapshot
    * mid-window can observe a benign transient double presence but never a total absence that
    * would silently disable index maintenance); (2) the in-memory maps mutate before the internal
