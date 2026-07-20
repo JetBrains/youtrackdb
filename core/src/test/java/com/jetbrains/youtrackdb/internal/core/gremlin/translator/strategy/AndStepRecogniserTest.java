@@ -220,6 +220,30 @@ public class AndStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.patternBuilder.build().pattern().getNumOfEdges()).isZero();
   }
 
+  /** Without a pinned boundary the recogniser declines rather than inventing an origin alias. */
+  @Test
+  public void nullBoundary_declines() {
+    var admin = graph.traversal().V().and(__.has("age", P.eq(30))).asAdmin();
+    var ctx = new WalkerContext(true, false, null, productionRegistry());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(AndStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * Feeding the recogniser a non-{@code AndStep} head (defence-in-depth against a registry mistake)
+   * declines and leaves the outer context untouched.
+   */
+  @Test
+  public void nonAndStepHead_declines() {
+    var admin = graph.traversal().V().has("age", P.eq(30)).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(AndStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.aliasFilters).isEmpty();
+  }
+
   private static Map<Class<?>, StepRecogniser> productionRegistry() {
     return Map.of(
         GraphStep.class, StartStepRecogniser.INSTANCE,

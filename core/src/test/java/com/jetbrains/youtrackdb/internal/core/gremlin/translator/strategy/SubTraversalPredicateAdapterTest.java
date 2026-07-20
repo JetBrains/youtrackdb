@@ -229,6 +229,73 @@ public class SubTraversalPredicateAdapterTest {
   }
 
   /**
+   * Nested combinator children merge captured hop fragments through {@link
+   * RecognitionContext#appendPattern} into the enclosing adapter's pattern buffer.
+   */
+  @Test
+  public void appendPattern_mergesCapturedHopIntoAdapter() {
+    var parent = mock(RecognitionContext.class);
+    when(parent.boundaryAlias()).thenReturn(BOUNDARY_ALIAS);
+    when(parent.nextAnonVertexAlias()).thenReturn(FIRST_ANON_ALIAS);
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+
+    var nested = new MatchPatternBuilder();
+    nested.addNode(BOUNDARY_ALIAS, "V", null, false);
+    nested.addNode(FIRST_ANON_ALIAS, "V", null, false);
+    nested.addEdge(
+        BOUNDARY_ALIAS,
+        FIRST_ANON_ALIAS,
+        MatchPatternBuilder.Direction.OUT,
+        "knows",
+        null,
+        null,
+        null);
+
+    adapter.appendPattern(nested);
+
+    assertThat(adapter.hasEdges()).isFalse();
+    assertThat(adapter.capturedPattern().hasAlias(FIRST_ANON_ALIAS)).isTrue();
+    assertThat(adapter.capturedPattern().build().pattern().getNumOfEdges()).isEqualTo(1);
+  }
+
+  /**
+   * {@link ConnectiveStepSupport#commitPureFilterChild} applies a captured boundary re-type and
+   * alias filters onto the parent context.
+   */
+  @Test
+  public void commitPureFilterChild_appliesReTypeAndFilters() {
+    var parent = parentWithBoundary(Map.of());
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    adapter.addNode(BOUNDARY_ALIAS, "Person");
+    adapter.putAliasFilter(BOUNDARY_ALIAS, whereClause("age"));
+
+    ConnectiveStepSupport.commitPureFilterChild(parent, adapter);
+
+    assertThat(parent.patternBuilder.registeredAliasClasses().get(BOUNDARY_ALIAS))
+        .isEqualTo("Person");
+    assertThat(parent.aliasFilters).containsKey(BOUNDARY_ALIAS);
+  }
+
+  /**
+   * {@link ConnectiveStepSupport#commitEdgeBearingChild} appends the hop fragment and merges
+   * captured target filters into the parent.
+   */
+  @Test
+  public void commitEdgeBearingChild_appendsHopAndMergesFilters() {
+    var parent = parentWithBoundary(Map.of());
+    var adapter = new SubTraversalPredicateAdapter(parent, Map.of());
+    adapter.addEdge(
+        BOUNDARY_ALIAS, FIRST_ANON_ALIAS, MatchPatternBuilder.Direction.OUT, "knows");
+    adapter.addNode(FIRST_ANON_ALIAS, "V");
+    adapter.putAliasFilter(FIRST_ANON_ALIAS, whereClause("age"));
+
+    ConnectiveStepSupport.commitEdgeBearingChild(parent, adapter);
+
+    assertThat(parent.patternBuilder.hasAlias(FIRST_ANON_ALIAS)).isTrue();
+    assertThat(parent.aliasFilters).containsKey(FIRST_ANON_ALIAS);
+  }
+
+  /**
    * A child that only re-types the boundary node — the shape a folded {@code hasLabel(L)} produces, a
    * {@code ctx.addNode(boundaryAlias, L)} that narrows the existing boundary's class plus a {@code
    * @class} alias filter — is <b>pure-filter</b>, not edge-bearing: it adds no hop, so {@code
