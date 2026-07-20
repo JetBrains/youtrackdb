@@ -4,9 +4,11 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
+import com.jetbrains.youtrackdb.internal.core.exception.NonStringTextOperandException;
 import com.jetbrains.youtrackdb.internal.core.command.BasicCommandContext;
 import com.jetbrains.youtrackdb.internal.core.command.CommandContext;
 import com.jetbrains.youtrackdb.internal.core.db.record.record.Identifiable;
@@ -247,6 +249,166 @@ public class StringPredicateCollationTest extends DbTestBase {
     // Contrast: parsed MATCHES is a full (anchored) match, so "World" alone does not match the
     // whole "Hello World" value — the find-mode node above did.
     assertEquals(0, count("SELECT FROM Doc WHERE ci MATCHES 'World'"));
+  }
+
+  // ── STARTSWITH evaluation (SQLStartsWithCondition) ──
+
+  /**
+   * The full-scan {@link SQLStartsWithCondition} honors the property collation on both eval
+   * overloads: case-sensitive on the default property, case-insensitive on the {@code ci} property,
+   * and a non-prefix never matches. Mirrors the ENDSWITH coverage for the prefix twin.
+   */
+  @Test
+  public void startsWith_honorsCollationOnBothEvalPaths() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("cs", "Johnson");
+    e.setProperty("ci", "Johnson");
+    var ctx = ctx();
+
+    // default collation — case-sensitive
+    assertTrue(builder.startsWithStrict("cs", "John").evaluate((Identifiable) e, ctx));
+    assertFalse(builder.startsWithStrict("cs", "JOHN").evaluate((Identifiable) e, ctx));
+
+    // ci collation — case-insensitive, on both eval overloads
+    assertTrue(builder.startsWithStrict("ci", "JOHN").evaluate((Identifiable) e, ctx));
+    assertTrue(builder.startsWithStrict("ci", "JOHN").evaluate(new ResultInternal(session, e), ctx));
+    // a non-prefix still does not match
+    assertFalse(builder.startsWithStrict("ci", "son").evaluate((Identifiable) e, ctx));
+    session.commit();
+  }
+
+  /**
+   * {@link SQLStartsWithCondition#splitForAggregation} reconstructs the node field-by-field when the
+   * condition is aggregate. Both operands and the strict flag must survive the reconstruction, or a
+   * deep-copied plan would silently drop the predicate or its Gremlin-parity strictness.
+   */
+  @Test
+  public void startsWith_splitForAggregationPreservesBothOperandsAndStrict() {
+    var node = (SQLStartsWithCondition) builder.startsWithStrict("cs", "Jo");
+    node.setLeft(aggregateLeftExpression());
+    var ctx = ctx();
+    assertTrue("precondition: the node must be aggregate to exercise reconstruction",
+        node.isAggregate(session));
+
+    var split = node.splitForAggregation(new AggregateProjectionSplit(), ctx);
+    assertTrue(split instanceof SQLStartsWithCondition);
+    var reconstructed = (SQLStartsWithCondition) split;
+    assertNotSame("reconstruction must produce a fresh node", node, reconstructed);
+    assertNotNull("left operand must survive reconstruction", reconstructed.getLeft());
+    assertNotNull("right operand (prefix) must survive reconstruction", reconstructed.getRight());
+    assertTrue("strict flag must survive splitForAggregation reconstruction",
+        reconstructed.isStrict());
+  }
+
+  // ── strict mode: throw on non-String (Gremlin parity) vs lenient return-false (SQL/GQL) ──
+
+  /**
+   * Pins SQL/GQL leniency: a default (non-strict) text predicate meeting a present non-String left
+   * operand returns {@code false} and never throws, for all four node types. The {@code num} field
+   * holds an Integer, so the left operand is present but not a String.
+   */
+  @Test
+  public void lenientDefault_returnsFalseOnNonStringOperand_neverThrows() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("num", 42); // present, non-null, non-String
+    var ctx = ctx();
+
+    // CONTAINSTEXT / ENDSWITH / MATCHES lenient nodes come straight from the two-arg builders.
+    assertFalse(builder.containsText("num", "4").evaluate((Identifiable) e, ctx));
+    assertFalse(builder.endsWith("num", "2").evaluate((Identifiable) e, ctx));
+    assertFalse(builder.matchesRegex("num", "4").evaluate((Identifiable) e, ctx));
+    // A lenient STARTSWITH node: strict cleared on a full-scan node.
+    var lenientStarts = (SQLStartsWithCondition) builder.startsWithStrict("num", "4");
+    lenientStarts.setStrict(false);
+    assertFalse(lenientStarts.evaluate((Identifiable) e, ctx));
+    session.commit();
+  }
+
+  /**
+   * Strict CONTAINSTEXT (Gremlin parity): throws {@link NonStringTextOperandException} on a present
+   * non-String left operand, returns {@code false} on an absent/null operand (never throws), and
+   * behaves normally on a String. Both eval overloads are checked for the throw.
+   */
+  @Test
+  public void containsText_strict_throwsOnNonStringElseFalseOrNormal() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("num", 42); // non-String
+    e.setProperty("cs", "Hello"); // String
+    var ctx = ctx();
+
+    var onNonString = builder.containsText("num", "4", true);
+    assertThrows(NonStringTextOperandException.class,
+        () -> onNonString.evaluate((Identifiable) e, ctx));
+    assertThrows(NonStringTextOperandException.class,
+        () -> onNonString.evaluate(new ResultInternal(session, e), ctx));
+
+    // absent operand: no throw, plain false
+    assertFalse(builder.containsText("missing", "x", true).evaluate((Identifiable) e, ctx));
+    // String operand: normal comparison
+    assertTrue(builder.containsText("cs", "ell", true).evaluate((Identifiable) e, ctx));
+    session.commit();
+  }
+
+  /** Strict ENDSWITH: same throw-on-non-String / false-on-absent / normal-on-String contract. */
+  @Test
+  public void endsWith_strict_throwsOnNonStringElseFalseOrNormal() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("num", 42);
+    e.setProperty("cs", "Johnson");
+    var ctx = ctx();
+
+    var onNonString = builder.endsWith("num", "2", true);
+    assertThrows(NonStringTextOperandException.class,
+        () -> onNonString.evaluate((Identifiable) e, ctx));
+    assertFalse(builder.endsWith("missing", "x", true).evaluate((Identifiable) e, ctx));
+    assertTrue(builder.endsWith("cs", "son", true).evaluate((Identifiable) e, ctx));
+    session.commit();
+  }
+
+  /** Strict STARTSWITH: same throw-on-non-String / false-on-absent / normal-on-String contract. */
+  @Test
+  public void startsWith_strict_throwsOnNonStringElseFalseOrNormal() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("num", 42);
+    e.setProperty("cs", "Johnson");
+    var ctx = ctx();
+
+    var onNonString = builder.startsWithStrict("num", "4");
+    assertThrows(NonStringTextOperandException.class,
+        () -> onNonString.evaluate((Identifiable) e, ctx));
+    assertFalse(builder.startsWithStrict("missing", "x").evaluate((Identifiable) e, ctx));
+    assertTrue(builder.startsWithStrict("cs", "John").evaluate((Identifiable) e, ctx));
+    session.commit();
+  }
+
+  /**
+   * Strict MATCHES (Gremlin parity): throws on a present non-String value, but a present-null value
+   * stays return-false rather than throwing. Native regex would NPE on null; reproducing that NPE is
+   * a documented accepted non-goal, so the strict path deliberately does not throw on null. A String
+   * value matches normally.
+   */
+  @Test
+  public void matches_strict_throwsOnNonStringButFalseOnPresentNull() {
+    session.begin();
+    var e = session.newEntity("Doc");
+    e.setProperty("num", 42); // present non-String
+    e.setProperty("cs", "Hello"); // String
+    var ctx = ctx();
+
+    var onNonString = builder.matchesRegex("num", "4", true);
+    assertThrows(NonStringTextOperandException.class,
+        () -> onNonString.evaluate((Identifiable) e, ctx));
+
+    // absent/null value: no throw, returns false (accepted divergence from native NPE)
+    assertFalse(builder.matchesRegex("missing", "x", true).evaluate((Identifiable) e, ctx));
+    // String value: normal find-mode match
+    assertTrue(builder.matchesRegex("cs", "ell", true).evaluate((Identifiable) e, ctx));
+    session.commit();
   }
 
   // ── splitForAggregation reconstruction (aggregate branch) ──

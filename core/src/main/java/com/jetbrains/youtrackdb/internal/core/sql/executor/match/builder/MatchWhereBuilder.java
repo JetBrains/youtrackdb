@@ -25,6 +25,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLRecordAttribute;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStartsWithCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -140,6 +141,19 @@ public final class MatchWhereBuilder {
   }
 
   /**
+   * Strict variant of {@link #containsText(String, String)} for the Gremlin adapter. When {@code
+   * strict} is {@code true} the built node throws on a present non-String left operand instead of
+   * yielding {@code false}, matching native TinkerPop {@code Text.containing} (String-only)
+   * semantics. GQL keeps using the two-arg lenient method; only the Gremlin adapter passes {@code
+   * strict = true}.
+   */
+  public SQLBooleanExpression containsText(String field, String substring, boolean strict) {
+    var condition = (SQLContainsTextCondition) containsText(field, substring);
+    condition.setStrict(strict);
+    return condition;
+  }
+
+  /**
    * Builds a prefix match {@code field >= prefix AND field < prefix⁺} as two range conditions (no
    * dedicated prefix AST node). A {@code startingWith(p)} match selects exactly the strings in the
    * half-open range {@code [p, p⁺)}, where {@code p⁺} is {@code p} with its last code point
@@ -174,6 +188,37 @@ public final class MatchWhereBuilder {
   }
 
   /**
+   * Strict variant of {@link #endsWith(String, String)} for the Gremlin adapter. When {@code strict}
+   * is {@code true} the built node throws on a present non-String left operand instead of yielding
+   * {@code false}, matching native TinkerPop {@code Text.endingWith} (String-only) semantics. GQL
+   * keeps using the two-arg lenient method; only the Gremlin adapter passes {@code strict = true}.
+   */
+  public SQLBooleanExpression endsWith(String field, String suffix, boolean strict) {
+    var condition = (SQLEndsWithCondition) endsWith(field, suffix);
+    condition.setStrict(strict);
+    return condition;
+  }
+
+  /**
+   * Builds a strict prefix match {@code field STARTSWITH prefix} via the hand-written full-scan
+   * {@link SQLStartsWithCondition} node, for the Gremlin adapter's {@code Text.startingWith}
+   * predicate. It throws on a present non-String left operand (native String-only parity) instead of
+   * yielding {@code false}.
+   *
+   * <p>This is the full-scan counterpart to {@link #startsWith(String, String)}: the latter builds
+   * an index-aware half-open range for the declared-String path, but a range cannot throw on a
+   * non-String operand, so the strict Gremlin path needs a dedicated node. It honors the property
+   * collation, so a {@code ci} property matches case-insensitively.
+   */
+  public SQLBooleanExpression startsWithStrict(String field, String prefix) {
+    var condition = new SQLStartsWithCondition(-1);
+    condition.setLeft(fieldExpression(field));
+    condition.setRight(stringExpression(prefix));
+    condition.setStrict(true);
+    return condition;
+  }
+
+  /**
    * Builds a regex match {@code field MATCHES pattern} in find mode — an unanchored match anywhere
    * in the value, which is Gremlin {@code Text.regex} semantics. Sets {@link
    * SQLMatchesCondition#setFindMode} so the evaluator uses {@link java.util.regex.Matcher#find()}
@@ -187,6 +232,20 @@ public final class MatchWhereBuilder {
     condition.setExpression(fieldExpression(field));
     condition.setRightExpression(stringExpression(pattern));
     condition.setFindMode(true);
+    return condition;
+  }
+
+  /**
+   * Strict variant of {@link #matchesRegex(String, String)} for the Gremlin adapter. When {@code
+   * strict} is {@code true} the built node throws on a present non-String value instead of yielding
+   * {@code false}, matching native TinkerPop {@code Text.regex} (String-only) semantics; a
+   * present-null value still yields {@code false} (native regex NPEs there — an accepted non-goal).
+   * GQL keeps using the two-arg lenient method; only the Gremlin adapter passes {@code strict =
+   * true}.
+   */
+  public SQLBooleanExpression matchesRegex(String field, String pattern, boolean strict) {
+    var condition = (SQLMatchesCondition) matchesRegex(field, pattern);
+    condition.setStrict(strict);
     return condition;
   }
 

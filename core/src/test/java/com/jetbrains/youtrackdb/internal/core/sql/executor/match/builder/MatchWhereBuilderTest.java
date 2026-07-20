@@ -27,6 +27,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLNotBlock;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLOrBlock;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLStartsWithCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLWhereClause;
 import java.util.HashMap;
 import java.util.List;
@@ -284,6 +285,98 @@ public class MatchWhereBuilderTest {
   @Test
   public void endsWith_distinctSuffixesAreNotEqual() {
     assertNotEquals(b.endsWith("name", "son"), b.endsWith("name", "sen"));
+  }
+
+  // ── strict variants (Gremlin native-parity) ──
+
+  /**
+   * The strict {@code containsText} overload sets the strict flag on the built {@link
+   * SQLContainsTextCondition}; the two-arg overload leaves it {@code false}. Strict is
+   * fingerprint-distinct: a strict node and a lenient node on the same operands must render
+   * different generic statements (the plan cache keys on that), be unequal by value, and a copy must
+   * round-trip the flag by value and hashCode.
+   */
+  @Test
+  public void containsText_strictFlagRoundTripsAndIsFingerprintDistinct() {
+    var strict = (SQLContainsTextCondition) b.containsText("body", "needle", true);
+    var lenient = (SQLContainsTextCondition) b.containsText("body", "needle");
+    assertTrue("strict overload must set the strict flag", strict.isStrict());
+    assertFalse("two-arg overload must stay lenient", lenient.isStrict());
+
+    var copy = strict.copy();
+    assertTrue("copy must preserve strict", copy.isStrict());
+    assertEquals("copy equals original by value", strict, copy);
+    assertEquals("equal nodes share a hashCode", strict.hashCode(), copy.hashCode());
+
+    assertNotEquals("strict and lenient nodes must be unequal by value", strict, lenient);
+    assertNotEquals("strict and lenient generic statements must differ",
+        genericStatement(strict), genericStatement(lenient));
+  }
+
+  /** Strict {@code endsWith}: same round-trip and fingerprint-distinctness contract as above. */
+  @Test
+  public void endsWith_strictFlagRoundTripsAndIsFingerprintDistinct() {
+    var strict = (SQLEndsWithCondition) b.endsWith("name", "son", true);
+    var lenient = (SQLEndsWithCondition) b.endsWith("name", "son");
+    assertTrue(strict.isStrict());
+    assertFalse(lenient.isStrict());
+
+    var copy = strict.copy();
+    assertTrue("copy must preserve strict", copy.isStrict());
+    assertEquals(strict, copy);
+    assertEquals(strict.hashCode(), copy.hashCode());
+
+    assertNotEquals(strict, lenient);
+    assertNotEquals(genericStatement(strict), genericStatement(lenient));
+  }
+
+  /**
+   * {@code startsWithStrict} produces a full-scan {@link SQLStartsWithCondition} with the strict flag
+   * set and {@code isIndexAware() == false} (unlike the index-aware range {@link
+   * MatchWhereBuilder#startsWith} builds). The strict flag round-trips through copy and is
+   * fingerprint-distinct from a lenient node on the same operands.
+   */
+  @Test
+  public void startsWithStrict_producesFullScanStrictNodeAndIsFingerprintDistinct() {
+    var strict = (SQLStartsWithCondition) b.startsWithStrict("name", "Jo");
+    assertTrue("startsWithStrict must set the strict flag", strict.isStrict());
+    assertFalse("STARTSWITH is a full scan, never index-aware", strict.isIndexAware(null, null));
+    assertEquals("name STARTSWITH \"Jo\"", render(strict));
+
+    var lenient = strict.copy();
+    lenient.setStrict(false);
+
+    var copy = strict.copy();
+    assertTrue("copy must preserve strict", copy.isStrict());
+    assertEquals(strict, copy);
+    assertEquals(strict.hashCode(), copy.hashCode());
+
+    assertNotEquals("strict and lenient nodes must be unequal by value", strict, lenient);
+    assertNotEquals("strict and lenient generic statements must differ",
+        genericStatement(strict), genericStatement(lenient));
+  }
+
+  /**
+   * Strict {@code matchesRegex}: the strict flag is set alongside find mode and both round-trip
+   * through copy; a strict node is fingerprint-distinct from a lenient (but still find-mode) node,
+   * so the plan cache cannot serve a lenient plan for a strict query.
+   */
+  @Test
+  public void matchesRegex_strictFlagRoundTripsAndIsFingerprintDistinct() {
+    var strict = (SQLMatchesCondition) b.matchesRegex("name", "^Jo.*", true);
+    var lenient = (SQLMatchesCondition) b.matchesRegex("name", "^Jo.*");
+    assertTrue(strict.isStrict());
+    assertTrue("strict variant must still be find-mode", strict.isFindMode());
+    assertFalse(lenient.isStrict());
+
+    var copy = strict.copy();
+    assertTrue("copy must preserve strict", copy.isStrict());
+    assertTrue("copy must preserve find mode", copy.isFindMode());
+    assertEquals(strict, copy);
+    assertEquals(strict.hashCode(), copy.hashCode());
+
+    assertNotEquals(strict, lenient);
+    assertNotEquals(genericStatement(strict), genericStatement(lenient));
   }
 
   // ── matchesRegex (find-mode SQLMatchesCondition) ──
