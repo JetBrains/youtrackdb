@@ -593,6 +593,39 @@ public class MatchPatternBuilderTest {
     assertThrows(IllegalStateException.class, b::build);
   }
 
+  /**
+   * {@link MatchPatternBuilder#appendFrom} merges alias classes, filter-only aliases, and hop
+   * topology, and skips a duplicate edge that already exists on the destination.
+   */
+  @Test
+  public void appendFrom_mergesAliasesEdgesAndSkipsDuplicates() {
+    var destination = new MatchPatternBuilder();
+    destination.addNode("a", "V", null, false);
+    destination.addNode("b", "V", null, false);
+    destination.addEdge("a", "b", Direction.OUT, "knows", null, null, null);
+
+    var source = new MatchPatternBuilder();
+    source.addNode("a", "Person", null, false);
+    source.addNode("c", "V", null, false);
+    source.addEdge("a", "c", Direction.OUT, "likes", null, null, null);
+    var wb = new MatchWhereBuilder();
+    var filterOnlyWhere = wb.wrap(wb.eq("age", MatchLiteralBuilder.toLiteral(30L)));
+    // Filter-only alias (no class registration) — the filter-without-class branch of appendFrom.
+    source.addNode("d", null, filterOnlyWhere, false);
+    // Duplicate a→b edge — must not inflate the edge count.
+    source.addEdge("a", "b", Direction.OUT, "knows", null, null, null);
+
+    destination.appendFrom(source);
+
+    var ir = destination.build();
+    assertEquals("Person", ir.aliasClasses().get("a"));
+    assertNotNull(ir.pattern().get("c"));
+    assertNotNull(ir.pattern().get("d"));
+    assertSame(filterOnlyWhere, ir.aliasFilters().get("d"));
+    // One knows edge (deduped) plus one likes edge.
+    assertEquals(2, ir.pattern().getNumOfEdges());
+  }
+
   // ── helpers ──
 
   /** Renders the outgoing path item for {@code fromAlias} (direction + edge label). */

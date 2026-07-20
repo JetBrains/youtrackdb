@@ -71,6 +71,30 @@ public class OrStepRecogniserTest extends GraphBaseTest {
     assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
   }
 
+  /** Without a pinned boundary the recogniser declines rather than inventing an origin alias. */
+  @Test
+  public void nullBoundary_declines() {
+    var admin =
+        graph.traversal().V().or(__.has("age", P.eq(30)), __.has("age", P.eq(40))).asAdmin();
+    var ctx = new WalkerContext(true, false, null, productionRegistry());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(OrStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+  }
+
+  /**
+   * Feeding the recogniser a non-{@code OrStep} head declines and leaves the outer context untouched.
+   */
+  @Test
+  public void nonOrStepHead_declines() {
+    var admin = graph.traversal().V().has("age", P.eq(30)).asAdmin();
+    var ctx = contextWithRegistry(true, session.getSchema());
+    var cursor = cursorAfterStart(admin);
+
+    assertThat(OrStepRecogniser.INSTANCE.recognize(cursor, ctx)).isEqualTo(Outcome.DECLINE);
+    assertThat(ctx.aliasFilters).doesNotContainKey(BOUNDARY_ALIAS);
+  }
+
   private static Map<Class<?>, StepRecogniser> productionRegistry() {
     return Map.of(
         GraphStep.class, StartStepRecogniser.INSTANCE,
