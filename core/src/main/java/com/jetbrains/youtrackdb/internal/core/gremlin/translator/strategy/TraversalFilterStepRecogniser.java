@@ -83,7 +83,7 @@ final class TraversalFilterStepRecogniser implements StepRecogniser {
       // has(key) is exactly one properties/values step; a longer child is a general filter(...).
       return null;
     }
-    if (!(steps.get(0) instanceof PropertiesStep<?> propertiesStep)) {
+    if (!(steps.getFirst() instanceof PropertiesStep<?> propertiesStep)) {
       return null;
     }
     var returnType = propertiesStep.getReturnType();
