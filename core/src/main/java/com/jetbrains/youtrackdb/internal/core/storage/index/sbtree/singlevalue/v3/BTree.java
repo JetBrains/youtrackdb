@@ -2936,8 +2936,13 @@ public final class BTree<K> extends StorageComponent implements CellBTreeSingleV
       if (lwm < 0) {
         lwm = storage.computeGlobalLowWaterMark();
         assert lwm >= 0 : "Global LWM must be non-negative, got " + lwm;
-        // Explicit identity flag set by the owning engine — component names are file keys
-        // (ie_<fileBaseId>), never parsed for identity.
+        // Explicit identity declared by the owning engine (setNullTree), never inferred from
+        // the component name. The null tree's name does still end in $null, but that is the
+        // engine's private file-key convention (ie_<fileBaseId>$null), not an identity contract:
+        // before the file-key change the name embedded the user-chosen index name, where '$' is
+        // legal, so the old getName().endsWith("$null") parse misclassified the MAIN tree of an
+        // index literally named "*$null". Owner-declared identity also survives any future change
+        // to the file-key scheme.
         isNullTree = nullTree;
       }
 

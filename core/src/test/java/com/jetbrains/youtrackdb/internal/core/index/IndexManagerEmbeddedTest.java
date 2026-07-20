@@ -4,6 +4,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 import com.jetbrains.youtrackdb.internal.DbTestBase;
@@ -237,6 +238,29 @@ public class IndexManagerEmbeddedTest extends DbTestBase {
     // IDX belongs to CLS, not "WrongClass".
     var idx = mgr.getClassIndex(session, "WrongClass", IDX);
     assertNull("getClassIndex must return null when the class does not match", idx);
+  }
+
+  /**
+   * OBS-12: the deferred-handle membership mutators fail loudly on a null or blank collection
+   * name — a null reaching them means an unresolved collection (a resolver miss) that would
+   * otherwise fold a null placeholder into the covered set the commit persists. An
+   * IllegalArgumentException, not a bare assert: production runs with assertions disabled.
+   */
+  @Test
+  public void deferredMembershipMutatorsRejectNullOrBlankNames() {
+    session.begin();
+    session.getMetadata().getSchema().getClass(CLS)
+        .createIndex(CLS + ".name", SchemaClass.INDEX_TYPE.NOTUNIQUE, "name");
+    var overlay = session.getTxSchemaState().getIndexOverlay();
+    var handle = (IndexAbstract) overlay.getTxCreated(CLS + ".name");
+    assertNotNull("precondition: the tx-created deferred handle exists", handle);
+
+    assertThrows(IllegalArgumentException.class, () -> handle.addCollectionToDeferred(null));
+    assertThrows(IllegalArgumentException.class, () -> handle.addCollectionToDeferred("  "));
+    assertThrows(IllegalArgumentException.class,
+        () -> handle.removeCollectionFromDeferred(null));
+    assertThrows(IllegalArgumentException.class, () -> handle.removeCollectionFromDeferred(""));
+    session.rollback();
   }
 
   // -----------------------------------------------------------------------

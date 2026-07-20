@@ -256,10 +256,11 @@ public class IndexManagerEmbedded extends IndexManagerAbstract {
     // directly into the deferred handle's covered-collection set instead of the overlay's
     // membership category: the handle's live set is what every commit phase reads (the v1
     // emptiness bound, the population scan and the enroll-phase record write), and the folded
-    // name carries the same committed-or-provisional counter-only (c_<counter>) shape the
-    // create-time
-    // resolver produces, so it flows through the exact machinery a create-time covered collection
-    // uses.
+    // name comes from the same shared resolver create-time coverage uses, so it flows through
+    // the exact machinery a create-time covered collection does. Only a provisional
+    // (same-tx-created) collection's carried name is shape-guaranteed (c_<counter>); a committed
+    // collection's name may be arbitrary (custom-named via the public API, or recreated verbatim
+    // by a database import).
     final var foldTxState = session.getTxSchemaState();
     final var foldOverlay = foldTxState != null ? foldTxState.getIndexOverlay() : null;
     if (foldOverlay != null && foldOverlay.isTxCreated(indexName)) {

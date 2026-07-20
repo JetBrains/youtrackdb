@@ -442,12 +442,25 @@ public abstract class IndexAbstract implements Index {
    * {@code collectionsToIndex} set is mutated: every commit phase reads it (the v1 emptiness
    * bound, the population scan's coverage set, and the enroll-phase record write), while the
    * deferred metadata's create-time collection snapshot is not re-read after {@link #markDeferred}
-   * and intentionally stays untouched. The folded name carries the same committed-or-provisional
-   * counter-only ({@code c_<counter>}) shape the create-time resolver produces, so the commit
-   * re-resolves
-   * it exactly like a create-time covered collection.
+   * and intentionally stays untouched. The folded name comes from the same shared resolver the
+   * create-time coverage uses, so the commit re-resolves it exactly like a create-time covered
+   * collection. Only a PROVISIONAL (same-tx-created) collection's carried name is
+   * shape-guaranteed ({@code c_<counter>}); a committed collection's name may be arbitrary — the
+   * public API accepts custom names and a database import recreates the source's names verbatim
+   * — so no name-shape assumption is made here.
+   *
+   * <p>Fail-loud guard: a null or blank name means the caller folded an unresolved collection (a
+   * resolver miss), which would otherwise persist a null placeholder into the committed index's
+   * covered set at commit — the silent-corruption family the tx-schema hardening rejects loudly
+   * everywhere. An {@code IllegalArgumentException}, not a bare assert: production runs with
+   * assertions disabled.
    */
   void addCollectionToDeferred(final String collectionName) {
+    if (collectionName == null || collectionName.isBlank()) {
+      throw new IllegalArgumentException(
+          "a collection folded into deferred index '" + getName()
+              + "' must carry a resolved, non-blank name; got '" + collectionName + "'");
+    }
     acquireExclusiveLock();
     try {
       collectionsToIndex.add(collectionName);
@@ -459,9 +472,15 @@ public abstract class IndexAbstract implements Index {
   /**
    * The remove mirror of {@link #addCollectionToDeferred}: a same-tx detach (or subclass drop)
    * takes the collection back out of the deferred handle's covered set before the commit builds
-   * the engine.
+   * the engine. Guarded like the add side — a null/blank name is a resolver miss that must fail
+   * loudly instead of silently no-opping against a set that never contained it.
    */
   void removeCollectionFromDeferred(final String collectionName) {
+    if (collectionName == null || collectionName.isBlank()) {
+      throw new IllegalArgumentException(
+          "a collection removed from deferred index '" + getName()
+              + "' must carry a resolved, non-blank name; got '" + collectionName + "'");
+    }
     acquireExclusiveLock();
     try {
       collectionsToIndex.remove(collectionName);

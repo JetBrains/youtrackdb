@@ -45,6 +45,31 @@ import org.junit.rules.Timeout;
 public class SchemaDeguardTest extends DbTestBase {
 
   /**
+   * OBS-12a: the index-membership fold on a class rejects an unresolvable collection id loudly.
+   * {@code resolveCollectionNameById} is nullable by contract (an unknown committed id answers
+   * null), and folding that null onward would persist a null placeholder into every class
+   * index's covered set at commit — the silent-corruption family every other resolver consumer
+   * already guards against. No production caller passes an unknown id today, so the guard is
+   * exercised through the protected seam directly.
+   */
+  @Test
+  public void addCollectionIdToIndexesRejectsUnresolvableCollectionId() {
+    var schema = session.getMetadata().getSchema();
+    var cls = schema.createClass("UnresolvedFoldProbe");
+    cls.createProperty("val", PropertyType.STRING);
+    cls.createIndex("UnresolvedFoldProbe.val", SchemaClass.INDEX_TYPE.NOTUNIQUE, "val");
+
+    var embedded = (SchemaClassEmbedded) session.getSharedContext().getSchema()
+        .getClass("UnresolvedFoldProbe");
+    var thrown = assertThrows(IllegalStateException.class,
+        () -> embedded.addCollectionIdToIndexes(session, 999_999, false));
+    assertTrue("the failure must name the unresolvable id",
+        thrown.getMessage().contains("999999"));
+    assertTrue("the failure must name the class",
+        thrown.getMessage().contains("UnresolvedFoldProbe"));
+  }
+
+  /**
    * A commit-window primitive that regressed to re-taking the non-reentrant {@code stateLock}
    * would busy-spin forever rather than throw, hanging the whole surefire fork with no signal.
    * These tests drive schema-carrying commits (and cross-thread readers) through that substrate,
