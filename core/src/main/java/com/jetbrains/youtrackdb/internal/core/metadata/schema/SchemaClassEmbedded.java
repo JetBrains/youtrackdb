@@ -704,6 +704,16 @@ public class SchemaClassEmbedded extends SchemaClassImpl {
     // this add side, the remove side (removeCollectionFromIndexes), and the deferred index create
     // agreeing on the same name, so same-tx add/remove pairs cancel in the overlay.
     final var collectionName = SchemaShared.resolveCollectionNameById(session, iId);
+    if (collectionName == null) {
+      // The resolver is nullable by contract (an unknown committed id answers null). Folding a
+      // null onward would persist a null placeholder into every index's covered set at commit —
+      // the silent-corruption family the tx-schema hardening rejects loudly everywhere (mirrors
+      // the resolveDeferredCollectionNames guard). Fail loudly naming the class and the id.
+      throw new IllegalStateException(
+          "collection id " + iId + " added to class '" + name
+              + "' does not resolve to a collection name; refusing to fold an unresolved"
+              + " collection into the class's index membership");
+    }
     final List<String> indexesToAdd = new ArrayList<>();
 
     for (var index : getIndexesInternal(session)) {

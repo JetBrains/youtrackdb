@@ -3749,15 +3749,20 @@ public abstract class AbstractStorage
             if (!engineFilesPresent(btreeEngine.getFileBaseId())) {
               return;
             }
-            // Drop the surviving files, but NOT doDeleteIndexEngine's name-keyed config delete:
-            // this fresh operation COMMITS, and after the failed commit's rollback the config
-            // entry under this engine's name is either absent (pure failed create — the entry
-            // write reverted with the rolled-back operation) or the restored OLD engine's entry
-            // (a failed commit that dropped and re-created the same index name). A name-keyed
-            // delete here would durably clobber that restored entry while the drop-restore arm
-            // re-publishes the old engine in memory — config/registry divergence that loses the
-            // committed index's engine at the next reopen. The fileBaseId-guarded delete below
-            // removes the entry only when it provably belongs to the engine being reverted.
+            // Ownership asymmetry drives the two deletes below — and this fresh cleanup
+            // operation COMMITS, so a wrong delete here is durable. The engine FILES are
+            // fileBaseId-keyed and file base ids are never reused, so surviving ie_* files
+            // provably belong to the reverted engine: delete them unconditionally. The config
+            // ENTRY is name-keyed, and after the failed commit's rollback the entry under this
+            // engine's name may not be this engine's at all: it is either absent (pure failed
+            // create — the entry write reverted with the rolled-back operation) or the restored
+            // OLD engine's entry (a failed commit that dropped and re-created the same index
+            // name). An unconditional name-keyed delete would durably clobber that restored
+            // entry while the drop-restore arm re-publishes the old engine in memory —
+            // config/registry divergence that loses the committed index's engine at the next
+            // reopen. Hence: unconditional file delete, fileBaseId-gated entry delete (the entry
+            // is removed only when its stored fileBaseId proves it belongs to the reverted
+            // engine).
             engine.delete(atomicOperation);
             final var storedEntry =
                 configuration.getIndexEngine(engine.getName(), -1, atomicOperation);

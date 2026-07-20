@@ -220,8 +220,6 @@ public class DiskStorage extends AbstractStorage {
       CollectionBasedStorageConfiguration.TREE_DATA_FILE_EXTENSION,
       CollectionBasedStorageConfiguration.TREE_NULL_FILE_EXTENSION,
       BTreeMultiValueIndexEngine.DATA_FILE_EXTENSION,
-      // The B-tree null-bucket extension was missing here, so a database drop leaked every
-      // engine's .nbt files on disk.
       BTreeMultiValueIndexEngine.NULL_BUCKET_FILE_EXTENSION,
       BTreeMultiValueIndexEngine.M_CONTAINER_EXTENSION,
       IndexHistogramManager.IXS_EXTENSION,
