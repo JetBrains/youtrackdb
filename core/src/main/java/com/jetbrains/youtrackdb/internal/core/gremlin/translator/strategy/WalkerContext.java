@@ -3,7 +3,6 @@ package com.jetbrains.youtrackdb.internal.core.gremlin.translator.strategy;
 import com.jetbrains.youtrackdb.internal.core.gremlin.translator.step.BoundaryOutputType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyType;
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.Schema;
-import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchPatternBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.executor.match.builder.MatchWhereBuilder;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLExpression;
@@ -87,9 +86,9 @@ final class WalkerContext implements RecognitionContext {
   private final boolean edgeLabelVerification;
 
   /** Schema snapshot the walk resolves types against, or {@code null} when the traversal has no
-   *  attached YTDB session. Used only by {@link #isNonStringProperty(String, String)} for the
-   *  {@code has(...)} recogniser's non-String {@code Text} decline; a {@code null} schema resolves
-   *  every property as translate-best-effort (no type gate). */
+   *  attached YTDB session. Used by {@link #isDeclaredStringProperty(String, String)} to pick the
+   *  {@code startingWith} translation form and by {@link #isVertexClass(String)} for hasLabel
+   *  re-typing; a {@code null} schema resolves every property as "not a declared String". */
   @Nullable private final Schema schema;
 
   /** Stateless builder used to AND-compose same-alias filter contributions in {@link
@@ -178,8 +177,8 @@ final class WalkerContext implements RecognitionContext {
   private final AliasSequence edgeAliases = new AliasSequence(EDGE_ALIAS_PREFIX);
 
   /** Convenience constructor with no schema snapshot — used by unit tests that exercise recogniser
-   *  logic without a live session. Every property resolves as translate-best-effort (no non-String
-   *  {@code Text} type gate). */
+   *  logic without a live session. Every property resolves as "not a declared String", so a
+   *  {@code startingWith} routes to the strict full-scan form. */
   WalkerContext(boolean polymorphic, boolean edgeLabelVerification) {
     this(polymorphic, edgeLabelVerification, null);
   }
@@ -212,51 +211,25 @@ final class WalkerContext implements RecognitionContext {
   // --- RecognitionContext: schema-aware type gating ---------------------------------------------
 
   @Override
-  public boolean isNonStringProperty(@Nullable String className, String propertyKey) {
+  public boolean isDeclaredStringProperty(@Nullable String className, String propertyKey) {
     if (schema == null || className == null || propertyKey == null) {
-      // No class context or no schema: cannot prove the property is non-String, so translate
-      // best-effort (the schema-less / generic-V reality where the value type is unknown).
+      // No class context or no schema: the type is unknown, so it is not a *declared* String. The
+      // caller (startingWith routing) then chooses the strict full-scan form.
       return false;
     }
     var clazz = schema.getClass(className);
     if (clazz == null) {
       return false;
     }
-    // The named class covers a property declared on className or any supertype: getProperty walks
-    // superclasses (per its own contract), so a property inherited by the leaf class is found too.
-    if (declaresNonString(clazz, propertyKey)) {
-      return true;
-    }
-    // Polymorphic hasLabel(L) also matches subclasses of L, so an included-subclass row reaches
-    // the same predicate. A property declared non-String on a subclass alone -- absent from L and
-    // its supertypes -- makes a native Text predicate error on that row, while the translated
-    // CONTAINSTEXT silently returns false; that divergence is the escape this branch closes.
-    // Non-polymorphic mode adds an exact @class = 'L' leaf filter (see HasStepRecogniser), so
-    // subclass rows never reach the predicate and the named-class check above suffices there.
-    if (polymorphic) {
-      for (var subclass : clazz.getAllSubclasses()) {
-        if (declaresNonString(subclass, propertyKey)) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /**
-   * Whether {@code clazz} resolves {@code propertyKey} to a declared, non-String schema type.
-   * {@code getProperty} walks superclasses, so a property {@code clazz} inherits counts; an
-   * undeclared property (schema-less / mixed) or a String property returns {@code false}.
-   */
-  private static boolean declaresNonString(SchemaClass clazz, String propertyKey) {
+    // getProperty walks superclasses (per its own contract), so a property the leaf class inherits
+    // is found too. No subclass sweep: a subclass cannot override an inherited property's type
+    // (checkParametersConflict forbids type overrides), and a subclass-only property is not
+    // declared on this class, so "declared String on className" is exactly this lookup.
     var property = clazz.getProperty(propertyKey);
     if (property == null) {
       return false;
     }
-    var type = property.getType();
-    // A declared type other than STRING means every value is non-String, so a native Text predicate
-    // errors on it; report non-String so the adapter declines. An undeclared property returns above.
-    return type != null && type != PropertyType.STRING;
+    return property.getType() == PropertyType.STRING;
   }
 
   @Override

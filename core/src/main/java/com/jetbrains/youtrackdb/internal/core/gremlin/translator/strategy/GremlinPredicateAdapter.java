@@ -41,7 +41,9 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *   <li>the {@link Text} / {@code TextP} string predicates ({@code containing} / {@code
  *       startingWith} / {@code endingWith} / {@code regex} and their {@code not*} forms) via the
  *       string-predicate AST nodes ({@code SQLContainsTextCondition} collate transform, {@code
- *       SQLEndsWithCondition}, find-mode {@code SQLMatchesCondition});
+ *       SQLEndsWithCondition}, {@code SQLStartsWithCondition}, find-mode {@code SQLMatchesCondition}).
+ *       These translate in <em>strict</em> mode so a present non-String operand throws at execution
+ *       exactly as native {@code Text} (String-only) does, rather than diverging by returning rows;
  *   <li>the connectives {@code P.and} / {@code P.or} ({@link AndP} / {@link OrP}) and negation
  *       {@code P.not} ({@link NotP}), recursing into each child. {@code between} / {@code inside} /
  *       {@code outside} need no special case: TinkerPop already decomposes them into an {@code
@@ -90,18 +92,16 @@ import org.apache.tinkerpop.gremlin.process.traversal.util.OrP;
  *       QueryOperatorEquals} auto-unboxes a singleton against a scalar, and field cardinality is
  *       unknown at translation time, so the two pipelines could disagree. Size 0 and size ≥2
  *       collections translate normally;
- *   <li>a {@code startingWith} prefix has no finite prefix range — it is empty (its exclusive
- *       upper bound is undefined) or every code point is the maximum ({@link
- *       Character#MAX_CODE_POINT}, so there is no finite exclusive upper bound) — a {@code within}
- *       / {@code without} member or a scalar comparand is null, or the comparand is a type {@link
- *       MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue} parameter);
- *   <li>a {@link Text} / regex string predicate targets a property the {@link PropertyTypeGate}
- *       reports as a declared non-String type. Native {@code Text} predicates operate on String
- *       values ({@code Text} implements {@code PBiPredicate<String, String>}), so on a declared
- *       non-String property native errors; a translated {@code CONTAINSTEXT} / prefix range /
- *       {@code ENDSWITH} / {@code MATCHES} would instead return rows, diverging. Declining keeps
- *       the traversal on the native pipeline, which errors as native does.
+ *   <li>a {@code within} / {@code without} member or a scalar comparand is null, or the comparand
+ *       is a type {@link MatchLiteralBuilder} cannot render (e.g. a deferred {@code GValue}
+ *       parameter).
  * </ul>
+ *
+ * <p>A {@link Text} / regex string predicate on a non-String property no longer declines: it
+ * translates in strict mode and throws at execution just as native {@code Text} does. The {@link
+ * PropertyTypeGate} is now only a routing hint for {@code startingWith} — a declared-String
+ * property uses the index-aware prefix range, everything else uses the strict full-scan {@code
+ * STARTSWITH} node — never a decline.
  */
 final class GremlinPredicateAdapter {
 
@@ -112,20 +112,21 @@ final class GremlinPredicateAdapter {
   private static final MatchWhereBuilder WHERE = new MatchWhereBuilder();
 
   /**
-   * Decides whether a property key resolves to a declared non-String schema type, so a {@link Text}
-   * / regex string predicate on it must decline (native errors on a non-String value; see the
-   * class Javadoc). A recogniser builds this from the element's class and the resolved schema — the
-   * adapter itself has no schema input, so the gate is passed in per call. Callers with no schema
-   * context (unit tests, a generic {@code V} boundary whose leaf class is unknown) pass {@link
-   * #NO_TYPE_INFO}, which never declines on type.
+   * Decides whether a property key is a declared {@code STRING} schema type, which selects the
+   * {@code startingWith} translation form: a declared String uses the index-aware prefix range,
+   * everything else uses the strict full-scan {@code STARTSWITH} node (see the class Javadoc). A
+   * recogniser builds this from the element's class and the resolved schema — the adapter itself
+   * has no schema input, so the gate is passed in per call. Callers with no schema context (unit
+   * tests, a generic {@code V} boundary whose leaf class is unknown) pass {@link #NO_TYPE_INFO},
+   * which reports every key as not-a-declared-String, so {@code startingWith} routes to strict.
    */
   @FunctionalInterface
   interface PropertyTypeGate {
-    boolean isNonString(String key);
+    boolean isDeclaredString(String key);
   }
 
-  /** Type gate for callers with no schema context: never declines on type, so string predicates
-   *  translate best-effort (the schema-less reality where the value type is unknown). */
+  /** Type gate for callers with no schema context: reports no key as a declared String, so a
+   *  {@code startingWith} routes to the strict full-scan form (the value type is unknown). */
   static final PropertyTypeGate NO_TYPE_INFO = key -> false;
 
   private GremlinPredicateAdapter() {
@@ -134,9 +135,10 @@ final class GremlinPredicateAdapter {
 
   /**
    * Translates one {@link HasContainer} into a {@code WHERE} boolean expression with no schema
-   * context (never declines a string predicate on type grounds). Prefer {@link #toFilter(
-   * HasContainer, PropertyTypeGate)} from a recogniser that can resolve the element's class, so a
-   * {@link Text} predicate on a declared non-String property declines to native.
+   * context. A {@code startingWith} then routes to the strict full-scan form. Prefer {@link
+   * #toFilter(HasContainer, PropertyTypeGate)} from a recogniser that can resolve the element's
+   * class, so a {@code startingWith} on a declared-String property uses the index-aware prefix
+   * range.
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container) {
     return toFilter(container, NO_TYPE_INFO);
@@ -145,8 +147,8 @@ final class GremlinPredicateAdapter {
   /**
    * Translates one {@link HasContainer} into a {@code WHERE} boolean expression, or returns {@code
    * null} to decline (see the class Javadoc for the decline cases). Never throws. The {@code
-   * typeGate} declines a {@link Text} / regex predicate on a declared non-String property so the
-   * translated filter never returns rows where native errors.
+   * typeGate} routes {@code startingWith} between the index-aware prefix range (declared String)
+   * and the strict full-scan {@code STARTSWITH} node (everything else).
    */
   @Nullable SQLBooleanExpression toFilter(HasContainer container, PropertyTypeGate typeGate) {
     if (container == null) {
@@ -209,7 +211,7 @@ final class GremlinPredicateAdapter {
     if (biPredicate instanceof Text.RegexPredicate regex) {
       // Text.regex / Text.notRegex do not use a Text enum constant; their bi-predicate is a
       // RegexPredicate carrying the pattern and a negate flag.
-      return translateRegex(key, regex, typeGate);
+      return translateRegex(key, regex);
     }
     // Custom BiPredicate (a user lambda or a predicate type the translator does not model) —
     // decline rather than guess at its semantics.
@@ -304,56 +306,68 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Translates the {@link Text} string predicates onto the string-predicate AST nodes. The {@code not*} forms
-   * are the negation of their positive counterpart and are true on an absent property, so they take
-   * the absent-property guard. {@code startingWith} / {@code notStartingWith} route through {@link
-   * #startsWithRange}, which declines (returns {@code null}) when the prefix has no finite range — an
-   * empty prefix or an all-max-code-point prefix — so a pathological input falls back to native
-   * rather than throwing.
+   * Translates the {@link Text} string predicates onto the string-predicate AST nodes, in strict
+   * mode so a present non-String operand throws at execution exactly as native {@code Text} does
+   * (String-only) rather than silently returning rows. The {@code not*} forms are the negation of
+   * their positive counterpart and are true on an absent property, so they take the absent-property
+   * guard. {@code startingWith} / {@code notStartingWith} route through {@link #startsWithFilter},
+   * which picks the index-aware prefix range for a declared-String property and the strict
+   * full-scan {@code STARTSWITH} node otherwise; neither declines, so no pathological prefix falls
+   * back to native.
    */
   private @Nullable SQLBooleanExpression translateText(String key, Text text,
       @Nullable Object value, PropertyTypeGate typeGate) {
     if (!(value instanceof String string)) {
-      return null;
-    }
-    if (typeGate.isNonString(key)) {
-      // The property is declared with a non-String type, so native's Text predicate errors on every
-      // value (Text tests String operands). A translated CONTAINSTEXT / prefix range / ENDSWITH
-      // would return rows instead — decline so the traversal runs native and errors as native does.
+      // The predicate's comparand (the search string) is not a String — not a translatable Text
+      // predicate. This is the argument, not the property value, so it is a decline, not a throw.
       return null;
     }
     return switch (text) {
-      case containing -> WHERE.containsText(key, string);
-      case notContaining -> guarded(key, WHERE.not(WHERE.containsText(key, string)));
-      case startingWith -> startsWithRange(key, string);
-      case notStartingWith -> {
-        var range = startsWithRange(key, string);
-        // Decline the whole predicate when the range is unbuildable — do not compose a guarded
-        // negation over a null range.
-        yield range == null ? null : guarded(key, WHERE.not(range));
-      }
-      case endingWith -> WHERE.endsWith(key, string);
-      case notEndingWith -> guarded(key, WHERE.not(WHERE.endsWith(key, string)));
+      case containing -> WHERE.containsText(key, string, true);
+      case notContaining -> guarded(key, WHERE.not(WHERE.containsText(key, string, true)));
+      case startingWith -> startsWithFilter(key, string, typeGate);
+      case notStartingWith -> guarded(key, WHERE.not(startsWithFilter(key, string, typeGate)));
+      case endingWith -> WHERE.endsWith(key, string, true);
+      case notEndingWith -> guarded(key, WHERE.not(WHERE.endsWith(key, string, true)));
     };
   }
 
   /**
-   * Builds the half-open prefix range for a {@code startingWith} prefix, or declines (returns {@code
-   * null}) when no finite range exists. Two prefixes have no buildable range and both decline so the
-   * traversal falls back to native rather than throwing (the class's never-throws contract):
+   * Chooses the {@code startingWith} translation form. A declared-String property can only hold
+   * String values, so it uses the index-aware half-open prefix range ({@link
+   * MatchWhereBuilder#startsWith}, a B-tree prefix scan) when a finite range exists. Every other
+   * case — an unknown / undeclared type, a declared non-String type, or a declared String whose
+   * prefix has no finite range (empty or all-max-code-point) — uses the strict full-scan {@code
+   * STARTSWITH} node ({@link MatchWhereBuilder#startsWithStrict}), which throws on a present
+   * non-String value like native and matches on a String. An empty prefix under the strict node is
+   * {@code startsWith("")}, which matches every present value — native {@code startingWith("")}
+   * parity — so nothing declines.
+   */
+  private SQLBooleanExpression startsWithFilter(String key, String prefix,
+      PropertyTypeGate typeGate) {
+    if (typeGate.isDeclaredString(key)) {
+      var range = startsWithRange(key, prefix);
+      if (range != null) {
+        return range;
+      }
+    }
+    return WHERE.startsWithStrict(key, prefix);
+  }
+
+  /**
+   * Builds the half-open prefix range for a {@code startingWith} prefix, or returns {@code null}
+   * when no finite range exists so {@link #startsWithFilter} falls back to the strict full-scan
+   * node. Two prefixes have no buildable range:
    *
    * <ul>
    *   <li>an empty prefix — its exclusive upper bound is undefined;
    *   <li>a prefix whose code points are all {@link Character#MAX_CODE_POINT} — it has no finite
    *       exclusive upper bound, so {@link MatchWhereBuilder#startsWith} throws {@link
-   *       IllegalArgumentException}. A realistic prefix never produces this, but it must decline
-   *       cleanly rather than let the exception escape.
+   *       IllegalArgumentException}.
    * </ul>
    *
-   * <p>The empty case is guarded before the call — a normal, non-pathological input should not drive
-   * control flow through an exception. The max-code-point case is caught, mirroring the {@code
-   * toLiteral} exception handling in {@link #translateCompare} / {@link #translateContains}. Both
-   * {@code startingWith} and {@code notStartingWith} share this one decline seam.
+   * <p>The empty case is guarded before the call; the max-code-point case is caught, mirroring the
+   * {@code toLiteral} exception handling in {@link #translateCompare} / {@link #translateContains}.
    */
   private @Nullable SQLBooleanExpression startsWithRange(String key, String prefix) {
     if (prefix.isEmpty()) {
@@ -367,23 +381,18 @@ final class GremlinPredicateAdapter {
   }
 
   /**
-   * Translates a regex {@link Text.RegexPredicate} onto a find-mode {@code SQLMatchesCondition}.
-   * {@code notRegex} (the negate flag) is the negation of the positive match and is true on an
-   * absent property, so it takes the absent-property guard. Regex stays case-sensitive
+   * Translates a regex {@link Text.RegexPredicate} onto a find-mode {@code SQLMatchesCondition} in
+   * strict mode, so a present non-String value throws at execution as native regex does rather than
+   * returning rows. {@code notRegex} (the negate flag) is the negation of the positive match and is
+   * true on an absent property, so it takes the absent-property guard. Regex stays case-sensitive
    * regardless of collation (collate-transforming a pattern would change its meaning).
    */
-  private @Nullable SQLBooleanExpression translateRegex(String key, Text.RegexPredicate regex,
-      PropertyTypeGate typeGate) {
-    if (typeGate.isNonString(key)) {
-      // A regex predicate matches String values; on a declared non-String property native errors,
-      // so a translated find-mode MATCHES would return rows instead. Decline to native.
-      return null;
-    }
+  private @Nullable SQLBooleanExpression translateRegex(String key, Text.RegexPredicate regex) {
     var pattern = regex.getPattern();
     if (pattern == null) {
       return null;
     }
-    var matches = WHERE.matchesRegex(key, pattern);
+    var matches = WHERE.matchesRegex(key, pattern, true);
     return regex.isNegate() ? guarded(key, WHERE.not(matches)) : matches;
   }
 

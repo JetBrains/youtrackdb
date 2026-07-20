@@ -60,20 +60,21 @@ interface RecognitionContext {
   // --- Schema-aware type gating -----------------------------------------------------------------
 
   /**
-   * Whether {@code propertyKey} is declared with a non-String schema type on {@code className} or a
-   * supertype it inherits from, and — in polymorphic mode — on any subclass a hierarchy-aware
-   * {@code hasLabel(className)} also matches. A
-   * {@link org.apache.tinkerpop.gremlin.process.traversal.Text} / regex predicate on such a property
-   * errors natively (native string predicates test String operands), so the {@code has(...)}
-   * recogniser declines it to native rather than emit a filter that returns rows where native
-   * throws. The subclass sweep is polymorphic-only: non-polymorphic {@code hasLabel} adds an exact
-   * {@code @class = 'className'} leaf filter, so subclass rows never reach the predicate. Returns
-   * {@code false} — translate best-effort — when {@code className} is {@code null} (a generic
-   * {@code V} boundary whose leaf class is unknown), the class or property is not declared
-   * (schema-less / mixed), or the schema is unavailable. Resolved against the schema snapshot
-   * {@link GremlinStepWalker} pins once per walk.
+   * Whether {@code propertyKey} is declared with the {@code STRING} schema type on {@code className}
+   * (or a supertype it inherits from). This selects the {@code startingWith} translation form: a
+   * declared-String property can only ever hold String values, so a {@code startingWith} on it uses
+   * the index-aware half-open prefix range (a B-tree prefix scan); every other case (unknown /
+   * undeclared type, a declared non-String type, or no schema) uses the strict full-scan {@code
+   * STARTSWITH} node, which throws on a present non-String value exactly as native {@code
+   * Text.startingWith} does. No subclass sweep: a subclass cannot override an inherited property's
+   * type (type overrides are forbidden), and a subclass-only property is not declared on {@code
+   * className}, so the check is exactly the class's own (superclass-walking) property lookup.
+   * Returns {@code false} when {@code className} is {@code null} (a generic {@code V} boundary whose
+   * leaf class is unknown), the class or property is not declared (schema-less / mixed), or the
+   * schema is unavailable. Resolved against the schema snapshot {@link GremlinStepWalker} pins once
+   * per walk.
    */
-  boolean isNonStringProperty(@Nullable String className, String propertyKey);
+  boolean isDeclaredStringProperty(@Nullable String className, String propertyKey);
 
   /**
    * Whether {@code className} is a declared vertex class in the resolved schema. The {@code
