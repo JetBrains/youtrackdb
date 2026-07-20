@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLEqualsOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLGtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLInCondition;
+import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLIsNullCondition;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLeOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLLtOperator;
 import com.jetbrains.youtrackdb.internal.core.sql.parser.SQLMatchesCondition;
@@ -139,22 +140,17 @@ public class GremlinPredicateAdapterTest {
   // ---------------------------------------------------------------------------
 
   /**
-   * {@code has("since", P.eq(null))} maps to {@code since IS DEFINED AND since IS NULL}, not a bare
-   * {@code since IS NULL}. YTDB {@code IS NULL} conflates an absent property with a literal-null
-   * value, so a bare {@code IS NULL} would match an element that lacks the key — which native
-   * excludes (HasContainer.test is false on an empty property iterator). The {@code IS DEFINED}
-   * guard restores native's "property must be present" rule while still matching present-null values.
+   * {@code has("since", P.eq(null))} maps to a bare {@code since IS NULL}. Native Gremlin treats
+   * absent and present-null rows as matching; YTDB {@code IS NULL} does the same at the storage
+   * layer.
    */
   @Test
-  public void eqNull_mapsToDefinedAndIsNull() {
+  public void eqNull_mapsToIsNull() {
     var expr = GremlinPredicateAdapter.INSTANCE.toFilter(new HasContainer("since", P.eq(null)));
-    assertThat(expr).as("eq(null) must translate to the guarded IS NULL form, not decline")
-        .isInstanceOf(SQLAndBlock.class);
-    var rendered = render(expr);
-    assertThat(rendered)
-        .as("eq(null) is a presence-guarded IS NULL so an absent property is excluded, matching "
-            + "native")
-        .containsIgnoringCase("since is defined")
+    assertThat(expr).as("eq(null) must translate to IS NULL, not decline")
+        .isInstanceOf(SQLIsNullCondition.class);
+    assertThat(render(expr))
+        .as("eq(null) is bare IS NULL so absent and present-null match native")
         .containsIgnoringCase("since is null");
   }
 

@@ -11,6 +11,7 @@ import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.PropertyTyp
 import com.jetbrains.youtrackdb.internal.core.metadata.schema.schema.SchemaClass.INDEX_TYPE;
 import java.util.List;
 import java.util.function.Supplier;
+import org.apache.tinkerpop.gremlin.process.traversal.P;
 import org.apache.tinkerpop.gremlin.process.traversal.TextP;
 import org.apache.tinkerpop.gremlin.process.traversal.dsl.graph.GraphTraversal;
 import org.apache.tinkerpop.gremlin.structure.T;
@@ -275,21 +276,195 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   // has(key) presence form → IS DEFINED.
   // ---------------------------------------------------------------------------
 
-  /**
-   * {@code g.V().has("nickname")} translates to {@code nickname IS DEFINED} and matches native: the
-   * vertices that carry the property (present with a value), excluding the vertex that lacks it. This
-   * is the presence form, distinct from a value filter.
+  /** {@code g.V().has("nickname")} translates to {@code nickname IS DEFINED} and matches native: the
+   * vertices that carry the property (present with a value or present-null), excluding the vertex
+   * that lacks the key entirely. Distinct from {@code IS NULL}, which would also match absent keys.
    */
   @Test
   public void hasKeyPresence_matchesNative() {
-    graph.addVertex(T.label, "Person", "name", "Alice", "nickname", "Al");
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice", "nickname", "Al");
     graph.addVertex(T.label, "Person", "name", "Bob", "nickname", "Bobby");
-    graph.addVertex(T.label, "Person", "name", "Carol"); // no nickname — excluded
+    var carol = graph.addVertex(T.label, "Person", "name", "Carol"); // no nickname key
+    var dave = graph.addVertex(T.label, "Person", "name", "Dave");
+    dave.property("nickname", null); // present-null — must match has(key), not absent
     graph.tx().commit();
     assertEquivalent(
         "g.V().has(nickname) presence",
         Recognition.RECOGNIZED,
         () -> graph.traversal().V().has("nickname"));
+    // Sanity: the fixture distinguishes present-null from absent.
+    assertThat(alice.id()).isNotEqualTo(carol.id());
+  }
+
+  // ---------------------------------------------------------------------------
+  // NULL semantics (A1) and negated absent-property exclusion (A2).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pins native membership for the three {@code nickname} states before asserting translator parity.
+   * Fixture: absent key, present-null, present non-null value. Runs translator-off only first so
+   * the contract is anchored to native Gremlin, not to a SQL translation guess.
+   */
+  @Test
+  public void nullComparand_nativeMembership_pinnedBeforeEquivalence() {
+    var absent = graph.addVertex(T.label, "Person", "name", "Carol");
+    var presentNull = graph.addVertex(T.label, "Person", "name", "Dave");
+    presentNull.property("nickname", null);
+    var presentValue = graph.addVertex(T.label, "Person", "name", "Alice", "nickname", "Al");
+    graph.tx().commit();
+
+    // Storage-layer sanity: absent vs present-null must be distinguishable in the fixture.
+    assertThat(absent.keys()).doesNotContain("nickname");
+    assertThat(presentNull.keys()).contains("nickname");
+    assertThat(presentValue.keys()).contains("nickname");
+
+    var hasKeyNative =
+        nativeSortedIds(() -> graph.traversal().V().has("nickname"));
+    var eqNullNative =
+        nativeSortedIds(() -> graph.traversal().V().has("nickname", P.eq(null)));
+    var neqNullNative =
+        nativeSortedIds(() -> graph.traversal().V().has("nickname", P.neq(null)));
+
+    // Pin table — native Gremlin (translator off). Update only after deliberate semantic change.
+    assertThat(hasKeyNative)
+        .as("native has(nickname): present-null + present-value, not absent")
+        .containsExactlyInAnyOrder(presentNull.id().toString(), presentValue.id().toString());
+    assertThat(eqNullNative)
+        .as("native has(nickname, eq(null)): pinned contract — run once to record, then lock")
+        .containsExactlyInAnyOrder(presentNull.id().toString(), absent.id().toString());
+    assertThat(neqNullNative)
+        .as("native has(nickname, neq(null)): present non-null only")
+        .containsExactly(presentValue.id().toString());
+
+    assertEquivalent(
+        "g.V().has(nickname) presence",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("nickname"));
+    assertEquivalent(
+        "g.V().has(nickname, neq(null))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("nickname", P.neq(null)));
+    assertEquivalent(
+        "g.V().has(nickname, eq(null))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("nickname", P.eq(null)));
+  }
+
+  /**
+   * {@code has("nickname", neq(null))} matches vertices with a non-null value; absent and
+   * present-null rows are excluded by both pipelines (A1).
+   */
+  @Test
+  public void neqNull_excludesAbsentAndNull_matchesNative() {
+    var alice = graph.addVertex(T.label, "Person", "name", "Alice");
+    alice.property("nickname", null);
+    graph.addVertex(T.label, "Person", "name", "Bob"); // absent
+    graph.addVertex(T.label, "Person", "name", "Carol", "nickname", "C");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(nickname, neq(null))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("nickname", P.neq(null)));
+  }
+
+  /**
+   * {@code has("since", without(...))} excludes vertices lacking the key — a negated membership
+   * predicate whose SQL form would be true on absent without the {@code IS DEFINED} guard (A2).
+   */
+  @Test
+  public void without_excludesAbsentProperty_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "since", 2000);
+    graph.addVertex(T.label, "Person", "name", "Bob"); // absent since
+    graph.addVertex(T.label, "Person", "name", "Carol", "since", 1990);
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(since, without(1990))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("since", P.without(1990)));
+  }
+
+  /**
+   * {@code notContaining} excludes vertices lacking the key — a negated Text form (A2).
+   */
+  @Test
+  public void notContaining_excludesAbsentProperty_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "Alice", "tag", "alpha");
+    graph.addVertex(T.label, "Person", "name", "Bob"); // absent tag
+    graph.addVertex(T.label, "Person", "name", "Carol", "tag", "beta");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(tag, notContaining(z))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("tag", TextP.notContaining("z")));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Range decompositions and singleton-collection decline (D3).
+  // ---------------------------------------------------------------------------
+
+  /**
+   * {@code between(lo, hi)} is right-exclusive {@code [lo, hi)} — the high bound is excluded.
+   */
+  @Test
+  public void between_isRightExclusive_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "A", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "B", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "C", "age", 30);
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(age, between(20, 30))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("age", P.between(20, 30)));
+  }
+
+  /** {@code inside(lo, hi)} is open on both ends. */
+  @Test
+  public void inside_openInterval_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "A", "age", 20);
+    graph.addVertex(T.label, "Person", "name", "B", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "C", "age", 30);
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(age, inside(20, 30))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("age", P.inside(20, 30)));
+  }
+
+  /** {@code outside(lo, hi)} matches values below or above the open interval. */
+  @Test
+  public void outside_complementInterval_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "A", "age", 10);
+    graph.addVertex(T.label, "Person", "name", "B", "age", 25);
+    graph.addVertex(T.label, "Person", "name", "C", "age", 40);
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(age, outside(20, 30))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("age", P.outside(20, 30)));
+  }
+
+  /** Size-1 collection equality declines under D3 — the whole traversal falls back to native. */
+  @Test
+  public void singletonCollectionEq_declines() {
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(name, eq([Alice])) singleton collection",
+        Recognition.DECLINED,
+        () -> graph.traversal().V().has("name", P.eq(List.of("Alice"))));
+  }
+
+  /** Size-2 collection membership via {@code within} translates and matches native. */
+  @Test
+  public void multiValueWithin_matchesNative() {
+    graph.addVertex(T.label, "Person", "name", "A", "age", 30);
+    graph.addVertex(T.label, "Person", "name", "B", "age", 40);
+    graph.addVertex(T.label, "Person", "name", "C", "age", 50);
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().has(age, within(30, 40))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().has("age", P.within(30, 40)));
   }
 
   // ---------------------------------------------------------------------------
@@ -340,15 +515,12 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
-   * A polymorphic {@code hasLabel(parent).has(subclassOnlyProp, Text...)} declines to native when
-   * the non-String property is declared only on the subclass — the type gate must sweep subclasses,
-   * not just the named class. Here {@code age} is {@code INTEGER} on {@code Employee} only (absent
-   * from its {@code Person} parent). In polymorphic mode {@code hasLabel("Person")} is
-   * hierarchy-aware, so an {@code Employee} row (with an {@code Integer} {@code age}) reaches the
-   * {@code Text} predicate and native errors. A gate resolving the type only against {@code Person}
-   * would miss the subclass declaration, translate a {@code CONTAINSTEXT} that silently returns no
-   * rows, and diverge; the gate must decline instead, so both runs throw. This is the
-   * polymorphic-subclass companion to the named-class non-String decline test above.
+   * Polymorphic {@code hasLabel(Person).has(age, containing(...))} on a subclass-only {@code INTEGER}
+   * property: {@code age} is declared on {@code Employee} only. In polymorphic mode {@code
+   * hasLabel("Person")} is hierarchy-aware, so the {@code Employee} row reaches the predicate. The
+   * adapter emits strict {@code CONTAINSTEXT}; the strict node throws on the {@code Integer} {@code
+   * age} exactly where native throws — no subclass type sweep or whole-traversal decline is
+   * involved because Text predicates no longer gate on declared type.
    */
   @Test
   public void polymorphicNonStringTextOnSubclassOnlyProperty_translatesStrict_andBothThrow() {
@@ -443,6 +615,86 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
   }
 
   /**
+   * {@code endingWith} on a declared String property translates and matches native.
+   */
+  @Test
+  public void endingWithDeclaredString_matchesNative() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(name, endingWith(ce))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("name", TextP.endingWith("ce")));
+  }
+
+  /**
+   * {@code regex} on a declared String property translates (find-mode) and matches native.
+   */
+  @Test
+  public void regexDeclaredString_matchesNative() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(name, regex(li.*))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("name", TextP.regex("li.*")));
+  }
+
+  /**
+   * {@code notStartingWith} on a declared String property translates and matches native.
+   */
+  @Test
+  public void notStartingWithDeclaredString_matchesNative() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(name, notStartingWith(Al))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("name", TextP.notStartingWith("Al")));
+  }
+
+  /**
+   * {@code notEndingWith} on a declared String property translates and matches native.
+   */
+  @Test
+  public void notEndingWithDeclaredString_matchesNative() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(name, notEndingWith(ce))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("name", TextP.notEndingWith("ce")));
+  }
+
+  /**
+   * {@code notRegex} on a declared String property translates and matches native.
+   */
+  @Test
+  public void notRegexDeclaredString_matchesNative() {
+    var person = session.createVertexClass("Person");
+    person.createProperty("name", PropertyType.STRING);
+    graph.addVertex(T.label, "Person", "name", "Alice");
+    graph.addVertex(T.label, "Person", "name", "Bob");
+    graph.tx().commit();
+    assertEquivalent(
+        "g.V().hasLabel(Person).has(name, notRegex(li.*))",
+        Recognition.RECOGNIZED,
+        () -> graph.traversal().V().hasLabel("Person").has("name", TextP.notRegex("li.*")));
+  }
+
+  /**
    * {@code endingWith} on a declared non-String property translates strict and throws in both
    * pipelines — the suffix twin of the {@code startingWith} / {@code containing} non-String parity.
    */
@@ -530,6 +782,17 @@ public class PredicateTraversalEquivalenceTest extends GraphBaseTest {
     graph.addVertex(T.label, "Person", "name", "Alice");
     graph.addVertex(T.label, "Employee", "name", "Eve");
     graph.tx().commit();
+  }
+
+  /** Runs {@code traversalSupplier} with the translator off and returns sorted vertex id strings. */
+  private List<String> nativeSortedIds(Supplier<GraphTraversal<?, ?>> traversalSupplier) {
+    var original = translatorEnabled();
+    try {
+      setTranslatorEnabled(false);
+      return sortedIds(traversalSupplier.get().toList());
+    } finally {
+      setTranslatorEnabled(original);
+    }
   }
 
   /**
